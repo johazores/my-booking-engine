@@ -24,7 +24,7 @@ const Header = () => {
     }
   }
   return (
-    <header>
+    <header className="fixed w-full bg-white">
       <div className="shadow-md h-[55px] flex items-center pl-6 pr-6">
         <div className="w-96">
           <Link href="/">
