@@ -3,7 +3,7 @@ import React from 'react'
 const Sidebar = () => {
 
   return (
-    <div className="h-[100vh] w-96 pl-6 pr-6 bg-[#E9E9E9] pt-[55px]">
+    <div className="w-96 bg-[#E9E9E9] ">
       <p>Sidebar</p>
     </div>
   )

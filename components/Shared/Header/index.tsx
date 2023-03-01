@@ -25,20 +25,24 @@ const Header = () => {
   }
   return (
     <header className="fixed w-full bg-white">
-      <div className="shadow-md h-[55px] flex items-center pl-6 pr-6">
-        <div className="w-96">
-          <Link href="/">
-            <Image
-              width={126}
-              height={50}
-              src="/images/vm-logo.png"
-              alt="Logo"
-            />
-          </Link>
+      <div className="grid grid-cols-12 h-[55px] shadow-md">
+        <div className="col-span-2 flex items-center justify-start">
+          <div className="w-96">
+            <Link href="/">
+              <Image
+                width={126}
+                height={50}
+                src="/images/vm-logo.png"
+                alt="Logo"
+              />
+            </Link>
+          </div>
         </div>
-        <div className="flex w-full justify-between">
+        <div className="col-span-4 flex items-center justify-start">
           <NavSearch />
-          <div className="flex">
+        </div>
+        <div className="col-span-6 flex items-center justify-end">
+          <div className="flex items-center">
             {NavItems.map((item, index) => {
               const menuIdx = index;
               return (
