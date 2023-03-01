@@ -25,8 +25,8 @@ const Header = () => {
   }
   return (
     <header className="fixed w-full bg-white">
-      <div className="grid grid-cols-12 h-[55px] shadow-md">
-        <div className="col-span-2 flex items-center justify-start">
+      <div className="grid grid-cols-12 h-[300px] lg:h-[55px] shadow-md">
+        <div className="col-span-12 lg:col-span-2 flex items-center justify-start">
           <div className="pl-6">
             <Link href="/">
               <Image
@@ -38,23 +38,23 @@ const Header = () => {
             </Link>
           </div>
         </div>
-        <div className="col-span-4 flex items-center justify-start">
+        <div className="col-span-12 lg:col-span-4 flex items-center justify-start">
           <NavSearch />
         </div>
-        <div className="col-span-6 flex items-center justify-end">
+        <div className="col-span-12 lg:col-span-6 flex items-center justify-end">
           <div className="flex items-center pr-6">
             {NavItems.map((item, index) => {
               const menuIdx = index;
               return (
-                <a
-                  className="pl-3 pr-3 text-xs flex items-center justify-center flex-col
+                <Link
+                  className="pl-3 pr-3 text-xs flex items-center justify-center flex-col text-center
                   hover:text-[#FF0404]
                   [&:hover_svg]:fill-[#FF0404]"
                   key={menuIdx}
                   href={item.link}>
                   {renderLogo(item.name)}
                   {item.name}
-                </a>
+                </Link>
               )
             })}
             <div className="flex items-center ml-6">
