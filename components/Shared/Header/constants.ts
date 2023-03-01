@@ -17,6 +17,6 @@ export const NavItems = [
   },
   {
     name: 'Notification',
-    link: '/notification'
+    link: '#'
   }
 ];

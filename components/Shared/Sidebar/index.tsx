@@ -3,9 +3,11 @@ import React from 'react'
 const Sidebar = () => {
 
   return (
-    <div className="w-96 bg-[#E9E9E9] ">
-      <p>Sidebar</p>
-    </div>
+    <aside className="mt-6">
+      <div className="pl-6">
+        <p>Sidebar</p>
+      </div>
+    </aside>
   )
 }
 

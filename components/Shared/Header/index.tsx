@@ -27,7 +27,7 @@ const Header = () => {
     <header className="fixed w-full bg-white">
       <div className="grid grid-cols-12 h-[55px] shadow-md">
         <div className="col-span-2 flex items-center justify-start">
-          <div className="w-96">
+          <div className="pl-6">
             <Link href="/">
               <Image
                 width={126}
@@ -42,7 +42,7 @@ const Header = () => {
           <NavSearch />
         </div>
         <div className="col-span-6 flex items-center justify-end">
-          <div className="flex items-center">
+          <div className="flex items-center pr-6">
             {NavItems.map((item, index) => {
               const menuIdx = index;
               return (
