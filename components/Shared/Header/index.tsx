@@ -49,7 +49,8 @@ const Header = () => {
                 <Link
                   className="pl-3 pr-3 text-xs flex items-center justify-center flex-col text-center
                   hover:text-[#FF0404]
-                  [&:hover_svg]:fill-[#FF0404]"
+                  [&:hover_svg]:fill-[#FF0404]
+                  "
                   key={menuIdx}
                   href={item.link}>
                   {renderLogo(item.name)}

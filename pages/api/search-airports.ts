@@ -4,7 +4,7 @@ const handler: NextApiHandler = async (req, res) => {
 
   try {
 
-    if(!req.query.name) {
+    if (!req.query.name) {
       res.status(400).json({ message: 'Name Parameter is Required'});
       return;
     }
