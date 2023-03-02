@@ -23,7 +23,7 @@ const Header = () => {
     }
   }
   return (
-    <header className="fixed w-full bg-white">
+    <header className="hidden lg:block fixed w-full bg-white">
       <div className="grid grid-cols-12 h-[300px] lg:h-[55px] shadow-md">
         <div className="col-span-12 lg:col-span-2 flex items-center justify-start">
           <div className="pl-6">

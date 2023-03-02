@@ -25,7 +25,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
   const [bookingInfo, setBookingInfo] = useState<any>({
     departure: '',
     returning: '',
-    persons: '',
+    persons: '1',
     cabinClass: ''
   });
 
@@ -45,7 +45,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
         flexDirection: "column",
         alignItems: "center",
         p: 1,
-        width: '60vw'
+        width: '65vw'
       }}
     >
       <Box
@@ -61,6 +61,9 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
               justifyContent: 'center',
               "& .MuiTab-root.Mui-selected": {
                 color: '#FF0404'
+              },
+              "& .MuiTabs-flexContainer": {
+                justifyContent: 'center',
               }
             }}
             TabIndicatorProps={{
@@ -70,9 +73,9 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
               }
             }}
           >
-            <Tab label="Flights" value="1" sx={{width: '33%', fontWeight: '600'}} />
-            <Tab label="Hotels" value="2" sx={{width: '33%', fontWeight: '600'}} />
-            <Tab label="Cars" value="3" sx={{width: '33%',  fontWeight: '600'}} />
+            <Tab label="Flights" value="1" sx={{width: '35%', fontWeight: '600'}} />
+            <Tab label="Hotels" value="2" sx={{width: '35%', fontWeight: '600'}} />
+            <Tab label="Cars" value="3" sx={{width: '35%',  fontWeight: '600'}} />
           </TabList>
         </Box>
         <TabPanel value="1">
