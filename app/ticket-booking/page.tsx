@@ -1,6 +1,12 @@
 import React from 'react'
+import asyncComponent from '@/utils/types/hack';
+export interface TicketBookingProps {
+  searchParams: any;
+  data: any;
+}
 
-const Page = () => {
+const TicketBooking = asyncComponent(async ({ searchParams }: TicketBookingProps ) => {
+  console.log(searchParams);
 
   return (
     <div className="grid grid-cols-12">
@@ -14,7 +20,7 @@ const Page = () => {
         Ads Here
       </div>
     </div>
-  )
-}
+  );
+});
 
-export default Page
+export default TicketBooking
