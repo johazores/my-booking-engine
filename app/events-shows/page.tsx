@@ -2,7 +2,7 @@ import React from 'react'
 
 const Page = () => {
   return (
-    <div>Events Show</div>
+    <p>Events Show</p>
   )
 }
 

@@ -5,7 +5,6 @@ import NavSearch from '@/components/Shared/NavSearch';
 import { NavItems } from './constants';
 import { Home, ShoppingCart, Events, DownArrow,
   Notification, TicketBooking } from '@/components/Icons';
-
 const Header = () => {
   const renderLogo = (icon: string) => {
     switch(icon){

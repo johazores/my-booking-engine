@@ -1,4 +1,6 @@
+'use client'
 import React from 'react';
+import { Search } from '@mui/icons-material/';
 
 const NavSearch = () => {
 
@@ -8,7 +10,7 @@ const NavSearch = () => {
         <span
           className="flex items-center leading-normal bg-gray-200 px-2 border-0 rounded rounded-r-none text-2xl text-gray-600"
         >
-          <i className="fas fa-user-circle opacity-20"></i>
+          <Search className="opacity-20" />
         </span>
       </div>
       <input
