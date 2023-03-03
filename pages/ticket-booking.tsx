@@ -4,6 +4,7 @@ import React from 'react'
 import Layout from '@/components/Shared/Layout';
 import axios from 'axios';
 import { Box, Grid } from '@mui/material';
+import Link from 'next/link';
 import FlightCard from '@/components/Shared/FlightCard';
 // import MockFlights from '@/data/mock-response.json';
 
@@ -16,9 +17,9 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
   // console.log(MockFlights.itineraries.results[0].legs[0].arrival);
   // console.log(MockFlights.itineraries.results[0].legs[0].stopCount);
 
-  // if (props.status === '1') {
-  //     console.log('No data provided');
-  // }
+  if (props.status === '1') {
+    window.location.href="/"
+  }
 
   const flightMap = props?.data?.itineraries?.results;
 
@@ -33,8 +34,11 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
         <Box>
           {props.status === '0' ? (
             <Grid container spacing={2} p={5} mt={5}>
-              {!flightMap.length ? (
+              {!flightMap?.length ? (
+                <>
                   <p>No Flights Found</p>
+                  <Link href="/">Go Back Home</Link>
+                </>
               ) : (
                 <>
                   {flightMap?.map((flight: any) => (
