@@ -8,7 +8,7 @@ import Airports from '@/data/airports.json';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import moment from 'moment';
+import dayjs from 'dayjs';
 export interface BookingProps {
   formSelection: string;
   setFormSelection: any;
@@ -16,9 +16,9 @@ export interface BookingProps {
 
 const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection }) => {
   const [bookingOption, setBookingOption] = useState('Round-trip');
-  const [fromDate, setFromDate]  = useState('');
-  const [toDate, setToDate]  = useState('');
-  console.log(fromDate);
+  const [fromDate, setFromDate]  = useState<any>(null);
+  const [toDate, setToDate]  = useState<any>(null);
+
   const handleChange = (e: React.SyntheticEvent, newValue: string) => {
     setFormSelection(newValue);
   };
@@ -27,14 +27,28 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
     departure: '',
     returning: '',
     persons: '1',
-    cabinClass: ''
+    cabinClass: '',
+    departureDate: '',
+    returningDate: ''
   });
+  console.log(bookingInfo);
 
   const bookFlight = async () => {
     let departureCode = bookingInfo.departure.split(" ")[0];
     let returningCode = bookingInfo.returning.split(" ")[0];
 
-    window.location.href=`/ticket-booking?departure=${departureCode}&returning=${returningCode}&departureDate=${fromDate}&returningDate=${toDate}&persons=${bookingInfo.persons}`
+    if(!bookingInfo.departure){
+      alert('Departure From is required')
+    }
+    if(!bookingInfo.returning){
+      alert('Going to is required')
+    }
+
+    if(!bookingInfo.departureDate){
+      alert('Departure date is required')
+    }
+
+    window.location.href=`/ticket-booking?departure=${departureCode}&returning=${returningCode}&departureDate=${bookingInfo.departureDate}&returningDate=${bookingInfo.returningDate}&persons=${bookingInfo.persons}`
   }
 
   return (
@@ -159,9 +173,12 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                   disablePast
                   label="Departing"
                   value={fromDate}
-                  onChange={(newValue) => {
-                    setFromDate(moment(newValue).format('YYYY-MM-DD'));
-                  }}
+                  onChange={(newValue) => {{
+                    setFromDate(newValue);
+                    console.log('test', dayjs(newValue).format('YYYY-MM-DD'))
+                    setBookingInfo({...bookingInfo, departureDate: dayjs(newValue).format('YYYY-MM-DD')})
+
+                  }}}
                   renderInput={(params) => <TextField
                     fullWidth {...params}
                     InputProps={{
@@ -184,7 +201,8 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                     label="Returning"
                     value={toDate}
                     onChange={(newValue) => {
-                      setToDate(moment(newValue).format('YYYY-MM-DD'));
+                      setToDate(newValue);
+                      setBookingInfo({...bookingInfo, returningDate: dayjs(newValue).format('YYYY-MM-DD')})
                     }}
                     renderInput={(params) =>
                     <TextField
@@ -205,8 +223,8 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
             <Grid item md={6} xs={12}>
               <TextField
                 onChange={(e) => setBookingInfo({...bookingInfo, persons: e.target.value})}
-                type="number"
                 label="Persons"
+                value={bookingInfo.persons}
                 fullWidth
                 InputProps={{
                   startAdornment: (
