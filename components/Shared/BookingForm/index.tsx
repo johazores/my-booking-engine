@@ -18,6 +18,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
   const [bookingOption, setBookingOption] = useState('Round-trip');
   const [fromDate, setFromDate]  = useState('');
   const [toDate, setToDate]  = useState('');
+
   const handleChange = (e: React.SyntheticEvent, newValue: string) => {
     setFormSelection(newValue);
   };
@@ -37,7 +38,8 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
   }
 
   return (
-    <Box sx={{
+    <Box
+      sx={{
         borderRadius: '1rem',
         backgroundColor: 'white',
         marginTop: 8,
@@ -45,7 +47,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
         flexDirection: "column",
         alignItems: "center",
         p: 1,
-        width: '65vw'
+        width: '70vw'
       }}
     >
       <Box
@@ -70,6 +72,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
               style: {
                 backgroundColor: "#FF0404",
                 color: "#FF0404",
+                borderBottom: '5px solid #FF0404'
               }
             }}
           >
@@ -80,7 +83,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
         </Box>
         <TabPanel value="1">
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid item md={12} xs={12}>
               <FormControl>
                 <RadioGroup
                   row
@@ -106,7 +109,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
               </FormControl>
             </Grid>
 
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               <Autocomplete
                 freeSolo
                 value={bookingInfo.departure}
@@ -128,7 +131,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                 )}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               <Autocomplete
                 freeSolo
                 value={bookingInfo.returning}
@@ -150,7 +153,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
               />
             </Grid>
 
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               <LocalizationProvider dateAdapter={AdapterDayjs}>
                 <DatePicker
                   disablePast
@@ -173,7 +176,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                 />
               </LocalizationProvider>
             </Grid>
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               {bookingOption !== 'One way' ? (
                 <LocalizationProvider dateAdapter={AdapterDayjs}>
                   <DatePicker
@@ -199,7 +202,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                 </LocalizationProvider>
               ): null}
             </Grid>
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               <TextField
                 onChange={(e) => setBookingInfo({...bookingInfo, persons: e.target.value})}
                 type="number"
@@ -214,7 +217,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
                 }}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item md={6} xs={12}>
               <TextField
                 onChange={(e) => setBookingInfo({...bookingInfo, cabinClass: e.target.value})}
                 label="Cabin Class"
