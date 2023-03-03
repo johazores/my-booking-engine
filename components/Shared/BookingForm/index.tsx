@@ -18,7 +18,7 @@ const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection })
   const [bookingOption, setBookingOption] = useState('Round-trip');
   const [fromDate, setFromDate]  = useState('');
   const [toDate, setToDate]  = useState('');
-
+  console.log(fromDate);
   const handleChange = (e: React.SyntheticEvent, newValue: string) => {
     setFormSelection(newValue);
   };

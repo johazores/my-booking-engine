@@ -5,10 +5,10 @@ import Layout from '@/components/Shared/Layout';
 import axios from 'axios';
 import { Box, Grid } from '@mui/material';
 import FlightCard from '@/components/Shared/FlightCard';
-import MockFlights from '@/data/mock-response.json';
+// import MockFlights from '@/data/mock-response.json';
 
 const TicketBooking: NextPage & HasLayout = (props: any) => {
-  console.log(props);
+  // console.log(props);
 
   // console.log(MockFlights.itineraries.results);
   // console.log(MockFlights.itineraries.results);
@@ -16,11 +16,11 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
   // console.log(MockFlights.itineraries.results[0].legs[0].arrival);
   // console.log(MockFlights.itineraries.results[0].legs[0].stopCount);
 
-  const flightMap = MockFlights.itineraries.results;
+  // if (props.status === '1') {
+  //     console.log('No data provided');
+  // }
 
-  if (props.status === '1') {
-      console.log('No data provided');
-  }
+  const flightMap = props?.data?.itineraries?.results;
 
   return (
     <div className="grid grid-cols-12">
@@ -31,11 +31,21 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
       </div>
       <div className="col-span-8">
         <Box>
-          <Grid container spacing={2} p={5} mt={5}>
-            {flightMap.map((flight) => (
-               <FlightCard key={flight.id} flight={flight} />
-            ))}
-          </Grid>
+          {props.status === '0' ? (
+            <Grid container spacing={2} p={5} mt={5}>
+              {flightMap.length !== 0 ? (
+                <>
+                  {flightMap?.map((flight: any) => (
+                    <FlightCard key={flight.id} flight={flight} />
+                  ))}
+                </>
+              ) : (
+                  <p>No Flights Found</p>
+              )}
+            </Grid>
+          ) : (
+            <p>No data provided</p>
+          )}
         </Box>
       </div>
       <div className="col-span-2">
@@ -48,6 +58,8 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
 }
 
 export async function getServerSideProps(context: any) {
+  const url = process.env.RAPID_API_HOST;
+  const key = process.env.RAPID_API_KEY;
 
   if(!context.query.persons || !context.query.departure || !context.query.departureDate) {
     return {
@@ -56,18 +68,24 @@ export async function getServerSideProps(context: any) {
   }
 
   const getFlights = await axios.request({
-      url: `https://${process.env.RAPID_API_HOST}/airports/search`,
+      url: `https://${url}/search-extended`,
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        'X-RapidAPI-Key': `${key}`,
+        'X-RapidAPI-Host': `${url}`
+      },
       params: {
         adults: context.query.persons,
         origin: context.query.departure,
         destination: context.query.returning,
         departureDate: context.query.departureDate,
-        returnDate: context.query.returningDate,
+        returnDate: context.query.returningDate || '',
       }
     }
   );
+
+  console.log(getFlights.data);
 
   return {
     props: { data: getFlights.data, status: '0' },
