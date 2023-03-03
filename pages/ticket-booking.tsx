@@ -33,14 +33,14 @@ const TicketBooking: NextPage & HasLayout = (props: any) => {
         <Box>
           {props.status === '0' ? (
             <Grid container spacing={2} p={5} mt={5}>
-              {flightMap.length !== 0 ? (
+              {!flightMap.length ? (
+                  <p>No Flights Found</p>
+              ) : (
                 <>
                   {flightMap?.map((flight: any) => (
                     <FlightCard key={flight.id} flight={flight} />
                   ))}
                 </>
-              ) : (
-                  <p>No Flights Found</p>
               )}
             </Grid>
           ) : (
