@@ -30,6 +30,8 @@ export default async function DashboardPage() {
 
   const organization = activeContext.organization;
   const authorization = await readOrganizationAuthorization({ organizationId: organization.id, userId: session.user.id });
+  if (!authorization) throw new Error('Active dashboard tenant context returned without authorization');
+
   const canReadMembers = Boolean(
     authorization.platformAdmin ||
     (authorization.role && organizationRoleHasPermission(authorization.role, 'membership:read')),
