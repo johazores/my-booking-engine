@@ -30,11 +30,37 @@ test('rejects reuse of the normal application database', () => {
         ...validInput,
         applicationDatabaseUrl: validInput.testDatabaseUrl,
       }),
-    /must be different from DATABASE_URL/,
+    /different PostgreSQL database from DATABASE_URL/,
   );
 });
 
-test('rejects non-PostgreSQL and database-less URLs', () => {
+test('rejects the same database when credentials or connection options differ', () => {
+  assert.throws(
+    () =>
+      validateDisposableTestDatabase({
+        ...validInput,
+        testDatabaseUrl: 'postgresql://test-user:test-pass@LOCALHOST/sf_test?sslmode=require',
+        applicationDatabaseUrl:
+          'postgres://app-user:app-pass@localhost:5432/sf_test?application_name=sf',
+      }),
+    /different PostgreSQL database from DATABASE_URL/,
+  );
+});
+
+test('allows the same PostgreSQL server when the database name is different', () => {
+  const testDatabaseUrl = 'postgresql://test-user@localhost/sf_test?sslmode=require';
+
+  assert.equal(
+    validateDisposableTestDatabase({
+      ...validInput,
+      testDatabaseUrl,
+      applicationDatabaseUrl: 'postgresql://app-user@localhost:5432/sf_dev',
+    }),
+    testDatabaseUrl,
+  );
+});
+
+test('rejects non-PostgreSQL, malformed, and database-less URLs', () => {
   assert.throws(
     () =>
       validateDisposableTestDatabase({
@@ -47,8 +73,40 @@ test('rejects non-PostgreSQL and database-less URLs', () => {
     () =>
       validateDisposableTestDatabase({
         ...validInput,
+        testDatabaseUrl: 'not-a-url',
+      }),
+    /valid PostgreSQL URL/,
+  );
+  assert.throws(
+    () =>
+      validateDisposableTestDatabase({
+        ...validInput,
         testDatabaseUrl: 'postgresql://localhost/',
       }),
     /database name/,
+  );
+});
+
+test('rejects PostgreSQL maintenance and template databases', () => {
+  for (const databaseName of ['postgres', 'template0', 'template1']) {
+    assert.throws(
+      () =>
+        validateDisposableTestDatabase({
+          ...validInput,
+          testDatabaseUrl: `postgresql://localhost/${databaseName}`,
+        }),
+      /maintenance or template database/,
+    );
+  }
+});
+
+test('fails closed when DATABASE_URL is present but invalid', () => {
+  assert.throws(
+    () =>
+      validateDisposableTestDatabase({
+        ...validInput,
+        applicationDatabaseUrl: 'not-a-url',
+      }),
+    /DATABASE_URL must be a valid PostgreSQL URL/,
   );
 });

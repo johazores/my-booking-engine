@@ -52,7 +52,7 @@ After applying the migration, verify migration status and drift before marking t
 
 ## Database integration tests
 
-Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The runner requires an explicit safety acknowledgement, refuses to reuse the normal `DATABASE_URL`, validates the Prisma schema, applies checked-in migrations, verifies migration status and Prisma-supported schema drift, then runs the real tenant repositories against two separate tenants.
+Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The runner requires an explicit safety acknowledgement, validates the target before making any database-backed call, validates the Prisma schema, applies checked-in migrations, verifies migration status and Prisma-supported schema drift, then runs the real tenant repositories against two separate tenants.
 
 ```bash
 # example only; use your own disposable local test database
@@ -61,7 +61,9 @@ export SF_DATABASE_TEST_CONFIRM="sf-disposable-test-database"
 npm run test:database
 ```
 
-The acknowledgement is intentionally verbose so an accidental environment variable or copied production connection string is less likely to start database integration work. `TEST_DATABASE_URL` must use PostgreSQL, name a database, and differ from `DATABASE_URL`. Do not point it at production or any shared database containing valuable data.
+The acknowledgement is intentionally verbose so an accidental environment variable or copied production connection string is less likely to start database integration work. `TEST_DATABASE_URL` must use PostgreSQL, name a non-maintenance database, and target a different host/port/database identity from `DATABASE_URL`. The safety comparison deliberately ignores credentials, URL query parameters, PostgreSQL protocol aliases, and omission of the default port, so alternate connection-string formatting cannot make the same database appear different. If `DATABASE_URL` is present but malformed, the test runner fails closed rather than skipping the comparison. PostgreSQL maintenance/template databases (`postgres`, `template0`, and `template1`) are rejected as integration-test targets.
+
+These checks reduce accidental misuse but do not make arbitrary databases safe. `TEST_DATABASE_URL` must still point only at a disposable database created for SF tests. Do not point it at production or any shared database containing valuable data.
 
 The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B organization or membership data, and verifies suspended users/memberships immediately lose tenant access. It removes the records it creates when the test finishes.
 
