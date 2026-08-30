@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { BrandMark } from '@/components/brand-mark';
 
 const capabilities = [
@@ -19,9 +21,9 @@ const foundation = [
   'Next.js 16.3.3 and React 19.2.8 foundation',
   'Strict TypeScript 6.0.3 configuration',
   'Prisma 7.10 with PostgreSQL driver adapter',
-  'Organization and membership schema',
+  'Organization, membership, credential, and session schema',
   'Tenant-scoped organization repository',
-  'Architecture, security, booking, and integration documentation',
+  'First-party email/password authentication with opaque server sessions',
 ];
 
 export default function HomePage() {
@@ -30,9 +32,11 @@ export default function HomePage() {
       <header className="sf-header">
         <div className="sf-container sf-header__inner">
           <BrandMark />
-          <a className="sf-header__link" href="#foundation">
-            Foundation status
-          </a>
+          <nav className="sf-header__nav" aria-label="Primary navigation">
+            <a className="sf-header__link" href="#foundation">Foundation</a>
+            <Link className="sf-header__link" href="/sign-in">Sign in</Link>
+            <Link className="sf-button sf-button--primary sf-button--compact" href="/sign-up">Create account</Link>
+          </nav>
         </div>
       </header>
 
@@ -46,12 +50,8 @@ export default function HomePage() {
               tours, appointments, rentals, marketplaces, and future booking models.
             </p>
             <div className="sf-actions">
-              <a className="sf-button sf-button--primary" href="#architecture">
-                Explore architecture
-              </a>
-              <a className="sf-button sf-button--secondary" href="#foundation">
-                See current build
-              </a>
+              <Link className="sf-button sf-button--primary" href="/sign-up">Create account</Link>
+              <Link className="sf-button sf-button--secondary" href="/sign-in">Sign in</Link>
             </div>
           </div>
 
@@ -61,12 +61,9 @@ export default function HomePage() {
               <span className="sf-status">foundation</span>
             </div>
             <div className="sf-system-card__flow">
-              <div>Application</div>
-              <span>↓</span>
-              <div>Booking domain</div>
-              <span>↓</span>
-              <div>Provider contracts</div>
-              <span>↓</span>
+              <div>Application</div><span>↓</span>
+              <div>Booking domain</div><span>↓</span>
+              <div>Provider contracts</div><span>↓</span>
               <div>Internal inventory · GDS · Payments</div>
             </div>
           </div>
@@ -75,17 +72,9 @@ export default function HomePage() {
 
       <section className="sf-section" id="architecture">
         <div className="sf-container">
-          <div className="sf-section__heading">
-            <p className="sf-eyebrow">Architecture</p>
-            <h2>Designed for real booking workflows, not prototype screens.</h2>
-          </div>
+          <div className="sf-section__heading"><p className="sf-eyebrow">Architecture</p><h2>Designed for real booking workflows, not prototype screens.</h2></div>
           <div className="sf-card-grid">
-            {capabilities.map((capability) => (
-              <article className="sf-card" key={capability.title}>
-                <h3>{capability.title}</h3>
-                <p>{capability.copy}</p>
-              </article>
-            ))}
+            {capabilities.map((capability) => <article className="sf-card" key={capability.title}><h3>{capability.title}</h3><p>{capability.copy}</p></article>)}
           </div>
         </div>
       </section>
@@ -94,26 +83,14 @@ export default function HomePage() {
         <div className="sf-container sf-foundation">
           <div>
             <p className="sf-eyebrow">Current build</p>
-            <h2>A clean base before product modules.</h2>
-            <p>
-              This reset intentionally does not pretend authentication, bookings, payments, inventory,
-              or GDS integrations are finished. Those modules will be added in dependency order.
-            </p>
+            <h2>Security foundations before commercial workflows.</h2>
+            <p>Authentication and tenant-safe membership reads are now connected. Booking, payments, inventory, and supplier integrations continue in dependency order rather than being represented by fake workflows.</p>
           </div>
-          <ul className="sf-check-list">
-            {foundation.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+          <ul className="sf-check-list">{foundation.map((item) => <li key={item}>{item}</li>)}</ul>
         </div>
       </section>
 
-      <footer className="sf-footer">
-        <div className="sf-container sf-footer__inner">
-          <BrandMark />
-          <p>Foundation first. No fake booking flows.</p>
-        </div>
-      </footer>
+      <footer className="sf-footer"><div className="sf-container sf-footer__inner"><BrandMark /><p>Production booking infrastructure, built dependency first.</p></div></footer>
     </main>
   );
 }

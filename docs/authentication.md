@@ -2,65 +2,64 @@
 
 ## Strategy
 
-SF uses first-party email/password authentication with opaque database-backed sessions.
-
-This keeps authentication server-side, avoids storing authorization claims in long-lived browser tokens, and lets user suspension or session revocation take effect on the next protected request. Tenant authorization is deliberately not embedded in the session: authenticated operations must still check current organization membership, permissions, and resource ownership through the server-side tenant boundary.
+SF uses first-party email/password authentication with opaque database-backed sessions. Authentication proves identity only; tenant authorization is still enforced through current organization membership and server-side resource scope.
 
 ## Password credentials
 
-- Email identities use the existing canonical trimmed-lowercase user email rule.
+- Email identities use the canonical trimmed-lowercase user email rule.
 - Passwords are never trimmed or normalized.
 - Passwords must contain 12–128 Unicode characters.
 - Password hashes use Node.js scrypt with a random 16-byte salt, versioned parameters, and a 64-byte derived key.
-- Only the encoded password hash is stored in `password_credentials`.
-- Credential lookup requires an `ACTIVE` user; suspended or archived users cannot authenticate.
-- Failed sign-in responses must remain generic and must not reveal whether an email address exists.
-
-The password hash format is versioned so parameters or algorithms can be migrated later without changing the authentication API contract.
+- Only encoded password hashes are stored.
+- Credential lookup requires an `ACTIVE` user.
+- Failed sign-in responses remain generic and do not reveal whether an email exists.
 
 ## Sessions
 
-Successful registration or sign-in creates a cryptographically random 32-byte opaque session token. The raw token is returned only to the server-side HTTP layer for delivery in an HttpOnly cookie. PostgreSQL stores only a SHA-256 digest of that token.
+Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user.
 
-Sessions currently use a 14-day absolute expiry. A session is valid only when:
+Sign-out revokes the persisted session before expiring the browser cookie. User suspension therefore removes authenticated access on the next protected request.
 
-- the token digest exists,
-- `revokedAt` is null,
-- `expiresAt` is still in the future, and
-- the related user remains `ACTIVE`.
+## Browser HTTP boundary
 
-Sign-out revokes the stored session rather than trusting browser cookie deletion alone. Future password reset, security-event, or administrator workflows may revoke all sessions for a user.
+The browser authentication flow is implemented through App Router POST route handlers:
 
-## Browser cookie requirements
+- `POST /api/auth/sign-up`
+- `POST /api/auth/sign-in`
+- `POST /api/auth/sign-out`
 
-The HTTP layer that exposes sign-in/sign-up must use a cookie with these properties:
+Successful sign-up and sign-in redirect to `/account` and set the opaque token only in the `sf_session` cookie. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in production, and expires with the persisted session. The token is never returned in normal JSON, query strings, analytics, or logs.
 
-- `HttpOnly`
-- `Secure` in production
-- `SameSite=Lax`
-- `Path=/`
-- expiry aligned with the persisted session expiry
+`/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. `/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects unauthenticated requests to sign-in, and then queries tenant access using the authenticated user ID.
 
-The session token must never be returned in normal JSON payloads, logs, analytics, URLs, or audit records.
+The account page intentionally shows an empty tenant state when the user has no active organization memberships. Authentication never creates or implies organization access; organization onboarding remains Phase 3 work.
 
 ## Tenant authorization
 
-Authentication proves the user identity only. It does not grant access to an organization.
+Every tenant-owned operation must derive user identity from a validated server session and then enforce current organization membership, permissions, and resource ownership. Client-supplied user IDs are never an authentication boundary.
 
-Every tenant-owned protected operation must derive the user ID from the validated server session and then enforce current organization membership, permission, and resource scope. Client-supplied user IDs are never an authentication boundary. This preserves immediate access removal when a user, membership, or organization is suspended.
+The protected account organization list currently reuses the tenant-safe organization repository, which requires active organization membership and active principal state. Future protected routes and mutations must follow the same pattern.
 
 ## Current implementation status
 
-Implemented in the authentication foundation:
+Implemented:
 
-- password policy and password hashing domain functions,
-- secure random session-token generation and token hashing,
-- `PasswordCredential` and `AuthSession` Prisma models,
-- registration persistence that creates user, credential, and first session atomically through one nested database write,
-- credential lookup restricted to active users,
-- sign-in session creation,
-- active session resolution,
-- idempotent session revocation,
-- dependency-free domain tests for password and session primitives.
+- production authentication strategy,
+- password policy and versioned salted scrypt hashing,
+- opaque persisted sessions with token digests only,
+- atomic registration persistence,
+- sign-in/session resolution/session revocation,
+- browser sign-up/sign-in/sign-out route handlers,
+- secure cookie delivery and expiration,
+- protected server-rendered account guard,
+- authenticated identity-to-tenant membership lookup,
+- validation/error/success/empty states for the current auth UI,
+- dependency-free authentication domain tests,
+- PostgreSQL authentication persistence integration coverage in the disposable database runner.
 
-The checked-in authentication migration remains unverified against live PostgreSQL until the disposable database validation environment is available. Browser routes/forms and cookie delivery are the next authentication slice; this document does not claim those UI/HTTP flows are complete yet.
+Still pending within the broader roadmap:
+
+- organization onboarding and tenant selection/switching,
+- role/permission enforcement beyond active membership scope,
+- password reset/recovery and additional security-event workflows,
+- live PostgreSQL verification of checked-in migrations in an available disposable database environment.
