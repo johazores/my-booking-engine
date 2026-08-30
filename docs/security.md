@@ -9,10 +9,23 @@
 - Tenant-owned membership reads reuse the same server-side principal eligibility rule.
 - Membership lifecycle has an explicit terminal `ARCHIVED` state, and only `ACTIVE` memberships can satisfy tenant access scope.
 - User email identities are canonicalized to trimmed lowercase values before persistence and are backed by database checks.
+- Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted.
+- Authentication sessions use cryptographically random opaque tokens and persist only SHA-256 token digests.
+- Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user, so user suspension removes authenticated access immediately.
 - Database integration tests require a separate PostgreSQL URL plus explicit disposable-database acknowledgement before migrations or repository tests run.
 - Next.js removes the framework powered-by header.
 
-Authentication and full authorization are not implemented yet. Until authentication exists, repository callers must still supply a trusted server-derived user ID rather than accepting an arbitrary browser-provided identity.
+The authentication persistence/domain foundation exists, but browser sign-in/sign-up/sign-out routes, secure cookie delivery, and authenticated product UI are not complete yet. Until those HTTP flows exist, repository callers must still receive identity only from trusted server code rather than accepting an arbitrary browser-provided user ID.
+
+## Authentication security
+
+The production authentication strategy is documented in `docs/authentication.md`.
+
+Passwords are not trimmed or normalized. The current policy requires 12–128 Unicode characters. The stored hash contains a random salt and versioned scrypt parameters so future rehashing can be introduced without changing the external authentication contract.
+
+Raw session tokens are bearer secrets. They must exist only transiently in trusted server memory and the HttpOnly browser cookie. Never place a session token in a URL, JSON response, analytics payload, log, or audit event. PostgreSQL stores only the SHA-256 digest used for lookup.
+
+A valid session does not imply tenant access. Every protected tenant operation must use the authenticated session user ID and then independently validate active organization membership, permissions, and resource ownership. Tenant/role claims must not be copied into a long-lived browser token where suspension could become stale.
 
 ## Required application security
 
@@ -22,7 +35,7 @@ Suspending or archiving a user must remove tenant access even if an organization
 
 Membership mutation APIs remain intentionally unavailable until roles and permissions exist. Future membership writes must call the explicit lifecycle transition rules in `src/server/memberships/membership-domain.ts` in addition to checking the actor's authorization; raw client-supplied status updates are not an acceptable authorization or lifecycle boundary.
 
-Email is a future authentication identifier and must be canonicalized through `createCanonicalUserEmail` before any user write. Do not perform ad-hoc lowercase handling in route handlers. The database rejects non-canonical or malformed email values, preventing casing/whitespace variants from bypassing the unique identity constraint. User lifecycle changes must use the explicit domain transition rules; archived identities are terminal in the current foundation.
+Email is the authentication identifier and must be canonicalized through `createCanonicalUserEmail` before any user write. Do not perform ad-hoc lowercase handling in route handlers. The database rejects non-canonical or malformed email values, preventing casing/whitespace variants from bypassing the unique identity constraint. User lifecycle changes must use the explicit domain transition rules; archived identities are terminal in the current foundation.
 
 ## Database test safety
 
@@ -46,4 +59,4 @@ Important operations should record actor, organization, action, resource, timest
 
 ## Observability
 
-Structured logs may contain request/correlation ID, organization ID, provider, booking reference, and operation. They must not contain passwords, API secrets, card data, access tokens, or unnecessary encrypted credential payloads.
+Structured logs may contain request/correlation ID, organization ID, provider, booking reference, and operation. They must not contain passwords, API secrets, card data, access tokens, session tokens, or unnecessary encrypted credential payloads.
