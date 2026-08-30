@@ -38,4 +38,5 @@ run(npmCommand, ['run', 'db:drift']);
 run(process.execPath, [
   '--test',
   'src/server/tenancy/tenant-isolation.integration.ts',
+  'src/server/auth/auth-persistence.integration.ts',
 ]);
