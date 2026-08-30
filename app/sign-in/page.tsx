@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
+import { readAuthSession } from '@/server/auth/auth-http.ts';
 
 const messages: Record<string, string> = {
   required: 'Sign in to continue.',
@@ -11,6 +13,11 @@ const messages: Record<string, string> = {
 };
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; status?: string }> }) {
+  const session = await readAuthSession();
+  if (session) {
+    redirect('/account');
+  }
+
   const params = await searchParams;
   const message = params.error ? messages[params.error] : undefined;
 

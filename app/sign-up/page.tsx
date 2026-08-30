@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
+import { readAuthSession } from '@/server/auth/auth-http.ts';
 
 const messages: Record<string, string> = {
   exists: 'An account with this email already exists.',
@@ -13,6 +15,11 @@ export default async function SignUpPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const session = await readAuthSession();
+  if (session) {
+    redirect('/account');
+  }
+
   const params = await searchParams;
   const message = params.error ? messages[params.error] : undefined;
 

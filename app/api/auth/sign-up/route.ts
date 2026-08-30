@@ -5,6 +5,7 @@ import {
   AUTH_SESSION_COOKIE,
   authSessionCookieOptions,
   isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
 } from '@/server/auth/auth-http.ts';
 import {
   AuthConflictError,
@@ -21,7 +22,16 @@ export async function POST(request: Request) {
     return new Response('Forbidden', { status: 403 });
   }
 
-  const formData = await request.formData();
+  if (!isSupportedAuthFormRequest(request)) {
+    return new Response('Unsupported Media Type', { status: 415 });
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.redirect(new URL('/sign-up?error=validation', request.url), 303);
+  }
 
   try {
     const result = await registerWithPassword({

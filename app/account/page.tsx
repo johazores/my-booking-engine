@@ -2,17 +2,23 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
+import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { listOrganizationsForUser } from '@/server/organizations/organization-repository.ts';
-import { readAuthSessionState } from '@/server/auth/auth-http.ts';
 
 export default async function AccountPage({
   searchParams,
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  const { hadSessionCookie, session } = await readAuthSessionState();
+  const authState = await readAuthSessionState();
+  const authRedirect = getAuthRequiredRedirect(authState);
+  if (authRedirect) {
+    redirect(authRedirect);
+  }
+
+  const session = authState.session;
   if (!session) {
-    redirect(hadSessionCookie ? '/sign-in?error=session' : '/sign-in?error=required');
+    throw new Error('Authenticated account guard returned without a session');
   }
 
   const params = await searchParams;

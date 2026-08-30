@@ -30,9 +30,11 @@ The browser authentication flow is implemented through App Router POST route han
 
 Successful sign-up and sign-in redirect to `/account` and set the opaque token only in the `sf_session` cookie. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in production, and expires with the persisted session. The token is never returned in normal JSON, query strings, analytics, or logs.
 
-All authentication mutations reject requests whose `Origin` does not exactly match the request origin. `/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. Their route-level loading states and the protected account loading state use accessible live/busy semantics and respect reduced-motion preferences.
+All authentication mutations reject requests whose `Origin` does not exactly match the request origin. Credential form endpoints accept browser form media types only (`application/x-www-form-urlencoded` and `multipart/form-data`) and return HTTP 415 for unsupported request media types. Malformed accepted form payloads are treated as validation failures instead of reaching credential logic.
 
-`/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects requests with no session cookie to sign-in with a normal authentication-required message, and redirects requests carrying an invalid or expired session cookie with an explicit session-expired/invalid message. It then queries tenant access using only the authenticated user ID.
+`/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. Authenticated users who visit either page are redirected back to `/account` rather than being encouraged to create or sign into another identity in the same session. Route-level loading states and the protected account loading state use accessible live/busy semantics and respect reduced-motion preferences.
+
+`/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects requests with no session cookie to sign-in with a normal authentication-required message, and redirects requests carrying an invalid or expired session cookie with an explicit session-expired/invalid message. The redirect decision is centralized in the authentication HTTP policy and regression-tested. The account page then queries tenant access using only the authenticated user ID.
 
 The account page intentionally shows an empty tenant state when the user has no active organization memberships. Authentication never creates or implies organization access; organization onboarding remains Phase 3 work.
 
@@ -44,7 +46,9 @@ The protected account organization list currently reuses the tenant-safe organiz
 
 ## Verification coverage
 
-Dependency-free authentication domain tests cover password policy, salted/versioned password hashing, token entropy/digest behavior, and absolute session expiry calculation. The disposable PostgreSQL authentication integration test covers registration, credential persistence, active session resolution, forced session expiry rejection, persisted revocation, subsequent sign-in, and immediate loss of access when the user is suspended.
+Dependency-free authentication domain tests cover password policy, salted/versioned password hashing, token entropy/digest behavior, and absolute session expiry calculation. Authentication HTTP policy tests cover exact same-origin enforcement, accepted credential form media types, unsupported request media types, missing-session redirects, invalid/expired-session redirects, and successful protected-session pass-through.
+
+The disposable PostgreSQL authentication integration test covers registration, credential persistence, active session resolution, forced session expiry rejection, persisted revocation, subsequent sign-in, and immediate loss of access when the user is suspended.
 
 The full database-backed integration path still requires the explicitly acknowledged disposable PostgreSQL target described in the database development documentation; blocked environments must not claim that live verification passed.
 
@@ -59,13 +63,16 @@ Implemented:
 - sign-in/session resolution/session revocation,
 - browser sign-up/sign-in/sign-out route handlers,
 - same-origin protection on authentication mutations,
+- credential endpoint media-type validation,
+- malformed form handling before credential logic,
 - secure cookie delivery and expiration,
 - protected server-rendered account guard,
 - explicit missing-session versus invalid/expired-session browser feedback,
+- authenticated-page redirect behavior for existing sessions,
 - authenticated identity-to-tenant membership lookup,
 - validation/error/loading/success/empty states for the current auth UI,
 - reduced-motion-safe loading treatment,
-- dependency-free authentication domain tests,
+- dependency-free authentication domain and HTTP policy tests,
 - PostgreSQL authentication persistence integration coverage including forced expiry and revocation.
 
 Still pending within the broader roadmap:
