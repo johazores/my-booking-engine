@@ -1,69 +1,83 @@
-import { Grid } from '@mui/material'
-import React from 'react'
-import Image from 'next/image';
+import { Grid } from '@mui/material';
 import moment from 'moment';
+import type { FlightOffer } from '@/src/domain/flight-search';
 
 interface FlightProps {
-  flight: any;
+  flight: FlightOffer;
 }
-const FlightCard = ({ flight } : FlightProps) => {
-  const duration = moment.utc().startOf('day').add({ minutes: flight?.legs[0]?.durationInMinutes });
-  const segments = flight?.legs[0].segments;
-  const arrival = flight?.legs[0].arrival;
-  const departure = flight?.legs[0].departure;
-  return (
-    <Grid item xs={12}>
-      <div className="border border-gray-400 rounded-md mt-4 mb-4">
-        <div className="grid grid-cols-12">
-          <div className="col-span-10  border-gray-400 pt-3 pb-3 pl-6 pr-2 flex items-center justify-start">
-            <p>{flight?.legs[0]?.stopCount} Stops {`${moment(duration).format('H')} Hours ${moment(duration).format('mm')} mins`} </p>
-          </div>
-          <div className="col-span-2 border-l border-gray-400 pt-3 pb-3 pl-2 pr-2 flex items-center justify-center">
-            <p>ECONOMY CLASSIC</p>
-          </div>
-          <div className="col-span-10 border-t border-gray-400 p-6">
-            <div className="grid grid-cols-12">
-              <div className="col-span-2">
-                <Image
-                  width={121}
-                  height={35}
-                  src="/images/flight.png"
-                  alt="Logo"
-                />
+
+const formatDuration = (minutes: number) => {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+};
+
+const formatPrice = (amount: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+};
+
+const FlightCard = ({ flight }: FlightProps) => (
+  <Grid item xs={12}>
+    <article className="border border-gray-300 rounded-lg bg-white overflow-hidden">
+      <div className="border-b border-gray-200 px-5 py-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold text-gray-900">Flight offer</p>
+          <p className="text-sm text-gray-500">Provider: {flight.providerId}</p>
+        </div>
+        <p className="text-red-600 font-bold text-xl">
+          {formatPrice(flight.totalPrice.amount, flight.totalPrice.currency)}
+        </p>
+      </div>
+
+      <div className="divide-y divide-gray-200">
+        {flight.legs.map((leg, index) => (
+          <section key={leg.id} className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500">
+                  {index === 0 ? 'Outbound' : 'Return'}
+                </p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {leg.originCode} → {leg.destinationCode}
+                </p>
               </div>
-              <div className="col-span-2 flex items-center justify-center">
-                <div>
-                  <p>{moment(departure).format('HH')} Hours</p>
-                  <p>{flight?.legs[0]?.origin?.displayCode}</p>
-                </div>
-              </div>
-              <div className="col-span-4 flex items-center justify-center">
-                <div className="grid grid-cols-12 gap-x-4">
-                  {segments.map((seg: any) => (
-                    <div key={seg.id} className="col-span-6">
-                      <p>{seg?.durationInMinutes} mins</p>
-                      <p>{seg?.destination?.flightPlaceId}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="col-span-2 flex items-center justify-center">
-                <div>
-                  <p>{moment(arrival).format('HH')} Hours</p>
-                  <p>{flight?.legs[0]?.destination?.displayCode}</p>
-                </div>
+
+              <div className="sm:text-right">
+                <p className="font-medium text-gray-900">
+                  {moment(leg.departureAt).format('MMM D, YYYY · HH:mm')} –{' '}
+                  {moment(leg.arrivalAt).format('HH:mm')}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {formatDuration(leg.durationMinutes)} ·{' '}
+                  {leg.stopCount === 0 ? 'Direct' : `${leg.stopCount} stop${leg.stopCount === 1 ? '' : 's'}`}
+                </p>
               </div>
             </div>
 
-          </div>
-          <div className="col-span-2 border-l border-t border-gray-400 p-6 flex items-center justify-center flex-col">
-            <p className="text-red-600 font-bold text-xl">${flight.pricing_options[0].price.amount}</p>
-            <p>Round-trip</p>
-          </div>
-        </div>
+            {leg.segments.length > 1 ? (
+              <div className="mt-4 flex flex-wrap gap-2" aria-label="Flight segments">
+                {leg.segments.map((segment) => (
+                  <span
+                    key={segment.id}
+                    className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600"
+                  >
+                    {segment.destinationCode || 'Connection'} · {formatDuration(segment.durationMinutes)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ))}
       </div>
-    </Grid>
-  )
-}
+    </article>
+  </Grid>
+);
 
-export default FlightCard
+export default FlightCard;

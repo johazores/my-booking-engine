@@ -1,287 +1,303 @@
-'use client'
-import React, { useState } from 'react'
-import { TabContext, TabList, TabPanel } from '@mui/lab';
-import { Box, TextField, FormControlLabel, Button,
-  Tab, Autocomplete, Grid, FormControl, Radio, RadioGroup, InputAdornment, MenuItem } from '@mui/material';
-import { FlightTakeoffRounded, DateRange, Person } from '@mui/icons-material';
-import Airports from '@/data/airports.json';
+'use client';
+
+import React, { useState } from 'react';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  FormControl,
+  FormControlLabel,
+  Grid,
+  InputAdornment,
+  Radio,
+  RadioGroup,
+  TextField,
+} from '@mui/material';
+import { DateRange, FlightTakeoffRounded, Person } from '@mui/icons-material';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import dayjs from 'dayjs';
-export interface BookingProps {
-  formSelection: string;
-  setFormSelection: any;
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import dayjs, { Dayjs } from 'dayjs';
+import Airports from '@/data/airports.json';
+
+type TripType = 'round-trip' | 'one-way';
+
+interface BookingInfo {
+  departure: string;
+  destination: string;
+  adults: number;
+  departureDate: string;
+  returnDate: string;
 }
 
-const BookingForm: React.FC<BookingProps> = ({formSelection, setFormSelection }) => {
-  const [bookingOption, setBookingOption] = useState('Round-trip');
-  const [fromDate, setFromDate]  = useState<any>(null);
-  const [toDate, setToDate]  = useState<any>(null);
+interface BookingErrors {
+  departure?: string;
+  destination?: string;
+  adults?: string;
+  departureDate?: string;
+  returnDate?: string;
+}
 
-  const handleChange = (e: React.SyntheticEvent, newValue: string) => {
-    setFormSelection(newValue);
+const airportOptions = Airports.map(
+  (airport) => `${airport.iata_code} ${airport.country} - ${airport.city} - ${airport.name}`,
+);
+
+const BookingForm = () => {
+  const [tripType, setTripType] = useState<TripType>('round-trip');
+  const [departureDate, setDepartureDate] = useState<Dayjs | null>(null);
+  const [returnDate, setReturnDate] = useState<Dayjs | null>(null);
+  const [errors, setErrors] = useState<BookingErrors>({});
+  const [bookingInfo, setBookingInfo] = useState<BookingInfo>({
+    departure: '',
+    destination: '',
+    adults: 1,
+    departureDate: '',
+    returnDate: '',
+  });
+
+  const updateBookingInfo = <Key extends keyof BookingInfo>(
+    key: Key,
+    value: BookingInfo[Key],
+  ) => {
+    setBookingInfo((current) => ({ ...current, [key]: value }));
+    setErrors((current) => ({ ...current, [key]: undefined }));
   };
 
-  const [bookingInfo, setBookingInfo] = useState<any>({
-    departure: '',
-    returning: '',
-    persons: '1',
-    cabinClass: '',
-    departureDate: '',
-    returningDate: ''
-  });
-  console.log(bookingInfo);
+  const validate = (): BookingErrors => {
+    const nextErrors: BookingErrors = {};
 
-  const bookFlight = async () => {
-    let departureCode = bookingInfo.departure.split(" ")[0];
-    let returningCode = bookingInfo.returning.split(" ")[0];
-
-    if(!bookingInfo.departure){
-      alert('Departure From is required')
-    }
-    if(!bookingInfo.returning){
-      alert('Going to is required')
+    if (!bookingInfo.departure) {
+      nextErrors.departure = 'Select a departure airport.';
     }
 
-    if(!bookingInfo.departureDate){
-      alert('Departure date is required')
+    if (!bookingInfo.destination) {
+      nextErrors.destination = 'Select a destination airport.';
     }
 
-    window.location.href=`/ticket-booking?departure=${departureCode}&returning=${returningCode}&departureDate=${bookingInfo.departureDate}&returningDate=${bookingInfo.returningDate}&persons=${bookingInfo.persons}`
-  }
+    if (bookingInfo.departure && bookingInfo.destination) {
+      const originCode = bookingInfo.departure.split(' ')[0];
+      const destinationCode = bookingInfo.destination.split(' ')[0];
+      if (originCode === destinationCode) {
+        nextErrors.destination = 'Choose a different destination airport.';
+      }
+    }
+
+    if (!bookingInfo.departureDate) {
+      nextErrors.departureDate = 'Select a departure date.';
+    }
+
+    if (tripType === 'round-trip' && !bookingInfo.returnDate) {
+      nextErrors.returnDate = 'Select a return date.';
+    }
+
+    if (!Number.isInteger(bookingInfo.adults) || bookingInfo.adults < 1 || bookingInfo.adults > 9) {
+      nextErrors.adults = 'Adults must be between 1 and 9.';
+    }
+
+    return nextErrors;
+  };
+
+  const searchFlights = () => {
+    const nextErrors = validate();
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      departure: bookingInfo.departure.split(' ')[0],
+      returning: bookingInfo.destination.split(' ')[0],
+      departureDate: bookingInfo.departureDate,
+      persons: String(bookingInfo.adults),
+    });
+
+    if (tripType === 'round-trip' && bookingInfo.returnDate) {
+      params.set('returningDate', bookingInfo.returnDate);
+    }
+
+    window.location.assign(`/ticket-booking?${params.toString()}`);
+  };
 
   return (
     <Box
       sx={{
         borderRadius: '1rem',
         backgroundColor: 'white',
-        marginTop: 8,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        p: 1,
-        width: '70vw'
+        marginTop: 6,
+        p: { xs: 2, sm: 3 },
+        width: { xs: 'calc(100vw - 2rem)', sm: 'min(760px, calc(100vw - 3rem))' },
       }}
     >
-      <Box
-        component="form"
-        noValidate
-        sx={{  width: '100%' }}
-      >
-      <TabContext value={formSelection}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', }}>
-          <TabList onChange={handleChange} aria-label="Booking Options"
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              "& .MuiTab-root.Mui-selected": {
-                color: '#FF0404'
-              },
-              "& .MuiTabs-flexContainer": {
-                justifyContent: 'center',
-              }
-            }}
-            TabIndicatorProps={{
-              style: {
-                backgroundColor: "#FF0404",
-                color: "#FF0404",
-                borderBottom: '5px solid #FF0404'
-              }
-            }}
-          >
-            <Tab label="Flights" value="1" sx={{width: '35%', fontWeight: '600'}} />
-            <Tab label="Hotels" value="2" sx={{width: '35%', fontWeight: '600'}} />
-            <Tab label="Cars" value="3" sx={{width: '35%',  fontWeight: '600'}} />
-          </TabList>
-        </Box>
-        <TabPanel value="1">
-          <Grid container spacing={2}>
-            <Grid item md={12} xs={12}>
-              <FormControl>
-                <RadioGroup
-                  row
-                  onChange={(e) => setBookingOption(e.target.value)}
-                  value={bookingOption}
-                >
-                  <FormControlLabel value="Round-trip" control={<Radio sx={{
-                        '&, &.Mui-checked': {
-                          color: '#FF0404',
-                        },
-                      }} />} label="Round-trip" />
-                  <FormControlLabel value="One way" control={<Radio sx={{
-                        '&, &.Mui-checked': {
-                          color: '#FF0404',
-                        },
-                      }}/>} label="One way" />
-                  <FormControlLabel value="Multi-city" control={<Radio sx={{
-                        '&, &.Mui-checked': {
-                          color: '#FF0404',
-                        },
-                      }}/>} label="Multi-city" />
-                </RadioGroup>
-              </FormControl>
-            </Grid>
+      <Box component="form" noValidate onSubmit={(event) => event.preventDefault()}>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <FormControl>
+              <RadioGroup
+                row
+                value={tripType}
+                onChange={(event) => {
+                  const nextTripType = event.target.value as TripType;
+                  setTripType(nextTripType);
+                  if (nextTripType === 'one-way') {
+                    setReturnDate(null);
+                    updateBookingInfo('returnDate', '');
+                  }
+                }}
+              >
+                <FormControlLabel value="round-trip" control={<Radio />} label="Round trip" />
+                <FormControlLabel value="one-way" control={<Radio />} label="One way" />
+              </RadioGroup>
+            </FormControl>
+          </Grid>
 
-            <Grid item md={6} xs={12}>
-              <Autocomplete
-                freeSolo
-                value={bookingInfo.departure}
-                onChange={(e, value: any) => setBookingInfo({...bookingInfo, departure: value})}
-                options={Airports.map((option) => `${option.iata_code} ${option.country} - ${option.city} - ${option.name} `)}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <FlightTakeoffRounded sx={{ color: '#FF0404'}} />
-                        </InputAdornment>
-                      )
-                    }}
-                  label="Departing from?" />
-                )}
-              />
-            </Grid>
-            <Grid item md={6} xs={12}>
-              <Autocomplete
-                freeSolo
-                value={bookingInfo.returning}
-                onChange={(e, value: any) => setBookingInfo({...bookingInfo, returning: value})}
-                options={Airports.map((option) => `${option.iata_code} ${option.country} - ${option.city} - ${option.name} `)}
-                renderInput={(params) => (
+          <Grid item md={6} xs={12}>
+            <Autocomplete
+              value={bookingInfo.departure || null}
+              onChange={(_, value) => updateBookingInfo('departure', value ?? '')}
+              options={airportOptions}
+              renderInput={(params) => (
                 <TextField
                   {...params}
+                  error={Boolean(errors.departure)}
+                  helperText={errors.departure}
                   InputProps={{
                     ...params.InputProps,
                     startAdornment: (
                       <InputAdornment position="start">
-                          <FlightTakeoffRounded sx={{ color: '#FF0404'}} />
+                        <FlightTakeoffRounded />
                       </InputAdornment>
-                    )
+                    ),
                   }}
-                label="Going to?" />
-                )}
-              />
-            </Grid>
+                  label="Departing from"
+                />
+              )}
+            />
+          </Grid>
 
-            <Grid item md={6} xs={12}>
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  disablePast
-                  label="Departing"
-                  value={fromDate}
-                  onChange={(newValue) => {{
-                    setFromDate(newValue);
-                    console.log('test', dayjs(newValue).format('YYYY-MM-DD'))
-                    setBookingInfo({...bookingInfo, departureDate: dayjs(newValue).format('YYYY-MM-DD')})
+          <Grid item md={6} xs={12}>
+            <Autocomplete
+              value={bookingInfo.destination || null}
+              onChange={(_, value) => updateBookingInfo('destination', value ?? '')}
+              options={airportOptions}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  error={Boolean(errors.destination)}
+                  helperText={errors.destination}
+                  InputProps={{
+                    ...params.InputProps,
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <FlightTakeoffRounded />
+                      </InputAdornment>
+                    ),
+                  }}
+                  label="Going to"
+                />
+              )}
+            />
+          </Grid>
 
-                  }}}
-                  renderInput={(params) => <TextField
-                    fullWidth {...params}
+          <Grid item md={tripType === 'round-trip' ? 6 : 12} xs={12}>
+            <LocalizationProvider dateAdapter={AdapterDayjs}>
+              <DatePicker
+                disablePast
+                label="Departing"
+                value={departureDate}
+                onChange={(value) => {
+                  setDepartureDate(value);
+                  updateBookingInfo(
+                    'departureDate',
+                    value ? dayjs(value).format('YYYY-MM-DD') : '',
+                  );
+
+                  if (returnDate && value && returnDate.isBefore(value, 'day')) {
+                    setReturnDate(null);
+                    updateBookingInfo('returnDate', '');
+                  }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    fullWidth
+                    {...params}
+                    error={Boolean(errors.departureDate)}
+                    helperText={errors.departureDate}
                     InputProps={{
                       ...params.InputProps,
                       startAdornment: (
                         <InputAdornment position="start">
-                          <DateRange sx={{ color: '#FF0404'}} />
+                          <DateRange />
                         </InputAdornment>
-                      )
+                      ),
                     }}
-                  />}
-                />
-              </LocalizationProvider>
-            </Grid>
+                  />
+                )}
+              />
+            </LocalizationProvider>
+          </Grid>
+
+          {tripType === 'round-trip' ? (
             <Grid item md={6} xs={12}>
-              {bookingOption !== 'One way' ? (
-                <LocalizationProvider dateAdapter={AdapterDayjs}>
-                  <DatePicker
-                    disablePast
-                    label="Returning"
-                    value={toDate}
-                    onChange={(newValue) => {
-                      setToDate(newValue);
-                      setBookingInfo({...bookingInfo, returningDate: dayjs(newValue).format('YYYY-MM-DD')})
-                    }}
-                    renderInput={(params) =>
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  disablePast
+                  minDate={departureDate ?? undefined}
+                  label="Returning"
+                  value={returnDate}
+                  onChange={(value) => {
+                    setReturnDate(value);
+                    updateBookingInfo('returnDate', value ? dayjs(value).format('YYYY-MM-DD') : '');
+                  }}
+                  renderInput={(params) => (
                     <TextField
-                      fullWidth {...params}
+                      fullWidth
+                      {...params}
+                      error={Boolean(errors.returnDate)}
+                      helperText={errors.returnDate}
                       InputProps={{
                         ...params.InputProps,
                         startAdornment: (
                           <InputAdornment position="start">
-                            <DateRange sx={{ color: '#FF0404'}} />
+                            <DateRange />
                           </InputAdornment>
-                        )
+                        ),
                       }}
-                    />}
-                  />
-                </LocalizationProvider>
-              ): null}
+                    />
+                  )}
+                />
+              </LocalizationProvider>
             </Grid>
-            <Grid item md={6} xs={12}>
-              <TextField
-                onChange={(e) => setBookingInfo({...bookingInfo, persons: e.target.value})}
-                label="Persons"
-                value={bookingInfo.persons}
-                fullWidth
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                        <Person sx={{ color: '#FF0404'}} />
-                    </InputAdornment>
-                  )
-                }}
-              />
-            </Grid>
-            <Grid item md={6} xs={12}>
-              <TextField
-                onChange={(e) => setBookingInfo({...bookingInfo, cabinClass: e.target.value})}
-                label="Cabin Class"
-                fullWidth
-                select
-               >
-                <MenuItem value="Economy">Economy</MenuItem>
-                <MenuItem value="Business">Business</MenuItem>
-                <MenuItem value="First Class">First Class</MenuItem>
-                <MenuItem value="Premium Economy">Premium Economy</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={12}>
-              <Button
-                onClick={bookFlight}
-                fullWidth
-                variant="contained"
-                sx={{
-                  ':hover': {
-                    backgroundColor: '#FF0404',
-                  },
-                }}
-                style={{
-                  backgroundColor: '#FF0404'
-                }}
-              >
-                Find your flight
-              </Button>
-            </Grid>
-          </Grid>
-        </TabPanel>
-        <TabPanel value="2">
-          <Box display="flex" justifyContent="center">
-            <h3>Coming Soon</h3>
-          </Box>
+          ) : null}
 
-        </TabPanel>
-        <TabPanel value="3">
-          <Box display="flex" justifyContent="center">
-            <h3>Coming Soon</h3>
-          </Box>
-        </TabPanel>
-      </TabContext>
+          <Grid item xs={12}>
+            <TextField
+              type="number"
+              label="Adults"
+              value={bookingInfo.adults}
+              error={Boolean(errors.adults)}
+              helperText={errors.adults ?? 'Maximum 9 travelers per search.'}
+              onChange={(event) => updateBookingInfo('adults', Number(event.target.value))}
+              inputProps={{ min: 1, max: 9, step: 1 }}
+              fullWidth
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Person />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button type="button" onClick={searchFlights} fullWidth variant="contained" size="large">
+              Search flights
+            </Button>
+          </Grid>
+        </Grid>
       </Box>
     </Box>
-  )
-}
+  );
+};
 
-export default BookingForm
+export default BookingForm;

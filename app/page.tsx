@@ -1,37 +1,22 @@
-'use client'
-import { useState } from 'react'
-import BookingForm from "@/components/Shared/BookingForm";
+import BookingForm from '@/components/Shared/BookingForm';
 
 export default function Home() {
-  const [formSelection, setFormSelection] = useState('1');
-  const renderBgTitles = (value: string) => {
-    switch(value){
-      case '2':
-        return {
-          image: `background-image-2`,
-          h1: 'Flight rooms at lowest possible rates!'
-        }
-      default:
-        return {
-          image: `background-image-1`,
-          h1: 'Flight tickets at lowest possible rates!'
-        }
-    }
-  }
-  const getContent = renderBgTitles(formSelection);
-
   return (
-    <div className={`w-full h-full bg-no-repeat bg-cover bg-center ${getContent?.image}`}>
-      <div className="h-full flex items-center flex-col">
-        <div className="flex items-center flex-col mt-16">
-          <h1 className="text-white text-3xl">{getContent?.h1}</h1>
-          <h3 className="text-white">Our prices are the cheapest available anywhere in the world</h3>
-          <BookingForm
-            formSelection={formSelection}
-            setFormSelection={setFormSelection}
-          />
+    <main className="background-image-1 min-h-screen w-full bg-cover bg-center bg-no-repeat">
+      <div className="min-h-screen bg-black/30 px-4 py-16">
+        <div className="mx-auto flex max-w-5xl flex-col items-center text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/80">
+            My Booking Engine
+          </p>
+          <h1 className="mt-3 max-w-3xl text-3xl font-bold text-white sm:text-5xl">
+            Search live flight availability
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm text-white/90 sm:text-base">
+            Compare available itineraries using the currently configured flight provider.
+          </p>
+          <BookingForm />
         </div>
       </div>
-    </div>
-  )
+    </main>
+  );
 }
