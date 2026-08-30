@@ -2,24 +2,24 @@
 
 ## Current baseline
 
-- No secrets are committed.
-- Local environment files are ignored.
+- No secrets are committed and local environment files are ignored.
 - Database access is server-only.
-- Tenant organization lookup requires an active organization, active membership, and active user record.
-- Tenant-owned membership reads reuse the same server-side principal eligibility rule.
-- Membership lifecycle has an explicit terminal `ARCHIVED` state, and only `ACTIVE` memberships can satisfy tenant access scope.
-- User email identities are canonicalized to trimmed lowercase values before persistence and are backed by database checks.
+- User email identities are canonicalized before persistence and backed by database checks.
 - Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted.
-- Authentication sessions use cryptographically random opaque tokens and persist only SHA-256 token digests.
-- Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user, so user suspension removes authenticated access immediately.
-- Database integration tests require a separate PostgreSQL URL plus explicit disposable-database acknowledgement before migrations or repository tests run.
+- Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests.
+- Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
+- Authentication mutations require exact same-origin form submissions and supported browser form media types.
+- Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user.
+- Tenant organization lookup requires an active organization, active membership, and active user.
+- Only `ACTIVE` memberships grant tenant access; invited, suspended, and archived memberships do not.
+- Organization creation persists the organization and creator membership atomically.
+- Active organization selection is stored only as an HttpOnly preference cookie and is revalidated against the authenticated user's membership on every context read.
+- Database integration tests require a separate explicitly acknowledged disposable PostgreSQL target.
 - Next.js removes the framework powered-by header.
-
-The authentication persistence/domain foundation exists, but browser sign-in/sign-up/sign-out routes, secure cookie delivery, and authenticated product UI are not complete yet. Until those HTTP flows exist, repository callers must still receive identity only from trusted server code rather than accepting an arbitrary browser-provided user ID.
 
 ## Authentication security
 
-The production authentication strategy is documented in `docs/authentication.md`.
+The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 
 Passwords are not trimmed or normalized. The current policy requires 12–128 Unicode characters. The stored hash contains a random salt and versioned scrypt parameters so future rehashing can be introduced without changing the external authentication contract.
 
@@ -27,36 +27,36 @@ Raw session tokens are bearer secrets. They must exist only transiently in trust
 
 A valid session does not imply tenant access. Every protected tenant operation must use the authenticated session user ID and then independently validate active organization membership, permissions, and resource ownership. Tenant/role claims must not be copied into a long-lived browser token where suspension could become stale.
 
+## Tenant context security
+
+The `sf_organization` cookie contains only the selected organization UUID. It is not an authorization token and must never be trusted by itself. Server code resolves it through the tenant-safe organization repository using the current authenticated user ID. Forged, stale, suspended, archived, deleted, or cross-tenant organization identifiers therefore resolve to no active tenant context.
+
+The organization-selection POST endpoint validates authentication, exact same-origin submission, accepted form content type, identifier shape, and active membership before replacing the selected-organization cookie.
+
+Creating a new organization is allowed for an authenticated active user because it creates a new tenant rather than mutating an existing one. The creator receives an active membership in the same database transaction. Management authority is intentionally not inferred from that membership; roles and permissions are the next dependency phase.
+
 ## Required application security
 
-Protected operations must validate authentication, active user status, tenant membership, permissions, and resource ownership. Never rely on frontend navigation or filtering for access control.
+Protected operations must validate authentication, active user status, tenant membership, required permission, and resource ownership. Never rely on frontend navigation, route parameters, hidden controls, query strings, or client-side filtering for access control.
 
-Suspending or archiving a user must remove tenant access even if an organization membership record was not separately changed yet. Suspending or archiving a membership must also remove tenant access while leaving the user identity intact for other organizations. Invited memberships never grant tenant access. Archived memberships are terminal in the current domain contract and must not be reactivated by future membership-management code.
+Suspending or archiving a user must remove tenant access even if an organization membership was not separately changed. Suspending or archiving a membership must also remove tenant access while leaving the user identity available for other organizations. Invited memberships never grant tenant access. Archived memberships are terminal in the current domain contract.
 
-Membership mutation APIs remain intentionally unavailable until roles and permissions exist. Future membership writes must call the explicit lifecycle transition rules in `src/server/memberships/membership-domain.ts` in addition to checking the actor's authorization; raw client-supplied status updates are not an acceptable authorization or lifecycle boundary.
-
-Email is the authentication identifier and must be canonicalized through `createCanonicalUserEmail` before any user write. Do not perform ad-hoc lowercase handling in route handlers. The database rejects non-canonical or malformed email values, preventing casing/whitespace variants from bypassing the unique identity constraint. User lifecycle changes must use the explicit domain transition rules; archived identities are terminal in the current foundation.
+Membership mutation APIs remain intentionally unavailable until roles and permissions exist. Future membership writes must use explicit lifecycle transition rules in addition to checking actor authorization; raw client-supplied status changes are not an authorization or lifecycle boundary.
 
 ## Database test safety
 
-`npm run test:database` is allowed only against an explicitly disposable PostgreSQL database. The runner requires `TEST_DATABASE_URL`, rejects reuse of `DATABASE_URL`, requires a named database, and requires `SF_DATABASE_TEST_CONFIRM=sf-disposable-test-database` before it will validate/apply migrations or run integration tests. This acknowledgement is a guardrail, not permission to use production or shared data.
+`npm run test:database` is allowed only against an explicitly disposable PostgreSQL database. The runner requires `TEST_DATABASE_URL`, rejects reuse of `DATABASE_URL`, requires a named database, and requires `SF_DATABASE_TEST_CONFIRM=sf-disposable-test-database` before it validates/applies migrations or runs integration tests.
 
-The database test path verifies Prisma schema validity, deploys checked-in migrations, verifies migration status, checks Prisma-supported schema drift, and then runs tenant-isolation repository tests. Never weaken these guards to make local setup more convenient.
+The database test path verifies Prisma schema validity, deploys checked-in migrations, verifies migration status, checks Prisma-supported schema drift, and runs tenant/authentication repository tests. Never weaken these guards to make local setup more convenient.
 
 ## Integration credentials
 
-Future database-managed provider credentials must be encrypted before storage. Never store plaintext provider secrets, passwords, access tokens, or payment card data in logs or audit records.
-
-The server-level encryption/master key belongs in deployment secrets or a managed key service, never in the same database record as encrypted credentials.
+Future database-managed provider credentials must be encrypted before storage. Never store plaintext provider secrets, passwords, access tokens, payment card data, or session tokens in logs or audit records. The server-level master encryption key belongs in deployment secrets or a managed key service, never alongside encrypted credentials in the database.
 
 ## Payments
 
-Payment success must be verified server-side from the payment provider. Browser redirects cannot be treated as proof of payment. Payment creation, capture, refunds, reconciliation, and webhooks should use idempotency strategies.
+Payment success must be verified server-side from the provider. Browser redirects cannot be treated as proof of payment. Payment creation, capture, refunds, reconciliation, and webhooks should use idempotency strategies.
 
-## Audit history
+## Audit and observability
 
-Important operations should record actor, organization, action, resource, timestamp, and safe before/after information where appropriate. Credential values must never enter the audit trail.
-
-## Observability
-
-Structured logs may contain request/correlation ID, organization ID, provider, booking reference, and operation. They must not contain passwords, API secrets, card data, access tokens, session tokens, or unnecessary encrypted credential payloads.
+Important commercial operations should record actor, organization, action, resource, timestamp, and safe before/after information where appropriate. Structured logs may contain request/correlation ID, organization ID, provider, booking reference, and operation, but never passwords, API secrets, card data, access tokens, session tokens, or unnecessary encrypted credential payloads.

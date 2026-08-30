@@ -10,34 +10,51 @@ This roadmap follows dependency order. Do not start lower-priority product modul
 - responsive public foundation page
 - no legacy prototype provider coupling
 
-## 2. Database and tenant foundation — implemented baseline
+## 2. Database and tenant foundation — implemented baseline, live PostgreSQL verification pending
 
 - PostgreSQL/Prisma setup
 - organization model
 - user model
 - organization membership
-- tenant-scoped organization repository
+- tenant-scoped organization and membership repositories
+- checked-in migrations and disposable-database verification harness
 
-Further tenant enforcement will be wired through protected APIs after authentication exists.
+Live migration/schema/isolation verification still requires an available disposable PostgreSQL target.
 
-## 3. Authentication — next
+## 3. Authentication — implemented
 
-- secure sign-in/session persistence/sign-out
-- user identity synchronization
+- first-party email/password strategy
+- password policy and versioned salted scrypt storage
+- persisted opaque sessions
+- secure browser session cookie
+- sign-up/sign-in/sign-out
 - protected server access
-- branded SF authentication experience
+- auth error/loading/success states
+- unauthorized and expired-session regression coverage
 
-## 4. Organizations and tenant isolation
+## 4. Organizations and tenant isolation — in progress
 
-- organization selection/context
-- tenant-scoped route/application services
-- automated isolation tests
+Implemented:
 
-## 5. Roles and permissions
+- authenticated organization creation/onboarding
+- atomic organization + creator-membership persistence
+- organization selection for multi-tenant users
+- revalidated active-organization server context
+- tenant-safe organization/membership reads
+- cross-tenant repository coverage checked in
+
+Next dependency work:
+
+- granular roles and permissions before organization-management mutations
+- organization settings/deactivation workflows after authorization exists
+- route/mutation authorization coverage as those operations are introduced
+
+## 5. Roles and permissions — next
 
 - permission model
 - organization roles
 - protected operations based on permissions, not role names alone
+- membership/role management and authorization tests
 
 ## 6. Persistent application shell
 

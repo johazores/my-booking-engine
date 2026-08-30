@@ -6,9 +6,11 @@ This document describes the target architecture and identifies what exists today
 
 ## Current foundation
 
-SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, and active organization memberships. Tenant-safe organization repository queries require an active membership in the requested organization.
+SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, and persisted opaque authentication sessions.
 
-Authentication, granular authorization, booking domain modules, payments, inventory, and provider adapters are planned but not implemented yet.
+First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can now create a tenant atomically with their membership and choose an active organization context. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
+
+Granular roles/permissions, the persistent application shell, booking domain modules, payments, inventory, and provider adapters are not implemented yet.
 
 ## Architectural shape
 
@@ -60,6 +62,8 @@ Business-specific capabilities extend the common booking foundation only where c
 - Domain modules own business rules and state transitions.
 - Repository/data-access modules enforce tenant ownership.
 - Provider adapters translate normalized operations to external APIs.
+
+Authenticated tenant operations must derive user identity from the validated server session and must revalidate organization membership at the server/data-access boundary. Browser route parameters, form values, or cookies are never sufficient tenant authorization by themselves.
 
 ## Scaling restraint
 
