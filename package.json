@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "node --test src/server/organizations/*.test.ts src/server/tenancy/*.test.ts",
+    "test:database": "node scripts/run-database-tests.mjs",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",

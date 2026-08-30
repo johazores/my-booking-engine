@@ -46,6 +46,18 @@ npm run db:migrate
 
 After applying the migration, verify the database schema before marking the live-database checklist items complete. Never point development migration commands at production.
 
+## Database integration tests
+
+Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The test runner refuses to use the same URL as `DATABASE_URL`, applies checked-in migrations to the test database, then runs the real organization repository against two separate tenants.
+
+```bash
+# example only; use your own disposable local test database
+export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sf_test?schema=public"
+npm run test:database
+```
+
+The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B by ID or slug, checks Tenant A's organization list does not contain Tenant B, and removes all records it created. Do not point `TEST_DATABASE_URL` at production or any shared database containing valuable data.
+
 ## Validation
 
 Before considering a coherent slice complete, run the relevant available checks:
@@ -58,6 +70,12 @@ npm run prisma:validate
 npm run build
 ```
 
+When a disposable PostgreSQL test database is available, also run:
+
+```bash
+npm run test:database
+```
+
 When database behavior is added, include appropriate schema/migration validation and tests for important domain rules. Tests requiring real database isolation must run against an isolated PostgreSQL test database, not a shared or production database.
 
 ## Code organization
@@ -67,6 +85,7 @@ When database behavior is added, include appropriate schema/migration validation
 - `src/server/` — server-only application/data-access code
 - `prisma/` — database schema/migrations
 - `docs/` — architecture and product engineering documentation
+- `scripts/` — local engineering/validation entrypoints
 
 Keep business rules out of UI components. Keep route handlers thin. Avoid generic utility dumping grounds and unnecessary deep nesting.
 

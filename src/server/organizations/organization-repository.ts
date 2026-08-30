@@ -1,8 +1,8 @@
-import { db } from '@/server/database';
+import { db } from '../database.ts';
 import {
   activeOrganizationAccessScope,
   activeOrganizationMembershipScope,
-} from '@/server/tenancy/tenant-scope';
+} from '../tenancy/tenant-scope.ts';
 
 interface OrganizationAccessInput {
   organizationId: string;
