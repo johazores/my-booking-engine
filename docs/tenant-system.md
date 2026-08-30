@@ -12,7 +12,16 @@ The current database contains organizations, users, and organization memberships
 
 Organization membership reads now follow the same server-side boundary. Listing or retrieving a membership requires both the target organization ID and an active membership for the requesting user in that same active, non-deleted organization. A membership ID from another tenant cannot be used by itself to cross the organization boundary.
 
-Membership mutation APIs are intentionally not exposed yet. Creating, changing, suspending, or removing memberships requires the roles/permissions slice so an ordinary active member cannot implicitly gain membership-management authority.
+Membership mutation APIs are intentionally not exposed yet. Creating, changing, suspending, archiving, or removing memberships requires the roles/permissions slice so an ordinary active member cannot implicitly gain membership-management authority.
+
+Membership lifecycle rules are now explicit in `src/server/memberships/membership-domain.ts`:
+
+- `INVITED` → `ACTIVE` or `ARCHIVED`
+- `ACTIVE` → `SUSPENDED` or `ARCHIVED`
+- `SUSPENDED` → `ACTIVE` or `ARCHIVED`
+- `ARCHIVED` is terminal
+
+Only `ACTIVE` memberships grant tenant access. `INVITED`, `SUSPENDED`, and `ARCHIVED` memberships never satisfy the server-side tenant access scope. Archival is the audit-preserving terminal state for a membership that must not be reactivated later.
 
 User identities use canonical trimmed lowercase email values. Their lifecycle is explicit: active identities can be suspended or archived, suspended identities can be reactivated or archived, and archived identities are terminal in the current foundation. Tenant access requires the requesting user itself to remain active, so changing user lifecycle state cannot leave stale access active through an unchanged membership row.
 
@@ -24,11 +33,11 @@ The initial organization lifecycle is explicit:
 - `SUSPENDED` can return to `ACTIVE` or become `ARCHIVED`
 - `ARCHIVED` is terminal in the current foundation
 
-The checked-in PostgreSQL migrations add the tenant tables, relational constraints, indexes, database checks, and canonical user identity constraints. They still need to be applied and verified against a real PostgreSQL database before live database validation is considered complete.
+The checked-in PostgreSQL migrations add the tenant tables, relational constraints, indexes, database checks, canonical user identity constraints, and the terminal membership archival state. They still need to be applied and verified against a real PostgreSQL database before live database validation is considered complete.
 
 A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant-scope.ts`. Organization access scopes require an active membership for the requesting user. Tenant-owned records can additionally use active collection/resource scopes that bind `organizationId` and validate actor access through the owning organization relation. Single-resource lookups bind both the resource identifier and organization identifier so a resource ID from another tenant cannot be used by itself.
 
-The scope helpers are covered by dependency-free tests. The PostgreSQL integration test also exercises the real organization and organization-membership repositories with Tenant A and Tenant B. These tests are checked in, but the live database assertions remain unverified until `npm run test:database` can run against a disposable PostgreSQL instance.
+The scope helpers are covered by dependency-free tests. Membership lifecycle tests additionally verify that only active memberships grant access and that archived memberships are terminal. The PostgreSQL integration test also exercises the real organization and organization-membership repositories with Tenant A and Tenant B. These tests are checked in, but the live database assertions remain unverified until `npm run test:database` can run against a disposable PostgreSQL instance.
 
 This is the beginning of tenant isolation, not a complete authorization system.
 

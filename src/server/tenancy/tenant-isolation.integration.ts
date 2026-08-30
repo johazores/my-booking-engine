@@ -169,6 +169,26 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
       }),
       [],
     );
+
+    await db.organizationMembership.update({
+      where: { id: membershipA.id },
+      data: { status: 'ARCHIVED' },
+    });
+
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      null,
+    );
+    assert.deepEqual(
+      await membershipRepository.listMembershipsForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      [],
+    );
   } finally {
     if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
       await db.organizationMembership.deleteMany({

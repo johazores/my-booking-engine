@@ -1,3 +1,5 @@
+import { TENANT_ACCESS_MEMBERSHIP_STATUS } from '../memberships/membership-domain.ts';
+
 export interface TenantActorScopeInput {
   organizationId: string;
   userId: string;
@@ -26,7 +28,7 @@ export function activeOrganizationMembershipScope(userId: string) {
     memberships: {
       some: {
         userId,
-        status: 'ACTIVE' as const,
+        status: TENANT_ACCESS_MEMBERSHIP_STATUS,
         user: {
           is: {
             status: 'ACTIVE' as const,

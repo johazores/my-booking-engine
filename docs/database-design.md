@@ -38,11 +38,22 @@ Tenant access already requires an `ACTIVE` user, so suspending/archiving an iden
 
 Connects users to organizations. The unique `(organizationId, userId)` constraint prevents duplicate membership records. Indexes support tenant and user membership lookups.
 
+Membership lifecycle is explicit and audit-preserving:
+
+- `INVITED` → `ACTIVE` or `ARCHIVED`
+- `ACTIVE` → `SUSPENDED` or `ARCHIVED`
+- `SUSPENDED` → `ACTIVE` or `ARCHIVED`
+- `ARCHIVED` is terminal
+
+Only `ACTIVE` memberships grant tenant access. `ARCHIVED` provides a terminal state for removed/revoked membership history without requiring destructive deletion. The application transition contract lives in `src/server/memberships/membership-domain.ts`, and the tenant scope imports the same active-membership constant so access semantics cannot drift independently.
+
 ## Migrations
 
 The initial tenant schema is checked in under `prisma/migrations/20260830043000_initial_tenant_foundation/migration.sql` with a PostgreSQL migration lock file.
 
 The canonical identity migration is checked in under `prisma/migrations/20260830193000_canonical_user_identity/migration.sql`. It intentionally fails if existing user emails are not canonical so operators can review identity collisions instead of silently rewriting commercial identity data.
+
+The membership lifecycle migration is checked in under `prisma/migrations/20260830203000_membership_lifecycle/migration.sql` and adds the terminal `ARCHIVED` membership state.
 
 The migrations have **not** been claimed as applied to a real database from the repository agent environment. They must be applied and verified against an actual PostgreSQL instance before the corresponding checklist item is marked complete.
 
@@ -74,7 +85,7 @@ The server-side scope helpers in `src/server/tenancy/tenant-scope.ts` establish 
 
 The current organization and organization-membership repositories consume these shared scopes. Future tenant-owned repositories must reuse the same ownership and identifier-validation pattern rather than accepting unrestricted resource IDs from routes or UI input.
 
-Dependency-free scope tests verify that Tenant A and Tenant B produce distinct query scopes even when the same resource ID is supplied, and that malformed identifiers fail before a query can be constructed. Live PostgreSQL integration tests are still required before database-level tenant isolation can be considered fully proven.
+Dependency-free scope tests verify that Tenant A and Tenant B produce distinct query scopes even when the same resource ID is supplied, that malformed identifiers fail before a query can be constructed, and that membership lifecycle states cannot accidentally broaden tenant access. Live PostgreSQL integration tests are still required before database-level tenant isolation can be considered fully proven.
 
 ## Planned domain modeling
 
