@@ -99,7 +99,8 @@
 }
 
 .sf-field input,
-.sf-field select {
+.sf-field select,
+.sf-inline-form select {
   width: 100%;
   min-height: 48px;
   border: 1px solid var(--sf-border);
@@ -112,6 +113,7 @@
 
 .sf-field input:focus-visible,
 .sf-field select:focus-visible,
+.sf-inline-form select:focus-visible,
 button:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--sf-primary) 60%, white);
   outline-offset: 3px;
@@ -245,6 +247,30 @@ button:focus-visible {
   gap: 16px;
 }
 
+.sf-inline-form {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.sf-inline-form select {
+  min-height: 40px;
+  padding-block: 7px;
+}
+
+.sf-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .sf-header__nav {
   display: flex;
   align-items: center;
@@ -281,7 +307,8 @@ button.sf-button {
   }
 
   .sf-account-details,
-  .sf-form-row {
+  .sf-form-row,
+  .sf-inline-form {
     grid-template-columns: 1fr;
   }
 

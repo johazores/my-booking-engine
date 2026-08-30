@@ -44,6 +44,17 @@ export async function createOrganizationForUser(input: {
           organizationId: organization.id,
           userId: input.userId,
           status: 'ACTIVE',
+          role: 'ADMIN',
+        },
+      });
+      await transaction.auditEvent.create({
+        data: {
+          organizationId: organization.id,
+          actorUserId: input.userId,
+          action: 'organization.created',
+          resourceType: 'organization',
+          resourceId: organization.id,
+          afterData: { role: 'ADMIN' },
         },
       });
       return organization;

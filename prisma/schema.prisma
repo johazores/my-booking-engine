@@ -30,11 +30,23 @@ enum UserStatus {
   ARCHIVED
 }
 
+enum PlatformRole {
+  USER
+  ADMIN
+}
+
 enum MembershipStatus {
   ACTIVE
   INVITED
   SUSPENDED
   ARCHIVED
+}
+
+enum OrganizationRole {
+  ADMIN
+  MANAGER
+  STAFF
+  CUSTOMER
 }
 
 model Organization {
@@ -49,6 +61,7 @@ model Organization {
   updatedAt   DateTime           @updatedAt @db.Timestamptz(6)
   deletedAt   DateTime?          @db.Timestamptz(6)
   memberships OrganizationMembership[]
+  auditEvents AuditEvent[]
 
   @@index([status, deletedAt])
   @@index([kind])
@@ -60,13 +73,16 @@ model User {
   email              String                   @unique @db.VarChar(320)
   displayName        String?                  @db.VarChar(160)
   status             UserStatus               @default(ACTIVE)
+  platformRole       PlatformRole             @default(USER)
   createdAt          DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime                 @updatedAt @db.Timestamptz(6)
   memberships        OrganizationMembership[]
   passwordCredential PasswordCredential?
   authSessions       AuthSession[]
+  auditEvents        AuditEvent[]              @relation("AuditActor")
 
   @@index([status])
+  @@index([platformRole, status])
   @@map("users")
 }
 
@@ -100,6 +116,7 @@ model OrganizationMembership {
   organizationId String           @db.Uuid
   userId         String           @db.Uuid
   status         MembershipStatus @default(ACTIVE)
+  role           OrganizationRole @default(STAFF)
   createdAt      DateTime         @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -108,5 +125,25 @@ model OrganizationMembership {
   @@unique([organizationId, userId])
   @@index([userId, status])
   @@index([organizationId, status])
+  @@index([organizationId, role, status])
   @@map("organization_memberships")
+}
+
+model AuditEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  actorUserId    String       @db.Uuid
+  action         String       @db.VarChar(120)
+  resourceType   String       @db.VarChar(80)
+  resourceId     String       @db.VarChar(120)
+  beforeData     Json?
+  afterData      Json?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actorUser      User         @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_events")
 }

@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
+import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
+import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
+import { listMembershipsForOrganization } from '@/server/memberships/membership-repository.ts';
 import { listOrganizationsForUser } from '@/server/organizations/organization-repository.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
@@ -13,14 +16,23 @@ const organizationErrors: Record<string, string> = {
   server: 'The organization could not be created. Try again.',
 };
 
+const roleErrors: Record<string, string> = {
+  tenant: 'Choose an active organization before managing roles.',
+  permission: 'You do not have permission to manage organization roles.',
+  'last-admin': 'An organization must keep at least one active administrator.',
+  validation: 'Choose a valid member and role.',
+  server: 'The role could not be updated. Try again.',
+};
+
 const statusMessages: Record<string, string> = {
   created: 'Your account was created securely.',
   'signed-in': 'Signed in successfully.',
   'organization-created': 'Organization created and selected.',
   'organization-selected': 'Active organization updated.',
+  'role-updated': 'Member role updated and audited.',
 };
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ status?: string; organizationError?: string }> }) {
+export default async function AccountPage({ searchParams }: { searchParams: Promise<{ status?: string; organizationError?: string; roleError?: string }> }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
   if (authRedirect) redirect(authRedirect);
@@ -33,6 +45,16 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const activeContext = await readActiveOrganizationContext(session.user.id);
   const statusMessage = params.status ? statusMessages[params.status] : undefined;
   const organizationError = params.organizationError ? organizationErrors[params.organizationError] : undefined;
+  const roleError = params.roleError ? roleErrors[params.roleError] : undefined;
+
+  const authorization = activeContext.organization
+    ? await readOrganizationAuthorization({ organizationId: activeContext.organization.id, userId: session.user.id })
+    : null;
+  const canReadMembers = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership:read')));
+  const canManageRoles = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership-role:manage')));
+  const memberships = activeContext.organization && canReadMembers
+    ? await listMembershipsForOrganization({ organizationId: activeContext.organization.id, userId: session.user.id })
+    : [];
 
   return (
     <main className="sf-account-shell">
@@ -46,6 +68,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <section className="sf-account-panel" aria-labelledby="account-title">
         {statusMessage ? <p className="sf-alert sf-alert--success" role="status">{statusMessage}</p> : null}
         {organizationError ? <p className="sf-alert sf-alert--error" role="alert">{organizationError}</p> : null}
+        {roleError ? <p className="sf-alert sf-alert--error" role="alert">{roleError}</p> : null}
         {activeContext.hadOrganizationCookie && !activeContext.organization ? <p className="sf-alert sf-alert--error" role="alert">Your previous organization selection is no longer available. Choose another active organization.</p> : null}
         <p className="sf-eyebrow">Authenticated account</p>
         <h1 className="sf-account-panel__title" id="account-title">{session.user.displayName || session.user.email}</h1>
@@ -53,6 +76,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           <div><dt>Email</dt><dd>{session.user.email}</dd></div>
           <div><dt>Session expires</dt><dd>{session.expiresAt.toLocaleString()}</dd></div>
           <div><dt>Active organization</dt><dd>{activeContext.organization?.name ?? 'Not selected'}</dd></div>
+          {authorization?.role ? <div><dt>Your role</dt><dd>{authorization.role.toLowerCase()}</dd></div> : null}
         </dl>
       </section>
 
@@ -83,10 +107,34 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         )}
       </section>
 
+      {activeContext.organization && canReadMembers ? (
+        <section className="sf-account-panel" aria-labelledby="members-title">
+          <div className="sf-account-panel__heading"><div><p className="sf-eyebrow">Authorization</p><h2 id="members-title">Organization members</h2></div></div>
+          {memberships.length === 0 ? <div className="sf-empty-state"><h3>No members found</h3><p>Active tenant access exists, but no membership records were returned.</p></div> : (
+            <ul className="sf-organization-list">
+              {memberships.map((membership) => (
+                <li key={membership.id}>
+                  <div><strong>{membership.user.displayName || membership.user.email}</strong><span>{membership.user.email} · {membership.status.toLowerCase()}</span></div>
+                  {canManageRoles ? (
+                    <form action={`/api/organizations/memberships/${membership.id}/role`} method="post" className="sf-inline-form">
+                      <label className="sf-visually-hidden" htmlFor={`role-${membership.id}`}>Role for {membership.user.email}</label>
+                      <select id={`role-${membership.id}`} name="role" defaultValue={membership.role}>
+                        <option value="ADMIN">Admin</option><option value="MANAGER">Manager</option><option value="STAFF">Staff</option><option value="CUSTOMER">Customer</option>
+                      </select>
+                      <button className="sf-button sf-button--secondary sf-button--compact" type="submit">Update role</button>
+                    </form>
+                  ) : <span className="sf-status-badge">{membership.role.toLowerCase()}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       <section className="sf-account-panel" aria-labelledby="create-organization-title">
         <p className="sf-eyebrow">Organization onboarding</p>
         <h2 id="create-organization-title">Create an organization</h2>
-        <p className="sf-auth-card__copy">The creator receives an active membership. Management permissions are introduced separately in the authorization phase.</p>
+        <p className="sf-auth-card__copy">The creator becomes the first organization administrator. Role changes are permission checked and audited server-side.</p>
         <form className="sf-form sf-organization-form" action="/api/organizations" method="post">
           <label className="sf-field">Business name<input name="name" minLength={2} maxLength={160} required autoComplete="organization" /></label>
           <label className="sf-field">URL slug<input name="slug" minLength={3} maxLength={63} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="optional-auto-from-name" /><small>Optional. Lowercase letters, numbers, and single hyphens.</small></label>

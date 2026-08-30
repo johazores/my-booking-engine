@@ -13,7 +13,14 @@ export function listMembershipsForOrganization(input: TenantActorScopeInput) {
   return db.organizationMembership.findMany({
     where: activeTenantOwnedCollectionScope(input),
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    include: {
+    select: {
+      id: true,
+      organizationId: true,
+      userId: true,
+      status: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
       user: {
         select: {
           id: true,
@@ -37,7 +44,14 @@ export function findMembershipForOrganization({
       userId,
       resourceId: membershipId,
     }),
-    include: {
+    select: {
+      id: true,
+      organizationId: true,
+      userId: true,
+      status: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
       user: {
         select: {
           id: true,
