@@ -1,37 +1,41 @@
 import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { isOrganizationRole, type OrganizationRole } from '../authorization/authorization-domain.ts';
+import {
+  canTransitionMembershipStatus,
+  isMembershipLifecycleStatus,
+  type MembershipLifecycleStatus,
+} from './membership-domain.ts';
 
-export class MembershipRoleValidationError extends Error {
-  constructor() {
-    super('Choose a valid organization role.');
-    this.name = 'MembershipRoleValidationError';
+export class MembershipStatusValidationError extends Error {
+  constructor(message = 'Choose a valid membership status transition.') {
+    super(message);
+    this.name = 'MembershipStatusValidationError';
   }
 }
 
-export class MembershipRoleConflictError extends Error {
+export class MembershipStatusConflictError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'MembershipRoleConflictError';
+    this.name = 'MembershipStatusConflictError';
   }
 }
 
-export async function updateMembershipRole(input: {
+export async function updateMembershipStatus(input: {
   organizationId: string;
   actorUserId: string;
   membershipId: string;
-  role: string;
+  status: string;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.membershipId, 'membershipId');
-  if (!isOrganizationRole(input.role)) throw new MembershipRoleValidationError();
+  if (!isMembershipLifecycleStatus(input.status)) throw new MembershipStatusValidationError();
 
   await requireOrganizationPermission({
     organizationId: input.organizationId,
     userId: input.actorUserId,
-    permission: 'membership-role:manage',
+    permission: 'membership:manage',
   });
 
   return db.$transaction(async (transaction) => {
@@ -39,19 +43,25 @@ export async function updateMembershipRole(input: {
       where: { id: input.membershipId, organizationId: input.organizationId },
       select: { id: true, userId: true, role: true, status: true },
     });
-    if (!membership || membership.status === 'ARCHIVED') throw new MembershipRoleValidationError();
-    if (membership.role === input.role) return membership;
 
-    if (membership.role === 'ADMIN' && input.role !== 'ADMIN' && membership.status === 'ACTIVE') {
+    if (!membership) throw new MembershipStatusValidationError();
+    if (membership.status === input.status) return membership;
+    if (!canTransitionMembershipStatus(membership.status as MembershipLifecycleStatus, input.status)) {
+      throw new MembershipStatusValidationError();
+    }
+
+    if (membership.role === 'ADMIN' && membership.status === 'ACTIVE' && input.status !== 'ACTIVE') {
       const activeAdminCount = await transaction.organizationMembership.count({
         where: { organizationId: input.organizationId, role: 'ADMIN', status: 'ACTIVE' },
       });
-      if (activeAdminCount <= 1) throw new MembershipRoleConflictError('An organization must keep at least one active administrator.');
+      if (activeAdminCount <= 1) {
+        throw new MembershipStatusConflictError('An organization must keep at least one active administrator.');
+      }
     }
 
     const updated = await transaction.organizationMembership.update({
       where: { id: membership.id },
-      data: { role: input.role as OrganizationRole },
+      data: { status: input.status },
       select: { id: true, userId: true, role: true, status: true },
     });
 
@@ -59,13 +69,14 @@ export async function updateMembershipRole(input: {
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: 'membership.role.changed',
+        action: 'membership.status.changed',
         resourceType: 'organization-membership',
         resourceId: membership.id,
-        beforeData: { role: membership.role },
-        afterData: { role: updated.role },
+        beforeData: { status: membership.status },
+        afterData: { status: updated.status },
       },
     });
+
     return updated;
   }, { isolationLevel: 'Serializable' });
 }

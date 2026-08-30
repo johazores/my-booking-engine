@@ -16,6 +16,10 @@ const membershipStatusTransitions: Record<
   ARCHIVED: [],
 };
 
+export function isMembershipLifecycleStatus(value: string): value is MembershipLifecycleStatus {
+  return value === 'INVITED' || value === 'ACTIVE' || value === 'SUSPENDED' || value === 'ARCHIVED';
+}
+
 export function canMembershipAccessTenant(status: MembershipLifecycleStatus) {
   return status === TENANT_ACCESS_MEMBERSHIP_STATUS;
 }

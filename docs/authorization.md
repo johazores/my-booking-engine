@@ -32,14 +32,22 @@ Server code authorizes capabilities rather than scattering role-name checks thro
 
 ## Membership role changes
 
-Role changes are implemented end to end from the authenticated account UI through a same-origin form route into the membership role service. The service:
+Role changes are implemented end to end from the authenticated account UI through a same-origin form route into the membership role service. The service validates identifiers and roles, requires `membership-role:manage`, scopes the target to the active tenant, protects the last active administrator, persists the change, and records a safe audit event.
 
-1. validates user, organization, membership and role identifiers;
-2. requires `membership-role:manage` server-side;
-3. scopes the target membership to the active organization;
-4. refuses to demote the last active organization administrator;
-5. persists the role change transactionally; and
-6. writes an audit event containing only safe before/after role data.
+Role mutations use a serializable database transaction because the last-active-admin invariant is organization-wide. Concurrent demotions cannot both observe a stale administrator count and silently remove all active administrators.
+
+## Membership lifecycle management
+
+Authorized administrators and managers can manage membership status according to the canonical lifecycle:
+
+- `INVITED -> ACTIVE | ARCHIVED`
+- `ACTIVE -> SUSPENDED | ARCHIVED`
+- `SUSPENDED -> ACTIVE | ARCHIVED`
+- `ARCHIVED` is terminal
+
+The account UI exposes only valid next states. The server independently validates every transition, requires `membership:manage`, scopes the target membership to the selected organization, prevents suspending or archiving the final active administrator, and writes `membership.status.changed` audit events with safe before/after status data.
+
+Status mutations also use serializable transactions so concurrent administrator deactivations preserve the same last-active-admin invariant as role changes.
 
 The browser never supplies trusted actor identity or organization authority. Actor identity comes from the validated session and organization identity comes from the server-revalidated active tenant context.
 
@@ -47,6 +55,20 @@ The browser never supplies trusted actor identity or organization authority. Act
 
 Permission-sensitive changes are stored in `audit_events` with organization, actor, action, resource type/id, timestamp, and safe JSON before/after data. Passwords, session tokens, provider credentials, and other secrets must never be written to audit data.
 
-## Next authorization work
+## Authorization verification
 
-The current slice establishes the reusable authorization boundary and role-management workflow. Membership invitations/status management and organization settings/deactivation should build on this boundary rather than adding route-local role checks.
+The disposable PostgreSQL verification suite includes authorization integration coverage for:
+
+- organization-role resolution and platform-admin authority;
+- manager/staff least-privilege enforcement;
+- cross-tenant mutation denial;
+- role and membership-status mutations;
+- terminal archived memberships;
+- last-active-admin protection for both role and status changes; and
+- audit-event persistence for successful permission-sensitive changes.
+
+These database checks must only be claimed as passed when `npm run test:database` is executed against the guarded disposable PostgreSQL target.
+
+## Next authorization-dependent work
+
+The reusable roles, permissions, role-management, membership-status, audit, and integration-test boundaries are now in place. Organization settings and safe organization deactivation can build on `organization-settings:manage` / `organization:manage` rather than introducing route-local role checks.

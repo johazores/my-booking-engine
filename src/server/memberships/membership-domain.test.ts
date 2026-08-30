@@ -5,6 +5,7 @@ import {
   assertMembershipStatusTransition,
   canMembershipAccessTenant,
   canTransitionMembershipStatus,
+  isMembershipLifecycleStatus,
 } from './membership-domain.ts';
 
 test('only active memberships grant tenant access', () => {
@@ -12,6 +13,15 @@ test('only active memberships grant tenant access', () => {
   assert.equal(canMembershipAccessTenant('INVITED'), false);
   assert.equal(canMembershipAccessTenant('SUSPENDED'), false);
   assert.equal(canMembershipAccessTenant('ARCHIVED'), false);
+});
+
+test('membership status parsing accepts only canonical lifecycle states', () => {
+  for (const status of ['INVITED', 'ACTIVE', 'SUSPENDED', 'ARCHIVED']) {
+    assert.equal(isMembershipLifecycleStatus(status), true);
+  }
+  for (const status of ['', 'active', 'PENDING', 'DELETED']) {
+    assert.equal(isMembershipLifecycleStatus(status), false);
+  }
 });
 
 test('invited memberships can be accepted or archived', () => {
