@@ -50,18 +50,32 @@ enum OrganizationRole {
 }
 
 model Organization {
-  id          String             @id @default(uuid()) @db.Uuid
-  slug        String             @unique @db.VarChar(63)
-  name        String             @db.VarChar(160)
-  kind        OrganizationKind
-  status      OrganizationStatus @default(ACTIVE)
-  timezone    String             @default("UTC") @db.VarChar(80)
-  currency    String             @default("USD") @db.VarChar(3)
-  createdAt   DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime           @updatedAt @db.Timestamptz(6)
-  deletedAt   DateTime?          @db.Timestamptz(6)
-  memberships OrganizationMembership[]
-  auditEvents AuditEvent[]
+  id                       String             @id @default(uuid()) @db.Uuid
+  slug                     String             @unique @db.VarChar(63)
+  name                     String             @db.VarChar(160)
+  kind                     OrganizationKind
+  status                   OrganizationStatus @default(ACTIVE)
+  timezone                 String             @default("UTC") @db.VarChar(80)
+  currency                 String             @default("USD") @db.VarChar(3)
+  logoUrl                  String?            @db.VarChar(2048)
+  faviconUrl               String?            @db.VarChar(2048)
+  primaryColor             String             @default("#2563eb") @db.Char(7)
+  secondaryColor           String             @default("#0d1626") @db.Char(7)
+  accentColor              String             @default("#20c997") @db.Char(7)
+  fontFamily               String             @default("INTER") @db.VarChar(20)
+  contactEmail             String?            @db.VarChar(320)
+  contactPhone             String?            @db.VarChar(40)
+  websiteUrl               String?            @db.VarChar(2048)
+  emailFromName            String?            @db.VarChar(160)
+  emailReplyTo             String?            @db.VarChar(320)
+  publicBookingTitle       String?            @db.VarChar(160)
+  publicBookingDescription String?            @db.VarChar(500)
+  customDomain             String?            @unique @db.VarChar(253)
+  createdAt                DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime           @updatedAt @db.Timestamptz(6)
+  deletedAt                DateTime?          @db.Timestamptz(6)
+  memberships              OrganizationMembership[]
+  auditEvents              AuditEvent[]
 
   @@index([status, deletedAt])
   @@index([kind])

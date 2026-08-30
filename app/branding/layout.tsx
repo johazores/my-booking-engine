@@ -8,6 +8,6 @@ export async function generateMetadata(): Promise<Metadata> {
   return readAuthenticatedBrandMetadata();
 }
 
-export default function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default function BrandingLayout({ children }: Readonly<{ children: ReactNode }>) {
   return <AuthenticatedApplicationShell>{children}</AuthenticatedApplicationShell>;
 }

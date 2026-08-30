@@ -2,9 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { BrandMark } from './brand-mark';
+
+type ShellBranding = {
+  logoUrl?: string | null;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  fontStack: string;
+};
 
 type ApplicationShellProps = {
   children: ReactNode;
@@ -13,11 +21,13 @@ type ApplicationShellProps = {
   organizationName?: string | null;
   organizationSlug?: string | null;
   role?: string | null;
+  branding?: ShellBranding | null;
   contentAsMain?: boolean;
 };
 
 const navigation = [
   { href: '/dashboard', label: 'Dashboard', exact: true },
+  { href: '/branding', label: 'Branding', exact: false },
   { href: '/account', label: 'Account', exact: false },
 ] as const;
 
@@ -32,9 +42,17 @@ export function ApplicationShell({
   organizationName,
   organizationSlug,
   role,
+  branding,
   contentAsMain = true,
 }: ApplicationShellProps) {
   const pathname = usePathname();
+  const style = branding ? ({
+    '--sf-primary': branding.primaryColor,
+    '--sf-secondary': branding.secondaryColor,
+    '--sf-surface-strong': branding.secondaryColor,
+    '--sf-accent': branding.accentColor,
+    '--sf-font-family': branding.fontStack,
+  } as CSSProperties) : undefined;
   const content = contentAsMain ? (
     <main className="sf-app-main" id="sf-main-content" tabIndex={-1}>{children}</main>
   ) : (
@@ -42,12 +60,15 @@ export function ApplicationShell({
   );
 
   return (
-    <div className="sf-app-shell">
+    <div className="sf-app-shell" style={style}>
       <a className="sf-skip-link" href="#sf-main-content">Skip to main content</a>
 
       <aside className="sf-app-sidebar" aria-label="Primary navigation">
-        <Link className="sf-app-sidebar__brand" href="/dashboard" aria-label="SF dashboard">
-          <BrandMark />
+        <Link className="sf-app-sidebar__brand" href="/dashboard" aria-label={`${organizationName ?? 'SF'} dashboard`}>
+          {branding?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="sf-app-sidebar__logo" src={branding.logoUrl} alt="" />
+          ) : <BrandMark />}
         </Link>
         <nav className="sf-app-nav">
           {navigation.map((item) => {

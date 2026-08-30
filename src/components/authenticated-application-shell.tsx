@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { ApplicationShell } from '@/components/application-shell';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
+import { readOrganizationBranding } from '@/server/branding/branding-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 type AuthenticatedApplicationShellProps = {
@@ -26,6 +27,9 @@ export async function AuthenticatedApplicationShell({
   const authorization = activeContext.organization
     ? await readOrganizationAuthorization({ organizationId: activeContext.organization.id, userId: session.user.id })
     : null;
+  const branding = activeContext.organization
+    ? await readOrganizationBranding({ organizationId: activeContext.organization.id, userId: session.user.id })
+    : null;
 
   return (
     <ApplicationShell
@@ -34,6 +38,13 @@ export async function AuthenticatedApplicationShell({
       organizationName={activeContext.organization?.name}
       organizationSlug={activeContext.organization?.slug}
       role={authorization?.role}
+      branding={branding ? {
+        logoUrl: branding.logoUrl,
+        primaryColor: branding.primaryColor,
+        secondaryColor: branding.secondaryColor,
+        accentColor: branding.accentColor,
+        fontStack: branding.fontStack,
+      } : null}
       contentAsMain={contentAsMain}
     >
       {children}

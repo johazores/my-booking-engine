@@ -1,6 +1,6 @@
 # Product Roadmap
 
-This roadmap follows dependency order. Do not start lower-priority product modules while a required foundation remains incomplete.
+This roadmap follows dependency order. Finish the highest-priority dependency first, but once a dependency cluster is complete an engineering run should continue into the next safe dependency when capacity remains rather than stopping artificially.
 
 ## 1. Repository and architecture foundation — implemented
 
@@ -18,8 +18,9 @@ This roadmap follows dependency order. Do not start lower-priority product modul
 - organization membership
 - tenant-scoped organization and membership repositories
 - checked-in migrations and disposable-database verification harness
+- checked-in tenant-isolation integration coverage
 
-Live migration/schema/isolation verification still requires an available disposable PostgreSQL target.
+Live migration/schema/isolation execution still requires an available disposable PostgreSQL target.
 
 ## 3. Authentication — implemented
 
@@ -67,9 +68,26 @@ Live migration/schema/isolation verification still requires an available disposa
 - account/organization administration integrated without weakening page/service authorization
 - future authenticated modules required to reuse the canonical workspace rather than create isolated shells
 
-## 7. Tenant settings and white-label branding
+## 7. Tenant settings and white-label branding — implemented configuration foundation
 
-## 8. Customers/travelers/guests
+- business name managed by organization settings
+- tenant logo and favicon URLs
+- primary, secondary, and accent colors
+- controlled tenant typography choices
+- tenant contact email, phone, and website
+- email sender name and reply-to configuration
+- public booking title/description persisted behind a public-safe reader
+- unique canonical custom-domain model/configuration
+- audited, permission-checked branding updates
+- CSS design-token propagation across the authenticated workspace
+- tenant logo/favicon/business name applied to authenticated shell/metadata
+- responsive `/branding` management UI with empty/read-only/error/success states
+
+The real public booking journey and custom-domain DNS ownership/routing are deliberately not claimed here. The branding configuration is ready for those later dependencies without creating a fake booking page or pretending a configured hostname is live.
+
+## 8. Customers/travelers/guests — next
+
+Build the first tenant-owned operational data module using the established authorization, audit, pagination, lifecycle, shell, and validation boundaries.
 
 ## 9. Internal inventory
 

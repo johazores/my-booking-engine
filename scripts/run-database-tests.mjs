@@ -41,4 +41,5 @@ run(process.execPath, [
   'src/server/auth/auth-persistence.integration.ts',
   'src/server/authorization/authorization.integration.ts',
   'src/server/organizations/organization-management.integration.ts',
+  'src/server/branding/branding.integration.ts',
 ]);

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 import './auth.css';
 import './shell.css';
+import './branding.css';
 
 export const metadata: Metadata = {
   title: { default: 'SF | Booking Infrastructure', template: '%s | SF' },
