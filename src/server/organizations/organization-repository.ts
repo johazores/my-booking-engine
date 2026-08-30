@@ -1,4 +1,8 @@
 import { db } from '@/server/database';
+import {
+  activeOrganizationAccessScope,
+  activeOrganizationMembershipScope,
+} from '@/server/tenancy/tenant-scope';
 
 interface OrganizationAccessInput {
   organizationId: string;
@@ -10,20 +14,9 @@ interface OrganizationSlugAccessInput {
   userId: string;
 }
 
-const activeMembershipScope = (userId: string) => ({
-  deletedAt: null,
-  status: 'ACTIVE' as const,
-  memberships: {
-    some: {
-      userId,
-      status: 'ACTIVE' as const,
-    },
-  },
-});
-
 export function listOrganizationsForUser(userId: string) {
   return db.organization.findMany({
-    where: activeMembershipScope(userId),
+    where: activeOrganizationMembershipScope(userId),
     orderBy: {
       name: 'asc',
     },
@@ -35,10 +28,7 @@ export function findOrganizationForUser({
   userId,
 }: OrganizationAccessInput) {
   return db.organization.findFirst({
-    where: {
-      ...activeMembershipScope(userId),
-      id: organizationId,
-    },
+    where: activeOrganizationAccessScope({ organizationId, userId }),
   });
 }
 
@@ -48,7 +38,7 @@ export function findOrganizationBySlugForUser({
 }: OrganizationSlugAccessInput) {
   return db.organization.findFirst({
     where: {
-      ...activeMembershipScope(userId),
+      ...activeOrganizationMembershipScope(userId),
       slug: organizationSlug,
     },
   });

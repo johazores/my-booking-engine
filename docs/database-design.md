@@ -51,7 +51,16 @@ For development environments where migrations are being authored rather than onl
 
 Future tenant-owned records must contain an organization identifier or otherwise have an unambiguous relational path to exactly one organization. Tenant security cannot depend on a frontend filter or route parameter alone.
 
-The current organization repository already requires an active membership to return active, non-deleted organizations. Future tenant-owned repositories must follow the same server-side scoping pattern rather than accepting unrestricted IDs from route or UI input.
+The server-side scope helpers in `src/server/tenancy/tenant-scope.ts` establish the repository contract:
+
+- organization access is restricted to active, non-deleted organizations with an active membership for the requesting user
+- tenant-owned collection queries always include `organizationId`
+- tenant-owned single-resource queries always include both `organizationId` and the resource ID
+- update/delete repositories must follow the same compound ownership scope rather than looking up a resource globally first
+
+The current organization repository consumes these shared scopes. Future tenant-owned repositories must reuse the same ownership pattern rather than accepting unrestricted resource IDs from routes or UI input.
+
+Dependency-free scope tests verify that Tenant A and Tenant B produce distinct query scopes even when the same resource ID is supplied. Live PostgreSQL integration tests are still required before database-level tenant isolation can be considered fully proven.
 
 ## Planned domain modeling
 
