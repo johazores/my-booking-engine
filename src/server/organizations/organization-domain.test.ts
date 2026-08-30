@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertOrganizationArchiveConfirmation,
   assertOrganizationStatusTransition,
   canTransitionOrganizationStatus,
   createOrganizationCurrency,
@@ -31,7 +32,7 @@ test('creates a canonical slug or rejects an unusable identifier', () => {
   assert.throws(() => createOrganizationSlug('@@'), OrganizationValidationError);
 });
 
-test('validates organization onboarding fields centrally', () => {
+test('validates organization onboarding and settings fields centrally', () => {
   assert.equal(createOrganizationName('  SF   Manila  '), 'SF Manila');
   assert.equal(createOrganizationKind('TRAVEL_AGENCY'), 'TRAVEL_AGENCY');
   assert.equal(createOrganizationTimezone('Asia/Manila'), 'Asia/Manila');
@@ -48,4 +49,16 @@ test('enforces organization lifecycle transitions', () => {
   assert.equal(canTransitionOrganizationStatus('ACTIVE', 'ARCHIVED'), true);
   assert.equal(canTransitionOrganizationStatus('ARCHIVED', 'ACTIVE'), false);
   assert.throws(() => assertOrganizationStatusTransition('ARCHIVED', 'ACTIVE'), /cannot transition/);
+});
+
+test('requires the canonical organization slug for destructive archival', () => {
+  assert.doesNotThrow(() => assertOrganizationArchiveConfirmation(' sf-manila ', 'sf-manila'));
+  assert.throws(
+    () => assertOrganizationArchiveConfirmation('SF Manila', 'sf-manila'),
+    OrganizationValidationError,
+  );
+  assert.throws(
+    () => assertOrganizationArchiveConfirmation('another-tenant', 'sf-manila'),
+    OrganizationValidationError,
+  );
 });

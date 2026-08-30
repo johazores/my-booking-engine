@@ -94,3 +94,9 @@ export function canTransitionOrganizationStatus(from: OrganizationLifecycleStatu
 export function assertOrganizationStatusTransition(from: OrganizationLifecycleStatus, to: OrganizationLifecycleStatus) {
   if (!canTransitionOrganizationStatus(from, to)) throw new Error(`Organization status cannot transition from ${from} to ${to}.`);
 }
+
+export function assertOrganizationArchiveConfirmation(value: string, canonicalSlug: string) {
+  if (value.trim() !== canonicalSlug) {
+    throw new OrganizationValidationError(`Type ${canonicalSlug} to confirm organization archival.`);
+  }
+}

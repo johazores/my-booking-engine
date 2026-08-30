@@ -16,6 +16,21 @@ const organizationErrors: Record<string, string> = {
   server: 'The organization could not be created. Try again.',
 };
 
+const settingsErrors: Record<string, string> = {
+  tenant: 'Choose an active organization before changing settings.',
+  permission: 'You do not have permission to manage organization settings.',
+  slug: 'That organization URL slug is already in use.',
+  validation: 'Check the organization settings and try again.',
+  server: 'The organization settings could not be updated. Try again.',
+};
+
+const archiveErrors: Record<string, string> = {
+  tenant: 'Choose an active organization before archiving it.',
+  permission: 'You do not have permission to archive this organization.',
+  confirmation: 'Type the exact organization slug to confirm archival.',
+  server: 'The organization could not be archived. Try again.',
+};
+
 const roleErrors: Record<string, string> = {
   tenant: 'Choose an active organization before managing roles.',
   permission: 'You do not have permission to manage organization roles.',
@@ -37,6 +52,8 @@ const statusMessages: Record<string, string> = {
   'signed-in': 'Signed in successfully.',
   'organization-created': 'Organization created and selected.',
   'organization-selected': 'Active organization updated.',
+  'organization-settings-updated': 'Organization settings updated and audited.',
+  'organization-archived': 'Organization archived. Its memberships and audit history were preserved.',
   'role-updated': 'Member role updated and audited.',
   'membership-updated': 'Membership status updated and audited.',
 };
@@ -48,7 +65,18 @@ function membershipStatusOptions(status: string) {
   return [];
 }
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ status?: string; organizationError?: string; roleError?: string; memberError?: string }> }) {
+export default async function AccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    status?: string;
+    organizationError?: string;
+    settingsError?: string;
+    archiveError?: string;
+    roleError?: string;
+    memberError?: string;
+  }>;
+}) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
   if (authRedirect) redirect(authRedirect);
@@ -61,6 +89,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const activeContext = await readActiveOrganizationContext(session.user.id);
   const statusMessage = params.status ? statusMessages[params.status] : undefined;
   const organizationError = params.organizationError ? organizationErrors[params.organizationError] : undefined;
+  const settingsError = params.settingsError ? settingsErrors[params.settingsError] : undefined;
+  const archiveError = params.archiveError ? archiveErrors[params.archiveError] : undefined;
   const roleError = params.roleError ? roleErrors[params.roleError] : undefined;
   const memberError = params.memberError ? memberErrors[params.memberError] : undefined;
 
@@ -70,6 +100,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const canReadMembers = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership:read')));
   const canManageMembers = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership:manage')));
   const canManageRoles = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership-role:manage')));
+  const canManageSettings = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'organization-settings:manage')));
+  const canManageOrganization = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'organization:manage')));
   const memberships = activeContext.organization && canReadMembers
     ? await listMembershipsForOrganization({ organizationId: activeContext.organization.id, userId: session.user.id })
     : [];
@@ -86,6 +118,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <section className="sf-account-panel" aria-labelledby="account-title">
         {statusMessage ? <p className="sf-alert sf-alert--success" role="status">{statusMessage}</p> : null}
         {organizationError ? <p className="sf-alert sf-alert--error" role="alert">{organizationError}</p> : null}
+        {settingsError ? <p className="sf-alert sf-alert--error" role="alert">{settingsError}</p> : null}
+        {archiveError ? <p className="sf-alert sf-alert--error" role="alert">{archiveError}</p> : null}
         {roleError ? <p className="sf-alert sf-alert--error" role="alert">{roleError}</p> : null}
         {memberError ? <p className="sf-alert sf-alert--error" role="alert">{memberError}</p> : null}
         {activeContext.hadOrganizationCookie && !activeContext.organization ? <p className="sf-alert sf-alert--error" role="alert">Your previous organization selection is no longer available. Choose another active organization.</p> : null}
@@ -125,6 +159,24 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           </ul>
         )}
       </section>
+
+      {activeContext.organization && canManageSettings ? (
+        <section className="sf-account-panel" aria-labelledby="organization-settings-title">
+          <p className="sf-eyebrow">Tenant settings</p>
+          <h2 id="organization-settings-title">Organization settings</h2>
+          <p className="sf-auth-card__copy">Changes are validated, tenant-scoped, permission checked, and written to the organization audit history.</p>
+          <form className="sf-form sf-organization-form" action="/api/organizations/settings" method="post">
+            <label className="sf-field">Business name<input name="name" defaultValue={activeContext.organization.name} minLength={2} maxLength={160} required autoComplete="organization" /></label>
+            <label className="sf-field">URL slug<input name="slug" defaultValue={activeContext.organization.slug} minLength={3} maxLength={63} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Lowercase letters, numbers, and single hyphens.</small></label>
+            <label className="sf-field">Business type<select name="kind" defaultValue={activeContext.organization.kind} required><option value="HOTEL">Hotel</option><option value="RESORT">Resort</option><option value="TRAVEL_AGENCY">Travel agency</option><option value="TOUR_OPERATOR">Tour operator</option><option value="APPOINTMENT_BUSINESS">Appointment business</option><option value="RENTAL_BUSINESS">Rental business</option><option value="MARKETPLACE">Marketplace</option><option value="OTHER">Other</option></select></label>
+            <div className="sf-form-row">
+              <label className="sf-field">Timezone<input name="timezone" defaultValue={activeContext.organization.timezone} maxLength={80} required /></label>
+              <label className="sf-field">Currency<input name="currency" defaultValue={activeContext.organization.currency} minLength={3} maxLength={3} pattern="[A-Za-z]{3}" required /></label>
+            </div>
+            <button className="sf-button sf-button--primary" type="submit">Save organization settings</button>
+          </form>
+        </section>
+      ) : null}
 
       {activeContext.organization && canReadMembers ? (
         <section className="sf-account-panel" aria-labelledby="members-title">
@@ -166,10 +218,26 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         </section>
       ) : null}
 
+      {activeContext.organization && canManageOrganization ? (
+        <section className="sf-account-panel" aria-labelledby="archive-organization-title">
+          <p className="sf-eyebrow">Organization lifecycle</p>
+          <h2 id="archive-organization-title">Archive organization</h2>
+          <p className="sf-auth-card__copy">Archiving immediately removes this tenant from active access. Membership and audit records are preserved for commercial history, and the organization slug remains reserved.</p>
+          <form className="sf-form sf-organization-form" action="/api/organizations/archive" method="post">
+            <label className="sf-field">
+              Type <strong>{activeContext.organization.slug}</strong> to confirm
+              <input name="confirmation" autoComplete="off" required aria-describedby="archive-confirmation-help" />
+              <small id="archive-confirmation-help">This action is intentionally not exposed as a hard delete.</small>
+            </label>
+            <button className="sf-button sf-button--secondary" type="submit">Archive organization</button>
+          </form>
+        </section>
+      ) : null}
+
       <section className="sf-account-panel" aria-labelledby="create-organization-title">
         <p className="sf-eyebrow">Organization onboarding</p>
         <h2 id="create-organization-title">Create an organization</h2>
-        <p className="sf-auth-card__copy">The creator becomes the first organization administrator. Membership and role changes are permission checked and audited server-side.</p>
+        <p className="sf-auth-card__copy">The creator becomes the first organization administrator. Membership, settings, lifecycle, and role changes are permission checked and audited server-side.</p>
         <form className="sf-form sf-organization-form" action="/api/organizations" method="post">
           <label className="sf-field">Business name<input name="name" minLength={2} maxLength={160} required autoComplete="organization" /></label>
           <label className="sf-field">URL slug<input name="slug" minLength={3} maxLength={63} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="optional-auto-from-name" /><small>Optional. Lowercase letters, numbers, and single hyphens.</small></label>
