@@ -10,11 +10,11 @@ The business kind is descriptive. Product behavior should evolve through capabil
 
 The current database contains organizations, users, and organization memberships. Server-side repository methods fetch organizations only when the requesting user has an active membership, including lookup by organization ID and canonical slug.
 
-Organization membership reads now follow the same server-side boundary. Listing or retrieving a membership requires both the target organization ID and an active membership for the requesting user in that same active, non-deleted organization. A membership ID from another tenant cannot be used by itself to cross the organization boundary.
+Organization membership reads follow the same server-side boundary. Listing or retrieving a membership requires both the target organization ID and an active membership for the requesting user in that same active, non-deleted organization. A membership ID from another tenant cannot be used by itself to cross the organization boundary.
 
-Membership mutation APIs are intentionally not exposed yet. Creating, changing, suspending, archiving, or removing memberships requires the roles/permissions slice so an ordinary active member cannot implicitly gain membership-management authority.
+All tenant-owned read paths that currently exist in the repository now use the shared tenant-scope helpers. There are no tenant-owned write APIs yet; membership mutation is intentionally withheld until roles and permissions exist so an ordinary active member cannot implicitly gain management authority. Future update/delete repositories must bind both `organizationId` and the target resource ID and must additionally validate the required permission before mutation.
 
-Membership lifecycle rules are now explicit in `src/server/memberships/membership-domain.ts`:
+Membership lifecycle rules are explicit in `src/server/memberships/membership-domain.ts`:
 
 - `INVITED` → `ACTIVE` or `ARCHIVED`
 - `ACTIVE` → `SUSPENDED` or `ARCHIVED`
@@ -37,7 +37,7 @@ The checked-in PostgreSQL migrations add the tenant tables, relational constrain
 
 A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant-scope.ts`. Organization access scopes require an active membership for the requesting user. Tenant-owned records can additionally use active collection/resource scopes that bind `organizationId` and validate actor access through the owning organization relation. Single-resource lookups bind both the resource identifier and organization identifier so a resource ID from another tenant cannot be used by itself.
 
-The scope helpers are covered by dependency-free tests. Membership lifecycle tests additionally verify that only active memberships grant access and that archived memberships are terminal. The PostgreSQL integration test also exercises the real organization and organization-membership repositories with Tenant A and Tenant B. These tests are checked in, but the live database assertions remain unverified until `npm run test:database` can run against a disposable PostgreSQL instance.
+The scope helpers are covered by dependency-free tests. Membership lifecycle tests additionally verify that only active memberships grant access and that archived memberships are terminal. The PostgreSQL integration test exercises the real organization and organization-membership repositories in both tenant directions and covers every current repository read path: organization list, ID lookup, canonical-slug lookup, membership list, and membership detail. It also verifies that invited members, suspended users, suspended memberships, archived memberships, and suspended organizations do not satisfy tenant access. These assertions are checked in but remain unverified against live PostgreSQL until `npm run test:database` can run against a disposable database.
 
 This is the beginning of tenant isolation, not a complete authorization system.
 

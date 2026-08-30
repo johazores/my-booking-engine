@@ -10,7 +10,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   );
 }
 
-test('Tenant A cannot access Tenant B data and inactive principals lose tenant access', async () => {
+test('tenant repositories deny cross-tenant and inactive-principal access across every current read path', async () => {
   const [{ db }, organizationRepository, membershipRepository] = await Promise.all([
     import('../database.ts'),
     import('../organizations/organization-repository.ts'),
@@ -22,17 +22,19 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
   const tenantBSlug = `sf-b-${suffix}`;
   const userAEmail = `sf-a-${suffix}@example.test`;
   const userBEmail = `sf-b-${suffix}@example.test`;
+  const invitedUserEmail = `sf-invited-${suffix}@example.test`;
 
   const createdOrganizationIds: string[] = [];
   const createdUserIds: string[] = [];
 
   try {
-    const [userA, userB] = await Promise.all([
+    const [userA, userB, invitedUser] = await Promise.all([
       db.user.create({ data: { email: userAEmail } }),
       db.user.create({ data: { email: userBEmail } }),
+      db.user.create({ data: { email: invitedUserEmail } }),
     ]);
 
-    createdUserIds.push(userA.id, userB.id);
+    createdUserIds.push(userA.id, userB.id, invitedUser.id);
 
     const [tenantA, tenantB] = await Promise.all([
       db.organization.create({
@@ -53,7 +55,7 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
 
     createdOrganizationIds.push(tenantA.id, tenantB.id);
 
-    const [membershipA, membershipB] = await Promise.all([
+    const [membershipA, membershipB, invitedMembership] = await Promise.all([
       db.organizationMembership.create({
         data: {
           organizationId: tenantA.id,
@@ -66,11 +68,25 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
           userId: userB.id,
         },
       }),
+      db.organizationMembership.create({
+        data: {
+          organizationId: tenantA.id,
+          userId: invitedUser.id,
+          status: 'INVITED',
+        },
+      }),
     ]);
 
     assert.equal(
       (await organizationRepository.findOrganizationForUser({
         organizationId: tenantA.id,
+        userId: userA.id,
+      }))?.id,
+      tenantA.id,
+    );
+    assert.equal(
+      (await organizationRepository.findOrganizationBySlugForUser({
+        organizationSlug: tenantA.slug,
         userId: userA.id,
       }))?.id,
       tenantA.id,
@@ -83,7 +99,6 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
       }),
       null,
     );
-
     assert.equal(
       await organizationRepository.findOrganizationBySlugForUser({
         organizationSlug: tenantB.slug,
@@ -91,11 +106,43 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
       }),
       null,
     );
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: userB.id,
+      }),
+      null,
+    );
+    assert.equal(
+      await organizationRepository.findOrganizationBySlugForUser({
+        organizationSlug: tenantA.slug,
+        userId: userB.id,
+      }),
+      null,
+    );
 
-    const organizationsForUserA = await organizationRepository.listOrganizationsForUser(userA.id);
     assert.deepEqual(
-      organizationsForUserA.map((organization) => organization.id),
+      (await organizationRepository.listOrganizationsForUser(userA.id)).map(
+        (organization) => organization.id,
+      ),
       [tenantA.id],
+    );
+    assert.deepEqual(
+      (await organizationRepository.listOrganizationsForUser(userB.id)).map(
+        (organization) => organization.id,
+      ),
+      [tenantB.id],
+    );
+    assert.deepEqual(
+      await organizationRepository.listOrganizationsForUser(invitedUser.id),
+      [],
+    );
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: invitedUser.id,
+      }),
+      null,
     );
 
     assert.equal(
@@ -106,7 +153,6 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
       }))?.id,
       membershipA.id,
     );
-
     assert.equal(
       await membershipRepository.findMembershipForOrganization({
         organizationId: tenantA.id,
@@ -115,16 +161,78 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
       }),
       null,
     );
+    assert.equal(
+      await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userB.id,
+        membershipId: membershipA.id,
+      }),
+      null,
+    );
+    assert.deepEqual(
+      await membershipRepository.listMembershipsForOrganization({
+        organizationId: tenantA.id,
+        userId: userB.id,
+      }),
+      [],
+    );
 
     const membershipsForTenantA = await membershipRepository.listMembershipsForOrganization({
       organizationId: tenantA.id,
       userId: userA.id,
     });
+    assert.equal(membershipsForTenantA.length, 2);
     assert.deepEqual(
-      membershipsForTenantA.map((membership) => membership.id),
-      [membershipA.id],
+      new Set(membershipsForTenantA.map((membership) => membership.id)),
+      new Set([membershipA.id, invitedMembership.id]),
+    );
+    assert.equal(
+      membershipsForTenantA.every(
+        (membership) => membership.organizationId === tenantA.id,
+      ),
+      true,
     );
 
+    await db.organization.update({
+      where: { id: tenantA.id },
+      data: { status: 'SUSPENDED' },
+    });
+
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      null,
+    );
+    assert.equal(
+      await organizationRepository.findOrganizationBySlugForUser({
+        organizationSlug: tenantA.slug,
+        userId: userA.id,
+      }),
+      null,
+    );
+    assert.deepEqual(await organizationRepository.listOrganizationsForUser(userA.id), []);
+    assert.deepEqual(
+      await membershipRepository.listMembershipsForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      [],
+    );
+    assert.equal(
+      await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+        membershipId: membershipA.id,
+      }),
+      null,
+    );
+
+    await db.organization.update({
+      where: { id: tenantA.id },
+      data: { status: 'ACTIVE' },
+    });
     await db.user.update({
       where: { id: userA.id },
       data: { status: 'SUSPENDED' },
@@ -144,6 +252,14 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
         userId: userA.id,
       }),
       [],
+    );
+    assert.equal(
+      await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+        membershipId: membershipA.id,
+      }),
+      null,
     );
 
     await db.user.update({
@@ -168,6 +284,14 @@ test('Tenant A cannot access Tenant B data and inactive principals lose tenant a
         userId: userA.id,
       }),
       [],
+    );
+    assert.equal(
+      await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+        membershipId: membershipA.id,
+      }),
+      null,
     );
 
     await db.organizationMembership.update({
