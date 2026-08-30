@@ -8,9 +8,9 @@ The previous prototype has been intentionally removed. Git history is preserved,
 
 - Node.js 24 LTS
 - Next.js 16.3.3 with the App Router
-- React 19.2.7
-- TypeScript 6.0 in strict mode
-- Prisma ORM 7.10
+- React 19.2.8
+- TypeScript 6.0.3 in strict mode
+- Prisma ORM 7.10 with the PostgreSQL driver adapter
 - PostgreSQL
 - Native CSS with reusable design tokens
 

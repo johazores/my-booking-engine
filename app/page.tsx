@@ -16,9 +16,9 @@ const capabilities = [
 ];
 
 const foundation = [
-  'Next.js 16.3.3 and React 19.2.7 foundation',
-  'Strict TypeScript 6 configuration',
-  'Prisma 7.10 with PostgreSQL',
+  'Next.js 16.3.3 and React 19.2.8 foundation',
+  'Strict TypeScript 6.0.3 configuration',
+  'Prisma 7.10 with PostgreSQL driver adapter',
   'Organization and membership schema',
   'Tenant-scoped organization repository',
   'Architecture, security, booking, and integration documentation',

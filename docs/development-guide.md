@@ -7,10 +7,13 @@ Use Node.js 24 LTS. `.nvmrc` currently pins `24.20.0`.
 ## Core versions
 
 - Next.js 16.3.3
-- React 19.2.7
-- TypeScript 6.0
+- React 19.2.8
+- TypeScript 6.0.3
 - Prisma ORM 7.10
-- PostgreSQL
+- `@prisma/adapter-pg` 7.10
+- PostgreSQL via `pg` 8.23
+
+TypeScript 7 is newer, but this baseline intentionally uses the mature TypeScript 6 patch line until compatibility across Next.js, ESLint, and Prisma is verified as one toolchain.
 
 ## Local setup
 

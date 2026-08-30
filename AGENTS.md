@@ -44,11 +44,13 @@ Before changing code, read the relevant files in `/docs`, inspect the current sc
 
 - Node.js 24 LTS
 - Next.js 16.3.3
-- React 19.2.7
-- TypeScript 6.0
-- Prisma ORM 7.10
+- React 19.2.8
+- TypeScript 6.0.3
+- Prisma ORM 7.10 with `@prisma/adapter-pg`
 - PostgreSQL
 - Native CSS/design tokens; no UI framework is required for the foundation
+
+TypeScript 7 is newer, but the foundation intentionally stays on the mature TypeScript 6 patch line until the full Next.js/ESLint/Prisma toolchain is verified together.
 
 ## Development order
 
