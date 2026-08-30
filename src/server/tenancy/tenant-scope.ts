@@ -45,3 +45,25 @@ export function tenantOwnedCollectionScope(organizationId: string) {
     organizationId,
   };
 }
+
+export function activeTenantOwnedCollectionScope(input: TenantActorScopeInput) {
+  return {
+    ...tenantOwnedCollectionScope(input.organizationId),
+    organization: {
+      is: activeOrganizationAccessScope(input),
+    },
+  };
+}
+
+export function activeTenantOwnedResourceScope({
+  organizationId,
+  userId,
+  resourceId,
+}: TenantResourceScopeInput) {
+  return {
+    ...tenantOwnedResourceScope({ organizationId, resourceId }),
+    organization: {
+      is: activeOrganizationAccessScope({ organizationId, userId }),
+    },
+  };
+}

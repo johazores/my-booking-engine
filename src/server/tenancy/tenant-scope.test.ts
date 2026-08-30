@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   activeOrganizationAccessScope,
   activeOrganizationMembershipScope,
+  activeTenantOwnedCollectionScope,
+  activeTenantOwnedResourceScope,
   tenantOwnedCollectionScope,
   tenantOwnedResourceScope,
 } from './tenant-scope.ts';
@@ -55,4 +57,51 @@ test('tenant-owned collection scopes cannot omit organization ownership', () => 
   assert.deepEqual(tenantOwnedCollectionScope('tenant-a'), {
     organizationId: 'tenant-a',
   });
+});
+
+test('active tenant-owned scopes also require actor access to the owning organization', () => {
+  assert.deepEqual(
+    activeTenantOwnedCollectionScope({ organizationId: 'tenant-a', userId: 'user-a' }),
+    {
+      organizationId: 'tenant-a',
+      organization: {
+        is: {
+          id: 'tenant-a',
+          deletedAt: null,
+          status: 'ACTIVE',
+          memberships: {
+            some: {
+              userId: 'user-a',
+              status: 'ACTIVE',
+            },
+          },
+        },
+      },
+    },
+  );
+
+  assert.deepEqual(
+    activeTenantOwnedResourceScope({
+      organizationId: 'tenant-a',
+      userId: 'user-a',
+      resourceId: 'membership-a',
+    }),
+    {
+      id: 'membership-a',
+      organizationId: 'tenant-a',
+      organization: {
+        is: {
+          id: 'tenant-a',
+          deletedAt: null,
+          status: 'ACTIVE',
+          memberships: {
+            some: {
+              userId: 'user-a',
+              status: 'ACTIVE',
+            },
+          },
+        },
+      },
+    },
+  );
 });

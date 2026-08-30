@@ -10,10 +10,11 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   );
 }
 
-test('Tenant A cannot access Tenant B organizations through the real repository', async () => {
-  const [{ db }, repository] = await Promise.all([
+test('Tenant A cannot access Tenant B organizations or memberships through real repositories', async () => {
+  const [{ db }, organizationRepository, membershipRepository] = await Promise.all([
     import('../database.ts'),
     import('../organizations/organization-repository.ts'),
+    import('../memberships/membership-repository.ts'),
   ]);
 
   const suffix = `${process.pid}-${Date.now()}`;
@@ -52,7 +53,7 @@ test('Tenant A cannot access Tenant B organizations through the real repository'
 
     createdOrganizationIds.push(tenantA.id, tenantB.id);
 
-    await Promise.all([
+    const [membershipA, membershipB] = await Promise.all([
       db.organizationMembership.create({
         data: {
           organizationId: tenantA.id,
@@ -68,7 +69,7 @@ test('Tenant A cannot access Tenant B organizations through the real repository'
     ]);
 
     assert.equal(
-      (await repository.findOrganizationForUser({
+      (await organizationRepository.findOrganizationForUser({
         organizationId: tenantA.id,
         userId: userA.id,
       }))?.id,
@@ -76,7 +77,7 @@ test('Tenant A cannot access Tenant B organizations through the real repository'
     );
 
     assert.equal(
-      await repository.findOrganizationForUser({
+      await organizationRepository.findOrganizationForUser({
         organizationId: tenantB.id,
         userId: userA.id,
       }),
@@ -84,17 +85,44 @@ test('Tenant A cannot access Tenant B organizations through the real repository'
     );
 
     assert.equal(
-      await repository.findOrganizationBySlugForUser({
+      await organizationRepository.findOrganizationBySlugForUser({
         organizationSlug: tenantB.slug,
         userId: userA.id,
       }),
       null,
     );
 
-    const organizationsForUserA = await repository.listOrganizationsForUser(userA.id);
+    const organizationsForUserA = await organizationRepository.listOrganizationsForUser(userA.id);
     assert.deepEqual(
       organizationsForUserA.map((organization) => organization.id),
       [tenantA.id],
+    );
+
+    assert.equal(
+      (await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+        membershipId: membershipA.id,
+      }))?.id,
+      membershipA.id,
+    );
+
+    assert.equal(
+      await membershipRepository.findMembershipForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+        membershipId: membershipB.id,
+      }),
+      null,
+    );
+
+    const membershipsForTenantA = await membershipRepository.listMembershipsForOrganization({
+      organizationId: tenantA.id,
+      userId: userA.id,
+    });
+    assert.deepEqual(
+      membershipsForTenantA.map((membership) => membership.id),
+      [membershipA.id],
     );
   } finally {
     if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
