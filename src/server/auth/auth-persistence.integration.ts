@@ -10,7 +10,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   );
 }
 
-test('password registration, session resolution, revocation, sign-in, and user suspension persist safely', async () => {
+test('password registration, session expiry, revocation, sign-in, and user suspension persist safely', async () => {
   const [{ db }, authService] = await Promise.all([
     import('../database.ts'),
     import('./auth-service.ts'),
@@ -40,7 +40,10 @@ test('password registration, session resolution, revocation, sign-in, and user s
       userId,
     );
 
-    await authService.signOutSession(registration.token);
+    await db.authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { expiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    });
     assert.equal(await authService.resolveAuthSession(registration.token), null);
 
     const signedIn = await authService.signInWithPassword({ email, password });
@@ -50,11 +53,15 @@ test('password registration, session resolution, revocation, sign-in, and user s
       userId,
     );
 
+    await authService.signOutSession(signedIn.token);
+    assert.equal(await authService.resolveAuthSession(signedIn.token), null);
+
+    const signedInAgain = await authService.signInWithPassword({ email, password });
     await db.user.update({
       where: { id: userId },
       data: { status: 'SUSPENDED' },
     });
-    assert.equal(await authService.resolveAuthSession(signedIn.token), null);
+    assert.equal(await authService.resolveAuthSession(signedInAgain.token), null);
   } finally {
     if (userId) {
       await db.user.delete({ where: { id: userId } });

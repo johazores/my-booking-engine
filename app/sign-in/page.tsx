@@ -4,6 +4,7 @@ import { BrandMark } from '@/components/brand-mark';
 
 const messages: Record<string, string> = {
   required: 'Sign in to continue.',
+  session: 'Your session expired or is no longer valid. Sign in again.',
   credentials: 'The email or password is incorrect.',
   validation: 'Enter a valid email address and password.',
   server: 'Sign in could not be completed. Please try again.',

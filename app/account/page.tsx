@@ -3,16 +3,16 @@ import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
 import { listOrganizationsForUser } from '@/server/organizations/organization-repository.ts';
-import { readAuthSession } from '@/server/auth/auth-http.ts';
+import { readAuthSessionState } from '@/server/auth/auth-http.ts';
 
 export default async function AccountPage({
   searchParams,
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  const session = await readAuthSession();
+  const { hadSessionCookie, session } = await readAuthSessionState();
   if (!session) {
-    redirect('/sign-in?error=required');
+    redirect(hadSessionCookie ? '/sign-in?error=session' : '/sign-in?error=required');
   }
 
   const params = await searchParams;

@@ -18,7 +18,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 
 Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user.
 
-Sign-out revokes the persisted session before expiring the browser cookie. User suspension therefore removes authenticated access on the next protected request.
+Sign-out revokes the persisted session before expiring the browser cookie. User suspension therefore removes authenticated access on the next protected request. Expired, revoked, unknown, or otherwise invalid session tokens resolve to no authenticated identity.
 
 ## Browser HTTP boundary
 
@@ -30,7 +30,9 @@ The browser authentication flow is implemented through App Router POST route han
 
 Successful sign-up and sign-in redirect to `/account` and set the opaque token only in the `sf_session` cookie. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in production, and expires with the persisted session. The token is never returned in normal JSON, query strings, analytics, or logs.
 
-`/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. `/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects unauthenticated requests to sign-in, and then queries tenant access using the authenticated user ID.
+All authentication mutations reject requests whose `Origin` does not exactly match the request origin. `/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. Their route-level loading states and the protected account loading state use accessible live/busy semantics and respect reduced-motion preferences.
+
+`/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects requests with no session cookie to sign-in with a normal authentication-required message, and redirects requests carrying an invalid or expired session cookie with an explicit session-expired/invalid message. It then queries tenant access using only the authenticated user ID.
 
 The account page intentionally shows an empty tenant state when the user has no active organization memberships. Authentication never creates or implies organization access; organization onboarding remains Phase 3 work.
 
@@ -39,6 +41,12 @@ The account page intentionally shows an empty tenant state when the user has no 
 Every tenant-owned operation must derive user identity from a validated server session and then enforce current organization membership, permissions, and resource ownership. Client-supplied user IDs are never an authentication boundary.
 
 The protected account organization list currently reuses the tenant-safe organization repository, which requires active organization membership and active principal state. Future protected routes and mutations must follow the same pattern.
+
+## Verification coverage
+
+Dependency-free authentication domain tests cover password policy, salted/versioned password hashing, token entropy/digest behavior, and absolute session expiry calculation. The disposable PostgreSQL authentication integration test covers registration, credential persistence, active session resolution, forced session expiry rejection, persisted revocation, subsequent sign-in, and immediate loss of access when the user is suspended.
+
+The full database-backed integration path still requires the explicitly acknowledged disposable PostgreSQL target described in the database development documentation; blocked environments must not claim that live verification passed.
 
 ## Current implementation status
 
@@ -50,12 +58,15 @@ Implemented:
 - atomic registration persistence,
 - sign-in/session resolution/session revocation,
 - browser sign-up/sign-in/sign-out route handlers,
+- same-origin protection on authentication mutations,
 - secure cookie delivery and expiration,
 - protected server-rendered account guard,
+- explicit missing-session versus invalid/expired-session browser feedback,
 - authenticated identity-to-tenant membership lookup,
-- validation/error/success/empty states for the current auth UI,
+- validation/error/loading/success/empty states for the current auth UI,
+- reduced-motion-safe loading treatment,
 - dependency-free authentication domain tests,
-- PostgreSQL authentication persistence integration coverage in the disposable database runner.
+- PostgreSQL authentication persistence integration coverage including forced expiry and revocation.
 
 Still pending within the broader roadmap:
 
