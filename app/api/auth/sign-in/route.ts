@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
 import { AuthValidationError } from '@/server/auth/auth-domain.ts';
-import { AUTH_SESSION_COOKIE, authSessionCookieOptions } from '@/server/auth/auth-http.ts';
+import {
+  AUTH_SESSION_COOKIE,
+  authSessionCookieOptions,
+  isSameOriginAuthRequest,
+} from '@/server/auth/auth-http.ts';
 import {
   InvalidCredentialsError,
   signInWithPassword,
@@ -13,6 +17,10 @@ function field(formData: FormData, name: string) {
 }
 
 export async function POST(request: Request) {
+  if (!isSameOriginAuthRequest(request)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const formData = await request.formData();
 
   try {

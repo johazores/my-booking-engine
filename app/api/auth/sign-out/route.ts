@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { AUTH_SESSION_COOKIE, authSessionCookieOptions } from '@/server/auth/auth-http.ts';
+import {
+  AUTH_SESSION_COOKIE,
+  authSessionCookieOptions,
+  isSameOriginAuthRequest,
+} from '@/server/auth/auth-http.ts';
 import { signOutSession } from '@/server/auth/auth-service.ts';
 
 export async function POST(request: NextRequest) {
+  if (!isSameOriginAuthRequest(request)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   const token = request.cookies.get(AUTH_SESSION_COOKIE)?.value;
   if (token) {
     await signOutSession(token);

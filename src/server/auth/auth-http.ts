@@ -11,13 +11,18 @@ export const authSessionCookieOptions = {
   path: '/',
 };
 
+export function isSameOriginAuthRequest(request: Request) {
+  const origin = request.headers.get('origin');
+  if (!origin) {
+    return false;
+  }
+
+  return origin === new URL(request.url).origin;
+}
+
 export async function readAuthSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_SESSION_COOKIE)?.value;
-
-  if (!token) {
-    return null;
-  }
-
+  if (!token) return null;
   return resolveAuthSession(token);
 }
