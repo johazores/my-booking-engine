@@ -38,7 +38,7 @@ enum MembershipStatus {
 
 model Organization {
   id          String             @id @default(uuid()) @db.Uuid
-  slug        String             @unique @db.VarChar(80)
+  slug        String             @unique @db.VarChar(63)
   name        String             @db.VarChar(160)
   kind        OrganizationKind
   status      OrganizationStatus @default(ACTIVE)
@@ -49,7 +49,7 @@ model Organization {
   deletedAt   DateTime?          @db.Timestamptz(6)
   memberships OrganizationMembership[]
 
-  @@index([status])
+  @@index([status, deletedAt])
   @@index([kind])
   @@map("organizations")
 }

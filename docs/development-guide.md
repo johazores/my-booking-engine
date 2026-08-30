@@ -24,7 +24,27 @@ npm run prisma:generate
 npm run dev
 ```
 
-Create a local PostgreSQL database and update `DATABASE_URL` before running migrations.
+Create a local PostgreSQL database and update `DATABASE_URL` before running database-backed commands.
+
+## Database bootstrap
+
+The initial tenant migration is checked in under `prisma/migrations/20260830043000_initial_tenant_foundation`.
+
+For a new local PostgreSQL database:
+
+```bash
+npm run prisma:generate
+npm run prisma:validate
+npm run db:deploy
+```
+
+For an isolated development database where Prisma should manage development migration state:
+
+```bash
+npm run db:migrate
+```
+
+After applying the migration, verify the database schema before marking the live-database checklist items complete. Never point development migration commands at production.
 
 ## Validation
 
@@ -33,11 +53,12 @@ Before considering a coherent slice complete, run the relevant available checks:
 ```bash
 npm run typecheck
 npm run lint
+npm run test
 npm run prisma:validate
 npm run build
 ```
 
-When database behavior is added, include appropriate schema/migration validation and tests for important domain rules.
+When database behavior is added, include appropriate schema/migration validation and tests for important domain rules. Tests requiring real database isolation must run against an isolated PostgreSQL test database, not a shared or production database.
 
 ## Code organization
 

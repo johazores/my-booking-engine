@@ -11,12 +11,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "node --test src/server/organizations/*.test.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "validate": "npm run typecheck && npm run lint && npm run prisma:validate && npm run build",
+    "validate": "npm run typecheck && npm run lint && npm run test && npm run prisma:validate && npm run build",
     "postinstall": "prisma generate"
   },
   "dependencies": {
