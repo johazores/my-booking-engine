@@ -288,6 +288,17 @@ button.sf-button {
   font: inherit;
 }
 
+.sf-app-main > .sf-account-shell {
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.sf-app-main > .sf-account-shell > .sf-account-header {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .sf-auth-shell,
   .sf-account-shell {

@@ -53,23 +53,19 @@ Live migration/schema/isolation verification still requires an available disposa
 - last-active-admin protection with serializable mutations
 - authorization integration coverage checked in
 
-## 6. Persistent application shell — in progress
+## 6. Persistent application shell — implemented
 
-Implemented:
-
-- authenticated `/dashboard` workspace foundation
+- canonical authenticated server shell boundary
+- shared `/dashboard` and `/account` workspace
 - persistent desktop sidebar for implemented workspace routes
 - product-appropriate mobile navigation
 - sticky header with tenant identity and account controls
 - active navigation states
-- responsive layouts and loading state
+- responsive layouts and workspace loading states
 - skip navigation, semantic navigation labels, visible focus behavior, and reduced-motion loading
 - useful dashboard connected only to real tenant/auth/membership data
-
-Remaining integration work:
-
-- migrate existing account/organization administration into the canonical workspace when it can be done without risking completed auth/organization workflows
-- keep future authenticated modules under the dashboard workspace instead of creating isolated shells
+- account/organization administration integrated without weakening page/service authorization
+- future authenticated modules required to reuse the canonical workspace rather than create isolated shells
 
 ## 7. Tenant settings and white-label branding
 

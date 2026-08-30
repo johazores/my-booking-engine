@@ -13,6 +13,7 @@ type ApplicationShellProps = {
   organizationName?: string | null;
   organizationSlug?: string | null;
   role?: string | null;
+  contentAsMain?: boolean;
 };
 
 const navigation = [
@@ -31,8 +32,14 @@ export function ApplicationShell({
   organizationName,
   organizationSlug,
   role,
+  contentAsMain = true,
 }: ApplicationShellProps) {
   const pathname = usePathname();
+  const content = contentAsMain ? (
+    <main className="sf-app-main" id="sf-main-content" tabIndex={-1}>{children}</main>
+  ) : (
+    <div className="sf-app-main" id="sf-main-content" tabIndex={-1}>{children}</div>
+  );
 
   return (
     <div className="sf-app-shell">
@@ -82,7 +89,7 @@ export function ApplicationShell({
           </div>
         </header>
 
-        <main className="sf-app-main" id="sf-main-content" tabIndex={-1}>{children}</main>
+        {content}
       </div>
 
       <nav className="sf-app-mobile-nav" aria-label="Mobile navigation">
