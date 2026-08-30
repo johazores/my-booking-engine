@@ -1,32 +1,20 @@
-import Header from '@/components/Shared/Header';
-import Sidebar from '@/components/Shared/Sidebar';
-import '@/styles/globals.scss';
-import Script from 'next/script';
+import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
+import './globals.css';
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const metadata: Metadata = {
+  title: {
+    default: 'SF | Booking Infrastructure',
+    template: '%s | SF',
+  },
+  description:
+    'SF is a production-focused foundation for multitenant booking, inventory, payments, and provider integrations.',
+};
+
+export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <head>
-        <title>Vacation Me</title>
-      </head>
-      <body>
-        <Header />
-        <main className="w-full h-full">
-          <div className="grid grid-cols-12 h-[100vh] pt-[55px]">
-            {/* // Will implement this on real work */}
-            {/* <div className="col-span-12 lg:col-span-2 bg-[#E9E9E9]">
-              <Sidebar />
-            </div> */}
-            <div className="col-span-12 lg:col-span-12">
-              {children}
-            </div>
-          </div>
-        </main>
-      </body>
+      <body>{children}</body>
     </html>
-  )
+  );
 }

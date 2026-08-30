@@ -2,24 +2,48 @@
 
 ## Principle
 
-External providers sit behind small capability-based contracts. Core application code should use normalized models and must not depend directly on RapidAPI, Amadeus, Sabre, Travelport, payment processors, or other suppliers.
+SF owns a normalized internal domain. External services are implementations behind provider contracts.
 
-## Flight search
+```text
+application
+  ↓
+domain
+  ↓
+provider contract
+  ↓
+adapters
+  ├── internal inventory
+  ├── GDS / supplier
+  ├── payments
+  ├── email
+  └── SMS
+```
 
-The current provider contract exposes only the capability that is actually implemented: `flight-search`.
+No external provider is implemented in the reset foundation.
 
-The RapidAPI adapter is responsible for:
+## Capability model
 
-- Reading provider credentials from server environment variables.
-- Building the provider-specific request.
-- Applying a request timeout.
-- Classifying authentication, rate-limit, timeout, upstream, and invalid-response failures.
-- Normalizing supplier itineraries into the internal `FlightOffer` model.
+A provider should advertise only the capabilities it actually supports, for example:
 
-Provider credentials are never returned to clients or included in application errors.
+- flight-search
+- hotel-search
+- availability
+- pricing
+- reservation
+- ticketing
+- modification
+- cancellation
+- refund
+- webhooks
 
-## Credential storage
+The application must not force identical behavior across providers that expose different capabilities.
 
-The current provider is configured at the server level because tenant integration storage does not exist yet. When tenant integrations are implemented, encrypted tenant credentials should move into database-managed integration records while the application/provider contract remains unchanged.
+## Tenant configuration
 
-The master encryption key must remain outside the database record and outside source control.
+Future integration records belong to an organization and will store provider type, status, capabilities, non-secret configuration, and encrypted credentials. Stored secrets must never be displayed back in plaintext.
+
+The master encryption key must remain outside the database row containing encrypted credentials and should be replaceable by a managed secret/key service later without changing booking business logic.
+
+## Failure model
+
+Adapters must classify timeouts, authentication errors, rate limits, invalid requests, supplier outages, price changes, availability changes, partial failures, and duplicate callbacks into safe application-level errors.

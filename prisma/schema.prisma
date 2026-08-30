@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationKind {
+  HOTEL
+  RESORT
+  TRAVEL_AGENCY
+  TOUR_OPERATOR
+  APPOINTMENT_BUSINESS
+  RENTAL_BUSINESS
+  MARKETPLACE
+  OTHER
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+model Organization {
+  id          String             @id @default(uuid()) @db.Uuid
+  slug        String             @unique @db.VarChar(80)
+  name        String             @db.VarChar(160)
+  kind        OrganizationKind
+  status      OrganizationStatus @default(ACTIVE)
+  timezone    String             @default("UTC") @db.VarChar(80)
+  currency    String             @default("USD") @db.VarChar(3)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(6)
+  deletedAt   DateTime?          @db.Timestamptz(6)
+  memberships OrganizationMembership[]
+
+  @@index([status])
+  @@index([kind])
+  @@map("organizations")
+}
+
+model User {
+  id          String                   @id @default(uuid()) @db.Uuid
+  email       String                   @unique @db.VarChar(320)
+  displayName String?                  @db.VarChar(160)
+  status      UserStatus               @default(ACTIVE)
+  createdAt   DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime                 @updatedAt @db.Timestamptz(6)
+  memberships OrganizationMembership[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model OrganizationMembership {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  status         MembershipStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, status])
+  @@map("organization_memberships")
+}

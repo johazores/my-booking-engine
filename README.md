@@ -1,24 +1,72 @@
-# My Booking Engine
+# SF
 
-My Booking Engine is being rebuilt as a production booking platform foundation rather than a prototype.
+SF is the clean foundation for a commercial multitenant booking infrastructure platform.
 
-## Current implemented slice
+The previous prototype has been intentionally removed. Git history is preserved, but the current codebase no longer carries the old Vacation Me UI, MUI/Tailwind prototype components, RapidAPI-specific booking flow, mock response data, or legacy architecture.
 
-The current flight-search flow now uses a provider contract and application service instead of calling the supplier directly from the page. Provider responses are normalized before reaching the UI, validation is centralized, and supplier failures return safe application errors.
+## Technology
 
-Multitenancy, authentication, persistent inventory, payments, and booking lifecycle management are not implemented yet and must not be treated as complete.
+- Node.js 24 LTS
+- Next.js 16.3.3 with the App Router
+- React 19.2.7
+- TypeScript 6.0 in strict mode
+- Prisma ORM 7.10
+- PostgreSQL
+- Native CSS with reusable design tokens
 
-## Local setup
+## Current foundation
 
-1. Copy `.env.example` to `.env.local`.
-2. Add a valid RapidAPI key to `RAPID_API_KEY`.
-3. Install dependencies with `yarn`.
-4. Run `yarn dev`.
+Implemented now:
 
-Never commit local environment files or credentials.
+- SF product branding and responsive public foundation page
+- clean Next.js application structure
+- PostgreSQL/Prisma organization, user, and organization-membership foundation
+- tenant-safe organization repository queries that always scope access through active membership
+- liveness health endpoint
+- repository engineering rules and architecture documentation
+
+Not implemented yet:
+
+- authentication
+- roles/permissions
+- tenant settings and white-label branding
+- customers
+- inventory/availability/pricing
+- bookings/payments/refunds
+- provider integrations/GDS
+
+Those are intentionally not represented as completed product features.
+
+## Setup
+
+```bash
+cp .env.example .env.local
+npm install
+npm run prisma:generate
+npm run dev
+```
+
+Use Node.js `24.20.0` or another supported Node.js 24 LTS release.
+
+## Validation
+
+```bash
+npm run typecheck
+npm run lint
+npm run prisma:validate
+npm run build
+```
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/integration-architecture.md`](docs/integration-architecture.md)
-- [`docs/product-roadmap.md`](docs/product-roadmap.md)
+- `docs/architecture.md`
+- `docs/database-design.md`
+- `docs/booking-flow.md`
+- `docs/integration-architecture.md`
+- `docs/gds-integration.md`
+- `docs/tenant-system.md`
+- `docs/security.md`
+- `docs/development-guide.md`
+- `docs/product-roadmap.md`
+
+Read `AGENTS.md` before making repository changes.
