@@ -10,7 +10,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   );
 }
 
-test('Tenant A cannot access Tenant B organizations or memberships through real repositories', async () => {
+test('Tenant A cannot access Tenant B data and inactive principals lose tenant access', async () => {
   const [{ db }, organizationRepository, membershipRepository] = await Promise.all([
     import('../database.ts'),
     import('../organizations/organization-repository.ts'),
@@ -123,6 +123,51 @@ test('Tenant A cannot access Tenant B organizations or memberships through real 
     assert.deepEqual(
       membershipsForTenantA.map((membership) => membership.id),
       [membershipA.id],
+    );
+
+    await db.user.update({
+      where: { id: userA.id },
+      data: { status: 'SUSPENDED' },
+    });
+
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      null,
+    );
+    assert.deepEqual(await organizationRepository.listOrganizationsForUser(userA.id), []);
+    assert.deepEqual(
+      await membershipRepository.listMembershipsForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      [],
+    );
+
+    await db.user.update({
+      where: { id: userA.id },
+      data: { status: 'ACTIVE' },
+    });
+    await db.organizationMembership.update({
+      where: { id: membershipA.id },
+      data: { status: 'SUSPENDED' },
+    });
+
+    assert.equal(
+      await organizationRepository.findOrganizationForUser({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      null,
+    );
+    assert.deepEqual(
+      await membershipRepository.listMembershipsForOrganization({
+        organizationId: tenantA.id,
+        userId: userA.id,
+      }),
+      [],
     );
   } finally {
     if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {

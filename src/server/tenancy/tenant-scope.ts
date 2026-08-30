@@ -15,6 +15,11 @@ export function activeOrganizationMembershipScope(userId: string) {
       some: {
         userId,
         status: 'ACTIVE' as const,
+        user: {
+          is: {
+            status: 'ACTIVE' as const,
+          },
+        },
       },
     },
   };

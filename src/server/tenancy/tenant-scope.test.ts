@@ -10,7 +10,15 @@ import {
   tenantOwnedResourceScope,
 } from './tenant-scope.ts';
 
-test('organization access always requires an active membership for the requesting user', () => {
+const activeUserRelationScope = {
+  user: {
+    is: {
+      status: 'ACTIVE',
+    },
+  },
+};
+
+test('organization access requires both an active membership and active requesting user', () => {
   assert.deepEqual(activeOrganizationMembershipScope('user-a'), {
     deletedAt: null,
     status: 'ACTIVE',
@@ -18,6 +26,7 @@ test('organization access always requires an active membership for the requestin
       some: {
         userId: 'user-a',
         status: 'ACTIVE',
+        ...activeUserRelationScope,
       },
     },
   });
@@ -32,6 +41,7 @@ test('organization access always requires an active membership for the requestin
         some: {
           userId: 'user-a',
           status: 'ACTIVE',
+          ...activeUserRelationScope,
         },
       },
     },
@@ -59,7 +69,7 @@ test('tenant-owned collection scopes cannot omit organization ownership', () => 
   });
 });
 
-test('active tenant-owned scopes also require actor access to the owning organization', () => {
+test('active tenant-owned scopes also require active actor access to the owning organization', () => {
   assert.deepEqual(
     activeTenantOwnedCollectionScope({ organizationId: 'tenant-a', userId: 'user-a' }),
     {
@@ -73,6 +83,7 @@ test('active tenant-owned scopes also require actor access to the owning organiz
             some: {
               userId: 'user-a',
               status: 'ACTIVE',
+              ...activeUserRelationScope,
             },
           },
         },
@@ -98,6 +109,7 @@ test('active tenant-owned scopes also require actor access to the owning organiz
             some: {
               userId: 'user-a',
               status: 'ACTIVE',
+              ...activeUserRelationScope,
             },
           },
         },
