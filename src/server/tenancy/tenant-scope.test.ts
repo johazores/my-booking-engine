@@ -6,9 +6,15 @@ import {
   activeOrganizationMembershipScope,
   activeTenantOwnedCollectionScope,
   activeTenantOwnedResourceScope,
+  assertUuidIdentifier,
   tenantOwnedCollectionScope,
   tenantOwnedResourceScope,
 } from './tenant-scope.ts';
+
+const tenantA = '11111111-1111-4111-8111-111111111111';
+const tenantB = '22222222-2222-4222-8222-222222222222';
+const userA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const resourceA = '33333333-3333-4333-8333-333333333333';
 
 const activeUserRelationScope = {
   user: {
@@ -18,13 +24,25 @@ const activeUserRelationScope = {
   },
 };
 
+test('tenant identifiers reject malformed UUIDs before repository access', () => {
+  assert.equal(assertUuidIdentifier(tenantA, 'organizationId'), tenantA);
+  assert.throws(() => assertUuidIdentifier('', 'organizationId'), /valid UUID/);
+  assert.throws(() => assertUuidIdentifier('tenant-a', 'organizationId'), /valid UUID/);
+  assert.throws(() => activeOrganizationMembershipScope('not-a-user-id'), /valid UUID/);
+  assert.throws(() => tenantOwnedCollectionScope(''), /valid UUID/);
+  assert.throws(
+    () => tenantOwnedResourceScope({ organizationId: tenantA, resourceId: 'resource-1' }),
+    /valid UUID/,
+  );
+});
+
 test('organization access requires both an active membership and active requesting user', () => {
-  assert.deepEqual(activeOrganizationMembershipScope('user-a'), {
+  assert.deepEqual(activeOrganizationMembershipScope(userA), {
     deletedAt: null,
     status: 'ACTIVE',
     memberships: {
       some: {
-        userId: 'user-a',
+        userId: userA,
         status: 'ACTIVE',
         ...activeUserRelationScope,
       },
@@ -32,14 +50,14 @@ test('organization access requires both an active membership and active requesti
   });
 
   assert.deepEqual(
-    activeOrganizationAccessScope({ organizationId: 'tenant-a', userId: 'user-a' }),
+    activeOrganizationAccessScope({ organizationId: tenantA, userId: userA }),
     {
-      id: 'tenant-a',
+      id: tenantA,
       deletedAt: null,
       status: 'ACTIVE',
       memberships: {
         some: {
-          userId: 'user-a',
+          userId: userA,
           status: 'ACTIVE',
           ...activeUserRelationScope,
         },
@@ -50,38 +68,38 @@ test('organization access requires both an active membership and active requesti
 
 test('tenant-owned resource scopes always bind both resource and organization identifiers', () => {
   assert.deepEqual(
-    tenantOwnedResourceScope({ organizationId: 'tenant-a', resourceId: 'resource-1' }),
+    tenantOwnedResourceScope({ organizationId: tenantA, resourceId: resourceA }),
     {
-      id: 'resource-1',
-      organizationId: 'tenant-a',
+      id: resourceA,
+      organizationId: tenantA,
     },
   );
 
   assert.notDeepEqual(
-    tenantOwnedResourceScope({ organizationId: 'tenant-a', resourceId: 'resource-1' }),
-    tenantOwnedResourceScope({ organizationId: 'tenant-b', resourceId: 'resource-1' }),
+    tenantOwnedResourceScope({ organizationId: tenantA, resourceId: resourceA }),
+    tenantOwnedResourceScope({ organizationId: tenantB, resourceId: resourceA }),
   );
 });
 
 test('tenant-owned collection scopes cannot omit organization ownership', () => {
-  assert.deepEqual(tenantOwnedCollectionScope('tenant-a'), {
-    organizationId: 'tenant-a',
+  assert.deepEqual(tenantOwnedCollectionScope(tenantA), {
+    organizationId: tenantA,
   });
 });
 
 test('active tenant-owned scopes also require active actor access to the owning organization', () => {
   assert.deepEqual(
-    activeTenantOwnedCollectionScope({ organizationId: 'tenant-a', userId: 'user-a' }),
+    activeTenantOwnedCollectionScope({ organizationId: tenantA, userId: userA }),
     {
-      organizationId: 'tenant-a',
+      organizationId: tenantA,
       organization: {
         is: {
-          id: 'tenant-a',
+          id: tenantA,
           deletedAt: null,
           status: 'ACTIVE',
           memberships: {
             some: {
-              userId: 'user-a',
+              userId: userA,
               status: 'ACTIVE',
               ...activeUserRelationScope,
             },
@@ -93,21 +111,21 @@ test('active tenant-owned scopes also require active actor access to the owning 
 
   assert.deepEqual(
     activeTenantOwnedResourceScope({
-      organizationId: 'tenant-a',
-      userId: 'user-a',
-      resourceId: 'membership-a',
+      organizationId: tenantA,
+      userId: userA,
+      resourceId: resourceA,
     }),
     {
-      id: 'membership-a',
-      organizationId: 'tenant-a',
+      id: resourceA,
+      organizationId: tenantA,
       organization: {
         is: {
-          id: 'tenant-a',
+          id: tenantA,
           deletedAt: null,
           status: 'ACTIVE',
           memberships: {
             some: {
-              userId: 'user-a',
+              userId: userA,
               status: 'ACTIVE',
               ...activeUserRelationScope,
             },

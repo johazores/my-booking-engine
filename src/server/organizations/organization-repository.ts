@@ -3,6 +3,7 @@ import {
   activeOrganizationAccessScope,
   activeOrganizationMembershipScope,
 } from '../tenancy/tenant-scope.ts';
+import { validateOrganizationSlug } from './organization-domain.ts';
 
 interface OrganizationAccessInput {
   organizationId: string;
@@ -36,6 +37,10 @@ export function findOrganizationBySlugForUser({
   organizationSlug,
   userId,
 }: OrganizationSlugAccessInput) {
+  if (!validateOrganizationSlug(organizationSlug)) {
+    throw new Error('organizationSlug must be a canonical organization slug.');
+  }
+
   return db.organization.findFirst({
     where: {
       ...activeOrganizationMembershipScope(userId),

@@ -53,14 +53,16 @@ Future tenant-owned records must contain an organization identifier or otherwise
 
 The server-side scope helpers in `src/server/tenancy/tenant-scope.ts` establish the repository contract:
 
-- organization access is restricted to active, non-deleted organizations with an active membership for the requesting user
+- organization access is restricted to active, non-deleted organizations with an active membership for an active requesting user
+- organization, user, and tenant-resource identifiers are validated as UUIDs before Prisma/database access
+- organization slug lookups reject non-canonical slugs before querying
 - tenant-owned collection queries always include `organizationId`
 - tenant-owned single-resource queries always include both `organizationId` and the resource ID
 - update/delete repositories must follow the same compound ownership scope rather than looking up a resource globally first
 
-The current organization repository consumes these shared scopes. Future tenant-owned repositories must reuse the same ownership pattern rather than accepting unrestricted resource IDs from routes or UI input.
+The current organization and organization-membership repositories consume these shared scopes. Future tenant-owned repositories must reuse the same ownership and identifier-validation pattern rather than accepting unrestricted resource IDs from routes or UI input.
 
-Dependency-free scope tests verify that Tenant A and Tenant B produce distinct query scopes even when the same resource ID is supplied. Live PostgreSQL integration tests are still required before database-level tenant isolation can be considered fully proven.
+Dependency-free scope tests verify that Tenant A and Tenant B produce distinct query scopes even when the same resource ID is supplied, and that malformed identifiers fail before a query can be constructed. Live PostgreSQL integration tests are still required before database-level tenant isolation can be considered fully proven.
 
 ## Planned domain modeling
 
