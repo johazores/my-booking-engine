@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import './globals.css';
 import './auth.css';
+import './shell.css';
 
 export const metadata: Metadata = {
   title: { default: 'SF | Booking Infrastructure', template: '%s | SF' },

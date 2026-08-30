@@ -6,11 +6,11 @@ This document describes the target architecture and identifies what exists today
 
 ## Current foundation
 
-SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, and persisted opaque authentication sessions.
+SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, and audit events.
 
-First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can now create a tenant atomically with their membership and choose an active organization context. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
+First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, and archive organizations without destroying commercial history. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
 
-Granular roles/permissions, the persistent application shell, booking domain modules, payments, inventory, and provider adapters are not implemented yet.
+Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. The authenticated dashboard shell is now implemented as the workspace foundation for new protected product surfaces. Booking domain modules, payments, inventory, white-label branding, and provider adapters are not implemented yet.
 
 ## Architectural shape
 
@@ -64,6 +64,8 @@ Business-specific capabilities extend the common booking foundation only where c
 - Provider adapters translate normalized operations to external APIs.
 
 Authenticated tenant operations must derive user identity from the validated server session and must revalidate organization membership at the server/data-access boundary. Browser route parameters, form values, or cookies are never sufficient tenant authorization by themselves.
+
+The application shell may display already-resolved user, tenant, and role context, but it is never an authorization boundary. Protected pages and server operations remain responsible for enforcing their own access requirements.
 
 ## Scaling restraint
 

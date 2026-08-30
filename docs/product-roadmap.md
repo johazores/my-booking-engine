@@ -32,37 +32,44 @@ Live migration/schema/isolation verification still requires an available disposa
 - auth error/loading/success states
 - unauthorized and expired-session regression coverage
 
-## 4. Organizations and tenant isolation — in progress
-
-Implemented:
+## 4. Organizations and tenant isolation — implemented
 
 - authenticated organization creation/onboarding
 - atomic organization + creator-membership persistence
 - organization selection for multi-tenant users
 - revalidated active-organization server context
-- tenant-safe organization/membership reads
-- cross-tenant repository coverage checked in
+- tenant-safe organization/membership reads and writes
+- organization settings management
+- audited safe organization archival
+- cross-tenant repository and mutation coverage checked in
 
-Next dependency work:
+## 5. Roles and permissions — implemented
 
-- granular roles and permissions before organization-management mutations
-- organization settings/deactivation workflows after authorization exists
-- route/mutation authorization coverage as those operations are introduced
+- platform admin and organization roles
+- fine-grained capability model
+- reusable server-side permission enforcement
+- membership role and lifecycle management
+- permission-change auditing
+- last-active-admin protection with serializable mutations
+- authorization integration coverage checked in
 
-## 5. Roles and permissions — next
+## 6. Persistent application shell — in progress
 
-- permission model
-- organization roles
-- protected operations based on permissions, not role names alone
-- membership/role management and authorization tests
+Implemented:
 
-## 6. Persistent application shell
+- authenticated `/dashboard` workspace foundation
+- persistent desktop sidebar for implemented workspace routes
+- product-appropriate mobile navigation
+- sticky header with tenant identity and account controls
+- active navigation states
+- responsive layouts and loading state
+- skip navigation, semantic navigation labels, visible focus behavior, and reduced-motion loading
+- useful dashboard connected only to real tenant/auth/membership data
 
-- desktop navigation/sidebar
-- mobile navigation
-- account controls
-- organization identity
-- honest operational dashboard states
+Remaining integration work:
+
+- migrate existing account/organization administration into the canonical workspace when it can be done without risking completed auth/organization workflows
+- keep future authenticated modules under the dashboard workspace instead of creating isolated shells
 
 ## 7. Tenant settings and white-label branding
 
