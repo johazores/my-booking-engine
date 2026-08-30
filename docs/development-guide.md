@@ -36,7 +36,11 @@ For a new local PostgreSQL database:
 npm run prisma:generate
 npm run prisma:validate
 npm run db:deploy
+npm run db:status
+npm run db:drift
 ```
+
+`db:status` verifies that the checked-in migration history matches the database migration table. `db:drift` compares the Prisma schema to the configured database and exits non-zero when Prisma-supported schema drift exists.
 
 For an isolated development database where Prisma should manage development migration state:
 
@@ -44,19 +48,22 @@ For an isolated development database where Prisma should manage development migr
 npm run db:migrate
 ```
 
-After applying the migration, verify the database schema before marking the live-database checklist items complete. Never point development migration commands at production.
+After applying the migration, verify migration status and drift before marking the live-database checklist items complete. Never point development migration commands at production.
 
 ## Database integration tests
 
-Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The test runner refuses to use the same URL as `DATABASE_URL`, applies checked-in migrations to the test database, then runs the real organization repository against two separate tenants.
+Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The runner requires an explicit safety acknowledgement, refuses to reuse the normal `DATABASE_URL`, validates the Prisma schema, applies checked-in migrations, verifies migration status and Prisma-supported schema drift, then runs the real tenant repositories against two separate tenants.
 
 ```bash
 # example only; use your own disposable local test database
 export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sf_test?schema=public"
+export SF_DATABASE_TEST_CONFIRM="sf-disposable-test-database"
 npm run test:database
 ```
 
-The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B by ID or slug, checks Tenant A's organization list does not contain Tenant B, and removes all records it created. Do not point `TEST_DATABASE_URL` at production or any shared database containing valuable data.
+The acknowledgement is intentionally verbose so an accidental environment variable or copied production connection string is less likely to start database integration work. `TEST_DATABASE_URL` must use PostgreSQL, name a database, and differ from `DATABASE_URL`. Do not point it at production or any shared database containing valuable data.
+
+The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B organization or membership data, and verifies suspended users/memberships immediately lose tenant access. It removes the records it creates when the test finishes.
 
 ## Validation
 

@@ -1,22 +1,12 @@
 import { spawnSync } from 'node:child_process';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
+import { validateDisposableTestDatabase } from './database-test-safety.mjs';
 
-if (!testDatabaseUrl) {
-  throw new Error('TEST_DATABASE_URL is required for database integration tests.');
-}
-
-if (process.env.DATABASE_URL?.trim() === testDatabaseUrl) {
-  throw new Error(
-    'TEST_DATABASE_URL must be different from DATABASE_URL so integration tests cannot target the normal application database.',
-  );
-}
-
-const parsedUrl = new URL(testDatabaseUrl);
-
-if (!['postgres:', 'postgresql:'].includes(parsedUrl.protocol)) {
-  throw new Error('TEST_DATABASE_URL must use PostgreSQL.');
-}
+const testDatabaseUrl = validateDisposableTestDatabase({
+  testDatabaseUrl: process.env.TEST_DATABASE_URL,
+  applicationDatabaseUrl: process.env.DATABASE_URL,
+  confirmation: process.env.SF_DATABASE_TEST_CONFIRM,
+});
 
 const env = {
   ...process.env,
@@ -41,7 +31,10 @@ function run(command, args) {
   }
 }
 
+run(npmCommand, ['run', 'prisma:validate']);
 run(npmCommand, ['run', 'db:deploy']);
+run(npmCommand, ['run', 'db:status']);
+run(npmCommand, ['run', 'db:drift']);
 run(process.execPath, [
   '--test',
   'src/server/tenancy/tenant-isolation.integration.ts',
