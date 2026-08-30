@@ -22,17 +22,29 @@ Supported lifecycle transitions are intentionally explicit:
 
 ### User
 
-Represents a platform identity record. Authentication details are intentionally not modeled until the authentication slice is implemented.
+Represents a platform identity record. Authentication credentials and sessions are intentionally not modeled until the authentication slice is implemented.
+
+User email is an identity key, so it must be canonical before persistence: trimmed, lowercase, syntactically valid, and no longer than the schema limit. `src/server/users/user-domain.ts` owns normalization/validation. The PostgreSQL migration `20260830193000_canonical_user_identity` adds database checks so alternate casing or surrounding whitespace cannot bypass the unique email constraint.
+
+User lifecycle transitions are explicit before authentication is added:
+
+- `ACTIVE` → `SUSPENDED` or `ARCHIVED`
+- `SUSPENDED` → `ACTIVE` or `ARCHIVED`
+- `ARCHIVED` is terminal in the current foundation
+
+Tenant access already requires an `ACTIVE` user, so suspending/archiving an identity removes tenant access even if membership rows remain unchanged.
 
 ### OrganizationMembership
 
 Connects users to organizations. The unique `(organizationId, userId)` constraint prevents duplicate membership records. Indexes support tenant and user membership lookups.
 
-## Initial migration
+## Migrations
 
 The initial tenant schema is checked in under `prisma/migrations/20260830043000_initial_tenant_foundation/migration.sql` with a PostgreSQL migration lock file.
 
-The migration has **not** been claimed as applied to a real database from the repository agent environment. It must be applied and verified against an actual PostgreSQL instance before the corresponding checklist item is marked complete.
+The canonical identity migration is checked in under `prisma/migrations/20260830193000_canonical_user_identity/migration.sql`. It intentionally fails if existing user emails are not canonical so operators can review identity collisions instead of silently rewriting commercial identity data.
+
+The migrations have **not** been claimed as applied to a real database from the repository agent environment. They must be applied and verified against an actual PostgreSQL instance before the corresponding checklist item is marked complete.
 
 For a local database:
 

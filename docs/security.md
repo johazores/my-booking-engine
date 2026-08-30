@@ -7,6 +7,7 @@
 - Database access is server-only.
 - Tenant organization lookup requires an active organization, active membership, and active user record.
 - Tenant-owned membership reads reuse the same server-side principal eligibility rule.
+- User email identities are canonicalized to trimmed lowercase values before persistence and are backed by database checks.
 - Database integration tests require a separate PostgreSQL URL plus explicit disposable-database acknowledgement before migrations or repository tests run.
 - Next.js removes the framework powered-by header.
 
@@ -17,6 +18,8 @@ Authentication and full authorization are not implemented yet. Until authenticat
 Protected operations must validate authentication, active user status, tenant membership, permissions, and resource ownership. Never rely on frontend navigation or filtering for access control.
 
 Suspending or archiving a user must remove tenant access even if an organization membership record was not separately changed yet. Suspending a membership must also remove tenant access while leaving the user identity intact for other organizations.
+
+Email is a future authentication identifier and must be canonicalized through `createCanonicalUserEmail` before any user write. Do not perform ad-hoc lowercase handling in route handlers. The database rejects non-canonical or malformed email values, preventing casing/whitespace variants from bypassing the unique identity constraint. User lifecycle changes must use the explicit domain transition rules; archived identities are terminal in the current foundation.
 
 ## Database test safety
 

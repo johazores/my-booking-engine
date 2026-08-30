@@ -14,6 +14,8 @@ Organization membership reads now follow the same server-side boundary. Listing 
 
 Membership mutation APIs are intentionally not exposed yet. Creating, changing, suspending, or removing memberships requires the roles/permissions slice so an ordinary active member cannot implicitly gain membership-management authority.
 
+User identities use canonical trimmed lowercase email values. Their lifecycle is explicit: active identities can be suspended or archived, suspended identities can be reactivated or archived, and archived identities are terminal in the current foundation. Tenant access requires the requesting user itself to remain active, so changing user lifecycle state cannot leave stale access active through an unchanged membership row.
+
 Organization identifiers use stable UUID primary keys plus unique human-readable slugs. Slugs are normalized to lowercase letters, numbers, and single hyphens and are constrained to 3-63 characters.
 
 The initial organization lifecycle is explicit:
@@ -22,7 +24,7 @@ The initial organization lifecycle is explicit:
 - `SUSPENDED` can return to `ACTIVE` or become `ARCHIVED`
 - `ARCHIVED` is terminal in the current foundation
 
-The checked-in PostgreSQL migration adds the initial tenant tables, relational constraints, indexes, and database checks. It still needs to be applied and verified against a real PostgreSQL database before live database validation is considered complete.
+The checked-in PostgreSQL migrations add the tenant tables, relational constraints, indexes, database checks, and canonical user identity constraints. They still need to be applied and verified against a real PostgreSQL database before live database validation is considered complete.
 
 A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant-scope.ts`. Organization access scopes require an active membership for the requesting user. Tenant-owned records can additionally use active collection/resource scopes that bind `organizationId` and validate actor access through the owning organization relation. Single-resource lookups bind both the resource identifier and organization identifier so a resource ID from another tenant cannot be used by itself.
 
