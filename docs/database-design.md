@@ -95,7 +95,7 @@ Images remain readable when parent inventory is archived for historical/configur
 
 `HospitalityRoomTypeRatePlan` assigns one rate plan to one room type under the same property. Its two composite foreign keys require the room type and rate plan to share the same `(propertyId, organizationId)`, preventing both cross-tenant and cross-property assignments at the database layer.
 
-Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions, unexpired availability holds, active base rates, and active scoped tax/fee rules must be cleared before an assignment can be removed. A rate plan cannot be archived until its assignments and active dependent commercial configuration are cleared.
+Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions, unexpired availability holds, active base rates, active scoped tax/fee rules, and active scoped add-ons must be cleared before an assignment can be removed. A rate plan cannot be archived until its assignments and active dependent commercial configuration are cleared.
 
 ### HospitalityRestriction
 
@@ -141,6 +141,18 @@ Date windows are inclusive. Scope fields must either both be null or both be pop
 
 Charge rules are archived rather than edited in place. Active scoped charges protect their rate-plan assignment/rate plan; active property charges protect property archival; active fixed charges protect organization currency changes. Quotes calculate percentage charges with exact integer half-up rounding and include charge components in the complete pricing fingerprint.
 
+### HospitalityAddon
+
+`HospitalityAddon` stores tenant-owned optional hospitality products such as transfers, breakfast, parking, rentals, or other property offerings without embedding them in booking JSON. Every add-on belongs to one organization/property and is either property-wide or scoped to an exact room-type/rate-plan pair.
+
+The record stores canonical code, name, optional description, pricing model, positive `BIGINT` minor-unit amount, three-letter currency, maximum selected quantity, inclusive stay-applicability dates, lifecycle, and timestamps. Supported models are `PER_BOOKING`, `PER_ROOM`, `PER_ROOM_NIGHT`, and `PER_UNIT`.
+
+PostgreSQL checks that scope fields are both null or both populated, amounts are positive, quantities remain 1–100, only `PER_UNIT` entries may configure quantity above one, and end date is not before start date. Composite property/room-type/rate-plan foreign keys guarantee tenant/property ownership independently of application checks.
+
+Application writes serialize potentially competing same-code definitions by tenant/property/code before overlap validation, so property-wide and scoped definitions cannot concurrently create ambiguous duplicate applicability. Add-ons are archived rather than edited in place. Active scoped add-ons protect their rate-plan assignment/rate plan; any active add-on protects property archival and organization currency changes.
+
+Quote resolution loads selected add-ons from persistence under tenant/property/scope, requires the applicability window to cover every occupied night, validates persisted quantity limits and currency, calculates multipliers server-side, and includes normalized selected add-ons in the complete pricing fingerprint.
+
 ### AuditEvent
 
 Important tenant administration, customer, inventory, availability, and pricing lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
@@ -167,6 +179,7 @@ Checked-in migrations include:
 - `20260831124500_hospitality-availability-holds`
 - `20260831133000_hospitality-base-rates`
 - `20260831143000_hospitality-charges`
+- `20260831204000_hospitality-addons`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -198,11 +211,11 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records, commercial assignments, availability records, base rates, and charge rules use composite parent/tenant foreign keys
+- hospitality child records, commercial assignments, availability records, base rates, charge rules, and add-ons use composite parent/tenant foreign keys
 
 Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, availability-window, hold, base-rate, charge-rule, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
+Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, availability-window, hold, base-rate, charge-rule, add-on, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
@@ -214,7 +227,7 @@ Customer, hospitality inventory, and pricing collections use bounded query patte
 - customer sort/filter values come from fixed allowlists
 - inventory/pricing hierarchy queries remain constrained by tenant and parent IDs
 - image galleries are capped at 50 records per property or room-type scope
-- rate plans, restriction scopes/history, pricing scopes, base-rate history, and tax/fee history are paginated
+- rate plans, restriction scopes/history, pricing scopes, base-rate history, tax/fee history, and add-on catalog history are paginated
 - hold expiry cleanup is bounded to at most 500 rows per invocation
 
 Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
@@ -228,7 +241,7 @@ Future schemas should model real business relationships rather than mirror UI pa
 - services, staff, schedules
 - rental products and locations
 - permanent booking allocations and confirmation
-- add-ons and advanced pricing rules
+- advanced pricing/provider rules when required by real contracts
 - bookings and immutable booking price snapshots
 - payments, refunds, reconciliation references
 - provider integrations and encrypted credentials
@@ -241,6 +254,6 @@ Booking state and payment state must remain separate when workflows can diverge.
 
 Availability is not implemented as an unsafe read-then-decrement counter. Temporary hold creation serializes allocation for a tenant/property/room type with a PostgreSQL transaction-scoped advisory lock, then rechecks restrictions and per-night capacity inside a serializable transaction before persistence.
 
-Base-rate configuration similarly serializes writes per tenant/property/room-type/rate-plan scope before checking active date overlap. Tax/fee configuration serializes every same-code write per tenant/property/code before checking overlap, preventing concurrent property-wide and scoped definitions from producing ambiguous duplicate commercial rules.
+Base-rate configuration similarly serializes writes per tenant/property/room-type/rate-plan scope before checking active date overlap. Tax/fee and add-on configuration serialize every same-code write per tenant/property/code before checking overlap, preventing concurrent property-wide and scoped definitions from producing ambiguous duplicate commercial rules.
 
 Permanent booking allocation and atomic confirmation remain future work. They must use the availability allocation boundary and revalidate the latest complete pricing contract so hold conversion/direct confirmation cannot oversell the last unit or persist a stale browser price.
