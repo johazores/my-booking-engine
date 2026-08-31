@@ -5,6 +5,7 @@ import { OrganizationPermissionDeniedError } from '@/server/authorization/author
 import { OrganizationValidationError } from '@/server/organizations/organization-domain.ts';
 import {
   OrganizationSettingsConflictError,
+  OrganizationSettingsDependencyError,
   OrganizationUnavailableError,
   updateOrganizationSettings,
 } from '@/server/organizations/organization-management-service.ts';
@@ -50,11 +51,13 @@ export async function POST(request: Request) {
       ? 'permission'
       : error instanceof OrganizationSettingsConflictError
         ? 'slug'
-        : error instanceof OrganizationValidationError
+        : error instanceof OrganizationSettingsDependencyError
           ? 'validation'
-          : error instanceof OrganizationUnavailableError
-            ? 'tenant'
-            : 'server';
+          : error instanceof OrganizationValidationError
+            ? 'validation'
+            : error instanceof OrganizationUnavailableError
+              ? 'tenant'
+              : 'server';
     return NextResponse.redirect(new URL(`/account?settingsError=${code}`, request.url), 303);
   }
 }
