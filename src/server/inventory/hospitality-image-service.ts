@@ -64,14 +64,16 @@ export async function createHospitalityImage(input: ImageScope & { image: Hospit
         select: { id: true },
       });
       if (duplicate) throw new HospitalityInventoryConflictError('That image URL is already assigned to this room type.');
-      if (image.isPrimary) {
+      const imageCount = await transaction.hospitalityRoomTypeImage.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId } });
+      const isPrimary = image.isPrimary || imageCount === 0;
+      if (isPrimary) {
         await transaction.hospitalityRoomTypeImage.updateMany({
           where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: true },
           data: { isPrimary: false },
         });
       }
       const created = await transaction.hospitalityRoomTypeImage.create({
-        data: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, ...image },
+        data: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, ...image, isPrimary },
       });
       await transaction.auditEvent.create({
         data: {
@@ -91,14 +93,16 @@ export async function createHospitalityImage(input: ImageScope & { image: Hospit
       select: { id: true },
     });
     if (duplicate) throw new HospitalityInventoryConflictError('That image URL is already assigned to this property.');
-    if (image.isPrimary) {
+    const imageCount = await transaction.hospitalityPropertyImage.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId } });
+    const isPrimary = image.isPrimary || imageCount === 0;
+    if (isPrimary) {
       await transaction.hospitalityPropertyImage.updateMany({
         where: { organizationId: input.organizationId, propertyId: input.propertyId, isPrimary: true },
         data: { isPrimary: false },
       });
     }
     const created = await transaction.hospitalityPropertyImage.create({
-      data: { organizationId: input.organizationId, propertyId: input.propertyId, ...image },
+      data: { organizationId: input.organizationId, propertyId: input.propertyId, ...image, isPrimary },
     });
     await transaction.auditEvent.create({
       data: {
@@ -121,9 +125,15 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
   return db.$transaction(async (transaction) => {
     if (input.roomTypeId) {
       const current = await transaction.hospitalityRoomTypeImage.findFirst({
-        where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+        where: {
+          id: input.imageId,
+          organizationId: input.organizationId,
+          propertyId: input.propertyId,
+          roomTypeId: input.roomTypeId,
+          roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+        },
       });
-      if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in this organization.');
+      if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
       if (current.isPrimary) return current;
       await transaction.hospitalityRoomTypeImage.updateMany({
         where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: true },
@@ -135,9 +145,9 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
     }
 
     const current = await transaction.hospitalityPropertyImage.findFirst({
-      where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId },
+      where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId, property: { is: { status: 'ACTIVE' } } },
     });
-    if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in this organization.');
+    if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
     if (current.isPrimary) return current;
     await transaction.hospitalityPropertyImage.updateMany({ where: { organizationId: input.organizationId, propertyId: input.propertyId, isPrimary: true }, data: { isPrimary: false } });
     const updated = await transaction.hospitalityPropertyImage.update({ where: { id: current.id }, data: { isPrimary: true } });
@@ -152,15 +162,23 @@ export async function removeHospitalityImage(input: ImageScope & { imageId: stri
 
   return db.$transaction(async (transaction) => {
     if (input.roomTypeId) {
-      const current = await transaction.hospitalityRoomTypeImage.findFirst({ where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId } });
-      if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in this organization.');
+      const current = await transaction.hospitalityRoomTypeImage.findFirst({
+        where: {
+          id: input.imageId,
+          organizationId: input.organizationId,
+          propertyId: input.propertyId,
+          roomTypeId: input.roomTypeId,
+          roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+        },
+      });
+      if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
       await transaction.hospitalityRoomTypeImage.delete({ where: { id: current.id } });
       await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-room-type', resourceType: 'hospitality-room-type-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
       return current;
     }
 
-    const current = await transaction.hospitalityPropertyImage.findFirst({ where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId } });
-    if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in this organization.');
+    const current = await transaction.hospitalityPropertyImage.findFirst({ where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId, property: { is: { status: 'ACTIVE' } } } });
+    if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
     await transaction.hospitalityPropertyImage.delete({ where: { id: current.id } });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-property', resourceType: 'hospitality-property-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
     return current;
