@@ -5,8 +5,12 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Availability integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-test('hospitality availability enforces tenant scope, physical capacity, permissions, and effective restrictions', async () => {
-  const [{ db }, availability] = await Promise.all([import('../database.ts'), import('./hospitality-availability-service.ts')]);
+test('hospitality availability enforces tenant scope, physical/window capacity, permissions, and effective restrictions', async () => {
+  const [{ db }, availability, windows] = await Promise.all([
+    import('../database.ts'),
+    import('./hospitality-availability-service.ts'),
+    import('./hospitality-availability-window-service.ts'),
+  ]);
   const runId = crypto.randomUUID();
   const adminA = await db.user.create({ data: { email: `availability-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { email: `availability-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -33,19 +37,37 @@ test('hospitality availability enforces tenant scope, physical capacity, permiss
 
     const available = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-14', quantity: 2 } });
     assert.equal(available.capacity.physicalUnits, 2);
+    assert.equal(available.capacity.sellableUnits, 2);
     assert.equal(available.available, true);
+
+    await assert.rejects(
+      windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: staffA.id, window: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, startDate: '2026-09-11', endDate: '2026-09-13', capacityLimit: 1 } }),
+      /permission/i,
+    );
+    const capacityWindow = await windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, window: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, startDate: '2026-09-11', endDate: '2026-09-13', capacityLimit: 1 } });
+    await assert.rejects(
+      windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, window: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, startDate: '2026-09-13', endDate: '2026-09-15', capacityLimit: 1 } }),
+      /overlaps/i,
+    );
+
+    const windowLimited = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-14', quantity: 2 } });
+    assert.equal(windowLimited.capacity.physicalUnits, 2);
+    assert.equal(windowLimited.capacity.sellableUnits, 1);
+    assert.equal(windowLimited.available, false);
+    assert.ok(windowLimited.unavailableReasons.includes('insufficient-capacity'));
 
     const restricted = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-13', quantity: 1 } });
     assert.equal(restricted.available, false);
     assert.ok(restricted.unavailableReasons.includes('minimum-stay'));
 
-    const overCapacity = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-14', quantity: 3 } });
-    assert.equal(overCapacity.available, false);
-    assert.ok(overCapacity.unavailableReasons.includes('insufficient-capacity'));
-
     await assert.rejects(availability.readHospitalityAvailability({ organizationId: organizationB.id, actorUserId: adminB.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-14', quantity: 1 } }), /same property|not available/i);
+    await assert.rejects(windows.archiveHospitalityAvailabilityWindow({ organizationId: organizationB.id, actorUserId: adminB.id, windowId: capacityWindow.id }), /not available/i);
+    await windows.archiveHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, windowId: capacityWindow.id });
+    const restored = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-11', departureDate: '2026-09-14', quantity: 2 } });
+    assert.equal(restored.capacity.sellableUnits, 2);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.hospitalityAvailabilityWindow.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityRestriction.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
