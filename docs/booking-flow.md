@@ -2,9 +2,9 @@
 
 ## Status
 
-SF now has a production-safe internal hospitality confirmation boundary plus an authenticated application API surface for the implemented booking path. A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads the current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, and rejects a stale expected pricing fingerprint before any booking, allocation, hold-consumption, or audit write is committed.
+SF now has a production-safe internal hospitality confirmation boundary, authenticated application APIs, and an authenticated booking desk connected to the real booking services. A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads the current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, and rejects a stale expected pricing fingerprint before any booking, allocation, hold-consumption, or audit write is committed.
 
-The authenticated API now exposes the implemented availability read, hold creation, complete pricing quote, booking confirmation, and paginated booking-history operations without trusting organization IDs or authoritative money from the browser. Public search, offer selection UI, traveler/customer checkout, payment orchestration, confirmation UI, cancellation, and provider-backed reservations remain incomplete and must not be presented as finished.
+The authenticated booking desk supports an exact property/room-type/rate-plan stay selection, real availability checks, date-applicable add-on selection, temporary holds, complete price review/revalidation, existing-customer selection, atomic confirmation, explicit hold-expiry and price-change recovery, and recent persisted booking history. Broad offer discovery/search, booking-specific traveler/passenger capture, payments, cancellation/modification, and the public white-label booking journey remain incomplete and must not be presented as finished.
 
 ## Authenticated booking API
 
@@ -19,6 +19,26 @@ The current internal application boundary uses the active authenticated organiza
 Every state-changing booking-flow endpoint requires an authenticated session, an active organization selected through the server-side tenant context, same-origin request protection, and the service-layer permission required by the operation. Business rules, tenant scope, availability locking, pricing calculation, and persistence remain in server services rather than route handlers.
 
 The API returns explicit authentication, tenant, permission, validation, conflict, unavailable, and price-change failure states. BigInt money values are serialized as decimal strings so JSON transport never loses integer precision.
+
+## Authenticated booking desk
+
+`/bookings` lives in the canonical authenticated application shell and derives the active tenant from the validated server session. The page uses `booking:read` for access and exposes confirmation controls only when the actor also has `booking:manage`. Property, pricing-scope, customer, add-on, and booking-history data are all loaded through existing tenant-scoped services.
+
+The client workspace coordinates the existing API rather than reimplementing commercial rules in the browser:
+
+1. choose an active property and exact room-type/rate-plan scope;
+2. enter stay dates and room quantity and request authoritative availability;
+3. select add-ons that match the scope and occupied-night date range;
+4. create an idempotent capacity hold and fetch the complete server quote;
+5. review exact accommodation, tax, fee, add-on, and total amounts;
+6. select an active tenant customer; and
+7. submit the hold, current pricing fingerprint, selections, customer, and stable booking idempotency key for atomic confirmation.
+
+Hold and booking idempotency keys remain stable across retryable client failures so a lost HTTP response does not create duplicate temporary capacity or duplicate bookings. Changing the commercial stay input starts a fresh hold attempt. Add-on choices are locked after capacity is held so the UI cannot silently abandon a live hold by changing its commercial payload.
+
+When confirmation reports a price change, the UI refreshes the current quote and requires the operator to review it before confirming again. When the hold is unavailable or expired, the workspace clears the stale commercial state and requires a new availability check. Successful confirmation shows the persisted booking identifier, booking state, separate payment state, and immutable total.
+
+This is an internal staff booking desk, not the public white-label customer journey.
 
 ## Confirmation command
 
@@ -78,4 +98,4 @@ Full execution still requires the repository's Node 24 runtime and an explicitly
 
 ## Next dependency
 
-The next booking-flow work is the real product journey built on these APIs: search/offer presentation, selected add-on UX, customer/traveler collection, hold expiry and price-change recovery in the interface, confirmation success/error states, and then payment orchestration. Provider-specific reservations remain behind future adapters rather than leaking into this internal booking domain.
+The highest-value remaining booking-flow dependency is broad normalized hospitality search/offer discovery plus booking-specific traveler information where the product requires fields distinct from the tenant customer record. After that, the next major commercial dependency is payment orchestration. The public white-label journey should reuse the same real availability, hold, pricing, and confirmation contracts once its customer-safe authorization model is implemented. Provider-specific reservations remain behind future adapters rather than leaking into this internal booking domain.
