@@ -68,7 +68,6 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
     {selectedProperty && scopes && customers ? <HospitalityBookingWorkspace
       propertyId={selectedProperty.id}
       propertyName={selectedProperty.name}
-      currency={organization.currency}
       scopes={scopes.scopes.map((scope) => ({ roomTypeId: scope.roomTypeId, ratePlanId: scope.ratePlanId, roomType: scope.roomType, ratePlan: scope.ratePlan }))}
       customers={customers.customers.map((customer) => ({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, email: customer.email }))}
       addons={workspaceAddons}
