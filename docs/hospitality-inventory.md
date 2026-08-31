@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the first internal-inventory production slice for hospitality: tenant-owned properties, room types, and physical rooms. The amenity data foundation is now also implemented: tenant-owned amenity definitions plus tenant-safe property and room-type assignments. Amenity management UI/removal lifecycle and PostgreSQL integration coverage are still incomplete, so the master checklist intentionally does not mark Amenities complete yet. Images, rate plans, restrictions, availability, and pricing remain separate future dependencies.
+SF implements tenant-owned hospitality properties, room types, physical rooms, and the amenity management foundation. Amenities now have reusable tenant-owned definitions, create/archive lifecycle, permission-checked property/room-type assignment and removal services, audited mutations, a real authenticated management page, and PostgreSQL integration coverage for tenant isolation and lifecycle rules. Property-level assignment controls still need to be surfaced in the property UI before the Amenities checklist item is marked complete. Images, rate plans, restrictions, availability, and pricing remain separate future dependencies.
 
 ## Domain hierarchy
 
@@ -27,7 +27,7 @@ Every property has `organizationId`. Room types and rooms also carry organizatio
 - property amenity assignments reference both property and amenity using the same `organizationId`
 - room-type amenity assignments reference the room-type/property hierarchy and amenity using the same `organizationId`
 
-Repository reads always include organization scope. Write services derive the organization from the authenticated active tenant, require authorization, validate UUIDs, and verify active parent ownership before creating child records or amenity assignments. Browser form values never establish tenant ownership.
+Repository reads always include organization scope. Write services derive the organization from the authenticated active tenant, require authorization, validate UUIDs, and verify active parent ownership before creating child records or amenity assignments. Assignment removal also carries organization plus parent/resource IDs and never deletes through a globally loaded assignment ID. Browser form values never establish tenant ownership.
 
 ## Permissions
 
@@ -40,17 +40,16 @@ Repository reads always include organization scope. Write services derive the or
 
 ## Lifecycle
 
-Properties, room types, and amenities use `ACTIVE` / `ARCHIVED`. Rooms use `ACTIVE` / `OUT_OF_SERVICE` / `ARCHIVED`; the first UI slice creates active rooms and supports safe archival, while operational out-of-service transitions are reserved for the availability/operations dependency that can define their consequences correctly.
+Properties, room types, and amenities use `ACTIVE` / `ARCHIVED`. Rooms use `ACTIVE` / `OUT_OF_SERVICE` / `ARCHIVED`; operational out-of-service transitions remain reserved for the availability/operations dependency that can define their consequences correctly.
 
-Property and room-type archival requires explicit `ARCHIVE` confirmation and is dependency-safe:
+Archival requires explicit `ARCHIVE` confirmation and is dependency-safe:
 
 - a property cannot be archived while active room types remain
 - a room type cannot be archived while non-archived rooms remain
 - rooms can be archived individually
+- an amenity cannot be archived while any property or room-type assignment remains
 
-Amenity archival/removal is not yet exposed as complete product behavior. The current amenity foundation supports creation, read access, and idempotent property/room-type assignment while preserving a separate lifecycle field for the follow-up management slice.
-
-History is preserved instead of destructively deleting inventory that future bookings may reference.
+Amenity assignments are explicitly removable and those removals are audited. Historical top-level inventory records are archived instead of destructively deleted.
 
 ## Validation and uniqueness
 
@@ -65,18 +64,20 @@ Inventory and amenity codes are canonical uppercase 1–32 character identifiers
 - room-type maximum occupancy is 1–50
 - amenity names are normalized non-empty values up to 120 characters
 
-Collections are bounded and paginated with a default page size of 20 and maximum of 50 where pagination is currently exposed. Amenity definitions are currently read as a bounded tenant configuration set; pagination should be added before the collection is exposed as a large standalone management directory.
+Collections are bounded and paginated with a default page size of 20 and maximum of 50 where pagination is currently exposed. Amenity definitions remain a bounded tenant configuration set in the current management surface; pagination must be added before this becomes a large standalone catalog.
 
 ## Auditing
 
-Create/archive operations write safe `AuditEvent` entries containing identifiers, code/status, and lifecycle state only. Amenity creation and assignment operations are also audited using safe amenity/property/room-type identifiers. No guest data, credentials, or secrets are copied into inventory audit payloads.
+Create/archive operations write safe `AuditEvent` entries containing identifiers, code/status, and lifecycle state only. Amenity creation, assignment, removal, and archival are audited using safe amenity/property/room-type identifiers. No guest data, credentials, or secrets are copied into inventory audit payloads.
 
 ## UI
 
-`/inventory` is part of the authenticated application shell. It provides real persisted property creation/listing and property detail workflows for room types and rooms. The interface includes empty, permission, validation/error, success, archived/read-only, loading, pagination, responsive, keyboard/focus, and explicit destructive-confirmation states.
+`/inventory` is part of the authenticated application shell and provides persisted property creation/listing plus property detail workflows for room types and rooms.
 
-Amenity management is not yet surfaced as complete UI and therefore remains unchecked in issue #1 despite the persisted schema/service foundation now being present.
+`/inventory/amenities` is a real authenticated amenity management surface. It shows persisted definitions, assignment counts, lifecycle state, validation/errors/success feedback, permission-aware read-only behavior, creation, and explicit archive confirmation. Archival correctly reports dependency errors until assignments have been removed.
+
+Property and room-type assignment/removal HTTP operations are implemented with same-origin, authenticated, tenant-scoped handlers. The next UI step is to expose those controls on the property screen; until that is complete, issue #1 intentionally leaves Amenities unchecked.
 
 ## Validation
 
-The standard unit-test command includes hospitality domain tests, including amenity input normalization. `npm run test:database` currently includes the property/room-type/room PostgreSQL integration flow. The next amenity slice must extend that live-database suite with Tenant A/Tenant B amenity assignment isolation and lifecycle coverage before Amenities is marked complete.
+The standard unit-test command includes hospitality domain tests, including amenity input normalization. `npm run test:database` includes the hospitality PostgreSQL integration flow, now covering Tenant A/Tenant B amenity assignment denial, property and room-type assignment reads, removal, dependency-safe amenity archival, permissions, hierarchy lifecycle, and audit events after migrations are deployed to an explicitly disposable database.

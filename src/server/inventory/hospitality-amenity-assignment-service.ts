@@ -23,6 +23,18 @@ export async function assignHospitalityAmenityToProperty(input: { organizationId
   }, { isolationLevel: 'Serializable' });
 }
 
+export async function removeHospitalityAmenityFromProperty(input: { organizationId: string; actorUserId: string; propertyId: string; amenityId: string }) {
+  assertUuidIdentifier(input.propertyId, 'propertyId');
+  assertUuidIdentifier(input.amenityId, 'amenityId');
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:manage' });
+  return db.$transaction(async (transaction) => {
+    const assignment = await transaction.hospitalityPropertyAmenity.findUnique({ where: { organizationId_propertyId_amenityId: { organizationId: input.organizationId, propertyId: input.propertyId, amenityId: input.amenityId } } });
+    if (!assignment) throw new HospitalityInventoryUnavailableError('Amenity assignment is not available in this organization.');
+    await transaction.hospitalityPropertyAmenity.delete({ where: { organizationId_propertyId_amenityId: { organizationId: input.organizationId, propertyId: input.propertyId, amenityId: input.amenityId } } });
+    await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.removed-property', resourceType: 'hospitality-amenity', resourceId: input.amenityId, beforeData: { propertyId: input.propertyId } } });
+  }, { isolationLevel: 'Serializable' });
+}
+
 export async function assignHospitalityAmenityToRoomType(input: { organizationId: string; actorUserId: string; propertyId: string; roomTypeId: string; amenityId: string }) {
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
@@ -41,5 +53,18 @@ export async function assignHospitalityAmenityToRoomType(input: { organizationId
     });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.assigned-room-type', resourceType: 'hospitality-amenity', resourceId: amenity.id, afterData: { propertyId: roomType.propertyId, roomTypeId: roomType.id } } });
     return assignment;
+  }, { isolationLevel: 'Serializable' });
+}
+
+export async function removeHospitalityAmenityFromRoomType(input: { organizationId: string; actorUserId: string; propertyId: string; roomTypeId: string; amenityId: string }) {
+  assertUuidIdentifier(input.propertyId, 'propertyId');
+  assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
+  assertUuidIdentifier(input.amenityId, 'amenityId');
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:manage' });
+  return db.$transaction(async (transaction) => {
+    const assignment = await transaction.hospitalityRoomTypeAmenity.findFirst({ where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, amenityId: input.amenityId } });
+    if (!assignment) throw new HospitalityInventoryUnavailableError('Amenity assignment is not available in this organization.');
+    await transaction.hospitalityRoomTypeAmenity.delete({ where: { organizationId_roomTypeId_amenityId: { organizationId: input.organizationId, roomTypeId: input.roomTypeId, amenityId: input.amenityId } } });
+    await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.removed-room-type', resourceType: 'hospitality-amenity', resourceId: input.amenityId, beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId } } });
   }, { isolationLevel: 'Serializable' });
 }
