@@ -7,7 +7,9 @@ export type OrganizationPermission =
   | 'membership:manage'
   | 'membership-role:manage'
   | 'customer:read'
-  | 'customer:manage';
+  | 'customer:manage'
+  | 'inventory:read'
+  | 'inventory:manage';
 
 const rolePermissions: Record<OrganizationRole, readonly OrganizationPermission[]> = {
   ADMIN: [
@@ -18,9 +20,18 @@ const rolePermissions: Record<OrganizationRole, readonly OrganizationPermission[
     'membership-role:manage',
     'customer:read',
     'customer:manage',
+    'inventory:read',
+    'inventory:manage',
   ],
-  MANAGER: ['membership:read', 'membership:manage', 'customer:read', 'customer:manage'],
-  STAFF: ['membership:read', 'customer:read', 'customer:manage'],
+  MANAGER: [
+    'membership:read',
+    'membership:manage',
+    'customer:read',
+    'customer:manage',
+    'inventory:read',
+    'inventory:manage',
+  ],
+  STAFF: ['membership:read', 'customer:read', 'customer:manage', 'inventory:read'],
   CUSTOMER: [],
 };
 

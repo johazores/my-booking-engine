@@ -54,6 +54,17 @@ enum CustomerStatus {
   ARCHIVED
 }
 
+enum InventoryLifecycleStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum RoomOperationalStatus {
+  ACTIVE
+  OUT_OF_SERVICE
+  ARCHIVED
+}
+
 model Organization {
   id                       String             @id @default(uuid()) @db.Uuid
   slug                     String             @unique @db.VarChar(63)
@@ -81,6 +92,7 @@ model Organization {
   deletedAt                DateTime?          @db.Timestamptz(6)
   memberships              OrganizationMembership[]
   customers                Customer[]
+  hospitalityProperties    HospitalityProperty[]
   auditEvents              AuditEvent[]
 
   @@index([status, deletedAt])
@@ -167,6 +179,71 @@ model Customer {
   @@index([organizationId, status, createdAt])
   @@index([organizationId, lastName, firstName])
   @@map("customers")
+}
+
+model HospitalityProperty {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  name           String                   @db.VarChar(160)
+  code           String                   @db.VarChar(32)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  timezone       String                   @db.VarChar(80)
+  addressLine1   String?                  @db.VarChar(200)
+  city           String?                  @db.VarChar(120)
+  region         String?                  @db.VarChar(120)
+  postalCode     String?                  @db.VarChar(24)
+  countryCode    String                   @db.Char(2)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  roomTypes      HospitalityRoomType[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@index([organizationId, status, name])
+  @@map("hospitality_properties")
+}
+
+model HospitalityRoomType {
+  id              String                   @id @default(uuid()) @db.Uuid
+  organizationId  String                   @db.Uuid
+  propertyId      String                   @db.Uuid
+  name            String                   @db.VarChar(120)
+  code            String                   @db.VarChar(32)
+  status          InventoryLifecycleStatus @default(ACTIVE)
+  maxOccupancy    Int
+  bedsDescription String?                  @db.VarChar(160)
+  createdAt       DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime                 @updatedAt @db.Timestamptz(6)
+  archivedAt      DateTime?                @db.Timestamptz(6)
+  property        HospitalityProperty      @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rooms           HospitalityRoom[]
+
+  @@unique([propertyId, code])
+  @@unique([id, propertyId, organizationId])
+  @@index([organizationId, status, name])
+  @@index([propertyId, status])
+  @@map("hospitality_room_types")
+}
+
+model HospitalityRoom {
+  id             String                @id @default(uuid()) @db.Uuid
+  organizationId String                @db.Uuid
+  propertyId     String                @db.Uuid
+  roomTypeId     String                @db.Uuid
+  code           String                @db.VarChar(32)
+  floor          String?               @db.VarChar(40)
+  status         RoomOperationalStatus @default(ACTIVE)
+  createdAt      DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime              @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?             @db.Timestamptz(6)
+  roomType       HospitalityRoomType   @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+
+  @@unique([propertyId, code])
+  @@index([organizationId, status, code])
+  @@index([roomTypeId, status])
+  @@map("hospitality_rooms")
 }
 
 model AuditEvent {

@@ -9,11 +9,16 @@ import {
 
 test('organization roles expose explicit capabilities', () => {
   assert.equal(organizationRoleHasPermission('ADMIN', 'membership-role:manage'), true);
+  assert.equal(organizationRoleHasPermission('ADMIN', 'inventory:manage'), true);
   assert.equal(organizationRoleHasPermission('MANAGER', 'membership:manage'), true);
   assert.equal(organizationRoleHasPermission('MANAGER', 'membership-role:manage'), false);
+  assert.equal(organizationRoleHasPermission('MANAGER', 'inventory:manage'), true);
   assert.equal(organizationRoleHasPermission('STAFF', 'membership:read'), true);
   assert.equal(organizationRoleHasPermission('STAFF', 'customer:manage'), true);
+  assert.equal(organizationRoleHasPermission('STAFF', 'inventory:read'), true);
+  assert.equal(organizationRoleHasPermission('STAFF', 'inventory:manage'), false);
   assert.equal(organizationRoleHasPermission('CUSTOMER', 'customer:read'), false);
+  assert.equal(organizationRoleHasPermission('CUSTOMER', 'inventory:read'), false);
 });
 
 test('role parsing accepts only supported organization roles', () => {
@@ -23,6 +28,6 @@ test('role parsing accepts only supported organization roles', () => {
 
 test('permission lists are stable and least-privilege by default', () => {
   assert.deepEqual(permissionsForOrganizationRole('CUSTOMER'), []);
-  assert.deepEqual(permissionsForOrganizationRole('STAFF'), ['membership:read', 'customer:read', 'customer:manage']);
+  assert.deepEqual(permissionsForOrganizationRole('STAFF'), ['membership:read', 'customer:read', 'customer:manage', 'inventory:read']);
   assert.equal(organizationRoleHasPermission('MANAGER', 'customer:manage'), true);
 });
