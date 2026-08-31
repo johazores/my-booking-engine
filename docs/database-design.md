@@ -81,11 +81,19 @@ The composite `(roomTypeId, propertyId, organizationId)` foreign key prevents a 
 
 Amenities cannot be archived while assignment rows still exist. Assignment removal is explicit and audited.
 
+### HospitalityPropertyImage and HospitalityRoomTypeImage
+
+Hospitality image records model real media metadata without coupling the inventory domain to a storage provider. Property images carry `(propertyId, organizationId)` and room-type images carry `(roomTypeId, propertyId, organizationId)` through composite foreign keys, so cross-tenant or cross-property image attachment cannot be persisted.
+
+Both image models store a validated HTTPS URL, required alt text, display order, primary-image state, and timestamps. PostgreSQL checks HTTPS storage, non-blank trimmed alt text, and display-order bounds. Application services reject embedded URL credentials and use serializable transactions for primary-image changes. The first image in a scope is automatically primary; selecting a different primary clears the prior primary in the same transaction.
+
+Images remain readable when parent inventory is archived for historical/configuration visibility, but server mutation services require the property/room type to remain active before set-primary or remove operations.
+
 ### AuditEvent
 
 Important tenant administration, customer, and inventory lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
 
-Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Customer updates record changed field names instead of copying internal notes/contact values into audit JSON. Inventory events store only safe identifiers/code/status/lifecycle metadata.
+Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Customer updates record changed field names instead of copying internal notes/contact values into audit JSON. Inventory events store only safe identifiers/code/status/lifecycle metadata. Hospitality image events intentionally exclude media URLs so signed or sensitive query parameters cannot leak into audit history.
 
 ## Migrations
 
@@ -100,6 +108,7 @@ Checked-in migrations include:
 - `20260831083000_customer-foundation`
 - `20260831084500_hospitality-inventory-foundation`
 - `20260831092000_hospitality-amenities`
+- `20260831094500_hospitality-images`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -131,11 +140,11 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records and amenity assignments additionally use composite parent/tenant foreign keys
+- hospitality child records, amenity assignments, and image records additionally use composite parent/tenant foreign keys
 
 The customer repository follows this contract directly. Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality repositories likewise scope property, room-type, room, amenity, and amenity-assignment reads by organization. Child creation and amenity assignment verify active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant relationships.
+Hospitality repositories likewise scope property, room-type, room, amenity, amenity-assignment, and image reads by organization. Child creation and assignment verify active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
@@ -146,6 +155,7 @@ Customer and hospitality inventory collections use the same bounded query patter
 - out-of-range pages clamp to the final valid page
 - customer sort/filter values come from fixed allowlists
 - inventory hierarchy queries remain constrained by tenant and parent IDs
+- image galleries are currently capped at 50 records per property or room-type scope
 
 Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
 
@@ -154,7 +164,7 @@ Amenity definitions are currently treated as bounded tenant configuration. Pagin
 Future schemas should model real business relationships rather than mirror UI pages. Expected areas include:
 
 - booking-specific travelers/passengers when required by booking rules
-- hospitality images, rates, and restrictions
+- hospitality rate plans and restrictions
 - tours, schedules, capacity
 - services, staff, schedules
 - rental products and locations
