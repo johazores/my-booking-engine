@@ -62,8 +62,10 @@ function formatMinor(amountMinor: string, currency: string) {
   const digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
   const scale = 10n ** BigInt(digits);
   const amount = BigInt(amountMinor);
-  const major = Number(amount / scale) + Number(amount % scale) / Number(scale);
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(major);
+  if (digits === 0) return `${currency} ${amount.toString()}`;
+  const whole = amount / scale;
+  const fraction = (amount % scale).toString().padStart(digits, '0');
+  return `${currency} ${whole.toString()}.${fraction}`;
 }
 
 function previousDate(value: string) {
