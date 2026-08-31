@@ -86,12 +86,15 @@ export async function updateOrganizationSettings(input: {
       if (unchanged) return current;
 
       if (current.currency !== next.currency) {
-        const [activeBaseRates, activeFixedCharges] = await Promise.all([
+        const [activeBaseRates, activeFixedCharges, activeAddons] = await Promise.all([
           transaction.hospitalityBaseRate.count({
             where: { organizationId: current.id, status: 'ACTIVE' },
           }),
           transaction.hospitalityChargeRule.count({
             where: { organizationId: current.id, status: 'ACTIVE', amountMinor: { not: null } },
+          }),
+          transaction.hospitalityAddon.count({
+            where: { organizationId: current.id, status: 'ACTIVE' },
           }),
         ]);
         if (activeBaseRates > 0) {
@@ -99,6 +102,9 @@ export async function updateOrganizationSettings(input: {
         }
         if (activeFixedCharges > 0) {
           throw new OrganizationSettingsDependencyError('Archive active fixed taxes and fees before changing the organization currency.');
+        }
+        if (activeAddons > 0) {
+          throw new OrganizationSettingsDependencyError('Archive active add-ons before changing the organization currency.');
         }
       }
 
