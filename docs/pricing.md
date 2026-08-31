@@ -14,9 +14,11 @@ Pricing arithmetic rejects negative components and values outside SF's bounded c
 
 `HospitalityBaseRate` belongs to exactly one tenant/property/room-type/rate-plan pricing scope and stores an inclusive date window, positive nightly minor-unit amount, currency, lifecycle, and timestamps.
 
-Composite foreign keys require the room type and rate plan to belong to the same property and organization. Creation additionally requires an active room-type/rate-plan assignment. Active base-rate windows cannot overlap for the same exact scope. Writes use a PostgreSQL transaction-scoped advisory lock for the pricing scope plus a serializable transaction so concurrent configuration requests cannot both create overlapping active windows.
+Composite foreign keys require the organization, property, room type, and rate plan to belong to one consistent tenant/property scope. Creation additionally requires an active room-type/rate-plan assignment. Active base-rate windows cannot overlap for the same exact scope. Writes use a PostgreSQL transaction-scoped advisory lock for the pricing scope plus a serializable transaction so concurrent configuration requests cannot both create overlapping active windows.
 
 Base rates are archived rather than edited in place. This preserves commercial history and gives later bookings a stable source from which to snapshot pricing inputs.
+
+Active base rates also protect their commercial dependencies: a room-type/rate-plan assignment or rate plan cannot be removed/archived until its active prices are archived, and the organization currency cannot change while any active base rate still exists. This prevents otherwise-valid configuration changes from silently making current quotes unusable.
 
 ## Quote contract
 
@@ -54,7 +56,7 @@ The interface reuses the existing SF application shell, responsive inventory tab
 
 ## Validation coverage
 
-The standard unit command includes money and base-rate domain tests. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, multi-night/quantity quote totals, audit events, and changed-price revalidation.
+The standard unit command includes money and base-rate domain tests. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent overlapping writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, audit events, and changed-price revalidation.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
