@@ -8,10 +8,11 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Hospitality pricing integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('hospitality base pricing enforces scope, exact money, overlap, and revalidation', async () => {
-  const [{ db }, pricing] = await Promise.all([
+test('hospitality base pricing enforces scope, exact money, overlap, dependencies, concurrency, and revalidation', async () => {
+  const [{ db }, pricing, ratePlans] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-pricing-service.ts'),
+    import('../inventory/hospitality-rate-plan-service.ts'),
   ]);
   const runId = crypto.randomUUID();
   const adminA = await db.user.create({ data: { email: `pricing-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -51,11 +52,34 @@ test('hospitality base pricing enforces scope, exact money, overlap, and revalid
       baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-09-15', endDate: '2026-10-01', amount: '1600.00' },
     }), /cannot overlap/i);
 
+    await assert.rejects(ratePlans.removeHospitalityRatePlanFromRoomType({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      propertyId: propertyA.id,
+      roomTypeId: roomTypeA.id,
+      ratePlanId: ratePlanA.id,
+    }), /base rates/i);
+
     await assert.rejects(pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: staffA.id,
       baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-01', endDate: '2026-10-31', amount: '1600.00' },
     }), /permission/i);
+
+    const concurrentResults = await Promise.allSettled([
+      pricing.createHospitalityBaseRate({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-01', endDate: '2026-10-10', amount: '1600.00' },
+      }),
+      pricing.createHospitalityBaseRate({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-05', endDate: '2026-10-15', amount: '1700.00' },
+      }),
+    ]);
+    assert.equal(concurrentResults.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(concurrentResults.filter((result) => result.status === 'rejected').length, 1);
 
     const quote = await pricing.quoteHospitalityBasePrice({
       organizationId: organizationA.id,
