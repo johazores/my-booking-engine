@@ -31,7 +31,7 @@ export async function listHospitalityPricingScopes(input: {
     skip: (page - 1) * pagination.pageSize,
     take: pagination.pageSize,
     include: {
-      roomType: { select: { id: true, name: true, code: true } },
+      roomType: { select: { id: true, name: true, code: true, maxOccupancy: true } },
       ratePlan: { select: { id: true, name: true, code: true } },
     },
   });
@@ -61,7 +61,7 @@ export async function readHospitalityPricingScope(input: {
       ratePlan: { is: { status: 'ACTIVE' } },
     },
     include: {
-      roomType: { select: { id: true, name: true, code: true } },
+      roomType: { select: { id: true, name: true, code: true, maxOccupancy: true } },
       ratePlan: { select: { id: true, name: true, code: true } },
     },
   });
