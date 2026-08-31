@@ -42,6 +42,8 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, permiss
     const foreignAmenity = await amenities.createHospitalityAmenity({ organizationId: organizationB.id, actorUserId: adminB.id, amenity: { name: 'Pool', code: 'pool' } });
     await amenityAssignments.assignHospitalityAmenityToProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, amenityId: wifi.id });
     await amenityAssignments.assignHospitalityAmenityToRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, amenityId: wifi.id });
+    await amenityAssignments.assignHospitalityAmenityToProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, amenityId: wifi.id });
+    await amenityAssignments.assignHospitalityAmenityToRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, amenityId: wifi.id });
     await assert.rejects(amenityAssignments.assignHospitalityAmenityToProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, amenityId: foreignAmenity.id }), /not available in this organization/i);
     await assert.rejects(amenities.archiveHospitalityAmenity({ organizationId: organizationA.id, actorUserId: adminA.id, amenityId: wifi.id, confirmation: 'ARCHIVE' }), /remove amenity assignments/i);
 
@@ -51,6 +53,16 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, permiss
     assert.deepEqual(propertyAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
     const roomTypeAmenities = await amenities.listHospitalityRoomTypeAmenities({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id });
     assert.deepEqual(roomTypeAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
+
+    const assignmentEvents = await db.auditEvent.findMany({
+      where: {
+        organizationId: organizationA.id,
+        resourceId: wifi.id,
+        action: { in: ['inventory.amenity.assigned-property', 'inventory.amenity.assigned-room-type'] },
+      },
+    });
+    assert.equal(assignmentEvents.filter((event) => event.action === 'inventory.amenity.assigned-property').length, 1);
+    assert.equal(assignmentEvents.filter((event) => event.action === 'inventory.amenity.assigned-room-type').length, 1);
 
     await amenityAssignments.removeHospitalityAmenityFromRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, amenityId: wifi.id });
     await amenityAssignments.removeHospitalityAmenityFromProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, amenityId: wifi.id });

@@ -13,12 +13,22 @@ export async function assignHospitalityAmenityToProperty(input: { organizationId
       transaction.hospitalityAmenity.findFirst({ where: { id: input.amenityId, organizationId: input.organizationId, status: 'ACTIVE' }, select: { id: true } }),
     ]);
     if (!property || !amenity) throw new HospitalityInventoryUnavailableError('Property or amenity is not available in this organization.');
-    const assignment = await transaction.hospitalityPropertyAmenity.upsert({
-      where: { organizationId_propertyId_amenityId: { organizationId: input.organizationId, propertyId: property.id, amenityId: amenity.id } },
-      create: { organizationId: input.organizationId, propertyId: property.id, amenityId: amenity.id },
-      update: {},
+
+    const key = { organizationId: input.organizationId, propertyId: property.id, amenityId: amenity.id };
+    const existing = await transaction.hospitalityPropertyAmenity.findUnique({ where: { organizationId_propertyId_amenityId: key } });
+    if (existing) return existing;
+
+    const assignment = await transaction.hospitalityPropertyAmenity.create({ data: key });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'inventory.amenity.assigned-property',
+        resourceType: 'hospitality-amenity',
+        resourceId: amenity.id,
+        afterData: { propertyId: property.id },
+      },
     });
-    await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.assigned-property', resourceType: 'hospitality-amenity', resourceId: amenity.id, afterData: { propertyId: property.id } } });
     return assignment;
   }, { isolationLevel: 'Serializable' });
 }
@@ -46,12 +56,24 @@ export async function assignHospitalityAmenityToRoomType(input: { organizationId
       transaction.hospitalityAmenity.findFirst({ where: { id: input.amenityId, organizationId: input.organizationId, status: 'ACTIVE' }, select: { id: true } }),
     ]);
     if (!roomType || !amenity) throw new HospitalityInventoryUnavailableError('Room type or amenity is not available in this organization.');
-    const assignment = await transaction.hospitalityRoomTypeAmenity.upsert({
-      where: { organizationId_roomTypeId_amenityId: { organizationId: input.organizationId, roomTypeId: roomType.id, amenityId: amenity.id } },
-      create: { organizationId: input.organizationId, propertyId: roomType.propertyId, roomTypeId: roomType.id, amenityId: amenity.id },
-      update: {},
+
+    const key = { organizationId: input.organizationId, roomTypeId: roomType.id, amenityId: amenity.id };
+    const existing = await transaction.hospitalityRoomTypeAmenity.findUnique({ where: { organizationId_roomTypeId_amenityId: key } });
+    if (existing) return existing;
+
+    const assignment = await transaction.hospitalityRoomTypeAmenity.create({
+      data: { organizationId: input.organizationId, propertyId: roomType.propertyId, roomTypeId: roomType.id, amenityId: amenity.id },
     });
-    await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.assigned-room-type', resourceType: 'hospitality-amenity', resourceId: amenity.id, afterData: { propertyId: roomType.propertyId, roomTypeId: roomType.id } } });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'inventory.amenity.assigned-room-type',
+        resourceType: 'hospitality-amenity',
+        resourceId: amenity.id,
+        afterData: { propertyId: roomType.propertyId, roomTypeId: roomType.id },
+      },
+    });
     return assignment;
   }, { isolationLevel: 'Serializable' });
 }

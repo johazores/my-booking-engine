@@ -53,14 +53,16 @@ Implemented hospitality foundation:
 - properties
 - room types
 - physical rooms
+- reusable tenant-owned amenities
+- property and room-type amenity assignment/removal
 - tenant-scoped `inventory:read` / `inventory:manage` permissions
 - composite parent/tenant database constraints
-- bounded pagination
+- bounded pagination on current large collections
 - dependency-safe archival and audit events
 - authenticated responsive inventory UI
 - checked-in cross-tenant PostgreSQL integration coverage
 
-Next hospitality dependencies are amenities and images, followed by rate plans and restrictions. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
+Next hospitality dependency is images, followed by rate plans and restrictions. Images require a deliberate production storage/media boundary rather than a fake upload workflow. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
 
 ## 10. Availability
 

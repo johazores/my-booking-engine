@@ -73,6 +73,14 @@ Represents a physical room within one room type/property hierarchy. Room codes a
 
 The composite `(roomTypeId, propertyId, organizationId)` foreign key prevents a room from being attached to a room type or property belonging to another tenant. PostgreSQL also checks canonical room codes and archive-state consistency.
 
+### HospitalityAmenity and assignments
+
+`HospitalityAmenity` is a reusable tenant-owned definition with canonical tenant-local code, name, lifecycle, timestamps, and `(id, organizationId)` uniqueness for composite references.
+
+`HospitalityPropertyAmenity` and `HospitalityRoomTypeAmenity` are explicit join records. Their composite foreign keys require amenity and parent inventory to share the same organization, so a cross-tenant relationship cannot be persisted even if application validation is bypassed. Assignment writes are idempotent and repeated assignment does not emit duplicate audit events.
+
+Amenities cannot be archived while assignment rows still exist. Assignment removal is explicit and audited.
+
 ### AuditEvent
 
 Important tenant administration, customer, and inventory lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
@@ -91,6 +99,7 @@ Checked-in migrations include:
 - `20260831080000_tenant-branding-settings`
 - `20260831083000_customer-foundation`
 - `20260831084500_hospitality-inventory-foundation`
+- `20260831092000_hospitality-amenities`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -122,15 +131,15 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records additionally use composite parent/tenant foreign keys
+- hospitality child records and amenity assignments additionally use composite parent/tenant foreign keys
 
 The customer repository follows this contract directly. Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality repositories likewise scope property, room-type, and room reads by organization. Child creation verifies active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant parent relationships.
+Hospitality repositories likewise scope property, room-type, room, amenity, and amenity-assignment reads by organization. Child creation and amenity assignment verify active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
-Customer and hospitality inventory collections use the same bounded query pattern:
+Customer and hospitality inventory collections use the same bounded query pattern where collections can become large:
 
 - page defaults to 1
 - page size defaults to 20 and is capped at 50
@@ -138,14 +147,14 @@ Customer and hospitality inventory collections use the same bounded query patter
 - customer sort/filter values come from fixed allowlists
 - inventory hierarchy queries remain constrained by tenant and parent IDs
 
-Future large tenant collections should follow the same bounded-query approach.
+Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
 
 ## Planned domain modeling
 
 Future schemas should model real business relationships rather than mirror UI pages. Expected areas include:
 
 - booking-specific travelers/passengers when required by booking rules
-- hospitality amenities, images, rates, and restrictions
+- hospitality images, rates, and restrictions
 - tours, schedules, capacity
 - services, staff, schedules
 - rental products and locations

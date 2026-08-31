@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements tenant-owned hospitality properties, room types, physical rooms, and the amenity management foundation. Amenities now have reusable tenant-owned definitions, create/archive lifecycle, permission-checked property/room-type assignment and removal services, audited mutations, a real authenticated management page, and PostgreSQL integration coverage for tenant isolation and lifecycle rules. Property-level assignment controls still need to be surfaced in the property UI before the Amenities checklist item is marked complete. Images, rate plans, restrictions, availability, and pricing remain separate future dependencies.
+SF implements tenant-owned hospitality properties, room types, physical rooms, and amenities end to end. Amenities have reusable tenant-owned definitions, create/archive lifecycle, property and room-type assignment/removal controls, server-side authorization and tenant scope, audited idempotent assignment mutations, responsive authenticated UI, and checked-in PostgreSQL integration coverage. Images, rate plans, restrictions, availability, and pricing remain separate future dependencies.
 
 ## Domain hierarchy
 
@@ -49,7 +49,7 @@ Archival requires explicit `ARCHIVE` confirmation and is dependency-safe:
 - rooms can be archived individually
 - an amenity cannot be archived while any property or room-type assignment remains
 
-Amenity assignments are explicitly removable and those removals are audited. Historical top-level inventory records are archived instead of destructively deleted.
+Amenity assignments are explicitly removable and those removals are audited. Repeating the same assignment is idempotent: the existing assignment is returned without writing duplicate audit events. Historical top-level inventory records are archived instead of destructively deleted.
 
 ## Validation and uniqueness
 
@@ -74,10 +74,10 @@ Create/archive operations write safe `AuditEvent` entries containing identifiers
 
 `/inventory` is part of the authenticated application shell and provides persisted property creation/listing plus property detail workflows for room types and rooms.
 
-`/inventory/amenities` is a real authenticated amenity management surface. It shows persisted definitions, assignment counts, lifecycle state, validation/errors/success feedback, permission-aware read-only behavior, creation, and explicit archive confirmation. Archival correctly reports dependency errors until assignments have been removed.
+`/inventory/amenities` manages reusable amenity definitions and lifecycle. Property detail pages expose property-level amenity assignment/removal, and the selected room-type surface exposes room-type assignment/removal. The UI hides mutations for read-only roles and archived parents, excludes already assigned or archived amenity definitions from assignment selectors, preserves the selected room type after mutations, and includes empty, validation/error, success, disabled, responsive, and accessible form states.
 
-Property and room-type assignment/removal HTTP operations are implemented with same-origin, authenticated, tenant-scoped handlers. The next UI step is to expose those controls on the property screen; until that is complete, issue #1 intentionally leaves Amenities unchecked.
+All amenity mutation routes are same-origin, authenticated, tenant-scoped handlers calling permission-checked server services.
 
 ## Validation
 
-The standard unit-test command includes hospitality domain tests, including amenity input normalization. `npm run test:database` includes the hospitality PostgreSQL integration flow, now covering Tenant A/Tenant B amenity assignment denial, property and room-type assignment reads, removal, dependency-safe amenity archival, permissions, hierarchy lifecycle, and audit events after migrations are deployed to an explicitly disposable database.
+The standard unit-test command includes hospitality domain tests, including amenity input normalization. `npm run test:database` includes the hospitality PostgreSQL integration flow covering Tenant A/Tenant B amenity assignment denial, property and room-type assignment reads/removal, dependency-safe amenity archival, repeat-assignment idempotency without duplicate audit events, permissions, hierarchy lifecycle, and audit records after migrations are deployed to an explicitly disposable database.
