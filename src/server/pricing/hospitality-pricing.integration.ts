@@ -9,10 +9,11 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('hospitality base pricing enforces scope, exact money, overlap, dependencies, concurrency, and revalidation', async () => {
-  const [{ db }, pricing, ratePlans] = await Promise.all([
+  const [{ db }, pricing, ratePlans, organizations] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-pricing-service.ts'),
     import('../inventory/hospitality-rate-plan-service.ts'),
+    import('../organizations/organization-management-service.ts'),
   ]);
   const runId = crypto.randomUUID();
   const adminA = await db.user.create({ data: { email: `pricing-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -58,6 +59,16 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
       propertyId: propertyA.id,
       roomTypeId: roomTypeA.id,
       ratePlanId: ratePlanA.id,
+    }), /base rates/i);
+
+    await assert.rejects(organizations.updateOrganizationSettings({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      name: organizationA.name,
+      slug: organizationA.slug,
+      kind: organizationA.kind,
+      timezone: organizationA.timezone,
+      currency: 'USD',
     }), /base rates/i);
 
     await assert.rejects(pricing.createHospitalityBaseRate({
