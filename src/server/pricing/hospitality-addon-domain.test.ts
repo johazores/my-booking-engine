@@ -45,6 +45,7 @@ test('rejects unsupported, zero, and malformed add-on prices', () => {
 
 test('only per-unit catalog entries can advertise selectable quantity above one', () => {
   assert.throws(() => normalizeHospitalityAddonInput({ ...validAddon(), maxQuantity: '2' }, 'PHP'), /only per-unit/i);
+  assert.throws(() => normalizeHospitalityAddonInput({ ...validAddon(), pricingModel: 'PER_UNIT', maxQuantity: '2items' }, 'PHP'), /quantity must be between/i);
   const perUnit = normalizeHospitalityAddonInput({ ...validAddon(), pricingModel: 'PER_UNIT', maxQuantity: '4' }, 'PHP');
   assert.equal(perUnit.maxQuantity, 4);
 });
