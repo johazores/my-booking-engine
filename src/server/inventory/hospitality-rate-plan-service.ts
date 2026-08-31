@@ -204,12 +204,34 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
 
   return db.$transaction(async (transaction) => {
     const key = { organizationId: input.organizationId, roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId };
-    const existing = await transaction.hospitalityRoomTypeRatePlan.findUnique({
-      where: { organizationId_roomTypeId_ratePlanId: key },
-      include: { ratePlan: { select: { propertyId: true } } },
-    });
-    if (!existing || existing.propertyId !== input.propertyId || existing.ratePlan.propertyId !== input.propertyId) {
-      throw new HospitalityInventoryUnavailableError('Rate plan assignment is not available for this property.');
+    const [roomType, ratePlan, existing] = await Promise.all([
+      transaction.hospitalityRoomType.findFirst({
+        where: {
+          id: input.roomTypeId,
+          propertyId: input.propertyId,
+          organizationId: input.organizationId,
+          status: 'ACTIVE',
+          property: { is: { status: 'ACTIVE' } },
+        },
+        select: { id: true },
+      }),
+      transaction.hospitalityRatePlan.findFirst({
+        where: {
+          id: input.ratePlanId,
+          propertyId: input.propertyId,
+          organizationId: input.organizationId,
+          status: 'ACTIVE',
+          property: { is: { status: 'ACTIVE' } },
+        },
+        select: { id: true },
+      }),
+      transaction.hospitalityRoomTypeRatePlan.findUnique({
+        where: { organizationId_roomTypeId_ratePlanId: key },
+        select: { propertyId: true },
+      }),
+    ]);
+    if (!roomType || !ratePlan || !existing || existing.propertyId !== input.propertyId) {
+      throw new HospitalityInventoryUnavailableError('Rate plan assignment is not available for active inventory in this property.');
     }
     await transaction.hospitalityRoomTypeRatePlan.delete({ where: { organizationId_roomTypeId_ratePlanId: key } });
     await transaction.auditEvent.create({
@@ -240,7 +262,13 @@ export async function archiveHospitalityRatePlan(input: {
 
   return db.$transaction(async (transaction) => {
     const current = await transaction.hospitalityRatePlan.findFirst({
-      where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId, status: 'ACTIVE' },
+      where: {
+        id: input.ratePlanId,
+        propertyId: input.propertyId,
+        organizationId: input.organizationId,
+        status: 'ACTIVE',
+        property: { is: { status: 'ACTIVE' } },
+      },
       select: { id: true, propertyId: true, status: true },
     });
     if (!current) throw new HospitalityInventoryUnavailableError('Rate plan is not active for this property.');

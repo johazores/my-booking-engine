@@ -93,6 +93,10 @@ test('hospitality rate plans enforce tenant scope, assignment lifecycle, idempot
     const assignmentAudits = await db.auditEvent.count({ where: { organizationId: organizationA.id, action: 'inventory.rate-plan.assigned-room-type', resourceId: ratePlanA.id } });
     assert.equal(assignmentAudits, 1);
     await assert.rejects(
+      inventory.archiveHospitalityRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, roomTypeId: roomTypeA.id, confirmation: 'ARCHIVE' }),
+      /rate plan assignments/i,
+    );
+    await assert.rejects(
       ratePlans.archiveHospitalityRatePlan({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, ratePlanId: ratePlanA.id, confirmation: 'ARCHIVE' }),
       /remove all room-type assignments/i,
     );
@@ -100,6 +104,15 @@ test('hospitality rate plans enforce tenant scope, assignment lifecycle, idempot
     await ratePlans.removeHospitalityRatePlanFromRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id });
     const archived = await ratePlans.archiveHospitalityRatePlan({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, ratePlanId: ratePlanA.id, confirmation: 'ARCHIVE' });
     assert.equal(archived.status, 'ARCHIVED');
+    await inventory.archiveHospitalityRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, roomTypeId: roomTypeA.id, confirmation: 'ARCHIVE' });
+    await assert.rejects(
+      ratePlans.assignHospitalityRatePlanToRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id }),
+      /not available/i,
+    );
+    await assert.rejects(
+      ratePlans.removeHospitalityRatePlanFromRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id }),
+      /not available/i,
+    );
     const archiveAudit = await db.auditEvent.findFirst({ where: { organizationId: organizationA.id, action: 'inventory.rate-plan.archived', resourceId: ratePlanA.id } });
     assert.ok(archiveAudit);
   } finally {

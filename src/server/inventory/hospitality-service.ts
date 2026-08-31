@@ -197,6 +197,8 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
       if (!current) throw new HospitalityInventoryUnavailableError();
       const activeChildren = await transaction.hospitalityRoom.count({ where: { roomTypeId: current.id, organizationId: input.organizationId, status: { not: 'ARCHIVED' } } });
       if (activeChildren > 0) throw new HospitalityInventoryDependencyError('Archive rooms before archiving the room type.');
+      const ratePlanAssignments = await transaction.hospitalityRoomTypeRatePlan.count({ where: { roomTypeId: current.id, organizationId: input.organizationId } });
+      if (ratePlanAssignments > 0) throw new HospitalityInventoryDependencyError('Remove rate plan assignments before archiving the room type.');
       const updated = await transaction.hospitalityRoomType.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
       await transaction.auditEvent.create({
         data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.room-type.archived', resourceType: 'hospitality-room-type', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } },
