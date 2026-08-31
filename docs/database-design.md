@@ -95,7 +95,7 @@ Images remain readable when parent inventory is archived for historical/configur
 
 `HospitalityRoomTypeRatePlan` assigns one rate plan to one room type under the same property. Its two composite foreign keys require the room type and rate plan to share the same `(propertyId, organizationId)`, preventing both cross-tenant and cross-property assignments at the database layer.
 
-Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions must be archived before an assignment can be removed. A rate plan cannot be archived until all assignments are removed and all active restrictions are archived.
+Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions and unexpired availability holds must be cleared before an assignment can be removed. A rate plan cannot be archived until its assignments are removed and active restrictions are archived.
 
 ### HospitalityRestriction
 
@@ -107,11 +107,25 @@ PostgreSQL checks that end date is not before start date, stay values are 1–36
 
 Restriction records are archived instead of edited in place so commercial configuration history remains auditable.
 
+### HospitalityAvailabilityWindow
+
+`HospitalityAvailabilityWindow` is a tenant/property/room-type capacity limit over an inclusive date range. Its composite room-type foreign key prevents cross-tenant or cross-property scope. Capacity limits are bounded from 0–50 and can reduce, but never increase, physical room capacity.
+
+Active windows for the same room type may not overlap. Window mutations and temporary hold creation share the same room-type allocation lock so configuration changes cannot race active allocations. A new window cannot reduce capacity below units protected by active unexpired holds.
+
+### HospitalityAvailabilityHold
+
+`HospitalityAvailabilityHold` is the first persisted temporary allocation primitive. It stores tenant/property/room-type/rate-plan scope, exclusive-departure stay dates, quantity, an organization-scoped idempotency key, expiry, lifecycle state, and timestamps.
+
+Composite foreign keys independently guarantee that the room type and rate plan belong to the same tenant/property. The database checks date order, quantity bounds, idempotency-key shape, expiry after creation, and lifecycle/end timestamp consistency. Short explicit mapped index/constraint names are used where Prisma's generated names would exceed PostgreSQL's 63-byte identifier limit.
+
+Hold states are `ACTIVE`, `RELEASED`, and `EXPIRED`. Application reads treat an `ACTIVE` row with `expiresAt <= now` as no longer capacity-consuming even before persisted expiry cleanup runs. Hold creation is idempotent per organization and uses a PostgreSQL transaction-scoped advisory lock plus serializable transaction to serialize competing allocations for the same room type.
+
 ### AuditEvent
 
-Important tenant administration, customer, and inventory lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
+Important tenant administration, customer, inventory, and availability lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
 
-Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Inventory events store only safe identifiers and lifecycle/commercial metadata. Hospitality image events intentionally exclude media URLs.
+Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Inventory and availability events store only safe identifiers and lifecycle/commercial metadata. Hospitality image events intentionally exclude media URLs.
 
 ## Migrations
 
@@ -127,8 +141,10 @@ Checked-in migrations include:
 - `20260831084500_hospitality-inventory-foundation`
 - `20260831092000_hospitality-amenities`
 - `20260831094500_hospitality-images`
+- `20260831094500_hospitality-availability-windows`
 - `20260831103000_hospitality-rate-plans`
 - `20260831113000_hospitality-restrictions`
+- `20260831124500_hospitality-availability-holds`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -145,7 +161,7 @@ npm run db:deploy
 
 For migration authoring, use `npm run db:migrate` only against an isolated development database.
 
-`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality restrictions. It must never target the normal application database.
+`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality availability windows and holds. It must never target the normal application database.
 
 ## Tenant ownership rule
 
@@ -160,11 +176,11 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records and commercial assignments use composite parent/tenant foreign keys
+- hospitality child records, commercial assignments, availability windows, and holds use composite parent/tenant foreign keys
 
 Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
+Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, availability-window, hold, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
@@ -177,6 +193,7 @@ Customer and hospitality inventory collections use bounded query patterns where 
 - inventory hierarchy queries remain constrained by tenant and parent IDs
 - image galleries are capped at 50 records per property or room-type scope
 - rate plans, restriction scopes, and restriction history are paginated
+- hold expiry cleanup is bounded to at most 500 rows per invocation
 
 Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
 
@@ -188,7 +205,7 @@ Future schemas should model real business relationships rather than mirror UI pa
 - tours, schedules, capacity
 - services, staff, schedules
 - rental products and locations
-- availability allocations and holds
+- permanent booking allocations and confirmation
 - pricing/rate values, taxes, and fees
 - bookings and booking items
 - payments, refunds, reconciliation references
@@ -200,4 +217,6 @@ Booking state and payment state must remain separate when workflows can diverge.
 
 ## Concurrency
 
-Availability cannot be implemented as an unsafe read-then-decrement counter. The eventual availability design must support atomic confirmation, allocations/capacity, temporary holds, expiry, effective restrictions, and explicit overbooking rules where applicable.
+Availability is not implemented as an unsafe read-then-decrement counter. Temporary hold creation serializes allocation for a tenant/property/room type with a PostgreSQL transaction-scoped advisory lock, then rechecks restrictions and per-night capacity inside a serializable transaction before persistence.
+
+Permanent booking allocation and atomic confirmation remain future work. They must use the same allocation boundary so hold conversion and direct confirmation cannot oversell the last unit.
