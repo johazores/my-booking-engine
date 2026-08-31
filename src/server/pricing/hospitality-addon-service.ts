@@ -1,4 +1,4 @@
-import { formatAvailabilityDate } from '../availability/availability-domain.ts';
+import { formatAvailabilityDate, parseAvailabilityDate } from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -9,7 +9,7 @@ import {
   type HospitalityAddonInput,
   type HospitalityAddonSelectionInput,
 } from './hospitality-addon-domain.ts';
-import { addMoneyMinor } from './money.ts';
+import { addMoneyMinor, PricingValidationError } from './money.ts';
 import { normalizePricingPagination } from './pricing-boundary.ts';
 
 export class HospitalityAddonUnavailableError extends Error {
@@ -25,6 +25,8 @@ export class HospitalityAddonConflictError extends Error {
     this.name = 'HospitalityAddonConflictError';
   }
 }
+
+const DAY_MS = 86_400_000;
 
 export async function listHospitalityAddons(input: {
   organizationId: string;
@@ -198,6 +200,15 @@ export async function quoteHospitalityAddons(input: {
   assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
   assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
+
+  const arrivalDate = parseAvailabilityDate(input.arrivalDate, 'Arrival date');
+  const departureDate = parseAvailabilityDate(input.departureDate, 'Departure date');
+  const derivedStayNights = Math.round((departureDate.getTime() - arrivalDate.getTime()) / DAY_MS);
+  if (derivedStayNights < 1 || derivedStayNights > 366) throw new PricingValidationError('Stay length must be between 1 and 366 nights for add-on pricing.');
+  if (input.stayNights !== derivedStayNights) throw new PricingValidationError('Add-on stay length does not match the requested dates.');
+  if (!Number.isSafeInteger(input.roomQuantity) || input.roomQuantity < 1 || input.roomQuantity > 50) throw new PricingValidationError('Room quantity must be between 1 and 50 for add-on pricing.');
+  const lastOccupiedDate = new Date(departureDate.getTime() - DAY_MS);
+
   const selections = normalizeHospitalityAddonSelections(input.selections);
   if (selections.length === 0) return { addons: [], totalAddonsMinor: '0' };
 
@@ -207,8 +218,8 @@ export async function quoteHospitalityAddons(input: {
       organizationId: input.organizationId,
       propertyId: input.propertyId,
       status: 'ACTIVE',
-      startDate: { lte: new Date(`${input.arrivalDate}T00:00:00.000Z`) },
-      endDate: { gte: new Date(`${input.departureDate}T00:00:00.000Z`) },
+      startDate: { lte: arrivalDate },
+      endDate: { gte: lastOccupiedDate },
       OR: [{ roomTypeId: null, ratePlanId: null }, { roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId }],
     },
   });
@@ -223,7 +234,7 @@ export async function quoteHospitalityAddons(input: {
       pricingModel: record.pricingModel,
       selectedQuantity: selection.quantity,
       roomQuantity: input.roomQuantity,
-      stayNights: input.stayNights,
+      stayNights: derivedStayNights,
       maxQuantity: record.maxQuantity,
     });
     return {
