@@ -38,4 +38,5 @@ run(process.execPath, [
   'src/server/branding/branding.integration.ts',
   'src/server/customers/customer.integration.ts',
   'src/server/inventory/hospitality.integration.ts',
+  'src/server/inventory/hospitality-rate-plan.integration.ts',
 ]);

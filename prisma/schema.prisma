@@ -201,6 +201,7 @@ model HospitalityProperty {
   roomTypes          HospitalityRoomType[]
   amenityAssignments HospitalityPropertyAmenity[]
   images             HospitalityPropertyImage[]
+  ratePlans          HospitalityRatePlan[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -209,21 +210,22 @@ model HospitalityProperty {
 }
 
 model HospitalityRoomType {
-  id                 String                       @id @default(uuid()) @db.Uuid
-  organizationId     String                       @db.Uuid
-  propertyId         String                       @db.Uuid
-  name               String                       @db.VarChar(120)
-  code               String                       @db.VarChar(32)
-  status             InventoryLifecycleStatus     @default(ACTIVE)
-  maxOccupancy       Int
-  bedsDescription    String?                      @db.VarChar(160)
-  createdAt          DateTime                     @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime                     @updatedAt @db.Timestamptz(6)
-  archivedAt         DateTime?                    @db.Timestamptz(6)
-  property           HospitalityProperty          @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  rooms              HospitalityRoom[]
-  amenityAssignments HospitalityRoomTypeAmenity[]
-  images             HospitalityRoomTypeImage[]
+  id                  String                        @id @default(uuid()) @db.Uuid
+  organizationId      String                        @db.Uuid
+  propertyId          String                        @db.Uuid
+  name                String                        @db.VarChar(120)
+  code                String                        @db.VarChar(32)
+  status              InventoryLifecycleStatus      @default(ACTIVE)
+  maxOccupancy        Int
+  bedsDescription     String?                       @db.VarChar(160)
+  createdAt           DateTime                      @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                      @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?                     @db.Timestamptz(6)
+  property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rooms               HospitalityRoom[]
+  amenityAssignments  HospitalityRoomTypeAmenity[]
+  images              HospitalityRoomTypeImage[]
+  ratePlanAssignments HospitalityRoomTypeRatePlan[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -331,6 +333,42 @@ model HospitalityRoomTypeImage {
   @@unique([id, organizationId])
   @@index([organizationId, propertyId, roomTypeId, isPrimary, sortOrder])
   @@map("hospitality_room_type_images")
+}
+
+model HospitalityRatePlan {
+  id                  String                        @id @default(uuid()) @db.Uuid
+  organizationId      String                        @db.Uuid
+  propertyId          String                        @db.Uuid
+  name                String                        @db.VarChar(120)
+  code                String                        @db.VarChar(32)
+  description         String?                       @db.VarChar(300)
+  status              InventoryLifecycleStatus      @default(ACTIVE)
+  createdAt           DateTime                      @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                      @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?                     @db.Timestamptz(6)
+  property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  roomTypeAssignments HospitalityRoomTypeRatePlan[]
+
+  @@unique([propertyId, code])
+  @@unique([id, propertyId, organizationId])
+  @@index([organizationId, status, name])
+  @@index([propertyId, status, name])
+  @@map("hospitality_rate_plans")
+}
+
+model HospitalityRoomTypeRatePlan {
+  organizationId String              @db.Uuid
+  propertyId     String              @db.Uuid
+  roomTypeId     String              @db.Uuid
+  ratePlanId     String              @db.Uuid
+  createdAt      DateTime            @default(now()) @db.Timestamptz(6)
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+  ratePlan       HospitalityRatePlan @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+
+  @@id([organizationId, roomTypeId, ratePlanId])
+  @@index([organizationId, ratePlanId])
+  @@index([propertyId, roomTypeId])
+  @@map("hospitality_room_type_rate_plans")
 }
 
 model AuditEvent {

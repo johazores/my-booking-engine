@@ -58,6 +58,9 @@ Implemented hospitality foundation:
 - property and room-type hosted-image galleries
 - validated HTTPS media references with required alt text and display ordering
 - transactional primary-image selection with automatic first-image primary behavior
+- property-owned rate-plan definitions
+- paginated room-type rate-plan assignment/removal
+- rate-plan lifecycle and dependency-safe archival
 - tenant-scoped `inventory:read` / `inventory:manage` permissions
 - composite parent/tenant database constraints
 - bounded pagination on current large collections
@@ -65,15 +68,19 @@ Implemented hospitality foundation:
 - authenticated responsive inventory UI
 - checked-in cross-tenant PostgreSQL integration coverage
 
+Rate plans intentionally establish commercial identities only. Prices, taxes, fees, availability, stay controls, and cancellation execution remain separate later layers rather than being embedded in plan records.
+
 Image management intentionally accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and should feed the same normalized image records.
 
-Next hospitality dependencies are rate plans and restrictions. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
+The next hospitality dependency is restrictions. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
 
 ## 10. Availability
 
 Concurrency-safe availability, holds, expiry, restrictions, and capacity.
 
 ## 11. Pricing
+
+Normalized money/currency, base rates, taxes/fees, add-ons, revalidation, and price-change handling will build on the stable rate-plan identities from hospitality inventory.
 
 ## 12. Complete internal booking flow
 

@@ -89,6 +89,14 @@ Both image models store a validated HTTPS URL, required alt text, display order,
 
 Images remain readable when parent inventory is archived for historical/configuration visibility, but server mutation services require the property/room type to remain active before set-primary or remove operations.
 
+### HospitalityRatePlan and HospitalityRoomTypeRatePlan
+
+`HospitalityRatePlan` is a property-owned commercial plan identity. It stores `organizationId`, `propertyId`, canonical property-local code, normalized name, optional description, lifecycle, and timestamps. The composite property relation `(propertyId, organizationId)` makes tenant ownership explicit without a second overlapping Prisma relation field.
+
+`HospitalityRoomTypeRatePlan` assigns one rate plan to one room type under the same property. Its two composite foreign keys require the room type and rate plan to share the same `(propertyId, organizationId)`, preventing both cross-tenant and cross-property assignments at the database layer.
+
+Rate-plan assignments are idempotent and audited only when a relationship is actually created. A rate plan cannot be archived until all room-type assignments are explicitly removed. The model deliberately contains no monetary amount, tax, fee, minimum-stay, closed-to-arrival/departure, availability, or cancellation-execution fields; those remain later pricing/restriction/availability concerns.
+
 ### AuditEvent
 
 Important tenant administration, customer, and inventory lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
@@ -109,6 +117,7 @@ Checked-in migrations include:
 - `20260831084500_hospitality-inventory-foundation`
 - `20260831092000_hospitality-amenities`
 - `20260831094500_hospitality-images`
+- `20260831103000_hospitality-rate-plans`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -125,7 +134,7 @@ npm run db:deploy
 
 For migration authoring, use `npm run db:migrate` only against an isolated development database.
 
-`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality inventory. It must never target the normal application database.
+`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality inventory and rate plans. It must never target the normal application database.
 
 ## Tenant ownership rule
 
@@ -140,11 +149,11 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records, amenity assignments, and image records additionally use composite parent/tenant foreign keys
+- hospitality child records, amenity assignments, image records, and rate-plan assignments additionally use composite parent/tenant foreign keys
 
 The customer repository follows this contract directly. Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality repositories likewise scope property, room-type, room, amenity, amenity-assignment, and image reads by organization. Child creation and assignment verify active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant relationships.
+Hospitality repositories likewise scope property, room-type, room, amenity, amenity-assignment, image, rate-plan, and rate-plan assignment reads by organization. Child creation and assignment verify active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
@@ -156,6 +165,7 @@ Customer and hospitality inventory collections use the same bounded query patter
 - customer sort/filter values come from fixed allowlists
 - inventory hierarchy queries remain constrained by tenant and parent IDs
 - image galleries are currently capped at 50 records per property or room-type scope
+- rate-plan records and room-type assignment candidates are paginated
 
 Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
 
@@ -164,11 +174,12 @@ Amenity definitions are currently treated as bounded tenant configuration. Pagin
 Future schemas should model real business relationships rather than mirror UI pages. Expected areas include:
 
 - booking-specific travelers/passengers when required by booking rules
-- hospitality rate plans and restrictions
+- hospitality restrictions
 - tours, schedules, capacity
 - services, staff, schedules
 - rental products and locations
 - availability allocations and holds
+- pricing/rate values, taxes, and fees
 - bookings and booking items
 - payments, refunds, reconciliation references
 - provider integrations and encrypted credentials
