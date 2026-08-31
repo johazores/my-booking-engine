@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, permission-checked pricing management, deterministic complete-price quotes, and price revalidation. The hospitality add-on domain contract is now defined and unit-covered, but add-on persistence, management UI, quote resolution, and booking snapshots are still incomplete and are not represented as finished. Provider-specific pricing rules and persisted booking price snapshots remain future work.
+SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, and price revalidation. Provider-specific pricing rules and immutable booking price snapshots remain future work.
 
 ## Money model
 
@@ -36,51 +36,57 @@ Charge creation requires `pricing:manage`, validates active tenant/property scop
 
 Active scoped charges prevent removing their room-type/rate-plan assignment or archiving the referenced rate plan. Active property charges prevent property archival. Active fixed charges also prevent changing organization currency until the fixed rules are archived. Percentage rules remain valid across a later currency change because they store no monetary amount.
 
-## Hospitality add-on contract
+## Hospitality add-ons
 
-Hospitality add-ons are optional commercial selections, never automatic charges. The domain layer defines exact-money catalog input and deterministic selection semantics before persistence is added.
+`HospitalityAddon` is a tenant-owned optional commercial catalog record. An add-on belongs to one organization/property and is either property-wide or scoped to a complete active room-type/rate-plan assignment. It stores name/code/description, an exact positive minor-unit amount, organization currency, pricing model, bounded selectable quantity, inclusive stay-applicability dates, lifecycle, and timestamps.
 
-Supported pricing models are deliberately explicit:
+Supported pricing models are explicit:
 
 - `PER_BOOKING`: one fixed amount for the booking regardless of room count or nights
 - `PER_ROOM`: fixed amount multiplied by requested room quantity
-- `PER_ROOM_NIGHT`: fixed amount multiplied by room quantity and stay nights
+- `PER_ROOM_NIGHT`: fixed amount multiplied by room quantity and occupied nights
 - `PER_UNIT`: fixed amount multiplied only by the explicit selected quantity
 
-Catalog input supports a property-wide scope or a complete room-type/rate-plan scope, inclusive sell dates, exact currency minor units, bounded quantities, normalized codes, and descriptions. Selection input accepts at most 25 unique add-ons, validates UUID identifiers, caps selected quantity at 100, rejects duplicate IDs, and sorts selections deterministically for later quote fingerprinting.
+Only `PER_UNIT` catalog entries may configure a maximum selected quantity greater than one. Quote selection accepts at most 25 unique add-ons and a quantity of 1–100 per selection. Duplicate identifiers are rejected and selections are sorted deterministically before pricing/fingerprinting. A browser cannot multiply `PER_BOOKING`, `PER_ROOM`, or `PER_ROOM_NIGHT` through an arbitrary submitted quantity.
 
-A browser cannot multiply `PER_BOOKING`, `PER_ROOM`, or `PER_ROOM_NIGHT` add-ons through an arbitrary submitted quantity: those models accept a selected quantity of exactly one and derive their commercial multiplier from the normalized stay. Only `PER_UNIT` accepts a customer-selected quantity greater than one.
+An add-on is eligible only when it is active, belongs to the same tenant/property, applies property-wide or to the exact requested room-type/rate-plan scope, matches the quote currency, and its applicability window covers every occupied night. Departure itself is not treated as an occupied night. Selected quantities are checked again against the persisted catalog maximum server-side.
 
-This contract is intentionally not wired into complete-price quotes yet. The next implementation step must persist tenant-owned add-on catalog records, resolve only active/in-scope selections server-side, include resolved add-on components in the complete pricing fingerprint, and protect relevant inventory/currency dependencies. Until those pieces exist, the Phase 10 add-on checklist item remains incomplete.
+Catalog creation requires `pricing:manage`; reads and quote resolution require `pricing:read`. Writes use a PostgreSQL advisory lock scoped by tenant/property/code plus a serializable transaction so overlapping property-wide/scoped definitions with the same active code cannot be created concurrently. Add-ons are archived rather than edited in place and create/archive actions are audited.
+
+Active add-ons protect their dependencies: scoped add-ons prevent room-type/rate-plan assignment removal and rate-plan archival; any active add-on prevents property archival and organization currency changes. Composite foreign keys independently enforce tenant/property ownership for scoped references.
 
 ## Quote contract
 
 `quoteHospitalityBasePrice` remains the normalized accommodation-only primitive: it consumes the same provider-independent stay scope used by availability (`propertyId`, `roomTypeId`, `ratePlanId`, arrival, departure, quantity), requires `pricing:read`, and resolves exactly one active nightly base rate for every occupied night.
 
-`quoteHospitalityPrice` builds the current complete internal hospitality price by combining that accommodation subtotal with every applicable active charge rule. It returns:
+`quoteHospitalityPrice` builds the current complete internal hospitality price by combining that accommodation subtotal with every applicable active tax/fee rule and the caller's explicitly selected add-ons. It returns:
 
 - exact nightly minor-unit amounts
 - accommodation subtotal
 - individual applied tax/fee components
 - tax total
 - fee total
+- resolved selected add-ons
+- add-on total
 - final total
 - currency
 - a deterministic SHA-256 pricing fingerprint
 
-The complete fingerprint includes effective nightly values and applied commercial adjustments. It contains no secret values and is not treated as authorization.
+The complete fingerprint includes effective nightly values, applied charges, and normalized resolved add-on selections/amounts. It contains no secret values and is not treated as authorization. The server never accepts browser-submitted totals as authoritative.
 
 ## Revalidation and price changes
 
-`revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes and fees, and compares its complete fingerprint with the previously presented value. A base-rate change, tax/fee change, or charge archival therefore produces `changed: true` for complete-price revalidation and returns the latest total. Browser-submitted totals are never accepted as authoritative.
+`revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes, fees, and the same normalized add-on selections, and compares its complete fingerprint with the previously presented value.
 
-Revalidation accepts only canonical SHA-256 hexadecimal fingerprints. Malformed or truncated fingerprints are validation errors rather than being silently interpreted as legitimate stale-price values.
+A base-rate or charge change therefore produces `changed: true`. A selected add-on that is archived, moved out of the requested stay/scope, or otherwise no longer eligible fails revalidation as unavailable rather than silently dropping a customer selection from the total. Revalidation accepts only canonical SHA-256 hexadecimal fingerprints; malformed or truncated fingerprints are validation errors.
 
 The future booking-creation transaction must use complete-price revalidation before permanent inventory confirmation and persist an immutable booking price snapshot. A displayed quote or browser redirect is never sufficient proof of the commercial amount to persist.
 
 ## Service boundaries
 
 Pricing services defensively validate organization, actor, property, room-type, rate-plan, and pricing-resource UUIDs at exported boundaries rather than relying on route normalization. Pricing collections also bound pagination internally to a maximum page size of 50, even when called outside the current UI routes.
+
+Add-on quote resolution additionally validates arrival/departure dates, verifies the caller-supplied stay-night count matches the normalized dates, bounds room quantity, resolves catalog records from persistence, and calculates all multipliers server-side.
 
 This duplicates critical safety checks intentionally: browser parsing improves UX, while service validation is the actual application boundary.
 
@@ -90,24 +96,24 @@ This duplicates critical safety checks intentionally: browser parsing improves U
 - staff: `pricing:read`
 - customer-role organization memberships: no internal pricing access
 
-All reads/writes validate organization membership and permission server-side. Resource identifiers are tenant/property scoped before database access. Composite foreign keys independently prevent charge rules from referencing inventory or rate plans from another tenant/property.
+All reads/writes validate organization membership and permission server-side. Resource identifiers are tenant/property scoped before database access. Composite foreign keys independently prevent base rates, charge rules, and add-ons from referencing inventory or rate plans from another tenant/property.
 
 ## UI
 
-`/pricing` is the real authenticated pricing workspace. A property pricing screen manages base-rate windows and links directly to `/pricing/[property-id]/charges`, where users can review paginated tax/fee history, browse paginated sellable scopes, create property-wide or scoped rules, and archive active rules. Archived properties and users without manage permission receive read-only states.
+`/pricing` is the real authenticated pricing workspace. A property pricing screen manages base-rate windows and links directly to `/pricing/[property-id]/charges` and `/pricing/[property-id]/addons`.
 
-The interface reuses the existing SF application shell, responsive inventory tables/cards, focus behavior, status messaging, validation states, and design tokens rather than introducing a second design system.
-
-No add-on management interface is exposed yet because there is not yet a persisted add-on catalog. SF does not present a dead or mock add-on route as complete.
+The add-on workspace supports paginated catalog history, paginated sellable-scope selection, property-wide or scoped creation, all four pricing models, exact currency amounts, optional descriptions, applicability dates, bounded per-unit quantities, archival, status/error feedback, and archived/read-only property states. It reuses the existing SF application shell, responsive inventory tables/cards, focus behavior, forms, status patterns, and design tokens rather than introducing another design system.
 
 ## Validation coverage
 
-The standard unit command includes money, base-rate, charge-rule, pricing-boundary, and hospitality add-on domain tests. Add-on domain tests cover exact currency conversion, complete optional sellable scope, unsupported price models, malformed/zero prices, deterministic unique selection normalization, each supported multiplier, quantity bounds, and prevention of browser quantity multiplication for non-unit add-ons. Pricing-boundary tests cover defensive pagination and canonical fingerprint validation. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
+The standard unit command includes money, base-rate, charge-rule, pricing-boundary, and hospitality add-on domain tests. Add-on domain tests cover exact currency conversion, complete optional scope, unsupported/malformed prices, deterministic unique selection normalization, all supported multipliers, quantity bounds, and prevention of browser quantity multiplication for non-unit add-ons.
+
+The disposable PostgreSQL suite includes hospitality add-on coverage for permission enforcement, cross-tenant denial, property-wide/scoped persistence, concurrent same-code definition conflicts, exact multi-model quote totals, deterministic add-on fingerprint/revalidation behavior, selected-quantity limits, currency/assignment dependency protection, and audit events. The database migration also adds check constraints for scope shape, positive amount, quantity range, non-unit quantity semantics, and valid date windows.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
 ## Next dependencies
 
-Complete add-ons by adding tenant-safe persistence, lifecycle/dependency guards, management UI, selected-add-on quote resolution, fingerprint/revalidation integration, and PostgreSQL coverage. Any tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
+Advanced tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
 
-Once the complete internal price contract is sufficient for booking creation, the booking transaction can atomically revalidate price, convert/consume a hold (or directly allocate), and persist an immutable booking price snapshot without trusting the browser.
+The next core dependency is the permanent booking allocation/transaction boundary: booking creation must atomically revalidate complete price, convert/consume a hold (or directly allocate), persist immutable booking and price snapshots, and protect last-unit capacity without trusting the browser.
