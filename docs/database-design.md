@@ -2,7 +2,7 @@
 
 ## Database choice
 
-SF uses PostgreSQL because reservations, payments, availability, memberships, tenant configuration, customers, inventory, and audit history benefit from transactions, relational constraints, indexing, and explicit data ownership.
+SF uses PostgreSQL because reservations, payments, availability, memberships, tenant configuration, customers, inventory, pricing, and audit history benefit from transactions, relational constraints, indexing, and explicit data ownership.
 
 Prisma ORM is the TypeScript data-access layer.
 
@@ -69,7 +69,7 @@ Represents a sellable room category within one property. It stores name, propert
 
 ### HospitalityRoom
 
-Represents a physical room within one room type/property hierarchy. Room codes are unique per property. Room status supports `ACTIVE`, `OUT_OF_SERVICE`, and `ARCHIVED`; operational out-of-service transitions remain deferred until availability/operations rules are defined.
+Represents a physical room within one room type/property hierarchy. Room codes are unique per property. Room status supports `ACTIVE`, `OUT_OF_SERVICE`, and `ARCHIVED`.
 
 The composite `(roomTypeId, propertyId, organizationId)` foreign key prevents a room from being attached to a room type or property belonging to another tenant. PostgreSQL also checks canonical room codes and archive-state consistency.
 
@@ -95,7 +95,7 @@ Images remain readable when parent inventory is archived for historical/configur
 
 `HospitalityRoomTypeRatePlan` assigns one rate plan to one room type under the same property. Its two composite foreign keys require the room type and rate plan to share the same `(propertyId, organizationId)`, preventing both cross-tenant and cross-property assignments at the database layer.
 
-Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions and unexpired availability holds must be cleared before an assignment can be removed. A rate plan cannot be archived until its assignments are removed and active restrictions are archived.
+Rate-plan assignments are idempotent and audited only when a relationship is actually created. Active room-specific restrictions, unexpired availability holds, and active base rates must be cleared before an assignment can be removed. A rate plan cannot be archived until its assignments are removed and active dependent commercial configuration is cleared.
 
 ### HospitalityRestriction
 
@@ -121,11 +121,21 @@ Composite foreign keys independently guarantee that the room type and rate plan 
 
 Hold states are `ACTIVE`, `RELEASED`, and `EXPIRED`. Application reads treat an `ACTIVE` row with `expiresAt <= now` as no longer capacity-consuming even before persisted expiry cleanup runs. Hold creation is idempotent per organization and uses a PostgreSQL transaction-scoped advisory lock plus serializable transaction to serialize competing allocations for the same room type.
 
+### HospitalityBaseRate
+
+`HospitalityBaseRate` is the first persisted pricing value. It stores tenant/property/room-type/rate-plan scope, an inclusive nightly date window, positive integer minor-unit amount, explicit three-letter currency, lifecycle, and timestamps.
+
+Composite foreign keys require the room type and rate plan to belong to the same property and organization. Application creation additionally requires the room type to have an active assignment to the rate plan and the stored currency to match the active organization currency.
+
+PostgreSQL checks date order, positive bounded minor-unit amounts, canonical currency, and archive-state consistency. Active windows for the same exact pricing scope may not overlap. Creation uses a pricing-scope advisory lock and serializable transaction so concurrent overlapping writes cannot both succeed.
+
+Base rates are archived rather than edited in place. Quotes serialize bigint amounts as decimal strings and use deterministic fingerprints for later price revalidation.
+
 ### AuditEvent
 
-Important tenant administration, customer, inventory, and availability lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
+Important tenant administration, customer, inventory, availability, and pricing lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
 
-Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Inventory and availability events store only safe identifiers and lifecycle/commercial metadata. Hospitality image events intentionally exclude media URLs.
+Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Inventory, availability, and pricing events store only safe identifiers and lifecycle/commercial metadata. Hospitality image events intentionally exclude media URLs.
 
 ## Migrations
 
@@ -145,6 +155,7 @@ Checked-in migrations include:
 - `20260831103000_hospitality-rate-plans`
 - `20260831113000_hospitality-restrictions`
 - `20260831124500_hospitality-availability-holds`
+- `20260831133000_hospitality-base-rates`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -161,7 +172,7 @@ npm run db:deploy
 
 For migration authoring, use `npm run db:migrate` only against an isolated development database.
 
-`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality availability windows and holds. It must never target the normal application database.
+`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality availability and pricing. It must never target the normal application database.
 
 ## Tenant ownership rule
 
@@ -176,23 +187,23 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
-- hospitality child records, commercial assignments, availability windows, and holds use composite parent/tenant foreign keys
+- hospitality child records, commercial assignments, availability records, and base rates use composite parent/tenant foreign keys
 
 Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
-Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, availability-window, hold, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
+Hospitality services likewise scope property, room-type, room, amenity, image, rate-plan, restriction, availability-window, hold, base-rate, and assignment reads/writes by organization. Child creation and assignment verify active parent ownership before persistence, while database foreign keys independently prevent cross-tenant relationships.
 
 ## Pagination and query safety
 
-Customer and hospitality inventory collections use bounded query patterns where collections can become large:
+Customer, hospitality inventory, and pricing collections use bounded query patterns where collections can become large:
 
 - page defaults to 1
 - page size defaults to 20 and is capped at 50
 - out-of-range pages clamp to the final valid page
 - customer sort/filter values come from fixed allowlists
-- inventory hierarchy queries remain constrained by tenant and parent IDs
+- inventory/pricing hierarchy queries remain constrained by tenant and parent IDs
 - image galleries are capped at 50 records per property or room-type scope
-- rate plans, restriction scopes, and restriction history are paginated
+- rate plans, restriction scopes/history, pricing scopes, and base-rate history are paginated
 - hold expiry cleanup is bounded to at most 500 rows per invocation
 
 Amenity definitions are currently treated as bounded tenant configuration. Pagination must be introduced before expanding that surface into a large catalog.
@@ -206,17 +217,19 @@ Future schemas should model real business relationships rather than mirror UI pa
 - services, staff, schedules
 - rental products and locations
 - permanent booking allocations and confirmation
-- pricing/rate values, taxes, and fees
-- bookings and booking items
+- taxes, fees, add-ons, and advanced pricing rules
+- bookings and immutable booking price snapshots
 - payments, refunds, reconciliation references
 - provider integrations and encrypted credentials
 
 ## State and history
 
-Booking state and payment state must remain separate when workflows can diverge. Commercial history should prefer explicit state transitions, audit records, and archival over destructive deletion.
+Booking state and payment state must remain separate when workflows can diverge. Commercial history should prefer explicit state transitions, audit records, immutable snapshots, and archival over destructive deletion.
 
 ## Concurrency
 
 Availability is not implemented as an unsafe read-then-decrement counter. Temporary hold creation serializes allocation for a tenant/property/room type with a PostgreSQL transaction-scoped advisory lock, then rechecks restrictions and per-night capacity inside a serializable transaction before persistence.
 
-Permanent booking allocation and atomic confirmation remain future work. They must use the same allocation boundary so hold conversion and direct confirmation cannot oversell the last unit.
+Base-rate configuration similarly serializes writes per tenant/property/room-type/rate-plan scope before checking active date overlap. This prevents concurrent pricing configuration from creating ambiguous nightly price windows through application services.
+
+Permanent booking allocation and atomic confirmation remain future work. They must use the availability allocation boundary and revalidate the latest pricing contract so hold conversion/direct confirmation cannot oversell the last unit or persist a stale browser price.

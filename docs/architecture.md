@@ -6,13 +6,15 @@ This document describes the target architecture and identifies what exists today
 
 ## Current foundation
 
-SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, tenant-owned white-label presentation settings, tenant-owned customer records, and hospitality inventory covering properties, room types, physical rooms, amenities, hosted-image metadata, property-owned rate plans with room-type assignments, and date/stay/arrival restrictions.
+SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, tenant-owned white-label presentation settings, tenant-owned customer records, hospitality inventory covering properties, room types, physical rooms, amenities, hosted-image metadata, property-owned rate plans with room-type assignments, date/stay/arrival restrictions, availability windows, temporary availability holds, and nightly base rates.
 
-First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, manage white-label branding where authorized, operate a tenant-scoped customer directory, and manage hospitality inventory where authorized. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
+First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, manage white-label branding where authorized, operate a tenant-scoped customer directory, manage hospitality inventory, configure availability, and manage hospitality base pricing where authorized. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
 
-Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. `/dashboard`, `/customers`, `/inventory`, `/account`, and `/branding` share the canonical authenticated workspace. Tenant branding is resolved at that server boundary and applied through CSS design tokens rather than tenant-specific component overrides. Customer records and hospitality inventory reuse the same authorization, audit, lifecycle, pagination, and tenant-scope boundaries.
+Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. `/dashboard`, `/customers`, `/inventory`, `/pricing`, `/account`, and `/branding` share the canonical authenticated workspace. Tenant branding is resolved at that server boundary and applied through CSS design tokens rather than tenant-specific component overrides. Customer, inventory, availability, and pricing operations reuse the same authorization, audit, lifecycle, pagination, and tenant-scope boundaries.
 
-The first availability application boundary is also implemented for hospitality. It normalizes property/room-type/rate-plan/date/quantity requests, validates active tenant-owned assignments, derives baseline capacity from active physical rooms, and evaluates effective property-wide and room-type rate restrictions. Persisted availability windows, holds, booking allocations, pricing values, bookings, payments, and provider adapters are not implemented yet.
+Hospitality availability normalizes property/room-type/rate-plan/date/quantity requests, validates active tenant-owned assignments, derives baseline capacity from active physical rooms, applies capacity windows and effective restrictions, and subtracts active unexpired holds per occupied night. Hold creation uses a shared allocation advisory lock and serializable transaction for last-unit safety. Permanent booking allocations and atomic booking confirmation remain incomplete.
+
+Hospitality pricing now has a normalized money boundary and persisted nightly base rates. Base prices are stored in integer minor units with explicit currency, active date windows cannot overlap within one pricing scope, and server-side quote/revalidation services produce deterministic price fingerprints. Taxes, fees, add-ons, booking price snapshots, payments, and provider adapters remain incomplete.
 
 ## Architectural shape
 
@@ -44,15 +46,15 @@ Implemented foundation/operational modules:
 - branding
 - customer directory
 - hospitality inventory: properties, room types, rooms, amenities, images, rate plans, and restrictions
-- baseline hospitality availability evaluation
+- hospitality availability: physical capacity, windows, restrictions, temporary holds, and expiry semantics
+- hospitality pricing: normalized money, nightly base rates, quotes, and revalidation
 - audit history foundation
 
 Planned commercial/provider modules:
 
-- persisted availability windows and holds
-- booking allocations and atomic confirmation
+- permanent booking allocations and atomic confirmation
 - remaining business-specific internal inventory
-- pricing
+- taxes, fees, add-ons, and advanced pricing rules
 - bookings
 - payments
 - integrations
@@ -70,7 +72,7 @@ Business-specific capabilities extend the common booking foundation only where c
 
 Authenticated tenant operations must derive user identity from the validated server session and must revalidate organization membership at the server/data-access boundary. Browser route parameters, form values, or cookies are never sufficient tenant authorization by themselves.
 
-Single-resource tenant operations use both tenant identity and resource identity. Hospitality parent relationships additionally use composite foreign keys so room types, rooms, amenities, images, rate-plan assignments, and restrictions cannot cross organization/property boundaries even if application validation is bypassed.
+Single-resource tenant operations use both tenant identity and resource identity. Hospitality parent relationships additionally use composite foreign keys so room types, rooms, amenities, images, rate-plan assignments, restrictions, availability records, and base rates cannot cross organization/property boundaries even if application validation is bypassed.
 
 The application shell may display already-resolved user, tenant, role, and branding context, but it is never an authorization boundary. Protected pages and server operations remain responsible for enforcing their own access requirements.
 
@@ -94,17 +96,25 @@ Hospitality inventory uses explicit property → room type → room relationship
 
 `inventory:read` protects reads; `inventory:manage` protects writes. Managers can manage inventory, staff have read-only inventory access, and customer-role members have none. Composite database foreign keys reinforce tenant-consistent parent relationships in addition to server-side scoped services.
 
-Rate plans deliberately stop at commercial identity. Restrictions add minimum/maximum stay and closed-to-arrival/departure behavior without storing prices. Nightly/base prices, taxes/fees, inventory holds, and booking state remain separate pricing/availability/booking concerns.
+Rate plans deliberately stop at commercial identity. Restrictions add minimum/maximum stay and closed-to-arrival/departure behavior without storing prices. Pricing, availability allocation, and booking state remain separate concerns even when they reference the same room type/rate plan scope.
 
 Inventory archival is explicit, dependency-aware where relationships must be cleared, and audited. Hosted image management accepts real HTTPS assets; a future direct-upload feature must sit behind a real storage adapter rather than leaking provider APIs into the inventory domain.
 
 ## Availability boundary
 
-The normalized availability request shape is provider-independent. The current hospitality implementation requires active property, room type, and rate-plan assignment within the authenticated organization, then counts only active physical rooms and applies effective active restrictions.
+The normalized availability request shape is provider-independent. Hospitality availability requires active property, room type, and rate-plan assignment within the authenticated organization, counts only active physical rooms, applies active capacity windows/effective restrictions, and subtracts active unexpired holds per occupied night.
 
-`availability:read` protects this operational read. Managers/admins also have `availability:manage` reserved for the upcoming persisted availability-window and hold write boundary; staff are read-only and customer-role members have no organization availability access.
+`availability:read` protects operational reads. Managers/admins have `availability:manage`; staff are read-only and customer-role members have no organization availability access. Hold allocation and related physical-capacity changes use the same PostgreSQL advisory-lock scope so competing last-unit operations are serialized.
 
-The current result is a baseline availability snapshot, not a claim of reservation safety. Persisted windows, holds, expiry, booking allocations, and atomic confirmation must be implemented before public booking can depend on availability for last-unit reservation guarantees.
+Temporary holds are not permanent bookings. A future booking confirmation transaction must use the same allocation boundary to convert/consume a valid hold or allocate directly without overbooking.
+
+## Pricing boundary
+
+Pricing uses exact integer minor units and explicit currency rather than binary floating-point amounts. `pricing:read` protects quotes/configuration reads; `pricing:manage` protects base-rate writes. Managers/admins can manage pricing, staff are read-only, and customer-role members have no internal pricing access.
+
+Base rates are immutable-in-practice commercial history: changes are represented by archiving an old date window and creating a new one. Concurrent base-rate creation for the same room-type/rate-plan scope is serialized before overlap validation. Quotes fail closed if an occupied night has missing or ambiguous pricing.
+
+Price revalidation recalculates current persisted pricing and compares a deterministic fingerprint. Browser totals are never authoritative. Booking creation must revalidate pricing inside its own commercial transaction and persist a price snapshot before any final confirmation is considered complete.
 
 ## Scaling restraint
 

@@ -42,4 +42,5 @@ run(process.execPath, [
   'src/server/inventory/hospitality-restriction.integration.ts',
   'src/server/availability/hospitality-availability.integration.ts',
   'src/server/availability/hospitality-availability-hold.integration.ts',
+  'src/server/pricing/hospitality-pricing.integration.ts',
 ]);

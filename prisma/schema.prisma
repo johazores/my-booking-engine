@@ -72,37 +72,38 @@ enum AvailabilityHoldStatus {
 }
 
 model Organization {
-  id                          String                          @id @default(uuid()) @db.Uuid
-  slug                        String                          @unique @db.VarChar(63)
-  name                        String                          @db.VarChar(160)
-  kind                        OrganizationKind
-  status                      OrganizationStatus              @default(ACTIVE)
-  timezone                    String                          @default("UTC") @db.VarChar(80)
-  currency                    String                          @default("USD") @db.VarChar(3)
-  logoUrl                     String?                         @db.VarChar(2048)
-  faviconUrl                  String?                         @db.VarChar(2048)
-  primaryColor                String                          @default("#2563eb") @db.Char(7)
-  secondaryColor              String                          @default("#0d1626") @db.Char(7)
-  accentColor                 String                          @default("#20c997") @db.Char(7)
-  fontFamily                  String                          @default("INTER") @db.VarChar(20)
-  contactEmail                String?                         @db.VarChar(320)
-  contactPhone                String?                         @db.VarChar(40)
-  websiteUrl                  String?                         @db.VarChar(2048)
-  emailFromName               String?                         @db.VarChar(160)
-  emailReplyTo                String?                         @db.VarChar(320)
-  publicBookingTitle          String?                         @db.VarChar(160)
-  publicBookingDescription    String?                         @db.VarChar(500)
-  customDomain                String?                         @unique @db.VarChar(253)
-  createdAt                   DateTime                        @default(now()) @db.Timestamptz(6)
-  updatedAt                   DateTime                        @updatedAt @db.Timestamptz(6)
-  deletedAt                   DateTime?                       @db.Timestamptz(6)
-  memberships                 OrganizationMembership[]
-  customers                   Customer[]
-  hospitalityProperties       HospitalityProperty[]
-  hospitalityAmenities        HospitalityAmenity[]
-  hospitalityAvailabilityWindows HospitalityAvailabilityWindow[]
-  hospitalityAvailabilityHolds HospitalityAvailabilityHold[]
-  auditEvents                 AuditEvent[]
+  id                              String                          @id @default(uuid()) @db.Uuid
+  slug                            String                          @unique @db.VarChar(63)
+  name                            String                          @db.VarChar(160)
+  kind                            OrganizationKind
+  status                          OrganizationStatus              @default(ACTIVE)
+  timezone                        String                          @default("UTC") @db.VarChar(80)
+  currency                        String                          @default("USD") @db.VarChar(3)
+  logoUrl                         String?                         @db.VarChar(2048)
+  faviconUrl                      String?                         @db.VarChar(2048)
+  primaryColor                    String                          @default("#2563eb") @db.Char(7)
+  secondaryColor                  String                          @default("#0d1626") @db.Char(7)
+  accentColor                     String                          @default("#20c997") @db.Char(7)
+  fontFamily                      String                          @default("INTER") @db.VarChar(20)
+  contactEmail                    String?                         @db.VarChar(320)
+  contactPhone                    String?                         @db.VarChar(40)
+  websiteUrl                      String?                         @db.VarChar(2048)
+  emailFromName                   String?                         @db.VarChar(160)
+  emailReplyTo                    String?                         @db.VarChar(320)
+  publicBookingTitle              String?                         @db.VarChar(160)
+  publicBookingDescription        String?                         @db.VarChar(500)
+  customDomain                    String?                         @unique @db.VarChar(253)
+  createdAt                       DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                       DateTime                        @updatedAt @db.Timestamptz(6)
+  deletedAt                       DateTime?                       @db.Timestamptz(6)
+  memberships                     OrganizationMembership[]
+  customers                       Customer[]
+  hospitalityProperties           HospitalityProperty[]
+  hospitalityAmenities            HospitalityAmenity[]
+  hospitalityAvailabilityWindows  HospitalityAvailabilityWindow[]
+  hospitalityAvailabilityHolds    HospitalityAvailabilityHold[]
+  hospitalityBaseRates            HospitalityBaseRate[]
+  auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
   @@index([kind])
@@ -210,6 +211,7 @@ model HospitalityProperty {
   amenityAssignments HospitalityPropertyAmenity[]
   images             HospitalityPropertyImage[]
   ratePlans          HospitalityRatePlan[]
+  baseRates          HospitalityBaseRate[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -237,6 +239,7 @@ model HospitalityRoomType {
   restrictions        HospitalityRestriction[]
   availabilityWindows HospitalityAvailabilityWindow[]
   availabilityHolds   HospitalityAvailabilityHold[]
+  baseRates           HospitalityBaseRate[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -361,6 +364,7 @@ model HospitalityRatePlan {
   roomTypeAssignments HospitalityRoomTypeRatePlan[]
   restrictions        HospitalityRestriction[]
   availabilityHolds   HospitalityAvailabilityHold[]
+  baseRates           HospitalityBaseRate[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -407,6 +411,30 @@ model HospitalityRestriction {
   @@index([organizationId, propertyId, ratePlanId, status, startDate])
   @@index([organizationId, propertyId, roomTypeId, status, startDate])
   @@map("hospitality_restrictions")
+}
+
+model HospitalityBaseRate {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  propertyId     String                   @db.Uuid
+  roomTypeId     String                   @db.Uuid
+  ratePlanId     String                   @db.Uuid
+  startDate      DateTime                 @db.Date
+  endDate        DateTime                 @db.Date
+  amountMinor    BigInt                   @db.BigInt
+  currency       String                   @db.Char(3)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  property       HospitalityProperty      @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  roomType       HospitalityRoomType      @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_base_rates_room_type_fkey")
+  ratePlan       HospitalityRatePlan      @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_base_rates_rate_plan_fkey")
+
+  @@unique([id, propertyId, organizationId], map: "hospitality_base_rates_id_property_org_key")
+  @@index([organizationId, propertyId, roomTypeId, ratePlanId, status, startDate, endDate], map: "hospitality_base_rates_scope_dates_idx")
+  @@map("hospitality_base_rates")
 }
 
 model HospitalityAvailabilityWindow {
