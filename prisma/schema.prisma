@@ -445,13 +445,13 @@ model HospitalityAvailabilityHold {
   createdAt      DateTime               @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime               @updatedAt @db.Timestamptz(6)
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  roomType       HospitalityRoomType    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
-  ratePlan       HospitalityRatePlan    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+  roomType       HospitalityRoomType    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_room_type_fkey")
+  ratePlan       HospitalityRatePlan    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_rate_plan_fkey")
 
-  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, idempotencyKey], map: "hospitality_holds_org_idempotency_key")
   @@unique([id, organizationId])
-  @@index([organizationId, propertyId, roomTypeId, status, arrivalDate, departureDate])
-  @@index([organizationId, status, expiresAt])
+  @@index([organizationId, propertyId, roomTypeId, status, arrivalDate, departureDate], map: "hospitality_holds_scope_dates_idx")
+  @@index([organizationId, status, expiresAt], map: "hospitality_holds_status_expiry_idx")
   @@map("hospitality_availability_holds")
 }
 
