@@ -1,83 +1,46 @@
-# Booking Flow
+# Booking flow
 
 ## Status
 
-SF now has a normalized internal booking domain plus persisted hospitality booking/allocation storage. A valid tenant-owned availability hold can be converted into a confirmed booking and permanent occupied-night allocation inside one serializable transaction using the same room-type allocation lock as hold creation. The conversion persists an immutable exact-money price snapshot, consumes the hold, records a safe audit event, and supports strict organization-scoped idempotent retries.
+SF now has a production-safe internal hospitality confirmation boundary. A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads the current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, and rejects a stale expected pricing fingerprint before any booking, allocation, hold-consumption, or audit write is committed.
 
-This is still an internal server boundary, not the complete public booking journey. The final orchestration must revalidate the latest complete server price inside the confirmation transaction before calling the persistence boundary. Booking routes/UI, cancellation/release behavior, payment/provider confirmation, and public checkout remain incomplete and must not be represented as finished.
-
-## Target lifecycle
-
-```text
-search
-  ↓
-availability
-  ↓
-offer / selection
-  ↓
-pricing validation
-  ↓
-customer / traveler details
-  ↓
-booking creation
-  ↓
-payment
-  ↓
-provider confirmation
-  ↓
-confirmation
-  ↓
-post-booking management
-```
-
-The complete end-to-end workflow remains planned.
+This is still an internal server boundary. Public search, selection, traveler/customer checkout, payment orchestration, confirmation UI, cancellation, and provider-backed reservations remain incomplete and must not be presented as finished.
 
 ## Confirmation command
 
-`src/server/bookings/booking-domain.ts` defines the provider-independent confirmation input. A command references an existing availability hold and customer, requires an organization-scoped idempotency key, carries the expected SHA-256 complete-pricing fingerprint, and includes normalized add-on selections.
+`src/server/bookings/booking-domain.ts` defines the provider-independent confirmation input. A command references an existing availability hold and active customer, requires an organization-scoped idempotency key, carries the expected SHA-256 complete-pricing fingerprint, and includes normalized add-on selections.
 
-Hold, customer, and selected add-on identifiers are validated as UUIDs at the domain boundary. Add-on selections are normalized into deterministic identifier order and are part of idempotency comparison, so a retry cannot silently change extras while reusing a booking key.
+The caller never supplies authoritative money totals. `confirmHospitalityBookingFromHold` derives the immutable snapshot from current persisted pricing inside the confirmation transaction.
 
-## Persisted booking and allocation
+## Atomic confirmation
 
-`HospitalityBooking` stores tenant/property/room-type/rate-plan/customer/hold ownership, booking and payment states, stay dates, quantity, organization-scoped idempotency identity, selected add-ons, exact immutable price totals, pricing fingerprint, and lifecycle timestamps.
-
-`HospitalityBookingAllocation` stores the permanent occupied-night room-type quantity separately from the booking record. Availability reads and new hold creation subtract non-cancelled booking allocations from physical capacity in addition to active unexpired holds. This prevents a consumed hold from accidentally returning inventory to sale.
-
-Booking and allocation relations use tenant-safe composite foreign keys. One hold can back at most one booking per organization and one booking can own at most one current hospitality allocation in this first normalized hospitality slice.
-
-## Hold conversion semantics
-
-`confirmHospitalityBookingFromHold` requires `booking:manage`, validates organization/actor identifiers, normalizes the command and immutable price snapshot, and requires the snapshot fingerprint to match the command fingerprint before persistence.
-
-Inside a serializable transaction it:
+`confirmHospitalityBookingFromHold` requires `booking:manage` and validates tenant/resource identifiers before entering a serializable transaction. It then:
 
 1. serializes the organization/idempotency-key boundary;
-2. returns the existing booking only for an exact retry payload;
-3. loads the tenant-owned hold and takes the shared room-type availability allocation lock;
-4. re-reads the hold and requires it to remain `ACTIVE` and unexpired;
-5. requires an active customer in the same organization;
-6. requires the held room-type/rate-plan assignment to remain active;
-7. creates the confirmed booking with payment state `UNPAID` and immutable price snapshot;
-8. creates the permanent occupied-night allocation;
-9. transitions the hold to `CONSUMED` with an end timestamp; and
-10. writes one safe `booking.confirmed` audit event.
+2. returns an existing booking only for an exact retry payload;
+3. loads the tenant-owned hold and acquires the shared room-type availability allocation lock;
+4. re-reads the hold and requires it to remain active and unexpired;
+5. verifies the active tenant-owned customer and room-type/rate-plan assignment;
+6. recalculates current complete pricing through a transaction-bound pricing reader using current base rates, taxes/fees, and selected add-ons;
+7. compares the current deterministic fingerprint with the expected fingerprint and aborts with a price-change error on mismatch;
+8. creates the confirmed booking with an immutable exact-money snapshot derived only from the recalculated server quote;
+9. creates the permanent booking allocation;
+10. marks the hold `CONSUMED`; and
+11. writes one safe `booking.confirmed` audit event.
 
-There is no transient capacity gap between hold consumption and permanent allocation because those writes are committed together under the same allocation lock.
+All pricing, booking, allocation, hold, and audit reads/writes above share the same database transaction. A stale price therefore cannot consume inventory or create a partial booking.
 
-## Authorization and tenancy
+## Concurrency and no-overbooking
 
-Booking permissions are explicit:
+Hold creation already reserves capacity under the room-type allocation advisory lock. Confirmation takes that same lock before converting held capacity into a permanent allocation, so there is no inventory gap between hold consumption and booking allocation.
 
-- organization/platform administrators and managers: `booking:read`, `booking:manage`
-- staff: `booking:read`
-- customer-role memberships: no internal booking permission
+Competing confirmation requests for the same final held unit are serialized. Only one request can consume the hold and create the permanent allocation; the other observes the consumed/inactive hold and fails. Exact retries of the winning idempotency key return the existing booking without duplicating allocation or audit records.
 
-Booking get/list operations always include `organizationId` server-side. Customer, hold, room type, and rate plan relations are tenant constrained independently by database composite foreign keys.
+The internal hospitality policy remains no overbooking. Availability subtracts active unexpired holds and non-cancelled permanent booking allocations per occupied night.
 
-## Immutable pricing snapshot
+## Pricing snapshot
 
-The snapshot contains:
+Persisted hospitality bookings store:
 
 - currency
 - accommodation subtotal minor units
@@ -87,51 +50,18 @@ The snapshot contains:
 - total minor units
 - complete pricing fingerprint
 
-Every amount is a non-negative integer minor-unit string at the domain boundary, and total must exactly equal accommodation + tax + fee + add-ons. PostgreSQL independently checks non-negative persisted values and the same total equation.
+Amounts are non-negative integer minor units. Total must equal accommodation + tax + fee + add-ons. The snapshot is derived from current database pricing during confirmation and is immutable booking history; later pricing changes do not rewrite it.
 
-The persistence service deliberately does **not** calculate or trust a browser price. It accepts only a server-side snapshot object. The remaining atomic-confirmation task is to refactor complete pricing evaluation so the latest base rates, taxes/fees, and add-ons are re-read and fingerprint-checked through the same database transaction immediately before booking persistence. Until that is done, the Phase 9 atomic confirmation checklist item remains open.
+## Tenant isolation and authorization
 
-## Idempotency
-
-Booking idempotency is organization scoped in PostgreSQL. The service also takes a transaction-scoped advisory lock for the organization/idempotency-key pair before checking an existing booking.
-
-An exact retry must match hold ID, customer ID, expected pricing fingerprint, and normalized selected add-ons. Reusing the same key for a different payload is rejected. A hold also cannot be consumed into a second booking under another idempotency key.
-
-## Booking and payment state
-
-Booking state and payment state are deliberately separate domain and database concepts.
-
-Booking states:
-
-- `PENDING_CONFIRMATION`
-- `CONFIRMED`
-- `CANCELLED`
-
-Payment states:
-
-- `UNPAID`
-- `AUTHORIZED`
-- `PAID`
-- `PARTIALLY_REFUNDED`
-- `REFUNDED`
-- `FAILED`
-
-The domain currently allows `PENDING_CONFIRMATION → CONFIRMED`, `PENDING_CONFIRMATION → CANCELLED`, and `CONFIRMED → CANCELLED`. Reopening a cancelled booking or moving a confirmed booking back to pending is rejected by the domain contract. Payment state is never inferred from booking state.
-
-Cancellation is not implemented yet. When it is added, it must atomically release the allocation only when the booking lifecycle allows it and must preserve booking/price/audit history.
-
-## History and audit
-
-Tenant-scoped get/list services expose persisted booking history with bounded pagination. Booking confirmation writes an audit event containing safe booking scope, status, quantity, exact total, and pricing fingerprint; it does not log credentials, payment-card data, secrets, or session tokens.
+Booking reads and writes always carry `organizationId` server-side. Hold, customer, room type, rate plan, booking, and allocation relations are independently tenant constrained by composite database relationships. Internal booking management requires explicit `booking:read` or `booking:manage` permissions; UI filtering is never used as the security boundary.
 
 ## Validation coverage
 
-Dependency-free booking-domain tests cover UUID/idempotency/fingerprint validation, deterministic add-on selections, exact immutable money snapshots, snapshot/command fingerprint consistency, booking state transitions, and idempotent payload comparison.
+The disposable PostgreSQL booking integration test covers permission denial, cross-tenant denial, stale-price rejection without consuming the hold, immutable server-derived totals, competing confirmation requests for one held final unit, idempotent retry, permanent allocation visibility in availability, tenant-safe booking reads, bounded listing, and single audit-event persistence.
 
-The disposable PostgreSQL suite includes booking persistence coverage for permission denial, cross-tenant denial, hold consumption, permanent allocation, exact retry behavior, conflicting retry behavior, availability after conversion, tenant-scoped read/list, immutable totals, and audit creation. It is wired into `npm run test:database` but must only be claimed as executed when an explicitly disposable PostgreSQL target is available.
+Full execution still requires the repository's Node 24 runtime and an explicitly disposable PostgreSQL target through the documented local database harness. GitHub Actions are intentionally not part of validation.
 
-## Remaining booking dependencies
+## Next dependency
 
-The next highest-value booking dependency is **transaction-local complete price revalidation** followed by the real confirmation orchestration/API boundary. That work must ensure the authoritative complete quote and fingerprint are recalculated from current persisted pricing inside the same transaction as hold consumption and permanent allocation.
-
-After that, the booking journey can safely advance into cancellation/allocation release, payment state transitions, public offer/customer/checkout UI, and provider confirmation without weakening the core inventory guarantees.
+The next booking-flow work is the real application/API journey: search and availability presentation, offer/selection, current price display and revalidation UX, customer/traveler collection, confirmation command exposure with correct error states, and then payment orchestration. Provider-specific reservations remain behind future adapters rather than leaking into this internal booking domain.

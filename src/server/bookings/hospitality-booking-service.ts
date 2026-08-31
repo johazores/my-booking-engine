@@ -1,14 +1,14 @@
 import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
+import { formatAvailabilityDate } from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { quoteHospitalityPriceFromReader } from '../pricing/hospitality-transactional-pricing.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  assertBookingPriceSnapshotMatchesConfirmation,
   bookingConfirmationPayloadMatches,
   createHospitalityPriceSnapshot,
   normalizeHospitalityBookingConfirmationInput,
   type HospitalityBookingConfirmationInput,
-  type HospitalityPriceSnapshotInput,
 } from './booking-domain.ts';
 
 export class HospitalityBookingConflictError extends Error {
@@ -22,6 +22,13 @@ export class HospitalityBookingUnavailableError extends Error {
   constructor(message = 'Booking is not available in this organization.') {
     super(message);
     this.name = 'HospitalityBookingUnavailableError';
+  }
+}
+
+export class HospitalityBookingPriceChangedError extends Error {
+  constructor(message = 'The booking price changed. Refresh pricing before confirming.') {
+    super(message);
+    this.name = 'HospitalityBookingPriceChangedError';
   }
 }
 
@@ -58,7 +65,6 @@ export async function confirmHospitalityBookingFromHold(input: {
   organizationId: string;
   actorUserId: string;
   confirmation: HospitalityBookingConfirmationInput;
-  priceSnapshot: HospitalityPriceSnapshotInput;
   now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
@@ -66,8 +72,6 @@ export async function confirmHospitalityBookingFromHold(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' });
 
   const confirmation = normalizeHospitalityBookingConfirmationInput(input.confirmation);
-  const snapshot = createHospitalityPriceSnapshot(input.priceSnapshot);
-  assertBookingPriceSnapshotMatchesConfirmation(confirmation, snapshot);
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
@@ -124,6 +128,33 @@ export async function confirmHospitalityBookingFromHold(input: {
       select: { roomTypeId: true },
     });
     if (!assignment) throw new HospitalityBookingUnavailableError('Held room type and rate plan are no longer bookable.');
+
+    const latestPrice = await quoteHospitalityPriceFromReader({
+      reader: transaction,
+      organizationId: input.organizationId,
+      request: {
+        propertyId: hold.propertyId,
+        roomTypeId: hold.roomTypeId,
+        ratePlanId: hold.ratePlanId,
+        arrivalDate: formatAvailabilityDate(hold.arrivalDate),
+        departureDate: formatAvailabilityDate(hold.departureDate),
+        quantity: hold.quantity,
+      },
+      addonSelections: confirmation.addonSelections,
+    });
+    if (latestPrice.fingerprint !== confirmation.expectedPricingFingerprint) {
+      throw new HospitalityBookingPriceChangedError();
+    }
+
+    const snapshot = createHospitalityPriceSnapshot({
+      currency: latestPrice.currency,
+      accommodationSubtotalMinor: latestPrice.accommodationSubtotalMinor,
+      taxTotalMinor: latestPrice.taxTotalMinor,
+      feeTotalMinor: latestPrice.feeTotalMinor,
+      addonTotalMinor: latestPrice.addonTotalMinor,
+      totalMinor: latestPrice.totalMinor,
+      pricingFingerprint: latestPrice.fingerprint,
+    });
 
     const booking = await transaction.hospitalityBooking.create({
       data: {

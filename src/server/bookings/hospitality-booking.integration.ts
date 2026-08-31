@@ -5,26 +5,13 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Hospitality booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-const fingerprint = 'a'.repeat(64);
-
-function snapshot() {
-  return {
-    currency: 'USD',
-    accommodationSubtotalMinor: '20000',
-    taxTotalMinor: '2400',
-    feeTotalMinor: '500',
-    addonTotalMinor: '1200',
-    totalMinor: '24100',
-    pricingFingerprint: fingerprint,
-  };
-}
-
-test('booking confirmation consumes a hold into tenant-safe permanent allocation idempotently', async () => {
-  const [{ db }, holds, bookings, availability] = await Promise.all([
+test('booking confirmation revalidates persisted pricing and consumes a hold into permanent allocation atomically', async () => {
+  const [{ db }, holds, bookings, availability, pricing] = await Promise.all([
     import('../database.ts'),
     import('../availability/hospitality-availability-hold-service.ts'),
     import('./hospitality-booking-service.ts'),
     import('../availability/hospitality-availability-service.ts'),
+    import('../pricing/hospitality-pricing-service.ts'),
   ]);
   const runId = crypto.randomUUID();
   const adminA = await db.user.create({ data: { email: `booking-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -45,39 +32,73 @@ test('booking confirmation consumes a hold into tenant-safe permanent allocation
     await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
     await db.hospitalityRoomTypeRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id } });
+    const baseRate = await pricing.createHospitalityBaseRate({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      baseRate: {
+        propertyId: property.id,
+        roomTypeId: roomType.id,
+        ratePlanId: ratePlan.id,
+        startDate: '2026-09-01',
+        endDate: '2026-09-30',
+        amount: '100.00',
+      },
+    });
+
     const now = new Date('2026-09-01T00:00:00.000Z');
     const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
     const hold = await holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, now, hold: { idempotencyKey: 'hold:booking-confirm', request } });
-    const confirmation = { holdId: hold.id, customerId: customer.id, idempotencyKey: 'booking:confirm-1', expectedPricingFingerprint: fingerprint };
+    const quoted = await pricing.quoteHospitalityPrice({ organizationId: organizationA.id, actorUserId: adminA.id, request });
+    const confirmation = { holdId: hold.id, customerId: customer.id, idempotencyKey: 'booking:confirm-1', expectedPricingFingerprint: quoted.fingerprint };
 
     await assert.rejects(
-      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: staffA.id, confirmation, priceSnapshot: snapshot(), now }),
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: staffA.id, confirmation, now }),
       /permission/i,
     );
     await assert.rejects(
-      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationB.id, actorUserId: adminB.id, confirmation, priceSnapshot: snapshot(), now }),
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationB.id, actorUserId: adminB.id, confirmation, now }),
       /not available/i,
     );
 
-    const created = await bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation, priceSnapshot: snapshot(), now });
+    await db.hospitalityBaseRate.update({ where: { id: baseRate.id }, data: { amountMinor: 11_000n } });
+    await assert.rejects(
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation, now }),
+      /price changed/i,
+    );
+    const stillHeld = await db.hospitalityAvailabilityHold.findUniqueOrThrow({ where: { id: hold.id } });
+    assert.equal(stillHeld.status, 'ACTIVE');
+    assert.equal(await db.hospitalityBooking.count({ where: { organizationId: organizationA.id } }), 0);
+    await db.hospitalityBaseRate.update({ where: { id: baseRate.id }, data: { amountMinor: 10_000n } });
+
+    const competing = await Promise.allSettled([
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation, now }),
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...confirmation, idempotencyKey: 'booking:confirm-2' }, now }),
+    ]);
+    const successes = competing.filter((result) => result.status === 'fulfilled');
+    const failures = competing.filter((result) => result.status === 'rejected');
+    assert.equal(successes.length, 1);
+    assert.equal(failures.length, 1);
+    assert.match(String((failures[0] as PromiseRejectedResult).reason), /no longer active and unexpired|already been consumed/i);
+
+    const created = (successes[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof bookings.confirmHospitalityBookingFromHold>>>).value;
     assert.equal(created.status, 'CONFIRMED');
     assert.equal(created.paymentStatus, 'UNPAID');
-    assert.equal(created.totalMinor.toString(), '24100');
+    assert.equal(created.totalMinor.toString(), '20000');
+    assert.equal(created.pricingFingerprint, quoted.fingerprint);
     assert.equal(created.allocation?.quantity, 1);
 
     const consumed = await db.hospitalityAvailabilityHold.findUniqueOrThrow({ where: { id: hold.id } });
     assert.equal(consumed.status, 'CONSUMED');
     assert.equal(consumed.endedAt?.getTime(), now.getTime());
 
-    const retry = await bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation, priceSnapshot: snapshot(), now });
+    const winningConfirmation = created.idempotencyKey === confirmation.idempotencyKey
+      ? confirmation
+      : { ...confirmation, idempotencyKey: 'booking:confirm-2' };
+    const retry = await bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: winningConfirmation, now });
     assert.equal(retry.id, created.id);
     await assert.rejects(
-      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...confirmation, customerId: crypto.randomUUID() }, priceSnapshot: snapshot(), now }),
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...winningConfirmation, customerId: crypto.randomUUID() }, now }),
       /different booking confirmation request/i,
-    );
-    await assert.rejects(
-      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...confirmation, idempotencyKey: 'booking:other-key' }, priceSnapshot: snapshot(), now }),
-      /no longer active and unexpired|already been consumed/i,
     );
 
     const afterBooking = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, now, request });
@@ -101,6 +122,7 @@ test('booking confirmation consumes a hold into tenant-safe permanent allocation
     await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoom.deleteMany({ where: { organizationId: organizationA.id } });
