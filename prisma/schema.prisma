@@ -226,6 +226,7 @@ model HospitalityRoomType {
   amenityAssignments  HospitalityRoomTypeAmenity[]
   images              HospitalityRoomTypeImage[]
   ratePlanAssignments HospitalityRoomTypeRatePlan[]
+  restrictions        HospitalityRestriction[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -348,6 +349,7 @@ model HospitalityRatePlan {
   archivedAt          DateTime?                     @db.Timestamptz(6)
   property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
   roomTypeAssignments HospitalityRoomTypeRatePlan[]
+  restrictions        HospitalityRestriction[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -369,6 +371,31 @@ model HospitalityRoomTypeRatePlan {
   @@index([organizationId, ratePlanId])
   @@index([propertyId, roomTypeId])
   @@map("hospitality_room_type_rate_plans")
+}
+
+model HospitalityRestriction {
+  id                String                   @id @default(uuid()) @db.Uuid
+  organizationId    String                   @db.Uuid
+  propertyId        String                   @db.Uuid
+  ratePlanId        String                   @db.Uuid
+  roomTypeId        String?                  @db.Uuid
+  startDate         DateTime                 @db.Date
+  endDate           DateTime                 @db.Date
+  minStayNights     Int?
+  maxStayNights     Int?
+  closedToArrival   Boolean                  @default(false)
+  closedToDeparture Boolean                  @default(false)
+  status            InventoryLifecycleStatus @default(ACTIVE)
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime                 @updatedAt @db.Timestamptz(6)
+  archivedAt        DateTime?                @db.Timestamptz(6)
+  ratePlan          HospitalityRatePlan      @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+  roomType          HospitalityRoomType?     @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+
+  @@unique([id, propertyId, organizationId])
+  @@index([organizationId, propertyId, ratePlanId, status, startDate])
+  @@index([organizationId, propertyId, roomTypeId, status, startDate])
+  @@map("hospitality_restrictions")
 }
 
 model AuditEvent {

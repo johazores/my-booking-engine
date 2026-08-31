@@ -31,7 +31,7 @@ export async function listHospitalityRatePlans(input: {
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     skip: (page - 1) * input.pageSize,
     take: input.pageSize,
-    include: { _count: { select: { roomTypeAssignments: true } } },
+    include: { _count: { select: { roomTypeAssignments: true, restrictions: true } } },
   });
   return { ratePlans, total, page, totalPages };
 }
@@ -47,7 +47,7 @@ export async function readHospitalityRatePlan(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
   return db.hospitalityRatePlan.findFirst({
     where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
-    include: { _count: { select: { roomTypeAssignments: true } } },
+    include: { _count: { select: { roomTypeAssignments: true, restrictions: true } } },
   });
 }
 
@@ -233,6 +233,18 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
     if (!roomType || !ratePlan || !existing || existing.propertyId !== input.propertyId) {
       throw new HospitalityInventoryUnavailableError('Rate plan assignment is not available for active inventory in this property.');
     }
+    const activeRestrictions = await transaction.hospitalityRestriction.count({
+      where: {
+        organizationId: input.organizationId,
+        propertyId: input.propertyId,
+        ratePlanId: input.ratePlanId,
+        roomTypeId: input.roomTypeId,
+        status: 'ACTIVE',
+      },
+    });
+    if (activeRestrictions > 0) {
+      throw new HospitalityInventoryDependencyError('Archive active room-type restrictions before removing this rate plan assignment.');
+    }
     await transaction.hospitalityRoomTypeRatePlan.delete({ where: { organizationId_roomTypeId_ratePlanId: key } });
     await transaction.auditEvent.create({
       data: {
@@ -276,6 +288,10 @@ export async function archiveHospitalityRatePlan(input: {
       where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id },
     });
     if (assignmentCount > 0) throw new HospitalityInventoryDependencyError('Remove all room-type assignments before archiving the rate plan.');
+    const activeRestrictions = await transaction.hospitalityRestriction.count({
+      where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id, status: 'ACTIVE' },
+    });
+    if (activeRestrictions > 0) throw new HospitalityInventoryDependencyError('Archive active restrictions before archiving the rate plan.');
     const archivedAt = new Date();
     const updated = await transaction.hospitalityRatePlan.update({
       where: { id_propertyId_organizationId: { id: current.id, propertyId: input.propertyId, organizationId: input.organizationId } },

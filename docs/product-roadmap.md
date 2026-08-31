@@ -46,41 +46,40 @@ Tenant presentation/contact/public-booking configuration, custom-domain configur
 
 Tenant-owned customer/contact records, permissions, search/filter/sort/pagination, create/detail/edit/archive, audits, responsive states, and PostgreSQL isolation/lifecycle coverage are implemented. Booking-specific traveler/passenger structures remain deferred until the booking flow requires them.
 
-## 9. Internal inventory — hospitality foundation in progress
+## 9. Internal inventory — hospitality foundation implemented
 
 Implemented hospitality foundation:
 
 - properties
 - room types
 - physical rooms
-- reusable tenant-owned amenities
-- property and room-type amenity assignment/removal
+- reusable tenant-owned amenities and property/room-type assignment
 - property and room-type hosted-image galleries
-- validated HTTPS media references with required alt text and display ordering
-- transactional primary-image selection with automatic first-image primary behavior
-- property-owned rate-plan definitions
-- paginated room-type rate-plan assignment/removal
-- rate-plan lifecycle and dependency-safe archival
+- property-owned rate plans and room-type assignment
+- property-wide and room-type rate-plan restrictions
+- minimum/maximum stay and closed-to-arrival/departure controls
+- deterministic same-scope overlap rejection
+- dependency-safe restriction → rate-plan assignment → rate-plan → property lifecycle
 - tenant-scoped `inventory:read` / `inventory:manage` permissions
 - composite parent/tenant database constraints
 - bounded pagination on current large collections
-- dependency-safe/read-only lifecycle behavior and audit events
+- audited lifecycle/configuration operations
 - authenticated responsive inventory UI
 - checked-in cross-tenant PostgreSQL integration coverage
 
-Rate plans intentionally establish commercial identities only. Prices, taxes, fees, availability, stay controls, and cancellation execution remain separate later layers rather than being embedded in plan records.
+Rate plans establish commercial identities only. Restrictions establish date/stay/arrival rules only. Prices, taxes, fees, availability counts, holds, and booking state remain in their later domains.
 
-Image management intentionally accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and should feed the same normalized image records.
+Image management accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and feed the same normalized image records.
 
-The next hospitality dependency is restrictions. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
+Hospitality inventory is now a coherent completed Phase 8 business slice. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model. The next dependency-safe platform work is normalized availability.
 
 ## 10. Availability
 
-Concurrency-safe availability, holds, expiry, restrictions, and capacity.
+Implement concurrency-safe normalized availability, availability windows, capacity/allocation, holds, expiry, overbooking policy, effective rate restrictions, atomic confirmation, and last-unit concurrency coverage. Hospitality inventory and restriction identities are now stable inputs for this layer.
 
 ## 11. Pricing
 
-Normalized money/currency, base rates, taxes/fees, add-ons, revalidation, and price-change handling will build on the stable rate-plan identities from hospitality inventory.
+Normalized money/currency, base rates, taxes/fees, add-ons, revalidation, and price-change handling will build on stable hospitality rate-plan identities.
 
 ## 12. Complete internal booking flow
 
