@@ -1,3 +1,4 @@
+import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
 import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -203,6 +204,7 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:manage' });
 
   return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityAvailabilityAllocationLockKey({ organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId })}, 0))`;
     const key = { organizationId: input.organizationId, roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId };
     const [roomType, ratePlan, existing] = await Promise.all([
       transaction.hospitalityRoomType.findFirst({
