@@ -43,6 +43,7 @@ type Quote = {
 };
 type Booking = { id: string; status: string; paymentStatus: string; currency: string; totalMinor: string };
 
+type InitialSelection = { roomTypeId: string; ratePlanId: string; arrivalDate: string; departureDate: string; quantity: number };
 type Props = {
   propertyId: string;
   propertyName: string;
@@ -50,6 +51,7 @@ type Props = {
   customers: Customer[];
   addons: Addon[];
   canManage: boolean;
+  initialSelection?: InitialSelection | null;
 };
 
 function requestKey() {
@@ -89,11 +91,14 @@ async function postJson(path: string, body: unknown) {
   return payload;
 }
 
-export function HospitalityBookingWorkspace({ propertyId, propertyName, scopes, customers, addons, canManage }: Props) {
-  const [scopeKey, setScopeKey] = useState(scopes[0] ? `${scopes[0].roomTypeId}:${scopes[0].ratePlanId}` : '');
-  const [arrivalDate, setArrivalDate] = useState('');
-  const [departureDate, setDepartureDate] = useState('');
-  const [quantity, setQuantity] = useState(1);
+export function HospitalityBookingWorkspace({ propertyId, propertyName, scopes, customers, addons, canManage, initialSelection }: Props) {
+  const initialScopeKey = initialSelection && scopes.some((item) => item.roomTypeId === initialSelection.roomTypeId && item.ratePlanId === initialSelection.ratePlanId)
+    ? `${initialSelection.roomTypeId}:${initialSelection.ratePlanId}`
+    : scopes[0] ? `${scopes[0].roomTypeId}:${scopes[0].ratePlanId}` : '';
+  const [scopeKey, setScopeKey] = useState(initialScopeKey);
+  const [arrivalDate, setArrivalDate] = useState(initialSelection?.arrivalDate ?? '');
+  const [departureDate, setDepartureDate] = useState(initialSelection?.departureDate ?? '');
+  const [quantity, setQuantity] = useState(initialSelection?.quantity ?? 1);
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [hold, setHold] = useState<Hold | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -103,7 +108,7 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, scopes, 
   const [holdIdempotencyKey, setHoldIdempotencyKey] = useState<string | null>(null);
   const [bookingIdempotencyKey, setBookingIdempotencyKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(initialSelection ? 'Offer loaded from search. Check availability again before holding inventory.' : null);
 
   const scope = useMemo(() => scopes.find((item) => `${item.roomTypeId}:${item.ratePlanId}` === scopeKey) ?? null, [scopeKey, scopes]);
   const applicableAddons = useMemo(() => {
@@ -226,7 +231,7 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, scopes, 
 
   return <div className="sf-booking-workspace">
     <section className="sf-booking-card" aria-labelledby="booking-search-title">
-      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">1 · Search</p><h2 id="booking-search-title">Stay and offer</h2></div><span>{propertyName}</span></div>
+      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">1 · Offer</p><h2 id="booking-search-title">Stay and offer</h2></div><span>{propertyName}</span></div>
       <div className="sf-booking-grid">
         <label className="sf-field">Room type + rate plan<select value={scopeKey} onChange={(event) => { setScopeKey(event.target.value); setAddonQuantities({}); resetCommercialState(); }}>{scopes.map((item) => <option key={`${item.roomTypeId}:${item.ratePlanId}`} value={`${item.roomTypeId}:${item.ratePlanId}`}>{item.roomType.name} · {item.ratePlan.name}</option>)}</select></label>
         <label className="sf-field">Arrival<input type="date" value={arrivalDate} onChange={(event) => { setArrivalDate(event.target.value); setAddonQuantities({}); resetCommercialState(); }} required /></label>
