@@ -1,14 +1,10 @@
 # Payments
 
-## Status
+SF keeps booking state and payment state separate. Provider-specific behavior stays behind normalized payment adapters; application services own tenant scope, authorization, idempotency, persistence, booking-state updates, and audit history.
 
-SF now has a provider-independent payment contract foundation and an explicit manual/offline adapter boundary. No payment API, persistence, checkout UI, Stripe/PayPal integration, webhook processing, refund workflow, receipt/invoice flow, or browser success handling is exposed yet. Those remain incomplete and must not be presented as working payment functionality.
+## Implemented foundation
 
-## Provider contract
-
-`src/server/payments/payment-provider.ts` defines the normalized internal contract that future payment providers must implement without leaking provider-specific request/response models into booking logic.
-
-The contract models capabilities explicitly:
+`src/server/payments/payment-provider.ts` defines the provider-independent contract and explicit capabilities:
 
 - `OFFLINE_RECORDING`
 - `AUTHORIZE`
@@ -16,46 +12,60 @@ The contract models capabilities explicitly:
 - `REFUND`
 - `WEBHOOKS`
 
-Operations are optional because providers do not all support the same lifecycle. Application code must check the advertised capability before invoking an operation instead of assuming every provider supports authorization, capture, refund, or webhooks.
+The contract uses exact integer minor-unit money, strict idempotency keys, organization-owned booking context, normalized provider statuses/failures, and capability checks. Provider implementations must not leak provider-specific response models into booking code.
 
-Provider failures use normalized application-level classifications such as invalid request, authentication failure, rate limiting, provider unavailability, timeout, decline, duplicate operation, unsupported operation, and unknown failure. Provider adapters should map their native errors into this boundary without exposing credentials or sensitive raw payloads.
+`ManualPaymentProvider` is a real offline-payment recording adapter. It does not process cards, contact an external gateway, pretend to authorize funds, or advertise unsupported capabilities. Its only supported operation is recording a staff-supplied external/offline reference against a server-authoritative booking amount.
 
-## Exact money and idempotency
+## Persisted transaction ledger
 
-Payment operation context requires server-owned organization and booking UUIDs, a strict 8-120 character idempotency key, a three-letter normalized currency, and an exact non-negative integer minor-unit amount represented as `bigint` internally.
+`PaymentTransaction` is the normalized immutable payment ledger boundary. Each row stores:
 
-The payment domain deliberately does not use JavaScript floating-point numbers for authoritative money. Future persisted transactions and external-provider requests must derive their amount from the immutable server booking snapshot rather than trusting browser-submitted totals.
+- `organizationId` and `bookingId`;
+- a tenant-unique idempotency key;
+- normalized transaction kind/status;
+- provider code and provider reference;
+- exact currency and integer minor-unit amount;
+- creation time.
 
-Payment idempotency is a first-class contract requirement. Persistence and provider adapters must reuse the same logical operation identity across retryable failures so lost responses do not create duplicate charges, captures, or refunds.
+The migration enforces a composite `(bookingId, organizationId)` foreign key to `hospitality_bookings`, so a transaction cannot be attached to another tenant's booking even if application scoping regresses. Provider references are unique per organization/provider to prevent the same external receipt/reference being recorded twice.
 
-## Manual/offline adapter
+Booking guest persistence has the same database ownership protection: `hospitality_booking_guests(bookingId, organizationId)` now references the tenant-owned booking key.
 
-`src/server/payments/manual-payment-provider.ts` advertises only `OFFLINE_RECORDING`. It accepts an explicit bounded reference such as a bank-transfer or cash-receipt reference and returns a normalized paid result while preserving exact money.
+## Manual/offline payment workflow
 
-The adapter intentionally does not advertise authorization, capture, refund, or webhook capabilities. It is not wired to an API or UI yet, because an offline payment must only become commercially effective after an authenticated, authorized, tenant-scoped payment service persists the transaction and updates booking payment state atomically. The current adapter alone is therefore not presented as a completed payment workflow.
+`recordManualOfflinePayment` is the first authorized application payment workflow.
 
-No card number, CVV, bank credential, token, or provider secret field exists in this manual boundary.
+1. The organization and actor come from authenticated server context.
+2. `payment:manage` is required; browser-supplied tenant identity is not accepted.
+3. The booking is loaded by both booking ID and organization ID.
+4. Only a confirmed booking in an unpaid/failed payment state can receive a new offline payment.
+5. Currency and amount come exclusively from the immutable booking price snapshot. The API accepts no payment amount.
+6. The service serializes idempotency, booking, and manual-reference scopes inside a serializable PostgreSQL transaction.
+7. The manual adapter records the normalized operation using the server booking total.
+8. A successful ledger row, booking `paymentStatus = PAID`, and safe audit event commit together.
+9. Exact retries return the existing transaction. Reusing the idempotency key with different input, submitting a second payment for an already-paid booking, or reusing a manual reference is rejected.
 
-## Security rules for the next slice
+The audit event deliberately omits the manual provider reference and any payment-sensitive payload. The transaction ledger retains the operational provider reference needed for reconciliation.
 
-The payment application/service layer must:
+## Authenticated API boundary
 
-1. derive tenant identity from the authenticated server session;
-2. require explicit payment permissions;
-3. load the tenant-owned booking and immutable server price snapshot;
-4. refuse browser-supplied authoritative totals;
-5. persist transaction history and provider references with tenant-safe relationships;
-6. serialize idempotent commercial writes;
-7. update booking payment state from persisted provider outcomes rather than redirects;
-8. audit commercial state changes without payment credentials or sensitive provider payloads; and
-9. treat timeouts and lost responses as ambiguous until reconciled rather than blindly retrying a charge.
+- `POST /api/payments/manual` records an offline payment with `{ bookingId, idempotencyKey, reference }`. It requires authenticated active-organization context, same-origin write protection, and `payment:manage`.
+- `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped payment history for a booking and requires `payment:read`.
 
-## Validation coverage
+BigInt monetary values are serialized as decimal strings at the HTTP boundary.
 
-`src/server/payments/payment-provider.test.ts` covers normalized UUID/idempotency boundaries, exact minor-unit money, invalid currency/amount rejection, capability enforcement, manual-provider capability limits, offline reference validation, and exact money preservation.
+## Permissions
 
-Full execution still requires the repository Node 24 runtime. Database-backed payment tests will be added when the persisted transaction/service boundary exists.
+- Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`.
+- `STAFF` receives `payment:read` only.
+- `CUSTOMER` receives no internal payment-ledger capability.
 
-## Next dependency
+A future customer payment journey must introduce its own ownership/self-service boundary instead of weakening internal permissions.
 
-The next payment slice is tenant-scoped payment persistence and an authorized application service for idempotent manual/offline payment recording against the immutable booking total. Only after that boundary is proven should the authenticated booking-management UI expose manual payment recording. Stripe should follow behind the same contract, including verified webhook handling and reconciliation before any browser redirect can affect payment state.
+## Validation and future providers
+
+The disposable PostgreSQL suite includes payment coverage for permission enforcement, cross-tenant denial, immutable booking totals, successful state transition, exact retry behavior, changed-retry rejection, transaction history, audit minimization, and the composite tenant/booking foreign key.
+
+Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
+
+Stripe, PayPal, authorization/capture, refunds, webhook ingestion, ambiguous-result reconciliation, receipts/invoices, and customer-facing online payment UI are not implemented yet. When a real online provider is added, it must implement this adapter contract, verify signed webhooks where supported, persist provider references, make every write idempotent, treat timeout/unknown outcomes as ambiguous until reconciled, and never treat a browser success redirect as proof of payment.

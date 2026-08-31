@@ -1,0 +1,33 @@
+enum PaymentTransactionKind {
+  OFFLINE_PAYMENT
+  AUTHORIZATION
+  CAPTURE
+  REFUND
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  AMBIGUOUS
+}
+
+model PaymentTransaction {
+  id                String                   @id @default(uuid()) @db.Uuid
+  organizationId    String                   @db.Uuid
+  bookingId         String                   @db.Uuid
+  idempotencyKey    String                   @db.VarChar(120)
+  kind              PaymentTransactionKind
+  status            PaymentTransactionStatus
+  providerCode      String                   @db.VarChar(40)
+  providerReference String                   @db.VarChar(160)
+  currency          String                   @db.Char(3)
+  amountMinor       BigInt                   @db.BigInt
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_key")
+  @@index([organizationId, bookingId, createdAt], map: "payment_transactions_booking_created_idx")
+  @@index([organizationId, status, createdAt], map: "payment_transactions_status_created_idx")
+  @@map("payment_transactions")
+}
