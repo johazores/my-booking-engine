@@ -2,7 +2,7 @@
 
 ## Database choice
 
-SF uses PostgreSQL because reservations, payments, availability, memberships, tenant configuration, customers, and audit history benefit from transactions, relational constraints, indexing, and explicit data ownership.
+SF uses PostgreSQL because reservations, payments, availability, memberships, tenant configuration, customers, inventory, and audit history benefit from transactions, relational constraints, indexing, and explicit data ownership.
 
 Prisma ORM is the TypeScript data-access layer.
 
@@ -49,28 +49,35 @@ Only active memberships grant tenant access.
 
 Represents tenant-owned customer/contact identity for operational booking workflows.
 
-Fields include:
+Fields include UUID identity, `organizationId`, first/last name, optional canonical email, phone, notes, `ACTIVE` / `ARCHIVED` lifecycle, and lifecycle timestamps.
 
-- UUID identity
-- `organizationId`
-- first/last name
-- optional canonical email
-- optional phone
-- optional internal notes
-- `ACTIVE` / `ARCHIVED` lifecycle
-- created/updated/archive timestamps
-
-Customer email is unique per organization through `(organizationId, email)`. PostgreSQL permits multiple `NULL` email values, so customers without email are not artificially blocked. The database also checks canonical email storage, non-blank trimmed names, and archive-state consistency.
-
-Indexes support tenant lifecycle/date queries and tenant/name ordering. Every customer read/write also carries organization scope in application data access; a customer UUID is never sufficient authorization by itself.
+Customer email is unique per organization through `(organizationId, email)`. PostgreSQL permits multiple `NULL` email values. The database checks canonical email storage, non-blank trimmed names, and archive-state consistency.
 
 Archived customers are preserved rather than deleted so future booking references and history remain valid.
 
+### HospitalityProperty
+
+Represents a tenant-owned hotel/resort property. Property codes are canonical and unique per organization. A property records its own IANA timezone, two-letter country code, optional address data, lifecycle, and timestamps.
+
+PostgreSQL checks canonical codes/country values and archive-state consistency. `(id, organizationId)` is additionally unique so child records can use tenant-consistent composite foreign keys.
+
+### HospitalityRoomType
+
+Represents a sellable room category within one property. It stores name, property-local code, maximum occupancy, optional bed description, lifecycle, and timestamps.
+
+`(propertyId, organizationId)` must reference the same property record/tenant. Room-type codes are unique per property and maximum occupancy is constrained to 1–50 in both application validation and PostgreSQL.
+
+### HospitalityRoom
+
+Represents a physical room within one room type/property hierarchy. Room codes are unique per property. Room status supports `ACTIVE`, `OUT_OF_SERVICE`, and `ARCHIVED`; the current management UI creates active rooms and exposes safe archival, while operational out-of-service transitions remain deferred until availability/operations rules are defined.
+
+The composite `(roomTypeId, propertyId, organizationId)` foreign key prevents a room from being attached to a room type or property belonging to another tenant. PostgreSQL also checks canonical room codes and archive-state consistency.
+
 ### AuditEvent
 
-Important tenant administration and customer lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
+Important tenant administration, customer, and inventory lifecycle changes are recorded with organization, actor, action, resource type/id, safe before/after data, and timestamp.
 
-Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Customer updates record changed field names instead of copying internal notes/contact values into audit JSON.
+Audit records must never contain passwords, session tokens, provider secrets, payment-card data, or other credentials. Customer updates record changed field names instead of copying internal notes/contact values into audit JSON. Inventory events store only safe identifiers/code/status/lifecycle metadata.
 
 ## Migrations
 
@@ -83,6 +90,7 @@ Checked-in migrations include:
 - `20260831032500_authorization-foundation`
 - `20260831080000_tenant-branding-settings`
 - `20260831083000_customer-foundation`
+- `20260831084500_hospitality-inventory-foundation`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -99,7 +107,7 @@ npm run db:deploy
 
 For migration authoring, use `npm run db:migrate` only against an isolated development database.
 
-`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites. It must never target the normal application database.
+`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality inventory. It must never target the normal application database.
 
 ## Tenant ownership rule
 
@@ -114,19 +122,21 @@ Current repository/service rules:
 - tenant-owned resources include both `organizationId` and resource ID
 - writes use the same ownership scope rather than globally loading by resource ID first
 - protected services require explicit capability checks before accessing tenant-owned data
+- hospitality child records additionally use composite parent/tenant foreign keys
 
 The customer repository follows this contract directly. Customer list/search queries always include organization scope; customer detail/update/archive use `organizationId + customerId`.
 
+Hospitality repositories likewise scope property, room-type, and room reads by organization. Child creation verifies active parent ownership in the same tenant before persistence, while database foreign keys independently prevent cross-tenant parent relationships.
+
 ## Pagination and query safety
 
-Customer directory pagination is the first large-collection implementation and establishes the bounded query pattern:
+Customer and hospitality inventory collections use the same bounded query pattern:
 
 - page defaults to 1
 - page size defaults to 20 and is capped at 50
 - out-of-range pages clamp to the final valid page
-- sort values come from a fixed allowlist
-- lifecycle filter values come from a fixed allowlist
-- search input is normalized and bounded before Prisma query construction
+- customer sort/filter values come from fixed allowlists
+- inventory hierarchy queries remain constrained by tenant and parent IDs
 
 Future large tenant collections should follow the same bounded-query approach.
 
@@ -135,7 +145,7 @@ Future large tenant collections should follow the same bounded-query approach.
 Future schemas should model real business relationships rather than mirror UI pages. Expected areas include:
 
 - booking-specific travelers/passengers when required by booking rules
-- properties, room types, rooms, rates, restrictions
+- hospitality amenities, images, rates, and restrictions
 - tours, schedules, capacity
 - services, staff, schedules
 - rental products and locations
