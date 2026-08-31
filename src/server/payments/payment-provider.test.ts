@@ -40,10 +40,11 @@ test('rejects malformed payment money and idempotency inputs', () => {
   assert.throws(() => normalizePaymentOperationContext({ organizationId: 'tenant', bookingId, idempotencyKey: 'payment:booking-1', currency: 'USD', amountMinor: '1' }), /Organization ID must be a valid UUID/);
 });
 
-test('manual payment adapter advertises only offline recording and preserves exact amount', async () => {
+test('manual payment adapter advertises only real offline recording capabilities', async () => {
   const provider = new ManualPaymentProvider();
-  assert.deepEqual([...provider.capabilities], ['OFFLINE_RECORDING']);
+  assert.deepEqual([...provider.capabilities], ['OFFLINE_RECORDING', 'OFFLINE_REFUND_RECORDING']);
   assert.doesNotThrow(() => assertPaymentProviderCapability(provider, 'OFFLINE_RECORDING'));
+  assert.doesNotThrow(() => assertPaymentProviderCapability(provider, 'OFFLINE_REFUND_RECORDING'));
   assert.throws(() => assertPaymentProviderCapability(provider, 'AUTHORIZE'), (error: unknown) => {
     assert.equal(error instanceof PaymentProviderError, true);
     assert.equal((error as PaymentProviderError).code, 'UNSUPPORTED_OPERATION');
@@ -64,6 +65,33 @@ test('manual payment adapter advertises only offline recording and preserves exa
     status: 'PAID',
     money: { currency: 'USD', amountMinor: 24100n },
   });
+
+  const refund = await provider.recordOfflineRefund({
+    organizationId,
+    bookingId,
+    idempotencyKey: 'refund:booking-1',
+    money: { currency: 'USD', amountMinor: 4100n },
+    paymentReference: 'Bank transfer #ABC-123',
+    refundReference: 'Bank refund #XYZ-9',
+  });
+  assert.deepEqual(refund, {
+    providerCode: 'manual',
+    providerReference: 'Bank transfer #ABC-123',
+    refundReference: 'Bank refund #XYZ-9',
+    status: 'REFUNDED',
+    money: { currency: 'USD', amountMinor: 4100n },
+  });
+  await assert.rejects(
+    provider.recordOfflineRefund({
+      organizationId,
+      bookingId,
+      idempotencyKey: 'refund:booking-2',
+      money: { currency: 'USD', amountMinor: 1n },
+      paymentReference: 'SAME-REF',
+      refundReference: 'SAME-REF',
+    }),
+    /different from the original payment reference/,
+  );
 });
 
 test('manual payment references are bounded and intentionally exclude arbitrary control characters', () => {

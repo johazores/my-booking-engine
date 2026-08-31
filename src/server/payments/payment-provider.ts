@@ -4,6 +4,7 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
 export const paymentProviderCapabilities = [
   'OFFLINE_RECORDING',
+  'OFFLINE_REFUND_RECORDING',
   'AUTHORIZE',
   'CAPTURE',
   'REFUND',
@@ -56,6 +57,7 @@ export interface PaymentProviderAdapter {
   readonly code: string;
   readonly capabilities: ReadonlySet<PaymentProviderCapability>;
   recordOfflinePayment?(input: PaymentOperationContext & { reference: string }): Promise<ProviderPaymentResult>;
+  recordOfflineRefund?(input: PaymentOperationContext & { paymentReference: string; refundReference: string }): Promise<ProviderRefundResult>;
   authorizePayment?(input: PaymentOperationContext): Promise<ProviderPaymentResult>;
   capturePayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult>;
   refundPayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult>;

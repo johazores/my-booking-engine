@@ -33,6 +33,20 @@ function normalizePagination(page: number, pageSize: number) {
   return { page: safePage, pageSize: safePageSize };
 }
 
+function normalizeOptionalPositiveMinorAmount(value: unknown): bigint | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'bigint') {
+    if (value <= 0n) throw new Error('Refund amount must be greater than zero.');
+    return value;
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const amount = BigInt(value);
+    if (amount <= 0n) throw new Error('Refund amount must be greater than zero.');
+    return amount;
+  }
+  throw new Error('Refund amount must be a positive integer minor-unit value.');
+}
+
 export async function recordManualOfflinePayment(input: {
   organizationId: string;
   actorUserId: string;
@@ -166,6 +180,179 @@ export async function recordManualOfflinePayment(input: {
     });
 
     return payment;
+  }, { isolationLevel: 'Serializable' });
+}
+
+export async function recordManualOfflineRefund(input: {
+  organizationId: string;
+  actorUserId: string;
+  bookingId: string;
+  idempotencyKey: unknown;
+  reference: unknown;
+  amountMinor?: unknown;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.bookingId, 'bookingId');
+  const idempotencyKey = normalizePaymentIdempotencyKey(input.idempotencyKey);
+  const refundReference = normalizeManualPaymentReference(input.reference);
+  const requestedAmountMinor = normalizeOptionalPositiveMinorAmount(input.amountMinor);
+
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'payment:manage',
+  });
+  assertPaymentProviderCapability(manualProvider, 'OFFLINE_REFUND_RECORDING');
+
+  return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+
+    const existing = await transaction.paymentTransaction.findUnique({
+      where: {
+        organizationId_idempotencyKey: {
+          organizationId: input.organizationId,
+          idempotencyKey,
+        },
+      },
+    });
+    if (existing) {
+      if (
+        existing.bookingId !== input.bookingId
+        || existing.kind !== 'REFUND'
+        || existing.providerCode !== manualProvider.code
+        || existing.providerReference !== refundReference
+        || (requestedAmountMinor !== null && existing.amountMinor !== requestedAmountMinor)
+      ) {
+        throw new PaymentConflictError('Payment idempotency key was already used for a different operation.');
+      }
+      return existing;
+    }
+
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', input.bookingId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
+
+    const booking = await transaction.hospitalityBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
+    });
+    if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+    if (booking.status !== 'CONFIRMED') {
+      throw new PaymentConflictError('Only confirmed bookings can receive an offline refund.');
+    }
+    if (booking.paymentStatus !== 'PAID' && booking.paymentStatus !== 'PARTIALLY_REFUNDED') {
+      throw new PaymentConflictError(`Booking payment state ${booking.paymentStatus.toLowerCase()} does not accept a refund.`);
+    }
+
+    const sourcePayment = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        kind: 'OFFLINE_PAYMENT',
+        status: 'SUCCEEDED',
+        providerCode: manualProvider.code,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    if (!sourcePayment) {
+      throw new PaymentConflictError('No successful manual payment is available to refund.');
+    }
+
+    const refunded = await transaction.paymentTransaction.aggregate({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        kind: 'REFUND',
+        status: 'SUCCEEDED',
+        providerCode: manualProvider.code,
+      },
+      _sum: { amountMinor: true },
+    });
+    const refundedMinor = refunded._sum.amountMinor ?? 0n;
+    const refundableMinor = sourcePayment.amountMinor - refundedMinor;
+    if (refundableMinor <= 0n) {
+      throw new PaymentConflictError('Manual payment has already been fully refunded.');
+    }
+
+    const amountMinor = requestedAmountMinor ?? refundableMinor;
+    if (amountMinor > refundableMinor) {
+      throw new PaymentConflictError('Refund amount exceeds the remaining refundable balance.');
+    }
+
+    const duplicateReference = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: manualProvider.code,
+        providerReference: refundReference,
+      },
+      select: { id: true },
+    });
+    if (duplicateReference) {
+      throw new PaymentConflictError('Manual refund reference has already been recorded in this organization.');
+    }
+
+    if (!manualProvider.recordOfflineRefund) {
+      throw new PaymentConflictError('Manual payment provider cannot record refunds.');
+    }
+    const providerResult = await manualProvider.recordOfflineRefund({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      money: { currency: booking.currency, amountMinor },
+      paymentReference: sourcePayment.providerReference,
+      refundReference,
+    });
+    if (
+      providerResult.status !== 'REFUNDED'
+      || providerResult.providerReference !== sourcePayment.providerReference
+      || providerResult.refundReference !== refundReference
+      || providerResult.money.currency !== booking.currency
+      || providerResult.money.amountMinor !== amountMinor
+    ) {
+      throw new PaymentConflictError('Manual payment provider returned a refund result that does not match the requested refund.');
+    }
+
+    const refund = await transaction.paymentTransaction.create({
+      data: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        idempotencyKey,
+        kind: 'REFUND',
+        status: 'SUCCEEDED',
+        providerCode: providerResult.providerCode,
+        providerReference: providerResult.refundReference,
+        currency: providerResult.money.currency,
+        amountMinor: providerResult.money.amountMinor,
+      },
+    });
+
+    const nextRefundedMinor = refundedMinor + amountMinor;
+    const nextPaymentStatus = nextRefundedMinor === sourcePayment.amountMinor ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+    await transaction.hospitalityBooking.update({
+      where: { id: booking.id },
+      data: { paymentStatus: nextPaymentStatus },
+    });
+
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'payment.offline-refund-recorded',
+        resourceType: 'payment-transaction',
+        resourceId: refund.id,
+        afterData: {
+          bookingId: booking.id,
+          providerCode: refund.providerCode,
+          kind: refund.kind,
+          status: refund.status,
+          currency: refund.currency,
+          amountMinor: refund.amountMinor.toString(),
+          bookingPaymentStatus: nextPaymentStatus,
+        },
+      },
+    });
+
+    return refund;
   }, { isolationLevel: 'Serializable' });
 }
 
