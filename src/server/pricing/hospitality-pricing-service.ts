@@ -4,6 +4,8 @@ import { formatAvailabilityDate, normalizeAvailabilityRequest, type Availability
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { type HospitalityAddonSelectionInput } from './hospitality-addon-domain.ts';
+import { quoteHospitalityAddons } from './hospitality-addon-service.ts';
 import { normalizeHospitalityBaseRateInput, type HospitalityBaseRateInput } from './hospitality-base-rate-domain.ts';
 import { quoteHospitalityCharges } from './hospitality-charge-service.ts';
 import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
@@ -237,32 +239,55 @@ export async function quoteHospitalityPrice(input: {
   organizationId: string;
   actorUserId: string;
   request: AvailabilityRequestInput;
+  addonSelections?: HospitalityAddonSelectionInput[];
 }) {
   const base = await quoteHospitalityBasePrice(input);
-  const adjustments = await quoteHospitalityCharges({
-    organizationId: input.organizationId,
-    actorUserId: input.actorUserId,
-    propertyId: base.propertyId,
-    roomTypeId: base.roomTypeId,
-    ratePlanId: base.ratePlanId,
-    arrivalDate: base.arrivalDate,
-    departureDate: base.departureDate,
-    quantity: base.quantity,
-    currency: base.currency,
-    nightly: base.nightly,
-  });
-  const totalMinor = addMoneyMinor([BigInt(base.accommodationSubtotal.amountMinor), BigInt(adjustments.totalChargesMinor)]);
+  const [adjustments, addonAdjustments] = await Promise.all([
+    quoteHospitalityCharges({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      propertyId: base.propertyId,
+      roomTypeId: base.roomTypeId,
+      ratePlanId: base.ratePlanId,
+      arrivalDate: base.arrivalDate,
+      departureDate: base.departureDate,
+      quantity: base.quantity,
+      currency: base.currency,
+      nightly: base.nightly,
+    }),
+    quoteHospitalityAddons({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      propertyId: base.propertyId,
+      roomTypeId: base.roomTypeId,
+      ratePlanId: base.ratePlanId,
+      arrivalDate: base.arrivalDate,
+      departureDate: base.departureDate,
+      stayNights: base.stayNights,
+      roomQuantity: base.quantity,
+      currency: base.currency,
+      selections: input.addonSelections ?? [],
+    }),
+  ]);
+  const totalMinor = addMoneyMinor([
+    BigInt(base.accommodationSubtotal.amountMinor),
+    BigInt(adjustments.totalChargesMinor),
+    BigInt(addonAdjustments.totalAddonsMinor),
+  ]);
   const fingerprintPayload = {
     currency: base.currency,
     quantity: base.quantity,
     nightly: base.nightly,
     charges: adjustments.charges.map((charge) => ({ id: charge.id, code: charge.code, kind: charge.kind, calculation: charge.calculation, amountMinor: charge.amountMinor })),
+    addons: addonAdjustments.addons.map((addon) => ({ id: addon.id, code: addon.code, pricingModel: addon.pricingModel, selectedQuantity: addon.selectedQuantity, amountMinor: addon.amountMinor })),
   };
   return {
     ...base,
     taxes: { amountMinor: adjustments.taxTotalMinor, currency: base.currency },
     fees: { amountMinor: adjustments.feeTotalMinor, currency: base.currency },
     charges: adjustments.charges,
+    addons: addonAdjustments.addons,
+    addonTotal: { amountMinor: addonAdjustments.totalAddonsMinor, currency: base.currency },
     total: { amountMinor: totalMinor.toString(), currency: base.currency },
     fingerprint: createHash('sha256').update(JSON.stringify(fingerprintPayload)).digest('hex'),
   };
@@ -284,8 +309,14 @@ export async function revalidateHospitalityPrice(input: {
   actorUserId: string;
   request: AvailabilityRequestInput;
   expectedFingerprint: string;
+  addonSelections?: HospitalityAddonSelectionInput[];
 }) {
   const expectedFingerprint = normalizePricingFingerprint(input.expectedFingerprint);
-  const latest = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
+  const latest = await quoteHospitalityPrice({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    request: input.request,
+    addonSelections: input.addonSelections,
+  });
   return { changed: latest.fingerprint !== expectedFingerprint, latest };
 }
