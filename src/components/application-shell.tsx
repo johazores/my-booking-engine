@@ -27,6 +27,7 @@ type ApplicationShellProps = {
 
 const navigation = [
   { href: '/dashboard', label: 'Dashboard', exact: true },
+  { href: '/bookings', label: 'Bookings', exact: false },
   { href: '/customers', label: 'Customers', exact: false },
   { href: '/inventory', label: 'Inventory', exact: false },
   { href: '/pricing', label: 'Pricing', exact: false },
