@@ -22,5 +22,7 @@ CREATE TABLE "hospitality_base_rates" (
 CREATE UNIQUE INDEX "hospitality_base_rates_id_property_org_key" ON "hospitality_base_rates"("id", "propertyId", "organizationId");
 CREATE INDEX "hospitality_base_rates_scope_dates_idx" ON "hospitality_base_rates"("organizationId", "propertyId", "roomTypeId", "ratePlanId", "status", "startDate", "endDate");
 
+ALTER TABLE "hospitality_base_rates" ADD CONSTRAINT "hospitality_base_rates_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "hospitality_base_rates" ADD CONSTRAINT "hospitality_base_rates_propertyId_organizationId_fkey" FOREIGN KEY ("propertyId", "organizationId") REFERENCES "hospitality_properties"("id", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "hospitality_base_rates" ADD CONSTRAINT "hospitality_base_rates_room_type_fkey" FOREIGN KEY ("roomTypeId", "propertyId", "organizationId") REFERENCES "hospitality_room_types"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "hospitality_base_rates" ADD CONSTRAINT "hospitality_base_rates_rate_plan_fkey" FOREIGN KEY ("ratePlanId", "propertyId", "organizationId") REFERENCES "hospitality_rate_plans"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
