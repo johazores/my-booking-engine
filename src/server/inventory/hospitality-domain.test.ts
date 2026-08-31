@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   assertInventoryArchiveConfirmation,
+  normalizeAmenityInput,
   normalizePropertyInput,
   normalizeRoomInput,
   normalizeRoomTypeInput,
@@ -32,13 +33,15 @@ test('normalizes hospitality inventory identifiers and property fields', () => {
   });
 });
 
-test('validates room type occupancy and room codes', () => {
+test('validates room type occupancy, room codes, and amenity fields', () => {
   const roomType = normalizeRoomTypeInput({ propertyId: ' property ', name: ' Deluxe King ', code: ' dlx ', maxOccupancy: '3', bedsDescription: ' 1 king bed ' });
   assert.equal(roomType.code, 'DLX');
   assert.equal(roomType.maxOccupancy, 3);
   assert.equal(normalizeRoomInput({ propertyId: 'p', roomTypeId: 'rt', code: ' 101 ', floor: ' 1 ' }).code, '101');
+  assert.deepEqual(normalizeAmenityInput({ name: '  Free   WiFi ', code: ' wifi ' }), { name: 'Free WiFi', code: 'WIFI' });
   assert.throws(() => normalizeRoomTypeInput({ propertyId: 'p', name: 'Bad', code: 'BAD', maxOccupancy: '0', bedsDescription: '' }), /between 1 and 50/);
   assert.throws(() => normalizeRoomInput({ propertyId: 'p', roomTypeId: 'rt', code: 'bad code', floor: '' }), /letters, numbers/);
+  assert.throws(() => normalizeAmenityInput({ name: '', code: 'WIFI' }), /Amenity name/);
 });
 
 test('requires explicit archive confirmation and bounds pagination', () => {

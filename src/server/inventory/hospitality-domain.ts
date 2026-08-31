@@ -27,6 +27,11 @@ export type RoomInput = {
   floor: string;
 };
 
+export type AmenityInput = {
+  name: string;
+  code: string;
+};
+
 export class HospitalityInventoryValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -110,6 +115,13 @@ export function normalizeRoomInput(input: RoomInput) {
     roomTypeId: input.roomTypeId.trim(),
     code: inventoryCode(input.code, 'Room code'),
     floor: optionalText(input.floor, 'Floor', 40),
+  };
+}
+
+export function normalizeAmenityInput(input: AmenityInput) {
+  return {
+    name: requiredText(input.name, 'Amenity name', 120),
+    code: inventoryCode(input.code, 'Amenity code'),
   };
 }
 
