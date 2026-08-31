@@ -46,7 +46,6 @@ type Booking = { id: string; status: string; paymentStatus: string; currency: st
 type Props = {
   propertyId: string;
   propertyName: string;
-  currency: string;
   scopes: Scope[];
   customers: Customer[];
   addons: Addon[];
@@ -67,6 +66,12 @@ function formatMinor(amountMinor: string, currency: string) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(major);
 }
 
+function previousDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 async function postJson(path: string, body: unknown) {
   const response = await fetch(path, {
     method: 'POST',
@@ -82,7 +87,7 @@ async function postJson(path: string, body: unknown) {
   return payload;
 }
 
-export function HospitalityBookingWorkspace({ propertyId, propertyName, currency, scopes, customers, addons, canManage }: Props) {
+export function HospitalityBookingWorkspace({ propertyId, propertyName, scopes, customers, addons, canManage }: Props) {
   const [scopeKey, setScopeKey] = useState(scopes[0] ? `${scopes[0].roomTypeId}:${scopes[0].ratePlanId}` : '');
   const [arrivalDate, setArrivalDate] = useState('');
   const [departureDate, setDepartureDate] = useState('');
@@ -93,11 +98,20 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? '');
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [holdIdempotencyKey, setHoldIdempotencyKey] = useState<string | null>(null);
+  const [bookingIdempotencyKey, setBookingIdempotencyKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const scope = useMemo(() => scopes.find((item) => `${item.roomTypeId}:${item.ratePlanId}` === scopeKey) ?? null, [scopeKey, scopes]);
-  const applicableAddons = useMemo(() => addons.filter((addon) => !addon.roomTypeId || (addon.roomTypeId === scope?.roomTypeId && addon.ratePlanId === scope?.ratePlanId)), [addons, scope]);
+  const applicableAddons = useMemo(() => {
+    const lastOccupiedDate = arrivalDate && departureDate && departureDate > arrivalDate ? previousDate(departureDate) : null;
+    return addons.filter((addon) => {
+      const scopeMatches = !addon.roomTypeId || (addon.roomTypeId === scope?.roomTypeId && addon.ratePlanId === scope?.ratePlanId);
+      const datesMatch = !lastOccupiedDate || (addon.startDate <= arrivalDate && addon.endDate >= lastOccupiedDate);
+      return scopeMatches && datesMatch;
+    });
+  }, [addons, scope, arrivalDate, departureDate]);
   const selections = useMemo(() => Object.entries(addonQuantities).filter(([, selectedQuantity]) => selectedQuantity > 0).map(([addonId, selectedQuantity]) => ({ addonId, quantity: selectedQuantity })), [addonQuantities]);
 
   function resetCommercialState() {
@@ -105,6 +119,8 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
     setHold(null);
     setQuote(null);
     setBooking(null);
+    setHoldIdempotencyKey(null);
+    setBookingIdempotencyKey(null);
     setMessage(null);
   }
 
@@ -119,6 +135,8 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
     setHold(null);
     setQuote(null);
     setBooking(null);
+    setHoldIdempotencyKey(null);
+    setBookingIdempotencyKey(null);
     try {
       const result = await postJson('/api/bookings/hospitality/availability', bookingRequest()) as Availability;
       setAvailability(result);
@@ -134,17 +152,17 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
   async function reserveAndQuote() {
     setBusy(true);
     setMessage(null);
+    const stableHoldKey = holdIdempotencyKey ?? `hold:${requestKey()}`;
+    if (!holdIdempotencyKey) setHoldIdempotencyKey(stableHoldKey);
     try {
       const request = bookingRequest();
-      const createdHold = await postJson('/api/bookings/hospitality/holds', { idempotencyKey: `hold:${requestKey()}`, request }) as Hold;
+      const createdHold = await postJson('/api/bookings/hospitality/holds', { idempotencyKey: stableHoldKey, request }) as Hold;
       const currentQuote = await postJson('/api/bookings/hospitality/quote', { request, addonSelections: selections }) as Quote;
       setHold(createdHold);
       setQuote(currentQuote);
       setMessage('Inventory is temporarily held. Review the current price before confirming.');
     } catch (error) {
-      setHold(null);
-      setQuote(null);
-      setMessage(error instanceof Error ? error.message : 'The temporary hold could not be created.');
+      setMessage(error instanceof Error ? error.message : 'The temporary hold could not be created. Retry will use the same request key.');
     } finally {
       setBusy(false);
     }
@@ -168,11 +186,13 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
     if (!hold || !quote || !customerId) return;
     setBusy(true);
     setMessage(null);
+    const stableBookingKey = bookingIdempotencyKey ?? `booking:${requestKey()}`;
+    if (!bookingIdempotencyKey) setBookingIdempotencyKey(stableBookingKey);
     try {
       const confirmed = await postJson('/api/bookings/hospitality/confirm', {
         holdId: hold.id,
         customerId,
-        idempotencyKey: `booking:${requestKey()}`,
+        idempotencyKey: stableBookingKey,
         expectedPricingFingerprint: quote.fingerprint,
         addonSelections: selections,
       }) as Booking;
@@ -187,6 +207,8 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
         setHold(null);
         setQuote(null);
         setAvailability(null);
+        setHoldIdempotencyKey(null);
+        setBookingIdempotencyKey(null);
         setMessage('The hold is no longer available. Check availability again to continue.');
       } else {
         setMessage(bookingError.message);
@@ -205,8 +227,8 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
       <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">1 · Search</p><h2 id="booking-search-title">Stay and offer</h2></div><span>{propertyName}</span></div>
       <div className="sf-booking-grid">
         <label className="sf-field">Room type + rate plan<select value={scopeKey} onChange={(event) => { setScopeKey(event.target.value); setAddonQuantities({}); resetCommercialState(); }}>{scopes.map((item) => <option key={`${item.roomTypeId}:${item.ratePlanId}`} value={`${item.roomTypeId}:${item.ratePlanId}`}>{item.roomType.name} · {item.ratePlan.name}</option>)}</select></label>
-        <label className="sf-field">Arrival<input type="date" value={arrivalDate} onChange={(event) => { setArrivalDate(event.target.value); resetCommercialState(); }} required /></label>
-        <label className="sf-field">Departure<input type="date" value={departureDate} onChange={(event) => { setDepartureDate(event.target.value); resetCommercialState(); }} required /></label>
+        <label className="sf-field">Arrival<input type="date" value={arrivalDate} onChange={(event) => { setArrivalDate(event.target.value); setAddonQuantities({}); resetCommercialState(); }} required /></label>
+        <label className="sf-field">Departure<input type="date" value={departureDate} onChange={(event) => { setDepartureDate(event.target.value); setAddonQuantities({}); resetCommercialState(); }} required /></label>
         <label className="sf-field">Rooms<input type="number" min="1" max="50" value={quantity} onChange={(event) => { setQuantity(Number(event.target.value)); resetCommercialState(); }} /></label>
       </div>
       <button className="sf-button sf-button--primary" type="button" disabled={busy || !arrivalDate || !departureDate} onClick={checkAvailability}>{busy ? 'Checking…' : 'Check availability'}</button>
@@ -215,7 +237,7 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
 
     {availability?.available ? <section className="sf-booking-card" aria-labelledby="booking-options-title">
       <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">2 · Options</p><h2 id="booking-options-title">Add-ons</h2></div><span>{applicableAddons.length} available configurations</span></div>
-      {applicableAddons.length === 0 ? <p className="sf-muted">No add-ons are configured for this room-rate scope.</p> : <div className="sf-booking-addon-list">{applicableAddons.map((addon) => <label className="sf-booking-addon" key={addon.id}><span><strong>{addon.name}</strong><small>{addon.code} · {addon.pricingModel.toLowerCase().replaceAll('_', ' ')} · {formatMinor(addon.amountMinor, addon.currency)}</small></span><input aria-label={`${addon.name} quantity`} type="number" min="0" max={addon.maxQuantity} value={addonQuantities[addon.id] ?? 0} onChange={(event) => { setAddonQuantities((current) => ({ ...current, [addon.id]: Number(event.target.value) })); setHold(null); setQuote(null); setBooking(null); }} /></label>)}</div>}
+      {applicableAddons.length === 0 ? <p className="sf-muted">No add-ons are configured for this room-rate scope and stay.</p> : <div className="sf-booking-addon-list">{applicableAddons.map((addon) => <label className="sf-booking-addon" key={addon.id}><span><strong>{addon.name}</strong><small>{addon.code} · {addon.pricingModel.toLowerCase().replaceAll('_', ' ')} · {formatMinor(addon.amountMinor, addon.currency)}</small></span><input aria-label={`${addon.name} quantity`} type="number" min="0" max={addon.maxQuantity} disabled={Boolean(hold) || busy} value={addonQuantities[addon.id] ?? 0} onChange={(event) => { setAddonQuantities((current) => ({ ...current, [addon.id]: Number(event.target.value) })); setQuote(null); setBooking(null); setBookingIdempotencyKey(null); }} /></label>)}</div>}
       {!hold ? <button className="sf-button sf-button--primary" type="button" disabled={busy || !canManage} onClick={reserveAndQuote}>{busy ? 'Reserving…' : 'Hold inventory and price'}</button> : null}
       {!canManage ? <p className="sf-muted">Your role can review booking data but cannot create bookings.</p> : null}
     </section> : null}
@@ -228,7 +250,7 @@ export function HospitalityBookingWorkspace({ propertyId, propertyName, currency
 
     {hold && quote ? <section className="sf-booking-card" aria-labelledby="booking-customer-title">
       <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">4 · Customer</p><h2 id="booking-customer-title">Book for</h2></div><span>{customers.length} active customers loaded</span></div>
-      {customers.length === 0 ? <div className="sf-empty-state"><h3>No active customers</h3><p>Create a customer record before confirming this booking.</p><a className="sf-button sf-button--secondary" href="/customers">Open customers</a></div> : <><label className="sf-field">Customer<select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.firstName} {customer.lastName}{customer.email ? ` · ${customer.email}` : ''}</option>)}</select></label><button className="sf-button sf-button--primary" type="button" disabled={busy || !customerId || Boolean(booking)} onClick={confirmBooking}>{busy ? 'Confirming…' : booking ? 'Confirmed' : 'Confirm booking'}</button></>}
+      {customers.length === 0 ? <div className="sf-empty-state"><h3>No active customers</h3><p>Create a customer record before confirming this booking.</p><a className="sf-button sf-button--secondary" href="/customers">Open customers</a></div> : <><label className="sf-field">Customer<select value={customerId} onChange={(event) => { setCustomerId(event.target.value); setBookingIdempotencyKey(null); }}>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.firstName} {customer.lastName}{customer.email ? ` · ${customer.email}` : ''}</option>)}</select></label><button className="sf-button sf-button--primary" type="button" disabled={busy || !customerId || Boolean(booking)} onClick={confirmBooking}>{busy ? 'Confirming…' : booking ? 'Confirmed' : 'Confirm booking'}</button></>}
     </section> : null}
 
     {message ? <p className={`sf-alert${booking ? ' sf-alert--success' : ''}`} role="status">{message}</p> : null}
