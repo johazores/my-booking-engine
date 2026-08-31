@@ -66,35 +66,36 @@ enum RoomOperationalStatus {
 }
 
 model Organization {
-  id                       String             @id @default(uuid()) @db.Uuid
-  slug                     String             @unique @db.VarChar(63)
-  name                     String             @db.VarChar(160)
-  kind                     OrganizationKind
-  status                   OrganizationStatus @default(ACTIVE)
-  timezone                 String             @default("UTC") @db.VarChar(80)
-  currency                 String             @default("USD") @db.VarChar(3)
-  logoUrl                  String?            @db.VarChar(2048)
-  faviconUrl               String?            @db.VarChar(2048)
-  primaryColor             String             @default("#2563eb") @db.Char(7)
-  secondaryColor           String             @default("#0d1626") @db.Char(7)
-  accentColor              String             @default("#20c997") @db.Char(7)
-  fontFamily               String             @default("INTER") @db.VarChar(20)
-  contactEmail             String?            @db.VarChar(320)
-  contactPhone             String?            @db.VarChar(40)
-  websiteUrl               String?            @db.VarChar(2048)
-  emailFromName            String?            @db.VarChar(160)
-  emailReplyTo             String?            @db.VarChar(320)
-  publicBookingTitle       String?            @db.VarChar(160)
-  publicBookingDescription String?            @db.VarChar(500)
-  customDomain             String?            @unique @db.VarChar(253)
-  createdAt                DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt                DateTime           @updatedAt @db.Timestamptz(6)
-  deletedAt                DateTime?          @db.Timestamptz(6)
-  memberships              OrganizationMembership[]
-  customers                Customer[]
-  hospitalityProperties    HospitalityProperty[]
-  hospitalityAmenities     HospitalityAmenity[]
-  auditEvents              AuditEvent[]
+  id                          String                          @id @default(uuid()) @db.Uuid
+  slug                        String                          @unique @db.VarChar(63)
+  name                        String                          @db.VarChar(160)
+  kind                        OrganizationKind
+  status                      OrganizationStatus              @default(ACTIVE)
+  timezone                    String                          @default("UTC") @db.VarChar(80)
+  currency                    String                          @default("USD") @db.VarChar(3)
+  logoUrl                     String?                         @db.VarChar(2048)
+  faviconUrl                  String?                         @db.VarChar(2048)
+  primaryColor                String                          @default("#2563eb") @db.Char(7)
+  secondaryColor              String                          @default("#0d1626") @db.Char(7)
+  accentColor                 String                          @default("#20c997") @db.Char(7)
+  fontFamily                  String                          @default("INTER") @db.VarChar(20)
+  contactEmail                String?                         @db.VarChar(320)
+  contactPhone                String?                         @db.VarChar(40)
+  websiteUrl                  String?                         @db.VarChar(2048)
+  emailFromName               String?                         @db.VarChar(160)
+  emailReplyTo                String?                         @db.VarChar(320)
+  publicBookingTitle          String?                         @db.VarChar(160)
+  publicBookingDescription    String?                         @db.VarChar(500)
+  customDomain                String?                         @unique @db.VarChar(253)
+  createdAt                   DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                   DateTime                        @updatedAt @db.Timestamptz(6)
+  deletedAt                   DateTime?                       @db.Timestamptz(6)
+  memberships                 OrganizationMembership[]
+  customers                   Customer[]
+  hospitalityProperties       HospitalityProperty[]
+  hospitalityAmenities        HospitalityAmenity[]
+  hospitalityAvailabilityWindows HospitalityAvailabilityWindow[]
+  auditEvents                 AuditEvent[]
 
   @@index([status, deletedAt])
   @@index([kind])
@@ -210,23 +211,24 @@ model HospitalityProperty {
 }
 
 model HospitalityRoomType {
-  id                  String                        @id @default(uuid()) @db.Uuid
-  organizationId      String                        @db.Uuid
-  propertyId          String                        @db.Uuid
-  name                String                        @db.VarChar(120)
-  code                String                        @db.VarChar(32)
-  status              InventoryLifecycleStatus      @default(ACTIVE)
+  id                  String                          @id @default(uuid()) @db.Uuid
+  organizationId      String                          @db.Uuid
+  propertyId          String                          @db.Uuid
+  name                String                          @db.VarChar(120)
+  code                String                          @db.VarChar(32)
+  status              InventoryLifecycleStatus        @default(ACTIVE)
   maxOccupancy        Int
-  bedsDescription     String?                       @db.VarChar(160)
-  createdAt           DateTime                      @default(now()) @db.Timestamptz(6)
-  updatedAt           DateTime                      @updatedAt @db.Timestamptz(6)
-  archivedAt          DateTime?                     @db.Timestamptz(6)
-  property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  bedsDescription     String?                         @db.VarChar(160)
+  createdAt           DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                        @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?                       @db.Timestamptz(6)
+  property            HospitalityProperty             @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rooms               HospitalityRoom[]
   amenityAssignments  HospitalityRoomTypeAmenity[]
   images              HospitalityRoomTypeImage[]
   ratePlanAssignments HospitalityRoomTypeRatePlan[]
   restrictions        HospitalityRestriction[]
+  availabilityWindows HospitalityAvailabilityWindow[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -396,6 +398,26 @@ model HospitalityRestriction {
   @@index([organizationId, propertyId, ratePlanId, status, startDate])
   @@index([organizationId, propertyId, roomTypeId, status, startDate])
   @@map("hospitality_restrictions")
+}
+
+model HospitalityAvailabilityWindow {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  propertyId     String                   @db.Uuid
+  roomTypeId     String                   @db.Uuid
+  startDate      DateTime                 @db.Date
+  endDate        DateTime                 @db.Date
+  capacityLimit  Int
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  roomType       HospitalityRoomType      @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+
+  @@unique([id, propertyId, organizationId])
+  @@index([organizationId, propertyId, roomTypeId, status, startDate])
+  @@map("hospitality_availability_windows")
 }
 
 model AuditEvent {
