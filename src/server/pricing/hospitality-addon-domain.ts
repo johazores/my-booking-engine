@@ -50,7 +50,8 @@ function pricingModel(value: string): HospitalityAddonPricingModel {
 }
 
 function addonQuantity(value: string | number) {
-  const parsed = typeof value === 'number' ? value : Number.parseInt(value.trim(), 10);
+  if (typeof value === 'string' && !/^\d+$/.test(value.trim())) throw new PricingValidationError(`Add-on maximum quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
+  const parsed = typeof value === 'number' ? value : Number(value.trim());
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_ADDON_QUANTITY) throw new PricingValidationError(`Add-on maximum quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
   return parsed;
 }
