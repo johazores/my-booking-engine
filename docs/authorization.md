@@ -12,15 +12,15 @@ Platform roles:
 Organization roles:
 
 - `ADMIN` — full organization-management and operational authority.
-- `MANAGER` — operational membership/customer management without authority to assign roles.
-- `STAFF` — operational customer management plus read access to organization membership information.
-- `CUSTOMER` — no internal organization-management or customer-directory capability.
+- `MANAGER` — operational management authority without permission to assign organization roles.
+- `STAFF` — customer-management plus read-only operational access to inventory, availability, pricing, bookings, and payments.
+- `CUSTOMER` — no internal organization-management, directory, booking-ledger, or payment-ledger capability.
 
 New organization creators receive an `ADMIN` organization membership in the same transaction as organization creation. The authorization migration promotes the earliest active membership in each pre-existing organization to `ADMIN` so existing tenants retain an administrator after the role column is introduced.
 
 ## Capabilities
 
-Server code authorizes capabilities rather than scattering role-name checks throughout routes and services. The current capability set is:
+Server code authorizes capabilities rather than scattering role-name checks throughout routes and services. The canonical capability set is:
 
 - `organization:manage`
 - `organization-settings:manage`
@@ -29,20 +29,31 @@ Server code authorizes capabilities rather than scattering role-name checks thro
 - `membership-role:manage`
 - `customer:read`
 - `customer:manage`
+- `inventory:read`
+- `inventory:manage`
+- `availability:read`
+- `availability:manage`
+- `pricing:read`
+- `pricing:manage`
+- `booking:read`
+- `booking:manage`
+- `payment:read`
+- `payment:manage`
 
 `src/server/authorization/authorization-domain.ts` is the canonical role-to-capability mapping. Protected services call `requireOrganizationPermission` after authenticated user and tenant context are established.
 
 Current role mapping:
 
-| Capability | ADMIN | MANAGER | STAFF | CUSTOMER |
+| Capability family | ADMIN | MANAGER | STAFF | CUSTOMER |
 | --- | --- | --- | --- | --- |
-| `organization:manage` | yes | no | no | no |
-| `organization-settings:manage` | yes | no | no | no |
-| `membership:read` | yes | yes | yes | no |
-| `membership:manage` | yes | yes | no | no |
-| `membership-role:manage` | yes | no | no | no |
-| `customer:read` | yes | yes | yes | no |
-| `customer:manage` | yes | yes | yes | no |
+| organization management/settings | manage | none | none | none |
+| membership | read/manage/roles | read/manage | read | none |
+| customers | read/manage | read/manage | read/manage | none |
+| inventory | read/manage | read/manage | read | none |
+| availability | read/manage | read/manage | read | none |
+| pricing | read/manage | read/manage | read | none |
+| bookings | read/manage | read/manage | read | none |
+| payments | read/manage | read/manage | read | none |
 
 Platform `ADMIN` authority is evaluated separately and is never represented by an organization role.
 
@@ -65,35 +76,31 @@ The account UI exposes only valid next states. The server independently validate
 
 Status mutations also use serializable transactions so concurrent administrator deactivations preserve the same last-active-admin invariant as role changes.
 
-## Customer authorization
+## Operational authorization
 
-Customer directory access uses capabilities rather than route-local role checks:
+Every implemented inventory, availability, pricing, booking, and payment service combines a server-derived active `organizationId` with the resource identifier before it reads or mutates tenant data. Permission checks are independent of tenant ownership checks; knowing another tenant's UUID never grants access.
+
+Read/manage capability pairs intentionally separate operational visibility from mutation authority. `STAFF` can inspect current inventory, availability, pricing, bookings, and payment history but cannot change those domains unless a more specific staff workflow explicitly gains its own capability later.
+
+Payment recording is intentionally more restrictive than customer editing. Only organization `ADMIN` and `MANAGER` roles receive `payment:manage`; `STAFF` receives `payment:read`. The manual/offline payment API derives tenant and actor from authenticated server context, requires same-origin writes, and never accepts an organization ID or authoritative amount from the browser.
+
+`CUSTOMER` organization users intentionally receive no internal directory, booking-ledger, or payment-ledger access. Future customer self-service must introduce ownership-specific read/write rules rather than weakening internal permissions.
+
+## Customer authorization
 
 - `customer:read` protects list, search, detail, and activity history.
 - `customer:manage` protects create, edit, and archive.
 
 Customer IDs are always combined with the active `organizationId` when data is loaded or mutated. A user who has customer-management permission in Tenant A cannot use a Tenant B customer UUID to cross the tenant boundary.
 
-`CUSTOMER` organization users intentionally receive no organization-wide customer-directory access. A future customer self-service portal must introduce a separate ownership/self-access rule rather than weakening this internal permission boundary.
-
 ## Audit history
 
-Permission-sensitive changes are stored in `audit_events` with organization, actor, action, resource type/id, timestamp, and safe JSON before/after data. Passwords, session tokens, provider credentials, payment-card data, and other secrets must never be written to audit data.
+Permission-sensitive changes are stored in `audit_events` with organization, actor, action, resource type/id, timestamp, and safe JSON before/after data. Passwords, session tokens, provider credentials, payment-card data, guest PII, and other secrets must never be written to audit data.
 
-Customer activity uses the same audit boundary. Customer updates record changed field names rather than duplicating customer notes/contact values into audit JSON.
+Customer updates record changed field names rather than duplicating customer notes/contact values into audit JSON. Booking confirmation records only guest counts, and manual payment audit events record normalized status/amount/provider code without the external manual payment reference.
 
 ## Authorization verification
 
-The disposable PostgreSQL verification suite includes authorization and operational integration coverage for:
-
-- organization-role resolution and platform-admin authority;
-- manager/staff least-privilege enforcement;
-- cross-tenant mutation denial;
-- role and membership-status mutations;
-- terminal archived memberships;
-- last-active-admin protection for both role and status changes;
-- customer create/read/update/archive authorization;
-- cross-tenant customer ID denial; and
-- audit-event persistence for successful permission-sensitive changes.
+The disposable PostgreSQL verification suite includes authorization and operational integration coverage for organization-role resolution, least privilege, cross-tenant denial, membership lifecycle/role changes, last-active-admin protection, customer operations, inventory/availability/pricing/booking workflows, and payment permission/tenant isolation. The authorization unit suite also locks the canonical role-to-capability mapping, including `payment:read` and `payment:manage`.
 
 These database checks must only be claimed as passed when `npm run test:database` is executed against the guarded disposable PostgreSQL target.
