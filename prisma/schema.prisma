@@ -200,6 +200,7 @@ model HospitalityProperty {
   organization       Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   roomTypes          HospitalityRoomType[]
   amenityAssignments HospitalityPropertyAmenity[]
+  images             HospitalityPropertyImage[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -222,6 +223,7 @@ model HospitalityRoomType {
   property           HospitalityProperty          @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rooms              HospitalityRoom[]
   amenityAssignments HospitalityRoomTypeAmenity[]
+  images             HospitalityRoomTypeImage[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -294,6 +296,41 @@ model HospitalityRoomTypeAmenity {
   @@index([organizationId, amenityId])
   @@index([propertyId, roomTypeId])
   @@map("hospitality_room_type_amenities")
+}
+
+model HospitalityPropertyImage {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  propertyId     String              @db.Uuid
+  url            String              @db.VarChar(2048)
+  altText        String              @db.VarChar(200)
+  sortOrder      Int                 @default(0)
+  isPrimary      Boolean             @default(false)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(6)
+  property       HospitalityProperty @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, propertyId, isPrimary, sortOrder])
+  @@map("hospitality_property_images")
+}
+
+model HospitalityRoomTypeImage {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  propertyId     String              @db.Uuid
+  roomTypeId     String              @db.Uuid
+  url            String              @db.VarChar(2048)
+  altText        String              @db.VarChar(200)
+  sortOrder      Int                 @default(0)
+  isPrimary      Boolean             @default(false)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(6)
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, propertyId, roomTypeId, isPrimary, sortOrder])
+  @@map("hospitality_room_type_images")
 }
 
 model AuditEvent {
