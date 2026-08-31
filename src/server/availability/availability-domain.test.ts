@@ -20,6 +20,7 @@ test('normalizes a bounded date-only availability request', () => {
   assert.equal(request.stayNights, 3);
   assert.equal(request.quantity, 2);
   assert.throws(() => normalizeAvailabilityRequest({ propertyId: 'p', roomTypeId: 'r', ratePlanId: 'x', arrivalDate: '2026-09-04', departureDate: '2026-09-04', quantity: 1 }), /after arrival/);
+  assert.throws(() => normalizeAvailabilityRequest({ propertyId: 'p', roomTypeId: 'r', ratePlanId: 'x', arrivalDate: '2026-09-04', departureDate: '2026-09-05', quantity: '2rooms' }), /quantity must be between/i);
   assert.throws(() => parseAvailabilityDate('2026-02-30', 'Arrival date'), /valid calendar/);
 });
 
