@@ -65,6 +65,12 @@ enum RoomOperationalStatus {
   ARCHIVED
 }
 
+enum AvailabilityHoldStatus {
+  ACTIVE
+  RELEASED
+  EXPIRED
+}
+
 model Organization {
   id                          String                          @id @default(uuid()) @db.Uuid
   slug                        String                          @unique @db.VarChar(63)
@@ -95,6 +101,7 @@ model Organization {
   hospitalityProperties       HospitalityProperty[]
   hospitalityAmenities        HospitalityAmenity[]
   hospitalityAvailabilityWindows HospitalityAvailabilityWindow[]
+  hospitalityAvailabilityHolds HospitalityAvailabilityHold[]
   auditEvents                 AuditEvent[]
 
   @@index([status, deletedAt])
@@ -229,6 +236,7 @@ model HospitalityRoomType {
   ratePlanAssignments HospitalityRoomTypeRatePlan[]
   restrictions        HospitalityRestriction[]
   availabilityWindows HospitalityAvailabilityWindow[]
+  availabilityHolds   HospitalityAvailabilityHold[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -352,6 +360,7 @@ model HospitalityRatePlan {
   property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
   roomTypeAssignments HospitalityRoomTypeRatePlan[]
   restrictions        HospitalityRestriction[]
+  availabilityHolds   HospitalityAvailabilityHold[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -418,6 +427,32 @@ model HospitalityAvailabilityWindow {
   @@unique([id, propertyId, organizationId])
   @@index([organizationId, propertyId, roomTypeId, status, startDate])
   @@map("hospitality_availability_windows")
+}
+
+model HospitalityAvailabilityHold {
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  propertyId     String                 @db.Uuid
+  roomTypeId     String                 @db.Uuid
+  ratePlanId     String                 @db.Uuid
+  idempotencyKey String                 @db.VarChar(120)
+  arrivalDate    DateTime               @db.Date
+  departureDate  DateTime               @db.Date
+  quantity       Int
+  status         AvailabilityHoldStatus @default(ACTIVE)
+  expiresAt      DateTime               @db.Timestamptz(6)
+  endedAt        DateTime?              @db.Timestamptz(6)
+  createdAt      DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(6)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  roomType       HospitalityRoomType    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+  ratePlan       HospitalityRatePlan    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, propertyId, roomTypeId, status, arrivalDate, departureDate])
+  @@index([organizationId, status, expiresAt])
+  @@map("hospitality_availability_holds")
 }
 
 model AuditEvent {
