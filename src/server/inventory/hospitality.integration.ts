@@ -8,12 +8,13 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Hospitality inventory integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('hospitality inventory enforces tenant scope, hierarchy, amenities, permissions, lifecycle, and audit', async () => {
-  const [{ db }, inventory, amenities, amenityAssignments] = await Promise.all([
+test('hospitality inventory enforces tenant scope, hierarchy, amenities, images, permissions, lifecycle, and audit', async () => {
+  const [{ db }, inventory, amenities, amenityAssignments, images] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-service.ts'),
     import('./hospitality-amenity-service.ts'),
     import('./hospitality-amenity-assignment-service.ts'),
+    import('./hospitality-image-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -47,12 +48,26 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, permiss
     await assert.rejects(amenityAssignments.assignHospitalityAmenityToProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, amenityId: foreignAmenity.id }), /not available in this organization/i);
     await assert.rejects(amenities.archiveHospitalityAmenity({ organizationId: organizationA.id, actorUserId: adminA.id, amenityId: wifi.id, confirmation: 'ARCHIVE' }), /remove amenity assignments/i);
 
+    const propertyImage = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/property-main.jpg', altText: 'Northstar Hotel exterior', sortOrder: '10', isPrimary: '' } });
+    assert.equal(propertyImage.isPrimary, true);
+    const propertyImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/property-pool.jpg', altText: 'Northstar Hotel pool', sortOrder: '20', isPrimary: '' } });
+    assert.equal(propertyImageTwo.isPrimary, false);
+    await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id });
+    const roomTypeImage = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe.jpg', altText: 'Deluxe King room', sortOrder: '0', isPrimary: '' } });
+    assert.equal(roomTypeImage.isPrimary, true);
+    await assert.rejects(images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/staff.jpg', altText: 'Denied image', sortOrder: '0', isPrimary: '' } }), /permission/i);
+    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id }), /not available/i);
+
     const tenantAInventory = await inventory.listHospitalityProperties({ organizationId: organizationA.id, actorUserId: staffA.id, page: 1, pageSize: 20 });
     assert.deepEqual(tenantAInventory.properties.map((property) => property.id), [propertyA.id]);
     const propertyAmenities = await amenities.listHospitalityPropertyAmenities({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id });
     assert.deepEqual(propertyAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
     const roomTypeAmenities = await amenities.listHospitalityRoomTypeAmenities({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id });
     assert.deepEqual(roomTypeAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
+    const propertyImages = await images.listHospitalityImages({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id });
+    assert.deepEqual(propertyImages.map((image) => image.id), [propertyImageTwo.id, propertyImage.id]);
+    const roomTypeImages = await images.listHospitalityImages({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id });
+    assert.deepEqual(roomTypeImages.map((image) => image.id), [roomTypeImage.id]);
 
     const assignmentEvents = await db.auditEvent.findMany({
       where: {
@@ -72,14 +87,20 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, permiss
     await inventory.archiveHospitalityRoom({ organizationId: organizationA.id, actorUserId: adminA.id, roomId: room.id, confirmation: 'ARCHIVE' });
     await inventory.archiveHospitalityRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, roomTypeId: roomType.id, confirmation: 'ARCHIVE' });
     await inventory.archiveHospitalityProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, confirmation: 'ARCHIVE' });
+    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImage.id }), /active inventory scope/i);
 
     const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, resourceType: { startsWith: 'hospitality-' } } });
     assert.ok(events.some((event) => event.action === 'inventory.property.created'));
     assert.ok(events.some((event) => event.action === 'inventory.amenity.assigned-room-type'));
     assert.ok(events.some((event) => event.action === 'inventory.amenity.archived'));
+    assert.ok(events.some((event) => event.action === 'inventory.image.created-property'));
+    assert.ok(events.some((event) => event.action === 'inventory.image.primary-property'));
+    assert.ok(events.some((event) => event.action === 'inventory.image.created-room-type'));
     assert.ok(events.some((event) => event.action === 'inventory.room.archived'));
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.hospitalityRoomTypeImage.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.hospitalityPropertyImage.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityRoomTypeAmenity.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityPropertyAmenity.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityRoom.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
