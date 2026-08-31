@@ -2,9 +2,23 @@
 
 ## Status
 
-SF now has a production-safe internal hospitality confirmation boundary. A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads the current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, and rejects a stale expected pricing fingerprint before any booking, allocation, hold-consumption, or audit write is committed.
+SF now has a production-safe internal hospitality confirmation boundary plus an authenticated application API surface for the implemented booking path. A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads the current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, and rejects a stale expected pricing fingerprint before any booking, allocation, hold-consumption, or audit write is committed.
 
-This is still an internal server boundary. Public search, selection, traveler/customer checkout, payment orchestration, confirmation UI, cancellation, and provider-backed reservations remain incomplete and must not be presented as finished.
+The authenticated API now exposes the implemented availability read, hold creation, complete pricing quote, booking confirmation, and paginated booking-history operations without trusting organization IDs or authoritative money from the browser. Public search, offer selection UI, traveler/customer checkout, payment orchestration, confirmation UI, cancellation, and provider-backed reservations remain incomplete and must not be presented as finished.
+
+## Authenticated booking API
+
+The current internal application boundary uses the active authenticated organization context rather than accepting a tenant identifier from request payloads:
+
+- `POST /api/bookings/hospitality/availability` reads normalized availability for an active property/room-type/rate-plan stay request.
+- `POST /api/bookings/hospitality/holds` creates the real idempotent temporary capacity hold.
+- `POST /api/bookings/hospitality/quote` returns the current complete exact-money quote and deterministic pricing fingerprint, including selected add-ons.
+- `POST /api/bookings/hospitality/confirm` performs price-atomic hold-to-booking confirmation.
+- `GET /api/bookings/hospitality` returns tenant-scoped persisted booking history with bounded pagination.
+
+Every state-changing booking-flow endpoint requires an authenticated session, an active organization selected through the server-side tenant context, same-origin request protection, and the service-layer permission required by the operation. Business rules, tenant scope, availability locking, pricing calculation, and persistence remain in server services rather than route handlers.
+
+The API returns explicit authentication, tenant, permission, validation, conflict, unavailable, and price-change failure states. BigInt money values are serialized as decimal strings so JSON transport never loses integer precision.
 
 ## Confirmation command
 
@@ -64,4 +78,4 @@ Full execution still requires the repository's Node 24 runtime and an explicitly
 
 ## Next dependency
 
-The next booking-flow work is the real application/API journey: search and availability presentation, offer/selection, current price display and revalidation UX, customer/traveler collection, confirmation command exposure with correct error states, and then payment orchestration. Provider-specific reservations remain behind future adapters rather than leaking into this internal booking domain.
+The next booking-flow work is the real product journey built on these APIs: search/offer presentation, selected add-on UX, customer/traveler collection, hold expiry and price-change recovery in the interface, confirmation success/error states, and then payment orchestration. Provider-specific reservations remain behind future adapters rather than leaking into this internal booking domain.
