@@ -23,11 +23,11 @@ CREATE TABLE "hospitality_availability_holds" (
     CONSTRAINT "hospitality_availability_holds_state_check" CHECK (("status" = 'ACTIVE' AND "endedAt" IS NULL) OR ("status" IN ('RELEASED', 'EXPIRED') AND "endedAt" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX "hospitality_availability_holds_organizationId_idempotencyKey_key" ON "hospitality_availability_holds"("organizationId", "idempotencyKey");
+CREATE UNIQUE INDEX "hospitality_holds_org_idempotency_key" ON "hospitality_availability_holds"("organizationId", "idempotencyKey");
 CREATE UNIQUE INDEX "hospitality_availability_holds_id_organizationId_key" ON "hospitality_availability_holds"("id", "organizationId");
-CREATE INDEX "hospitality_availability_holds_organizationId_propertyId_roomTypeId_status_arrivalDate_departureDate_idx" ON "hospitality_availability_holds"("organizationId", "propertyId", "roomTypeId", "status", "arrivalDate", "departureDate");
-CREATE INDEX "hospitality_availability_holds_organizationId_status_expiresAt_idx" ON "hospitality_availability_holds"("organizationId", "status", "expiresAt");
+CREATE INDEX "hospitality_holds_scope_dates_idx" ON "hospitality_availability_holds"("organizationId", "propertyId", "roomTypeId", "status", "arrivalDate", "departureDate");
+CREATE INDEX "hospitality_holds_status_expiry_idx" ON "hospitality_availability_holds"("organizationId", "status", "expiresAt");
 
 ALTER TABLE "hospitality_availability_holds" ADD CONSTRAINT "hospitality_availability_holds_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "hospitality_availability_holds" ADD CONSTRAINT "hospitality_availability_holds_roomTypeId_propertyId_organizationId_fkey" FOREIGN KEY ("roomTypeId", "propertyId", "organizationId") REFERENCES "hospitality_room_types"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "hospitality_availability_holds" ADD CONSTRAINT "hospitality_availability_holds_ratePlanId_propertyId_organizationId_fkey" FOREIGN KEY ("ratePlanId", "propertyId", "organizationId") REFERENCES "hospitality_rate_plans"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "hospitality_availability_holds" ADD CONSTRAINT "hospitality_holds_room_type_fkey" FOREIGN KEY ("roomTypeId", "propertyId", "organizationId") REFERENCES "hospitality_room_types"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "hospitality_availability_holds" ADD CONSTRAINT "hospitality_holds_rate_plan_fkey" FOREIGN KEY ("ratePlanId", "propertyId", "organizationId") REFERENCES "hospitality_rate_plans"("id", "propertyId", "organizationId") ON DELETE RESTRICT ON UPDATE CASCADE;
