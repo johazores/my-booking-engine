@@ -43,6 +43,12 @@ test('rejects unsupported, zero, and malformed add-on prices', () => {
   assert.throws(() => normalizeHospitalityAddonInput({ ...validAddon(), amount: '12.345' }, 'PHP'), /decimal/i);
 });
 
+test('only per-unit catalog entries can advertise selectable quantity above one', () => {
+  assert.throws(() => normalizeHospitalityAddonInput({ ...validAddon(), maxQuantity: '2' }, 'PHP'), /only per-unit/i);
+  const perUnit = normalizeHospitalityAddonInput({ ...validAddon(), pricingModel: 'PER_UNIT', maxQuantity: '4' }, 'PHP');
+  assert.equal(perUnit.maxQuantity, 4);
+});
+
 test('normalizes selected add-ons deterministically and rejects duplicate selection', () => {
   const first = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
