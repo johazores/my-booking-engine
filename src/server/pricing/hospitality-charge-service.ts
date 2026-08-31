@@ -3,7 +3,8 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { normalizeHospitalityChargeRuleInput, percentageAmountMinor, type HospitalityChargeRuleInput } from './hospitality-charge-domain.ts';
-import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
+import { addMoneyMinor, multiplyMoneyMinor, PricingValidationError } from './money.ts';
+import { normalizePricingPagination } from './pricing-boundary.ts';
 
 export class HospitalityChargeUnavailableError extends Error {
   constructor(message = 'Tax or fee configuration is not available for this pricing scope.') {
@@ -20,17 +21,20 @@ export class HospitalityChargeConflictError extends Error {
 }
 
 export async function listHospitalityChargeRules(input: { organizationId: string; actorUserId: string; propertyId: string; page: number; pageSize: number }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
+  const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
   const total = await db.hospitalityChargeRule.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(Math.max(1, input.page), totalPages);
+  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+  const page = Math.min(pagination.page, totalPages);
   const rules = await db.hospitalityChargeRule.findMany({
     where,
     orderBy: [{ status: 'asc' }, { kind: 'asc' }, { name: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: (page - 1) * pagination.pageSize,
+    take: pagination.pageSize,
     include: { roomType: { select: { name: true, code: true } }, ratePlan: { select: { name: true, code: true } } },
   });
   return { rules, total, page, totalPages };
@@ -110,6 +114,8 @@ export async function createHospitalityChargeRule(input: { organizationId: strin
 }
 
 export async function archiveHospitalityChargeRule(input: { organizationId: string; actorUserId: string; propertyId: string; chargeRuleId: string }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.chargeRuleId, 'chargeRuleId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:manage' });
@@ -138,6 +144,14 @@ export async function quoteHospitalityCharges(input: {
   currency: string;
   nightly: Array<{ date: string; amountMinor: string }>;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.propertyId, 'propertyId');
+  assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
+  assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
+  if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 50) {
+    throw new PricingValidationError('Room quantity must be between 1 and 50 for charge calculation.');
+  }
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
   const rules = await db.hospitalityChargeRule.findMany({
     where: {
