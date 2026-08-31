@@ -140,6 +140,7 @@ model Organization {
   hospitalityChargeRules          HospitalityChargeRule[]
   hospitalityAddons               HospitalityAddon[]
   hospitalityBookings             HospitalityBooking[]
+  paymentTransactions             PaymentTransaction[]
   auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
@@ -624,6 +625,8 @@ model HospitalityBooking {
   roomType                     HospitalityRoomType            @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_room_type_fkey")
   ratePlan                     HospitalityRatePlan            @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_rate_plan_fkey")
   allocation                   HospitalityBookingAllocation?
+  guests                       HospitalityBookingGuest[]
+  paymentTransactions          PaymentTransaction[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, idempotencyKey], map: "hospitality_bookings_org_idempotency_key")

@@ -24,6 +24,8 @@ model PaymentTransaction {
   currency          String                   @db.Char(3)
   amountMinor       BigInt                   @db.BigInt
   createdAt         DateTime                 @default(now()) @db.Timestamptz(6)
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, map: "payment_transactions_organization_fkey")
+  booking           HospitalityBooking       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "payment_transactions_booking_fkey")
 
   @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
   @@unique([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_key")
