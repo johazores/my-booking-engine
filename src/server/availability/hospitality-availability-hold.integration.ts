@@ -6,10 +6,13 @@ const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Availability hold integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
 test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize last-unit allocation', async () => {
-  const [{ db }, holds, availability] = await Promise.all([
+  const [{ db }, holds, availability, windows, ratePlans, inventory] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-availability-hold-service.ts'),
     import('./hospitality-availability-service.ts'),
+    import('./hospitality-availability-window-service.ts'),
+    import('../inventory/hospitality-rate-plan-service.ts'),
+    import('../inventory/hospitality-service.ts'),
   ]);
   const runId = crypto.randomUUID();
   const adminA = await db.user.create({ data: { email: `hold-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -26,7 +29,7 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
   try {
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Hold Hotel', code: 'HOLD', timezone: 'UTC', countryCode: 'US' } });
     const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Only Room', code: 'ONLY', maxOccupancy: 2 } });
-    await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
+    const room = await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
     await db.hospitalityRoomTypeRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id } });
     const now = new Date('2026-09-01T00:00:00.000Z');
@@ -43,8 +46,9 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
     ]);
     assert.equal(attempts.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(attempts.filter((result) => result.status === 'rejected').length, 1);
-    const created = attempts.find((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof holds.createHospitalityAvailabilityHold>>> => result.status === 'fulfilled')?.value;
-    assert.ok(created);
+    const fulfilled = attempts.find((result) => result.status === 'fulfilled');
+    assert.ok(fulfilled && fulfilled.status === 'fulfilled');
+    const created = fulfilled.value;
 
     const retry = await holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, now, hold: { idempotencyKey: created.idempotencyKey, request } });
     assert.equal(retry.id, created.id);
@@ -57,6 +61,19 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
     assert.equal(heldAvailability.capacity.sellableUnits, 0);
     assert.equal(heldAvailability.capacity.activeHoldCount, 1);
     assert.equal(heldAvailability.available, false);
+
+    await assert.rejects(
+      windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, now, window: { propertyId: property.id, roomTypeId: roomType.id, startDate: '2026-09-10', endDate: '2026-09-11', capacityLimit: 0 } }),
+      /protected by active holds/i,
+    );
+    await assert.rejects(
+      ratePlans.removeHospitalityRatePlanFromRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id }),
+      /active availability holds/i,
+    );
+    await assert.rejects(
+      inventory.archiveHospitalityRoom({ organizationId: organizationA.id, actorUserId: adminA.id, roomId: room.id, confirmation: 'ARCHIVE' }),
+      /active availability holds/i,
+    );
 
     await assert.rejects(holds.releaseHospitalityAvailabilityHold({ organizationId: organizationB.id, actorUserId: adminB.id, holdId: created.id, now }), /not available/i);
     await holds.releaseHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, holdId: created.id, now });
@@ -79,6 +96,7 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityAvailabilityWindow.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoom.deleteMany({ where: { organizationId: organizationA.id } });
