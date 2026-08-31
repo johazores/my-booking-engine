@@ -1,3 +1,4 @@
+import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
 import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -210,9 +211,10 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
 
     const current = await transaction.hospitalityRoom.findFirst({
       where: { id: input.resourceId, organizationId: input.organizationId, status: { not: 'ARCHIVED' } },
-      select: { id: true, roomTypeId: true, status: true },
+      select: { id: true, propertyId: true, roomTypeId: true, status: true },
     });
     if (!current) throw new HospitalityInventoryUnavailableError();
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityAvailabilityAllocationLockKey({ organizationId: input.organizationId, propertyId: current.propertyId, roomTypeId: current.roomTypeId })}, 0))`;
     const activeHolds = await transaction.hospitalityAvailabilityHold.count({
       where: { organizationId: input.organizationId, roomTypeId: current.roomTypeId, status: 'ACTIVE', expiresAt: { gt: archivedAt } },
     });
