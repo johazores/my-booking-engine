@@ -32,7 +32,7 @@ Supported calculations are intentionally explicit:
 
 Fixed rules store integer minor units and the active organization currency. Percentage rules do not persist a currency amount. Property-wide and exact-scope rules may stack when they have different codes, but an overlapping property-wide rule and scoped rule cannot reuse the same active code because that would double-apply one commercial charge ambiguously.
 
-Charge creation requires `pricing:manage`, validates active tenant/property scope, validates the room-type/rate-plan assignment for scoped rules, serializes same-code writes with a PostgreSQL advisory lock, and records safe audit metadata. Rules are archived rather than edited in place.
+Charge creation requires `pricing:manage`, validates active tenant/property scope, validates the room-type/rate-plan assignment for scoped rules, serializes every potentially competing same-code write at the tenant/property/code level with a PostgreSQL advisory lock, and records safe audit metadata. Rules are archived rather than edited in place.
 
 Active scoped charges prevent removing their room-type/rate-plan assignment or archiving the referenced rate plan. Active property charges prevent property archival. Active fixed charges also prevent changing organization currency until the fixed rules are archived. Percentage rules remain valid across a later currency change because they store no monetary amount.
 
@@ -51,13 +51,13 @@ Active scoped charges prevent removing their room-type/rate-plan assignment or a
 - currency
 - a deterministic SHA-256 pricing fingerprint
 
-The fingerprint includes effective nightly values and applied commercial adjustments. It contains no secret values and is not treated as authorization.
+The complete fingerprint includes effective nightly values and applied commercial adjustments. It contains no secret values and is not treated as authorization.
 
 ## Revalidation and price changes
 
-`revalidateHospitalityBasePrice` now recalculates the complete latest quote, including taxes and fees, and compares its fingerprint with the previously presented value. A base-rate change, tax/fee change, or charge archival therefore produces `changed: true` and returns the latest total. Browser-submitted totals are never accepted as authoritative.
+`revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes and fees, and compares its complete fingerprint with the previously presented value. A base-rate change, tax/fee change, or charge archival therefore produces `changed: true` for complete-price revalidation and returns the latest total. Browser-submitted totals are never accepted as authoritative.
 
-The future booking-creation transaction must revalidate pricing again before permanent inventory confirmation and persist an immutable booking price snapshot. A displayed quote or browser redirect is never sufficient proof of the commercial amount to persist.
+The future booking-creation transaction must use complete-price revalidation before permanent inventory confirmation and persist an immutable booking price snapshot. A displayed quote or browser redirect is never sufficient proof of the commercial amount to persist.
 
 ## Permissions and tenancy
 
@@ -69,13 +69,13 @@ All reads/writes validate organization membership and permission server-side. Re
 
 ## UI
 
-`/pricing` is the real authenticated pricing workspace. A property pricing screen manages base-rate windows and links directly to `/pricing/[property-id]/charges`, where users can review paginated tax/fee history, create property-wide or sellable-scope rules, and archive active rules. Archived properties and users without manage permission receive read-only states.
+`/pricing` is the real authenticated pricing workspace. A property pricing screen manages base-rate windows and links directly to `/pricing/[property-id]/charges`, where users can review paginated tax/fee history, browse paginated sellable scopes, create property-wide or scoped rules, and archive active rules. Archived properties and users without manage permission receive read-only states.
 
 The interface reuses the existing SF application shell, responsive inventory tables/cards, focus behavior, status messaging, validation states, and design tokens rather than introducing a second design system.
 
 ## Validation coverage
 
-The standard unit command includes money, base-rate, and charge-rule domain tests. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
+The standard unit command includes money, base-rate, and charge-rule domain tests. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 

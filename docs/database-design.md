@@ -137,9 +137,9 @@ Base rates are archived rather than edited in place. Quotes serialize bigint amo
 
 Rules distinguish `TAX` from `FEE` and use one explicit calculation type: percentage basis points, fixed per booking, or fixed per room-night. Percentage rules require a non-null value from 1–10,000 basis points and prohibit stored money. Fixed rules require a positive bounded `BIGINT` minor-unit amount and canonical currency while prohibiting percentage values. PostgreSQL checks these mutually exclusive value shapes explicitly, including non-null requirements, because SQL `CHECK` expressions otherwise permit `NULL` results.
 
-Date windows are inclusive. Scope fields must either both be null or both be populated. Codes are canonical and server writes serialize same-code charge configuration by tenant/property/scope before overlap validation. Property-wide and scoped rules with different codes may stack, while overlapping applicable rules cannot reuse one code because that would make the same commercial charge apply twice ambiguously.
+Date windows are inclusive. Scope fields must either both be null or both be populated. Codes are canonical and server writes serialize every potentially competing same-code definition by tenant/property/code before overlap validation. Property-wide and scoped rules with different codes may stack, while overlapping applicable rules cannot reuse one code because that would make the same commercial charge apply twice ambiguously.
 
-Charge rules are archived rather than edited in place. Active scoped charges protect their rate-plan assignment/rate plan; active property charges protect property archival; active fixed charges protect organization currency changes. Quotes calculate percentage charges with exact integer half-up rounding and include charge components in the pricing fingerprint.
+Charge rules are archived rather than edited in place. Active scoped charges protect their rate-plan assignment/rate plan; active property charges protect property archival; active fixed charges protect organization currency changes. Quotes calculate percentage charges with exact integer half-up rounding and include charge components in the complete pricing fingerprint.
 
 ### AuditEvent
 
@@ -241,6 +241,6 @@ Booking state and payment state must remain separate when workflows can diverge.
 
 Availability is not implemented as an unsafe read-then-decrement counter. Temporary hold creation serializes allocation for a tenant/property/room type with a PostgreSQL transaction-scoped advisory lock, then rechecks restrictions and per-night capacity inside a serializable transaction before persistence.
 
-Base-rate configuration similarly serializes writes per tenant/property/room-type/rate-plan scope before checking active date overlap. Tax/fee configuration serializes writes by tenant/property/scope/code before checking overlap, preventing concurrent same-charge requests from producing ambiguous duplicate commercial rules.
+Base-rate configuration similarly serializes writes per tenant/property/room-type/rate-plan scope before checking active date overlap. Tax/fee configuration serializes every same-code write per tenant/property/code before checking overlap, preventing concurrent property-wide and scoped definitions from producing ambiguous duplicate commercial rules.
 
 Permanent booking allocation and atomic confirmation remain future work. They must use the availability allocation boundary and revalidate the latest complete pricing contract so hold conversion/direct confirmation cannot oversell the last unit or persist a stale browser price.

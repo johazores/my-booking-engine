@@ -266,6 +266,16 @@ export async function revalidateHospitalityBasePrice(input: {
   request: AvailabilityRequestInput;
   expectedFingerprint: string;
 }) {
+  const latest = await quoteHospitalityBasePrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
+  return { changed: latest.fingerprint !== input.expectedFingerprint.trim().toLowerCase(), latest };
+}
+
+export async function revalidateHospitalityPrice(input: {
+  organizationId: string;
+  actorUserId: string;
+  request: AvailabilityRequestInput;
+  expectedFingerprint: string;
+}) {
   const latest = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
   return { changed: latest.fingerprint !== input.expectedFingerprint.trim().toLowerCase(), latest };
 }

@@ -112,11 +112,11 @@ Temporary holds are not permanent bookings. A future booking confirmation transa
 
 Pricing uses exact integer minor units and explicit currency rather than binary floating-point amounts. `pricing:read` protects quotes/configuration reads; `pricing:manage` protects base-rate and tax/fee writes. Managers/admins can manage pricing, staff are read-only, and customer-role members have no internal pricing access.
 
-Base rates and charge rules are immutable-in-practice commercial history: changes are represented by archiving old records and creating new date windows. Concurrent base-rate writes are serialized by sellable pricing scope. Charge-rule writes are serialized by tenant/property/scope/code and reject same-code overlap where property-wide and scoped rules could otherwise double-apply one commercial charge.
+Base rates and charge rules are immutable-in-practice commercial history: changes are represented by archiving old records and creating new date windows. Concurrent base-rate creation for the same room-type/rate-plan scope is serialized before overlap validation. Charge-rule writes are serialized by tenant/property/code so a property-wide rule and scoped rule with the same commercial code cannot race past the overlap check.
 
-The normalized complete quote composes accommodation, percentage taxes/fees, fixed-per-booking charges, and fixed-per-room-night charges using exact arithmetic. Price revalidation recalculates current persisted pricing and compares a deterministic fingerprint that includes applied adjustments. Browser totals are never authoritative.
+The normalized complete quote composes accommodation, percentage taxes/fees, fixed-per-booking charges, and fixed-per-room-night charges using exact arithmetic. Base-price and complete-price revalidation remain separate contracts; complete-price revalidation compares a deterministic fingerprint that includes applied adjustments. Browser totals are never authoritative.
 
-Booking creation must revalidate pricing inside its own commercial transaction and persist a price snapshot before any final confirmation is considered complete.
+Booking creation must revalidate complete pricing inside its own commercial transaction and persist a price snapshot before any final confirmation is considered complete.
 
 ## Scaling restraint
 

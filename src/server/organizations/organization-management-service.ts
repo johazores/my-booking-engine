@@ -54,7 +54,11 @@ export async function updateOrganizationSettings(input: {
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'organization-settings:manage' });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'organization-settings:manage',
+  });
 
   const next = {
     name: createOrganizationName(input.name),
@@ -72,19 +76,37 @@ export async function updateOrganizationSettings(input: {
       });
       if (!current) throw new OrganizationUnavailableError();
 
-      const unchanged = current.name === next.name && current.slug === next.slug && current.kind === next.kind && current.timezone === next.timezone && current.currency === next.currency;
+      const unchanged =
+        current.name === next.name &&
+        current.slug === next.slug &&
+        current.kind === next.kind &&
+        current.timezone === next.timezone &&
+        current.currency === next.currency;
+
       if (unchanged) return current;
 
       if (current.currency !== next.currency) {
         const [activeBaseRates, activeFixedCharges] = await Promise.all([
-          transaction.hospitalityBaseRate.count({ where: { organizationId: current.id, status: 'ACTIVE' } }),
-          transaction.hospitalityChargeRule.count({ where: { organizationId: current.id, status: 'ACTIVE', amountMinor: { not: null } } }),
+          transaction.hospitalityBaseRate.count({
+            where: { organizationId: current.id, status: 'ACTIVE' },
+          }),
+          transaction.hospitalityChargeRule.count({
+            where: { organizationId: current.id, status: 'ACTIVE', amountMinor: { not: null } },
+          }),
         ]);
-        if (activeBaseRates > 0) throw new OrganizationSettingsDependencyError('Archive active base rates before changing the organization currency.');
-        if (activeFixedCharges > 0) throw new OrganizationSettingsDependencyError('Archive active fixed taxes and fees before changing the organization currency.');
+        if (activeBaseRates > 0) {
+          throw new OrganizationSettingsDependencyError('Archive active base rates before changing the organization currency.');
+        }
+        if (activeFixedCharges > 0) {
+          throw new OrganizationSettingsDependencyError('Archive active fixed taxes and fees before changing the organization currency.');
+        }
       }
 
-      const updated = await transaction.organization.update({ where: { id: current.id }, data: next });
+      const updated = await transaction.organization.update({
+        where: { id: current.id },
+        data: next,
+      });
+
       await transaction.auditEvent.create({
         data: {
           organizationId: current.id,
@@ -92,10 +114,17 @@ export async function updateOrganizationSettings(input: {
           action: 'organization.settings.updated',
           resourceType: 'organization',
           resourceId: current.id,
-          beforeData: { name: current.name, slug: current.slug, kind: current.kind, timezone: current.timezone, currency: current.currency },
+          beforeData: {
+            name: current.name,
+            slug: current.slug,
+            kind: current.kind,
+            timezone: current.timezone,
+            currency: current.currency,
+          },
           afterData: next,
         },
       });
+
       return updated;
     }, { isolationLevel: 'Serializable' });
   } catch (error) {
@@ -104,10 +133,18 @@ export async function updateOrganizationSettings(input: {
   }
 }
 
-export async function archiveOrganization(input: { organizationId: string; actorUserId: string; confirmation: string }) {
+export async function archiveOrganization(input: {
+  organizationId: string;
+  actorUserId: string;
+  confirmation: string;
+}) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'organization:manage' });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'organization:manage',
+  });
 
   return db.$transaction(async (transaction) => {
     const current = await transaction.organization.findFirst({
@@ -115,17 +152,32 @@ export async function archiveOrganization(input: { organizationId: string; actor
       select: { id: true, slug: true, name: true, status: true },
     });
     if (!current) throw new OrganizationUnavailableError();
+
     try {
       assertOrganizationArchiveConfirmation(input.confirmation, current.slug);
     } catch {
       throw new OrganizationArchiveConfirmationError();
     }
+
     assertOrganizationStatusTransition(current.status, 'ARCHIVED');
     const archivedAt = new Date();
-    const updated = await transaction.organization.update({ where: { id: current.id }, data: { status: 'ARCHIVED', deletedAt: archivedAt } });
-    await transaction.auditEvent.create({
-      data: { organizationId: current.id, actorUserId: input.actorUserId, action: 'organization.archived', resourceType: 'organization', resourceId: current.id, beforeData: { status: current.status, deletedAt: null }, afterData: { status: 'ARCHIVED', deletedAt: archivedAt.toISOString() } },
+    const updated = await transaction.organization.update({
+      where: { id: current.id },
+      data: { status: 'ARCHIVED', deletedAt: archivedAt },
     });
+
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: current.id,
+        actorUserId: input.actorUserId,
+        action: 'organization.archived',
+        resourceType: 'organization',
+        resourceId: current.id,
+        beforeData: { status: current.status, deletedAt: null },
+        afterData: { status: 'ARCHIVED', deletedAt: archivedAt.toISOString() },
+      },
+    });
+
     return updated;
   }, { isolationLevel: 'Serializable' });
 }
