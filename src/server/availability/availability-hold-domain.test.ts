@@ -17,6 +17,7 @@ test('normalizes bounded hold duration and idempotency key', () => {
   assert.equal(normalized.expiresInMinutes, 10);
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'short', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /Idempotency key/);
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', expiresInMinutes: 31, request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /between 1 and 30/);
+  assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', expiresInMinutes: '10minutes', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /between 1 and 30/);
 });
 
 test('calculates remaining capacity per occupied night instead of overcounting non-overlapping holds', () => {
@@ -32,6 +33,23 @@ test('calculates remaining capacity per occupied night instead of overcounting n
   });
   assert.equal(result.sellableUnits, 0);
   assert.equal(result.peakHeldUnits, 1);
+  assert.equal(result.peakAllocatedUnits, 0);
+  assert.equal(result.peakProtectedUnits, 1);
+});
+
+test('permanent booking allocations reduce capacity alongside temporary holds', () => {
+  const result = calculateAvailabilityHoldCapacity({
+    physicalCapacity: 3,
+    arrivalDate: new Date('2026-09-10T00:00:00.000Z'),
+    departureDate: new Date('2026-09-12T00:00:00.000Z'),
+    windows: [],
+    holds: [{ arrivalDate: new Date('2026-09-10T00:00:00.000Z'), departureDate: new Date('2026-09-12T00:00:00.000Z'), quantity: 1 }],
+    allocations: [{ arrivalDate: new Date('2026-09-10T00:00:00.000Z'), departureDate: new Date('2026-09-11T00:00:00.000Z'), quantity: 1 }],
+  });
+  assert.equal(result.sellableUnits, 1);
+  assert.equal(result.peakHeldUnits, 1);
+  assert.equal(result.peakAllocatedUnits, 1);
+  assert.equal(result.peakProtectedUnits, 2);
 });
 
 test('detects idempotency payload mismatch', () => {

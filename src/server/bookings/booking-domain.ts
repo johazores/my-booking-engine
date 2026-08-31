@@ -1,5 +1,8 @@
+import { normalizeHospitalityAddonSelections, type HospitalityAddonSelectionInput } from '../pricing/hospitality-addon-domain.ts';
+
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const PRICING_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const bookingStates = ['PENDING_CONFIRMATION', 'CONFIRMED', 'CANCELLED'] as const;
 export type BookingState = (typeof bookingStates)[number];
@@ -12,6 +15,7 @@ export type HospitalityBookingConfirmationInput = {
   customerId: string;
   idempotencyKey: string;
   expectedPricingFingerprint: string;
+  addonSelections?: HospitalityAddonSelectionInput[];
 };
 
 export type HospitalityPriceSnapshotInput = {
@@ -48,6 +52,12 @@ function requireNonEmpty(value: unknown, label: string) {
   return value.trim();
 }
 
+function normalizeUuid(value: unknown, label: string) {
+  const normalized = requireNonEmpty(value, label);
+  if (!UUID_PATTERN.test(normalized)) throw new BookingDomainValidationError(`${label} must be a UUID.`);
+  return normalized.toLowerCase();
+}
+
 function normalizeMoneyMinor(value: unknown, label: string) {
   const normalized = requireNonEmpty(value, label);
   if (!/^\d+$/.test(normalized)) {
@@ -74,10 +84,11 @@ export function normalizeBookingPricingFingerprint(value: unknown) {
 
 export function normalizeHospitalityBookingConfirmationInput(input: HospitalityBookingConfirmationInput) {
   return {
-    holdId: requireNonEmpty(input.holdId, 'Hold ID'),
-    customerId: requireNonEmpty(input.customerId, 'Customer ID'),
+    holdId: normalizeUuid(input.holdId, 'Hold ID'),
+    customerId: normalizeUuid(input.customerId, 'Customer ID'),
     idempotencyKey: normalizeBookingIdempotencyKey(input.idempotencyKey),
     expectedPricingFingerprint: normalizeBookingPricingFingerprint(input.expectedPricingFingerprint),
+    addonSelections: normalizeHospitalityAddonSelections(input.addonSelections ?? []),
   };
 }
 
@@ -109,6 +120,16 @@ export function createHospitalityPriceSnapshot(input: HospitalityPriceSnapshotIn
   return Object.freeze(snapshot);
 }
 
+export function assertBookingPriceSnapshotMatchesConfirmation(
+  confirmation: HospitalityBookingConfirmationInput,
+  snapshot: HospitalityPriceSnapshot,
+) {
+  const normalized = normalizeHospitalityBookingConfirmationInput(confirmation);
+  if (normalized.expectedPricingFingerprint !== snapshot.pricingFingerprint) {
+    throw new BookingDomainValidationError('Booking price snapshot does not match the expected pricing fingerprint.');
+  }
+}
+
 const bookingTransitions: Readonly<Record<BookingState, readonly BookingState[]>> = {
   PENDING_CONFIRMATION: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['CANCELLED'],
@@ -135,6 +156,7 @@ export function bookingConfirmationPayloadMatches(
     left.holdId === right.holdId &&
     left.customerId === right.customerId &&
     left.idempotencyKey === right.idempotencyKey &&
-    left.expectedPricingFingerprint === right.expectedPricingFingerprint
+    left.expectedPricingFingerprint === right.expectedPricingFingerprint &&
+    JSON.stringify(left.addonSelections) === JSON.stringify(right.addonSelections)
   );
 }

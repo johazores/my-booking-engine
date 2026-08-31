@@ -14,16 +14,16 @@ export class AvailabilityWindowConflictError extends Error {
 
 const DAY_MS = 86_400_000;
 
-function peakHeldUnitsForWindow(input: {
+function peakProtectedUnitsForWindow(input: {
   startDate: Date;
   endDate: Date;
-  holds: readonly { arrivalDate: Date; departureDate: Date; quantity: number }[];
+  records: readonly { arrivalDate: Date; departureDate: Date; quantity: number }[];
 }) {
   let peak = 0;
   for (let time = input.startDate.getTime(); time <= input.endDate.getTime(); time += DAY_MS) {
     const night = new Date(time);
-    const held = input.holds.reduce((total, hold) => total + (hold.arrivalDate <= night && hold.departureDate > night ? hold.quantity : 0), 0);
-    peak = Math.max(peak, held);
+    const protectedUnits = input.records.reduce((total, record) => total + (record.arrivalDate <= night && record.departureDate > night ? record.quantity : 0), 0);
+    peak = Math.max(peak, protectedUnits);
   }
   return peak;
 }
@@ -56,7 +56,7 @@ export async function createHospitalityAvailabilityWindow(input: { organizationI
       select: { id: true },
     });
     if (!roomType) throw new AvailabilityUnavailableError('Room type is not available in this organization.');
-    const [overlap, activeHolds] = await Promise.all([
+    const [overlap, activeHolds, allocations] = await Promise.all([
       transaction.hospitalityAvailabilityWindow.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -80,11 +80,22 @@ export async function createHospitalityAvailabilityWindow(input: { organizationI
         },
         select: { arrivalDate: true, departureDate: true, quantity: true },
       }),
+      transaction.hospitalityBookingAllocation.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: window.propertyId,
+          roomTypeId: window.roomTypeId,
+          arrivalDate: { lte: window.endDate },
+          departureDate: { gt: window.startDate },
+          booking: { is: { status: { not: 'CANCELLED' } } },
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
     ]);
     if (overlap) throw new AvailabilityWindowConflictError();
-    const heldUnits = peakHeldUnitsForWindow({ startDate: window.startDate, endDate: window.endDate, holds: activeHolds });
-    if (window.capacityLimit < heldUnits) {
-      throw new AvailabilityWindowConflictError('Capacity limit cannot be lower than units protected by active holds in this date range.');
+    const protectedUnits = peakProtectedUnitsForWindow({ startDate: window.startDate, endDate: window.endDate, records: [...activeHolds, ...allocations] });
+    if (window.capacityLimit < protectedUnits) {
+      throw new AvailabilityWindowConflictError('Capacity limit cannot be lower than units protected by active holds or confirmed bookings in this date range.');
     }
     const created = await transaction.hospitalityAvailabilityWindow.create({ data: { organizationId: input.organizationId, ...window } });
     await transaction.auditEvent.create({

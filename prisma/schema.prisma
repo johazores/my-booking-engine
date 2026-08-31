@@ -69,6 +69,22 @@ enum AvailabilityHoldStatus {
   ACTIVE
   RELEASED
   EXPIRED
+  CONSUMED
+}
+
+enum BookingStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  AUTHORIZED
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
 }
 
 enum HospitalityChargeKind {
@@ -123,6 +139,7 @@ model Organization {
   hospitalityBaseRates            HospitalityBaseRate[]
   hospitalityChargeRules          HospitalityChargeRule[]
   hospitalityAddons               HospitalityAddon[]
+  hospitalityBookings             HospitalityBooking[]
   auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
@@ -192,20 +209,22 @@ model OrganizationMembership {
 }
 
 model Customer {
-  id             String         @id @default(uuid()) @db.Uuid
-  organizationId String         @db.Uuid
-  firstName      String         @db.VarChar(80)
-  lastName       String         @db.VarChar(80)
-  email          String?        @db.VarChar(320)
-  phone          String?        @db.VarChar(40)
-  notes          String?        @db.Text
-  status         CustomerStatus @default(ACTIVE)
-  createdAt      DateTime       @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime       @updatedAt @db.Timestamptz(6)
-  archivedAt     DateTime?      @db.Timestamptz(6)
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  id                  String               @id @default(uuid()) @db.Uuid
+  organizationId      String               @db.Uuid
+  firstName           String               @db.VarChar(80)
+  lastName            String               @db.VarChar(80)
+  email               String?              @db.VarChar(320)
+  phone               String?              @db.VarChar(40)
+  notes               String?              @db.Text
+  status              CustomerStatus       @default(ACTIVE)
+  createdAt           DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?            @db.Timestamptz(6)
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  hospitalityBookings HospitalityBooking[]
 
   @@unique([organizationId, email])
+  @@unique([id, organizationId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, lastName, firstName])
   @@map("customers")
@@ -264,6 +283,8 @@ model HospitalityRoomType {
   baseRates           HospitalityBaseRate[]
   chargeRules         HospitalityChargeRule[]
   addons              HospitalityAddon[]
+  bookings            HospitalityBooking[]
+  bookingAllocations  HospitalityBookingAllocation[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -391,6 +412,7 @@ model HospitalityRatePlan {
   baseRates           HospitalityBaseRate[]
   chargeRules         HospitalityChargeRule[]
   addons              HospitalityAddon[]
+  bookings            HospitalityBooking[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -561,12 +583,73 @@ model HospitalityAvailabilityHold {
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   roomType       HospitalityRoomType    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_room_type_fkey")
   ratePlan       HospitalityRatePlan    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_rate_plan_fkey")
+  booking        HospitalityBooking?
 
   @@unique([organizationId, idempotencyKey], map: "hospitality_holds_org_idempotency_key")
   @@unique([id, organizationId])
   @@index([organizationId, propertyId, roomTypeId, status, arrivalDate, departureDate], map: "hospitality_holds_scope_dates_idx")
   @@index([organizationId, status, expiresAt], map: "hospitality_holds_status_expiry_idx")
   @@map("hospitality_availability_holds")
+}
+
+model HospitalityBooking {
+  id                           String                         @id @default(uuid()) @db.Uuid
+  organizationId               String                         @db.Uuid
+  propertyId                   String                         @db.Uuid
+  roomTypeId                   String                         @db.Uuid
+  ratePlanId                   String                         @db.Uuid
+  customerId                   String                         @db.Uuid
+  holdId                       String                         @db.Uuid
+  idempotencyKey               String                         @db.VarChar(120)
+  status                       BookingStatus                  @default(CONFIRMED)
+  paymentStatus                PaymentStatus                  @default(UNPAID)
+  arrivalDate                  DateTime                       @db.Date
+  departureDate                DateTime                       @db.Date
+  quantity                     Int
+  currency                     String                         @db.Char(3)
+  accommodationSubtotalMinor   BigInt                         @db.BigInt
+  taxTotalMinor                BigInt                         @db.BigInt
+  feeTotalMinor                BigInt                         @db.BigInt
+  addonTotalMinor              BigInt                         @db.BigInt
+  totalMinor                   BigInt                         @db.BigInt
+  pricingFingerprint           String                         @db.Char(64)
+  addonSelections              Json
+  createdAt                    DateTime                       @default(now()) @db.Timestamptz(6)
+  updatedAt                    DateTime                       @updatedAt @db.Timestamptz(6)
+  confirmedAt                  DateTime?                      @db.Timestamptz(6)
+  cancelledAt                  DateTime?                      @db.Timestamptz(6)
+  organization                 Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer                     Customer                       @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_customer_fkey")
+  hold                         HospitalityAvailabilityHold    @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_hold_fkey")
+  roomType                     HospitalityRoomType            @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_room_type_fkey")
+  ratePlan                     HospitalityRatePlan            @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_rate_plan_fkey")
+  allocation                   HospitalityBookingAllocation?
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey], map: "hospitality_bookings_org_idempotency_key")
+  @@unique([organizationId, holdId], map: "hospitality_bookings_org_hold_key")
+  @@index([organizationId, status, createdAt], map: "hospitality_bookings_org_status_created_idx")
+  @@index([organizationId, customerId, createdAt], map: "hospitality_bookings_customer_created_idx")
+  @@index([organizationId, propertyId, roomTypeId, arrivalDate, departureDate], map: "hospitality_bookings_stay_idx")
+  @@map("hospitality_bookings")
+}
+
+model HospitalityBookingAllocation {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  bookingId      String              @db.Uuid
+  propertyId     String              @db.Uuid
+  roomTypeId     String              @db.Uuid
+  arrivalDate    DateTime            @db.Date
+  departureDate  DateTime            @db.Date
+  quantity       Int
+  createdAt      DateTime            @default(now()) @db.Timestamptz(6)
+  booking        HospitalityBooking  @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_allocations_booking_fkey")
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_allocations_room_type_fkey")
+
+  @@unique([organizationId, bookingId], map: "hospitality_allocations_org_booking_key")
+  @@index([organizationId, propertyId, roomTypeId, arrivalDate, departureDate], map: "hospitality_allocations_scope_dates_idx")
+  @@map("hospitality_booking_allocations")
 }
 
 model AuditEvent {

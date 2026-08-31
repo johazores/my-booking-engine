@@ -51,7 +51,7 @@ export async function readHospitalityAvailability(input: {
   });
   if (!assignment) throw new AvailabilityUnavailableError('Room type and rate plan must be active and assigned within the same property.');
 
-  const [physicalCapacity, restrictions, windows, activeHolds] = await Promise.all([
+  const [physicalCapacity, restrictions, windows, activeHolds, allocations] = await Promise.all([
     db.hospitalityRoom.count({
       where: { organizationId: input.organizationId, propertyId: request.propertyId, roomTypeId: request.roomTypeId, status: 'ACTIVE' },
     }),
@@ -90,10 +90,21 @@ export async function readHospitalityAvailability(input: {
       },
       select: { arrivalDate: true, departureDate: true, quantity: true },
     }),
+    db.hospitalityBookingAllocation.findMany({
+      where: {
+        organizationId: input.organizationId,
+        propertyId: request.propertyId,
+        roomTypeId: request.roomTypeId,
+        arrivalDate: { lt: request.departureDate },
+        departureDate: { gt: request.arrivalDate },
+        booking: { is: { status: { not: 'CANCELLED' } } },
+      },
+      select: { arrivalDate: true, departureDate: true, quantity: true },
+    }),
   ]);
 
   const restrictionResult = evaluateAvailabilityRestrictions({ arrivalDate: request.arrivalDate, departureDate: request.departureDate, stayNights: request.stayNights, restrictions });
-  const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds });
+  const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds, allocations });
   const capacityAvailable = capacity.sellableUnits >= request.quantity;
 
   return {
@@ -105,14 +116,19 @@ export async function readHospitalityAvailability(input: {
       requestedUnits: request.quantity,
       remainingUnits: Math.max(0, capacity.sellableUnits - request.quantity),
       heldUnits: capacity.peakHeldUnits,
+      allocatedUnits: capacity.peakAllocatedUnits,
+      protectedUnits: capacity.peakProtectedUnits,
       constrainedNightCount: capacity.constrainedNightCount,
-      source: activeHolds.length > 0
-        ? 'PHYSICAL_ROOMS_WITH_WINDOWS_AND_HOLDS' as const
-        : windows.length > 0
-          ? 'PHYSICAL_ROOMS_WITH_WINDOWS' as const
-          : 'ACTIVE_PHYSICAL_ROOMS' as const,
+      source: allocations.length > 0
+        ? 'PHYSICAL_ROOMS_WITH_BOOKINGS' as const
+        : activeHolds.length > 0
+          ? 'PHYSICAL_ROOMS_WITH_WINDOWS_AND_HOLDS' as const
+          : windows.length > 0
+            ? 'PHYSICAL_ROOMS_WITH_WINDOWS' as const
+            : 'ACTIVE_PHYSICAL_ROOMS' as const,
       windowCount: windows.length,
       activeHoldCount: activeHolds.length,
+      bookingAllocationCount: allocations.length,
     },
     restrictions: restrictionResult,
     available: capacityAvailable && restrictionResult.allowed,

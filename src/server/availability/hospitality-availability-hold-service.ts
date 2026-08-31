@@ -67,7 +67,7 @@ export async function createHospitalityAvailabilityHold(input: {
     });
     if (!assignment) throw new AvailabilityUnavailableError('Room type and rate plan must be active and assigned within the same property.');
 
-    const [physicalCapacity, restrictions, windows, activeHolds] = await Promise.all([
+    const [physicalCapacity, restrictions, windows, activeHolds, allocations] = await Promise.all([
       transaction.hospitalityRoom.count({ where: { organizationId: input.organizationId, propertyId: request.propertyId, roomTypeId: request.roomTypeId, status: 'ACTIVE' } }),
       transaction.hospitalityRestriction.findMany({
         where: {
@@ -104,13 +104,24 @@ export async function createHospitalityAvailabilityHold(input: {
         },
         select: { arrivalDate: true, departureDate: true, quantity: true },
       }),
+      transaction.hospitalityBookingAllocation.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: request.propertyId,
+          roomTypeId: request.roomTypeId,
+          arrivalDate: { lt: request.departureDate },
+          departureDate: { gt: request.arrivalDate },
+          booking: { is: { status: { not: 'CANCELLED' } } },
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
     ]);
 
     const restrictionResult = evaluateAvailabilityRestrictions({ arrivalDate: request.arrivalDate, departureDate: request.departureDate, stayNights: request.stayNights, restrictions });
     if (!restrictionResult.allowed) {
       throw new AvailabilityHoldUnavailableError(`Requested stay is restricted: ${restrictionResult.reasons.join(', ')}.`);
     }
-    const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds });
+    const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds, allocations });
     if (capacity.sellableUnits < request.quantity) {
       throw new AvailabilityHoldUnavailableError('Requested units are no longer available for the full stay.');
     }
