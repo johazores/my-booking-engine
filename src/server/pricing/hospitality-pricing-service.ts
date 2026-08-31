@@ -6,8 +6,9 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { normalizeHospitalityBaseRateInput, type HospitalityBaseRateInput } from './hospitality-base-rate-domain.ts';
 import { quoteHospitalityCharges } from './hospitality-charge-service.ts';
-import { hospitalityPricingScopeLockKey } from './pricing-lock.ts';
 import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
+import { normalizePricingFingerprint, normalizePricingPagination } from './pricing-boundary.ts';
+import { hospitalityPricingScopeLockKey } from './pricing-lock.ts';
 
 export class HospitalityPricingUnavailableError extends Error {
   constructor(message = 'Pricing is not available for the requested stay.') {
@@ -40,19 +41,22 @@ export async function listHospitalityBaseRates(input: {
   page: number;
   pageSize: number;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
   assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
+  const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId };
   const total = await db.hospitalityBaseRate.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(Math.max(1, input.page), totalPages);
+  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+  const page = Math.min(pagination.page, totalPages);
   const baseRates = await db.hospitalityBaseRate.findMany({
     where,
     orderBy: [{ status: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: (page - 1) * pagination.pageSize,
+    take: pagination.pageSize,
   });
   return { baseRates, total, page, totalPages };
 }
@@ -133,6 +137,8 @@ export async function archiveHospitalityBaseRate(input: {
   propertyId: string;
   baseRateId: string;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.baseRateId, 'baseRateId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:manage' });
@@ -164,6 +170,8 @@ export async function quoteHospitalityBasePrice(input: {
   actorUserId: string;
   request: AvailabilityRequestInput;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   const request = normalizeAvailabilityRequest(input.request);
   assertUuidIdentifier(request.propertyId, 'propertyId');
   assertUuidIdentifier(request.roomTypeId, 'roomTypeId');
@@ -266,8 +274,9 @@ export async function revalidateHospitalityBasePrice(input: {
   request: AvailabilityRequestInput;
   expectedFingerprint: string;
 }) {
+  const expectedFingerprint = normalizePricingFingerprint(input.expectedFingerprint);
   const latest = await quoteHospitalityBasePrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
-  return { changed: latest.fingerprint !== input.expectedFingerprint.trim().toLowerCase(), latest };
+  return { changed: latest.fingerprint !== expectedFingerprint, latest };
 }
 
 export async function revalidateHospitalityPrice(input: {
@@ -276,6 +285,7 @@ export async function revalidateHospitalityPrice(input: {
   request: AvailabilityRequestInput;
   expectedFingerprint: string;
 }) {
+  const expectedFingerprint = normalizePricingFingerprint(input.expectedFingerprint);
   const latest = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
-  return { changed: latest.fingerprint !== input.expectedFingerprint.trim().toLowerCase(), latest };
+  return { changed: latest.fingerprint !== expectedFingerprint, latest };
 }
