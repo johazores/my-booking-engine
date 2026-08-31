@@ -49,7 +49,11 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
     const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
     const hold = await holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, now, hold: { idempotencyKey: 'hold:booking-confirm', request } });
     const quoted = await pricing.quoteHospitalityPrice({ organizationId: organizationA.id, actorUserId: adminA.id, request });
-    const confirmation = { holdId: hold.id, customerId: customer.id, idempotencyKey: 'booking:confirm-1', expectedPricingFingerprint: quoted.fingerprint };
+    const guests = [
+      { firstName: 'Ada', lastName: 'Lovelace', email: 'ADA@EXAMPLE.TEST' },
+      { firstName: 'Grace', lastName: 'Hopper' },
+    ];
+    const confirmation = { holdId: hold.id, customerId: customer.id, idempotencyKey: 'booking:confirm-1', expectedPricingFingerprint: quoted.fingerprint, guests };
 
     await assert.rejects(
       bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: staffA.id, confirmation, now }),
@@ -58,6 +62,10 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
     await assert.rejects(
       bookings.confirmHospitalityBookingFromHold({ organizationId: organizationB.id, actorUserId: adminB.id, confirmation, now }),
       /not available/i,
+    );
+    await assert.rejects(
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...confirmation, guests: [...guests, { firstName: 'Third', lastName: 'Guest' }] }, now }),
+      /at most 2 guests/i,
     );
 
     await db.hospitalityBaseRate.update({ where: { id: baseRate.id }, data: { amountMinor: 11_000n } });
@@ -68,6 +76,7 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
     const stillHeld = await db.hospitalityAvailabilityHold.findUniqueOrThrow({ where: { id: hold.id } });
     assert.equal(stillHeld.status, 'ACTIVE');
     assert.equal(await db.hospitalityBooking.count({ where: { organizationId: organizationA.id } }), 0);
+    assert.equal(await db.hospitalityBookingGuest.count({ where: { organizationId: organizationA.id } }), 0);
     await db.hospitalityBaseRate.update({ where: { id: baseRate.id }, data: { amountMinor: 10_000n } });
 
     const competing = await Promise.allSettled([
@@ -86,6 +95,10 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
     assert.equal(created.totalMinor.toString(), '20000');
     assert.equal(created.pricingFingerprint, quoted.fingerprint);
     assert.equal(created.allocation?.quantity, 1);
+    assert.deepEqual(created.guests, [
+      { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.test' },
+      { firstName: 'Grace', lastName: 'Hopper', email: null },
+    ]);
 
     const consumed = await db.hospitalityAvailabilityHold.findUniqueOrThrow({ where: { id: hold.id } });
     assert.equal(consumed.status, 'CONSUMED');
@@ -96,8 +109,13 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
       : { ...confirmation, idempotencyKey: 'booking:confirm-2' };
     const retry = await bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: winningConfirmation, now });
     assert.equal(retry.id, created.id);
+    assert.equal(await db.hospitalityBookingGuest.count({ where: { organizationId: organizationA.id, bookingId: created.id } }), 2);
     await assert.rejects(
       bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...winningConfirmation, customerId: crypto.randomUUID() }, now }),
+      /different booking confirmation request/i,
+    );
+    await assert.rejects(
+      bookings.confirmHospitalityBookingFromHold({ organizationId: organizationA.id, actorUserId: adminA.id, confirmation: { ...winningConfirmation, guests: [{ firstName: 'Different', lastName: 'Guest' }] }, now }),
       /different booking confirmation request/i,
     );
 
@@ -110,15 +128,21 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
 
     const read = await bookings.getHospitalityBooking({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: created.id });
     assert.equal(read.customerId, customer.id);
+    assert.deepEqual(read.guests, created.guests);
     await assert.rejects(bookings.getHospitalityBooking({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: created.id }), /not available/i);
     const listed = await bookings.listHospitalityBookings({ organizationId: organizationA.id, actorUserId: staffA.id, pageSize: 500 });
     assert.equal(listed.total, 1);
     assert.equal(listed.bookings[0]?.id, created.id);
+    assert.deepEqual(listed.bookings[0]?.guests, created.guests);
 
     const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, resourceType: 'hospitality-booking', resourceId: created.id } });
-    assert.equal(events.filter((event) => event.action === 'booking.confirmed').length, 1);
+    const confirmedEvents = events.filter((event) => event.action === 'booking.confirmed');
+    assert.equal(confirmedEvents.length, 1);
+    assert.equal((confirmedEvents[0]?.afterData as { guestCount?: number } | null)?.guestCount, 2);
+    assert.equal(JSON.stringify(confirmedEvents[0]?.afterData).includes('ada@example.test'), false);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
