@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { normalizePricingPagination } from './pricing-boundary.ts';
 import { HospitalityPricingUnavailableError } from './hospitality-pricing-service.ts';
 
 export async function listHospitalityPricingScopes(input: {
@@ -10,8 +11,11 @@ export async function listHospitalityPricingScopes(input: {
   page: number;
   pageSize: number;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
+  const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = {
     organizationId: input.organizationId,
     propertyId: input.propertyId,
@@ -19,13 +23,13 @@ export async function listHospitalityPricingScopes(input: {
     ratePlan: { status: 'ACTIVE' as const },
   };
   const total = await db.hospitalityRoomTypeRatePlan.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(Math.max(1, input.page), totalPages);
+  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+  const page = Math.min(pagination.page, totalPages);
   const scopes = await db.hospitalityRoomTypeRatePlan.findMany({
     where,
     orderBy: [{ createdAt: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: (page - 1) * pagination.pageSize,
+    take: pagination.pageSize,
     include: {
       roomType: { select: { id: true, name: true, code: true } },
       ratePlan: { select: { id: true, name: true, code: true } },
@@ -41,6 +45,8 @@ export async function readHospitalityPricingScope(input: {
   roomTypeId: string;
   ratePlanId: string;
 }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
   assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
