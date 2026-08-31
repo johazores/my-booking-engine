@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, permission-checked pricing management, deterministic complete-price quotes, and price revalidation. Add-ons, provider-specific pricing rules, and persisted booking price snapshots remain future work and are not represented as complete.
+SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, permission-checked pricing management, deterministic complete-price quotes, and price revalidation. The hospitality add-on domain contract is now defined and unit-covered, but add-on persistence, management UI, quote resolution, and booking snapshots are still incomplete and are not represented as finished. Provider-specific pricing rules and persisted booking price snapshots remain future work.
 
 ## Money model
 
@@ -35,6 +35,23 @@ Fixed rules store integer minor units and the active organization currency. Perc
 Charge creation requires `pricing:manage`, validates active tenant/property scope, validates the room-type/rate-plan assignment for scoped rules, serializes every potentially competing same-code write at the tenant/property/code level with a PostgreSQL advisory lock, and records safe audit metadata. Rules are archived rather than edited in place.
 
 Active scoped charges prevent removing their room-type/rate-plan assignment or archiving the referenced rate plan. Active property charges prevent property archival. Active fixed charges also prevent changing organization currency until the fixed rules are archived. Percentage rules remain valid across a later currency change because they store no monetary amount.
+
+## Hospitality add-on contract
+
+Hospitality add-ons are optional commercial selections, never automatic charges. The domain layer defines exact-money catalog input and deterministic selection semantics before persistence is added.
+
+Supported pricing models are deliberately explicit:
+
+- `PER_BOOKING`: one fixed amount for the booking regardless of room count or nights
+- `PER_ROOM`: fixed amount multiplied by requested room quantity
+- `PER_ROOM_NIGHT`: fixed amount multiplied by room quantity and stay nights
+- `PER_UNIT`: fixed amount multiplied only by the explicit selected quantity
+
+Catalog input supports a property-wide scope or a complete room-type/rate-plan scope, inclusive sell dates, exact currency minor units, bounded quantities, normalized codes, and descriptions. Selection input accepts at most 25 unique add-ons, validates UUID identifiers, caps selected quantity at 100, rejects duplicate IDs, and sorts selections deterministically for later quote fingerprinting.
+
+A browser cannot multiply `PER_BOOKING`, `PER_ROOM`, or `PER_ROOM_NIGHT` add-ons through an arbitrary submitted quantity: those models accept a selected quantity of exactly one and derive their commercial multiplier from the normalized stay. Only `PER_UNIT` accepts a customer-selected quantity greater than one.
+
+This contract is intentionally not wired into complete-price quotes yet. The next implementation step must persist tenant-owned add-on catalog records, resolve only active/in-scope selections server-side, include resolved add-on components in the complete pricing fingerprint, and protect relevant inventory/currency dependencies. Until those pieces exist, the Phase 10 add-on checklist item remains incomplete.
 
 ## Quote contract
 
@@ -81,12 +98,16 @@ All reads/writes validate organization membership and permission server-side. Re
 
 The interface reuses the existing SF application shell, responsive inventory tables/cards, focus behavior, status messaging, validation states, and design tokens rather than introducing a second design system.
 
+No add-on management interface is exposed yet because there is not yet a persisted add-on catalog. SF does not present a dead or mock add-on route as complete.
+
 ## Validation coverage
 
-The standard unit command includes money, base-rate, charge-rule, and pricing-boundary domain tests. Pricing-boundary tests cover defensive pagination and canonical fingerprint validation. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
+The standard unit command includes money, base-rate, charge-rule, pricing-boundary, and hospitality add-on domain tests. Add-on domain tests cover exact currency conversion, complete optional sellable scope, unsupported price models, malformed/zero prices, deterministic unique selection normalization, each supported multiplier, quantity bounds, and prevention of browser quantity multiplication for non-unit add-ons. Pricing-boundary tests cover defensive pagination and canonical fingerprint validation. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
 ## Next dependencies
 
-The next same-domain pricing work is add-ons and any real tenant/provider pricing rules. Once the complete internal price contract is sufficient for booking creation, the booking transaction can atomically revalidate price, convert/consume a hold (or directly allocate), and persist an immutable booking price snapshot without trusting the browser.
+Complete add-ons by adding tenant-safe persistence, lifecycle/dependency guards, management UI, selected-add-on quote resolution, fingerprint/revalidation integration, and PostgreSQL coverage. Any tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
+
+Once the complete internal price contract is sufficient for booking creation, the booking transaction can atomically revalidate price, convert/consume a hold (or directly allocate), and persist an immutable booking price snapshot without trusting the browser.
