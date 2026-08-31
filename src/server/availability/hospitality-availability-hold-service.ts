@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { hospitalityAvailabilityAllocationLockKey } from './availability-allocation-lock.ts';
 import {
   availabilityHoldPayloadMatches,
   calculateAvailabilityHoldCapacity,
@@ -24,10 +25,6 @@ export class AvailabilityHoldUnavailableError extends Error {
   }
 }
 
-function roomTypeAllocationLockKey(input: { organizationId: string; propertyId: string; roomTypeId: string }) {
-  return `availability:${input.organizationId}:${input.propertyId}:${input.roomTypeId}`;
-}
-
 export async function createHospitalityAvailabilityHold(input: {
   organizationId: string;
   actorUserId: string;
@@ -45,7 +42,7 @@ export async function createHospitalityAvailabilityHold(input: {
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${roomTypeAllocationLockKey({ organizationId: input.organizationId, propertyId: request.propertyId, roomTypeId: request.roomTypeId })}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityAvailabilityAllocationLockKey({ organizationId: input.organizationId, propertyId: request.propertyId, roomTypeId: request.roomTypeId })}, 0))`;
 
     const existing = await transaction.hospitalityAvailabilityHold.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey: normalized.idempotencyKey } },
