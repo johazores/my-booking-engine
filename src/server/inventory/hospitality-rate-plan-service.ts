@@ -235,7 +235,7 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
     if (!roomType || !ratePlan || !existing || existing.propertyId !== input.propertyId) {
       throw new HospitalityInventoryUnavailableError('Rate plan assignment is not available for active inventory in this property.');
     }
-    const [activeRestrictions, activeHolds, activeBaseRates, activeCharges] = await Promise.all([
+    const [activeRestrictions, activeHolds, activeBaseRates, activeCharges, activeAddons] = await Promise.all([
       transaction.hospitalityRestriction.count({
         where: {
           organizationId: input.organizationId,
@@ -273,11 +273,21 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
           status: 'ACTIVE',
         },
       }),
+      transaction.hospitalityAddon.count({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: input.propertyId,
+          roomTypeId: input.roomTypeId,
+          ratePlanId: input.ratePlanId,
+          status: 'ACTIVE',
+        },
+      }),
     ]);
     if (activeRestrictions > 0) throw new HospitalityInventoryDependencyError('Archive active room-type restrictions before removing this rate plan assignment.');
     if (activeHolds > 0) throw new HospitalityInventoryDependencyError('Release or expire active availability holds before removing this rate plan assignment.');
     if (activeBaseRates > 0) throw new HospitalityInventoryDependencyError('Archive active base rates before removing this rate plan assignment.');
     if (activeCharges > 0) throw new HospitalityInventoryDependencyError('Archive active scoped taxes and fees before removing this rate plan assignment.');
+    if (activeAddons > 0) throw new HospitalityInventoryDependencyError('Archive active scoped add-ons before removing this rate plan assignment.');
     await transaction.hospitalityRoomTypeRatePlan.delete({ where: { organizationId_roomTypeId_ratePlanId: key } });
     await transaction.auditEvent.create({
       data: {
@@ -317,16 +327,18 @@ export async function archiveHospitalityRatePlan(input: {
       select: { id: true, propertyId: true, status: true },
     });
     if (!current) throw new HospitalityInventoryUnavailableError('Rate plan is not active for this property.');
-    const [assignmentCount, activeRestrictions, activeBaseRates, activeCharges] = await Promise.all([
+    const [assignmentCount, activeRestrictions, activeBaseRates, activeCharges, activeAddons] = await Promise.all([
       transaction.hospitalityRoomTypeRatePlan.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id } }),
       transaction.hospitalityRestriction.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id, status: 'ACTIVE' } }),
       transaction.hospitalityBaseRate.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id, status: 'ACTIVE' } }),
       transaction.hospitalityChargeRule.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id, status: 'ACTIVE' } }),
+      transaction.hospitalityAddon.count({ where: { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: current.id, status: 'ACTIVE' } }),
     ]);
     if (assignmentCount > 0) throw new HospitalityInventoryDependencyError('Remove all room-type assignments before archiving the rate plan.');
     if (activeRestrictions > 0) throw new HospitalityInventoryDependencyError('Archive active restrictions before archiving the rate plan.');
     if (activeBaseRates > 0) throw new HospitalityInventoryDependencyError('Archive active base rates before archiving the rate plan.');
     if (activeCharges > 0) throw new HospitalityInventoryDependencyError('Archive active scoped taxes and fees before archiving the rate plan.');
+    if (activeAddons > 0) throw new HospitalityInventoryDependencyError('Archive active scoped add-ons before archiving the rate plan.');
     const archivedAt = new Date();
     const updated = await transaction.hospitalityRatePlan.update({
       where: { id_propertyId_organizationId: { id: current.id, propertyId: input.propertyId, organizationId: input.organizationId } },
