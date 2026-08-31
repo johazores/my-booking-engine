@@ -64,6 +64,9 @@ export function normalizeHospitalityAddonInput(input: HospitalityAddonInput, cur
   if (endDate < startDate) throw new PricingValidationError('End date must be on or after start date.');
   const money = parseMoneyMajorToMinor(input.amount, currency);
   if (money.amountMinor <= 0n) throw new PricingValidationError('Add-on amount must be greater than zero.');
+  const model = pricingModel(input.pricingModel);
+  const maxQuantity = addonQuantity(input.maxQuantity);
+  if (model !== 'PER_UNIT' && maxQuantity !== 1) throw new PricingValidationError('Only per-unit add-ons may configure a maximum quantity greater than one.');
 
   return {
     propertyId: input.propertyId.trim(),
@@ -72,10 +75,10 @@ export function normalizeHospitalityAddonInput(input: HospitalityAddonInput, cur
     name: requiredText(input.name, 'Add-on name', 120),
     code: addonCode(input.code),
     description: optionalText(input.description, 300),
-    pricingModel: pricingModel(input.pricingModel),
+    pricingModel: model,
     amountMinor: money.amountMinor,
     currency: money.currency,
-    maxQuantity: addonQuantity(input.maxQuantity),
+    maxQuantity,
     startDate,
     endDate,
   };
