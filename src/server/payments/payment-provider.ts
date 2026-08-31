@@ -62,13 +62,14 @@ export interface PaymentProviderAdapter {
 }
 
 export class PaymentProviderError extends Error {
-  constructor(
-    public readonly code: PaymentProviderFailureCode,
-    message: string,
-    public readonly retryable = false,
-  ) {
+  readonly code: PaymentProviderFailureCode;
+  readonly retryable: boolean;
+
+  constructor(code: PaymentProviderFailureCode, message: string, retryable = false) {
     super(message);
     this.name = 'PaymentProviderError';
+    this.code = code;
+    this.retryable = retryable;
   }
 }
 
