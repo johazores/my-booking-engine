@@ -1,7 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { effectiveWindowCapacity } from './availability-window-domain.ts';
+import { calculateAvailabilityHoldCapacity } from './availability-hold-domain.ts';
 import {
   evaluateAvailabilityRestrictions,
   normalizeAvailabilityRequest,
@@ -19,6 +19,7 @@ export async function readHospitalityAvailability(input: {
   organizationId: string;
   actorUserId: string;
   request: AvailabilityRequestInput;
+  now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -32,6 +33,7 @@ export async function readHospitalityAvailability(input: {
   assertUuidIdentifier(request.propertyId, 'propertyId');
   assertUuidIdentifier(request.roomTypeId, 'roomTypeId');
   assertUuidIdentifier(request.ratePlanId, 'ratePlanId');
+  const now = input.now ?? new Date();
 
   const assignment = await db.hospitalityRoomTypeRatePlan.findFirst({
     where: {
@@ -49,7 +51,7 @@ export async function readHospitalityAvailability(input: {
   });
   if (!assignment) throw new AvailabilityUnavailableError('Room type and rate plan must be active and assigned within the same property.');
 
-  const [physicalCapacity, restrictions, windows] = await Promise.all([
+  const [physicalCapacity, restrictions, windows, activeHolds] = await Promise.all([
     db.hospitalityRoom.count({
       where: { organizationId: input.organizationId, propertyId: request.propertyId, roomTypeId: request.roomTypeId, status: 'ACTIVE' },
     }),
@@ -76,22 +78,41 @@ export async function readHospitalityAvailability(input: {
       },
       select: { startDate: true, endDate: true, capacityLimit: true },
     }),
+    db.hospitalityAvailabilityHold.findMany({
+      where: {
+        organizationId: input.organizationId,
+        propertyId: request.propertyId,
+        roomTypeId: request.roomTypeId,
+        status: 'ACTIVE',
+        expiresAt: { gt: now },
+        arrivalDate: { lt: request.departureDate },
+        departureDate: { gt: request.arrivalDate },
+      },
+      select: { arrivalDate: true, departureDate: true, quantity: true },
+    }),
   ]);
 
   const restrictionResult = evaluateAvailabilityRestrictions({ arrivalDate: request.arrivalDate, departureDate: request.departureDate, stayNights: request.stayNights, restrictions });
-  const sellableCapacity = effectiveWindowCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows });
-  const capacityAvailable = sellableCapacity >= request.quantity;
+  const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds });
+  const capacityAvailable = capacity.sellableUnits >= request.quantity;
 
   return {
     scope: { propertyId: request.propertyId, roomType: assignment.roomType, ratePlan: assignment.ratePlan },
     stay: { arrivalDate: request.arrivalDate, departureDate: request.departureDate, nights: request.stayNights, quantity: request.quantity },
     capacity: {
       physicalUnits: physicalCapacity,
-      sellableUnits: sellableCapacity,
+      sellableUnits: capacity.sellableUnits,
       requestedUnits: request.quantity,
-      remainingUnits: Math.max(0, sellableCapacity - request.quantity),
-      source: windows.length > 0 ? 'PHYSICAL_ROOMS_WITH_WINDOWS' as const : 'ACTIVE_PHYSICAL_ROOMS' as const,
+      remainingUnits: Math.max(0, capacity.sellableUnits - request.quantity),
+      heldUnits: capacity.peakHeldUnits,
+      constrainedNightCount: capacity.constrainedNightCount,
+      source: activeHolds.length > 0
+        ? 'PHYSICAL_ROOMS_WITH_WINDOWS_AND_HOLDS' as const
+        : windows.length > 0
+          ? 'PHYSICAL_ROOMS_WITH_WINDOWS' as const
+          : 'ACTIVE_PHYSICAL_ROOMS' as const,
       windowCount: windows.length,
+      activeHoldCount: activeHolds.length,
     },
     restrictions: restrictionResult,
     available: capacityAvailable && restrictionResult.allowed,
