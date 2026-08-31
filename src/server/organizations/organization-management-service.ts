@@ -18,6 +18,13 @@ export class OrganizationSettingsConflictError extends Error {
   }
 }
 
+export class OrganizationSettingsDependencyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrganizationSettingsDependencyError';
+  }
+}
+
 export class OrganizationUnavailableError extends Error {
   constructor() {
     super('The organization is no longer available.');
@@ -77,6 +84,15 @@ export async function updateOrganizationSettings(input: {
         current.currency === next.currency;
 
       if (unchanged) return current;
+
+      if (current.currency !== next.currency) {
+        const activeBaseRates = await transaction.hospitalityBaseRate.count({
+          where: { organizationId: current.id, status: 'ACTIVE' },
+        });
+        if (activeBaseRates > 0) {
+          throw new OrganizationSettingsDependencyError('Archive active base rates before changing the organization currency.');
+        }
+      }
 
       const updated = await transaction.organization.update({
         where: { id: current.id },
