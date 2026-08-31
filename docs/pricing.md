@@ -57,7 +57,15 @@ The complete fingerprint includes effective nightly values and applied commercia
 
 `revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes and fees, and compares its complete fingerprint with the previously presented value. A base-rate change, tax/fee change, or charge archival therefore produces `changed: true` for complete-price revalidation and returns the latest total. Browser-submitted totals are never accepted as authoritative.
 
+Revalidation accepts only canonical SHA-256 hexadecimal fingerprints. Malformed or truncated fingerprints are validation errors rather than being silently interpreted as legitimate stale-price values.
+
 The future booking-creation transaction must use complete-price revalidation before permanent inventory confirmation and persist an immutable booking price snapshot. A displayed quote or browser redirect is never sufficient proof of the commercial amount to persist.
+
+## Service boundaries
+
+Pricing services defensively validate organization, actor, property, room-type, rate-plan, and pricing-resource UUIDs at exported boundaries rather than relying on route normalization. Pricing collections also bound pagination internally to a maximum page size of 50, even when called outside the current UI routes.
+
+This duplicates critical safety checks intentionally: browser parsing improves UX, while service validation is the actual application boundary.
 
 ## Permissions and tenancy
 
@@ -75,7 +83,7 @@ The interface reuses the existing SF application shell, responsive inventory tab
 
 ## Validation coverage
 
-The standard unit command includes money, base-rate, and charge-rule domain tests. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
+The standard unit command includes money, base-rate, charge-rule, and pricing-boundary domain tests. Pricing-boundary tests cover defensive pagination and canonical fingerprint validation. The disposable PostgreSQL suite includes hospitality pricing coverage for exact minor-unit persistence, role enforcement, tenant denial, overlap rejection, concurrent base-rate writes, concurrent same-code property/scoped charge writes, dependency protection, organization-currency protection, multi-night/quantity quote totals, applied percentage/fixed charges, audit events, and changed-price revalidation.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
