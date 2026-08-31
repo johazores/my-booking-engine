@@ -42,4 +42,5 @@ run(process.execPath, [
   'src/server/authorization/authorization.integration.ts',
   'src/server/organizations/organization-management.integration.ts',
   'src/server/branding/branding.integration.ts',
+  'src/server/customers/customer.integration.ts',
 ]);

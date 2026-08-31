@@ -6,11 +6,11 @@ This document describes the target architecture and identifies what exists today
 
 ## Current foundation
 
-SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, and tenant-owned white-label presentation settings.
+SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, tenant-owned white-label presentation settings, and tenant-owned customer records.
 
-First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, and manage white-label branding where authorized. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
+First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, manage white-label branding where authorized, and operate a tenant-scoped customer directory. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
 
-Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. `/dashboard`, `/account`, and `/branding` share the canonical authenticated workspace. Tenant branding is resolved at that server boundary and applied through CSS design tokens rather than tenant-specific component overrides. Booking domain modules, payments, inventory, and provider adapters are not implemented yet.
+Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. `/dashboard`, `/customers`, `/account`, and `/branding` share the canonical authenticated workspace. Tenant branding is resolved at that server boundary and applied through CSS design tokens rather than tenant-specific component overrides. Customer records are the first operational booking-domain data module and reuse the same authorization, audit, lifecycle, and tenant-scope boundaries. Payments, inventory, availability, bookings, and provider adapters are not implemented yet.
 
 ## Architectural shape
 
@@ -32,7 +32,7 @@ The core application must never become directly coupled to Amadeus, Sabre, Trave
 
 ## Modules
 
-Implemented foundation modules:
+Implemented foundation/operational modules:
 
 - authentication
 - organizations
@@ -40,19 +40,19 @@ Implemented foundation modules:
 - roles and permissions
 - tenant settings
 - branding
+- customer directory
 - audit history foundation
 
-Planned provider/commercial modules:
+Planned commercial/provider modules:
 
-- customers/travelers/guests
-- internal inventory
+- business-specific internal inventory
 - availability
 - pricing
 - bookings
 - payments
 - integrations
 
-Business-specific capabilities extend the common booking foundation only where concepts genuinely overlap. Hotel rooms, tours, appointments, and rentals should not be forced into one meaningless generic entity.
+Business-specific capabilities extend the common booking foundation only where concepts genuinely overlap. Hotel rooms, tours, appointments, and rentals should not be forced into one meaningless generic entity. Customer/contact identity is shared, but booking-specific travelers/passengers should be modeled when booking requirements justify their distinct fields and lifecycle.
 
 ## Runtime boundaries
 
@@ -65,6 +65,8 @@ Business-specific capabilities extend the common booking foundation only where c
 
 Authenticated tenant operations must derive user identity from the validated server session and must revalidate organization membership at the server/data-access boundary. Browser route parameters, form values, or cookies are never sufficient tenant authorization by themselves.
 
+Single-resource tenant operations use both tenant identity and resource identity. For example, a customer lookup/mutation is scoped by `organizationId + customerId`; globally looking up a customer ID first would violate the repository contract.
+
 The application shell may display already-resolved user, tenant, role, and branding context, but it is never an authorization boundary. Protected pages and server operations remain responsible for enforcing their own access requirements.
 
 ## White-label presentation boundary
@@ -74,6 +76,12 @@ White-label settings are organization-owned data, not a client-only theme. The m
 The authenticated shell converts persisted primary/secondary/accent colors and controlled typography into CSS custom properties. Shared components consume those tokens, which prevents scattered tenant-specific hardcoded colors. A configured logo and favicon are also resolved from the active tenant.
 
 A separate public-safe branding reader exposes only values suitable for a future customer-facing booking surface. Persisted public booking copy and a custom-domain hostname are configuration foundations; they do not imply that a booking page, DNS verification, or custom-domain routing has already been implemented.
+
+## Customer boundary
+
+Customer data is tenant-owned operational data. `customer:read` protects directory/detail/history reads and `customer:manage` protects create/edit/archive. Staff and managers can operate the customer directory; customer-role members receive no organization-wide directory access.
+
+Archival preserves customer identity and history rather than deleting records that future bookings may reference. Audit events record lifecycle/activity without duplicating internal notes or credentials into audit JSON.
 
 ## Scaling restraint
 

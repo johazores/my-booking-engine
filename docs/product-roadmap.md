@@ -16,7 +16,7 @@ This roadmap follows dependency order. Finish the highest-priority dependency fi
 - organization model
 - user model
 - organization membership
-- tenant-scoped organization and membership repositories
+- tenant-scoped repositories/services
 - checked-in migrations and disposable-database verification harness
 - checked-in tenant-isolation integration coverage
 
@@ -57,16 +57,15 @@ Live migration/schema/isolation execution still requires an available disposable
 ## 6. Persistent application shell — implemented
 
 - canonical authenticated server shell boundary
-- shared `/dashboard` and `/account` workspace
-- persistent desktop sidebar for implemented workspace routes
+- shared protected workspace
+- persistent desktop sidebar
 - product-appropriate mobile navigation
 - sticky header with tenant identity and account controls
 - active navigation states
 - responsive layouts and workspace loading states
 - skip navigation, semantic navigation labels, visible focus behavior, and reduced-motion loading
 - useful dashboard connected only to real tenant/auth/membership data
-- account/organization administration integrated without weakening page/service authorization
-- future authenticated modules required to reuse the canonical workspace rather than create isolated shells
+- future authenticated modules reuse the canonical workspace rather than create isolated shells
 
 ## 7. Tenant settings and white-label branding — implemented configuration foundation
 
@@ -85,13 +84,25 @@ Live migration/schema/isolation execution still requires an available disposable
 
 The real public booking journey and custom-domain DNS ownership/routing are deliberately not claimed here. The branding configuration is ready for those later dependencies without creating a fake booking page or pretending a configured hostname is live.
 
-## 8. Customers/travelers/guests — next
+## 8. Customers/travelers/guests — implemented customer foundation
 
-Build the first tenant-owned operational data module using the established authorization, audit, pagination, lifecycle, shell, and validation boundaries.
+- tenant-owned `Customer` model and migration
+- tenant-local canonical email uniqueness
+- `customer:read` / `customer:manage` capabilities
+- server-enforced tenant scope on list/detail/create/update/archive
+- searchable, filterable, sortable, paginated `/customers` directory
+- create customer workflow with validation/conflict handling
+- customer detail and edit workflow
+- explicit soft archival lifecycle and read-only archived records
+- customer activity history backed by safe audit events
+- responsive/loading/empty/error/success/accessibility states
+- checked-in cross-tenant/customer lifecycle PostgreSQL integration coverage
 
-## 9. Internal inventory
+The customer model is intentionally a stable customer/contact foundation. Traveler/passenger structures that are booking-specific should be added when the real booking flow needs them instead of prematurely forcing every traveler concept into this record.
 
-Start with one real business capability rather than generic placeholder inventory.
+## 9. Internal inventory — next
+
+Start with one real business capability rather than generic placeholder inventory. Choose the highest-value initial product contract (hospitality, tours, appointments, or rentals) and implement its real data relationships before building availability.
 
 ## 10. Availability
 

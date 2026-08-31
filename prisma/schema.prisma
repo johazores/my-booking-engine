@@ -49,6 +49,11 @@ enum OrganizationRole {
   CUSTOMER
 }
 
+enum CustomerStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model Organization {
   id                       String             @id @default(uuid()) @db.Uuid
   slug                     String             @unique @db.VarChar(63)
@@ -75,6 +80,7 @@ model Organization {
   updatedAt                DateTime           @updatedAt @db.Timestamptz(6)
   deletedAt                DateTime?          @db.Timestamptz(6)
   memberships              OrganizationMembership[]
+  customers                Customer[]
   auditEvents              AuditEvent[]
 
   @@index([status, deletedAt])
@@ -141,6 +147,26 @@ model OrganizationMembership {
   @@index([organizationId, status])
   @@index([organizationId, role, status])
   @@map("organization_memberships")
+}
+
+model Customer {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @db.Uuid
+  firstName      String         @db.VarChar(80)
+  lastName       String         @db.VarChar(80)
+  email          String?        @db.VarChar(320)
+  phone          String?        @db.VarChar(40)
+  notes          String?        @db.Text
+  status         CustomerStatus @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?      @db.Timestamptz(6)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, email])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, lastName, firstName])
+  @@map("customers")
 }
 
 model AuditEvent {

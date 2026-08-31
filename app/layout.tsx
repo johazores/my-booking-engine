@@ -4,6 +4,7 @@ import './globals.css';
 import './auth.css';
 import './shell.css';
 import './branding.css';
+import './customers.css';
 
 export const metadata: Metadata = {
   title: { default: 'SF | Booking Infrastructure', template: '%s | SF' },
