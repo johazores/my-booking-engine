@@ -1,0 +1,14 @@
+model HospitalityBookingGuest {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  bookingId      String   @db.Uuid
+  position       Int
+  firstName      String   @db.VarChar(80)
+  lastName       String   @db.VarChar(80)
+  email          String?  @db.VarChar(320)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, bookingId, position], map: "hospitality_booking_guests_position_key")
+  @@index([organizationId, bookingId], map: "hospitality_booking_guests_booking_idx")
+  @@map("hospitality_booking_guests")
+}

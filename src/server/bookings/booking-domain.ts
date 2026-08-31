@@ -3,6 +3,8 @@ import { normalizeHospitalityAddonSelections, type HospitalityAddonSelectionInpu
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const PRICING_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_BOOKING_GUESTS = 100;
 
 export const bookingStates = ['PENDING_CONFIRMATION', 'CONFIRMED', 'CANCELLED'] as const;
 export type BookingState = (typeof bookingStates)[number];
@@ -10,12 +12,19 @@ export type BookingState = (typeof bookingStates)[number];
 export const paymentStates = ['UNPAID', 'AUTHORIZED', 'PAID', 'PARTIALLY_REFUNDED', 'REFUNDED', 'FAILED'] as const;
 export type PaymentState = (typeof paymentStates)[number];
 
+export type HospitalityBookingGuestInput = {
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+};
+
 export type HospitalityBookingConfirmationInput = {
   holdId: string;
   customerId: string;
   idempotencyKey: string;
   expectedPricingFingerprint: string;
   addonSelections?: HospitalityAddonSelectionInput[];
+  guests: HospitalityBookingGuestInput[];
 };
 
 export type HospitalityPriceSnapshotInput = {
@@ -52,6 +61,12 @@ function requireNonEmpty(value: unknown, label: string) {
   return value.trim();
 }
 
+function normalizeBoundedText(value: unknown, label: string, maxLength: number) {
+  const normalized = requireNonEmpty(value, label);
+  if (normalized.length > maxLength) throw new BookingDomainValidationError(`${label} must be at most ${maxLength} characters.`);
+  return normalized;
+}
+
 function normalizeUuid(value: unknown, label: string) {
   const normalized = requireNonEmpty(value, label);
   if (!UUID_PATTERN.test(normalized)) throw new BookingDomainValidationError(`${label} must be a UUID.`);
@@ -64,6 +79,35 @@ function normalizeMoneyMinor(value: unknown, label: string) {
     throw new BookingDomainValidationError(`${label} must be a non-negative integer minor-unit amount.`);
   }
   return BigInt(normalized).toString();
+}
+
+function normalizeGuestEmail(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new BookingDomainValidationError('Guest email must be a string.');
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) return null;
+  if (normalized.length > 320 || !EMAIL_PATTERN.test(normalized)) throw new BookingDomainValidationError('Guest email must be a valid email address.');
+  return normalized;
+}
+
+export function normalizeHospitalityBookingGuests(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new BookingDomainValidationError('At least one booking guest is required.');
+  }
+  if (value.length > MAX_BOOKING_GUESTS) {
+    throw new BookingDomainValidationError(`Booking guests cannot exceed ${MAX_BOOKING_GUESTS}.`);
+  }
+  return value.map((guest, index) => {
+    if (!guest || typeof guest !== 'object' || Array.isArray(guest)) {
+      throw new BookingDomainValidationError(`Guest ${index + 1} must be an object.`);
+    }
+    const input = guest as Record<string, unknown>;
+    return {
+      firstName: normalizeBoundedText(input.firstName, `Guest ${index + 1} first name`, 80),
+      lastName: normalizeBoundedText(input.lastName, `Guest ${index + 1} last name`, 80),
+      email: normalizeGuestEmail(input.email),
+    };
+  });
 }
 
 export function normalizeBookingIdempotencyKey(value: unknown) {
@@ -89,6 +133,7 @@ export function normalizeHospitalityBookingConfirmationInput(input: HospitalityB
     idempotencyKey: normalizeBookingIdempotencyKey(input.idempotencyKey),
     expectedPricingFingerprint: normalizeBookingPricingFingerprint(input.expectedPricingFingerprint),
     addonSelections: normalizeHospitalityAddonSelections(input.addonSelections ?? []),
+    guests: normalizeHospitalityBookingGuests(input.guests),
   };
 }
 
@@ -157,6 +202,7 @@ export function bookingConfirmationPayloadMatches(
     left.customerId === right.customerId &&
     left.idempotencyKey === right.idempotencyKey &&
     left.expectedPricingFingerprint === right.expectedPricingFingerprint &&
-    JSON.stringify(left.addonSelections) === JSON.stringify(right.addonSelections)
+    JSON.stringify(left.addonSelections) === JSON.stringify(right.addonSelections) &&
+    JSON.stringify(left.guests) === JSON.stringify(right.guests)
   );
 }

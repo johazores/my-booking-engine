@@ -10,6 +10,7 @@ import {
   normalizeBookingIdempotencyKey,
   normalizeBookingPricingFingerprint,
   normalizeHospitalityBookingConfirmationInput,
+  normalizeHospitalityBookingGuests,
 } from './booking-domain.ts';
 
 const fingerprint = 'a'.repeat(64);
@@ -17,26 +18,37 @@ const holdId = '11111111-1111-4111-8111-111111111111';
 const customerId = '22222222-2222-4222-8222-222222222222';
 const addonA = '33333333-3333-4333-8333-333333333333';
 const addonB = '44444444-4444-4444-8444-444444444444';
+const guests = [{ firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com' }];
 
-test('normalizes booking confirmation boundaries, UUIDs, add-ons, and idempotency inputs', () => {
+test('normalizes booking confirmation boundaries, UUIDs, add-ons, guests, and idempotency inputs', () => {
   assert.deepEqual(normalizeHospitalityBookingConfirmationInput({
     holdId: ` ${holdId.toUpperCase()} `,
     customerId: ` ${customerId.toUpperCase()} `,
     idempotencyKey: 'booking:12345',
     expectedPricingFingerprint: fingerprint.toUpperCase(),
     addonSelections: [{ addonId: addonB, quantity: 1 }, { addonId: addonA, quantity: 2 }],
+    guests: [{ firstName: ' Ada ', lastName: ' Lovelace ', email: ' ADA@EXAMPLE.COM ' }],
   }), {
     holdId,
     customerId,
     idempotencyKey: 'booking:12345',
     expectedPricingFingerprint: fingerprint,
     addonSelections: [{ addonId: addonA, quantity: 2 }, { addonId: addonB, quantity: 1 }],
+    guests,
   });
-  assert.throws(() => normalizeHospitalityBookingConfirmationInput({ holdId: 'hold-id', customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint }), /UUID/);
-  assert.throws(() => normalizeHospitalityBookingConfirmationInput({ holdId, customerId: 'customer-id', idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint }), /UUID/);
+  assert.throws(() => normalizeHospitalityBookingConfirmationInput({ holdId: 'hold-id', customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, guests }), /UUID/);
+  assert.throws(() => normalizeHospitalityBookingConfirmationInput({ holdId, customerId: 'customer-id', idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, guests }), /UUID/);
   assert.throws(() => normalizeBookingIdempotencyKey('short'), /8-120/);
   assert.throws(() => normalizeBookingIdempotencyKey('booking key with spaces'), /8-120/);
   assert.throws(() => normalizeBookingPricingFingerprint('not-a-fingerprint'), /SHA-256/);
+});
+
+test('normalizes booking guest snapshots and rejects malformed or excessive guest data', () => {
+  assert.deepEqual(normalizeHospitalityBookingGuests([{ firstName: ' Grace ', lastName: ' Hopper ', email: '' }]), [{ firstName: 'Grace', lastName: 'Hopper', email: null }]);
+  assert.throws(() => normalizeHospitalityBookingGuests([]), /At least one/);
+  assert.throws(() => normalizeHospitalityBookingGuests([{ firstName: '', lastName: 'Hopper' }]), /first name is required/);
+  assert.throws(() => normalizeHospitalityBookingGuests([{ firstName: 'Grace', lastName: 'Hopper', email: 'invalid' }]), /valid email/);
+  assert.throws(() => normalizeHospitalityBookingGuests(Array.from({ length: 101 }, () => ({ firstName: 'Guest', lastName: 'Name' }))), /cannot exceed 100/);
 });
 
 test('creates exact immutable price snapshots and rejects inconsistent totals', () => {
@@ -48,7 +60,7 @@ test('creates exact immutable price snapshots and rejects inconsistent totals', 
 });
 
 test('requires the immutable snapshot to match the confirmation fingerprint', () => {
-  const confirmation = { holdId, customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint };
+  const confirmation = { holdId, customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, guests };
   const snapshot = createHospitalityPriceSnapshot({ currency: 'USD', accommodationSubtotalMinor: '20000', taxTotalMinor: '2400', feeTotalMinor: '500', addonTotalMinor: '1200', totalMinor: '24100', pricingFingerprint: fingerprint });
   assert.doesNotThrow(() => assertBookingPriceSnapshotMatchesConfirmation(confirmation, snapshot));
   assert.throws(() => assertBookingPriceSnapshotMatchesConfirmation({ ...confirmation, expectedPricingFingerprint: 'b'.repeat(64) }, snapshot), /does not match/);
@@ -63,11 +75,12 @@ test('keeps booking lifecycle explicit and separate from payment state', () => {
   assert.throws(() => assertBookingStateTransition('CANCELLED', 'CONFIRMED'), /cannot transition/);
 });
 
-test('detects idempotent booking retries and mismatched payload reuse including add-ons', () => {
-  const original = { holdId, customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, addonSelections: [{ addonId: addonA, quantity: 2 }] };
+test('detects idempotent booking retries and mismatched payload reuse including add-ons and guests', () => {
+  const original = { holdId, customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, addonSelections: [{ addonId: addonA, quantity: 2 }], guests };
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original }), true);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, holdId: '55555555-5555-4555-8555-555555555555' }), false);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, customerId: '66666666-6666-4666-8666-666666666666' }), false);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, expectedPricingFingerprint: 'b'.repeat(64) }), false);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, addonSelections: [{ addonId: addonA, quantity: 1 }] }), false);
+  assert.equal(bookingConfirmationPayloadMatches(original, { ...original, guests: [{ firstName: 'Alan', lastName: 'Turing' }] }), false);
 });

@@ -9,6 +9,7 @@ import {
   createHospitalityPriceSnapshot,
   normalizeHospitalityBookingConfirmationInput,
   type HospitalityBookingConfirmationInput,
+  type HospitalityBookingGuestInput,
 } from './booking-domain.ts';
 
 export class HospitalityBookingConflictError extends Error {
@@ -48,7 +49,7 @@ function bookingAsConfirmationInput(booking: {
   idempotencyKey: string;
   pricingFingerprint: string;
   addonSelections: unknown;
-}): HospitalityBookingConfirmationInput {
+}, guests: HospitalityBookingGuestInput[]): HospitalityBookingConfirmationInput {
   if (!Array.isArray(booking.addonSelections)) {
     throw new HospitalityBookingConflictError('Persisted booking add-on selections are invalid.');
   }
@@ -58,7 +59,16 @@ function bookingAsConfirmationInput(booking: {
     idempotencyKey: booking.idempotencyKey,
     expectedPricingFingerprint: booking.pricingFingerprint,
     addonSelections: booking.addonSelections as HospitalityBookingConfirmationInput['addonSelections'],
+    guests,
   };
+}
+
+async function readBookingGuests(reader: typeof db, organizationId: string, bookingId: string) {
+  return reader.hospitalityBookingGuest.findMany({
+    where: { organizationId, bookingId },
+    orderBy: { position: 'asc' },
+    select: { firstName: true, lastName: true, email: true },
+  });
 }
 
 export async function confirmHospitalityBookingFromHold(input: {
@@ -82,10 +92,15 @@ export async function confirmHospitalityBookingFromHold(input: {
       include: { allocation: true },
     });
     if (existing) {
-      if (!bookingConfirmationPayloadMatches(bookingAsConfirmationInput(existing), confirmation)) {
+      const existingGuests = await transaction.hospitalityBookingGuest.findMany({
+        where: { organizationId: input.organizationId, bookingId: existing.id },
+        orderBy: { position: 'asc' },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      if (!bookingConfirmationPayloadMatches(bookingAsConfirmationInput(existing, existingGuests), confirmation)) {
         throw new HospitalityBookingConflictError('Idempotency key was already used for a different booking confirmation request.');
       }
-      return existing;
+      return { ...existing, guests: existingGuests };
     }
 
     const initialHold = await transaction.hospitalityAvailabilityHold.findFirst({
@@ -125,9 +140,13 @@ export async function confirmHospitalityBookingFromHold(input: {
         roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
         ratePlan: { is: { status: 'ACTIVE' } },
       },
-      select: { roomTypeId: true },
+      select: { roomType: { select: { maxOccupancy: true } } },
     });
     if (!assignment) throw new HospitalityBookingUnavailableError('Held room type and rate plan are no longer bookable.');
+    const maxGuests = assignment.roomType.maxOccupancy * hold.quantity;
+    if (confirmation.guests.length > maxGuests) {
+      throw new HospitalityBookingConflictError(`This booking can contain at most ${maxGuests} guest${maxGuests === 1 ? '' : 's'} for the held room quantity.`);
+    }
 
     const latestPrice = await quoteHospitalityPriceFromReader({
       reader: transaction,
@@ -182,6 +201,17 @@ export async function confirmHospitalityBookingFromHold(input: {
       },
     });
 
+    await transaction.hospitalityBookingGuest.createMany({
+      data: confirmation.guests.map((guest, position) => ({
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        position,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        email: guest.email,
+      })),
+    });
+
     const allocation = await transaction.hospitalityBookingAllocation.create({
       data: {
         organizationId: input.organizationId,
@@ -215,6 +245,7 @@ export async function confirmHospitalityBookingFromHold(input: {
           arrivalDate: booking.arrivalDate.toISOString().slice(0, 10),
           departureDate: booking.departureDate.toISOString().slice(0, 10),
           quantity: booking.quantity,
+          guestCount: confirmation.guests.length,
           status: booking.status,
           paymentStatus: booking.paymentStatus,
           currency: booking.currency,
@@ -224,7 +255,7 @@ export async function confirmHospitalityBookingFromHold(input: {
       },
     });
 
-    return { ...booking, allocation };
+    return { ...booking, allocation, guests: confirmation.guests };
   }, { isolationLevel: 'Serializable' });
 }
 
@@ -242,7 +273,8 @@ export async function getHospitalityBooking(input: {
     include: { allocation: true, customer: true, roomType: true, ratePlan: true },
   });
   if (!booking) throw new HospitalityBookingUnavailableError();
-  return booking;
+  const guests = await readBookingGuests(db, input.organizationId, booking.id);
+  return { ...booking, guests };
 }
 
 export async function listHospitalityBookings(input: {
@@ -271,5 +303,16 @@ export async function listHospitalityBookings(input: {
       ratePlan: { select: { id: true, name: true, code: true } },
     },
   });
-  return { bookings, total, page, totalPages };
+  const guestRows = bookings.length === 0 ? [] : await db.hospitalityBookingGuest.findMany({
+    where: { organizationId: input.organizationId, bookingId: { in: bookings.map((booking) => booking.id) } },
+    orderBy: [{ bookingId: 'asc' }, { position: 'asc' }],
+    select: { bookingId: true, firstName: true, lastName: true, email: true },
+  });
+  const guestsByBooking = new Map<string, HospitalityBookingGuestInput[]>();
+  for (const guest of guestRows) {
+    const bookingGuests = guestsByBooking.get(guest.bookingId) ?? [];
+    bookingGuests.push({ firstName: guest.firstName, lastName: guest.lastName, email: guest.email });
+    guestsByBooking.set(guest.bookingId, bookingGuests);
+  }
+  return { bookings: bookings.map((booking) => ({ ...booking, guests: guestsByBooking.get(booking.id) ?? [] })), total, page, totalPages };
 }
