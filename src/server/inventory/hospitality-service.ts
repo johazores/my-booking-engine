@@ -185,6 +185,8 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
       if (activeChildren > 0) throw new HospitalityInventoryDependencyError('Archive active room types before archiving the property.');
       const activeRatePlans = await transaction.hospitalityRatePlan.count({ where: { propertyId: current.id, organizationId: input.organizationId, status: 'ACTIVE' } });
       if (activeRatePlans > 0) throw new HospitalityInventoryDependencyError('Archive active rate plans before archiving the property.');
+      const activeCharges = await transaction.hospitalityChargeRule.count({ where: { propertyId: current.id, organizationId: input.organizationId, status: 'ACTIVE' } });
+      if (activeCharges > 0) throw new HospitalityInventoryDependencyError('Archive active taxes and fees before archiving the property.');
       const updated = await transaction.hospitalityProperty.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
       await transaction.auditEvent.create({
         data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.property.archived', resourceType: 'hospitality-property', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } },

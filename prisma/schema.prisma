@@ -71,6 +71,17 @@ enum AvailabilityHoldStatus {
   EXPIRED
 }
 
+enum HospitalityChargeKind {
+  TAX
+  FEE
+}
+
+enum HospitalityChargeCalculation {
+  PERCENTAGE
+  FIXED_PER_BOOKING
+  FIXED_PER_ROOM_NIGHT
+}
+
 model Organization {
   id                              String                          @id @default(uuid()) @db.Uuid
   slug                            String                          @unique @db.VarChar(63)
@@ -103,6 +114,7 @@ model Organization {
   hospitalityAvailabilityWindows  HospitalityAvailabilityWindow[]
   hospitalityAvailabilityHolds    HospitalityAvailabilityHold[]
   hospitalityBaseRates            HospitalityBaseRate[]
+  hospitalityChargeRules          HospitalityChargeRule[]
   auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
@@ -212,6 +224,7 @@ model HospitalityProperty {
   images             HospitalityPropertyImage[]
   ratePlans          HospitalityRatePlan[]
   baseRates          HospitalityBaseRate[]
+  chargeRules        HospitalityChargeRule[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -240,6 +253,7 @@ model HospitalityRoomType {
   availabilityWindows HospitalityAvailabilityWindow[]
   availabilityHolds   HospitalityAvailabilityHold[]
   baseRates           HospitalityBaseRate[]
+  chargeRules         HospitalityChargeRule[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -365,6 +379,7 @@ model HospitalityRatePlan {
   restrictions        HospitalityRestriction[]
   availabilityHolds   HospitalityAvailabilityHold[]
   baseRates           HospitalityBaseRate[]
+  chargeRules         HospitalityChargeRule[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -435,6 +450,36 @@ model HospitalityBaseRate {
   @@unique([id, propertyId, organizationId], map: "hospitality_base_rates_id_property_org_key")
   @@index([organizationId, propertyId, roomTypeId, ratePlanId, status, startDate, endDate], map: "hospitality_base_rates_scope_dates_idx")
   @@map("hospitality_base_rates")
+}
+
+model HospitalityChargeRule {
+  id             String                        @id @default(uuid()) @db.Uuid
+  organizationId String                        @db.Uuid
+  propertyId     String                        @db.Uuid
+  roomTypeId     String?                       @db.Uuid
+  ratePlanId     String?                       @db.Uuid
+  name           String                        @db.VarChar(120)
+  code           String                        @db.VarChar(32)
+  kind           HospitalityChargeKind
+  calculation    HospitalityChargeCalculation
+  percentageBps  Int?
+  amountMinor    BigInt?                       @db.BigInt
+  currency       String?                       @db.Char(3)
+  startDate      DateTime                      @db.Date
+  endDate        DateTime                      @db.Date
+  status         InventoryLifecycleStatus      @default(ACTIVE)
+  createdAt      DateTime                      @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                      @updatedAt @db.Timestamptz(6)
+  archivedAt     DateTime?                     @db.Timestamptz(6)
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  property       HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_charge_rules_property_fkey")
+  roomType       HospitalityRoomType?          @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_charge_rules_room_type_fkey")
+  ratePlan       HospitalityRatePlan?          @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_charge_rules_rate_plan_fkey")
+
+  @@unique([id, propertyId, organizationId], map: "hospitality_charge_rules_id_property_org_key")
+  @@index([organizationId, propertyId, status, startDate, endDate], map: "hospitality_charge_rules_property_status_dates_idx")
+  @@index([organizationId, propertyId, roomTypeId, ratePlanId, code, status], map: "hospitality_charge_rules_scope_code_idx")
+  @@map("hospitality_charge_rules")
 }
 
 model HospitalityAvailabilityWindow {

@@ -43,4 +43,5 @@ run(process.execPath, [
   'src/server/availability/hospitality-availability.integration.ts',
   'src/server/availability/hospitality-availability-hold.integration.ts',
   'src/server/pricing/hospitality-pricing.integration.ts',
+  'src/server/pricing/hospitality-charge.integration.ts',
 ]);

@@ -5,6 +5,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { normalizeHospitalityBaseRateInput, type HospitalityBaseRateInput } from './hospitality-base-rate-domain.ts';
+import { quoteHospitalityCharges } from './hospitality-charge-service.ts';
 import { hospitalityPricingScopeLockKey } from './pricing-lock.ts';
 import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
 
@@ -224,12 +225,47 @@ export async function quoteHospitalityBasePrice(input: {
   };
 }
 
+export async function quoteHospitalityPrice(input: {
+  organizationId: string;
+  actorUserId: string;
+  request: AvailabilityRequestInput;
+}) {
+  const base = await quoteHospitalityBasePrice(input);
+  const adjustments = await quoteHospitalityCharges({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    propertyId: base.propertyId,
+    roomTypeId: base.roomTypeId,
+    ratePlanId: base.ratePlanId,
+    arrivalDate: base.arrivalDate,
+    departureDate: base.departureDate,
+    quantity: base.quantity,
+    currency: base.currency,
+    nightly: base.nightly,
+  });
+  const totalMinor = addMoneyMinor([BigInt(base.accommodationSubtotal.amountMinor), BigInt(adjustments.totalChargesMinor)]);
+  const fingerprintPayload = {
+    currency: base.currency,
+    quantity: base.quantity,
+    nightly: base.nightly,
+    charges: adjustments.charges.map((charge) => ({ id: charge.id, code: charge.code, kind: charge.kind, calculation: charge.calculation, amountMinor: charge.amountMinor })),
+  };
+  return {
+    ...base,
+    taxes: { amountMinor: adjustments.taxTotalMinor, currency: base.currency },
+    fees: { amountMinor: adjustments.feeTotalMinor, currency: base.currency },
+    charges: adjustments.charges,
+    total: { amountMinor: totalMinor.toString(), currency: base.currency },
+    fingerprint: createHash('sha256').update(JSON.stringify(fingerprintPayload)).digest('hex'),
+  };
+}
+
 export async function revalidateHospitalityBasePrice(input: {
   organizationId: string;
   actorUserId: string;
   request: AvailabilityRequestInput;
   expectedFingerprint: string;
 }) {
-  const latest = await quoteHospitalityBasePrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
+  const latest = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request: input.request });
   return { changed: latest.fingerprint !== input.expectedFingerprint.trim().toLowerCase(), latest };
 }

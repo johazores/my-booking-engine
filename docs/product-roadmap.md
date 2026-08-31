@@ -67,19 +67,21 @@ Implemented hospitality foundation:
 - authenticated responsive inventory UI
 - checked-in cross-tenant PostgreSQL integration coverage
 
-Rate plans establish commercial identities only. Restrictions establish date/stay/arrival rules only. Prices, taxes, fees, availability counts, holds, and booking state remain in their later domains.
+Rate plans establish commercial identities only. Restrictions establish date/stay/arrival rules only. Pricing, availability allocation, and booking state remain separate concerns even when they reference the same room type/rate plan scope.
 
 Image management accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and feed the same normalized image records.
 
 Hospitality inventory is now a coherent completed Phase 8 business slice. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model. The next dependency-safe platform work is normalized availability.
 
-## 10. Availability
+## 10. Availability — operational foundation implemented, booking allocation pending
 
-Implement concurrency-safe normalized availability, availability windows, capacity/allocation, holds, expiry, overbooking policy, effective rate restrictions, atomic confirmation, and last-unit concurrency coverage. Hospitality inventory and restriction identities are now stable inputs for this layer.
+Implemented: normalized hospitality availability, physical capacity, capacity windows, effective rate restrictions, temporary holds, expiry semantics, and concurrency-safe last-unit hold allocation. Permanent booking allocations, explicit overbooking policy at confirmation, atomic confirmation, and last-unit booking confirmation tests remain booking-boundary dependencies.
 
-## 11. Pricing
+## 11. Pricing — base rates and taxes/fees implemented
 
-Normalized money/currency, base rates, taxes/fees, add-ons, revalidation, and price-change handling will build on stable hospitality rate-plan identities.
+Implemented: normalized exact money/currency, persisted hospitality base-rate windows, persisted property/scoped percentage and fixed taxes/fees, complete price quotes, deterministic revalidation fingerprints, price-change detection, permission-checked management UI, dependency guards, and checked-in integration coverage.
+
+Remaining same-domain work: add-ons and any real tenant/provider-specific pricing rules. Immutable booking price snapshots belong to the booking transaction rather than browser state.
 
 ## 12. Complete internal booking flow
 
