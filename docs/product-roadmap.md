@@ -55,14 +55,19 @@ Implemented hospitality foundation:
 - physical rooms
 - reusable tenant-owned amenities
 - property and room-type amenity assignment/removal
+- property and room-type hosted-image galleries
+- validated HTTPS media references with required alt text and display ordering
+- transactional primary-image selection with automatic first-image primary behavior
 - tenant-scoped `inventory:read` / `inventory:manage` permissions
 - composite parent/tenant database constraints
 - bounded pagination on current large collections
-- dependency-safe archival and audit events
+- dependency-safe/read-only lifecycle behavior and audit events
 - authenticated responsive inventory UI
 - checked-in cross-tenant PostgreSQL integration coverage
 
-Next hospitality dependency is images, followed by rate plans and restrictions. Images require a deliberate production storage/media boundary rather than a fake upload workflow. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
+Image management intentionally accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and should feed the same normalized image records.
+
+Next hospitality dependencies are rate plans and restrictions. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model.
 
 ## 10. Availability
 
