@@ -12,7 +12,9 @@ Booking-specific traveler/passenger capture, payments, cancellation/modification
 
 `src/server/bookings/hospitality-search-service.ts` is the current provider-independent internal discovery boundary. It requires both `availability:read` and `pricing:read`, derives organization scope server-side, optionally narrows to one tenant-owned property, and scans a bounded set of active room-type/rate-plan assignments.
 
-For each candidate scope, search reuses the canonical availability and complete pricing services. A result is returned only when the requested quantity is sellable after windows, restrictions, live holds, and permanent allocations, and when complete persisted pricing covers the stay. Unavailable or unpriced candidates are omitted rather than represented as bookable inventory. Results are sorted by exact total minor units with deterministic tie-breaking and capped to 25 offers from at most 50 candidate scopes.
+For each candidate scope, search reuses the canonical availability and complete pricing services. A result is returned only when the requested quantity is sellable after windows, restrictions, live holds, and permanent allocations, and when complete persisted pricing covers the stay. Unavailable or unpriced candidates are omitted rather than represented as bookable inventory. Search dates are canonicalized before downstream service calls, candidate evaluation is processed in bounded batches to avoid an unbounded burst of database/service work, and equal-priced offers use stable resource identifiers for deterministic ordering.
+
+The service evaluates at most 50 candidate room/rate scopes per request and returns at most 25 sellable offers. It also returns the total matching scope count plus explicit `scopeLimitReached` and `resultLimitReached` metadata. The authenticated booking UI surfaces those limits instead of silently presenting a partial broad search as exhaustive; staff can narrow by property when the candidate limit is reached.
 
 The authenticated `/bookings` page exposes this as a real search form. Selecting a result preloads the exact offer and stay into the booking desk, but the desk intentionally requires a fresh availability check before the user can hold capacity. Search is discovery, not a reservation guarantee.
 
@@ -74,7 +76,7 @@ Booking reads and writes always carry `organizationId` server-side. Hold, custom
 
 ## Validation coverage
 
-Unit coverage includes normalized booking/search validation. The disposable PostgreSQL booking integration suite covers permission denial, cross-tenant denial, stale-price rollback, immutable server-derived totals, competing confirmation requests for one final held unit, idempotent retry, permanent allocation visibility in availability, bounded listing, and single audit-event persistence.
+Unit coverage includes normalized booking/search validation, including canonical date/quantity handling and invalid calendar/range inputs. The disposable PostgreSQL booking integration suite covers permission denial, cross-tenant denial, stale-price rollback, immutable server-derived totals, competing confirmation requests for one final held unit, idempotent retry, permanent allocation visibility in availability, bounded listing, and single audit-event persistence.
 
 Full execution requires the repository Node 24 runtime and an explicitly disposable PostgreSQL target through the documented local database harness. GitHub Actions are intentionally not part of validation.
 

@@ -7,6 +7,70 @@ import { normalizeHospitalityOfferSearchInput, type HospitalityOfferSearchInput 
 
 const MAX_SEARCH_SCOPES = 50;
 const MAX_SEARCH_RESULTS = 25;
+const SEARCH_BATCH_SIZE = 8;
+
+type SearchScope = Awaited<ReturnType<typeof loadSearchScopes>>['scopes'][number];
+
+async function loadSearchScopes(input: { organizationId: string; propertyId: string | null }) {
+  const where = {
+    organizationId: input.organizationId,
+    ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+    roomType: { is: { status: 'ACTIVE' as const, property: { is: { status: 'ACTIVE' as const } } } },
+    ratePlan: { is: { status: 'ACTIVE' as const, property: { is: { status: 'ACTIVE' as const } } } },
+  };
+  const [totalScopes, scopes] = await Promise.all([
+    db.hospitalityRoomTypeRatePlan.count({ where }),
+    db.hospitalityRoomTypeRatePlan.findMany({
+      where,
+      select: {
+        propertyId: true,
+        roomTypeId: true,
+        ratePlanId: true,
+        roomType: { select: { name: true, code: true, maxOccupancy: true, property: { select: { name: true, code: true, city: true, region: true, countryCode: true } } } },
+        ratePlan: { select: { name: true, code: true, description: true } },
+      },
+      orderBy: [{ propertyId: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
+      take: MAX_SEARCH_SCOPES,
+    }),
+  ]);
+  return { totalScopes, scopes };
+}
+
+async function evaluateScope(input: {
+  scope: SearchScope;
+  organizationId: string;
+  actorUserId: string;
+  arrivalDate: string;
+  departureDate: string;
+  quantity: number;
+  stayNights: number;
+  now?: Date;
+}) {
+  const request = {
+    propertyId: input.scope.propertyId,
+    roomTypeId: input.scope.roomTypeId,
+    ratePlanId: input.scope.ratePlanId,
+    arrivalDate: input.arrivalDate,
+    departureDate: input.departureDate,
+    quantity: input.quantity,
+  };
+  try {
+    const availability = await readHospitalityAvailability({ organizationId: input.organizationId, actorUserId: input.actorUserId, request, now: input.now });
+    if (!availability.available) return null;
+    const quote = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request });
+    return {
+      property: { id: input.scope.propertyId, ...input.scope.roomType.property },
+      roomType: { id: input.scope.roomTypeId, name: input.scope.roomType.name, code: input.scope.roomType.code, maxOccupancy: input.scope.roomType.maxOccupancy },
+      ratePlan: { id: input.scope.ratePlanId, ...input.scope.ratePlan },
+      stay: { arrivalDate: input.arrivalDate, departureDate: input.departureDate, nights: input.stayNights, quantity: input.quantity },
+      capacity: { sellableUnits: availability.capacity.sellableUnits, remainingUnits: availability.capacity.remainingUnits },
+      price: { currency: quote.currency, accommodationSubtotalMinor: quote.accommodationSubtotal.amountMinor, taxTotalMinor: quote.taxes.amountMinor, feeTotalMinor: quote.fees.amountMinor, totalMinor: quote.total.amountMinor, fingerprint: quote.fingerprint },
+    };
+  } catch (error) {
+    if (error instanceof AvailabilityUnavailableError || error instanceof HospitalityPricingUnavailableError) return null;
+    throw error;
+  }
+}
 
 export async function searchHospitalityOffers(input: {
   organizationId: string;
@@ -24,59 +88,40 @@ export async function searchHospitalityOffers(input: {
     requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' }),
   ]);
 
-  const scopes = await db.hospitalityRoomTypeRatePlan.findMany({
-    where: {
+  const { totalScopes, scopes } = await loadSearchScopes({ organizationId: input.organizationId, propertyId: search.propertyId });
+  const candidates = [] as Awaited<ReturnType<typeof evaluateScope>>[];
+  for (let offset = 0; offset < scopes.length; offset += SEARCH_BATCH_SIZE) {
+    const batch = scopes.slice(offset, offset + SEARCH_BATCH_SIZE);
+    candidates.push(...await Promise.all(batch.map((scope) => evaluateScope({
+      scope,
       organizationId: input.organizationId,
-      ...(search.propertyId ? { propertyId: search.propertyId } : {}),
-      roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
-      ratePlan: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
-    },
-    select: {
-      propertyId: true,
-      roomTypeId: true,
-      ratePlanId: true,
-      roomType: { select: { name: true, code: true, maxOccupancy: true, property: { select: { name: true, code: true, city: true, region: true, countryCode: true } } } },
-      ratePlan: { select: { name: true, code: true, description: true } },
-    },
-    orderBy: [{ propertyId: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
-    take: MAX_SEARCH_SCOPES,
-  });
-
-  const candidates = await Promise.all(scopes.map(async (scope) => {
-    const request = {
-      propertyId: scope.propertyId,
-      roomTypeId: scope.roomTypeId,
-      ratePlanId: scope.ratePlanId,
-      arrivalDate: input.search.arrivalDate,
-      departureDate: input.search.departureDate,
+      actorUserId: input.actorUserId,
+      arrivalDate: search.arrivalDate,
+      departureDate: search.departureDate,
       quantity: search.quantity,
-    };
-    try {
-      const availability = await readHospitalityAvailability({ organizationId: input.organizationId, actorUserId: input.actorUserId, request, now: input.now });
-      if (!availability.available) return null;
-      const quote = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request });
-      return {
-        property: { id: scope.propertyId, ...scope.roomType.property },
-        roomType: { id: scope.roomTypeId, name: scope.roomType.name, code: scope.roomType.code, maxOccupancy: scope.roomType.maxOccupancy },
-        ratePlan: { id: scope.ratePlanId, ...scope.ratePlan },
-        stay: { arrivalDate: input.search.arrivalDate, departureDate: input.search.departureDate, nights: search.stayNights, quantity: search.quantity },
-        capacity: { sellableUnits: availability.capacity.sellableUnits, remainingUnits: availability.capacity.remainingUnits },
-        price: { currency: quote.currency, accommodationSubtotalMinor: quote.accommodationSubtotal.amountMinor, taxTotalMinor: quote.taxes.amountMinor, feeTotalMinor: quote.fees.amountMinor, totalMinor: quote.total.amountMinor, fingerprint: quote.fingerprint },
-      };
-    } catch (error) {
-      if (error instanceof AvailabilityUnavailableError || error instanceof HospitalityPricingUnavailableError) return null;
-      throw error;
-    }
-  }));
+      stayNights: search.stayNights,
+      now: input.now,
+    }))));
+  }
 
-  const offers = candidates.filter((offer): offer is NonNullable<typeof offer> => offer !== null);
-  offers.sort((left, right) => {
+  const sellableOffers = candidates.filter((offer): offer is NonNullable<typeof offer> => offer !== null);
+  sellableOffers.sort((left, right) => {
     const leftTotal = BigInt(left.price.totalMinor);
     const rightTotal = BigInt(right.price.totalMinor);
     if (leftTotal < rightTotal) return -1;
     if (leftTotal > rightTotal) return 1;
-    return `${left.property.name}:${left.roomType.name}:${left.ratePlan.name}`.localeCompare(`${right.property.name}:${right.roomType.name}:${right.ratePlan.name}`);
+    const leftKey = `${left.property.id}:${left.roomType.id}:${left.ratePlan.id}`;
+    const rightKey = `${right.property.id}:${right.roomType.id}:${right.ratePlan.id}`;
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
 
-  return { offers: offers.slice(0, MAX_SEARCH_RESULTS), searchedScopes: scopes.length, resultLimit: MAX_SEARCH_RESULTS };
+  return {
+    offers: sellableOffers.slice(0, MAX_SEARCH_RESULTS),
+    searchedScopes: scopes.length,
+    totalScopes,
+    scopeLimit: MAX_SEARCH_SCOPES,
+    scopeLimitReached: totalScopes > scopes.length,
+    resultLimit: MAX_SEARCH_RESULTS,
+    resultLimitReached: sellableOffers.length > MAX_SEARCH_RESULTS,
+  };
 }

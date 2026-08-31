@@ -96,7 +96,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
     <header className="sf-inventory-page__header"><div><p className="sf-eyebrow">Commercial operations</p><h1>Bookings</h1><p>Search real sellable offers, then continue through availability, hold, pricing, customer selection, and atomic confirmation.</p></div><span className="sf-inventory-count">{recentBookings.total} bookings</span></header>
 
     <section className="sf-booking-card" aria-labelledby="offer-search-title">
-      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Search</p><h2 id="offer-search-title">Available hospitality offers</h2></div><span>Up to 25 results</span></div>
+      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Search</p><h2 id="offer-search-title">Available hospitality offers</h2></div><span>{searchResults ? `${searchResults.offers.length} result${searchResults.offers.length === 1 ? '' : 's'}` : 'Up to 25 results'}</span></div>
       <form method="get" className="sf-booking-grid">
         <label className="sf-field">Property<select name="property" defaultValue={query.property ?? ''}><option value="">All active properties</option>{activeProperties.map((property) => <option key={property.id} value={property.id}>{property.name} · {property.code}</option>)}</select></label>
         <label className="sf-field">Arrival<input name="arrival" type="date" defaultValue={query.arrival ?? ''} required /></label>
@@ -105,6 +105,8 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
         <button className="sf-button sf-button--primary" type="submit">Search offers</button>
       </form>
       {searchError ? <p className="sf-alert" role="alert">{searchError}</p> : null}
+      {searchResults?.scopeLimitReached ? <p className="sf-alert" role="status">This organization has {searchResults.totalScopes} active room/rate scopes. Search evaluated the first {searchResults.scopeLimit}; choose a property to narrow the search and avoid a partial result set.</p> : null}
+      {searchResults?.resultLimitReached ? <p className="sf-alert" role="status">More than {searchResults.resultLimit} sellable offers matched. Showing the lowest-priced {searchResults.resultLimit}; narrow the property if you need a smaller result set.</p> : null}
       {searchResults && searchResults.offers.length === 0 ? <div className="sf-empty-state"><h3>No sellable offers</h3><p>No active room and rate-plan combination has both capacity and complete pricing for this stay.</p></div> : null}
       {searchResults && searchResults.offers.length > 0 ? <div className="sf-room-table-wrap"><table className="sf-room-table"><thead><tr><th scope="col">Property</th><th scope="col">Room / rate</th><th scope="col">Availability</th><th scope="col">Total</th><th scope="col">Action</th></tr></thead><tbody>{searchResults.offers.map((offer) => {
         const href = `/bookings?property=${encodeURIComponent(offer.property.id)}&arrival=${encodeURIComponent(offer.stay.arrivalDate)}&departure=${encodeURIComponent(offer.stay.departureDate)}&quantity=${offer.stay.quantity}&roomType=${encodeURIComponent(offer.roomType.id)}&ratePlan=${encodeURIComponent(offer.ratePlan.id)}`;
