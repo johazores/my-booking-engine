@@ -13,19 +13,20 @@ enum PaymentTransactionStatus {
 }
 
 model PaymentTransaction {
-  id                String                   @id @default(uuid()) @db.Uuid
-  organizationId    String                   @db.Uuid
-  bookingId         String                   @db.Uuid
-  idempotencyKey    String                   @db.VarChar(120)
-  kind              PaymentTransactionKind
-  status            PaymentTransactionStatus
-  providerCode      String                   @db.VarChar(40)
-  providerReference String                   @db.VarChar(160)
-  currency          String                   @db.Char(3)
-  amountMinor       BigInt                   @db.BigInt
-  createdAt         DateTime                 @default(now()) @db.Timestamptz(6)
-  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, map: "payment_transactions_organization_fkey")
-  booking           HospitalityBooking       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "payment_transactions_booking_fkey")
+  id                 String                   @id @default(uuid()) @db.Uuid
+  organizationId     String                   @db.Uuid
+  bookingId          String                   @db.Uuid
+  idempotencyKey     String                   @db.VarChar(120)
+  requestFingerprint String?                  @db.Char(64)
+  kind               PaymentTransactionKind
+  status             PaymentTransactionStatus
+  providerCode       String                   @db.VarChar(40)
+  providerReference  String                   @db.VarChar(160)
+  currency           String                   @db.Char(3)
+  amountMinor        BigInt                   @db.BigInt
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(6)
+  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, map: "payment_transactions_organization_fkey")
+  booking            HospitalityBooking       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "payment_transactions_booking_fkey")
 
   @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
   @@unique([organizationId, providerCode, providerReference, kind], map: "payment_transactions_org_provider_reference_kind_key")
