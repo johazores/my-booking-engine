@@ -6,12 +6,10 @@ import { useState } from 'react';
 type BookingCancelActionProps = {
   bookingId: string;
   bookingStatus: string;
-  paymentStatus: string;
+  paymentBlockReason: string | null;
 };
 
-const cancellablePaymentStatuses = new Set(['UNPAID', 'FAILED', 'REFUNDED']);
-
-export function BookingCancelAction({ bookingId, bookingStatus, paymentStatus }: BookingCancelActionProps) {
+export function BookingCancelAction({ bookingId, bookingStatus, paymentBlockReason }: BookingCancelActionProps) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -21,8 +19,8 @@ export function BookingCancelAction({ bookingId, bookingStatus, paymentStatus }:
     return <div className="sf-empty-state"><h3>Booking cancelled</h3><p>This reservation no longer consumes sellable inventory.</p></div>;
   }
 
-  if (!cancellablePaymentStatuses.has(paymentStatus)) {
-    return <div className="sf-empty-state"><h3>Cancellation requires payment resolution</h3><p>Complete the required payment release or refund before cancelling this booking.</p></div>;
+  if (paymentBlockReason) {
+    return <div className="sf-empty-state"><h3>Cancellation requires payment resolution</h3><p>{paymentBlockReason}</p></div>;
   }
 
   async function cancelBooking() {
