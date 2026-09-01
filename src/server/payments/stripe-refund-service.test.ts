@@ -7,13 +7,14 @@ const {
   nextStripeRefundBookingPaymentStatus,
   normalizeStripeRefundAmount,
   stripeRefundPersistenceStatus,
+  stripeRefundRequestFingerprint,
 } = await import('./stripe-refund-service.ts');
 
 test('Stripe refund amount parsing is exact and rejects unsafe values', () => {
   assert.equal(normalizeStripeRefundAmount(undefined), null);
   assert.equal(normalizeStripeRefundAmount('4100'), 4100n);
   assert.equal(normalizeStripeRefundAmount(4100n), 4100n);
-  assert.throws(() => normalizeStripeRefundAmount('0'), /greater than zero/i);
+  assert.throws(() => normalizeStripeRefundAmount('0'), /positive integer/i);
   assert.throws(() => normalizeStripeRefundAmount('-1'), /positive integer/i);
   assert.throws(() => normalizeStripeRefundAmount(4100), /positive integer/i);
 });
@@ -31,4 +32,13 @@ test('Stripe refund balance maps partial and full refunds without over-refunding
     () => nextStripeRefundBookingPaymentStatus({ sourceAmountMinor: 10000n, refundedBeforeMinor: 2500n, refundAmountMinor: 7501n }),
     /exceeds the remaining refundable balance/i,
   );
+});
+
+test('Stripe refund fingerprint distinguishes explicit amount from refund-remaining intent', () => {
+  const base = { bookingId: 'booking-1', currency: 'USD', amountMinor: 4100n, sourceProviderReference: 'pi_source_1' } as const;
+  const explicit = stripeRefundRequestFingerprint({ ...base, mode: 'explicit' });
+  const remaining = stripeRefundRequestFingerprint({ ...base, mode: 'remaining' });
+  assert.match(explicit, /^[0-9a-f]{64}$/);
+  assert.equal(explicit, stripeRefundRequestFingerprint({ ...base, mode: 'explicit' }));
+  assert.notEqual(explicit, remaining);
 });
