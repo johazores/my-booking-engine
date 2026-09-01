@@ -326,22 +326,26 @@
     bottom: 12px;
     left: 12px;
     z-index: 30;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: flex;
     gap: 6px;
+    overflow-x: auto;
     border: 1px solid var(--sf-border);
     border-radius: 16px;
     background: color-mix(in srgb, var(--sf-surface) 96%, transparent);
     padding: 6px;
     box-shadow: var(--sf-shadow);
     backdrop-filter: blur(16px);
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
   }
 
   .sf-app-mobile-nav__link {
-    min-height: 48px;
     display: grid;
+    min-width: max-content;
+    min-height: 48px;
+    flex: 0 0 auto;
     place-items: center;
-    padding: 8px 8px;
+    padding: 8px 12px;
     text-align: center;
   }
 }

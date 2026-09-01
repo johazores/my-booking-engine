@@ -2,25 +2,13 @@ import { NextResponse } from 'next/server';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
-import { listIntegrations, saveIntegration } from '@/server/integrations/integration-service.ts';
+import { saveIntegration } from '@/server/integrations/integration-service.ts';
+import { normalizeStripeIntegrationConfiguration, StripeIntegrationConfigurationError } from '@/server/integrations/stripe-integration.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 function field(formData: FormData, name: string) {
   const value = formData.get(name);
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function stripeConfiguration(formData: FormData) {
-  const secretKey = field(formData, 'secretKey');
-  const webhookSecret = field(formData, 'webhookSecret');
-  if (!secretKey.startsWith('sk_') || secretKey.length < 12) throw new Error('Stripe secret key is invalid.');
-  if (webhookSecret && !webhookSecret.startsWith('whsec_')) throw new Error('Stripe webhook secret is invalid.');
-  return {
-    credentials: webhookSecret ? { secretKey, webhookSecret } : { secretKey },
-    capabilities: webhookSecret
-      ? ['payment-authorize', 'payment-capture', 'payment-refund', 'webhooks']
-      : ['payment-authorize', 'payment-capture', 'payment-refund'],
-  };
+  return typeof value === 'string' ? value : '';
 }
 
 export async function POST(request: Request) {
@@ -34,9 +22,10 @@ export async function POST(request: Request) {
 
   try {
     const formData = await request.formData();
-    const configuration = stripeConfiguration(formData);
-    const existing = await listIntegrations({ organizationId: activeContext.organization.id, actorUserId: session.user.id });
-    const rotating = existing.some((integration) => integration.providerCode === 'stripe');
+    const configuration = normalizeStripeIntegrationConfiguration({
+      secretKey: field(formData, 'secretKey'),
+      webhookSecret: field(formData, 'webhookSecret'),
+    });
     await saveIntegration({
       organizationId: activeContext.organization.id,
       actorUserId: session.user.id,
@@ -45,9 +34,13 @@ export async function POST(request: Request) {
       capabilities: configuration.capabilities,
       credentials: configuration.credentials,
     });
-    return NextResponse.redirect(new URL(`/integrations?status=${rotating ? 'rotated' : 'configured'}`, request.url), 303);
+    return NextResponse.redirect(new URL('/integrations?status=saved', request.url), 303);
   } catch (error) {
-    const code = error instanceof OrganizationPermissionDeniedError ? 'permission' : error instanceof Error && /Stripe|credential|capabilit|display name|provider code/i.test(error.message) ? 'validation' : 'server';
+    const code = error instanceof OrganizationPermissionDeniedError
+      ? 'permission'
+      : error instanceof StripeIntegrationConfigurationError
+        ? 'validation'
+        : 'server';
     return NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303);
   }
 }

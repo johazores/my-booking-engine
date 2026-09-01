@@ -16,8 +16,7 @@ const errors: Record<string, string> = {
 };
 
 const statuses: Record<string, string> = {
-  configured: 'Stripe integration configured. Stored credentials are encrypted and are not shown again.',
-  rotated: 'Stripe credentials rotated and the integration is active.',
+  saved: 'Stripe credentials saved securely and the integration is active.',
   enabled: 'Integration enabled without rotating stored credentials.',
   disabled: 'Integration disabled. Stored credentials were preserved.',
 };
@@ -95,7 +94,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
               <h2 id="stripe-integration-title">Stripe</h2>
               <span className={`sf-integration-status sf-integration-status--${stripe?.status === 'ACTIVE' ? 'active' : 'inactive'}`}>{stripe?.status ?? 'Not configured'}</span>
             </div>
-            <p>Online payment authorization, capture, refunds and verified webhook processing through the existing Stripe adapter.</p>
+            <p>Online payment authorization, capture and refunds, with verified webhook processing when a signing secret is configured.</p>
           </div>
           {stripe ? <span className="sf-integration-card__version">Credential version {stripe.credentialVersion}</span> : null}
         </div>
