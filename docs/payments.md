@@ -13,9 +13,23 @@ SF keeps booking state and payment state separate. Provider-specific behavior st
 - `REFUND`
 - `WEBHOOKS`
 
-The contract uses exact integer minor-unit money, strict idempotency keys, organization-owned booking context, normalized provider statuses/failures, and capability checks. Provider implementations must not leak provider-specific response models into booking code.
+The contract uses exact integer minor-unit money, strict idempotency keys, organization-owned booking context, normalized provider statuses/failures, and capability checks. Provider implementations must not leak provider-specific response models into booking code. Online authorization accepts only a provider-issued payment-method reference; SF never accepts raw card data through this server contract.
 
 `ManualPaymentProvider` is a real offline-payment recording adapter. It does not process cards, contact an external gateway, pretend to authorize funds, or advertise unsupported online capabilities. It supports recording staff-confirmed external/offline payments and refunds only after those money movements have happened outside SF.
+
+## Stripe adapter foundation
+
+`StripePaymentProvider` is the first real online provider adapter. It talks to Stripe's HTTPS API without adding provider models to the booking domain and deliberately is not wired to a fake checkout page.
+
+- Secrets are constructor-injected and are never read from browser input, persisted by the adapter, or logged.
+- Authorization creates and confirms a Stripe PaymentIntent with `capture_method=manual`, the authoritative integer minor-unit amount, normalized currency, a provider-issued payment-method reference, SF organization/booking metadata, and the normalized SF idempotency key in Stripe's `Idempotency-Key` header.
+- Capture operates on the exact PaymentIntent reference and exact authoritative amount.
+- Refunds use the PaymentIntent reference, exact minor-unit amount, tenant/booking metadata, and a distinct idempotency key.
+- Stripe `requires_capture`, `succeeded`, and `canceled` statuses normalize to SF `AUTHORIZED`, `PAID`, and `FAILED`; intermediate states remain `PENDING` until a verified provider result resolves them.
+- HTTP/auth/rate-limit/card/provider failures normalize to the shared failure taxonomy. Timeouts and transport failures are retryable/ambiguous and must not be treated as proof that money did or did not move.
+- Webhook verification uses the raw request payload, `Stripe-Signature` timestamp plus `v1` HMAC-SHA256 signatures, timing-safe comparison, and a bounded timestamp tolerance. Signature verification exists at the adapter boundary; webhook ingestion/persistence is intentionally still pending.
+
+The adapter does not own tenant credential persistence. Per-tenant encrypted integration credentials belong to the later integration framework; until that exists, no production Stripe secret is committed or stored by SF.
 
 ## Persisted transaction ledger
 
@@ -71,6 +85,8 @@ The current manual workflow assumes the existing single successful manual paymen
 
 BigInt monetary values are serialized as decimal strings at the HTTP boundary.
 
+There is intentionally no Stripe checkout/payment API route yet. The adapter foundation must first be connected to encrypted tenant integration configuration and a customer-owned/public payment boundary before any online payment endpoint is production-safe.
+
 ## Permissions
 
 - Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`.
@@ -81,10 +97,10 @@ A future customer payment journey must introduce its own ownership/self-service 
 
 ## Validation and future providers
 
-The payment unit suite covers exact money, malformed inputs, capability enforcement, manual payment normalization, manual refund normalization, and rejection of a refund reference that duplicates the source payment reference.
+The payment unit suite covers exact money, malformed inputs, capability enforcement, manual payment normalization, manual refund normalization, and rejection of a refund reference that duplicates the source payment reference. Stripe adapter unit coverage verifies manual-capture authorization request construction, exact capture/refund requests, idempotency headers, normalized decline/rate-limit handling, provider money mismatch rejection, reference validation, and raw-payload webhook signature/timestamp verification without contacting Stripe.
 
 The checked-in disposable PostgreSQL payment suite covers payment permission enforcement, cross-tenant denial, immutable booking totals, successful payment state transition, exact retry behavior, changed-retry rejection, transaction history, audit minimization, and the composite tenant/booking foreign key. It also covers manual refund permission and tenant isolation, over-refund rejection, partial and full refund state transitions, exact refund retry, changed-retry rejection, duplicate refund references, post-full-refund rejection, refund ledger history, and refund audit-reference minimization.
 
 Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
 
-Stripe, PayPal, online authorization/capture, provider-executed refunds, webhook ingestion, ambiguous-result reconciliation, receipts/invoices, and customer-facing online payment UI are not implemented yet. When a real online provider is added, it must implement this adapter contract, verify signed webhooks where supported, persist provider references, make every write idempotent, treat timeout/unknown outcomes as ambiguous until reconciled, and never treat a browser success redirect as proof of payment.
+Stripe application-service persistence, customer-facing payment collection, webhook ingestion, ambiguous-result reconciliation, receipts/invoices, and encrypted tenant Stripe credential management are not implemented yet. PayPal is also pending. When an online workflow is connected, it must persist provider references, keep every write idempotent, reconcile timeout/unknown outcomes from verified provider state, and never treat a browser success redirect as proof of payment.

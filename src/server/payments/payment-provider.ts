@@ -38,6 +38,17 @@ export type PaymentOperationContext = Readonly<{
   money: PaymentMoney;
 }>;
 
+export type PaymentAuthorizationInput = PaymentOperationContext & Readonly<{
+  paymentMethodReference: string;
+}>;
+
+export type PaymentWebhookVerificationInput = Readonly<{
+  payload: string;
+  signature: string;
+  secret: string;
+  now?: Date;
+}>;
+
 export type ProviderPaymentResult = Readonly<{
   providerCode: string;
   providerReference: string;
@@ -58,9 +69,10 @@ export interface PaymentProviderAdapter {
   readonly capabilities: ReadonlySet<PaymentProviderCapability>;
   recordOfflinePayment?(input: PaymentOperationContext & { reference: string }): Promise<ProviderPaymentResult>;
   recordOfflineRefund?(input: PaymentOperationContext & { paymentReference: string; refundReference: string }): Promise<ProviderRefundResult>;
-  authorizePayment?(input: PaymentOperationContext): Promise<ProviderPaymentResult>;
+  authorizePayment?(input: PaymentAuthorizationInput): Promise<ProviderPaymentResult>;
   capturePayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult>;
   refundPayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult>;
+  verifyWebhookSignature?(input: PaymentWebhookVerificationInput): boolean;
 }
 
 export class PaymentProviderError extends Error {
