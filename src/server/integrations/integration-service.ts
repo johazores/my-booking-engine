@@ -99,6 +99,49 @@ export async function listIntegrations(input: { organizationId: string; actorUse
   return integrations.map(publicIntegrationRecord);
 }
 
+export async function enableIntegration(input: {
+  organizationId: string;
+  actorUserId: string;
+  integrationId: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.integrationId, 'integrationId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'integration:manage',
+  });
+
+  return db.$transaction(async (transaction) => {
+    const existing = await transaction.integration.findFirst({
+      where: { id: input.integrationId, organizationId: input.organizationId },
+    });
+    if (!existing) throw new IntegrationUnavailableError();
+    const integration = existing.status === 'ACTIVE'
+      ? existing
+      : await transaction.integration.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
+
+    if (existing.status !== 'ACTIVE') {
+      await transaction.auditEvent.create({
+        data: {
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: 'integration.enabled',
+          resourceType: 'integration',
+          resourceId: integration.id,
+          afterData: {
+            providerCode: integration.providerCode,
+            status: integration.status,
+            credentialVersion: integration.credentialVersion,
+          },
+        },
+      });
+    }
+    return publicIntegrationRecord(integration);
+  });
+}
+
 export async function disableIntegration(input: {
   organizationId: string;
   actorUserId: string;
