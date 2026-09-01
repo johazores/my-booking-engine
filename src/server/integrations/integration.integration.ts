@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Integration persistence tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-process.env.SF_INTEGRATION_MASTER_KEY ??= Buffer.alloc(32, 17).toString('base64url');
+process.env.SF_INTEGRATION_MASTER_KEY = Buffer.alloc(32, 17).toString('base64url');
 
 test('tenant integrations enforce database ownership, authorization, lifecycle, and secret-safe reads', async () => {
   const [{ db }, integrations] = await Promise.all([
