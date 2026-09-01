@@ -12,6 +12,10 @@ const errors: Record<string, string> = {
   permission: 'You do not have permission to manage integrations.',
   validation: 'Check the provider credentials and try again.',
   unavailable: 'That integration is not available in this organization.',
+  'health-auth': 'Stripe rejected the stored credentials. Rotate the secret key before using online payments.',
+  'health-rate-limit': 'Stripe rate-limited the connection test. The stored credentials were not changed; try again later.',
+  'health-unavailable': 'Stripe could not be reached for a definitive connection test. The stored credentials were not changed.',
+  'health-invalid': 'Stripe returned an unexpected response to the connection test. The stored credentials were not changed.',
   server: 'The integration change could not be saved. Try again.',
 };
 
@@ -19,6 +23,7 @@ const statuses: Record<string, string> = {
   saved: 'Stripe credentials saved securely and the integration is active.',
   enabled: 'Integration enabled without rotating stored credentials.',
   disabled: 'Integration disabled. Stored credentials were preserved.',
+  'health-ok': 'Stripe connection test passed. The stored secret key authenticated successfully.',
 };
 
 const capabilityLabels: Record<string, string> = {
@@ -111,19 +116,24 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <div className="sf-integration-readonly"><strong>Read only</strong><span>An organization administrator must configure credentials or change provider status.</span></div>
         ) : (
           <>
-            <div className="sf-integration-lifecycle" aria-label="Stripe lifecycle controls">
+            <div className="sf-integration-lifecycle" aria-label="Stripe lifecycle and connection controls">
               {stripe?.status === 'ACTIVE' ? (
-                <form action={`/api/integrations/${stripe.id}/status`} method="post">
-                  <input type="hidden" name="action" value="disable" />
-                  <button className="sf-button sf-button--secondary" type="submit">Disable Stripe</button>
-                </form>
+                <>
+                  <form action="/api/integrations/stripe/test" method="post">
+                    <button className="sf-button sf-button--secondary" type="submit">Test Stripe connection</button>
+                  </form>
+                  <form action={`/api/integrations/${stripe.id}/status`} method="post">
+                    <input type="hidden" name="action" value="disable" />
+                    <button className="sf-button sf-button--secondary" type="submit">Disable Stripe</button>
+                  </form>
+                </>
               ) : stripe ? (
                 <form action={`/api/integrations/${stripe.id}/status`} method="post">
                   <input type="hidden" name="action" value="enable" />
                   <button className="sf-button sf-button--primary" type="submit">Enable existing configuration</button>
                 </form>
               ) : null}
-              {stripe ? <p>Enable/disable preserves encrypted credentials. Saving credentials below is a separate rotation operation.</p> : null}
+              {stripe ? <p>Connection tests make a read-only authenticated Stripe API request and never display account balances. Enable/disable preserves encrypted credentials; saving credentials below is a separate rotation operation.</p> : null}
             </div>
 
             <form className="sf-integration-form" action="/api/integrations/stripe" method="post">

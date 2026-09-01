@@ -31,7 +31,7 @@ Integration records advertise only capabilities they actually support. The curre
 
 Credential plaintext is normalized and encrypted with AES-256-GCM before persistence. The envelope stores only version, IV, authentication tag, and ciphertext. The 32-byte master key comes exclusively from the deployment environment as `SF_INTEGRATION_MASTER_KEY`; it is never stored in an integration row. Credential reads returned to management callers intentionally omit both ciphertext and plaintext.
 
-Only organization `ADMIN` currently receives `integration:manage`. `MANAGER` receives `integration:read`; staff and customers receive neither permission. Configuration, credential rotation, enabling, and disabling are audited without secret values.
+Only organization `ADMIN` currently receives `integration:manage`. `MANAGER` receives `integration:read`; staff and customers receive neither permission. Configuration, credential rotation, enabling, disabling, and explicit connection tests are audited without secret values.
 
 Integration ownership is represented at both application and database layers. Prisma declares the `Integration.organization` / `Organization.integrations` relation, and migration `20260902033000_integration-organization-ownership` adds a restrictive foreign key from `integrations.organizationId` to `organizations.id`. Application reads and writes still scope by `organizationId`; the foreign key is an additional integrity boundary, not a replacement for server authorization.
 
@@ -47,9 +47,17 @@ Both enable and disable are idempotent. Repeating an operation when the record i
 
 `loadStripePaymentIntegration` resolves the active organization-scoped `stripe` integration, decrypts credentials only on the server, validates required credential names, and constructs `StripePaymentProvider`. This removes the need for committed/global Stripe secrets and gives the payment application layer a tenant-safe provider resolver without creating a fake checkout flow.
 
-The authenticated `/integrations` management surface now provides a Stripe-specific configuration form instead of a generic provider form. It never pre-fills or returns stored credentials. Saving the form replaces the complete encrypted Stripe credential set and activates the integration; lifecycle enable/disable remains a separate operation that does not rotate credentials. Webhook capability is only persisted when a webhook signing secret is supplied, so tenant configuration does not advertise verified webhook readiness when that secret is absent.
+The authenticated `/integrations` management surface provides a Stripe-specific configuration form instead of a generic provider form. It never pre-fills or returns stored credentials. Saving the form replaces the complete encrypted Stripe credential set and activates the integration; lifecycle enable/disable remains a separate operation that does not rotate credentials. Webhook capability is only persisted when a webhook signing secret is supplied, so tenant configuration does not advertise verified webhook readiness when that secret is absent.
 
-Read-only managers can inspect safe provider metadata, status, credential version, update time, and capabilities, but they cannot submit credential or lifecycle mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
+Read-only managers can inspect safe provider metadata, status, credential version, update time, and capabilities, but they cannot submit credential, lifecycle, or provider-test mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
+
+### Stripe connection testing
+
+Organization administrators can explicitly test an active Stripe configuration from `/integrations`. The server revalidates `integration:manage`, resolves the active tenant-owned Stripe record, decrypts the secret key only after authorization, and performs Stripe's documented read-only `GET /v1/balance` request using that stored key. The response body is used only to verify that a successful response is a Stripe `balance` object; SF never returns or displays account balances, currencies, livemode metadata, provider error bodies, or credentials from this operation.
+
+Connection results are normalized to `HEALTHY`, `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, or `INVALID_RESPONSE`. Network/timeout/provider failures are intentionally separated from invalid credentials so operators are not told to rotate a key when Stripe is merely unavailable. Disabled integrations cannot be tested through the active-credential boundary; they must be explicitly re-enabled first.
+
+Every explicit connection test writes a PII/secret-free `integration.connection-tested` audit event containing only provider code, normalized result, and credential version. A passing connection test proves that the stored secret key authenticated for that read-only Stripe API call at test time; it does not prove webhook delivery, payment capture, refund settlement, account compliance, or future provider availability.
 
 ## Failure model
 
@@ -61,6 +69,8 @@ The guarded disposable-PostgreSQL suite includes integration persistence coverag
 
 The schema relation, foreign-key migration, and integration test are checked in, but live database validation must not be claimed until `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target. That command performs Prisma validation, migration deployment/status/drift checks, and then executes the integration suite with the other persistence tests. GitHub Actions are intentionally not part of this process.
 
+The Stripe connection probe has focused dependency-level coverage for its exact read-only request, successful response normalization, authentication failure, rate limiting, provider outage, malformed success payload, and network failure. The authenticated application-service/audit path still depends on the repository's database-backed integration suite for end-to-end persistence verification.
+
 ## Remaining management surface
 
-The production management surface now covers tenant-scoped listing, Stripe-specific initial configuration/credential rotation, and enable/disable lifecycle control while preserving the no-secret-return boundary. Explicit provider health/test operations and a safe remove/archive policy remain open. Additional provider-specific configuration forms must be added only alongside real adapters and capability contracts.
+The production management surface now covers tenant-scoped listing, Stripe-specific initial configuration/credential rotation, enable/disable lifecycle control, and an explicit Stripe connection test with normalized failure handling. A safe remove/archive policy remains open. Additional provider-specific configuration and health/test operations must be added only alongside real adapters and capability contracts.
