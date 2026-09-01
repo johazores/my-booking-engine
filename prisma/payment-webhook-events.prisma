@@ -1,0 +1,26 @@
+enum PaymentWebhookEventStatus {
+  PROCESSED
+  IGNORED
+}
+
+model PaymentWebhookEvent {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  organizationId        String                    @db.Uuid
+  providerCode          String                    @db.VarChar(40)
+  providerEventId       String                    @db.VarChar(160)
+  eventType             String                    @db.VarChar(120)
+  payloadHash           String                    @db.Char(64)
+  providerReference     String?                   @db.VarChar(160)
+  bookingId             String?                   @db.Uuid
+  status                PaymentWebhookEventStatus
+  processingNote        String                    @db.VarChar(80)
+  providerCreatedAt     DateTime                  @db.Timestamptz(6)
+  receivedAt            DateTime                  @default(now()) @db.Timestamptz(6)
+  processedAt           DateTime                  @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, providerCode, providerEventId], map: "payment_webhook_events_org_provider_event_key")
+  @@index([organizationId, bookingId, receivedAt], map: "payment_webhook_events_booking_received_idx")
+  @@index([organizationId, providerCode, providerReference], map: "payment_webhook_events_provider_reference_idx")
+  @@index([organizationId, status, receivedAt], map: "payment_webhook_events_status_received_idx")
+  @@map("payment_webhook_events")
+}
