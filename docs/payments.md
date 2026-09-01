@@ -42,7 +42,9 @@ The adapter does not own tenant credential persistence. Per-tenant encrypted int
 - exact currency and integer minor-unit amount;
 - creation time.
 
-The migration enforces a composite `(bookingId, organizationId)` foreign key to `hospitality_bookings`, so a transaction cannot be attached to another tenant's booking even if application scoping regresses. Provider references are unique per organization/provider to prevent the same external receipt/reference being recorded twice.
+The migration enforces a composite `(bookingId, organizationId)` foreign key to `hospitality_bookings`, so a transaction cannot be attached to another tenant's booking even if application scoping regresses.
+
+Provider-reference uniqueness is lifecycle-aware: `(organizationId, providerCode, providerReference, kind)` is unique, with a separate non-unique lookup index on `(organizationId, providerCode, providerReference)`. This allows one external provider object such as a Stripe PaymentIntent to legitimately appear once as an `AUTHORIZATION` and once as a `CAPTURE` while still preventing duplicate persistence of the same lifecycle operation. Application services must continue validating provider-reference reuse across incompatible bookings and operation types before writes.
 
 Booking guest persistence has the same database ownership protection: `hospitality_booking_guests(bookingId, organizationId)` references the tenant-owned booking key.
 
@@ -69,7 +71,7 @@ Booking guest persistence has the same database ownership protection: `hospitali
 - A successful manual payment must exist in the same tenant and booking.
 - Existing successful refund ledger entries are summed inside the booking lock to derive the remaining refundable balance.
 - `amountMinor` is optional. When omitted, SF records the full remaining refundable balance. When supplied, it must be an exact positive integer minor-unit string and cannot exceed the remaining balance.
-- The refund reference is normalized, unique per organization/provider, and must differ from the original payment reference.
+- The refund reference is normalized, unique per organization/provider/refund lifecycle, and must differ from the original payment reference.
 - Idempotency, booking, and manual-reference scopes are serialized in one PostgreSQL transaction.
 - Partial refunds move the booking to `PARTIALLY_REFUNDED`; exhausting the paid amount moves it to `REFUNDED`.
 - The refund ledger write, booking payment-state transition, and safe audit event commit atomically.
@@ -100,6 +102,8 @@ A future customer payment journey must introduce its own ownership/self-service 
 The payment unit suite covers exact money, malformed inputs, capability enforcement, manual payment normalization, manual refund normalization, and rejection of a refund reference that duplicates the source payment reference. Stripe adapter unit coverage verifies manual-capture authorization request construction, exact capture/refund requests, idempotency headers, normalized decline/rate-limit handling, provider money mismatch rejection, reference validation, and raw-payload webhook signature/timestamp verification without contacting Stripe.
 
 The checked-in disposable PostgreSQL payment suite covers payment permission enforcement, cross-tenant denial, immutable booking totals, successful payment state transition, exact retry behavior, changed-retry rejection, transaction history, audit minimization, and the composite tenant/booking foreign key. It also covers manual refund permission and tenant isolation, over-refund rejection, partial and full refund state transitions, exact refund retry, changed-retry rejection, duplicate refund references, post-full-refund rejection, refund ledger history, and refund audit-reference minimization.
+
+The provider-reference lifecycle migration must also be exercised against the disposable PostgreSQL target before claiming live database verification; its purpose is to preserve same-kind deduplication while permitting Stripe authorization and capture ledger rows to share their PaymentIntent reference.
 
 Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
 
