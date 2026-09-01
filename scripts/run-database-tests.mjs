@@ -37,6 +37,7 @@ run(process.execPath, [
   'src/server/organizations/organization-management.integration.ts',
   'src/server/branding/branding.integration.ts',
   'src/server/customers/customer.integration.ts',
+  'src/server/integrations/integration.integration.ts',
   'src/server/inventory/hospitality.integration.ts',
   'src/server/inventory/hospitality-rate-plan.integration.ts',
   'src/server/inventory/hospitality-restriction.integration.ts',

@@ -27,13 +27,13 @@ Integration records advertise only capabilities they actually support. The curre
 
 ## Tenant configuration
 
-`Integration` is now the tenant-owned configuration boundary. Each record stores organization scope, provider code, display name, enabled/disabled status, normalized capabilities, an encrypted credential envelope, and a monotonically increasing credential version. Provider code is unique per organization in the current foundation, so one active configuration exists per provider/tenant until a concrete multi-account requirement justifies a broader key model.
+`Integration` is the tenant-owned configuration boundary. Each record stores organization scope, provider code, display name, enabled/disabled status, normalized capabilities, an encrypted credential envelope, and a monotonically increasing credential version. Provider code is unique per organization in the current foundation, so one active configuration exists per provider/tenant until a concrete multi-account requirement justifies a broader key model.
 
 Credential plaintext is normalized and encrypted with AES-256-GCM before persistence. The envelope stores only version, IV, authentication tag, and ciphertext. The 32-byte master key comes exclusively from the deployment environment as `SF_INTEGRATION_MASTER_KEY`; it is never stored in an integration row. Credential reads returned to management callers intentionally omit both ciphertext and plaintext.
 
 Only organization `ADMIN` currently receives `integration:manage`. `MANAGER` receives `integration:read`; staff and customers receive neither permission. Configuration, credential rotation, and disabling are audited without secret values.
 
-The database model currently keeps `organizationId` as an indexed tenant scalar and every application read/write scopes by it. A Prisma-declared organization relation/database FK should be added when the root organization schema can be updated in the same validated migration pass; do not claim that database-level FK exists yet.
+Integration ownership is now represented at both application and database layers. Prisma declares the `Integration.organization` / `Organization.integrations` relation, and migration `20260902033000_integration-organization-ownership` adds a restrictive foreign key from `integrations.organizationId` to `organizations.id`. Application reads and writes still scope by `organizationId`; the foreign key is an additional integrity boundary, not a replacement for server authorization.
 
 ## Stripe wiring
 
@@ -43,8 +43,12 @@ The database model currently keeps `organizationId` as an indexed tenant scalar 
 
 Adapters classify timeouts, authentication errors, rate limits, invalid requests, supplier outages, price changes, availability changes, partial failures, and duplicate callbacks into safe application-level errors. Integration configuration failures remain distinct from provider runtime failures.
 
-## Validation
+## Persistence verification
 
-Focused unit tests cover authenticated encryption, tamper rejection, deployment master-key parsing, credential-shape limits, normalized capability/provider metadata, and ensuring public integration records cannot expose the encrypted credential field. The integration test glob is part of `npm test`.
+The guarded disposable-PostgreSQL suite includes integration persistence coverage. It verifies management permission denial, manager read-only access, Tenant A/Tenant B isolation, cross-tenant mutation denial, credential rotation, disable/load behavior, secret-free public records and audit payloads, and rejection of an integration row whose `organizationId` has no parent organization.
 
-The new schema/migration still requires `npm run prisma:validate`, migration deployment/drift checks, and disposable PostgreSQL execution before database validation can be claimed.
+The schema relation, foreign-key migration, and integration test are checked in, but live database validation must not be claimed until `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target. That command performs Prisma validation, migration deployment/status/drift checks, and then executes the integration suite with the other persistence tests. GitHub Actions are intentionally not part of this process.
+
+## Remaining management surface
+
+The server foundation supports configuration/credential rotation, tenant-scoped listing, disabling, and active credential loading. A production management UI, explicit health/test operations, provider-specific configuration forms, re-enable semantics that do not require credential rotation, and a safe remove/archive policy remain separate work. Stored secrets must never be returned to those interfaces.

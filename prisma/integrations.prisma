@@ -14,6 +14,7 @@ model Integration {
   credentialVersion    Int               @default(1)
   createdAt            DateTime          @default(now()) @db.Timestamptz(6)
   updatedAt            DateTime          @updatedAt @db.Timestamptz(6)
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict, map: "integrations_organization_fkey")
 
   @@unique([organizationId, providerCode])
   @@unique([id, organizationId])

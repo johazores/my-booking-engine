@@ -141,6 +141,7 @@ model Organization {
   hospitalityAddons               HospitalityAddon[]
   hospitalityBookings             HospitalityBooking[]
   paymentTransactions             PaymentTransaction[]
+  integrations                    Integration[]
   auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
