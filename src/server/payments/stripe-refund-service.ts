@@ -31,6 +31,17 @@ type ExistingRefund = {
   requestFingerprint: string | null;
 };
 
+export type StripeRefundSourceCandidate = Readonly<{
+  id: string;
+  bookingId: string;
+  kind: string;
+  status: string;
+  providerCode: string;
+  providerReference: string;
+  currency: string;
+  amountMinor: bigint;
+}>;
+
 function lockKey(organizationId: string, scope: string, value: string) {
   return `payment:${organizationId}:${scope}:${value}`;
 }
@@ -75,6 +86,27 @@ export function nextStripeRefundBookingPaymentStatus(input: {
   const total = input.refundedBeforeMinor + input.refundAmountMinor;
   if (total > input.sourceAmountMinor) throw new PaymentConflictError('Refund amount exceeds the remaining refundable balance.');
   return total === input.sourceAmountMinor ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+}
+
+export function selectStripeRefundSource(
+  candidates: readonly StripeRefundSourceCandidate[],
+  options: { allowAuthorizationFallback: boolean },
+): StripeRefundSourceCandidate | null {
+  const eligible = candidates.filter((candidate) => (
+    candidate.providerCode === PROVIDER
+    && candidate.status === 'SUCCEEDED'
+    && !isInternalPaymentClaimReference(candidate.providerReference)
+  ));
+  const captures = eligible.filter((candidate) => candidate.kind === 'CAPTURE');
+  if (captures.length > 1) throw new PaymentConflictError('Stripe refund source matches multiple successful captures.');
+  if (captures.length === 1) return captures[0];
+  if (!options.allowAuthorizationFallback) return null;
+
+  const settledAuthorizations = eligible.filter((candidate) => candidate.kind === 'AUTHORIZATION');
+  if (settledAuthorizations.length > 1) {
+    throw new PaymentConflictError('Stripe refund source matches multiple successful settled authorizations.');
+  }
+  return settledAuthorizations[0] ?? null;
 }
 
 function assertExisting(existing: ExistingRefund, expected: {
@@ -140,15 +172,23 @@ export async function refundStripeBookingPayment(input: {
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
   if (prior) assertExisting(prior, { bookingId: booking.id });
 
-  const source = await db.paymentTransaction.findFirst({
-    where: { organizationId: input.organizationId, bookingId: booking.id, kind: 'CAPTURE', status: 'SUCCEEDED', providerCode: PROVIDER },
+  const sourceCandidates = await db.paymentTransaction.findMany({
+    where: {
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
+      status: 'SUCCEEDED',
+      providerCode: PROVIDER,
+    },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: 4,
   });
-  if (!source || isInternalPaymentClaimReference(source.providerReference)) {
-    throw new PaymentConflictError('No successful Stripe capture is available to refund.');
-  }
+  const source = selectStripeRefundSource(sourceCandidates, {
+    allowAuthorizationFallback: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus),
+  });
+  if (!source) throw new PaymentConflictError('No successful settled Stripe payment is available to refund.');
   if (source.currency !== booking.currency || source.amountMinor !== booking.totalMinor) {
-    throw new PaymentConflictError('Stripe capture does not match the authoritative booking total.');
+    throw new PaymentConflictError('Stripe settlement does not match the authoritative booking total.');
   }
 
   if (prior && (prior.status !== 'PENDING' || !isInternalPaymentClaimReference(prior.providerReference))) {
@@ -222,10 +262,21 @@ export async function refundStripeBookingPayment(input: {
     }
 
     const currentSource = await tx.paymentTransaction.findFirst({
-      where: { id: source.id, organizationId: input.organizationId, bookingId: booking.id, kind: 'CAPTURE', status: 'SUCCEEDED', providerCode: PROVIDER, providerReference: source.providerReference },
+      where: {
+        id: source.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        kind: source.kind as 'CAPTURE' | 'AUTHORIZATION',
+        status: 'SUCCEEDED',
+        providerCode: PROVIDER,
+        providerReference: source.providerReference,
+      },
     });
     if (!currentSource || currentSource.currency !== booking.currency || currentSource.amountMinor !== source.amountMinor) {
-      throw new PaymentConflictError('Stripe capture changed before the refund could be claimed.');
+      throw new PaymentConflictError('Stripe settlement changed before the refund could be claimed.');
+    }
+    if (source.kind === 'AUTHORIZATION' && !['PAID', 'PARTIALLY_REFUNDED'].includes(currentBooking.paymentStatus)) {
+      throw new PaymentConflictError('Stripe authorization is not proven settled for this booking.');
     }
     if (await tx.paymentTransaction.findFirst({
       where: { organizationId: input.organizationId, bookingId: booking.id, kind: 'REFUND', status: 'PENDING', providerCode: PROVIDER },

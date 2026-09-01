@@ -4,7 +4,7 @@ import { loadStripePaymentIntegration } from '../integrations/stripe-integration
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
-import { nextStripeRefundBookingPaymentStatus } from './stripe-refund-service.ts';
+import { nextStripeRefundBookingPaymentStatus, selectStripeRefundSource } from './stripe-refund-service.ts';
 import type { StripeRefundSnapshot } from './stripe-refund-reconciliation-provider.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
@@ -51,28 +51,30 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Stripe refund claim has no refund reference yet; use the exact retry or a verified refund webhook to resolve it.');
   }
 
-  const [booking, source] = await Promise.all([
+  const [booking, sourceCandidates] = await Promise.all([
     db.hospitalityBooking.findFirst({
       where: { id: refund.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
     }),
-    db.paymentTransaction.findFirst({
+    db.paymentTransaction.findMany({
       where: {
         organizationId: input.organizationId,
         bookingId: refund.bookingId,
-        kind: 'CAPTURE',
+        kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
         status: 'SUCCEEDED',
         providerCode: STRIPE_PROVIDER_CODE,
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 4,
     }),
   ]);
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
-  if (!source || isInternalPaymentClaimReference(source.providerReference)) {
-    throw new PaymentConflictError('Stripe refund source capture is not available for reconciliation.');
-  }
+  const source = selectStripeRefundSource(sourceCandidates, {
+    allowAuthorizationFallback: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus),
+  });
+  if (!source) throw new PaymentConflictError('Stripe refund settlement source is not available for reconciliation.');
   if (booking.status !== 'CONFIRMED' || booking.currency !== source.currency || booking.totalMinor !== source.amountMinor) {
-    throw new PaymentConflictError('Booking no longer matches the Stripe capture being refunded.');
+    throw new PaymentConflictError('Booking no longer matches the Stripe settlement being refunded.');
   }
   if (refund.currency !== booking.currency || refund.amountMinor <= 0n || refund.amountMinor > source.amountMinor) {
     throw new PaymentConflictError('Persisted Stripe refund money is invalid for this booking.');
@@ -124,21 +126,22 @@ export async function reconcileStripeRefundTransaction(input: {
         id: source.id,
         organizationId: input.organizationId,
         bookingId: refund.bookingId,
-        kind: 'CAPTURE',
+        kind: source.kind as 'CAPTURE' | 'AUTHORIZATION',
         status: 'SUCCEEDED',
         providerCode: STRIPE_PROVIDER_CODE,
         providerReference: source.providerReference,
       },
     });
-    if (!currentBooking || !currentSource) throw new PaymentConflictError('Stripe refund source changed during reconciliation.');
+    if (!currentBooking || !currentSource) throw new PaymentConflictError('Stripe refund settlement source changed during reconciliation.');
     if (
       currentBooking.status !== 'CONFIRMED'
       || currentBooking.currency !== source.currency
       || currentBooking.totalMinor !== source.amountMinor
       || currentSource.currency !== source.currency
       || currentSource.amountMinor !== source.amountMinor
+      || (source.kind === 'AUTHORIZATION' && !['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(currentBooking.paymentStatus))
     ) {
-      throw new PaymentConflictError('Booking no longer matches the Stripe refund source.');
+      throw new PaymentConflictError('Booking no longer matches the Stripe refund settlement source.');
     }
 
     let bookingPaymentStatus = currentBooking.paymentStatus;

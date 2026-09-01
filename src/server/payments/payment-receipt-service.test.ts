@@ -69,8 +69,8 @@ test('summarizeSuccessfulPaymentActivity includes real offline payments', () => 
   });
 });
 
-test('paid booking may use a successful authorization as capture proof only when no capture row exists', () => {
-  const transactions = [{
+test('settled booking may use a successful authorization as capture proof only when no capture row exists', () => {
+  const authorization = {
     id: '1',
     kind: 'AUTHORIZATION' as const,
     status: 'SUCCEEDED' as const,
@@ -79,11 +79,57 @@ test('paid booking may use a successful authorization as capture proof only when
     currency: 'USD',
     amountMinor: 10000n,
     createdAt: new Date('2026-09-01T00:00:00Z'),
-  }];
+  };
 
-  assert.deepEqual(summarizeSuccessfulPaymentActivity(transactions, 'PAID'), {
+  assert.deepEqual(summarizeSuccessfulPaymentActivity([authorization], 'PAID'), {
     capturedMinor: 10000n,
     refundedMinor: 0n,
     netPaidMinor: 10000n,
+  });
+  assert.deepEqual(summarizeSuccessfulPaymentActivity([authorization], 'AUTHORIZED'), {
+    capturedMinor: 0n,
+    refundedMinor: 0n,
+    netPaidMinor: 0n,
+  });
+});
+
+test('refunded bookings retain direct-settlement authorization as the captured basis', () => {
+  const authorization = {
+    id: '1',
+    kind: 'AUTHORIZATION' as const,
+    status: 'SUCCEEDED' as const,
+    providerCode: 'stripe',
+    providerReference: 'pi_direct',
+    currency: 'USD',
+    amountMinor: 10000n,
+    createdAt: new Date('2026-09-01T00:00:00Z'),
+  };
+  const partialRefund = {
+    id: '2',
+    kind: 'REFUND' as const,
+    status: 'SUCCEEDED' as const,
+    providerCode: 'stripe',
+    providerReference: 're_partial',
+    currency: 'USD',
+    amountMinor: 2500n,
+    createdAt: new Date('2026-09-01T00:01:00Z'),
+  };
+  const finalRefund = {
+    ...partialRefund,
+    id: '3',
+    providerReference: 're_final',
+    amountMinor: 7500n,
+    createdAt: new Date('2026-09-01T00:02:00Z'),
+  };
+
+  assert.deepEqual(summarizeSuccessfulPaymentActivity([authorization, partialRefund], 'PARTIALLY_REFUNDED'), {
+    capturedMinor: 10000n,
+    refundedMinor: 2500n,
+    netPaidMinor: 7500n,
+  });
+  assert.deepEqual(summarizeSuccessfulPaymentActivity([authorization, partialRefund, finalRefund], 'REFUNDED'), {
+    capturedMinor: 10000n,
+    refundedMinor: 10000n,
+    netPaidMinor: 0n,
   });
 });

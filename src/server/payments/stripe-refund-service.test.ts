@@ -6,6 +6,7 @@ process.env.DATABASE_URL ??= 'postgresql://sf_unit_test:sf_unit_test@127.0.0.1:5
 const {
   nextStripeRefundBookingPaymentStatus,
   normalizeStripeRefundAmount,
+  selectStripeRefundSource,
   stripeRefundPersistenceStatus,
   stripeRefundRequestFingerprint,
 } = await import('./stripe-refund-service.ts');
@@ -41,4 +42,43 @@ test('Stripe refund fingerprint distinguishes explicit amount from refund-remain
   assert.match(explicit, /^[0-9a-f]{64}$/);
   assert.equal(explicit, stripeRefundRequestFingerprint({ ...base, mode: 'explicit' }));
   assert.notEqual(explicit, remaining);
+});
+
+test('Stripe refund source prefers capture and only falls back to a proven settled authorization', () => {
+  const authorization = {
+    id: 'auth-1',
+    bookingId: 'booking-1',
+    kind: 'AUTHORIZATION',
+    status: 'SUCCEEDED',
+    providerCode: 'stripe',
+    providerReference: 'pi_1',
+    currency: 'USD',
+    amountMinor: 10000n,
+  } as const;
+  const capture = { ...authorization, id: 'capture-1', kind: 'CAPTURE' } as const;
+
+  assert.equal(selectStripeRefundSource([authorization, capture], { allowAuthorizationFallback: true })?.id, 'capture-1');
+  assert.equal(selectStripeRefundSource([authorization], { allowAuthorizationFallback: true })?.id, 'auth-1');
+  assert.equal(selectStripeRefundSource([authorization], { allowAuthorizationFallback: false }), null);
+});
+
+test('Stripe refund source fails closed on ambiguous settled rows and ignores internal claims', () => {
+  const capture = {
+    id: 'capture-1',
+    bookingId: 'booking-1',
+    kind: 'CAPTURE',
+    status: 'SUCCEEDED',
+    providerCode: 'stripe',
+    providerReference: 'pi_1',
+    currency: 'USD',
+    amountMinor: 10000n,
+  } as const;
+  assert.throws(
+    () => selectStripeRefundSource([capture, { ...capture, id: 'capture-2', providerReference: 'pi_2' }], { allowAuthorizationFallback: true }),
+    /multiple successful captures/i,
+  );
+  assert.equal(
+    selectStripeRefundSource([{ ...capture, providerReference: 'sf_claim_deadbeef' }], { allowAuthorizationFallback: true }),
+    null,
+  );
 });

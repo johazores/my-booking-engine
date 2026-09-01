@@ -36,7 +36,8 @@ export function summarizeSuccessfulPaymentActivity(
     }
   }
 
-  if (capturedMinor === 0n && bookingPaymentStatus === 'PAID' && successfulAuthorizationMinor > 0n) {
+  const bookingProvesSettlement = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(bookingPaymentStatus ?? '');
+  if (capturedMinor === 0n && bookingProvesSettlement && successfulAuthorizationMinor > 0n) {
     capturedMinor = successfulAuthorizationMinor;
   }
 

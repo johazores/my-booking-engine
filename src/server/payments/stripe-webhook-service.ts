@@ -6,7 +6,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { PaymentConflictError } from './payment-service.ts';
 import { assertPaymentProviderCapability } from './payment-provider.ts';
 import { reconcileStripeRefundState } from './stripe-refund-reconciliation-service.ts';
-import { nextStripeRefundBookingPaymentStatus } from './stripe-refund-service.ts';
+import { nextStripeRefundBookingPaymentStatus, selectStripeRefundSource } from './stripe-refund-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import { reconcileStripeTransactionState, reconciledBookingPaymentStatus } from './stripe-reconciliation-service.ts';
 import {
@@ -101,21 +101,20 @@ export async function ingestStripePaymentWebhook(input: {
     });
 
     if (event.refund) {
-      const sourceMatches = await transaction.paymentTransaction.findMany({
+      const sourceCandidates = await transaction.paymentTransaction.findMany({
         where: {
           organizationId: input.organizationId,
           providerCode: STRIPE_PROVIDER_CODE,
           providerReference: event.refund.paymentIntentReference,
-          kind: 'CAPTURE',
+          kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
           status: 'SUCCEEDED',
         },
-        select: { id: true, bookingId: true, currency: true, amountMinor: true, providerReference: true },
+        select: { id: true, bookingId: true, kind: true, status: true, providerCode: true, currency: true, amountMinor: true, providerReference: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: 2,
+        take: 4,
       });
-      if (sourceMatches.length === 0) return persistEvent('IGNORED', 'refund-source-capture-unavailable', null);
-      if (sourceMatches.length > 1) throw new PaymentConflictError('Stripe refund webhook source matches multiple successful captures.');
-      const source = sourceMatches[0];
+      const source = selectStripeRefundSource(sourceCandidates, { allowAuthorizationFallback: true });
+      if (!source) return persistEvent('IGNORED', 'refund-source-settlement-unavailable', null);
 
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', source.bookingId)}, 0))`;
       const currentSource = await transaction.paymentTransaction.findFirst({
@@ -125,7 +124,7 @@ export async function ingestStripePaymentWebhook(input: {
           bookingId: source.bookingId,
           providerCode: STRIPE_PROVIDER_CODE,
           providerReference: event.refund.paymentIntentReference,
-          kind: 'CAPTURE',
+          kind: source.kind as 'CAPTURE' | 'AUTHORIZATION',
           status: 'SUCCEEDED',
         },
       });
@@ -135,6 +134,9 @@ export async function ingestStripePaymentWebhook(input: {
       });
       if (!currentSource || !booking) return persistEvent('IGNORED', 'refund-booking-unavailable', source.bookingId);
       if (booking.status !== 'CONFIRMED') return persistEvent('IGNORED', 'refund-booking-not-confirmed', booking.id);
+      if (source.kind === 'AUTHORIZATION' && !['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus)) {
+        return persistEvent('IGNORED', 'refund-source-authorization-not-settled', booking.id);
+      }
       if (
         booking.currency !== currentSource.currency
         || booking.totalMinor !== currentSource.amountMinor
