@@ -47,4 +47,5 @@ run(process.execPath, [
   'src/server/pricing/hospitality-addon.integration.ts',
   'src/server/bookings/hospitality-booking.integration.ts',
   'src/server/payments/payment.integration.ts',
+  'src/server/payments/stripe-payment.integration.ts',
 ]);
