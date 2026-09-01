@@ -43,7 +43,8 @@ Authorization:
 4. the tenant Stripe integration must be active and advertise `payment-authorize`;
 5. Stripe is called with the SF idempotency key and authoritative booking money;
 6. the provider result is checked for provider code, currency, and exact amount before persistence;
-7. the normalized `AUTHORIZATION` ledger row, booking payment-state transition, and audit event are persisted under tenant-scoped advisory locks in one serializable PostgreSQL transaction.
+7. the normalized `AUTHORIZATION` ledger row, booking payment-state transition, and audit event are persisted under tenant-scoped advisory locks in one serializable PostgreSQL transaction;
+8. an existing `PENDING` or `SUCCEEDED` Stripe authorization for the booking blocks a second new authorization, while a definitively failed authorization may be retried with a new idempotency key.
 
 Capture:
 
@@ -52,11 +53,11 @@ Capture:
 3. the Stripe PaymentIntent reference comes from the persisted authorization row, never the browser;
 4. the tenant integration must advertise `payment-capture`;
 5. successful provider proof moves the booking to `PAID`; pending or failed capture results remain ledger-visible while the booking stays `AUTHORIZED`, because a failed capture does not prove the underlying authorization disappeared;
-6. one capture lifecycle row is allowed for the Stripe PaymentIntent under the current full-capture model.
+6. a `PENDING` or `SUCCEEDED` capture attempt for the same PaymentIntent blocks another new capture; a definitively failed capture may be retried with a new idempotency key and remains in immutable attempt history.
 
 Online request fingerprints are stored as SHA-256 hex values on authorization/capture ledger rows. The fingerprint covers the operation plus authoritative booking inputs and, for authorization, the normalized PaymentMethod reference. The PaymentMethod itself is not persisted. This allows exact idempotent retries to return the already persisted result after the booking state has advanced, while rejecting reuse of the same SF idempotency key with changed inputs. Existing manual ledger rows keep this field null.
 
-A checked-in migration adds `requestFingerprint` as nullable `CHAR(64)` plus a database format constraint. It must be exercised against the guarded disposable PostgreSQL target before database validation can be claimed.
+A checked-in migration adds `requestFingerprint` as nullable `CHAR(64)` plus a database format constraint. A follow-up attempt-history migration removes the older provider-reference/kind uniqueness constraint because a real provider object may legitimately have multiple immutable attempts after definitive failures. Both migrations must be exercised against the guarded disposable PostgreSQL target before database validation can be claimed.
 
 There is intentionally still no browser-facing Stripe payment route or fake checkout surface. Customer payment collection must first use a real Stripe client-side tokenization/PaymentMethod creation boundary and must never treat a browser redirect as payment proof.
 
@@ -74,7 +75,7 @@ There is intentionally still no browser-facing Stripe payment route or fake chec
 
 The database enforces a composite `(bookingId, organizationId)` foreign key to `hospitality_bookings`, so a transaction cannot be attached to another tenant's booking even if application scoping regresses.
 
-Provider-reference uniqueness is lifecycle-aware: `(organizationId, providerCode, providerReference, kind)` is unique, with a separate non-unique lookup index on `(organizationId, providerCode, providerReference)`. This permits a Stripe PaymentIntent to appear once as an `AUTHORIZATION` and once as a `CAPTURE` while preventing duplicate persistence of the same lifecycle kind.
+Provider references are indexed for reconciliation but are not globally unique across attempt rows. Stripe reuses a PaymentIntent across authorization and capture, and the same PaymentIntent may receive a later retry after a definitive failed capture. The tenant-scoped idempotency key remains the exactly-once request boundary. Application services reject provider references that cross booking ownership and block overlapping `PENDING`/`SUCCEEDED` attempts for the same lifecycle, while preserving failed attempts as history.
 
 Booking guest persistence has the same database ownership protection: `hospitality_booking_guests(bookingId, organizationId)` references the tenant-owned booking key.
 
@@ -116,12 +117,14 @@ A future customer payment journey must introduce its own ownership/self-service 
 
 ## Validation and remaining work
 
-The standard payment unit glob now includes focused Stripe persistence tests for deterministic request fingerprints and booking-state mapping. Existing Stripe adapter coverage verifies request construction, exact capture/refund requests, idempotency headers, provider money mismatches, normalized failures, reference validation, and webhook signature/timestamp verification without contacting Stripe.
+The standard payment unit glob includes focused Stripe persistence tests for deterministic request fingerprints and booking-state mapping. Existing Stripe adapter coverage verifies request construction, exact capture/refund requests, idempotency headers, provider money mismatches, normalized failures, reference validation, and webhook signature/timestamp verification without contacting Stripe.
 
-The checked-in disposable PostgreSQL payment suite covers the manual payment/refund persistence workflow. Stripe authorization/capture persistence still needs dedicated disposable PostgreSQL integration coverage for tenant denial, exact retry, changed retry, provider-reference reuse, pending/failure states, successful capture, and audit minimization.
+The checked-in disposable PostgreSQL payment suite covers the manual payment/refund persistence workflow. Stripe authorization/capture persistence still needs dedicated disposable PostgreSQL integration coverage for tenant denial, exact retry, changed retry, overlapping-attempt rejection, provider-reference ownership, definitive-failure retries, pending states, successful capture, and audit minimization.
 
-The payment-request-fingerprint migration and earlier provider-reference lifecycle migration must both be exercised against the disposable PostgreSQL target before claiming live database verification.
+The payment-request-fingerprint migration and payment-provider-attempt-history migration, including removal of the earlier provider-reference lifecycle uniqueness constraint, must be exercised against the disposable PostgreSQL target before claiming live database verification.
 
 Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
+
+A further concurrency boundary remains before exposing online payments publicly: two brand-new requests with different idempotency keys can both reach an external provider before either result has been persisted if they start at exactly the same time. The production customer payment surface must introduce a persisted operation-intent/claim or equivalent provider-call serialization boundary together with webhook/reconciliation handling, rather than hold a database transaction open across an external network request.
 
 Still open: customer-facing Stripe payment collection, failed/ambiguous-result reconciliation, verified webhook ingestion/persistence, online refunds, receipts/invoices, PayPal, and live PostgreSQL validation. Browser success/redirect state must never be accepted as proof of payment.
