@@ -97,11 +97,11 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
     }
 
     let refundCalls = 0;
-    globalThis.fetch = (async (request) => {
+    globalThis.fetch = (async (request, init) => {
       const url = String(request);
       if (!url.endsWith('/refunds')) throw new Error(`Unexpected Stripe refund test request: ${url}`);
       refundCalls += 1;
-      const body = new URLSearchParams(String((request as Request).body ?? ''));
+      const body = new URLSearchParams(String(init?.body ?? ''));
       const amount = Number(body.get('amount'));
       return new Response(JSON.stringify({ id: `re_sf_${refundCalls}`, payment_intent: body.get('payment_intent'), status: 'succeeded', amount, currency: 'usd' }), { status: 200 });
     }) as typeof fetch;
@@ -177,8 +177,8 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
     let release!: () => void;
     const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
     const releasePromise = new Promise<void>((resolve) => { release = resolve; });
-    globalThis.fetch = (async (request) => {
-      const body = new URLSearchParams(String((request as Request).body ?? ''));
+    globalThis.fetch = (async (_request, init) => {
+      const body = new URLSearchParams(String(init?.body ?? ''));
       refundCalls += 1;
       entered();
       await releasePromise;
