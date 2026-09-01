@@ -26,16 +26,17 @@ export async function saveIntegration(input: {
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  const providerCode = normalizeIntegrationProviderCode(input.providerCode);
-  const displayName = normalizeIntegrationDisplayName(input.displayName);
-  const capabilities = normalizeIntegrationCapabilities(input.capabilities);
-  const encryptedCredentials = encryptIntegrationCredentials(input.credentials);
 
   await requireOrganizationPermission({
     organizationId: input.organizationId,
     userId: input.actorUserId,
     permission: 'integration:manage',
   });
+
+  const providerCode = normalizeIntegrationProviderCode(input.providerCode);
+  const displayName = normalizeIntegrationDisplayName(input.displayName);
+  const capabilities = normalizeIntegrationCapabilities(input.capabilities);
+  const encryptedCredentials = encryptIntegrationCredentials(input.credentials);
 
   return db.$transaction(async (transaction) => {
     const existing = await transaction.integration.findUnique({
