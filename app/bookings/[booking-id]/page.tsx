@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { BookingCancelAction } from '@/components/booking-cancel-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
+import { bookingCancellationPaymentBlockReason } from '@/server/bookings/booking-cancellation-domain.ts';
 import { HospitalityBookingUnavailableError, getHospitalityBooking } from '@/server/bookings/hospitality-booking-service.ts';
 import { getBookingPaymentReceipt } from '@/server/payments/payment-receipt-service.ts';
 import { PaymentConflictError, listBookingPaymentTransactions } from '@/server/payments/payment-service.ts';
@@ -63,6 +64,7 @@ export default async function BookingDetailPage({
   }
 
   const addonSelections = Array.isArray(booking.addonSelections) ? booking.addonSelections : [];
+  const cancellationPaymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
@@ -128,7 +130,7 @@ export default async function BookingDetailPage({
 
     <section className="sf-booking-card" aria-labelledby="booking-cancellation-title">
       <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Reservation lifecycle</p><h2 id="booking-cancellation-title">Cancellation</h2></div></div>
-      <BookingCancelAction bookingId={booking.id} bookingStatus={booking.status} paymentStatus={booking.paymentStatus} />
+      <BookingCancelAction bookingId={booking.id} bookingStatus={booking.status} paymentBlockReason={cancellationPaymentBlockReason} />
     </section>
   </div>;
 }
