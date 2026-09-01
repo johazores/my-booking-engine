@@ -28,7 +28,8 @@ model PaymentTransaction {
   booking           HospitalityBooking       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "payment_transactions_booking_fkey")
 
   @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
-  @@unique([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_key")
+  @@unique([organizationId, providerCode, providerReference, kind], map: "payment_transactions_org_provider_reference_kind_key")
+  @@index([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_idx")
   @@index([organizationId, bookingId, createdAt], map: "payment_transactions_booking_created_idx")
   @@index([organizationId, status, createdAt], map: "payment_transactions_status_created_idx")
   @@map("payment_transactions")
