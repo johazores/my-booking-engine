@@ -73,6 +73,10 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
       integrations.disableIntegration({ organizationId: tenantB.id, actorUserId: tenantBAdmin.id, integrationId: configured.id }),
       /not available/i,
     );
+    await assert.rejects(
+      integrations.enableIntegration({ organizationId: tenantB.id, actorUserId: tenantBAdmin.id, integrationId: configured.id }),
+      /not available/i,
+    );
 
     const rotated = await integrations.saveIntegration({
       organizationId: tenantA.id,
@@ -100,6 +104,34 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
       /not available/i,
     );
 
+    await assert.rejects(
+      integrations.enableIntegration({ organizationId: tenantA.id, actorUserId: tenantAManager.id, integrationId: configured.id }),
+      /permission/i,
+    );
+
+    const enabled = await integrations.enableIntegration({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      integrationId: configured.id,
+    });
+    assert.equal(enabled.status, 'ACTIVE');
+    assert.equal(enabled.credentialVersion, 2);
+
+    const reenabledCredentials = await integrations.loadActiveIntegrationCredentials({
+      organizationId: tenantA.id,
+      providerCode: 'stripe',
+    });
+    assert.equal(reenabledCredentials.credentials.secretKey, 'sk_test_rotated');
+    assert.equal(reenabledCredentials.credentials.webhookSecret, 'whsec_rotated');
+
+    const enabledRetry = await integrations.enableIntegration({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      integrationId: configured.id,
+    });
+    assert.equal(enabledRetry.status, 'ACTIVE');
+    assert.equal(enabledRetry.credentialVersion, 2);
+
     const auditEvents = await db.auditEvent.findMany({
       where: { organizationId: tenantA.id, resourceType: 'integration', resourceId: configured.id },
       orderBy: { createdAt: 'asc' },
@@ -108,6 +140,7 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
       'integration.configured',
       'integration.credentials-rotated',
       'integration.disabled',
+      'integration.enabled',
     ]);
     const auditPayload = JSON.stringify(auditEvents.map((event) => ({ beforeData: event.beforeData, afterData: event.afterData })));
     assert.equal(auditPayload.includes('sk_test_'), false);
