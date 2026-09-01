@@ -1,4 +1,5 @@
 import { StripePaymentProvider } from '../payments/stripe-payment-provider.ts';
+import { StripePaymentReconciliationProvider } from '../payments/stripe-payment-reconciliation-provider.ts';
 import { loadActiveIntegrationCredentials } from './integration-service.ts';
 
 export async function loadStripePaymentIntegration(organizationId: string) {
@@ -12,6 +13,7 @@ export async function loadStripePaymentIntegration(organizationId: string) {
   return Object.freeze({
     integration,
     provider: new StripePaymentProvider({ secretKey }),
+    reconciliationProvider: new StripePaymentReconciliationProvider({ secretKey }),
     webhookSecret,
   });
 }
