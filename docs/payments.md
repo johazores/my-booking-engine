@@ -10,9 +10,9 @@ The manual provider records real offline payments/refunds that already happened 
 
 ## Stripe adapter
 
-`StripePaymentProvider` is the first real online adapter. Tenant credentials are loaded only from the encrypted integration boundary. Stripe authorization creates confirmed PaymentIntents using manual capture, exact booking money, tenant/booking metadata, and the SF idempotency key. Capture and refund calls use the persisted PaymentIntent reference. Provider failures are normalized, retryable transport/timeout conditions are treated as ambiguous, and webhook signature verification uses the original raw body plus Stripe's timestamped HMAC signature.
+`StripePaymentProvider` is the first real online adapter. Tenant credentials are loaded only from the encrypted integration boundary. Stripe authorization creates confirmed PaymentIntents using manual capture, exact booking money, tenant/booking metadata, and the SF idempotency key. Capture and refund calls use persisted provider references. Provider failures are normalized, retryable transport/timeout conditions are treated as ambiguous, and webhook signature verification uses the original raw body plus Stripe's timestamped HMAC signature.
 
-`StripePaymentReconciliationProvider` is a provider-specific read adapter for `GET /v1/payment_intents/:id`. It resolves persisted Stripe references without replaying a write, normalizes exact money/status fields, and keeps Stripe HTTP/auth/timeout behavior outside the booking domain.
+`StripePaymentReconciliationProvider` retrieves PaymentIntent provider truth without replaying writes. `StripeRefundReconciliationProvider` does the same for refund objects through Stripe's refund retrieval endpoint. Provider-specific HTTP/auth/timeout behavior stays outside the booking domain.
 
 There is intentionally no fake browser checkout route. A future public payment surface must use real client-side Stripe tokenization/PaymentMethod creation and must never trust a browser success redirect as proof of payment.
 
@@ -20,7 +20,7 @@ There is intentionally no fake browser checkout route. A future public payment s
 
 `PaymentTransaction` is tenant scoped and linked to the tenant-owned booking. It stores the operation kind/status, provider code/reference, exact money, request fingerprint where applicable, and a tenant-unique idempotency key. Provider references are indexed for reconciliation but are not globally unique across immutable attempt history.
 
-Manual payment and refund writes serialize tenant idempotency, booking, and external reference scopes in PostgreSQL transactions. Booking payment state changes and audit events commit atomically with the ledger write.
+Manual payment/refund and Stripe payment/refund writes serialize tenant idempotency, booking, and relevant provider-reference scopes in PostgreSQL transactions. Booking payment-state changes and audit events commit atomically with ledger writes where there is an authenticated actor. Provider webhooks use the dedicated persisted webhook-event ledger because there is no user actor.
 
 ## Stripe authorization/capture application boundary
 
@@ -38,9 +38,9 @@ The claim lifecycle is intentionally conservative:
 - definitive non-retryable provider failures mark the claim failed, allowing a later new idempotency key where the booking state permits it;
 - internal claim markers are never serialized as provider references through the payment HTTP boundary.
 
-This removes the previous race where two different idempotency keys could both reach Stripe before either result was persisted, without holding a PostgreSQL transaction open across a network request.
+This avoids holding a PostgreSQL transaction open across a network request while still preventing two different idempotency keys from concurrently crossing the Stripe write boundary.
 
-## Stripe reconciliation
+## Stripe payment reconciliation
 
 `reconcileStripePaymentTransaction` is an authorized server-side recovery boundary for persisted Stripe `PENDING` authorization/capture rows that already have a real PaymentIntent reference.
 
@@ -50,10 +50,20 @@ This removes the previous race where two different idempotency keys could both r
 - SF retrieves the PaymentIntent through the Stripe read adapter and verifies provider reference, currency, and authoritative booking amount before changing state.
 - `requires_capture` resolves authorization to `AUTHORIZED`; `succeeded` resolves exact full payment to `PAID`; provider states that do not prove finality stay `PENDING`.
 - Definitive canceled/requires-payment-method states fail the relevant transaction without claiming a successful capture.
-- The final ledger update, booking payment state transition, and reference-minimized audit event are serialized under the tenant booking lock.
+- The final ledger update, booking payment-state transition, and reference-minimized audit event are serialized under the tenant booking lock.
 - Already-final transactions are idempotent reads and do not contact Stripe again.
 
 This is provider-truth reconciliation, not browser-success reconciliation.
+
+## Stripe refund orchestration and reconciliation
+
+`refundStripeBookingPayment` requires `payment:manage`, derives the source capture and money from tenant-owned persisted records, supports explicit partial amounts or the remaining refundable balance, and persists a `PENDING` refund claim before calling Stripe. Successful refunds move the booking to `PARTIALLY_REFUNDED` or `REFUNDED`; failed or unresolved refunds never claim refunded money. Pending refunds serialize the refundable balance and block a second refund until the first one resolves.
+
+Exact retries reuse the tenant idempotency key and Stripe idempotency key. Internal `sf_claim_*` references represent provider operations whose real refund ID is not known yet and are never exposed as provider truth.
+
+`reconcileStripeRefundTransaction` handles a pending refund that already has a real `re_` reference. It retrieves the refund without replaying the write and verifies refund ID, source PaymentIntent, currency, and exact minor-unit amount before accepting provider status. `succeeded` becomes `SUCCEEDED`; `failed`/`canceled` become `FAILED`; non-final states remain `PENDING`. Successful reconciliation recalculates cumulative successful refunds under the booking lock and cannot regress a fully refunded booking.
+
+See `docs/stripe-refunds.md` for the detailed refund lifecycle and webhook finalization rules.
 
 ## Stripe webhook ingestion
 
@@ -64,22 +74,26 @@ Webhook processing follows a fail-closed, tenant-safe sequence:
 - the route reads `request.text()` exactly once and passes the untouched string plus `Stripe-Signature` to the payment adapter before JSON parsing;
 - the tenant Stripe integration must be active, advertise the `webhooks` capability, contain a valid webhook secret, and expose the provider `WEBHOOKS` capability;
 - request size and signature-header bounds are enforced before persistence;
-- only after signature verification does SF parse and normalize the Stripe event envelope and PaymentIntent fields;
+- only after signature verification does SF parse and normalize supported PaymentIntent or refund event objects;
 - `PaymentWebhookEvent` stores the tenant/provider event ID, event type, SHA-256 payload hash, safe provider/booking references, processing status/note, and timestamps — never the raw webhook body, API secret, webhook secret, or card data;
-- `(organizationId, providerCode, providerEventId)` is unique and an advisory event lock makes exact redelivery idempotent; reusing an event ID with different signed content is rejected as a conflict;
-- PaymentIntent callbacks must carry the SF organization/booking metadata created during authorization, and that metadata must match the tenant endpoint, a confirmed tenant-owned booking, currency, and immutable booking total before payment state can change;
-- only an already-persisted `PENDING` Stripe authorization/capture operation for that booking may be resolved; exact provider references are preferred, while an unambiguous internal `sf_claim_*` row can acquire its real PaymentIntent reference from the verified callback;
-- payment status mapping and booking-state regression protection reuse the same reconciliation rules as provider-truth polling;
-- unsupported event types, missing/mismatched SF metadata, unavailable bookings, money mismatches, and events with no matching pending payment are recorded as `IGNORED` and do not mutate payment state.
+- `(organizationId, providerCode, providerEventId)` is unique and an advisory event lock makes exact redelivery idempotent; reusing an event ID with different signed content is rejected as a conflict.
 
-This persisted webhook ledger provides duplicate suppression and callback evidence without introducing a separate event service. The current modular-monolith implementation processes the small normalized state transition synchronously; a separate queue is not introduced without a demonstrated operational need.
+PaymentIntent callbacks must carry the SF organization/booking metadata created during authorization. That metadata must match the tenant endpoint, a confirmed tenant-owned booking, currency, and immutable booking total. Only a persisted pending authorization/capture operation can be resolved; exact provider references are preferred, while an unambiguous internal claim can acquire its real PaymentIntent reference.
+
+Refund callbacks derive booking ownership from the tenant-owned successful capture referenced by the signed refund object's `payment_intent`; they do not rely on browser redirects or refund metadata. SF revalidates the source capture, confirmed booking, immutable booking money, refund money, and provider-reference ownership under the booking lock. An exact pending refund reference is preferred. A single money-matching internal refund claim can acquire the real `re_` reference; ambiguous claims fail closed. Refund state mapping is shared with provider-truth reconciliation, and successful callbacks recalculate partial/full refund state without allowing booking payment-state regression.
+
+Unsupported event types, missing/mismatched payment metadata, unavailable resources, money mismatches, or callbacks with no matching pending operation are recorded as `IGNORED` and do not mutate payment state.
+
+The persisted webhook ledger provides duplicate suppression and callback evidence without introducing a separate event service. The current modular-monolith implementation processes the small normalized transition synchronously; a separate queue is not introduced without a demonstrated operational need.
 
 ## API boundary
 
 - `POST /api/payments/manual` records a confirmed offline payment.
 - `POST /api/payments/manual/refunds` records a confirmed offline refund.
-- `POST /api/payments/stripe/reconcile` reconciles one tenant-owned pending Stripe authorization/capture transaction from Stripe provider truth.
-- `POST /api/webhooks/stripe/[organization-id]` verifies and ingests tenant-specific Stripe callbacks from the raw request body.
+- `POST /api/payments/stripe/refunds` creates a server-authorized Stripe refund operation.
+- `POST /api/payments/stripe/reconcile` reconciles one tenant-owned pending Stripe authorization/capture transaction from provider truth.
+- `POST /api/payments/stripe/refunds/reconcile` reconciles one tenant-owned pending Stripe refund from provider truth.
+- `POST /api/webhooks/stripe/[organization-id]` verifies and ingests tenant-specific Stripe PaymentIntent/refund callbacks from the raw request body.
 - `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped history.
 
 BigInt money is serialized as decimal strings. Internal Stripe provider-call claim references are serialized as `null`, never as if they were real Stripe identifiers.
@@ -88,14 +102,14 @@ BigInt money is serialized as decimal strings. Internal Stripe provider-call cla
 
 Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`. `STAFF` receives `payment:read`. `CUSTOMER` receives no internal ledger capability. A future self-service payment surface must use a separate customer ownership boundary rather than weaken staff/admin permissions.
 
-The Stripe webhook route does not reuse these interactive permissions: it has no user actor and can only operate after tenant-specific provider signature verification, tenant metadata matching, and tenant-owned booking/payment resolution.
+The Stripe webhook route does not reuse interactive permissions: it has no user actor and can operate only after tenant-specific provider signature verification plus tenant-owned booking/payment/refund resolution.
 
 ## Validation and remaining work
 
-The normal unit test glob includes payment-provider, Stripe-adapter, Stripe-persistence, HTTP serialization, Stripe reconciliation, and Stripe webhook-domain coverage. Webhook-domain coverage checks normalized signed-event fields, non-PaymentIntent event handling, malformed money rejection, invalid tenant metadata handling, exact provider-reference preference, pre-reference claim resolution, and ambiguous-candidate rejection.
+The normal unit test glob includes payment-provider, Stripe-adapter, Stripe-persistence, HTTP serialization, payment/refund reconciliation, and Stripe webhook-domain coverage. Refund webhook-domain coverage verifies refund-object parsing, exact-reference preference, unambiguous internal-claim binding, malformed money/source rejection, and ambiguous-claim failure.
 
-The guarded disposable PostgreSQL suite now includes `src/server/payments/stripe-payment.integration.ts`. The checked-in database coverage exercises encrypted tenant Stripe configuration, permission/cross-tenant denial before provider calls, persisted pre-provider claims, simultaneous different-idempotency suppression, exact and changed retries, successful authorization/capture, ambiguous-provider exact retry, definitive-decline reclaim, cross-booking provider-reference ownership, provider-truth reconciliation, verified internal-claim webhook resolution, duplicate callback idempotency, altered duplicate rejection, callback tenant/money mismatch handling, and audit secret/reference minimization.
+The guarded disposable PostgreSQL suite includes `stripe-payment.integration.ts`, `stripe-refund.integration.ts`, and `stripe-refund-webhook.integration.ts`. Checked-in coverage spans encrypted tenant Stripe configuration, permission/cross-tenant denial before provider calls, persisted pre-provider claims, simultaneous different-idempotency suppression, exact/changed retries, successful authorization/capture/refund, ambiguous-provider retry/recovery, provider-reference ownership, provider-truth reconciliation, verified internal-claim webhook resolution for payments and refunds, duplicate callback idempotency, altered duplicate rejection, callback tenant/money handling, refund balance enforcement, and audit secret/reference minimization.
 
-That database suite must still be **executed** against an explicitly confirmed disposable PostgreSQL target before Stripe persistence, migration, locking, or webhook concurrency validation is claimed as passed. `npm run test:database` remains the required gate because it runs Prisma validation, migration deployment/status/drift checks, and the integration suites together.
+That database suite must still be **executed** against an explicitly confirmed disposable PostgreSQL target before Stripe persistence, migration, locking, or webhook-concurrency validation is claimed as passed. `npm run test:database` remains the required gate because it runs Prisma validation, migration deployment/status/drift checks, and the integration suites together.
 
-Still open: customer-facing Stripe collection, online refund orchestration, receipts/invoices, PayPal, broader production webhook operational validation, and live PostgreSQL validation. Do not claim database validation passed unless `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target.
+Still open: customer-facing Stripe collection, receipts/invoices, PayPal, broader production webhook operational validation, and live PostgreSQL validation. Do not claim database validation passed unless `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target.

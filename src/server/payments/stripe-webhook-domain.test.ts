@@ -5,6 +5,7 @@ const {
   StripeWebhookValidationError,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
+  selectStripeWebhookRefundCandidate,
 } = await import('./stripe-webhook-domain.ts');
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
@@ -32,6 +33,24 @@ function paymentIntentEvent(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function refundEvent(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    id: 'evt_sf_refund_1',
+    type: 'refund.updated',
+    created: 1788250001,
+    data: {
+      object: {
+        id: 're_sf_refund_1',
+        payment_intent: 'pi_sf_payment_1',
+        status: 'succeeded',
+        amount: 2500,
+        currency: 'usd',
+        ...overrides,
+      },
+    },
+  });
+}
+
 test('Stripe webhook parser normalizes signed-payment fields without trusting provider-specific objects elsewhere', () => {
   const event = parseStripeWebhookEventPayload(paymentIntentEvent());
   assert.equal(event.providerEventId, 'evt_sf_payment_1');
@@ -41,9 +60,22 @@ test('Stripe webhook parser normalizes signed-payment fields without trusting pr
   assert.equal(event.paymentIntent?.amountMinor, 12500n);
   assert.equal(event.paymentIntent?.organizationId, organizationId);
   assert.equal(event.paymentIntent?.bookingId, bookingId);
+  assert.equal(event.refund, null);
 });
 
-test('Stripe webhook parser safely ignores non-PaymentIntent event bodies after envelope validation', () => {
+test('Stripe webhook parser normalizes refund objects with their source PaymentIntent and exact money', () => {
+  const event = parseStripeWebhookEventPayload(refundEvent());
+  assert.equal(event.providerEventId, 'evt_sf_refund_1');
+  assert.equal(event.eventType, 'refund.updated');
+  assert.equal(event.paymentIntent, null);
+  assert.equal(event.refund?.refundReference, 're_sf_refund_1');
+  assert.equal(event.refund?.paymentIntentReference, 'pi_sf_payment_1');
+  assert.equal(event.refund?.status, 'succeeded');
+  assert.equal(event.refund?.currency, 'USD');
+  assert.equal(event.refund?.amountMinor, 2500n);
+});
+
+test('Stripe webhook parser safely ignores unsupported event bodies after envelope validation', () => {
   const event = parseStripeWebhookEventPayload(JSON.stringify({
     id: 'evt_customer_1',
     type: 'customer.created',
@@ -51,11 +83,14 @@ test('Stripe webhook parser safely ignores non-PaymentIntent event bodies after 
     data: { object: { id: 'cus_123' } },
   }));
   assert.equal(event.paymentIntent, null);
+  assert.equal(event.refund, null);
 });
 
-test('Stripe webhook parser rejects malformed money and invalid tenant metadata', () => {
+test('Stripe webhook parser rejects malformed payment and refund money and invalid tenant metadata', () => {
   assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent({ amount: 12.5 })), StripeWebhookValidationError);
   assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent({ amount: 100, amount_received: 101 })), StripeWebhookValidationError);
+  assert.throws(() => parseStripeWebhookEventPayload(refundEvent({ amount: 0 })), StripeWebhookValidationError);
+  assert.throws(() => parseStripeWebhookEventPayload(refundEvent({ payment_intent: 'not-a-payment-intent' })), StripeWebhookValidationError);
 
   const event = parseStripeWebhookEventPayload(paymentIntentEvent({
     metadata: { sf_organization_id: 'not-a-uuid', sf_booking_id: bookingId },
@@ -96,4 +131,51 @@ test('webhook candidate selection resolves a pre-reference authorization claim a
     ],
     isInternalReference: (reference) => reference.startsWith('sf_claim_'),
   }), /multiple pending/i);
+});
+
+test('refund webhook candidate selection prefers an exact refund reference', () => {
+  const selected = selectStripeWebhookRefundCandidate({
+    refundReference: 're_sf_refund_1',
+    currency: 'USD',
+    amountMinor: 2500n,
+    candidates: [
+      { id: 'claim', providerReference: `sf_claim_${'e'.repeat(64)}`, currency: 'USD', amountMinor: 2500n },
+      { id: 'exact', providerReference: 're_sf_refund_1', currency: 'USD', amountMinor: 2500n },
+    ],
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(selected?.id, 'exact');
+});
+
+test('refund webhook candidate selection binds one matching internal claim and rejects ambiguous claims', () => {
+  const claim = `sf_claim_${'f'.repeat(64)}`;
+  const selected = selectStripeWebhookRefundCandidate({
+    refundReference: 're_sf_refund_2',
+    currency: 'USD',
+    amountMinor: 2500n,
+    candidates: [{ id: 'claim', providerReference: claim, currency: 'USD', amountMinor: 2500n }],
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(selected?.id, 'claim');
+
+  assert.throws(() => selectStripeWebhookRefundCandidate({
+    refundReference: 're_sf_refund_3',
+    currency: 'USD',
+    amountMinor: 2500n,
+    candidates: [
+      { id: 'claim-1', providerReference: `sf_claim_${'1'.repeat(64)}`, currency: 'USD', amountMinor: 2500n },
+      { id: 'claim-2', providerReference: `sf_claim_${'2'.repeat(64)}`, currency: 'USD', amountMinor: 2500n },
+    ],
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  }), /multiple pending refund/i);
+});
+
+test('refund webhook candidate selection rejects money mismatch on an exact provider reference', () => {
+  assert.throws(() => selectStripeWebhookRefundCandidate({
+    refundReference: 're_sf_refund_4',
+    currency: 'USD',
+    amountMinor: 2500n,
+    candidates: [{ id: 'exact', providerReference: 're_sf_refund_4', currency: 'USD', amountMinor: 2400n }],
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  }), /money does not match/i);
 });

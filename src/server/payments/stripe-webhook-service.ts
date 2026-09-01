@@ -5,12 +5,15 @@ import { loadStripePaymentIntegration } from '../integrations/stripe-integration
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { PaymentConflictError } from './payment-service.ts';
 import { assertPaymentProviderCapability } from './payment-provider.ts';
+import { reconcileStripeRefundState } from './stripe-refund-reconciliation-service.ts';
+import { nextStripeRefundBookingPaymentStatus } from './stripe-refund-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import { reconcileStripeTransactionState, reconciledBookingPaymentStatus } from './stripe-reconciliation-service.ts';
 import {
   StripeWebhookValidationError,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
+  selectStripeWebhookRefundCandidate,
 } from './stripe-webhook-domain.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
@@ -89,13 +92,148 @@ export async function ingestStripePaymentWebhook(input: {
         providerEventId: event.providerEventId,
         eventType: event.eventType,
         payloadHash,
-        providerReference: event.paymentIntent?.providerReference ?? null,
+        providerReference: event.paymentIntent?.providerReference ?? event.refund?.refundReference ?? null,
         bookingId: bookingId ?? event.paymentIntent?.bookingId ?? null,
         status,
         processingNote,
         providerCreatedAt: event.providerCreatedAt,
       },
     });
+
+    if (event.refund) {
+      const sourceMatches = await transaction.paymentTransaction.findMany({
+        where: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: event.refund.paymentIntentReference,
+          kind: 'CAPTURE',
+          status: 'SUCCEEDED',
+        },
+        select: { id: true, bookingId: true, currency: true, amountMinor: true, providerReference: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 2,
+      });
+      if (sourceMatches.length === 0) return persistEvent('IGNORED', 'refund-source-capture-unavailable', null);
+      if (sourceMatches.length > 1) throw new PaymentConflictError('Stripe refund webhook source matches multiple successful captures.');
+      const source = sourceMatches[0];
+
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', source.bookingId)}, 0))`;
+      const currentSource = await transaction.paymentTransaction.findFirst({
+        where: {
+          id: source.id,
+          organizationId: input.organizationId,
+          bookingId: source.bookingId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: event.refund.paymentIntentReference,
+          kind: 'CAPTURE',
+          status: 'SUCCEEDED',
+        },
+      });
+      const booking = await transaction.hospitalityBooking.findFirst({
+        where: { id: source.bookingId, organizationId: input.organizationId },
+        select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
+      });
+      if (!currentSource || !booking) return persistEvent('IGNORED', 'refund-booking-unavailable', source.bookingId);
+      if (booking.status !== 'CONFIRMED') return persistEvent('IGNORED', 'refund-booking-not-confirmed', booking.id);
+      if (
+        booking.currency !== currentSource.currency
+        || booking.totalMinor !== currentSource.amountMinor
+        || event.refund.currency !== booking.currency
+        || event.refund.amountMinor <= 0n
+        || event.refund.amountMinor > currentSource.amountMinor
+      ) return persistEvent('IGNORED', 'refund-money-mismatch', booking.id);
+
+      const pendingRefunds = await transaction.paymentTransaction.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          providerCode: STRIPE_PROVIDER_CODE,
+          kind: 'REFUND',
+          status: 'PENDING',
+        },
+        select: { id: true, providerReference: true, currency: true, amountMinor: true },
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+      });
+
+      let refund;
+      try {
+        refund = selectStripeWebhookRefundCandidate({
+          refundReference: event.refund.refundReference,
+          currency: event.refund.currency,
+          amountMinor: event.refund.amountMinor,
+          candidates: pendingRefunds,
+          isInternalReference: isInternalPaymentClaimReference,
+        });
+      } catch (error) {
+        if (error instanceof StripeWebhookValidationError) throw new PaymentConflictError(error.message);
+        throw error;
+      }
+      if (!refund) return persistEvent('IGNORED', 'no-pending-refund', booking.id);
+
+      const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: event.refund.refundReference,
+          id: { not: refund.id },
+        },
+        select: { id: true },
+      });
+      if (providerReferenceConflict) throw new PaymentConflictError('Stripe refund webhook reference has already been recorded in this organization.');
+
+      const reconciledStatus = reconcileStripeRefundState({
+        currency: refund.currency,
+        amountMinor: refund.amountMinor,
+        sourceProviderReference: currentSource.providerReference,
+        snapshot: {
+          refundReference: event.refund.refundReference,
+          paymentIntentReference: event.refund.paymentIntentReference,
+          status: event.refund.status,
+          currency: event.refund.currency,
+          amountMinor: event.refund.amountMinor,
+        },
+      });
+
+      let bookingPaymentStatus = booking.paymentStatus;
+      if (reconciledStatus === 'SUCCEEDED') {
+        if (!['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus)) {
+          throw new PaymentConflictError(`Booking payment state ${booking.paymentStatus.toLowerCase()} cannot accept a Stripe refund webhook.`);
+        }
+        const previous = await transaction.paymentTransaction.aggregate({
+          where: {
+            organizationId: input.organizationId,
+            bookingId: booking.id,
+            providerCode: STRIPE_PROVIDER_CODE,
+            kind: 'REFUND',
+            status: 'SUCCEEDED',
+            id: { not: refund.id },
+          },
+          _sum: { amountMinor: true },
+        });
+        bookingPaymentStatus = nextStripeRefundBookingPaymentStatus({
+          sourceAmountMinor: currentSource.amountMinor,
+          refundedBeforeMinor: previous._sum.amountMinor ?? 0n,
+          refundAmountMinor: refund.amountMinor,
+        });
+        if (booking.paymentStatus === 'REFUNDED' && bookingPaymentStatus !== 'REFUNDED') {
+          throw new PaymentConflictError('Stripe refund webhook cannot regress a fully refunded booking.');
+        }
+      }
+
+      await transaction.paymentTransaction.update({
+        where: { id: refund.id },
+        data: { providerReference: event.refund.refundReference, status: reconciledStatus },
+      });
+      if (booking.paymentStatus !== bookingPaymentStatus) {
+        await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: bookingPaymentStatus } });
+      }
+      return persistEvent(
+        'PROCESSED',
+        reconciledStatus === 'PENDING' ? 'refund-still-pending' : reconciledStatus === 'SUCCEEDED' ? 'refund-state-applied' : 'refund-failed',
+        booking.id,
+      );
+    }
 
     if (!event.paymentIntent) return persistEvent('IGNORED', 'unsupported-event-type', null);
     if (!event.paymentIntent.organizationId || !event.paymentIntent.bookingId) {
