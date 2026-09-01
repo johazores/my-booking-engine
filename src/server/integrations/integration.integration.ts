@@ -54,6 +54,17 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
     await assert.rejects(integrations.archiveIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id }), /disable/i);
     const disabled = await integrations.disableIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id });
     assert.equal(disabled.status, 'DISABLED');
+    await assert.rejects(integrations.enableIntegration({ organizationId: tenantA.id, actorUserId: tenantAManager.id, integrationId: configured.id }), /permission/i);
+
+    const enabled = await integrations.enableIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id });
+    assert.equal(enabled.status, 'ACTIVE');
+    assert.equal(enabled.credentialVersion, 2);
+    const enabledRetry = await integrations.enableIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id });
+    assert.equal(enabledRetry.status, 'ACTIVE');
+    assert.equal(enabledRetry.credentialVersion, 2);
+    assert.equal((await integrations.loadActiveIntegrationCredentials({ organizationId: tenantA.id, providerCode: 'stripe' })).credentials.webhookSecret, 'whsec_rotated');
+
+    await integrations.disableIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id });
     await assert.rejects(integrations.archiveIntegration({ organizationId: tenantA.id, actorUserId: tenantAManager.id, integrationId: configured.id }), /permission/i);
 
     const archived = await integrations.archiveIntegration({ organizationId: tenantA.id, actorUserId: tenantAAdmin.id, integrationId: configured.id });
@@ -79,6 +90,8 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
     assert.deepEqual(auditEvents.map((event) => event.action), [
       'integration.configured',
       'integration.credentials-rotated',
+      'integration.disabled',
+      'integration.enabled',
       'integration.disabled',
       'integration.archived',
       'integration.reconfigured',
