@@ -68,3 +68,22 @@ test('summarizeSuccessfulPaymentActivity includes real offline payments', () => 
     netPaidMinor: 5000n,
   });
 });
+
+test('paid booking may use a successful authorization as capture proof only when no capture row exists', () => {
+  const transactions = [{
+    id: '1',
+    kind: 'AUTHORIZATION' as const,
+    status: 'SUCCEEDED' as const,
+    providerCode: 'stripe',
+    providerReference: 'pi_direct',
+    currency: 'USD',
+    amountMinor: 10000n,
+    createdAt: new Date('2026-09-01T00:00:00Z'),
+  }];
+
+  assert.deepEqual(summarizeSuccessfulPaymentActivity(transactions, 'PAID'), {
+    capturedMinor: 10000n,
+    refundedMinor: 0n,
+    netPaidMinor: 10000n,
+  });
+});

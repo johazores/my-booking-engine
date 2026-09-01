@@ -21,7 +21,7 @@ The response contains:
 - successful payment/refund ledger activity in chronological order;
 - captured, refunded, and net-paid totals calculated with integer minor units.
 
-Authorization rows are shown as payment history but are not counted as captured money. Captured Stripe payments and real offline payments contribute to captured money; successful refunds reduce the net settlement total. Pending and failed provider operations are excluded from receipt settlement proof.
+Successful capture rows and real offline payments contribute to captured money; successful refunds reduce the net settlement total. Authorization-only holds do not count as captured money. The one fallback is a booking already persisted as `PAID` with a successful authorization row and no capture/offline-payment row, which covers provider truth that finalized payment during the authorization lifecycle. Pending and failed provider operations are excluded from receipt settlement proof.
 
 Internal `sf_claim_*` references are never returned as provider references. The receipt API uses the standard payment JSON serializer so BigInt money is returned as decimal strings.
 
@@ -33,4 +33,4 @@ The receipt also never treats a browser redirect as payment evidence. It can onl
 
 ## Validation
 
-Focused dependency-free tests cover deterministic receipt numbering and settlement math, including authorization exclusion, captured payments, offline payments, and refunds. Full repository and PostgreSQL validation remain subject to the normal local `npm run validate` and explicitly confirmed disposable `npm run test:database` gates.
+Focused dependency-free tests cover deterministic receipt numbering and settlement math, including authorization exclusion, the paid-authorization fallback, captured payments, offline payments, and refunds. Full repository and PostgreSQL validation remain subject to the normal local `npm run validate` and explicitly confirmed disposable `npm run test:database` gates.
