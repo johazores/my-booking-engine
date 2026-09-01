@@ -6,6 +6,7 @@ import './shell.css';
 import './branding.css';
 import './customers.css';
 import './inventory.css';
+import './integrations.css';
 
 export const metadata: Metadata = {
   title: { default: 'SF | Booking Infrastructure', template: '%s | SF' },

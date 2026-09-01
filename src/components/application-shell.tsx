@@ -31,6 +31,7 @@ const navigation = [
   { href: '/customers', label: 'Customers', exact: false },
   { href: '/inventory', label: 'Inventory', exact: false },
   { href: '/pricing', label: 'Pricing', exact: false },
+  { href: '/integrations', label: 'Integrations', exact: false },
   { href: '/branding', label: 'Branding', exact: false },
   { href: '/account', label: 'Account', exact: false },
 ] as const;

@@ -33,7 +33,7 @@ Credential plaintext is normalized and encrypted with AES-256-GCM before persist
 
 Only organization `ADMIN` currently receives `integration:manage`. `MANAGER` receives `integration:read`; staff and customers receive neither permission. Configuration, credential rotation, enabling, and disabling are audited without secret values.
 
-Integration ownership is now represented at both application and database layers. Prisma declares the `Integration.organization` / `Organization.integrations` relation, and migration `20260902033000_integration-organization-ownership` adds a restrictive foreign key from `integrations.organizationId` to `organizations.id`. Application reads and writes still scope by `organizationId`; the foreign key is an additional integrity boundary, not a replacement for server authorization.
+Integration ownership is represented at both application and database layers. Prisma declares the `Integration.organization` / `Organization.integrations` relation, and migration `20260902033000_integration-organization-ownership` adds a restrictive foreign key from `integrations.organizationId` to `organizations.id`. Application reads and writes still scope by `organizationId`; the foreign key is an additional integrity boundary, not a replacement for server authorization.
 
 ### Lifecycle semantics
 
@@ -41,11 +41,15 @@ Disabling an integration preserves its encrypted credentials, capability configu
 
 Both enable and disable are idempotent. Repeating an operation when the record is already in the requested state returns the existing public record without creating a duplicate lifecycle audit event. Cross-tenant IDs fail closed as unavailable, and read-only managers cannot change lifecycle state.
 
-`saveIntegration` remains the credential configuration/rotation path. Updating an existing provider through that path intentionally increments the credential version and activates the integration because new credential material is being persisted. A future management UI must keep the distinction between "enable existing configuration" and "rotate credentials" explicit.
+`saveIntegration` remains the credential configuration/rotation path. Updating an existing provider through that path intentionally increments the credential version and activates the integration because new credential material is being persisted.
 
 ## Stripe wiring
 
 `loadStripePaymentIntegration` resolves the active organization-scoped `stripe` integration, decrypts credentials only on the server, validates required credential names, and constructs `StripePaymentProvider`. This removes the need for committed/global Stripe secrets and gives the payment application layer a tenant-safe provider resolver without creating a fake checkout flow.
+
+The authenticated `/integrations` management surface now provides a Stripe-specific configuration form instead of a generic provider form. It never pre-fills or returns stored credentials. Saving the form replaces the complete encrypted Stripe credential set and activates the integration; lifecycle enable/disable remains a separate operation that does not rotate credentials. Webhook capability is only persisted when a webhook signing secret is supplied, so tenant configuration does not advertise verified webhook readiness when that secret is absent.
+
+Read-only managers can inspect safe provider metadata, status, credential version, update time, and capabilities, but they cannot submit credential or lifecycle mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
 
 ## Failure model
 
@@ -59,4 +63,4 @@ The schema relation, foreign-key migration, and integration test are checked in,
 
 ## Remaining management surface
 
-The server foundation supports configuration/credential rotation, tenant-scoped listing, disabling, re-enabling without credential rotation, and active credential loading. A production management UI, explicit health/test operations, provider-specific configuration forms, and a safe remove/archive policy remain separate work. Stored secrets must never be returned to those interfaces.
+The production management surface now covers tenant-scoped listing, Stripe-specific initial configuration/credential rotation, and enable/disable lifecycle control while preserving the no-secret-return boundary. Explicit provider health/test operations and a safe remove/archive policy remain open. Additional provider-specific configuration forms must be added only alongside real adapters and capability contracts.
