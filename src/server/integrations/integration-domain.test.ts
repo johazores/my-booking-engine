@@ -19,19 +19,22 @@ test('integration metadata rejects unknown capabilities and unsafe provider code
   assert.throws(() => normalizeIntegrationCapabilities(['magic-capability']), /Unsupported integration capability/);
 });
 
-test('public integration records never expose encrypted credentials', () => {
+test('public integration records expose safe lifecycle metadata without credential material', () => {
+  const archivedAt = new Date('2026-09-02T00:00:00Z');
   const record = publicIntegrationRecord({
     id: '11111111-1111-4111-8111-111111111111',
     organizationId: '22222222-2222-4222-8222-222222222222',
     providerCode: 'stripe',
     displayName: 'Stripe',
-    status: 'ACTIVE',
+    status: 'ARCHIVED',
     capabilities: ['payment-authorize'],
     credentialVersion: 2,
     encryptedCredentials: 'must-not-leak',
+    archivedAt,
     createdAt: new Date('2026-09-01T00:00:00Z'),
-    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    updatedAt: archivedAt,
   });
   assert.equal('encryptedCredentials' in record, false);
   assert.equal(record.credentialVersion, 2);
+  assert.equal(record.archivedAt, archivedAt);
 });
