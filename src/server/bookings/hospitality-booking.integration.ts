@@ -5,11 +5,12 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Hospitality booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-test('booking confirmation revalidates persisted pricing and consumes a hold into permanent allocation atomically', async () => {
-  const [{ db }, holds, bookings, availability, pricing] = await Promise.all([
+test('booking confirmation revalidates persisted pricing and cancellation safely releases inventory', async () => {
+  const [{ db }, holds, bookings, cancellations, availability, pricing] = await Promise.all([
     import('../database.ts'),
     import('../availability/hospitality-availability-hold-service.ts'),
     import('./hospitality-booking-service.ts'),
+    import('./hospitality-booking-cancellation-service.ts'),
     import('../availability/hospitality-availability-service.ts'),
     import('../pricing/hospitality-pricing-service.ts'),
   ]);
@@ -135,11 +136,50 @@ test('booking confirmation revalidates persisted pricing and consumes a hold int
     assert.equal(listed.bookings[0]?.id, created.id);
     assert.deepEqual(listed.bookings[0]?.guests, created.guests);
 
+    await assert.rejects(
+      cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: created.id, now }),
+      /permission/i,
+    );
+    await assert.rejects(
+      cancellations.cancelHospitalityBooking({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: created.id, now }),
+      /not available/i,
+    );
+
+    await db.hospitalityBooking.update({ where: { id: created.id }, data: { paymentStatus: 'PAID' } });
+    await assert.rejects(
+      cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now }),
+      /refund/i,
+    );
+    await db.hospitalityBooking.update({ where: { id: created.id }, data: { paymentStatus: 'UNPAID' } });
+
+    const cancelledAt = new Date('2026-09-02T12:00:00.000Z');
+    const cancelled = await cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now: cancelledAt });
+    assert.equal(cancelled.status, 'CANCELLED');
+    assert.equal(cancelled.cancelledAt?.getTime(), cancelledAt.getTime());
+
+    const cancellationRetry = await cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now: new Date('2026-09-03T00:00:00.000Z') });
+    assert.equal(cancellationRetry.id, created.id);
+    assert.equal(cancellationRetry.cancelledAt?.getTime(), cancelledAt.getTime());
+
+    const afterCancellation = await availability.readHospitalityAvailability({ organizationId: organizationA.id, actorUserId: staffA.id, now: cancelledAt, request });
+    assert.equal(afterCancellation.capacity.bookingAllocationCount, 0);
+    assert.equal(afterCancellation.capacity.allocatedUnits, 0);
+    assert.equal(afterCancellation.capacity.sellableUnits, 1);
+    assert.equal(afterCancellation.available, true);
+
+    const retained = await bookings.getHospitalityBooking({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: created.id });
+    assert.equal(retained.status, 'CANCELLED');
+    assert.equal(retained.allocation?.bookingId, created.id);
+
     const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, resourceType: 'hospitality-booking', resourceId: created.id } });
     const confirmedEvents = events.filter((event) => event.action === 'booking.confirmed');
     assert.equal(confirmedEvents.length, 1);
     assert.equal((confirmedEvents[0]?.afterData as { guestCount?: number } | null)?.guestCount, 2);
     assert.equal(JSON.stringify(confirmedEvents[0]?.afterData).includes('ada@example.test'), false);
+    const cancelledEvents = events.filter((event) => event.action === 'booking.cancelled');
+    assert.equal(cancelledEvents.length, 1);
+    assert.equal((cancelledEvents[0]?.afterData as { status?: string } | null)?.status, 'CANCELLED');
+    assert.equal(JSON.stringify(cancelledEvents[0]?.afterData).includes('ada@example.test'), false);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
