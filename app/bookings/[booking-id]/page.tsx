@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { BookingCancelAction } from '@/components/booking-cancel-action.tsx';
+import { BookingRescheduleAction } from '@/components/booking-reschedule-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { bookingCancellationPaymentBlockReason } from '@/server/bookings/booking-cancellation-domain.ts';
 import { HospitalityBookingUnavailableError, getHospitalityBooking } from '@/server/bookings/hospitality-booking-service.ts';
@@ -65,6 +66,8 @@ export default async function BookingDetailPage({
 
   const addonSelections = Array.isArray(booking.addonSelections) ? booking.addonSelections : [];
   const cancellationPaymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
+  const arrivalDate = booking.arrivalDate.toISOString().slice(0, 10);
+  const departureDate = booking.departureDate.toISOString().slice(0, 10);
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
@@ -78,8 +81,8 @@ export default async function BookingDetailPage({
         <div><span>Booking ID</span><strong>{booking.id}</strong></div>
         <div><span>Payment</span><strong>{booking.paymentStatus.toLowerCase().replaceAll('_', ' ')}</strong></div>
         <div><span>Rooms</span><strong>{booking.quantity}</strong></div>
-        <div><span>Arrival</span><strong>{booking.arrivalDate.toISOString().slice(0, 10)}</strong></div>
-        <div><span>Departure</span><strong>{booking.departureDate.toISOString().slice(0, 10)}</strong></div>
+        <div><span>Arrival</span><strong>{arrivalDate}</strong></div>
+        <div><span>Departure</span><strong>{departureDate}</strong></div>
         <div><span>Confirmed</span><strong>{booking.confirmedAt ? booking.confirmedAt.toISOString() : '—'}</strong></div>
         <div><span>Cancelled</span><strong>{booking.cancelledAt ? booking.cancelledAt.toISOString() : '—'}</strong></div>
       </div>
@@ -126,6 +129,11 @@ export default async function BookingDetailPage({
         </div>
         <p><small>{receipt.note}</small></p>
       </div> : <div className="sf-empty-state"><h3>Receipt not available</h3><p>{receiptUnavailableReason ?? 'A successful settled payment is required before a receipt can be shown.'}</p></div>}
+    </section>
+
+    <section className="sf-booking-card" aria-labelledby="booking-reschedule-title">
+      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Stay changes</p><h2 id="booking-reschedule-title">Reschedule</h2></div></div>
+      <BookingRescheduleAction bookingId={booking.id} bookingStatus={booking.status} arrivalDate={arrivalDate} departureDate={departureDate} />
     </section>
 
     <section className="sf-booking-card" aria-labelledby="booking-cancellation-title">
