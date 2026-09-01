@@ -5,7 +5,7 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Payment integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-test('manual offline payments are tenant scoped, idempotent, and use the immutable booking total', async () => {
+test('manual offline payments and refunds are tenant scoped, idempotent, and use authoritative booking money', async () => {
   const [{ db }, payments] = await Promise.all([
     import('../database.ts'),
     import('./payment-service.ts'),
@@ -110,17 +110,84 @@ test('manual offline payments are tenant scoped, idempotent, and use the immutab
       /does not accept/i,
     );
 
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:permission', reference: 'BANK-REFUND-PERMISSION', amountMinor: '100' }),
+      /permission/i,
+    );
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: booking.id, idempotencyKey: 'payment:refund:cross-tenant', reference: 'BANK-REFUND-CROSS-TENANT', amountMinor: '100' }),
+      /not available/i,
+    );
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:too-large', reference: 'BANK-REFUND-TOO-LARGE', amountMinor: '12346' }),
+      /exceeds the remaining refundable balance/i,
+    );
+
+    const partialRefund = await payments.recordManualOfflineRefund({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      bookingId: booking.id,
+      idempotencyKey: 'payment:refund:1',
+      reference: ' BANK-REFUND-001 ',
+      amountMinor: '4000',
+    });
+    assert.equal(partialRefund.kind, 'REFUND');
+    assert.equal(partialRefund.status, 'SUCCEEDED');
+    assert.equal(partialRefund.amountMinor, 4000n);
+    assert.equal(partialRefund.currency, 'USD');
+    assert.equal(partialRefund.providerCode, 'manual');
+    assert.equal(partialRefund.providerReference, 'BANK-REFUND-001');
+    assert.equal((await db.hospitalityBooking.findUniqueOrThrow({ where: { id: booking.id } })).paymentStatus, 'PARTIALLY_REFUNDED');
+
+    const partialRetry = await payments.recordManualOfflineRefund({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      bookingId: booking.id,
+      idempotencyKey: 'payment:refund:1',
+      reference: 'BANK-REFUND-001',
+      amountMinor: '4000',
+    });
+    assert.equal(partialRetry.id, partialRefund.id);
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:1', reference: 'BANK-REFUND-001', amountMinor: '4001' }),
+      /different operation/i,
+    );
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:duplicate-reference', reference: 'BANK-REFUND-001', amountMinor: '100' }),
+      /reference has already been recorded/i,
+    );
+
+    const finalRefund = await payments.recordManualOfflineRefund({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      bookingId: booking.id,
+      idempotencyKey: 'payment:refund:2',
+      reference: 'BANK-REFUND-002',
+    });
+    assert.equal(finalRefund.amountMinor, 8345n);
+    assert.equal((await db.hospitalityBooking.findUniqueOrThrow({ where: { id: booking.id } })).paymentStatus, 'REFUNDED');
+    await assert.rejects(
+      payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:after-full', reference: 'BANK-REFUND-003' }),
+      /does not accept a refund/i,
+    );
+
     const history = await payments.listBookingPaymentTransactions({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: booking.id });
-    assert.equal(history.total, 1);
-    assert.equal(history.transactions[0]?.id, recorded.id);
+    assert.equal(history.total, 3);
+    assert.deepEqual(new Set(history.transactions.map((transaction) => transaction.id)), new Set([recorded.id, partialRefund.id, finalRefund.id]));
     await assert.rejects(
       payments.listBookingPaymentTransactions({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: booking.id }),
       /not available/i,
     );
 
-    const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, action: 'payment.offline-recorded', resourceId: recorded.id } });
-    assert.equal(events.length, 1);
-    assert.equal(JSON.stringify(events[0]?.afterData).includes('BANK-001'), false);
+    const paymentEvents = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, action: 'payment.offline-recorded', resourceId: recorded.id } });
+    assert.equal(paymentEvents.length, 1);
+    assert.equal(JSON.stringify(paymentEvents[0]?.afterData).includes('BANK-001'), false);
+    const refundEvents = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, action: 'payment.offline-refund-recorded', resourceId: { in: [partialRefund.id, finalRefund.id] } } });
+    assert.equal(refundEvents.length, 2);
+    const refundAuditPayload = JSON.stringify(refundEvents.map((event) => event.afterData));
+    assert.equal(refundAuditPayload.includes('BANK-001'), false);
+    assert.equal(refundAuditPayload.includes('BANK-REFUND-001'), false);
+    assert.equal(refundAuditPayload.includes('BANK-REFUND-002'), false);
 
     await assert.rejects(
       db.paymentTransaction.create({ data: {

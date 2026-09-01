@@ -81,7 +81,9 @@ A future customer payment journey must introduce its own ownership/self-service 
 
 ## Validation and future providers
 
-The payment unit suite covers exact money, malformed inputs, capability enforcement, manual payment normalization, manual refund normalization, and rejection of a refund reference that duplicates the source payment reference. The disposable PostgreSQL suite covers the existing manual payment persistence boundary; manual refund persistence must be exercised there before claiming the database-backed refund workflow fully validated.
+The payment unit suite covers exact money, malformed inputs, capability enforcement, manual payment normalization, manual refund normalization, and rejection of a refund reference that duplicates the source payment reference.
+
+The checked-in disposable PostgreSQL payment suite covers payment permission enforcement, cross-tenant denial, immutable booking totals, successful payment state transition, exact retry behavior, changed-retry rejection, transaction history, audit minimization, and the composite tenant/booking foreign key. It also covers manual refund permission and tenant isolation, over-refund rejection, partial and full refund state transitions, exact refund retry, changed-retry rejection, duplicate refund references, post-full-refund rejection, refund ledger history, and refund audit-reference minimization.
 
 Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
 
