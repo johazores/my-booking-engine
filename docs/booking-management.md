@@ -20,7 +20,7 @@ The booking view presents persisted production data only: reservation lifecycle,
 
 The write requires a confirmed tenant-owned booking and `booking:manage`, serializes on a booking-specific PostgreSQL advisory lock, normalizes names and optional emails through the same booking-domain rules used at confirmation, and enforces `roomType.maxOccupancy × booked quantity` plus the existing global guest safety bound. It replaces the ordered guest rows atomically inside a serializable transaction.
 
-Traveler updates have durable idempotency through a PII-safe SHA-256 fingerprint and the booking audit ledger. Exact retries return the already-applied state, an idempotency key reused for different travelers is rejected, and a stale retry after a later traveler change fails closed instead of restoring old guest data. Audit events store guest counts and fingerprints only; traveler names/emails are never copied into audit JSON.
+Traveler updates have durable idempotency through a normalized SHA-256 request fingerprint and the booking audit ledger. Exact retries return the already-applied state, an idempotency key reused for different travelers is rejected, and a stale retry after a later traveler change fails closed instead of restoring old guest data. Audit events store guest counts and request fingerprints only; traveler names and emails are never copied into audit JSON, and internal fingerprints/idempotency keys are not rendered in the booking UI.
 
 This is intentionally a zero-commercial-delta modification. It does not rewrite price history or initiate payment activity.
 
@@ -44,9 +44,11 @@ The detail page exposes a bounded, 20-row paginated history for `hospitality-boo
 
 ## Validation coverage
 
-Dependency-free booking-domain tests cover cancellation policy, reschedule validation/zero-delta comparison, traveler normalization/fingerprinting, and occupancy enforcement. The guarded PostgreSQL suites already cover confirmation, cancellation, rescheduling, tenant isolation, and related concurrency boundaries. The traveler-edit persistence path still requires dedicated disposable-PostgreSQL execution/coverage before the broad `Modify booking` acceptance item should be treated as complete.
+Dependency-free booking-domain tests cover cancellation policy, reschedule validation/zero-delta comparison, traveler normalization/fingerprinting, and occupancy enforcement. The guarded PostgreSQL suites cover confirmation, cancellation, rescheduling, tenant isolation, and related concurrency boundaries.
 
-Database execution remains required against an explicitly confirmed disposable PostgreSQL target. Full repository validation remains subject to the Node 24 `npm run validate` gate.
+A dedicated traveler-modification PostgreSQL scenario is now registered in `npm run test:database`. It covers `booking:manage` denial, cross-tenant denial, occupancy rejection, normalized successful replacement, exact retry without duplicate audit events, changed-payload idempotency conflicts, stale retry protection after a later traveler edit, tenant-scoped paginated booking-audit reads, and audit payload checks that raw traveler names/emails are not copied into audit JSON.
+
+The traveler PostgreSQL scenario is checked in but has not been claimed as executed in environments without the required confirmed disposable PostgreSQL target. Database execution remains required against an explicitly confirmed disposable PostgreSQL target. Full repository validation remains subject to the Node 24 `npm run validate` gate.
 
 ## Remaining booking-management work
 
