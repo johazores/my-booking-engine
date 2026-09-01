@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { BookingCancelAction } from '@/components/booking-cancel-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { HospitalityBookingUnavailableError, getHospitalityBooking } from '@/server/bookings/hospitality-booking-service.ts';
 import { getBookingPaymentReceipt } from '@/server/payments/payment-receipt-service.ts';
@@ -78,6 +79,7 @@ export default async function BookingDetailPage({
         <div><span>Arrival</span><strong>{booking.arrivalDate.toISOString().slice(0, 10)}</strong></div>
         <div><span>Departure</span><strong>{booking.departureDate.toISOString().slice(0, 10)}</strong></div>
         <div><span>Confirmed</span><strong>{booking.confirmedAt ? booking.confirmedAt.toISOString() : '—'}</strong></div>
+        <div><span>Cancelled</span><strong>{booking.cancelledAt ? booking.cancelledAt.toISOString() : '—'}</strong></div>
       </div>
     </section>
 
@@ -122,6 +124,11 @@ export default async function BookingDetailPage({
         </div>
         <p><small>{receipt.note}</small></p>
       </div> : <div className="sf-empty-state"><h3>Receipt not available</h3><p>{receiptUnavailableReason ?? 'A successful settled payment is required before a receipt can be shown.'}</p></div>}
+    </section>
+
+    <section className="sf-booking-card" aria-labelledby="booking-cancellation-title">
+      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Reservation lifecycle</p><h2 id="booking-cancellation-title">Cancellation</h2></div></div>
+      <BookingCancelAction bookingId={booking.id} bookingStatus={booking.status} paymentStatus={booking.paymentStatus} />
     </section>
   </div>;
 }
