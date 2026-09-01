@@ -72,9 +72,9 @@ The booking detail page uses a two-step cancellation confirmation state with exp
 
 Dependency-free booking-domain tests cover cancellation payment policy plus reschedule input normalization, invalid date/idempotency rejection, and zero-commercial-delta comparison across every persisted monetary field.
 
-The existing checked-in PostgreSQL hospitality-booking integration scenario covers booking confirmation/cancellation boundaries. Reschedule database integration execution remains required against the explicitly confirmed disposable PostgreSQL target before its database/concurrency acceptance criteria can be marked complete.
+The guarded PostgreSQL reschedule scenario is checked into `npm run test:database` and covers `booking:manage` denial, cross-tenant denial, overlapping-date self-allocation exclusion, booking/allocation mutation, exact retry without duplicate audit events, changed-key payload rejection, non-zero price-delta rejection without mutation, held-inventory rejection, stale replay protection after a later change, and audit history without guest PII.
 
-Full repository validation remains subject to the Node 24 `npm run validate` gate and the explicitly confirmed disposable PostgreSQL `npm run test:database` gate.
+Database execution remains required against an explicitly confirmed disposable PostgreSQL target before those database/concurrency acceptance criteria can be marked complete. Full repository validation remains subject to the Node 24 `npm run validate` gate.
 
 ## Remaining booking-management work
 
