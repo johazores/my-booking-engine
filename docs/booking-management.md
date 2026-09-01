@@ -1,83 +1,55 @@
 # Booking management
 
-SF has an authenticated booking-management surface at `/bookings/[booking-id]` over the existing tenant-safe booking and payment boundaries. It supports production-safe date rescheduling and cancellation in addition to booking/payment detail reads.
+SF has an authenticated booking-management surface at `/bookings/[booking-id]` over tenant-safe booking, payment, and audit boundaries. It supports production-safe date rescheduling, traveler snapshot editing, cancellation, and paginated history in addition to booking/payment detail reads.
 
 ## Security and tenant scope
 
 The page requires a valid authenticated session and active organization context. Booking retrieval uses `getHospitalityBooking`, which requires `booking:read` and selects the booking by both booking ID and organization ID. Cross-tenant or unavailable booking identifiers therefore resolve as unavailable instead of exposing another tenant's booking data.
 
-Payment history and receipt data continue through their existing server services and `payment:read` authorization. Internal Stripe `sf_claim_*` operation references are never rendered as provider references.
+Payment history and receipt data continue through their existing server services and `payment:read` authorization. Booking audit history requires `booking:read` and scopes every count/read by organization ID, booking resource type, and booking ID. Internal Stripe `sf_claim_*` operation references are never rendered as provider references.
 
-Cancellation and rescheduling use separate server services and same-origin authenticated POST boundaries. Both derive the active organization and actor from the server session, require `booking:manage`, and re-read the tenant-owned booking inside their transaction. The browser never supplies organization ownership, current payment truth, inventory truth, or persisted pricing truth.
+Cancellation, rescheduling, and traveler edits use separate server services and same-origin authenticated POST boundaries. Writes derive the active organization and actor from the server session and require `booking:manage`. The browser never supplies organization ownership, current payment truth, inventory truth, or persisted pricing truth.
 
 ## Detail surface
 
-The booking view presents persisted production data only:
+The booking view presents persisted production data only: reservation lifecycle, customer and ordered traveler snapshots, room/rate details, immutable pricing, selected add-ons, paginated payment history, receipt settlement when proven, paginated booking audit history, date rescheduling, traveler editing, and cancellation. Empty states are explicit and no unavailable payment or invoice workflow is presented as complete.
 
-- booking status, payment status, stay dates, quantity, confirmation timestamp, and cancellation timestamp;
-- tenant-owned customer data and immutable ordered guest snapshots;
-- room type and rate plan;
-- immutable accommodation, tax, fee, add-on, and total price snapshots plus the persisted pricing fingerprint;
-- persisted selected add-on data;
-- paginated payment-ledger history for the booking;
-- payment-receipt settlement details when the existing receipt service proves a successful settled payment;
-- a real date-reschedule form for confirmed bookings;
-- cancellation state and the real cancellation action when the booking/payment state permits it.
+## Traveler modification contract
 
-Bookings without payment activity show an explicit empty state. Bookings that are not yet eligible for a receipt show the actual receipt-domain reason rather than a fake receipt or success document.
+`POST /api/bookings/hospitality/[booking-id]/guests` updates only the booking-specific traveler snapshots. The reusable Customer record, room/rate selection, dates, quantity, add-ons, monetary snapshot, payment ledger, and allocation remain unchanged.
+
+The write requires a confirmed tenant-owned booking and `booking:manage`, serializes on a booking-specific PostgreSQL advisory lock, normalizes names and optional emails through the same booking-domain rules used at confirmation, and enforces `roomType.maxOccupancy × booked quantity` plus the existing global guest safety bound. It replaces the ordered guest rows atomically inside a serializable transaction.
+
+Traveler updates have durable idempotency through a PII-safe SHA-256 fingerprint and the booking audit ledger. Exact retries return the already-applied state, an idempotency key reused for different travelers is rejected, and a stale retry after a later traveler change fails closed instead of restoring old guest data. Audit events store guest counts and fingerprints only; traveler names/emails are never copied into audit JSON.
+
+This is intentionally a zero-commercial-delta modification. It does not rewrite price history or initiate payment activity.
 
 ## Reschedule contract
 
-`POST /api/bookings/hospitality/[booking-id]/reschedule` changes arrival and departure dates only. Room type, rate plan, quantity, guest snapshots, add-on selections, payment records, and the persisted monetary price snapshot are not browser-editable.
+`POST /api/bookings/hospitality/[booking-id]/reschedule` changes arrival and departure dates only. Room type, rate plan, quantity, guest snapshots, add-on selections, payment records, and the persisted monetary price snapshot are not browser-editable through that operation.
 
-The write serializes on a booking-specific advisory lock and the same room-type allocation lock used by availability and hold workflows. Inside that transaction it:
+The write serializes on a booking-specific advisory lock and the same room-type allocation lock used by availability and hold workflows. It requires a confirmed booking with retained allocation, revalidates active assignment, restrictions, capacity excluding its own allocation, and complete persisted pricing, then atomically updates booking/allocation dates only when every monetary field and currency remain identical. Price-changing moves fail before mutation and require a future explicit payment-adjustment workflow.
 
-1. requires a confirmed tenant-owned booking with a retained allocation;
-2. validates the requested calendar range and durable idempotency key;
-3. checks active room/rate-plan assignment;
-4. re-evaluates stay restrictions;
-5. recalculates capacity while explicitly excluding the booking's own allocation, preventing false capacity failures for overlapping date changes;
-6. re-quotes current rates, taxes, fees, and selected add-ons from persisted configuration;
-7. requires currency and every persisted monetary subtotal/total to remain identical;
-8. atomically updates the booking dates and allocation dates;
-9. records the before/after stay, total, payment state, and request idempotency key in the audit trail without guest PII.
-
-A reschedule that changes accommodation, tax, fee, add-on, total, or currency fails closed before mutation. SF does not silently rewrite the original commercial price snapshot and does not implicitly charge or refund a difference. Non-zero payment deltas require a dedicated payment-adjustment workflow before that broader modification class can be enabled.
-
-The current date-only workflow is safe for already-paid bookings because it never changes the amount represented by the payment ledger. Provider references and card/payment credentials are untouched.
-
-### Reschedule idempotency
-
-The audit ledger is also the persisted request ledger for completed reschedules. Reusing an idempotency key with different requested dates is rejected. Replaying the same completed request returns successfully only while those dates remain the current booking state; if a later reschedule has superseded it, the stale replay fails closed instead of moving the booking backward.
+The audit ledger is the persisted reschedule request ledger. Exact current-state retries succeed, changed-payload key reuse is rejected, and stale retries after a later reschedule fail closed.
 
 ## Cancellation contract
 
-Cancellation is a retained lifecycle transition, not deletion. `CONFIRMED -> CANCELLED` uses the existing booking state machine and stores `cancelledAt`; the booking, immutable guest/price snapshots, allocation record, payment ledger, and audit history remain available after cancellation.
+Cancellation is a retained `CONFIRMED -> CANCELLED` lifecycle transition, not deletion. Booking, immutable guest/price snapshots, allocation record, payment ledger, and audit history remain retained. The operation serializes on booking plus allocation locks and safely releases inventory through the existing availability rule that ignores cancelled booking allocations.
 
-Cancellation acquires both a booking-specific advisory lock and the same room-type allocation lock used by availability/hold workflows. Availability already excludes allocations whose booking is `CANCELLED`, so committing the booking status transition safely releases that inventory without deleting the historical allocation row.
+Payment state is resolved server-side before cancellation: `UNPAID`, `FAILED`, and fully `REFUNDED` may cancel; `AUTHORIZED`, `PAID`, and `PARTIALLY_REFUNDED` are blocked until funds are resolved. Retrying an already-cancelled booking is idempotent and does not create another cancellation event. The UI uses explicit destructive confirmation and server-derived blocker messaging.
 
-The cancellation write is naturally idempotent for the current no-payload contract: retrying an already-cancelled booking returns the retained cancelled record and does not emit another audit event.
+## Audit history
 
-Payment state is resolved server-side before cancellation:
-
-- `UNPAID`, `FAILED`, and fully `REFUNDED` bookings may be cancelled;
-- `AUTHORIZED` bookings are blocked until the authorization is released or otherwise resolved;
-- `PAID` and `PARTIALLY_REFUNDED` bookings are blocked until the required refund completes.
-
-This deliberately prevents cancellation from releasing inventory while SF still has unresolved customer funds. The UI derives the same blocker reason from the shared domain policy but the server remains authoritative.
-
-The booking detail page uses a two-step cancellation confirmation state with explicit confirm/keep actions, disabled submission state, error feedback, and post-success refresh. No destructive action is exposed when payment state makes cancellation unsafe.
+The detail page exposes a bounded, 20-row paginated history for `hospitality-booking` audit events belonging to the active tenant and booking. Internal request fingerprints/idempotency keys used for safe replay handling are filtered from the rendered payload. Existing event payloads remain the persisted audit source of truth.
 
 ## Validation coverage
 
-Dependency-free booking-domain tests cover cancellation payment policy plus reschedule input normalization, invalid date/idempotency rejection, and zero-commercial-delta comparison across every persisted monetary field.
+Dependency-free booking-domain tests cover cancellation policy, reschedule validation/zero-delta comparison, traveler normalization/fingerprinting, and occupancy enforcement. The guarded PostgreSQL suites already cover confirmation, cancellation, rescheduling, tenant isolation, and related concurrency boundaries. The traveler-edit persistence path still requires dedicated disposable-PostgreSQL execution/coverage before the broad `Modify booking` acceptance item should be treated as complete.
 
-The guarded PostgreSQL reschedule scenario is checked into `npm run test:database` and covers `booking:manage` denial, cross-tenant denial, overlapping-date self-allocation exclusion, booking/allocation mutation, exact retry without duplicate audit events, changed-key payload rejection, non-zero price-delta rejection without mutation, held-inventory rejection, stale replay protection after a later change, and audit history without guest PII.
-
-Database execution remains required against an explicitly confirmed disposable PostgreSQL target before those database/concurrency acceptance criteria can be marked complete. Full repository validation remains subject to the Node 24 `npm run validate` gate.
+Database execution remains required against an explicitly confirmed disposable PostgreSQL target. Full repository validation remains subject to the Node 24 `npm run validate` gate.
 
 ## Remaining booking-management work
 
-General booking modification remains broader than the current date-only reschedule. Room type, rate plan, room quantity, guest edits, add-on edits, and any change that creates a non-zero payment delta need explicit version/history and payment-adjustment contracts before UI controls are exposed.
+General commercial modification remains broader than traveler edits and date-only reschedule. Room type, rate plan, room quantity, add-on edits, and any change producing a non-zero payment delta need explicit version/history and payment-adjustment contracts before UI controls are exposed.
 
-Invoice-generation and jurisdiction-specific tax-document issuance also remain separate commercial requirements rather than being implied by the current payment receipt foundation.
+Invoice generation and jurisdiction-specific tax-document issuance remain separate commercial requirements rather than being implied by the current payment receipt foundation.
