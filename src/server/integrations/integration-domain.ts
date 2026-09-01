@@ -53,6 +53,7 @@ export function publicIntegrationRecord<T extends {
   credentialVersion: number;
   createdAt: Date;
   updatedAt: Date;
+  archivedAt: Date | null;
 }>(integration: T) {
   return Object.freeze({
     id: integration.id,
@@ -64,5 +65,6 @@ export function publicIntegrationRecord<T extends {
     credentialVersion: integration.credentialVersion,
     createdAt: integration.createdAt,
     updatedAt: integration.updatedAt,
+    archivedAt: integration.archivedAt,
   });
 }

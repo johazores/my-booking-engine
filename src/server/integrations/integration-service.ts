@@ -16,6 +16,13 @@ export class IntegrationUnavailableError extends Error {
   }
 }
 
+export class IntegrationLifecycleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IntegrationLifecycleError';
+  }
+}
+
 export async function saveIntegration(input: {
   organizationId: string;
   actorUserId: string;
@@ -51,6 +58,7 @@ export async function saveIntegration(input: {
             encryptedCredentials,
             credentialVersion: { increment: 1 },
             status: 'ACTIVE',
+            archivedAt: null,
           },
         })
       : await transaction.integration.create({
@@ -67,7 +75,11 @@ export async function saveIntegration(input: {
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: existing ? 'integration.credentials-rotated' : 'integration.configured',
+        action: existing?.status === 'ARCHIVED'
+          ? 'integration.reconfigured'
+          : existing
+            ? 'integration.credentials-rotated'
+            : 'integration.configured',
         resourceType: 'integration',
         resourceId: integration.id,
         afterData: {
@@ -118,6 +130,9 @@ export async function enableIntegration(input: {
       where: { id: input.integrationId, organizationId: input.organizationId },
     });
     if (!existing) throw new IntegrationUnavailableError();
+    if (existing.status === 'ARCHIVED') {
+      throw new IntegrationLifecycleError('Archived integrations require fresh credentials before they can be activated.');
+    }
     const integration = existing.status === 'ACTIVE'
       ? existing
       : await transaction.integration.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
@@ -161,6 +176,9 @@ export async function disableIntegration(input: {
       where: { id: input.integrationId, organizationId: input.organizationId },
     });
     if (!existing) throw new IntegrationUnavailableError();
+    if (existing.status === 'ARCHIVED') {
+      throw new IntegrationLifecycleError('Archived integrations cannot change lifecycle state.');
+    }
     const integration = existing.status === 'DISABLED'
       ? existing
       : await transaction.integration.update({ where: { id: existing.id }, data: { status: 'DISABLED' } });
@@ -185,6 +203,62 @@ export async function disableIntegration(input: {
   });
 }
 
+export async function archiveIntegration(input: {
+  organizationId: string;
+  actorUserId: string;
+  integrationId: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.integrationId, 'integrationId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'integration:manage',
+  });
+
+  return db.$transaction(async (transaction) => {
+    const existing = await transaction.integration.findFirst({
+      where: { id: input.integrationId, organizationId: input.organizationId },
+    });
+    if (!existing) throw new IntegrationUnavailableError();
+    if (existing.status === 'ARCHIVED') return publicIntegrationRecord(existing);
+    if (existing.status !== 'DISABLED') {
+      throw new IntegrationLifecycleError('Disable the integration before archiving it.');
+    }
+
+    const integration = await transaction.integration.update({
+      where: { id: existing.id },
+      data: {
+        status: 'ARCHIVED',
+        encryptedCredentials: null,
+        archivedAt: new Date(),
+      },
+    });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'integration.archived',
+        resourceType: 'integration',
+        resourceId: integration.id,
+        beforeData: {
+          providerCode: existing.providerCode,
+          status: existing.status,
+          credentialVersion: existing.credentialVersion,
+        },
+        afterData: {
+          providerCode: integration.providerCode,
+          status: integration.status,
+          credentialVersion: integration.credentialVersion,
+          credentialsPurged: true,
+        },
+      },
+    });
+    return publicIntegrationRecord(integration);
+  });
+}
+
 export async function loadActiveIntegrationCredentials(input: {
   organizationId: string;
   providerCode: unknown;
@@ -194,7 +268,7 @@ export async function loadActiveIntegrationCredentials(input: {
   const integration = await db.integration.findUnique({
     where: { organizationId_providerCode: { organizationId: input.organizationId, providerCode } },
   });
-  if (!integration || integration.status !== 'ACTIVE') throw new IntegrationUnavailableError();
+  if (!integration || integration.status !== 'ACTIVE' || !integration.encryptedCredentials) throw new IntegrationUnavailableError();
   return {
     integration: publicIntegrationRecord(integration),
     credentials: decryptIntegrationCredentials(integration.encryptedCredentials),

@@ -12,6 +12,8 @@ const errors: Record<string, string> = {
   permission: 'You do not have permission to manage integrations.',
   validation: 'Check the provider credentials and try again.',
   unavailable: 'That integration is not available in this organization.',
+  lifecycle: 'That lifecycle change is not allowed. Disable an active integration before archiving it; archived integrations require fresh credentials.',
+  'archive-confirmation': 'Confirm that stored credentials will be permanently removed before archiving this integration.',
   'health-auth': 'Stripe rejected the stored credentials. Rotate the secret key before using online payments.',
   'health-rate-limit': 'Stripe rate-limited the connection test. The stored credentials were not changed; try again later.',
   'health-unavailable': 'Stripe could not be reached for a definitive connection test. The stored credentials were not changed.',
@@ -23,6 +25,7 @@ const statuses: Record<string, string> = {
   saved: 'Stripe credentials saved securely and the integration is active.',
   enabled: 'Integration enabled without rotating stored credentials.',
   disabled: 'Integration disabled. Stored credentials were preserved.',
+  archived: 'Integration archived and its stored credential ciphertext was permanently removed.',
   'health-ok': 'Stripe connection test passed. The stored secret key authenticated successfully.',
 };
 
@@ -108,6 +111,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <div className="sf-integration-summary">
             <div><span>Display name</span><strong>{stripe.displayName}</strong></div>
             <div><span>Last updated</span><strong>{stripe.updatedAt.toLocaleString()}</strong></div>
+            {stripe.archivedAt ? <div><span>Archived</span><strong>{stripe.archivedAt.toLocaleString()}</strong></div> : null}
             <div className="sf-integration-summary__wide"><span>Capabilities</span><div className="sf-integration-capabilities">{stripe.capabilities.map((capability) => <span key={capability}>{capabilityLabels[capability] ?? capability}</span>)}</div></div>
           </div>
         ) : <p className="sf-integration-card__empty">Stripe is not configured for this organization.</p>}
@@ -116,35 +120,51 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <div className="sf-integration-readonly"><strong>Read only</strong><span>An organization administrator must configure credentials or change provider status.</span></div>
         ) : (
           <>
-            <div className="sf-integration-lifecycle" aria-label="Stripe lifecycle and connection controls">
-              {stripe?.status === 'ACTIVE' ? (
-                <>
-                  <form action="/api/integrations/stripe/test" method="post">
-                    <button className="sf-button sf-button--secondary" type="submit">Test Stripe connection</button>
-                  </form>
+            {stripe?.status !== 'ARCHIVED' ? (
+              <div className="sf-integration-lifecycle" aria-label="Stripe lifecycle and connection controls">
+                {stripe?.status === 'ACTIVE' ? (
+                  <>
+                    <form action="/api/integrations/stripe/test" method="post">
+                      <button className="sf-button sf-button--secondary" type="submit">Test Stripe connection</button>
+                    </form>
+                    <form action={`/api/integrations/${stripe.id}/status`} method="post">
+                      <input type="hidden" name="action" value="disable" />
+                      <button className="sf-button sf-button--secondary" type="submit">Disable Stripe</button>
+                    </form>
+                  </>
+                ) : stripe ? (
                   <form action={`/api/integrations/${stripe.id}/status`} method="post">
-                    <input type="hidden" name="action" value="disable" />
-                    <button className="sf-button sf-button--secondary" type="submit">Disable Stripe</button>
+                    <input type="hidden" name="action" value="enable" />
+                    <button className="sf-button sf-button--primary" type="submit">Enable existing configuration</button>
                   </form>
-                </>
-              ) : stripe ? (
-                <form action={`/api/integrations/${stripe.id}/status`} method="post">
-                  <input type="hidden" name="action" value="enable" />
-                  <button className="sf-button sf-button--primary" type="submit">Enable existing configuration</button>
-                </form>
-              ) : null}
-              {stripe ? <p>Connection tests make a read-only authenticated Stripe API request and never display account balances. Enable/disable preserves encrypted credentials; saving credentials below is a separate rotation operation.</p> : null}
-            </div>
+                ) : null}
+                {stripe ? <p>Connection tests make a read-only authenticated Stripe API request and never display account balances. Enable/disable preserves encrypted credentials; archiving permanently removes stored credential ciphertext.</p> : null}
+              </div>
+            ) : (
+              <div className="sf-integration-readonly"><strong>Archived</strong><span>This record cannot be enabled. Enter fresh Stripe credentials below to reconnect the provider.</span></div>
+            )}
+
+            {stripe?.status === 'DISABLED' ? (
+              <form className="sf-integration-archive" action={`/api/integrations/${stripe.id}/status`} method="post">
+                <input type="hidden" name="action" value="archive" />
+                <div>
+                  <strong>Remove Stripe integration</strong>
+                  <p>Archiving preserves the non-secret provider and audit history, but permanently deletes the stored encrypted credential envelope. Reconnection requires fresh credentials.</p>
+                </div>
+                <label className="sf-integration-archive__confirm"><input type="checkbox" name="confirm" value="archive" required /> I understand the stored credentials will be permanently removed.</label>
+                <button className="sf-button sf-button--secondary" type="submit">Archive Stripe integration</button>
+              </form>
+            ) : null}
 
             <form className="sf-integration-form" action="/api/integrations/stripe" method="post">
               <div>
-                <p className="sf-eyebrow">{stripe ? 'Rotate credentials' : 'Configure provider'}</p>
-                <h3>{stripe ? 'Replace Stripe credentials' : 'Connect Stripe'}</h3>
+                <p className="sf-eyebrow">{stripe?.status === 'ARCHIVED' ? 'Reconnect provider' : stripe ? 'Rotate credentials' : 'Configure provider'}</p>
+                <h3>{stripe?.status === 'ARCHIVED' ? 'Reconnect Stripe with fresh credentials' : stripe ? 'Replace Stripe credentials' : 'Connect Stripe'}</h3>
                 <p>For security, existing secrets are never returned. Saving this form replaces the complete stored Stripe credential set and activates the integration.</p>
               </div>
               <label className="sf-field">Stripe secret key<input type="password" name="secretKey" required minLength={12} maxLength={4096} autoComplete="new-password" placeholder="sk_..." /><small>Server-side secret key only. Never enter card details or publishable keys here.</small></label>
               <label className="sf-field">Webhook signing secret <span className="sf-field__optional">optional</span><input type="password" name="webhookSecret" maxLength={4096} autoComplete="new-password" placeholder="whsec_..." /><small>Leave blank only if verified Stripe webhooks are intentionally not configured.</small></label>
-              <button className="sf-button sf-button--primary" type="submit">{stripe ? 'Rotate and activate credentials' : 'Save Stripe integration'}</button>
+              <button className="sf-button sf-button--primary" type="submit">{stripe?.status === 'ARCHIVED' ? 'Reconnect and activate Stripe' : stripe ? 'Rotate and activate credentials' : 'Save Stripe integration'}</button>
             </form>
           </>
         )}
