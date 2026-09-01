@@ -16,7 +16,13 @@ function safeProviderReference(reference: string | null) {
   return reference && !reference.startsWith('sf_claim_') ? reference : null;
 }
 
-export default async function BookingDetailPage({ params }: { params: Promise<{ 'booking-id': string }> }) {
+export default async function BookingDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ 'booking-id': string }>;
+  searchParams: Promise<{ paymentPage?: string }>;
+}) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
   if (authRedirect) redirect(authRedirect);
@@ -27,6 +33,8 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   if (!activeContext.organization) redirect('/dashboard?error=tenant');
   const organization = activeContext.organization;
   const bookingId = (await params)['booking-id'];
+  const query = await searchParams;
+  const paymentPage = Number(query.paymentPage ?? '1');
 
   let booking;
   try {
@@ -40,8 +48,8 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
     organizationId: organization.id,
     actorUserId: session.user.id,
     bookingId: booking.id,
-    page: 1,
-    pageSize: 100,
+    page: paymentPage,
+    pageSize: 25,
   });
 
   let receipt: Awaited<ReturnType<typeof getBookingPaymentReceipt>> | null = null;
@@ -92,8 +100,14 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
     </section>
 
     <section className="sf-booking-card" aria-labelledby="payment-history-title">
-      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Payment history</p><h2 id="payment-history-title">{paymentHistory.total} transaction{paymentHistory.total === 1 ? '' : 's'}</h2></div></div>
-      {paymentHistory.transactions.length === 0 ? <div className="sf-empty-state"><h3>No payment transactions</h3><p>This booking has no persisted payment activity yet.</p></div> : <div className="sf-room-table-wrap"><table className="sf-room-table"><thead><tr><th scope="col">Operation</th><th scope="col">Provider</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Reference</th><th scope="col">Created</th></tr></thead><tbody>{paymentHistory.transactions.map((transaction) => <tr key={transaction.id}><th scope="row">{transaction.kind.toLowerCase().replaceAll('_', ' ')}</th><td>{transaction.providerCode}</td><td>{money(transaction.amountMinor, transaction.currency)}</td><td>{transaction.status.toLowerCase()}</td><td>{safeProviderReference(transaction.providerReference) ?? '—'}</td><td>{transaction.createdAt.toISOString()}</td></tr>)}</tbody></table></div>}
+      <div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Payment history</p><h2 id="payment-history-title">{paymentHistory.total} transaction{paymentHistory.total === 1 ? '' : 's'}</h2></div><span>Page {paymentHistory.page} of {paymentHistory.totalPages}</span></div>
+      {paymentHistory.transactions.length === 0 ? <div className="sf-empty-state"><h3>No payment transactions</h3><p>This booking has no persisted payment activity yet.</p></div> : <>
+        <div className="sf-room-table-wrap"><table className="sf-room-table"><thead><tr><th scope="col">Operation</th><th scope="col">Provider</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Reference</th><th scope="col">Created</th></tr></thead><tbody>{paymentHistory.transactions.map((transaction) => <tr key={transaction.id}><th scope="row">{transaction.kind.toLowerCase().replaceAll('_', ' ')}</th><td>{transaction.providerCode}</td><td>{money(transaction.amountMinor, transaction.currency)}</td><td>{transaction.status.toLowerCase()}</td><td>{safeProviderReference(transaction.providerReference) ?? '—'}</td><td>{transaction.createdAt.toISOString()}</td></tr>)}</tbody></table></div>
+        {paymentHistory.totalPages > 1 ? <nav className="sf-actions" aria-label="Payment history pages">
+          {paymentHistory.page > 1 ? <Link className="sf-button sf-button--secondary" href={`/bookings/${booking.id}?paymentPage=${paymentHistory.page - 1}`}>Previous payments</Link> : null}
+          {paymentHistory.page < paymentHistory.totalPages ? <Link className="sf-button sf-button--secondary" href={`/bookings/${booking.id}?paymentPage=${paymentHistory.page + 1}`}>Next payments</Link> : null}
+        </nav> : null}
+      </>}
     </section>
 
     <section className="sf-booking-card" aria-labelledby="receipt-title">
