@@ -47,6 +47,19 @@ export function reconcileStripeTransactionState(input: {
   return { transactionStatus: 'PENDING', bookingPaymentStatus: 'AUTHORIZED' };
 }
 
+export function reconciledBookingPaymentStatus(input: {
+  kind: 'AUTHORIZATION' | 'CAPTURE';
+  currentStatus: string;
+  reconciledStatus: 'UNPAID' | 'AUTHORIZED' | 'PAID' | 'FAILED';
+}) {
+  if (input.currentStatus === 'PAID' || input.currentStatus === 'PARTIALLY_REFUNDED' || input.currentStatus === 'REFUNDED') return input.currentStatus;
+  if (input.kind === 'CAPTURE' && input.currentStatus !== 'AUTHORIZED') {
+    throw new PaymentConflictError(`Booking payment state ${input.currentStatus.toLowerCase()} cannot be reconciled as a Stripe capture.`);
+  }
+  if (input.kind === 'AUTHORIZATION' && input.currentStatus === 'AUTHORIZED' && input.reconciledStatus !== 'PAID') return input.currentStatus;
+  return input.reconciledStatus;
+}
+
 export async function reconcileStripePaymentTransaction(input: {
   organizationId: string;
   actorUserId: string;
@@ -100,12 +113,17 @@ export async function reconcileStripePaymentTransaction(input: {
       throw new PaymentConflictError('Booking no longer matches the payment transaction being reconciled.');
     }
 
+    const nextBookingPaymentStatus = reconciledBookingPaymentStatus({
+      kind: payment.kind,
+      currentStatus: booking.paymentStatus,
+      reconciledStatus: reconciliation.bookingPaymentStatus,
+    });
     const updated = await transaction.paymentTransaction.update({
       where: { id: current.id },
       data: { status: reconciliation.transactionStatus },
     });
-    if (booking.paymentStatus !== reconciliation.bookingPaymentStatus) {
-      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: reconciliation.bookingPaymentStatus } });
+    if (booking.paymentStatus !== nextBookingPaymentStatus) {
+      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: nextBookingPaymentStatus } });
     }
     await transaction.auditEvent.create({
       data: {
@@ -119,7 +137,7 @@ export async function reconcileStripePaymentTransaction(input: {
           providerCode: STRIPE_PROVIDER_CODE,
           kind: updated.kind,
           status: updated.status,
-          bookingPaymentStatus: reconciliation.bookingPaymentStatus,
+          bookingPaymentStatus: nextBookingPaymentStatus,
           providerStatus: snapshot.status,
         },
       },
