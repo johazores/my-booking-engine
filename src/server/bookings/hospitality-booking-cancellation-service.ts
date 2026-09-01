@@ -2,17 +2,12 @@ import { hospitalityAvailabilityAllocationLockKey } from '../availability/availa
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { bookingCancellationPaymentBlockReason } from './booking-cancellation-domain.ts';
 import { assertBookingStateTransition } from './booking-domain.ts';
 import { HospitalityBookingConflictError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
 
-const CANCELLABLE_PAYMENT_STATUSES = new Set(['UNPAID', 'FAILED', 'REFUNDED']);
-
 function bookingCancellationLockKey(organizationId: string, bookingId: string) {
   return `hospitality-booking-cancel:${organizationId}:${bookingId}`;
-}
-
-export function canCancelHospitalityBookingPayment(paymentStatus: string) {
-  return CANCELLABLE_PAYMENT_STATUSES.has(paymentStatus);
 }
 
 export async function cancelHospitalityBooking(input: {
@@ -50,11 +45,8 @@ export async function cancelHospitalityBooking(input: {
     if (booking.status === 'CANCELLED') return booking;
 
     assertBookingStateTransition(booking.status, 'CANCELLED');
-    if (!canCancelHospitalityBookingPayment(booking.paymentStatus)) {
-      throw new HospitalityBookingConflictError(
-        'This booking has an active or settled payment. Complete the required payment release or refund before cancelling the booking.',
-      );
-    }
+    const paymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
+    if (paymentBlockReason) throw new HospitalityBookingConflictError(paymentBlockReason);
 
     const cancelled = await transaction.hospitalityBooking.update({
       where: { id: booking.id },
