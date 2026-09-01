@@ -7,14 +7,11 @@ import {
   normalizeHospitalityBookingGuestModificationInput,
   type HospitalityBookingGuestModificationInput,
 } from './booking-guest-modification-domain.ts';
+import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import {
   HospitalityBookingConflictError,
   HospitalityBookingUnavailableError,
 } from './hospitality-booking-service.ts';
-
-function bookingGuestModificationLockKey(organizationId: string, bookingId: string) {
-  return `hospitality-booking-guests:${organizationId}:${bookingId}`;
-}
 
 function readGuestAuditPayload(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -43,7 +40,7 @@ export async function updateHospitalityBookingGuests(input: {
   const requestedFingerprint = hospitalityBookingGuestFingerprint(change.guests);
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${bookingGuestModificationLockKey(input.organizationId, input.bookingId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
 
     const booking = await transaction.hospitalityBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },

@@ -4,11 +4,8 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { bookingCancellationPaymentBlockReason } from './booking-cancellation-domain.ts';
 import { assertBookingStateTransition } from './booking-domain.ts';
+import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import { HospitalityBookingConflictError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
-
-function bookingCancellationLockKey(organizationId: string, bookingId: string) {
-  return `hospitality-booking-cancel:${organizationId}:${bookingId}`;
-}
 
 export async function cancelHospitalityBooking(input: {
   organizationId: string;
@@ -28,7 +25,7 @@ export async function cancelHospitalityBooking(input: {
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${bookingCancellationLockKey(input.organizationId, input.bookingId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
 
     const initial = await transaction.hospitalityBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },

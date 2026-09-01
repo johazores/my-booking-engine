@@ -10,15 +10,12 @@ import {
   normalizeHospitalityBookingRescheduleInput,
   type HospitalityBookingRescheduleInput,
 } from './booking-reschedule-domain.ts';
+import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import {
   HospitalityBookingConflictError,
   HospitalityBookingPriceChangedError,
   HospitalityBookingUnavailableError,
 } from './hospitality-booking-service.ts';
-
-function bookingRescheduleLockKey(organizationId: string, bookingId: string) {
-  return `hospitality-booking-reschedule:${organizationId}:${bookingId}`;
-}
 
 function readAuditReschedulePayload(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -50,7 +47,7 @@ export async function rescheduleHospitalityBooking(input: {
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${bookingRescheduleLockKey(input.organizationId, input.bookingId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
 
     const initial = await transaction.hospitalityBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
