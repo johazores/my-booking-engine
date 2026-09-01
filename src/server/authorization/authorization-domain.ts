@@ -17,7 +17,9 @@ export type OrganizationPermission =
   | 'booking:read'
   | 'booking:manage'
   | 'payment:read'
-  | 'payment:manage';
+  | 'payment:manage'
+  | 'integration:read'
+  | 'integration:manage';
 
 const rolePermissions: Record<OrganizationRole, readonly OrganizationPermission[]> = {
   ADMIN: [
@@ -38,6 +40,8 @@ const rolePermissions: Record<OrganizationRole, readonly OrganizationPermission[
     'booking:manage',
     'payment:read',
     'payment:manage',
+    'integration:read',
+    'integration:manage',
   ],
   MANAGER: [
     'membership:read',
@@ -54,6 +58,7 @@ const rolePermissions: Record<OrganizationRole, readonly OrganizationPermission[
     'booking:manage',
     'payment:read',
     'payment:manage',
+    'integration:read',
   ],
   STAFF: ['membership:read', 'customer:read', 'customer:manage', 'inventory:read', 'availability:read', 'pricing:read', 'booking:read', 'payment:read'],
   CUSTOMER: [],

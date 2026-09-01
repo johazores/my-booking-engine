@@ -1,0 +1,22 @@
+enum IntegrationStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Integration {
+  id                   String            @id @default(uuid()) @db.Uuid
+  organizationId       String            @db.Uuid
+  providerCode         String            @db.VarChar(64)
+  displayName          String            @db.VarChar(120)
+  status               IntegrationStatus @default(ACTIVE)
+  capabilities         String[]
+  encryptedCredentials String            @db.Text
+  credentialVersion    Int               @default(1)
+  createdAt            DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime          @updatedAt @db.Timestamptz(6)
+
+  @@unique([organizationId, providerCode])
+  @@unique([id, organizationId])
+  @@index([organizationId, status, providerCode])
+  @@map("integrations")
+}
