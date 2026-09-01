@@ -4,7 +4,7 @@ import test from 'node:test';
 process.env.DATABASE_URL ??= 'postgresql://sf_unit_test:sf_unit_test@127.0.0.1:5432/sf_unit_test';
 
 const { StripePaymentReconciliationProvider } = await import('./stripe-payment-reconciliation-provider.ts');
-const { reconcileStripeTransactionState } = await import('./stripe-reconciliation-service.ts');
+const { reconcileStripeTransactionState, reconciledBookingPaymentStatus } = await import('./stripe-reconciliation-service.ts');
 
 function stripeResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -48,6 +48,14 @@ test('capture reconciliation keeps unresolved states pending and rejects money m
     bookingPaymentStatus: 'AUTHORIZED',
   });
   assert.throws(() => reconcileStripeTransactionState({ kind: 'CAPTURE', currency: 'USD', amountMinor: 7001n, snapshot: pending }), /does not match/i);
+});
+
+test('reconciliation never regresses a booking that is already paid or refunded', () => {
+  assert.equal(reconciledBookingPaymentStatus({ kind: 'CAPTURE', currentStatus: 'PAID', reconciledStatus: 'AUTHORIZED' }), 'PAID');
+  assert.equal(reconciledBookingPaymentStatus({ kind: 'AUTHORIZATION', currentStatus: 'PARTIALLY_REFUNDED', reconciledStatus: 'FAILED' }), 'PARTIALLY_REFUNDED');
+  assert.equal(reconciledBookingPaymentStatus({ kind: 'AUTHORIZATION', currentStatus: 'REFUNDED', reconciledStatus: 'AUTHORIZED' }), 'REFUNDED');
+  assert.equal(reconciledBookingPaymentStatus({ kind: 'AUTHORIZATION', currentStatus: 'AUTHORIZED', reconciledStatus: 'FAILED' }), 'AUTHORIZED');
+  assert.throws(() => reconciledBookingPaymentStatus({ kind: 'CAPTURE', currentStatus: 'UNPAID', reconciledStatus: 'AUTHORIZED' }), /cannot be reconciled/i);
 });
 
 test('Stripe reconciliation classifies provider lookup failures without treating them as success', async () => {
