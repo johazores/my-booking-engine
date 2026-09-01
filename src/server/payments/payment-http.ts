@@ -2,6 +2,7 @@ import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
+import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 
 export class PaymentApiRequestError extends Error {
   constructor(message: string) {
@@ -29,7 +30,8 @@ export async function requirePaymentApiContext(request: Request, options?: { wri
 }
 
 export function paymentJson(value: unknown, status = 200) {
-  return new Response(JSON.stringify(value, (_key, item) => {
+  return new Response(JSON.stringify(value, (key, item) => {
+    if (key === 'providerReference' && isInternalPaymentClaimReference(item)) return null;
     if (typeof item === 'bigint') return item.toString();
     if (item instanceof Date) return item.toISOString();
     return item;

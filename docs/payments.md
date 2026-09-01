@@ -1,130 +1,59 @@
 # Payments
 
-SF keeps booking state and payment state separate. Provider-specific behavior stays behind normalized payment adapters; application services own tenant scope, authorization, idempotency, persistence, booking-state updates, and audit history.
+SF keeps booking state and payment state separate. Provider-specific behavior remains behind normalized payment adapters; application services own tenant scope, authorization, idempotency, persistence, booking-state changes, and audit history.
 
-## Implemented foundation
+## Provider contract
 
-`src/server/payments/payment-provider.ts` defines the provider-independent contract and explicit capabilities:
+`src/server/payments/payment-provider.ts` defines explicit capabilities for offline recording, offline refunds, authorization, capture, refunds, and webhooks. Money is represented as exact integer minor units with an explicit three-letter currency. Online authorization accepts only provider-issued payment-method references; SF never accepts raw card data through this server contract.
 
-- `OFFLINE_RECORDING`
-- `OFFLINE_REFUND_RECORDING`
-- `AUTHORIZE`
-- `CAPTURE`
-- `REFUND`
-- `WEBHOOKS`
-
-The contract uses exact integer minor-unit money, strict idempotency keys, organization-owned booking context, normalized provider statuses/failures, and capability checks. Provider implementations must not leak provider-specific response models into booking code. Online authorization accepts only a provider-issued payment-method reference; SF never accepts raw card data through this server contract.
-
-`ManualPaymentProvider` is a real offline-payment recording adapter. It does not process cards, contact an external gateway, pretend to authorize funds, or advertise unsupported online capabilities. It supports recording staff-confirmed external/offline payments and refunds only after those money movements have happened outside SF.
+The manual provider records real offline payments/refunds that already happened outside SF. It does not pretend to process cards or move funds.
 
 ## Stripe adapter
 
-`StripePaymentProvider` is the first real online provider adapter. It talks to Stripe's HTTPS API without adding provider models to the booking domain and deliberately is not wired to a fake checkout page.
+`StripePaymentProvider` is the first real online adapter. Tenant credentials are loaded only from the encrypted integration boundary. Stripe authorization creates confirmed PaymentIntents using manual capture, exact booking money, tenant/booking metadata, and the SF idempotency key. Capture and refund calls use the persisted PaymentIntent reference. Provider failures are normalized, retryable transport/timeout conditions are treated as ambiguous, and webhook signature verification uses the original raw body plus Stripe's timestamped HMAC signature.
 
-- Secrets are constructor-injected from the encrypted tenant integration boundary and are never accepted from browser input or logged.
-- Authorization creates and confirms a Stripe PaymentIntent with `capture_method=manual`, the authoritative integer minor-unit amount, normalized currency, a provider-issued payment-method reference, SF organization/booking metadata, and the normalized SF idempotency key in Stripe's `Idempotency-Key` header.
-- Capture operates on the exact PaymentIntent reference and authoritative booking amount.
-- Refunds use the PaymentIntent reference, exact minor-unit amount, tenant/booking metadata, and a distinct idempotency key.
-- Stripe `requires_capture`, `succeeded`, and `canceled` statuses normalize to SF `AUTHORIZED`, `PAID`, and `FAILED`; intermediate states remain `PENDING` until a verified provider result resolves them.
-- HTTP/auth/rate-limit/card/provider failures normalize to the shared failure taxonomy. Timeouts and transport failures are retryable/ambiguous and must not be treated as proof that money did or did not move.
-- Webhook verification uses the raw request payload, `Stripe-Signature` timestamp plus `v1` HMAC-SHA256 signatures, timing-safe comparison, and a bounded timestamp tolerance. Signature verification exists at the adapter boundary; webhook ingestion/persistence is still pending.
-
-`loadStripePaymentIntegration` resolves the active organization-scoped Stripe integration and decrypts credentials only on the server. Stripe operations also require the configured integration capability (`payment-authorize` or `payment-capture`) in addition to the adapter capability, so tenant configuration cannot be bypassed by the provider implementation.
-
-## Stripe authorization and capture persistence
-
-`authorizeStripeBookingPayment` and `captureStripeBookingPayment` are the server-side application-service boundaries for the first real online payment lifecycle.
-
-Authorization:
-
-1. organization and actor identity are server supplied and `payment:manage` is required before provider credential resolution;
-2. the booking is read by `(bookingId, organizationId)`, must be confirmed, and supplies the authoritative currency and immutable total;
-3. only a provider-issued Stripe PaymentMethod reference is accepted; raw card data is never accepted;
-4. the tenant Stripe integration must be active and advertise `payment-authorize`;
-5. Stripe is called with the SF idempotency key and authoritative booking money;
-6. the provider result is checked for provider code, currency, and exact amount before persistence;
-7. the normalized `AUTHORIZATION` ledger row, booking payment-state transition, and audit event are persisted under tenant-scoped advisory locks in one serializable PostgreSQL transaction;
-8. an existing `PENDING` or `SUCCEEDED` Stripe authorization for the booking blocks a second new authorization, while a definitively failed authorization may be retried with a new idempotency key.
-
-Capture:
-
-1. `payment:manage` and tenant-scoped booking access are required;
-2. the booking must still be confirmed and have a successful Stripe authorization matching the immutable booking total;
-3. the Stripe PaymentIntent reference comes from the persisted authorization row, never the browser;
-4. the tenant integration must advertise `payment-capture`;
-5. successful provider proof moves the booking to `PAID`; pending or failed capture results remain ledger-visible while the booking stays `AUTHORIZED`, because a failed capture does not prove the underlying authorization disappeared;
-6. a `PENDING` or `SUCCEEDED` capture attempt for the same PaymentIntent blocks another new capture; a definitively failed capture may be retried with a new idempotency key and remains in immutable attempt history.
-
-Online request fingerprints are stored as SHA-256 hex values on authorization/capture ledger rows. The fingerprint covers the operation plus authoritative booking inputs and, for authorization, the normalized PaymentMethod reference. The PaymentMethod itself is not persisted. This allows exact idempotent retries to return the already persisted result after the booking state has advanced, while rejecting reuse of the same SF idempotency key with changed inputs. Existing manual ledger rows keep this field null.
-
-A checked-in migration adds `requestFingerprint` as nullable `CHAR(64)` plus a database format constraint. A follow-up attempt-history migration removes the older provider-reference/kind uniqueness constraint because a real provider object may legitimately have multiple immutable attempts after definitive failures. Both migrations must be exercised against the guarded disposable PostgreSQL target before database validation can be claimed.
-
-There is intentionally still no browser-facing Stripe payment route or fake checkout surface. Customer payment collection must first use a real Stripe client-side tokenization/PaymentMethod creation boundary and must never treat a browser redirect as payment proof.
+There is intentionally no fake browser checkout route. A future public payment surface must use real client-side Stripe tokenization/PaymentMethod creation and must never trust a browser success redirect as proof of payment.
 
 ## Persisted transaction ledger
 
-`PaymentTransaction` is the normalized payment ledger boundary. Each row stores:
+`PaymentTransaction` is tenant scoped and linked to the tenant-owned booking. It stores the operation kind/status, provider code/reference, exact money, request fingerprint where applicable, and a tenant-unique idempotency key. Provider references are indexed for reconciliation but are not globally unique across immutable attempt history.
 
-- `organizationId` and `bookingId`;
-- a tenant-unique idempotency key;
-- optional one-way request fingerprint for online operations;
-- normalized transaction kind/status;
-- provider code and provider reference;
-- exact currency and integer minor-unit amount;
-- creation time.
+Manual payment and refund writes serialize tenant idempotency, booking, and external reference scopes in PostgreSQL transactions. Booking payment state changes and audit events commit atomically with the ledger write.
 
-The database enforces a composite `(bookingId, organizationId)` foreign key to `hospitality_bookings`, so a transaction cannot be attached to another tenant's booking even if application scoping regresses.
+## Stripe authorization/capture application boundary
 
-Provider references are indexed for reconciliation but are not globally unique across attempt rows. Stripe reuses a PaymentIntent across authorization and capture, and the same PaymentIntent may receive a later retry after a definitive failed capture. The tenant-scoped idempotency key remains the exactly-once request boundary. Application services reject provider references that cross booking ownership and block overlapping `PENDING`/`SUCCEEDED` attempts for the same lifecycle, while preserving failed attempts as history.
+`authorizeStripeBookingPayment` and `captureStripeBookingPayment` enforce `payment:manage`, tenant-owned booking access, immutable booking money, configured tenant integration capabilities, provider capability checks, exact request fingerprints, and booking/payment state transitions.
 
-Booking guest persistence has the same database ownership protection: `hospitality_booking_guests(bookingId, organizationId)` references the tenant-owned booking key.
+A provider call is now claimed in the persisted payment ledger **before** the external Stripe request. The claim uses the normal tenant idempotency boundary plus the booking advisory lock, so two brand-new requests with different idempotency keys cannot both cross the provider boundary for the same authorization/capture lifecycle.
 
-## Manual/offline payment workflow
+The claim lifecycle is intentionally conservative:
 
-`recordManualOfflinePayment` is the authorized offline workflow. It derives amount/currency from the immutable confirmed booking, serializes idempotency/booking/reference scopes, records a successful manual ledger row, updates the booking to `PAID`, and writes a reference-minimized audit event atomically. Exact retries return the existing row; changed retries, duplicate references, cross-tenant bookings, already-paid bookings, and non-confirmed bookings are rejected.
+- the first request creates a `PENDING` ledger claim while holding the tenant booking lock, then releases the database transaction before calling Stripe;
+- a different idempotency key sees that pending claim and is rejected before any second provider call;
+- an exact retry of an unresolved pre-provider/ambiguous claim may retry Stripe with the **same** provider idempotency key so Stripe can return the original result safely;
+- a normalized provider result replaces the internal claim marker with the real provider reference and persists the final/pending provider status;
+- retryable/ambiguous transport failures leave the claim pending and block a different operation until exact retry or reconciliation resolves it;
+- definitive non-retryable provider failures mark the claim failed, allowing a later new idempotency key where the booking state permits it;
+- internal claim markers are never serialized as provider references through the payment HTTP boundary.
 
-## Manual/offline refund workflow
+This removes the previous race where two different idempotency keys could both reach Stripe before either result was persisted, without holding a PostgreSQL transaction open across a network request.
 
-`recordManualOfflineRefund` records a refund that was actually performed outside SF. It never pretends SF sent money through a bank or gateway.
+## API boundary
 
-- `payment:manage` and active server-derived organization context are required.
-- The booking must be confirmed and currently `PAID` or `PARTIALLY_REFUNDED`.
-- A successful manual payment must exist in the same tenant and booking.
-- Existing successful manual refunds are summed under the booking lock to derive remaining refundable balance.
-- `amountMinor` is optional; omission means the full remaining amount.
-- Partial refunds move the booking to `PARTIALLY_REFUNDED`; exhausting the paid amount moves it to `REFUNDED`.
-- The refund ledger write, booking state transition, and safe audit event commit atomically.
+- `POST /api/payments/manual` records a confirmed offline payment.
+- `POST /api/payments/manual/refunds` records a confirmed offline refund.
+- `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped history.
 
-The current manual workflow assumes one successful manual source payment. Future online/provider refunds must relate refunds to the exact provider authorization/capture rather than infer from the booking ledger.
-
-## Authenticated API boundary
-
-- `POST /api/payments/manual` records an offline payment with `{ bookingId, idempotencyKey, reference }` and requires same-origin protection plus `payment:manage`.
-- `POST /api/payments/manual/refunds` records an offline refund with `{ bookingId, idempotencyKey, reference, amountMinor? }`.
-- `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped payment history and requires `payment:read`.
-
-BigInt monetary values are serialized as decimal strings at the HTTP boundary.
-
-There is intentionally no Stripe checkout/payment API route yet. The server-side Stripe authorization/capture services are internal application boundaries until a real customer-owned payment collection surface is implemented.
+BigInt money is serialized as decimal strings. Internal Stripe provider-call claim references are serialized as `null`, never as if they were real Stripe identifiers.
 
 ## Permissions
 
-- Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`.
-- `STAFF` receives `payment:read` only.
-- `CUSTOMER` receives no internal payment-ledger capability.
-
-A future customer payment journey must introduce its own ownership/self-service authorization boundary rather than weaken internal permissions.
+Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`. `STAFF` receives `payment:read`. `CUSTOMER` receives no internal ledger capability. A future self-service payment surface must use a separate customer ownership boundary rather than weaken staff/admin permissions.
 
 ## Validation and remaining work
 
-The standard payment unit glob includes focused Stripe persistence tests for deterministic request fingerprints and booking-state mapping. Existing Stripe adapter coverage verifies request construction, exact capture/refund requests, idempotency headers, provider money mismatches, normalized failures, reference validation, and webhook signature/timestamp verification without contacting Stripe.
+The normal unit test glob includes payment-provider, Stripe-adapter, Stripe-persistence, and HTTP serialization coverage. The Stripe persistence tests now also cover deterministic internal claim identifiers and ensure internal claim markers cannot leak through the payment JSON boundary.
 
-The checked-in disposable PostgreSQL payment suite covers the manual payment/refund persistence workflow. Stripe authorization/capture persistence still needs dedicated disposable PostgreSQL integration coverage for tenant denial, exact retry, changed retry, overlapping-attempt rejection, provider-reference ownership, definitive-failure retries, pending states, successful capture, and audit minimization.
+The guarded disposable PostgreSQL suite remains the required validation target for real concurrency and migration verification. Stripe authorization/capture still needs dedicated PostgreSQL integration execution for cross-tenant denial, exact retry, changed retry, simultaneous different-idempotency claims, pending/ambiguous retry behavior, definitive-failure reclaim, provider-reference ownership, successful capture, and audit minimization.
 
-The payment-request-fingerprint migration and payment-provider-attempt-history migration, including removal of the earlier provider-reference lifecycle uniqueness constraint, must be exercised against the disposable PostgreSQL target before claiming live database verification.
-
-Do not claim database validation passed unless `npm run test:database` ran against the guarded disposable PostgreSQL target.
-
-A further concurrency boundary remains before exposing online payments publicly: two brand-new requests with different idempotency keys can both reach an external provider before either result has been persisted if they start at exactly the same time. The production customer payment surface must introduce a persisted operation-intent/claim or equivalent provider-call serialization boundary together with webhook/reconciliation handling, rather than hold a database transaction open across an external network request.
-
-Still open: customer-facing Stripe payment collection, failed/ambiguous-result reconciliation, verified webhook ingestion/persistence, online refunds, receipts/invoices, PayPal, and live PostgreSQL validation. Browser success/redirect state must never be accepted as proof of payment.
+Still open: verified webhook ingestion/persistence, reconciliation of unresolved provider results, customer-facing Stripe collection, online refund orchestration, receipts/invoices, PayPal, and live PostgreSQL validation. Do not claim database validation passed unless `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target.

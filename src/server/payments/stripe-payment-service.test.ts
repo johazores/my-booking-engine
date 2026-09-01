@@ -4,6 +4,8 @@ import test from 'node:test';
 process.env.DATABASE_URL ??= 'postgresql://sf_unit_test:sf_unit_test@127.0.0.1:5432/sf_unit_test';
 
 const {
+  isInternalPaymentClaimReference,
+  paymentOperationClaimReference,
   paymentRequestFingerprint,
   stripeAuthorizationPersistenceStatus,
   stripeCapturePersistenceStatus,
@@ -19,6 +21,17 @@ test('online payment request fingerprints are deterministic and input-sensitive'
   assert.equal(first, retry);
   assert.notEqual(first, changedPaymentMethod);
   assert.notEqual(first, changedOperation);
+});
+
+test('Stripe pre-provider claim references are deterministic internal markers only', () => {
+  const fingerprint = paymentRequestFingerprint(['stripe', 'authorize', 'booking-1', 'USD', '1000', 'pm_one']);
+  const reference = paymentOperationClaimReference(fingerprint);
+
+  assert.equal(reference, `sf_claim_${fingerprint}`);
+  assert.equal(isInternalPaymentClaimReference(reference), true);
+  assert.equal(isInternalPaymentClaimReference('pi_123'), false);
+  assert.equal(isInternalPaymentClaimReference('sf_claim_not-a-fingerprint'), false);
+  assert.throws(() => paymentOperationClaimReference('bad'), /fingerprint is invalid/i);
 });
 
 test('Stripe authorization persistence maps only definitive provider states into booking state', () => {

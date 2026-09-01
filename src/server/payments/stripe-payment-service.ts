@@ -6,6 +6,7 @@ import { loadStripePaymentIntegration } from '../integrations/stripe-integration
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import {
+  PaymentProviderError,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
   type PaymentProviderOperationStatus,
@@ -14,10 +15,13 @@ import {
 import { normalizeStripePaymentMethodReference } from './stripe-payment-provider.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
+const INTERNAL_CLAIM_PREFIX = 'sf_claim_';
 
 type ExistingPayment = {
+  id: string;
   bookingId: string;
   kind: string;
+  status: string;
   providerCode: string;
   providerReference: string;
   currency: string;
@@ -39,6 +43,15 @@ function paymentLockKey(organizationId: string, scope: string, value: string) {
 
 export function paymentRequestFingerprint(parts: readonly string[]): string {
   return createHash('sha256').update(parts.join('\u001f'), 'utf8').digest('hex');
+}
+
+export function paymentOperationClaimReference(requestFingerprint: string): string {
+  if (!/^[0-9a-f]{64}$/.test(requestFingerprint)) throw new Error('Payment request fingerprint is invalid.');
+  return `${INTERNAL_CLAIM_PREFIX}${requestFingerprint}`;
+}
+
+export function isInternalPaymentClaimReference(value: unknown): boolean {
+  return typeof value === 'string' && /^sf_claim_[0-9a-f]{64}$/.test(value);
 }
 
 function assertExactExistingOperation(
@@ -111,6 +124,45 @@ async function loadBooking(organizationId: string, bookingId: string): Promise<B
   return booking;
 }
 
+async function markProviderClaimFailed(input: {
+  organizationId: string;
+  actorUserId: string;
+  bookingId: string;
+  paymentId: string;
+  kind: 'AUTHORIZATION' | 'CAPTURE';
+}) {
+  await db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', input.bookingId)}, 0))`;
+    const payment = await transaction.paymentTransaction.findFirst({
+      where: { id: input.paymentId, organizationId: input.organizationId, bookingId: input.bookingId },
+    });
+    if (!payment || payment.status !== 'PENDING' || !isInternalPaymentClaimReference(payment.providerReference)) return;
+
+    await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+    if (input.kind === 'AUTHORIZATION') {
+      await transaction.hospitalityBooking.updateMany({
+        where: { id: input.bookingId, organizationId: input.organizationId, paymentStatus: { in: ['UNPAID', 'FAILED'] } },
+        data: { paymentStatus: 'FAILED' },
+      });
+    }
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: input.kind === 'AUTHORIZATION' ? 'payment.authorization-failed' : 'payment.capture-failed',
+        resourceType: 'payment-transaction',
+        resourceId: payment.id,
+        afterData: {
+          bookingId: input.bookingId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          kind: input.kind,
+          status: 'FAILED',
+        },
+      },
+    });
+  }, { isolationLevel: 'Serializable' });
+}
+
 export async function authorizeStripeBookingPayment(input: {
   organizationId: string;
   actorUserId: string;
@@ -123,11 +175,7 @@ export async function authorizeStripeBookingPayment(input: {
   assertUuidIdentifier(input.bookingId, 'bookingId');
   const idempotencyKey = normalizePaymentIdempotencyKey(input.idempotencyKey);
 
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'payment:manage',
-  });
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
 
   const paymentMethodReference = normalizeStripePaymentMethodReference(input.paymentMethodReference);
   const booking = await loadBooking(input.organizationId, input.bookingId);
@@ -142,6 +190,7 @@ export async function authorizeStripeBookingPayment(input: {
     booking.totalMinor.toString(),
     paymentMethodReference,
   ]);
+  const claimReference = paymentOperationClaimReference(requestFingerprint);
 
   const prior = await db.paymentTransaction.findUnique({
     where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
@@ -154,25 +203,11 @@ export async function authorizeStripeBookingPayment(input: {
       amountMinor: booking.totalMinor,
       requestFingerprint,
     });
-    return prior;
+    if (prior.status !== 'PENDING' || prior.providerReference !== claimReference) return prior;
   }
 
   if (booking.paymentStatus !== 'UNPAID' && booking.paymentStatus !== 'FAILED') {
     throw new PaymentConflictError(`Booking payment state ${booking.paymentStatus.toLowerCase()} does not accept a new authorization.`);
-  }
-
-  const unresolvedAuthorization = await db.paymentTransaction.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      bookingId: booking.id,
-      providerCode: STRIPE_PROVIDER_CODE,
-      kind: 'AUTHORIZATION',
-      status: { in: ['PENDING', 'SUCCEEDED'] },
-    },
-    select: { id: true },
-  });
-  if (unresolvedAuthorization) {
-    throw new PaymentConflictError('Booking already has an active or successful Stripe authorization.');
   }
 
   const stripe = await loadStripePaymentIntegration(input.organizationId);
@@ -180,18 +215,9 @@ export async function authorizeStripeBookingPayment(input: {
   assertPaymentProviderCapability(stripe.provider, 'AUTHORIZE');
   if (!stripe.provider.authorizePayment) throw new PaymentConflictError('Stripe integration cannot authorize payments.');
 
-  const providerResult = await stripe.provider.authorizePayment({
-    organizationId: input.organizationId,
-    bookingId: booking.id,
-    idempotencyKey,
-    money: { currency: booking.currency, amountMinor: booking.totalMinor },
-    paymentMethodReference,
-  });
-  assertAuthoritativeProviderResult(providerResult, booking);
-  const persistence = stripeAuthorizationPersistenceStatus(providerResult.status);
-
-  return db.$transaction(async (transaction) => {
+  const claim = await db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
 
     const existing = await transaction.paymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
@@ -203,19 +229,18 @@ export async function authorizeStripeBookingPayment(input: {
         currency: booking.currency,
         amountMinor: booking.totalMinor,
         requestFingerprint,
-        providerReference: providerResult.providerReference,
       });
-      return existing;
+      if (existing.status !== 'PENDING' || existing.providerReference !== claimReference) return { payment: existing, callProvider: false } as const;
+      return { payment: existing, callProvider: true } as const;
     }
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
     const currentBooking = await transaction.hospitalityBooking.findFirst({
       where: { id: booking.id, organizationId: input.organizationId },
       select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
     });
     if (!currentBooking) throw new PaymentUnavailableError('Booking is not available in this organization.');
     if (currentBooking.status !== 'CONFIRMED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
-      throw new PaymentConflictError('Booking changed while payment authorization was being processed.');
+      throw new PaymentConflictError('Booking changed before payment authorization could be claimed.');
     }
     if (currentBooking.paymentStatus !== 'UNPAID' && currentBooking.paymentStatus !== 'FAILED') {
       throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts authorization.`);
@@ -231,22 +256,7 @@ export async function authorizeStripeBookingPayment(input: {
       },
       select: { id: true },
     });
-    if (blockingAuthorization) {
-      throw new PaymentConflictError('Booking already has an active or successful Stripe authorization.');
-    }
-
-    const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: providerResult.providerReference,
-        kind: 'AUTHORIZATION',
-      },
-      select: { bookingId: true },
-    });
-    if (providerReferenceConflict && providerReferenceConflict.bookingId !== booking.id) {
-      throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
-    }
+    if (blockingAuthorization) throw new PaymentConflictError('Booking already has an active or successful Stripe authorization.');
 
     const payment = await transaction.paymentTransaction.create({
       data: {
@@ -255,21 +265,97 @@ export async function authorizeStripeBookingPayment(input: {
         idempotencyKey,
         requestFingerprint,
         kind: 'AUTHORIZATION',
-        status: persistence.transactionStatus,
+        status: 'PENDING',
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: providerResult.providerReference,
+        providerReference: claimReference,
         currency: booking.currency,
         amountMinor: booking.totalMinor,
       },
     });
+    return { payment, callProvider: true } as const;
+  }, { isolationLevel: 'Serializable' });
 
-    if (currentBooking.paymentStatus !== persistence.bookingPaymentStatus) {
-      await transaction.hospitalityBooking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: persistence.bookingPaymentStatus },
+  if (!claim.callProvider) return claim.payment;
+
+  let providerResult: ProviderPaymentResult;
+  try {
+    providerResult = await stripe.provider.authorizePayment({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      money: { currency: booking.currency, amountMinor: booking.totalMinor },
+      paymentMethodReference,
+    });
+  } catch (error) {
+    if (error instanceof PaymentProviderError && !error.retryable) {
+      await markProviderClaimFailed({ organizationId: input.organizationId, actorUserId: input.actorUserId, bookingId: booking.id, paymentId: claim.payment.id, kind: 'AUTHORIZATION' });
+    }
+    throw error;
+  }
+
+  assertAuthoritativeProviderResult(providerResult, booking);
+  const persistence = stripeAuthorizationPersistenceStatus(providerResult.status);
+
+  return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
+
+    const existing = await transaction.paymentTransaction.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
+    });
+    if (!existing) throw new PaymentConflictError('Stripe authorization claim disappeared before persistence.');
+    assertExactExistingOperation(existing, {
+      bookingId: booking.id,
+      kind: 'AUTHORIZATION',
+      currency: booking.currency,
+      amountMinor: booking.totalMinor,
+      requestFingerprint,
+    });
+    if (existing.providerReference !== claimReference) {
+      assertExactExistingOperation(existing, {
+        bookingId: booking.id,
+        kind: 'AUTHORIZATION',
+        currency: booking.currency,
+        amountMinor: booking.totalMinor,
+        requestFingerprint,
+        providerReference: providerResult.providerReference,
       });
+      return existing;
     }
 
+    const currentBooking = await transaction.hospitalityBooking.findFirst({
+      where: { id: booking.id, organizationId: input.organizationId },
+      select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
+    });
+    if (!currentBooking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+    if (currentBooking.status !== 'CONFIRMED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
+      throw new PaymentConflictError('Booking changed while payment authorization was being processed.');
+    }
+    if (currentBooking.paymentStatus !== 'UNPAID' && currentBooking.paymentStatus !== 'FAILED') {
+      throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts authorization.`);
+    }
+
+    const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: providerResult.providerReference,
+        kind: 'AUTHORIZATION',
+        id: { not: existing.id },
+      },
+      select: { bookingId: true },
+    });
+    if (providerReferenceConflict && providerReferenceConflict.bookingId !== booking.id) {
+      throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
+    }
+
+    const payment = await transaction.paymentTransaction.update({
+      where: { id: existing.id },
+      data: { status: persistence.transactionStatus, providerReference: providerResult.providerReference },
+    });
+    if (currentBooking.paymentStatus !== persistence.bookingPaymentStatus) {
+      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: persistence.bookingPaymentStatus } });
+    }
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -288,7 +374,6 @@ export async function authorizeStripeBookingPayment(input: {
         },
       },
     });
-
     return payment;
   }, { isolationLevel: 'Serializable' });
 }
@@ -304,23 +389,13 @@ export async function captureStripeBookingPayment(input: {
   assertUuidIdentifier(input.bookingId, 'bookingId');
   const idempotencyKey = normalizePaymentIdempotencyKey(input.idempotencyKey);
 
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'payment:manage',
-  });
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
 
   const booking = await loadBooking(input.organizationId, input.bookingId);
   if (booking.status !== 'CONFIRMED') throw new PaymentConflictError('Only confirmed bookings can capture an authorized payment.');
 
   const authorization = await db.paymentTransaction.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      bookingId: booking.id,
-      kind: 'AUTHORIZATION',
-      status: 'SUCCEEDED',
-      providerCode: STRIPE_PROVIDER_CODE,
-    },
+    where: { organizationId: input.organizationId, bookingId: booking.id, kind: 'AUTHORIZATION', status: 'SUCCEEDED', providerCode: STRIPE_PROVIDER_CODE },
     orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
   });
   if (!authorization) throw new PaymentConflictError('No successful Stripe authorization is available to capture.');
@@ -336,6 +411,7 @@ export async function captureStripeBookingPayment(input: {
     booking.totalMinor.toString(),
     authorization.providerReference,
   ]);
+  const claimReference = paymentOperationClaimReference(requestFingerprint);
 
   const prior = await db.paymentTransaction.findUnique({
     where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
@@ -347,28 +423,13 @@ export async function captureStripeBookingPayment(input: {
       currency: booking.currency,
       amountMinor: booking.totalMinor,
       requestFingerprint,
-      providerReference: authorization.providerReference,
+      providerReference: prior.providerReference === claimReference ? undefined : authorization.providerReference,
     });
-    return prior;
+    if (prior.status !== 'PENDING' || prior.providerReference !== claimReference) return prior;
   }
 
   if (booking.paymentStatus !== 'AUTHORIZED') {
     throw new PaymentConflictError(`Booking payment state ${booking.paymentStatus.toLowerCase()} does not accept capture.`);
-  }
-
-  const unresolvedCapture = await db.paymentTransaction.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      bookingId: booking.id,
-      providerCode: STRIPE_PROVIDER_CODE,
-      providerReference: authorization.providerReference,
-      kind: 'CAPTURE',
-      status: { in: ['PENDING', 'SUCCEEDED'] },
-    },
-    select: { id: true },
-  });
-  if (unresolvedCapture) {
-    throw new PaymentConflictError('Stripe authorization already has an active or successful capture attempt.');
   }
 
   const stripe = await loadStripePaymentIntegration(input.organizationId);
@@ -376,21 +437,9 @@ export async function captureStripeBookingPayment(input: {
   assertPaymentProviderCapability(stripe.provider, 'CAPTURE');
   if (!stripe.provider.capturePayment) throw new PaymentConflictError('Stripe integration cannot capture payments.');
 
-  const providerResult = await stripe.provider.capturePayment({
-    organizationId: input.organizationId,
-    bookingId: booking.id,
-    idempotencyKey,
-    money: { currency: booking.currency, amountMinor: booking.totalMinor },
-    providerReference: authorization.providerReference,
-  });
-  assertAuthoritativeProviderResult(providerResult, booking);
-  if (providerResult.providerReference !== authorization.providerReference) {
-    throw new PaymentConflictError('Stripe capture returned a different authorization reference.');
-  }
-  const persistence = stripeCapturePersistenceStatus(providerResult.status);
-
-  return db.$transaction(async (transaction) => {
+  const claim = await db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
 
     const existing = await transaction.paymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
@@ -402,24 +451,18 @@ export async function captureStripeBookingPayment(input: {
         currency: booking.currency,
         amountMinor: booking.totalMinor,
         requestFingerprint,
-        providerReference: authorization.providerReference,
+        providerReference: existing.providerReference === claimReference ? undefined : authorization.providerReference,
       });
-      return existing;
+      if (existing.status !== 'PENDING' || existing.providerReference !== claimReference) return { payment: existing, callProvider: false } as const;
+      return { payment: existing, callProvider: true } as const;
     }
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
     const currentBooking = await transaction.hospitalityBooking.findFirst({
       where: { id: booking.id, organizationId: input.organizationId },
       select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
     });
-    if (!currentBooking) throw new PaymentUnavailableError('Booking is not available in this organization.');
-    if (
-      currentBooking.status !== 'CONFIRMED'
-      || currentBooking.paymentStatus !== 'AUTHORIZED'
-      || currentBooking.currency !== booking.currency
-      || currentBooking.totalMinor !== booking.totalMinor
-    ) {
-      throw new PaymentConflictError('Booking changed while payment capture was being processed.');
+    if (!currentBooking || currentBooking.status !== 'CONFIRMED' || currentBooking.paymentStatus !== 'AUTHORIZED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
+      throw new PaymentConflictError('Booking changed before payment capture could be claimed.');
     }
 
     const currentAuthorization = await transaction.paymentTransaction.findFirst({
@@ -440,15 +483,12 @@ export async function captureStripeBookingPayment(input: {
         organizationId: input.organizationId,
         bookingId: booking.id,
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: authorization.providerReference,
         kind: 'CAPTURE',
         status: { in: ['PENDING', 'SUCCEEDED'] },
       },
       select: { id: true },
     });
-    if (blockingCapture) {
-      throw new PaymentConflictError('Stripe authorization already has an active or successful capture attempt.');
-    }
+    if (blockingCapture) throw new PaymentConflictError('Stripe authorization already has an active or successful capture attempt.');
 
     const payment = await transaction.paymentTransaction.create({
       data: {
@@ -457,18 +497,73 @@ export async function captureStripeBookingPayment(input: {
         idempotencyKey,
         requestFingerprint,
         kind: 'CAPTURE',
-        status: persistence.transactionStatus,
+        status: 'PENDING',
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: authorization.providerReference,
+        providerReference: claimReference,
         currency: booking.currency,
         amountMinor: booking.totalMinor,
       },
     });
+    return { payment, callProvider: true } as const;
+  }, { isolationLevel: 'Serializable' });
 
+  if (!claim.callProvider) return claim.payment;
+
+  let providerResult: ProviderPaymentResult;
+  try {
+    providerResult = await stripe.provider.capturePayment({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      money: { currency: booking.currency, amountMinor: booking.totalMinor },
+      providerReference: authorization.providerReference,
+    });
+  } catch (error) {
+    if (error instanceof PaymentProviderError && !error.retryable) {
+      await markProviderClaimFailed({ organizationId: input.organizationId, actorUserId: input.actorUserId, bookingId: booking.id, paymentId: claim.payment.id, kind: 'CAPTURE' });
+    }
+    throw error;
+  }
+
+  assertAuthoritativeProviderResult(providerResult, booking);
+  if (providerResult.providerReference !== authorization.providerReference) {
+    throw new PaymentConflictError('Stripe capture returned a different authorization reference.');
+  }
+  const persistence = stripeCapturePersistenceStatus(providerResult.status);
+
+  return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', booking.id)}, 0))`;
+
+    const existing = await transaction.paymentTransaction.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
+    });
+    if (!existing) throw new PaymentConflictError('Stripe capture claim disappeared before persistence.');
+    assertExactExistingOperation(existing, {
+      bookingId: booking.id,
+      kind: 'CAPTURE',
+      currency: booking.currency,
+      amountMinor: booking.totalMinor,
+      requestFingerprint,
+      providerReference: existing.providerReference === claimReference ? undefined : authorization.providerReference,
+    });
+    if (existing.providerReference !== claimReference) return existing;
+
+    const currentBooking = await transaction.hospitalityBooking.findFirst({
+      where: { id: booking.id, organizationId: input.organizationId },
+      select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
+    });
+    if (!currentBooking || currentBooking.status !== 'CONFIRMED' || currentBooking.paymentStatus !== 'AUTHORIZED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
+      throw new PaymentConflictError('Booking changed while payment capture was being processed.');
+    }
+
+    const payment = await transaction.paymentTransaction.update({
+      where: { id: existing.id },
+      data: { status: persistence.transactionStatus, providerReference: authorization.providerReference },
+    });
     if (persistence.bookingPaymentStatus === 'PAID') {
       await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: 'PAID' } });
     }
-
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -487,7 +582,6 @@ export async function captureStripeBookingPayment(input: {
         },
       },
     });
-
     return payment;
   }, { isolationLevel: 'Serializable' });
 }
