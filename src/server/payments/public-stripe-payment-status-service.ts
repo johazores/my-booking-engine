@@ -1,4 +1,5 @@
 import { verifyPublicBookingBookingCapability, PublicBookingCapabilityConfigurationError } from '../bookings/public-booking-capability.ts';
+import { shouldProtectPendingPublicBookingAllocation } from '../bookings/public-booking-payment-window.ts';
 import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hospitality-search-service.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
@@ -31,7 +32,7 @@ export async function getPublicStripePaymentStatus(input: {
   const [ownership, principal, booking] = await Promise.all([
     db.publicBookingBookingOwnership.findUnique({
       where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
-      select: { principalId: true },
+      select: { principalId: true, createdAt: true },
     }),
     db.publicBookingPrincipal.findFirst({
       where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
@@ -48,21 +49,45 @@ export async function getPublicStripePaymentStatus(input: {
   }
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
 
-  const latest = await db.paymentTransaction.findFirst({
-    where: {
-      organizationId: branding.id,
-      bookingId: booking.id,
-      providerCode: 'stripe',
-      kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: { kind: true, status: true, currency: true, amountMinor: true },
+  const [latest, openCheckout] = await Promise.all([
+    db.paymentTransaction.findFirst({
+      where: {
+        organizationId: branding.id,
+        bookingId: booking.id,
+        providerCode: 'stripe',
+        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { kind: true, status: true, currency: true, amountMinor: true, createdAt: true },
+    }),
+    booking.status === 'PENDING_CONFIRMATION'
+      ? db.paymentCheckoutSession.findFirst({
+          where: {
+            organizationId: branding.id,
+            bookingId: booking.id,
+            providerCode: 'stripe',
+            status: 'OPEN',
+            expiresAt: { gt: now },
+          },
+          orderBy: { expiresAt: 'desc' },
+          select: { expiresAt: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  const pendingAllocationProtected = booking.status !== 'PENDING_CONFIRMATION' || shouldProtectPendingPublicBookingAllocation({
+    ownershipCreatedAt: ownership.createdAt,
+    openCheckoutExpiresAt: openCheckout?.expiresAt ?? null,
+    unresolvedPaymentCreatedAt: latest?.status === 'PENDING' || latest?.status === 'AMBIGUOUS' ? latest.createdAt : null,
+    hasSuccessfulPayment: latest?.status === 'SUCCEEDED',
+    now,
   });
 
-  let state: 'PAYMENT_REQUIRED' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED';
+  let state: 'PAYMENT_REQUIRED' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
   if (booking.status === 'CANCELLED') state = 'CANCELLED';
   else if (['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus)) state = 'PAID';
-  else if (latest?.status === 'PENDING' || booking.paymentStatus === 'AUTHORIZED') state = 'PROCESSING';
+  else if (!pendingAllocationProtected) state = 'EXPIRED';
+  else if (latest?.status === 'PENDING' || latest?.status === 'AMBIGUOUS' || booking.paymentStatus === 'AUTHORIZED') state = 'PROCESSING';
   else if (latest?.status === 'FAILED' || booking.paymentStatus === 'FAILED') state = 'FAILED';
   else state = 'PAYMENT_REQUIRED';
 
