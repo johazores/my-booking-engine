@@ -58,7 +58,7 @@ function stableJson(value: unknown): string {
       .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
       .join(',')}}`;
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? 'null';
 }
 
 export function createPublicBookingRequestFingerprint(value: unknown) {
