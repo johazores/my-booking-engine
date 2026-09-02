@@ -12,6 +12,7 @@ import {
   issuePublicBookingHoldCapability,
   verifyPublicBookingHoldCapability,
 } from './public-booking-capability.ts';
+import { enforcePublicBookingHoldCreationLimit } from './public-booking-abuse-control.ts';
 import { derivePublicBookingHoldIdempotencyKey } from './public-booking-request-domain.ts';
 import { PublicHospitalityBookingUnavailableError } from './public-hospitality-search-service.ts';
 
@@ -72,6 +73,14 @@ export async function createPublicHospitalityAvailabilityHold(input: {
   });
 
   const result = await db.$transaction(async (transaction) => {
+    await enforcePublicBookingHoldCreationLimit({
+      transaction,
+      organizationId: branding.id,
+      idempotencyKey,
+      quantity: input.request.quantity,
+      now,
+    });
+
     const holdResult = await createHospitalityAvailabilityHoldInTransaction({
       transaction,
       organizationId: branding.id,
