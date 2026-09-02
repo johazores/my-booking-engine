@@ -58,6 +58,7 @@ function assertExactCheckoutClaim(existing: {
 }
 
 function checkoutRetryKeepsPaymentStartRecoverable(payment: { status: string; createdAt: Date } | null, now: Date) {
+  if (payment?.status === 'SUCCEEDED') return true;
   return Boolean(
     payment
     && (payment.status === 'PENDING' || payment.status === 'AMBIGUOUS')
