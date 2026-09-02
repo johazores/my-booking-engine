@@ -41,14 +41,32 @@ function normalizeQuantity(value: number | string) {
 }
 
 export function normalizeHospitalityBookingCommercialModificationInput(
-  input: HospitalityBookingCommercialModificationInput,
+  input: HospitalityBookingCommercialModificationInput | unknown,
 ): NormalizedHospitalityBookingCommercialModification {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Commercial modification payload must be an object.');
+  }
+  const payload = input as Record<string, unknown>;
+  const rawAddons = payload.addonSelections ?? [];
+  if (!Array.isArray(rawAddons)) throw new Error('Add-on selections must be an array.');
+
+  const addonSelections = rawAddons.map((selection, index) => {
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
+      throw new Error(`Add-on selection ${index + 1} must be an object.`);
+    }
+    const record = selection as Record<string, unknown>;
+    return {
+      addonId: normalizeUuid(record.addonId, `Add-on selection ${index + 1} addonId`),
+      quantity: record.quantity as number,
+    };
+  });
+
   return {
-    roomTypeId: normalizeUuid(input.roomTypeId, 'roomTypeId'),
-    ratePlanId: normalizeUuid(input.ratePlanId, 'ratePlanId'),
-    quantity: normalizeQuantity(input.quantity),
-    addonSelections: normalizeHospitalityAddonSelections(input.addonSelections ?? []),
-    idempotencyKey: normalizeBookingIdempotencyKey(input.idempotencyKey),
+    roomTypeId: normalizeUuid(payload.roomTypeId, 'roomTypeId'),
+    ratePlanId: normalizeUuid(payload.ratePlanId, 'ratePlanId'),
+    quantity: normalizeQuantity(payload.quantity as number | string),
+    addonSelections: normalizeHospitalityAddonSelections(addonSelections),
+    idempotencyKey: normalizeBookingIdempotencyKey(payload.idempotencyKey),
   };
 }
 

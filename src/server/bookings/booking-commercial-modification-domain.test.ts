@@ -23,7 +23,7 @@ test('commercial modification normalization canonicalizes identifiers, quantity,
     quantity: '2',
     idempotencyKey: 'commercial:test-1',
     addonSelections: [
-      { addonId: addonB, quantity: 1 },
+      { addonId: addonB.toUpperCase(), quantity: 1 },
       { addonId: addonA, quantity: 2 },
     ],
   });
@@ -110,6 +110,24 @@ test('commercial allocation lock keys are deterministic and deduplicate same-roo
   assert.equal(sameRoom.length, 1);
   assert.equal(crossRoom.length, 2);
   assert.deepEqual(crossRoom, [...crossRoom].sort());
+});
+
+test('commercial modification rejects malformed payload and add-on entries before service work', () => {
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput(null), /payload must be an object/i);
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput({
+    roomTypeId: roomA,
+    ratePlanId: rateA,
+    quantity: 1,
+    idempotencyKey: 'commercial:bad-addon-list',
+    addonSelections: [null],
+  }), /add-on selection 1 must be an object/i);
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput({
+    roomTypeId: roomA,
+    ratePlanId: rateA,
+    quantity: 1,
+    idempotencyKey: 'commercial:bad-addon-id',
+    addonSelections: [{ addonId: 42, quantity: 1 }],
+  }), /uuid/i);
 });
 
 test('commercial modification rejects invalid quantities and identifiers', () => {
