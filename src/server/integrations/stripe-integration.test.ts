@@ -56,7 +56,7 @@ test('Stripe health probe uses a read-only authenticated balance request and exp
   assert.equal(observedUrl, 'https://api.stripe.com/v1/balance');
   assert.equal(observedAuthorization, 'Bearer sk_test_123456789');
   assert.equal(observedMethod, 'GET');
-  assert.deepEqual(result, { status: 'HEALTHY' });
+  assert.deepEqual(result, { status: 'HEALTHY', failureCode: null });
   assert.equal('available' in result, false);
   assert.equal('livemode' in result, false);
 });
@@ -79,18 +79,30 @@ test('Stripe health probe classifies provider failures without returning raw pro
     fetchImpl: async () => new Response(JSON.stringify({ object: 'unexpected' }), { status: 200 }),
   });
 
-  assert.deepEqual(authentication, { status: 'AUTHENTICATION_FAILED' });
-  assert.deepEqual(rateLimited, { status: 'RATE_LIMITED' });
-  assert.deepEqual(unavailable, { status: 'PROVIDER_UNAVAILABLE' });
-  assert.deepEqual(invalid, { status: 'INVALID_RESPONSE' });
+  assert.deepEqual(authentication, { status: 'AUTHENTICATION_FAILED', failureCode: 'AUTHENTICATION_FAILED' });
+  assert.deepEqual(rateLimited, { status: 'RATE_LIMITED', failureCode: 'RATE_LIMITED' });
+  assert.deepEqual(unavailable, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+  assert.deepEqual(invalid, { status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
 });
 
-test('Stripe health probe classifies network failures as provider unavailable', async () => {
-  const result = await probeStripeIntegrationHealth({
+test('Stripe health probe distinguishes network failure from timeout without exposing transport details', async () => {
+  const networkFailure = await probeStripeIntegrationHealth({
     secretKey: 'sk_test_123456789',
     fetchImpl: async () => {
       throw new Error('socket details that must not escape');
     },
   });
-  assert.deepEqual(result, { status: 'PROVIDER_UNAVAILABLE' });
+
+  const timeout = await probeStripeIntegrationHealth({
+    secretKey: 'sk_test_123456789',
+    timeoutMs: 1_000,
+    fetchImpl: async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return reject(new Error('expected abort signal'));
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    }),
+  });
+
+  assert.deepEqual(networkFailure, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+  assert.deepEqual(timeout, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
 });

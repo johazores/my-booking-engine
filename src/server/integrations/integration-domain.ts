@@ -25,6 +25,17 @@ export const integrationHealthStatuses = [
 ] as const;
 
 export type IntegrationHealthStatus = (typeof integrationHealthStatuses)[number];
+
+export const integrationProviderFailureCodes = [
+  'AUTHENTICATION_FAILED',
+  'RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'TIMEOUT',
+  'INVALID_RESPONSE',
+] as const;
+
+export type IntegrationProviderFailureCode = (typeof integrationProviderFailureCodes)[number];
+
 export type IntegrationHealthSnapshot = Readonly<{
   status: IntegrationHealthStatus;
   checkedAt: Date;

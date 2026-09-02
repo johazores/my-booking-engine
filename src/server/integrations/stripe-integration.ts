@@ -4,7 +4,7 @@ import { StripePaymentProvider } from '../payments/stripe-payment-provider.ts';
 import { StripePaymentReconciliationProvider } from '../payments/stripe-payment-reconciliation-provider.ts';
 import { StripeRefundReconciliationProvider } from '../payments/stripe-refund-reconciliation-provider.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import type { IntegrationHealthStatus } from './integration-domain.ts';
+import type { IntegrationHealthStatus, IntegrationProviderFailureCode } from './integration-domain.ts';
 import { IntegrationLifecycleError, loadActiveIntegrationCredentials } from './integration-service.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
@@ -21,6 +21,7 @@ export type StripeIntegrationHealthStatus = IntegrationHealthStatus;
 
 export type StripeIntegrationHealthResult = Readonly<{
   status: StripeIntegrationHealthStatus;
+  failureCode: IntegrationProviderFailureCode | null;
 }>;
 
 export function normalizeStripeIntegrationConfiguration(input: { secretKey: unknown; webhookSecret?: unknown }) {
@@ -68,15 +69,22 @@ export async function probeStripeIntegrationHealth(input: {
       cache: 'no-store',
     });
 
-    if (response.status === 401 || response.status === 403) return Object.freeze({ status: 'AUTHENTICATION_FAILED' });
-    if (response.status === 429) return Object.freeze({ status: 'RATE_LIMITED' });
-    if (response.status >= 500) return Object.freeze({ status: 'PROVIDER_UNAVAILABLE' });
-    if (!response.ok) return Object.freeze({ status: 'INVALID_RESPONSE' });
+    if (response.status === 401 || response.status === 403) {
+      return Object.freeze({ status: 'AUTHENTICATION_FAILED', failureCode: 'AUTHENTICATION_FAILED' });
+    }
+    if (response.status === 429) return Object.freeze({ status: 'RATE_LIMITED', failureCode: 'RATE_LIMITED' });
+    if (response.status >= 500) return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+    if (!response.ok) return Object.freeze({ status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
 
     const payload = await response.json().catch(() => null) as { object?: unknown } | null;
-    return Object.freeze({ status: payload?.object === 'balance' ? 'HEALTHY' : 'INVALID_RESPONSE' });
+    return payload?.object === 'balance'
+      ? Object.freeze({ status: 'HEALTHY', failureCode: null })
+      : Object.freeze({ status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
   } catch {
-    return Object.freeze({ status: 'PROVIDER_UNAVAILABLE' });
+    if (controller.signal.aborted) {
+      return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
+    }
+    return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
   } finally {
     clearTimeout(timeout);
   }
@@ -122,6 +130,7 @@ export async function testStripeIntegrationConnection(input: {
       afterData: {
         providerCode: integration.providerCode,
         result: result.status,
+        failureCode: result.failureCode,
         credentialVersion: integration.credentialVersion,
       },
     },
