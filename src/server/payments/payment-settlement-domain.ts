@@ -3,6 +3,7 @@ export type BookingSettlementTransaction = Readonly<{
   status: 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS';
   providerCode: string;
   providerReference: string;
+  sourceProviderReference?: string | null;
   currency: string;
   amountMinor: bigint;
 }>;
@@ -13,6 +14,8 @@ export type BookingSettlementSource = Readonly<{
   providerReference: string;
   currency: string;
   amountMinor: bigint;
+  refundedMinor: bigint;
+  remainingMinor: bigint;
 }>;
 
 export type BookingSettlementProviderSummary = Readonly<{
@@ -46,6 +49,10 @@ type BookingSettlementInput = Readonly<{
 
 const INTERNAL_CLAIM_REFERENCE = /^sf_claim_[0-9a-f]{64}$/;
 
+function transactionKey(providerCode: string, providerReference: string) {
+  return `${providerCode}\u001f${providerReference}`;
+}
+
 function isUnresolved(transaction: BookingSettlementTransaction) {
   return transaction.status === 'PENDING' || transaction.status === 'AMBIGUOUS';
 }
@@ -71,6 +78,12 @@ function validateSuccessfulTransaction(
   if (INTERNAL_CLAIM_REFERENCE.test(transaction.providerReference)) {
     return 'Successful payment history still contains an internal provider claim. Reconcile payment history before continuing.';
   }
+  if (transaction.kind !== 'REFUND' && transaction.sourceProviderReference != null) {
+    return 'Successful settlement history contains refund-source attribution on a non-refund transaction. Reconcile payment history before continuing.';
+  }
+  if (transaction.sourceProviderReference != null && !transaction.sourceProviderReference.trim()) {
+    return 'Successful refund history contains an invalid settlement-source reference. Reconcile payment history before continuing.';
+  }
   return null;
 }
 
@@ -91,15 +104,15 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
   const successfulCaptures = new Set(
     successful
       .filter((transaction) => transaction.kind === 'CAPTURE')
-      .map((transaction) => `${transaction.providerCode}\u001f${transaction.providerReference}`),
+      .map((transaction) => transactionKey(transaction.providerCode, transaction.providerReference)),
   );
-  const sources = successful
+  const rawSources = successful
     .filter(isSuccessfulSettlementKind)
     .filter((transaction) => (
       transaction.kind !== 'AUTHORIZATION'
-      || !successfulCaptures.has(`${transaction.providerCode}\u001f${transaction.providerReference}`)
+      || !successfulCaptures.has(transactionKey(transaction.providerCode, transaction.providerReference))
     ))
-    .map((transaction): BookingSettlementSource => ({
+    .map((transaction) => ({
       kind: transaction.kind as BookingSettlementSource['kind'],
       providerCode: transaction.providerCode,
       providerReference: transaction.providerReference,
@@ -107,17 +120,91 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
       amountMinor: transaction.amountMinor,
     }));
 
-  const seenSourceReferences = new Set<string>();
-  for (const source of sources) {
-    const key = `${source.providerCode}\u001f${source.providerReference}`;
-    if (seenSourceReferences.has(key)) {
+  const sourceAmounts = new Map<string, {
+    kind: BookingSettlementSource['kind'];
+    providerCode: string;
+    providerReference: string;
+    currency: string;
+    amountMinor: bigint;
+    refundedMinor: bigint;
+  }>();
+  for (const source of rawSources) {
+    const key = transactionKey(source.providerCode, source.providerReference);
+    if (sourceAmounts.has(key)) {
       return {
         reconciled: false,
         reason: 'Successful payment history contains a duplicate settlement reference. Reconcile payment history before continuing.',
       };
     }
-    seenSourceReferences.add(key);
+    sourceAmounts.set(key, { ...source, refundedMinor: 0n });
   }
+
+  const sourcesByProvider = new Map<string, string[]>();
+  for (const [key, source] of sourceAmounts) {
+    const keys = sourcesByProvider.get(source.providerCode) ?? [];
+    keys.push(key);
+    sourcesByProvider.set(source.providerCode, keys);
+  }
+
+  const successfulRefunds = successful.filter((transaction) => transaction.kind === 'REFUND');
+  const seenRefundReferences = new Set<string>();
+  for (const refund of successfulRefunds) {
+    const refundKey = transactionKey(refund.providerCode, refund.providerReference);
+    if (seenRefundReferences.has(refundKey)) {
+      return {
+        reconciled: false,
+        reason: 'Successful payment history contains a duplicate refund reference. Reconcile payment history before continuing.',
+      };
+    }
+    seenRefundReferences.add(refundKey);
+
+    const providerSourceKeys = sourcesByProvider.get(refund.providerCode) ?? [];
+    if (providerSourceKeys.length === 0) {
+      return {
+        reconciled: false,
+        reason: 'Refund history does not have a matching settled payment provider. Reconcile payment history before continuing.',
+      };
+    }
+
+    let sourceKey: string;
+    if (refund.sourceProviderReference != null) {
+      sourceKey = transactionKey(refund.providerCode, refund.sourceProviderReference);
+      if (!sourceAmounts.has(sourceKey)) {
+        return {
+          reconciled: false,
+          reason: 'Refund history references a settlement source that is not present in successful payment history. Reconcile payment history before continuing.',
+        };
+      }
+    } else if (providerSourceKeys.length === 1) {
+      sourceKey = providerSourceKeys[0]!;
+    } else {
+      return {
+        reconciled: false,
+        reason: 'Refund history is missing settlement-source attribution for a booking with multiple payment sources. Reconcile payment history before continuing.',
+      };
+    }
+
+    const source = sourceAmounts.get(sourceKey)!;
+    const refundedMinor = source.refundedMinor + refund.amountMinor;
+    if (refundedMinor > source.amountMinor) {
+      return {
+        reconciled: false,
+        reason: 'Refund history exceeds settled money for its payment source. Reconcile payment history before continuing.',
+      };
+    }
+    source.refundedMinor = refundedMinor;
+  }
+
+  const sources = [...sourceAmounts.values()]
+    .map((source): BookingSettlementSource => ({
+      ...source,
+      remainingMinor: source.amountMinor - source.refundedMinor,
+    }))
+    .sort((left, right) => {
+      const providerOrder = left.providerCode.localeCompare(right.providerCode);
+      if (providerOrder !== 0) return providerOrder;
+      return left.providerReference.localeCompare(right.providerReference);
+    });
 
   const providerAmounts = new Map<string, { grossSettledMinor: bigint; refundedMinor: bigint; sourceCount: number }>();
   for (const source of sources) {
@@ -127,30 +214,9 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
       sourceCount: 0,
     };
     current.grossSettledMinor += source.amountMinor;
+    current.refundedMinor += source.refundedMinor;
     current.sourceCount += 1;
     providerAmounts.set(source.providerCode, current);
-  }
-
-  const successfulRefunds = successful.filter((transaction) => transaction.kind === 'REFUND');
-  const seenRefundReferences = new Set<string>();
-  for (const refund of successfulRefunds) {
-    const refundKey = `${refund.providerCode}\u001f${refund.providerReference}`;
-    if (seenRefundReferences.has(refundKey)) {
-      return {
-        reconciled: false,
-        reason: 'Successful payment history contains a duplicate refund reference. Reconcile payment history before continuing.',
-      };
-    }
-    seenRefundReferences.add(refundKey);
-
-    const current = providerAmounts.get(refund.providerCode);
-    if (!current) {
-      return {
-        reconciled: false,
-        reason: 'Refund history does not have a matching settled payment provider. Reconcile payment history before continuing.',
-      };
-    }
-    current.refundedMinor += refund.amountMinor;
   }
 
   const providers = [...providerAmounts.entries()]
@@ -162,13 +228,6 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
       netSettledMinor: value.grossSettledMinor - value.refundedMinor,
       sourceCount: value.sourceCount,
     }));
-  const overRefundedProvider = providers.find((provider) => provider.refundedMinor > provider.grossSettledMinor);
-  if (overRefundedProvider) {
-    return {
-      reconciled: false,
-      reason: 'Refund history exceeds settled money for a payment provider. Reconcile payment history before continuing.',
-    };
-  }
 
   const grossSettledMinor = providers.reduce((total, provider) => total + provider.grossSettledMinor, 0n);
   const refundedMinor = providers.reduce((total, provider) => total + provider.refundedMinor, 0n);
@@ -179,11 +238,7 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
     grossSettledMinor,
     refundedMinor,
     netSettledMinor: grossSettledMinor - refundedMinor,
-    sources: [...sources].sort((left, right) => {
-      const providerOrder = left.providerCode.localeCompare(right.providerCode);
-      if (providerOrder !== 0) return providerOrder;
-      return left.providerReference.localeCompare(right.providerReference);
-    }),
+    sources,
     providers,
   };
 }

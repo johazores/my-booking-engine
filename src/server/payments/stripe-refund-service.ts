@@ -324,6 +324,7 @@ export async function refundStripeBookingPayment(input: {
       status: 'PENDING',
       providerCode: PROVIDER,
       providerReference: claimReference,
+      sourceProviderReference: source.providerReference,
       currency: booking.currency,
       amountMinor,
     } });

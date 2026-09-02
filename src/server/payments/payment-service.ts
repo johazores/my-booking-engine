@@ -339,6 +339,7 @@ export async function recordManualOfflineRefund(input: {
         status: 'SUCCEEDED',
         providerCode: providerResult.providerCode,
         providerReference: providerResult.refundReference,
+        sourceProviderReference: sourcePayment.providerReference,
         currency: providerResult.money.currency,
         amountMinor: providerResult.money.amountMinor,
       },
