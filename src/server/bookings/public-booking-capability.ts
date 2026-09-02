@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-const PUBLIC_BOOKING_CAPABILITY_VERSION = 1;
+const PUBLIC_BOOKING_CAPABILITY_VERSION = 2;
 const PUBLIC_BOOKING_CAPABILITY_SCOPE = 'hold:manage' as const;
 const MINIMUM_SECRET_BYTES = 32;
 const IV_BYTES = 12;
@@ -14,17 +14,19 @@ export class PublicBookingCapabilityConfigurationError extends Error {
 }
 
 export type PublicBookingHoldCapability = {
-  version: 1;
+  version: 2;
   scope: typeof PUBLIC_BOOKING_CAPABILITY_SCOPE;
   organizationId: string;
+  principalId: string;
   holdId: string;
   expiresAt: Date;
 };
 
 type SerializedCapability = {
-  v: 1;
+  v: 2;
   s: typeof PUBLIC_BOOKING_CAPABILITY_SCOPE;
   o: string;
+  p: string;
   h: string;
   e: number;
 };
@@ -45,6 +47,7 @@ function parsePayload(value: string): SerializedCapability | null {
       parsed.v !== PUBLIC_BOOKING_CAPABILITY_VERSION
       || parsed.s !== PUBLIC_BOOKING_CAPABILITY_SCOPE
       || typeof parsed.o !== 'string'
+      || typeof parsed.p !== 'string'
       || typeof parsed.h !== 'string'
       || typeof parsed.e !== 'number'
       || !Number.isSafeInteger(parsed.e)
@@ -59,18 +62,20 @@ function parsePayload(value: string): SerializedCapability | null {
 export function issuePublicBookingHoldCapability(input: {
   secret: string;
   organizationId: string;
+  principalId: string;
   holdId: string;
   expiresAt: Date;
 }) {
   const key = capabilityKey(input.secret);
-  if (!input.organizationId || !input.holdId || Number.isNaN(input.expiresAt.getTime())) {
-    throw new TypeError('Public booking capability requires organization, hold, and expiry values.');
+  if (!input.organizationId || !input.principalId || !input.holdId || Number.isNaN(input.expiresAt.getTime())) {
+    throw new TypeError('Public booking capability requires organization, principal, hold, and expiry values.');
   }
 
   const serialized: SerializedCapability = {
     v: PUBLIC_BOOKING_CAPABILITY_VERSION,
     s: PUBLIC_BOOKING_CAPABILITY_SCOPE,
     o: input.organizationId,
+    p: input.principalId,
     h: input.holdId,
     e: input.expiresAt.getTime(),
   };
@@ -81,18 +86,19 @@ export function issuePublicBookingHoldCapability(input: {
     cipher.final(),
   ]);
   const tag = cipher.getAuthTag();
-  return `v1.${iv.toString('base64url')}.${encrypted.toString('base64url')}.${tag.toString('base64url')}`;
+  return `v2.${iv.toString('base64url')}.${encrypted.toString('base64url')}.${tag.toString('base64url')}`;
 }
 
 export function verifyPublicBookingHoldCapability(input: {
   secret: string;
   token: string;
   expectedOrganizationId?: string;
+  expectedPrincipalId?: string;
   now?: Date;
 }): PublicBookingHoldCapability | null {
   const key = capabilityKey(input.secret);
   const [version, encodedIv, encodedCiphertext, encodedTag, extra] = input.token.split('.');
-  if (version !== 'v1' || !encodedIv || !encodedCiphertext || !encodedTag || extra !== undefined) return null;
+  if (version !== 'v2' || !encodedIv || !encodedCiphertext || !encodedTag || extra !== undefined) return null;
 
   try {
     const iv = Buffer.from(encodedIv, 'base64url');
@@ -106,6 +112,7 @@ export function verifyPublicBookingHoldCapability(input: {
     const payload = parsePayload(plaintext);
     if (!payload) return null;
     if (input.expectedOrganizationId && payload.o !== input.expectedOrganizationId) return null;
+    if (input.expectedPrincipalId && payload.p !== input.expectedPrincipalId) return null;
 
     const now = input.now ?? new Date();
     if (payload.e <= now.getTime()) return null;
@@ -114,6 +121,7 @@ export function verifyPublicBookingHoldCapability(input: {
       version: PUBLIC_BOOKING_CAPABILITY_VERSION,
       scope: PUBLIC_BOOKING_CAPABILITY_SCOPE,
       organizationId: payload.o,
+      principalId: payload.p,
       holdId: payload.h,
       expiresAt: new Date(payload.e),
     };
