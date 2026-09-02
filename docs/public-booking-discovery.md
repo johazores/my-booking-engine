@@ -2,46 +2,57 @@
 
 ## Status
 
-SF now has a real tenant-branded public hospitality discovery surface at `/book/[organization-slug]`. It resolves an active organization from the canonical public slug, applies only public-safe branding/contact fields, and searches the same persisted hospitality inventory, restrictions, live holds, booking allocations, and exact pricing data used by staff operations.
+SF has a real tenant-branded public hospitality booking surface at `/book/[organization-slug]`. Discovery is the first stage of the connected self-service journey rather than a standalone mock: the same page can proceed from a live persisted offer into a tenant-scoped hold, current-price review, customer/guest capture, capability-owned confirmation, Stripe-hosted Checkout, and authoritative payment recovery.
 
-This is intentionally **not** presented as completed self-service booking. The public page can prove current sellable offers and current stay totals, but it does not create capacity holds, customers, bookings, or payments. Until a customer-safe ownership/authentication and payment-collection contract exists, the UI exposes no fake `Book now` action. Where a real tenant contact channel is configured, an offer can link to that real channel and explicitly states that live availability is not a held room.
+The route resolves an active organization from the canonical public slug, applies only public-safe branding/contact fields, and searches the same persisted hospitality inventory, restrictions, live holds, booking allocations, and exact pricing data used by staff operations. The browser never chooses `organizationId`.
 
 ## Public tenant boundary
 
-The browser never supplies an organization ID. `readPublicOrganizationBrandingBySlug` canonicalizes the route slug and resolves only an `ACTIVE`, non-deleted organization. `searchPublicHospitalityOffers` derives the organization ID from that server-side result before calling the shared hospitality search core.
+`readPublicOrganizationBrandingBySlug` canonicalizes the route slug and resolves only an `ACTIVE`, non-deleted organization. `searchPublicHospitalityOffers` derives the organization ID from that server-side result before calling the shared hospitality search core.
 
-Inactive, deleted, malformed, or unknown tenants therefore cannot be selected by changing a hidden organization identifier. The public branding payload excludes internal email-delivery settings and other operator-only configuration.
+Inactive, deleted, malformed, or unknown tenants therefore cannot be selected by changing a hidden organization identifier. Public writes continue deriving tenant ownership from the route slug plus opaque capabilities and persisted public-principal ownership; they do not reuse staff permission wrappers.
+
+The public branding payload excludes internal email-delivery settings and other operator-only configuration.
 
 ## Shared availability and pricing core
 
-Staff APIs retain their existing authenticated permission checks. Public discovery does not create a synthetic user or weaken those APIs.
+Staff APIs retain their authenticated permission checks. Public discovery does not create a synthetic user or weaken those APIs.
 
-Instead, availability now exposes a server-only tenant-scoped core, `readHospitalityAvailabilityForOrganization`, while `readHospitalityAvailability` remains the authenticated `availability:read` wrapper. The shared core revalidates that the organization is active and keeps every resource, restriction, hold, allocation, and capacity query scoped by `organizationId`.
+Availability exposes a server-only tenant-scoped core, `readHospitalityAvailabilityForOrganization`, while `readHospitalityAvailability` remains the authenticated `availability:read` wrapper. The shared core revalidates that the organization is active and keeps every resource, restriction, hold, allocation, and capacity query scoped by `organizationId`.
 
 Offer search follows the same pattern. `searchHospitalityOffersForOrganization` is the server-only tenant-scoped core; `searchHospitalityOffers` remains the authenticated wrapper requiring both `availability:read` and `pricing:read`.
 
-Search also uses `quoteHospitalityPriceFromReader`, the same persisted transactional pricing calculation used by booking confirmation. This avoids a separate public pricing implementation and reduces the risk that discovery and confirmation calculate commercial totals differently.
+Search uses `quoteHospitalityPriceFromReader`, the same persisted pricing calculation used by hold review and booking confirmation. Discovery prices are informative until a hold exists; final confirmation requires the fresh capability-owned quote fingerprint and recalculates persisted pricing transactionally.
 
 ## Customer-facing behavior
 
 The public page provides:
 
-- tenant logo, colors, controlled font stack, booking title/description, and favicon;
+- tenant logo, colors, controlled font stack, booking title/description, favicon, and configured contact channels;
 - accessible arrival, departure, and room-quantity controls;
-- bounded live offer discovery with truncation disclosure;
-- real property, room type, rate plan, capacity, occupancy, stay length, and exact-money totals;
-- customer-safe validation/error states without raw server or provider errors;
-- responsive layouts and visible keyboard focus;
-- explicit messaging that availability/pricing can change until a reservation is confirmed.
+- bounded live offer discovery with explicit truncation disclosure;
+- real property, room type, rate plan, sellable capacity, occupancy, stay length, and exact-money totals;
+- a real `Reserve this stay` action backed by the public hold service rather than a contact-only or fake booking CTA;
+- server-reviewed price and hold expiry before customer details are submitted;
+- customer/primary-guest collection followed by capability-owned confirmation and Stripe Checkout;
+- same-tab payment recovery that reports completion only from authoritative server/provider state; and
+- responsive loading, empty, validation, error, retry, hold-release, and payment-recovery states.
 
-The page does not expose internal resource IDs in form inputs, pricing fingerprints, audit data, provider credentials, or staff APIs.
+The page does not submit tenant IDs or internal idempotency keys as authority. Internal resource IDs used to describe the selected offer are revalidated against the tenant and capability-owning server workflow before any commercial write.
 
-## Remaining public booking dependency
+## Connected write and payment boundaries
 
-A complete public booking journey still requires a deliberate customer-safe write boundary for capacity holds, customer/guest ownership, booking confirmation, and Stripe payment collection/retry. Those writes must not reuse staff `booking:manage` authority and must include abuse controls, durable idempotency, tenant/resource ownership, payment proof, and safe recovery states.
+Discovery itself remains read-only. The connected mutation stages are documented separately so ownership and failure semantics stay explicit:
 
-Until that contract is implemented end to end, Phase 11 remains incomplete even though real public discovery is now available.
+- `docs/public-booking-write-boundary.md` — hold/public-principal ownership and mutation rules;
+- `docs/public-booking-quote-and-release.md` — current-price review and hold release;
+- `docs/public-booking-confirmation.md` — customer/guest attachment, atomic confirmation, and payment-start window; and
+- `docs/public-booking-payments.md` — Stripe Checkout, signed lifecycle recovery, abandonment, and payment status.
+
+A temporary hold or browser redirect is never represented as a paid reservation. Capacity protection and final booking/payment state come from persisted server state.
 
 ## Validation
 
-The implementation reuses the existing normalized search, availability, restriction, capacity, exact-money pricing, and tenant-scope validation rather than introducing parallel public domain logic. Full repository typecheck, lint, Prisma/database verification, tests, and production build still require the repository's Node 24 runtime and the documented disposable PostgreSQL target. GitHub Actions are intentionally not used.
+The implementation reuses the existing normalized search, availability, restriction, capacity, exact-money pricing, tenant-scope, hold, confirmation, and payment domains rather than introducing parallel public business logic. Focused dependency-free public-booking tests cover capability/idempotency/recovery decisions, and guarded PostgreSQL scenarios are registered in `npm run test:database` for ownership, capacity, confirmation, and payment persistence.
+
+Full repository validation requires the repository Node 24 toolchain. Database execution requires an explicitly confirmed disposable PostgreSQL target. GitHub Actions are intentionally not used.

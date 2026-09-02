@@ -2,33 +2,31 @@
 
 This roadmap follows dependency order. Finish the highest-priority dependency first, but once a dependency cluster is complete an engineering run should continue into the next safe dependency when capacity remains rather than stopping artificially.
 
+Implementation status below describes repository code and checked-in coverage. The guarded PostgreSQL suite still requires an explicitly confirmed disposable target, and full repository validation requires the Node 24 toolchain.
+
 ## 1. Repository and architecture foundation — implemented
 
-- clean SF reset
-- modern runtime/framework baseline
-- documentation structure
-- responsive public foundation page
-- no legacy prototype provider coupling
+- clean SF reset with legacy prototype coupling removed
+- modern Next.js/TypeScript/Prisma/PostgreSQL baseline
+- documentation structure and permanent engineering rules
+- modular-monolith boundaries and native CSS/design tokens
+- no GitHub Actions dependency
 
-## 2. Database and tenant foundation — implemented baseline, live PostgreSQL verification pending
+## 2. Database and tenant foundation — implemented in code; disposable PostgreSQL execution remains an environment gate
 
-- PostgreSQL/Prisma setup
-- organization model
-- user model
-- organization membership
+- PostgreSQL/Prisma schema and checked-in migrations
+- organization, user, membership, tenant-owned commercial records, and composite ownership constraints
 - tenant-scoped repositories/services
-- checked-in migrations and disposable-database verification harness
-- checked-in tenant-isolation integration coverage
-
-Live migration/schema/isolation execution still requires an available disposable PostgreSQL target.
+- migration/drift/database verification harness
+- checked-in Tenant A/Tenant B isolation and lifecycle scenarios
 
 ## 3. Authentication — implemented
 
-First-party email/password authentication, persisted opaque sessions, secure cookies, protected server access, and auth regression coverage are implemented.
+First-party email/password authentication, persisted opaque sessions, secure cookies, protected server access, session revocation/expiry behavior, and regression coverage are implemented.
 
 ## 4. Organizations and tenant isolation — implemented
 
-Organization onboarding/selection/settings/archive and tenant-safe organization/membership reads and writes are implemented.
+Organization onboarding/selection/settings/archive plus server- and database-enforced tenant-safe ownership are implemented across the current protected product surface.
 
 ## 5. Roles and permissions — implemented
 
@@ -36,77 +34,107 @@ Platform/organization roles, fine-grained capabilities, permission enforcement, 
 
 ## 6. Persistent application shell — implemented
 
-The canonical protected workspace, responsive navigation/header, tenant identity, account controls, active states, accessibility, and real tenant/auth dashboard are implemented.
+The protected workspace has responsive navigation/header, tenant identity, account controls, active states, accessible interaction, and real tenant/auth dashboard data rather than fake analytics.
 
-## 7. Tenant settings and white-label branding — implemented configuration foundation
+## 7. Tenant settings and white-label branding — implemented for the current product and public booking journey
 
-Tenant presentation/contact/public-booking configuration, custom-domain configuration, audited branding management, design-token propagation, and a public-safe branding reader are implemented. Real public booking application and domain routing remain later dependencies.
+Tenant presentation/contact/public-booking configuration, custom-domain configuration, audited management, design-token propagation, and public-safe branding are implemented. Persisted branding is applied to the real `/book/[organization-slug]` journey.
 
-## 8. Customers/travelers/guests — implemented customer foundation
+Custom-domain persistence does not claim DNS ownership verification or custom-host routing; that remains an infrastructure capability.
 
-Tenant-owned customer/contact records, permissions, search/filter/sort/pagination, create/detail/edit/archive, audits, responsive states, and PostgreSQL isolation/lifecycle coverage are implemented. Booking-specific traveler/passenger structures remain deferred until the booking flow requires them.
+## 8. Customers, travelers, and guests — implemented current hospitality foundation
+
+Tenant-owned customer/contact records, lifecycle management, search/filter/sort/pagination, audits, and permissions are implemented. Hospitality bookings persist immutable ordered guest snapshots, and confirmed-booking traveler snapshots can be edited through the tenant-safe booking-management boundary with occupancy and idempotency enforcement.
 
 ## 9. Internal inventory — hospitality foundation implemented
 
-Implemented hospitality foundation:
+Implemented hospitality capabilities include properties, room types, physical rooms, amenities, image records, rate plans, assignments, restrictions, lifecycle guards, permissions, management UI, and tenant-safe database relationships.
 
-- properties
-- room types
-- physical rooms
-- reusable tenant-owned amenities and property/room-type assignment
-- property and room-type hosted-image galleries
-- property-owned rate plans and room-type assignment
-- property-wide and room-type rate-plan restrictions
-- minimum/maximum stay and closed-to-arrival/departure controls
-- deterministic same-scope overlap rejection
-- dependency-safe restriction → rate-plan assignment → rate-plan → property lifecycle
-- tenant-scoped `inventory:read` / `inventory:manage` permissions
-- composite parent/tenant database constraints
-- bounded pagination on current large collections
-- audited lifecycle/configuration operations
-- authenticated responsive inventory UI
-- checked-in cross-tenant PostgreSQL integration coverage
+Tours, appointments, rentals, and marketplace inventory remain separate later business modules; they are not forced into the hospitality schema.
 
-Rate plans establish commercial identities only. Restrictions establish date/stay/arrival rules only. Pricing, availability allocation, and booking state remain separate concerns even when they reference the same room type/rate plan scope.
+## 10. Availability — hospitality allocation foundation implemented
 
-Image management accepts real HTTPS assets from an existing CDN/media host rather than presenting a fake upload integration. A future file-upload capability must sit behind a real storage-provider adapter and feed the same normalized image records.
+Normalized availability windows, physical capacity, restrictions, temporary holds, expiry semantics, permanent booking allocations, no-overbooking confirmation, canonical room-type allocation locking, and last-unit concurrency coverage are implemented.
 
-Hospitality inventory is now a coherent completed Phase 8 business slice. Tours, appointments, and rentals remain intentionally separate business modules; do not force them into the hospitality model. The next dependency-safe platform work is normalized availability.
+Public abandoned `PENDING_CONFIRMATION` allocations stop protecting capacity when their bounded payment-start/recovery evidence expires; staff/non-public pending allocations fail safe.
 
-## 10. Availability — operational foundation implemented, booking allocation pending
+## 11. Pricing — hospitality pricing foundation implemented
 
-Implemented: normalized hospitality availability, physical capacity, capacity windows, effective rate restrictions, temporary holds, expiry semantics, and concurrency-safe last-unit hold allocation. Permanent booking allocations, explicit overbooking policy at confirmation, atomic confirmation, and last-unit booking confirmation tests remain booking-boundary dependencies.
+Exact integer minor-unit money, tenant currency, base-rate windows, percentage/fixed taxes and fees, persisted add-ons, deterministic complete quotes, pricing fingerprints, transactional revalidation, price-change rejection, management UI, and checked-in integration coverage are implemented.
 
-## 11. Pricing — base rates and taxes/fees implemented
+Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements.
 
-Implemented: normalized exact money/currency, persisted hospitality base-rate windows, persisted property/scoped percentage and fixed taxes/fees, complete price quotes, deterministic revalidation fingerprints, price-change detection, permission-checked management UI, dependency guards, and checked-in integration coverage.
+## 12. Complete internal and public hospitality booking flow — implemented in code
 
-Remaining same-domain work: add-ons and any real tenant/provider-specific pricing rules. Immutable booking price snapshots belong to the booking transaction rather than browser state.
+Authenticated staff booking and the tenant-branded public customer journey both use the same normalized availability, pricing, hold, confirmation, allocation, and immutable booking snapshot rules.
 
-## 12. Complete internal booking flow
+The public journey is connected end to end: live discovery → hold → current quote → customer/primary guest → capability-owned confirmation → Stripe-hosted Checkout → signed/provider-truth payment recovery. Public callers never receive staff authority, and browser redirects are never payment proof.
 
-Search → availability → selection → pricing validation → customer details → booking → confirmation.
+The checked-in public PostgreSQL scenarios still require execution against an explicitly confirmed disposable target before that environment gate can be considered validated.
 
-## 13. Payments
+## 13. Payments — substantial production foundation implemented
 
-Provider contract, first payment implementation, webhooks, idempotency, refunds, and reconciliation references.
+Implemented:
 
-## 14. Booking management
+- normalized provider contract and explicit capabilities
+- real manual/offline payment recording
+- real Stripe authorization/capture and hosted Checkout adapters
+- encrypted tenant Stripe configuration through the integration framework
+- exact-money transaction ledger and paginated payment history
+- tenant-scoped idempotency and pre-provider operation claims
+- normalized provider failures and ambiguous-outcome recovery
+- raw-body Stripe signature verification and durable webhook-event idempotency
+- PaymentIntent, Checkout Session, and refund webhook reconciliation
+- provider-truth PaymentIntent/refund polling reconciliation
+- partial/full Stripe refunds with safe retry/finalization semantics
+- public capability-owned payment status/recovery and Checkout abandonment handling
+- read-only payment receipt foundation with exact captured/refunded/net settlement data
+- strict rule that browser redirects never establish payment truth
 
-Retrieve, modify/reschedule, cancel, refund, history, and audit trail.
+Still separate/not claimed complete:
 
-## 15. Integration framework
+- PayPal or additional payment providers until prioritized by real product need
+- jurisdiction-specific tax invoice issuance, invoice numbering/tax fields, PDF/email delivery, and accounting integrations
 
-Database-managed encrypted credentials, capability registration, status, connection testing, and provider administration.
+## 14. Booking management — core lifecycle implemented; general commercial modification remains
 
-## 16. First external supplier/GDS integration
+Implemented:
 
-Research current provider workflow and implement one real end-to-end provider slice.
+- tenant-scoped retrieve/detail view
+- paginated payment and audit history
+- safe cancellation with payment-state blockers and explicit confirmation
+- date-only rescheduling with availability/restriction/current-price revalidation
+- traveler snapshot add/edit/remove with occupancy enforcement
+- shared booking/payment mutation serialization
+- retained commercial history and audited mutations
 
-## 17. Additional providers
+Remaining major boundary: room type, rate plan, room quantity, add-on, or other commercial modifications that change the immutable price snapshot. Those require an explicit versioned modification/payment-adjustment contract instead of an implicit charge/refund.
 
-Refine abstractions based on real provider differences.
+## 15. Integration framework — current production management foundation implemented
 
-## 18. Advanced business modules
+Implemented:
 
-Add business-specific capabilities only after the shared platform foundations are proven.
+- tenant-owned integration persistence with database ownership constraints
+- provider capability registration
+- encrypted credential envelopes using a deployment master key
+- secret-free management/read models and audits
+- add/configure/rotate/enable/disable lifecycle
+- administrator-only read-only connection health probes for real adapters
+- durable current-credential health status
+- safe archive/remove plus fresh-credential reconnection
+- normalized provider failure classification
+- provider-specific behavior kept behind adapter/configuration boundaries
+
+Additional provider-specific management must only be added alongside a real adapter; unsupported providers must not receive fake controls.
+
+## 16. First external supplier/GDS integration — not started
+
+Before implementation, research the current provider architecture/API, select one provider based on product value and obtainable access, and implement only its real capabilities behind the normalized supplier contract. Required work includes authentication/token handling, normalized search/availability/pricing, reservation lifecycle where supported, rate-limit/timeout/auth/unavailable handling, correlation/idempotency, and integration coverage.
+
+## 17. Additional providers — later
+
+Add Amadeus, Sabre, Travelport, or other supplier/payment/email/SMS providers only from real product need and refine contracts from actual provider differences rather than hypothetical abstraction.
+
+## 18. Advanced business modules — later
+
+Add hotel/resort extensions, travel-agency workflows, tour-operator workflows, appointments, rentals, and marketplace capabilities only after the shared booking foundation and required provider contracts are proven.

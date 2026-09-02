@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 type PublicOffer = {
@@ -92,6 +92,10 @@ function storeRecovery(organizationSlug: string, recovery: BookingRecovery) {
   window.sessionStorage.setItem(recoveryKey(organizationSlug), JSON.stringify(recovery));
 }
 
+function clearRecovery(organizationSlug: string) {
+  window.sessionStorage.removeItem(recoveryKey(organizationSlug));
+}
+
 function readRecovery(organizationSlug: string): BookingRecovery | null {
   const raw = window.sessionStorage.getItem(recoveryKey(organizationSlug));
   if (!raw) return null;
@@ -102,15 +106,15 @@ function readRecovery(organizationSlug: string): BookingRecovery | null {
       || typeof parsed.checkoutRequestKey !== 'string'
       || typeof parsed.currency !== 'string'
       || typeof parsed.totalMinor !== 'string'
-    ) return null;
+    ) {
+      clearRecovery(organizationSlug);
+      return null;
+    }
     return parsed as BookingRecovery;
   } catch {
+    clearRecovery(organizationSlug);
     return null;
   }
-}
-
-function clearRecovery(organizationSlug: string) {
-  window.sessionStorage.removeItem(recoveryKey(organizationSlug));
 }
 
 export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: string }) {
@@ -120,7 +124,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
   const [canContinuePayment, setCanContinuePayment] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  async function checkStatus(current: BookingRecovery, context: { cancelledReturn?: boolean } = {}) {
+  const checkStatus = useCallback(async (current: BookingRecovery, context: { cancelledReturn?: boolean } = {}) => {
     setBusy(true);
     try {
       const response = await fetch(apiPath(organizationSlug, 'payments/stripe-checkout/status'), {
@@ -137,6 +141,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
       if (nextState === 'PAID') {
         setMessage('Payment confirmed. Your reservation is confirmed.');
         clearRecovery(organizationSlug);
+        setRecovery(null);
       } else if (nextState === 'PROCESSING') {
         if (context.cancelledReturn && canResumeCheckout) {
           setMessage('Payment was not completed. Your secure Checkout session is still available, so you can continue without creating another reservation.');
@@ -157,10 +162,12 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         setMessage('This reservation attempt expired before payment was secured. Please search availability again.');
         setCanContinuePayment(false);
         clearRecovery(organizationSlug);
+        setRecovery(null);
       } else if (nextState === 'CANCELLED') {
         setMessage('This reservation is cancelled.');
         setCanContinuePayment(false);
         clearRecovery(organizationSlug);
+        setRecovery(null);
       } else {
         setMessage('We could not confirm the latest payment state.');
         setCanContinuePayment(false);
@@ -171,7 +178,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
     } finally {
       setBusy(false);
     }
-  }
+  }, [organizationSlug]);
 
   async function resumePayment() {
     if (!recovery) return;
@@ -207,6 +214,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         setCanContinuePayment(false);
         setMessage('Payment confirmed. Your reservation is confirmed.');
         clearRecovery(organizationSlug);
+        setRecovery(null);
         return;
       }
       await checkStatus(activeRecovery);
@@ -221,7 +229,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
     setRecovery(current);
     const cancelledReturn = new URLSearchParams(window.location.search).get('payment') === 'cancelled';
     void checkStatus(current, { cancelledReturn });
-  }, [organizationSlug]);
+  }, [checkStatus, organizationSlug]);
 
   if (!recovery && !message) return null;
 
@@ -403,6 +411,7 @@ export function PublicBookingOfferCard({
     const phone = String(form.get('phone') || '');
 
     confirmationRequestKey.current ??= crypto.randomUUID();
+    let bookingCreated = false;
     try {
       const response = await fetch(apiPath(organizationSlug, 'confirmation'), {
         method: 'POST',
@@ -428,8 +437,16 @@ export function PublicBookingOfferCard({
         || typeof result.booking.totalMinor !== 'string'
       ) throw new Error('The reservation confirmation response was incomplete.');
 
+      bookingCreated = true;
+      clearHoldClientState();
       await startCheckout(result.bookingCapability, result.booking.currency, result.booking.totalMinor);
     } catch (error) {
+      if (bookingCreated) {
+        setStage('payment');
+        setPaymentState('RECOVERY_REQUIRED');
+        setMessage('Your reservation is saved, but secure payment could not be opened. Recover payment to continue safely.');
+        return;
+      }
       setStage('error');
       setMessage(error instanceof Error ? error.message : 'The reservation could not be confirmed.');
     }
@@ -482,7 +499,7 @@ export function PublicBookingOfferCard({
             <label><span>Email</span><input name="email" type="email" autoComplete="email" maxLength={320} required /></label>
             <label><span>Phone <small>(optional)</small></span><input name="phone" type="tel" autoComplete="tel" maxLength={40} /></label>
           </div>
-          <p className="sf-public-booking__contact-note">The named customer is also recorded as the primary guest. Your email is used for reservation recovery.</p>
+          <p className="sf-public-booking__contact-note">The named customer is also recorded as the primary guest. Payment recovery stays in this browser tab until the reservation is paid, cancelled, or expires.</p>
           <div className="sf-public-booking__price">
             <button type="submit" className="sf-public-booking__contact">Confirm and continue to payment</button>
             <button type="button" className="sf-public-booking__contact" onClick={releaseHold}>Release hold</button>
@@ -495,6 +512,11 @@ export function PublicBookingOfferCard({
         <div className="sf-public-booking__notice" role="status">
           <strong>{paymentState === 'PAID' ? 'Reservation confirmed' : 'Preparing secure payment…'}</strong>
           {message ? <span>{message}</span> : null}
+          {paymentState && paymentState !== 'PAID' ? (
+            <button type="button" className="sf-public-booking__contact" onClick={() => window.location.reload()}>
+              {paymentState === 'RECOVERY_REQUIRED' ? 'Recover payment' : 'Check payment status'}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {stage === 'error' ? (

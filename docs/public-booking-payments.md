@@ -10,6 +10,8 @@ Return URLs are server-derived from the same-origin request. Callers cannot supp
 
 The public browser stores the short-lived booking capability and stable Checkout request key only in same-tab `sessionStorage` before leaving SF for hosted Checkout. They are never put in the Stripe return URL. On return, the browser POSTs the capability to the status boundary and clears recovery state after authoritative paid, cancelled, or expired outcomes.
 
+Customer email is booking/contact identity; the implemented browser recovery authority is the same-tab booking capability and request key, not a claimed email recovery workflow.
+
 ## Durable confirmation-to-payment lifecycle
 
 Public hold conversion creates `PENDING_CONFIRMATION / UNPAID`, not an immediately `CONFIRMED` booking. `PublicBookingBookingOwnership.createdAt` starts a 15-minute payment-start window.
@@ -27,7 +29,7 @@ The public booking page connects the existing production boundaries end to end:
 1. server-rendered tenant branding, live inventory, and current offer pricing;
 2. same-origin public hold creation using a stable UUID-v4 request key;
 3. capability-owned server quote and pricing fingerprint review;
-4. customer/recovery contact and primary guest collection;
+4. customer contact and primary guest collection;
 5. `POST /api/public-bookings/[organization-slug]/hospitality/confirmation`, which converts only that owned hold and revalidates the reviewed pricing fingerprint;
 6. immediate Stripe Checkout creation with a separate stable request key;
 7. hosted provider payment;
@@ -35,6 +37,8 @@ The public booking page connects the existing production boundaries end to end:
 9. truthful completion only when authoritative provider/webhook state says the booking is paid.
 
 If quote retrieval fails after a hold was created, the browser explicitly requests hold release. A failed cleanup request keeps the capability available and surfaces a retryable release action rather than claiming inventory was released. Customers who cancel hosted Checkout return to an authoritative status check; when the server confirms payment can safely continue, the page exposes a real resume/retry action instead of leaving the reservation stranded.
+
+If booking confirmation succeeds but the browser cannot open Checkout, hold state is discarded because the hold has already been consumed, while the booking capability/request key remain in same-tab recovery storage. The UI exposes a payment-recovery action rather than incorrectly returning the customer to editable hold details.
 
 The confirmation route never accepts organization, principal, hold, booking, customer, or allocation IDs as authority. Tenant scope comes from the public slug and the encrypted hold capability plus persisted ownership.
 

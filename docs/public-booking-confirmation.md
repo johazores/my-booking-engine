@@ -4,7 +4,7 @@
 
 SF has a server-side customer-safe confirmation boundary for capability-owned hospitality holds. Public confirmation creates a durable `PENDING_CONFIRMATION / UNPAID` booking rather than immediately claiming that payment has been durably started or completed.
 
-`POST /api/public-bookings/[organization-slug]/hospitality/confirmation` is the public ingress for that service. It is same-origin only, no-store, tenant-resolved from the slug, and requires the opaque hold capability, a UUID-v4 public request key, the reviewed pricing fingerprint, normalized customer/recovery contact, and booking guest snapshots. It does not accept a browser-selected organization, principal, hold, booking, customer, or allocation ID as authority.
+`POST /api/public-bookings/[organization-slug]/hospitality/confirmation` is the public ingress for that service. It is same-origin only, no-store, tenant-resolved from the slug, and requires the opaque hold capability, a UUID-v4 public request key, the reviewed pricing fingerprint, normalized customer contact, and booking guest snapshots. It does not accept a browser-selected organization, principal, hold, booking, customer, or allocation ID as authority.
 
 The public page calls this endpoint only after it has created a tenant-scoped hold and obtained a fresh capability-owned quote. Successful confirmation is immediately followed by Stripe Checkout initiation; the booking capability is retained only in same-tab `sessionStorage` so the return page can recover authoritative payment state without putting the capability in a URL.
 
@@ -20,9 +20,11 @@ The core accepts an explicit initial booking state. Staff callers use the defaul
 
 `confirmPublicHospitalityBookingFromHold` resolves the active organization from the public slug and verifies the encrypted hold capability plus persisted `PublicBookingHoldOwnership` before creating anything.
 
-Public confirmation requires canonical recovery email. An existing active customer with that email in the same organization is reused; archived customers are not silently reactivated. New customers are created in the same serializable transaction. Guest identity remains immutable booking-specific snapshot data.
+Public confirmation requires a canonical customer contact email. An existing active customer with that email in the same organization is reused; archived customers are not silently reactivated. New customers are created in the same serializable transaction. Guest identity remains immutable booking-specific snapshot data.
 
 `PublicBookingBookingOwnership` binds the booking to the same public principal and organization. Its durable `createdAt` is the source of the payment-start deadline. The public response exposes only the deadline timestamp, customer-safe booking data, and an opaque `booking:manage` capability; internal tenant, principal, booking, customer, and allocation IDs are not exposed.
+
+Browser payment recovery does not depend on an email workflow. The short-lived booking capability and stable Checkout request key remain in same-tab `sessionStorage` until a terminal outcome; email is persisted as customer/contact identity for the booking.
 
 ## Payment-start lifecycle
 
