@@ -94,6 +94,21 @@ export async function rescheduleHospitalityBooking(input: {
       return booking;
     }
 
+    const activePayment = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+        status: { in: ['PENDING', 'AMBIGUOUS'] },
+      },
+      select: { id: true },
+    });
+    if (activePayment) {
+      throw new HospitalityBookingConflictError(
+        'Booking has an unresolved payment operation. Resolve the payment attempt before rescheduling the booking.',
+      );
+    }
+
     const assignment = await transaction.hospitalityRoomTypeRatePlan.findFirst({
       where: {
         organizationId: input.organizationId,

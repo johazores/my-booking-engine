@@ -53,6 +53,25 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     await assert.rejects(reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: booking.id, change: firstChange, now }), /permission/i);
     await assert.rejects(reschedules.rescheduleHospitalityBooking({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: booking.id, change: firstChange, now }), /not available/i);
 
+    const pendingPayment = await db.paymentTransaction.create({
+      data: {
+        organizationId: organizationA.id,
+        bookingId: booking.id,
+        idempotencyKey: 'reschedule:pending-payment',
+        kind: 'CAPTURE',
+        status: 'PENDING',
+        providerCode: 'TEST',
+        providerReference: `pending-${runId}`,
+        currency: booking.currency,
+        amountMinor: booking.totalMinor,
+      },
+    });
+    await assert.rejects(
+      reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: firstChange, now }),
+      /unresolved payment operation/i,
+    );
+    await db.paymentTransaction.delete({ where: { id: pendingPayment.id } });
+
     const rescheduled = await reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: firstChange, now });
     assert.equal(rescheduled.arrivalDate.toISOString().slice(0, 10), '2026-09-11');
     assert.equal(rescheduled.departureDate.toISOString().slice(0, 10), '2026-09-13');
@@ -100,6 +119,8 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     assert.equal(JSON.stringify(events).includes('reschedule-guest-'), false);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.paymentCheckoutSession.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
