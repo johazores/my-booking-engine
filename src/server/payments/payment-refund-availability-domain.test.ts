@@ -58,30 +58,38 @@ test('keeps mixed settled providers unavailable', () => {
   assert.match(result.reason, /multiple payment providers/i);
 });
 
-test('keeps multiple same-provider settlement sources unavailable until source-aware provider execution exists', () => {
+test('manual refunds can advance one deterministic source at a time', () => {
+  const result = deriveBookingRefundAvailability({
+    ...booking,
+    transactions: [
+      transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-small', amountMinor: 5_000n }),
+      transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-large', amountMinor: 7_500n }),
+    ],
+  });
+  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 7_500n, requiresReference: true });
+});
+
+test('keeps multiple Stripe settlement sources unavailable until Stripe recovery is source-aware', () => {
   const result = deriveBookingRefundAvailability({
     ...booking,
     transactions: [transaction({ providerReference: 'pi_1', amountMinor: 6_000n }), transaction({ providerReference: 'pi_2', amountMinor: 6_500n })],
   });
   assert.equal(result.available, false);
   if (result.available) return;
-  assert.match(result.reason, /deterministic allocation/i);
-  assert.match(result.reason, /provider execution/i);
+  assert.match(result.reason, /source-aware Stripe execution and recovery/i);
 });
 
-test('reconciles attributed multi-source refunds before stopping at the provider-execution boundary', () => {
+test('manual source allocation continues after an attributed source refund', () => {
   const result = deriveBookingRefundAvailability({
     ...booking,
     paymentStatus: 'PARTIALLY_REFUNDED',
     transactions: [
-      transaction({ providerReference: 'pi_1', amountMinor: 6_000n }),
-      transaction({ providerReference: 'pi_2', amountMinor: 6_500n }),
-      transaction({ kind: 'REFUND', providerReference: 're_1', sourceProviderReference: 'pi_1', amountMinor: 1_000n }),
+      transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-a', amountMinor: 6_000n }),
+      transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-b', amountMinor: 6_500n }),
+      transaction({ kind: 'REFUND', providerCode: 'manual', providerReference: 'refund-b', sourceProviderReference: 'receipt-b', amountMinor: 6_500n }),
     ],
   });
-  assert.equal(result.available, false);
-  if (result.available) return;
-  assert.match(result.reason, /provider execution/i);
+  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 6_000n, requiresReference: true });
 });
 
 test('rejects over-refunded histories instead of deriving a negative balance', () => {

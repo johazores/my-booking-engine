@@ -11,6 +11,7 @@ import {
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
 } from './payment-provider.ts';
+import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 
 export class PaymentConflictError extends Error {
   constructor(message: string) {
@@ -262,46 +263,29 @@ export async function recordManualOfflineRefund(input: {
       throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
     }
 
-    const sourcePayments = await transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: booking.id,
-        kind: 'OFFLINE_PAYMENT',
-        status: 'SUCCEEDED',
-        providerCode: manualProvider.code,
+    const paymentHistory = await transaction.paymentTransaction.findMany({
+      where: { organizationId: input.organizationId, bookingId: booking.id },
+      select: {
+        kind: true,
+        status: true,
+        providerCode: true,
+        providerReference: true,
+        sourceProviderReference: true,
+        currency: true,
+        amountMinor: true,
       },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      take: 2,
     });
-    if (sourcePayments.length === 0) {
-      throw new PaymentConflictError('No successful manual payment is available to refund.');
-    }
-    if (sourcePayments.length > 1) {
-      throw new PaymentConflictError(
-        'This booking has multiple manual settlement sources. Source-aware refund allocation is required before another refund can start.',
-      );
-    }
-    const sourcePayment = sourcePayments[0]!;
-
-    const refunded = await transaction.paymentTransaction.aggregate({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: booking.id,
-        kind: 'REFUND',
-        status: 'SUCCEEDED',
-        providerCode: manualProvider.code,
-      },
-      _sum: { amountMinor: true },
+    const plan = deriveBookingRefundExecutionPlan({
+      bookingPaymentStatus: booking.paymentStatus,
+      bookingTotalMinor: booking.totalMinor,
+      currency: booking.currency,
+      transactions: paymentHistory,
+      expectedProviderCode: 'manual',
+      requestedAmountMinor,
     });
-    const refundedMinor = refunded._sum.amountMinor ?? 0n;
-    const refundableMinor = sourcePayment.amountMinor - refundedMinor;
-    if (refundableMinor <= 0n) {
-      throw new PaymentConflictError('Manual payment has already been fully refunded.');
-    }
-
-    const amountMinor = requestedAmountMinor ?? refundableMinor;
-    if (amountMinor > refundableMinor) {
-      throw new PaymentConflictError('Refund amount exceeds the remaining refundable balance.');
+    if (!plan.planned) throw new PaymentConflictError(plan.reason);
+    if (plan.sourceKind !== 'OFFLINE_PAYMENT') {
+      throw new PaymentConflictError('Manual refund allocation did not resolve to a successful offline payment source.');
     }
 
     const duplicateReference = await transaction.paymentTransaction.findFirst({
@@ -323,16 +307,16 @@ export async function recordManualOfflineRefund(input: {
       organizationId: input.organizationId,
       bookingId: booking.id,
       idempotencyKey,
-      money: { currency: booking.currency, amountMinor },
-      paymentReference: sourcePayment.providerReference,
+      money: { currency: booking.currency, amountMinor: plan.amountMinor },
+      paymentReference: plan.sourceProviderReference,
       refundReference,
     });
     if (
       providerResult.status !== 'REFUNDED'
-      || providerResult.providerReference !== sourcePayment.providerReference
+      || providerResult.providerReference !== plan.sourceProviderReference
       || providerResult.refundReference !== refundReference
       || providerResult.money.currency !== booking.currency
-      || providerResult.money.amountMinor !== amountMinor
+      || providerResult.money.amountMinor !== plan.amountMinor
     ) {
       throw new PaymentConflictError('Manual payment provider returned a refund result that does not match the requested refund.');
     }
@@ -346,17 +330,15 @@ export async function recordManualOfflineRefund(input: {
         status: 'SUCCEEDED',
         providerCode: providerResult.providerCode,
         providerReference: providerResult.refundReference,
-        sourceProviderReference: sourcePayment.providerReference,
+        sourceProviderReference: plan.sourceProviderReference,
         currency: providerResult.money.currency,
         amountMinor: providerResult.money.amountMinor,
       },
     });
 
-    const nextRefundedMinor = refundedMinor + amountMinor;
-    const nextPaymentStatus = nextRefundedMinor === sourcePayment.amountMinor ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
     await transaction.hospitalityBooking.update({
       where: { id: booking.id },
-      data: { paymentStatus: nextPaymentStatus },
+      data: { paymentStatus: plan.nextPaymentStatus },
     });
 
     await transaction.auditEvent.create({
@@ -373,7 +355,7 @@ export async function recordManualOfflineRefund(input: {
           status: refund.status,
           currency: refund.currency,
           amountMinor: refund.amountMinor.toString(),
-          bookingPaymentStatus: nextPaymentStatus,
+          bookingPaymentStatus: plan.nextPaymentStatus,
         },
       },
     });

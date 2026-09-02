@@ -1,9 +1,5 @@
-import { deriveNextBookingRefundSource } from './payment-refund-allocation-domain.ts';
-import { deriveBookingPaymentStatusFromNetSettlement } from './payment-refund-state-domain.ts';
-import {
-  deriveBookingSettlementSummary,
-  type BookingSettlementTransaction,
-} from './payment-settlement-domain.ts';
+import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
+import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 
 export type BookingRefundTransaction = BookingSettlementTransaction;
 
@@ -40,53 +36,26 @@ export function deriveBookingRefundAvailability(input: BookingRefundAvailability
     return { available: false, reason: `Booking payment state ${input.paymentStatus.toLowerCase().replaceAll('_', ' ')} does not accept a refund.` };
   }
 
-  const settlement = deriveBookingSettlementSummary({
+  const plan = deriveBookingRefundExecutionPlan({
+    bookingPaymentStatus: input.paymentStatus,
+    bookingTotalMinor: input.totalMinor,
     currency: input.currency,
     transactions: input.transactions,
   });
-  if (!settlement.reconciled) {
-    return { available: false, reason: settlement.reason };
-  }
-  if (settlement.providers.length > 1) {
-    return {
-      available: false,
-      reason: 'Multiple payment providers appear settled for this booking. Reconcile payment history before refunding.',
-    };
-  }
-  const provider = settlement.providers[0];
-  if (!provider || (provider.providerCode !== 'manual' && provider.providerCode !== 'stripe')) {
-    return { available: false, reason: 'No successful supported payment settlement is available to refund.' };
-  }
-  const derivedPaymentStatus = deriveBookingPaymentStatusFromNetSettlement({
-    bookingTotalMinor: input.totalMinor,
-    netSettledMinor: settlement.netSettledMinor,
-  });
-  if (!derivedPaymentStatus.reconciled || derivedPaymentStatus.paymentStatus !== input.paymentStatus) {
-    return { available: false, reason: 'Booking payment status is inconsistent with settled payment history. Reconcile payment history before refunding.' };
-  }
-  if (settlement.netSettledMinor <= 0n) {
-    return { available: false, reason: 'This booking payment has no remaining refundable balance.' };
-  }
+  if (!plan.planned) return { available: false, reason: plan.reason };
 
-  const allocation = deriveNextBookingRefundSource({ sources: settlement.sources });
-  if (!allocation.allocated) {
-    return { available: false, reason: allocation.reason };
-  }
-  if (allocation.providerCode !== provider.providerCode || allocation.bookingRefundableMinor !== settlement.netSettledMinor) {
-    return { available: false, reason: 'Refund source allocation is inconsistent with settled payment history. Reconcile payment history before refunding.' };
-  }
-  if (settlement.sources.length !== 1) {
+  if (plan.providerCode === 'stripe' && plan.refundableSourceCount > 1) {
     return {
       available: false,
-      reason: 'This booking has multiple settlement sources. Deterministic allocation is defined, but source-aware provider execution must be completed before another general refund can be started.',
+      reason: 'This booking has multiple Stripe settlement sources. Deterministic allocation is defined, but source-aware Stripe execution and recovery must be completed before another general refund can be started.',
     };
   }
 
   return {
     available: true,
-    providerCode: provider.providerCode,
+    providerCode: plan.providerCode,
     currency: input.currency,
-    refundableMinor: allocation.sourceRefundableMinor,
-    requiresReference: provider.providerCode === 'manual',
+    refundableMinor: plan.amountMinor,
+    requiresReference: plan.providerCode === 'manual',
   };
 }
