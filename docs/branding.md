@@ -2,9 +2,9 @@
 
 ## Status
 
-Tenant-owned white-label configuration is implemented for the authenticated SF workspace. The configuration is persisted on `Organization`, validated centrally, permission checked server-side, and audited when it changes.
+Tenant-owned white-label configuration is implemented for the authenticated SF workspace and the real public hospitality discovery surface. Configuration is persisted on `Organization`, validated centrally, permission checked server-side for management, and audited when it changes.
 
-A real public booking page is intentionally **not** created by this phase. Public-facing branding fields are persisted and exposed through a public-safe reader so the later real booking journey can consume them without inventing placeholder booking functionality.
+The public route `/book/[organization-slug]` now consumes the public-safe branding reader and applies persisted presentation/contact settings to live availability and pricing discovery. This does not mean the complete public self-service booking journey is finished: public hold, customer/guest ownership, confirmation, and payment collection still require a dedicated customer-safe write contract.
 
 ## Persisted tenant presentation
 
@@ -35,7 +35,7 @@ Updates:
 5. update the active tenant inside a serializable transaction
 6. write an `organization.branding.updated` audit event for material changes
 
-The public-safe branding reader is deliberately narrower than the internal management reader. It exposes presentation/contact values needed by a future booking surface but does not expose email delivery configuration such as sender/reply-to settings.
+The public-safe branding reader is deliberately narrower than the internal management reader. It resolves only an active, non-deleted organization from its canonical slug and exposes presentation/contact values needed by the public surface. It does not expose email delivery configuration such as sender/reply-to settings or accept a browser-supplied organization ID.
 
 ## Validation
 
@@ -63,7 +63,9 @@ Tenant colors and typography are not copied into individual components. The auth
 
 Existing shell components consume the variables, so dashboard, account, branding navigation, buttons, focus treatment, and other shared UI inherit tenant branding without tenant-specific CSS files.
 
-A configured tenant logo replaces the SF fallback mark in the authenticated sidebar. A configured favicon and tenant business name also feed route metadata for authenticated workspace sections.
+The public hospitality surface follows the same principle with its public-route token boundary (`--sf-public-primary`, `--sf-public-secondary`, `--sf-public-accent`, and `--sf-public-font`). A configured tenant logo, favicon, booking title, description, contact details, and controlled font stack are applied without exposing internal configuration.
+
+A configured tenant logo replaces the SF fallback mark in the authenticated sidebar. A configured favicon and tenant business name also feed route metadata for authenticated workspace sections and the public hospitality route.
 
 ## Management UI
 
@@ -77,10 +79,12 @@ A configured tenant logo replaces the SF fallback mark in the authenticated side
 - responsive desktop/mobile layouts
 - labeled controls and visible keyboard focus
 
-The page stores public booking presentation values but clearly does not present a fake booking journey as implemented.
+The page stores public booking presentation values. Those values now drive the real public availability/pricing discovery route, while unfinished self-service booking operations remain absent rather than being represented by fake actions.
 
 ## Verification
 
 Dependency-free branding-domain tests cover normalization, clearing optional settings, unsafe input rejection, and controlled font stacks. The disposable PostgreSQL verification runner includes branding integration coverage for permission denial, persisted updates, canonical values, audit history, and public-safe reads.
+
+Public discovery additionally reuses the existing tenant-scoped availability and persisted transactional-pricing domains. See `docs/public-booking-discovery.md` for its security boundary and remaining write-path dependency.
 
 Live database execution still requires an explicitly confirmed disposable PostgreSQL target through `npm run test:database`. GitHub Actions are not used.

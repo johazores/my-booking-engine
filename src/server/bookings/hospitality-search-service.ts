@@ -1,7 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
-import { AvailabilityUnavailableError, readHospitalityAvailability } from '../availability/hospitality-availability-service.ts';
+import { AvailabilityUnavailableError, readHospitalityAvailabilityForOrganization } from '../availability/hospitality-availability-service.ts';
 import { db } from '../database.ts';
-import { HospitalityPricingUnavailableError, quoteHospitalityPrice } from '../pricing/hospitality-pricing-service.ts';
+import { HospitalityTransactionalPricingUnavailableError, quoteHospitalityPriceFromReader } from '../pricing/hospitality-transactional-pricing.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { normalizeHospitalityOfferSearchInput, type HospitalityOfferSearchInput } from './hospitality-search-domain.ts';
 
@@ -10,6 +10,13 @@ const MAX_SEARCH_RESULTS = 25;
 const SEARCH_BATCH_SIZE = 8;
 
 type SearchScope = Awaited<ReturnType<typeof loadSearchScopes>>['scopes'][number];
+
+export class HospitalitySearchUnavailableError extends Error {
+  constructor(message = 'Hospitality search is unavailable for this organization.') {
+    super(message);
+    this.name = 'HospitalitySearchUnavailableError';
+  }
+}
 
 async function loadSearchScopes(input: { organizationId: string; propertyId: string | null }) {
   const where = {
@@ -39,7 +46,6 @@ async function loadSearchScopes(input: { organizationId: string; propertyId: str
 async function evaluateScope(input: {
   scope: SearchScope;
   organizationId: string;
-  actorUserId: string;
   arrivalDate: string;
   departureDate: string;
   quantity: number;
@@ -55,38 +61,37 @@ async function evaluateScope(input: {
     quantity: input.quantity,
   };
   try {
-    const availability = await readHospitalityAvailability({ organizationId: input.organizationId, actorUserId: input.actorUserId, request, now: input.now });
+    const availability = await readHospitalityAvailabilityForOrganization({ organizationId: input.organizationId, request, now: input.now });
     if (!availability.available) return null;
-    const quote = await quoteHospitalityPrice({ organizationId: input.organizationId, actorUserId: input.actorUserId, request });
+    const quote = await quoteHospitalityPriceFromReader({ reader: db, organizationId: input.organizationId, request });
     return {
       property: { id: input.scope.propertyId, ...input.scope.roomType.property },
       roomType: { id: input.scope.roomTypeId, name: input.scope.roomType.name, code: input.scope.roomType.code, maxOccupancy: input.scope.roomType.maxOccupancy },
       ratePlan: { id: input.scope.ratePlanId, ...input.scope.ratePlan },
       stay: { arrivalDate: input.arrivalDate, departureDate: input.departureDate, nights: input.stayNights, quantity: input.quantity },
       capacity: { sellableUnits: availability.capacity.sellableUnits, remainingUnits: availability.capacity.remainingUnits },
-      price: { currency: quote.currency, accommodationSubtotalMinor: quote.accommodationSubtotal.amountMinor, taxTotalMinor: quote.taxes.amountMinor, feeTotalMinor: quote.fees.amountMinor, totalMinor: quote.total.amountMinor, fingerprint: quote.fingerprint },
+      price: { currency: quote.currency, accommodationSubtotalMinor: quote.accommodationSubtotalMinor, taxTotalMinor: quote.taxTotalMinor, feeTotalMinor: quote.feeTotalMinor, totalMinor: quote.totalMinor, fingerprint: quote.fingerprint },
     };
   } catch (error) {
-    if (error instanceof AvailabilityUnavailableError || error instanceof HospitalityPricingUnavailableError) return null;
+    if (error instanceof AvailabilityUnavailableError || error instanceof HospitalityTransactionalPricingUnavailableError) return null;
     throw error;
   }
 }
 
-export async function searchHospitalityOffers(input: {
+export async function searchHospitalityOffersForOrganization(input: {
   organizationId: string;
-  actorUserId: string;
   search: HospitalityOfferSearchInput;
   now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
   const search = normalizeHospitalityOfferSearchInput(input.search);
   if (search.propertyId) assertUuidIdentifier(search.propertyId, 'propertyId');
 
-  await Promise.all([
-    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:read' }),
-    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' }),
-  ]);
+  const organization = await db.organization.findFirst({
+    where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
+    select: { id: true },
+  });
+  if (!organization) throw new HospitalitySearchUnavailableError();
 
   const { totalScopes, scopes } = await loadSearchScopes({ organizationId: input.organizationId, propertyId: search.propertyId });
   const candidates = [] as Awaited<ReturnType<typeof evaluateScope>>[];
@@ -95,7 +100,6 @@ export async function searchHospitalityOffers(input: {
     candidates.push(...await Promise.all(batch.map((scope) => evaluateScope({
       scope,
       organizationId: input.organizationId,
-      actorUserId: input.actorUserId,
       arrivalDate: search.arrivalDate,
       departureDate: search.departureDate,
       quantity: search.quantity,
@@ -124,4 +128,24 @@ export async function searchHospitalityOffers(input: {
     resultLimit: MAX_SEARCH_RESULTS,
     resultLimitReached: sellableOffers.length > MAX_SEARCH_RESULTS,
   };
+}
+
+export async function searchHospitalityOffers(input: {
+  organizationId: string;
+  actorUserId: string;
+  search: HospitalityOfferSearchInput;
+  now?: Date;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await Promise.all([
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:read' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' }),
+  ]);
+
+  return searchHospitalityOffersForOrganization({
+    organizationId: input.organizationId,
+    search: input.search,
+    now: input.now,
+  });
 }

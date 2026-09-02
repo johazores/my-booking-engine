@@ -15,41 +15,39 @@ export class AvailabilityUnavailableError extends Error {
   }
 }
 
-export async function readHospitalityAvailability(input: {
+export async function readHospitalityAvailabilityForOrganization(input: {
   organizationId: string;
-  actorUserId: string;
   request: AvailabilityRequestInput;
   now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'availability:read',
-  });
-
   const request = normalizeAvailabilityRequest(input.request);
   assertUuidIdentifier(request.propertyId, 'propertyId');
   assertUuidIdentifier(request.roomTypeId, 'roomTypeId');
   assertUuidIdentifier(request.ratePlanId, 'ratePlanId');
   const now = input.now ?? new Date();
 
-  const assignment = await db.hospitalityRoomTypeRatePlan.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      propertyId: request.propertyId,
-      roomTypeId: request.roomTypeId,
-      ratePlanId: request.ratePlanId,
-      roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
-      ratePlan: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
-    },
-    include: {
-      roomType: { select: { id: true, name: true, code: true } },
-      ratePlan: { select: { id: true, name: true, code: true } },
-    },
-  });
-  if (!assignment) throw new AvailabilityUnavailableError('Room type and rate plan must be active and assigned within the same property.');
+  const [organization, assignment] = await Promise.all([
+    db.organization.findFirst({
+      where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    }),
+    db.hospitalityRoomTypeRatePlan.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        propertyId: request.propertyId,
+        roomTypeId: request.roomTypeId,
+        ratePlanId: request.ratePlanId,
+        roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+        ratePlan: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+      },
+      include: {
+        roomType: { select: { id: true, name: true, code: true } },
+        ratePlan: { select: { id: true, name: true, code: true } },
+      },
+    }),
+  ]);
+  if (!organization || !assignment) throw new AvailabilityUnavailableError('Room type and rate plan must be active and assigned within the same active organization.');
 
   const [physicalCapacity, restrictions, windows, activeHolds, allocations] = await Promise.all([
     db.hospitalityRoom.count({
@@ -134,4 +132,25 @@ export async function readHospitalityAvailability(input: {
     available: capacityAvailable && restrictionResult.allowed,
     unavailableReasons: [...(capacityAvailable ? [] : ['insufficient-capacity']), ...restrictionResult.reasons],
   };
+}
+
+export async function readHospitalityAvailability(input: {
+  organizationId: string;
+  actorUserId: string;
+  request: AvailabilityRequestInput;
+  now?: Date;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'availability:read',
+  });
+
+  return readHospitalityAvailabilityForOrganization({
+    organizationId: input.organizationId,
+    request: input.request,
+    now: input.now,
+  });
 }
