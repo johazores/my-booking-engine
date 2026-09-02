@@ -28,11 +28,15 @@ A non-expired `PREPARED` amendment is an exclusive commercial-change window. Can
 
 `PaymentTransaction.sourceProviderReference` persists refund attribution. Legacy unattributed refunds remain acceptable only when attribution is unambiguous because the provider has one effective source.
 
-`deriveNextBookingRefundSource` now defines the deterministic provider-neutral policy needed before adjustment-created multi-source histories can be refunded. From reconciled remaining balances it chooses the source with the largest refundable balance; ties use stable provider/reference lexical order. It ignores fully refunded sources and rejects mixed providers, mixed currencies, duplicate identities, or inconsistent balances. Browser input never selects the source.
+`deriveNextBookingRefundSource` defines deterministic provider-neutral source allocation from reconciled balances. It chooses the source with the largest refundable balance; ties use stable provider/reference lexical order. It ignores fully refunded sources and rejects mixed providers, mixed currencies, duplicate identities, or inconsistent balances. Browser input never selects the source.
 
-That policy is intentionally a pure decision boundary for now. The general staff refund action still fails closed when more than one settlement source exists because manual/Stripe write orchestration, Stripe retry/reconciliation/webhook handling, and whole-booking payment-status transitions must all consume the same selected-source contract before multi-source execution is safe.
+`deriveBookingRefundExecutionPlan` now composes that source decision with the full booking settlement and booking payment-state rules. A planned refund carries the exact provider/source, one-operation amount, total remaining booking balance, refundable-source count, and resulting whole-booking payment status. An explicit refund cannot silently span multiple sources.
 
-Refund availability now compares booking state to **net** settled money. This is required for repeat price adjustments: historical gross settlement may be higher than the current booking total after an attributed compensating refund while the current net amount is still exactly correct.
+The manual refund boundary consumes this plan end to end. Multiple manual settlement sources can be refunded sequentially under the existing tenant booking/mutation/idempotency locks, each refund is attributed to the exact offline payment source, and the booking status is derived from whole-booking net settlement rather than the state of one source. The staff UI exposes the selected external manual payment reference before staff records the external refund.
+
+Multiple Stripe settlement sources still fail closed. Stripe write/retry, reconciliation, and verified webhook finalization must be made source-aware together before that path is enabled, because those operations cross an external provider boundary and must recover the exact persisted source after ambiguous outcomes.
+
+Refund availability compares booking state to **net** settled money. This is required for repeat price adjustments: historical gross settlement may be higher than the current booking total after an attributed compensating refund while the current net amount is still exactly correct.
 
 ## Database invariants
 
@@ -44,10 +48,10 @@ The browser cannot supply organization ownership, current booking money, provide
 
 Preparing an amendment does not charge, refund, apply inventory changes, or rewrite booking/payment state. The Phase 13 general commercial modification item remains open.
 
-The next dependency is source-aware payment execution and durable recovery for prepared amendments, followed by a final serializable apply transaction that revalidates amendment expiry, booking version, authoritative net settlement, payment outcome, target inventory protection, and current pricing before atomically replacing booking commercial terms/allocation and recording audit history. Multi-source refund execution must also update booking payment state from whole-booking net settlement rather than treating one fully refunded source as a fully refunded booking.
+The next dependency is source-aware Stripe refund/payment execution and durable recovery for prepared amendments, followed by a final serializable apply transaction that revalidates amendment expiry, booking version, authoritative net settlement, payment outcome, target inventory protection, and current pricing before atomically replacing booking commercial terms/allocation and recording audit history.
 
 ## Validation
 
-Dependency-free amendment-domain tests cover room-type changes, same-room quantity changes, bounded expiry, deterministic hold identity, and malformed fingerprints. Payment settlement/refund tests cover refund-to-source attribution, source balances, legacy single-source inference, legacy multi-source fail-closed behavior, source-level over-refunds, deterministic next-source allocation, input-order independence, stable tie-breaking, large bigint money, net-settlement refund availability, and the still-closed multi-source provider-execution boundary.
+Dependency-free amendment/payment-domain tests cover room-type changes, same-room quantity changes, bounded expiry, deterministic hold identity, malformed fingerprints, refund-to-source attribution, source balances, legacy single-source inference, legacy multi-source fail-closed behavior, source-level over-refunds, deterministic next-source allocation, source-scoped execution planning, input-order independence, stable tie-breaking, exact bigint money, net-settlement refund availability, and sequential manual multi-source refunds.
 
 Full repository typecheck/lint/build, Prisma validation/migration execution, and PostgreSQL integration tests still require the repository Node 24 toolchain and a confirmed disposable PostgreSQL target.
