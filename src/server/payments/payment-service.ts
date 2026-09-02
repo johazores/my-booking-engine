@@ -1,3 +1,8 @@
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from '../bookings/hospitality-booking-commercial-amendment-guard.ts';
+import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booking-mutation-lock.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -190,6 +195,7 @@ export async function recordManualOfflineRefund(input: {
   idempotencyKey: unknown;
   reference: unknown;
   amountMinor?: unknown;
+  now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -197,6 +203,7 @@ export async function recordManualOfflineRefund(input: {
   const idempotencyKey = normalizePaymentIdempotencyKey(input.idempotencyKey);
   const refundReference = normalizeManualPaymentReference(input.reference);
   const requestedAmountMinor = normalizeOptionalPositiveMinorAmount(input.amountMinor);
+  const now = input.now ?? new Date();
 
   await requireOrganizationPermission({
     organizationId: input.organizationId,
@@ -229,6 +236,7 @@ export async function recordManualOfflineRefund(input: {
       return existing;
     }
 
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', input.bookingId)}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
 
@@ -242,6 +250,16 @@ export async function recordManualOfflineRefund(input: {
     }
     if (booking.paymentStatus !== 'PAID' && booking.paymentStatus !== 'PARTIALLY_REFUNDED') {
       throw new PaymentConflictError(`Booking payment state ${booking.paymentStatus.toLowerCase()} does not accept a refund.`);
+    }
+
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
     }
 
     const sourcePayment = await transaction.paymentTransaction.findFirst({

@@ -1,3 +1,8 @@
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from '../bookings/hospitality-booking-commercial-amendment-guard.ts';
+import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booking-mutation-lock.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
@@ -150,6 +155,7 @@ export async function refundStripeBookingPayment(input: {
   bookingId: string;
   idempotencyKey: unknown;
   amountMinor?: unknown;
+  now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -157,6 +163,7 @@ export async function refundStripeBookingPayment(input: {
   const idempotencyKey = normalizePaymentIdempotencyKey(input.idempotencyKey);
   const requestedAmount = normalizeStripeRefundAmount(input.amountMinor);
   const mode: RefundMode = requestedAmount === null ? 'remaining' : 'explicit';
+  const now = input.now ?? new Date();
 
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
 
@@ -240,6 +247,7 @@ export async function refundStripeBookingPayment(input: {
 
   const claim = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: booking.id })}, 0))`;
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'booking', booking.id)}, 0))`;
 
     const existing = await tx.paymentTransaction.findUnique({
@@ -247,7 +255,9 @@ export async function refundStripeBookingPayment(input: {
     });
     if (existing) {
       assertExisting(existing, { bookingId: booking.id, currency: booking.currency, amountMinor, fingerprint });
-      return { refund: existing, callProvider: existing.status === 'PENDING' && existing.providerReference === claimReference } as const;
+      if (existing.status !== 'PENDING' || existing.providerReference !== claimReference) {
+        return { refund: existing, callProvider: false } as const;
+      }
     }
 
     const currentBooking = await tx.hospitalityBooking.findFirst({
@@ -259,6 +269,20 @@ export async function refundStripeBookingPayment(input: {
     }
     if (!['PAID', 'PARTIALLY_REFUNDED'].includes(currentBooking.paymentStatus)) {
       throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts a refund.`);
+    }
+
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: tx,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
+    }
+
+    if (existing) {
+      return { refund: existing, callProvider: true } as const;
     }
 
     const currentSource = await tx.paymentTransaction.findFirst({
