@@ -11,7 +11,7 @@ import {
 } from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
-import { deriveBookingRefundAvailability } from '../payments/payment-refund-availability-domain.ts';
+import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import {
   normalizeHospitalityAddonSelections,
   type HospitalityAddonSelectionInput,
@@ -259,23 +259,27 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       where: { organizationId: input.organizationId, bookingId: booking.id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    if (paymentTransactions.some((payment) => payment.status === 'PENDING' || payment.status === 'AMBIGUOUS')) {
-      throw new HospitalityBookingConflictError(
-        'Booking has an unresolved payment operation. Reconcile it before preparing commercial terms.',
-      );
-    }
-    const settlement = deriveBookingRefundAvailability({
-      status: booking.status,
-      paymentStatus: booking.paymentStatus,
+    const settlement = deriveBookingSettlementSummary({
       currency: booking.currency,
-      totalMinor: booking.totalMinor,
       transactions: paymentTransactions,
     });
-    if (!settlement.available || settlement.refundableMinor !== booking.totalMinor) {
+    if (!settlement.reconciled) {
+      throw new HospitalityBookingConflictError(settlement.reason);
+    }
+    if (settlement.netSettledMinor !== booking.totalMinor) {
       throw new HospitalityBookingConflictError(
-        settlement.available
-          ? 'Settled payment history does not reconcile to the authoritative booking total.'
-          : settlement.reason,
+        'Settled payment history does not reconcile to the authoritative booking total.',
+      );
+    }
+    if (settlement.providers.length !== 1) {
+      throw new HospitalityBookingConflictError(
+        'Commercial amendments currently require settlement through one payment provider. Reconcile mixed-provider history before changing commercial terms.',
+      );
+    }
+    const settlementProvider = settlement.providers[0];
+    if (!settlementProvider || (settlementProvider.providerCode !== 'manual' && settlementProvider.providerCode !== 'stripe')) {
+      throw new HospitalityBookingConflictError(
+        'Commercial amendments currently support reconciled manual or Stripe settlement only.',
       );
     }
 
@@ -453,7 +457,7 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
         bookingVersion: booking.updatedAt,
         selectionFingerprint,
         adjustmentFingerprint: preview.adjustmentFingerprint,
-        paymentProviderCode: settlement.providerCode,
+        paymentProviderCode: settlementProvider.providerCode,
         propertyId: booking.propertyId,
         currentRoomTypeId: booking.roomTypeId,
         currentRatePlanId: booking.ratePlanId,
