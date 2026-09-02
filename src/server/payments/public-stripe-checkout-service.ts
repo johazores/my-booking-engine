@@ -94,6 +94,101 @@ async function markCheckoutClaimFailed(input: {
   }, { isolationLevel: 'Serializable' });
 }
 
+async function persistCheckoutSession(input: {
+  organizationId: string;
+  bookingId: string;
+  principalId: string;
+  paymentId: string;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  providerReference: string;
+  expiresAt: Date;
+}) {
+  return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment:${input.organizationId}:idempotency:${input.idempotencyKey}`}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
+
+    const payment = await transaction.paymentTransaction.findFirst({
+      where: {
+        id: input.paymentId,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        idempotencyKey: input.idempotencyKey,
+      },
+    });
+    if (!payment) throw new PaymentConflictError('Checkout payment claim is no longer available.');
+    assertExactCheckoutClaim(payment, {
+      bookingId: input.bookingId,
+      currency: payment.currency,
+      amountMinor: payment.amountMinor,
+      requestFingerprint: input.requestFingerprint,
+    });
+
+    const existingByPayment = await transaction.paymentCheckoutSession.findUnique({
+      where: {
+        organizationId_paymentTransactionId: {
+          organizationId: input.organizationId,
+          paymentTransactionId: payment.id,
+        },
+      },
+    });
+    if (existingByPayment) {
+      if (
+        existingByPayment.bookingId !== input.bookingId
+        || existingByPayment.publicPrincipalId !== input.principalId
+        || existingByPayment.providerCode !== STRIPE_PROVIDER_CODE
+        || existingByPayment.providerReference !== input.providerReference
+      ) {
+        throw new PaymentConflictError('Checkout payment claim is already bound to a different provider session.');
+      }
+      return existingByPayment;
+    }
+
+    const existingByReference = await transaction.paymentCheckoutSession.findUnique({
+      where: {
+        organizationId_providerCode_providerReference: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: input.providerReference,
+        },
+      },
+      select: { paymentTransactionId: true },
+    });
+    if (existingByReference && existingByReference.paymentTransactionId !== payment.id) {
+      throw new PaymentConflictError('Stripe Checkout Session is already bound to another payment transaction.');
+    }
+
+    const checkoutSession = await transaction.paymentCheckoutSession.create({
+      data: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        publicPrincipalId: input.principalId,
+        paymentTransactionId: payment.id,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: input.providerReference,
+        status: 'OPEN',
+        expiresAt: input.expiresAt,
+      },
+    });
+    await transaction.publicBookingAuditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorPrincipalId: input.principalId,
+        action: 'public-booking.payment-checkout-created',
+        resourceType: 'payment-checkout-session',
+        resourceId: checkoutSession.id,
+        afterData: {
+          bookingId: input.bookingId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          status: 'OPEN',
+          expiresAt: input.expiresAt.toISOString(),
+        },
+      },
+    });
+    return checkoutSession;
+  }, { isolationLevel: 'Serializable' });
+}
+
 export async function createPublicStripeCheckoutSession(input: {
   organizationSlug: string;
   bookingCapability: string;
@@ -275,6 +370,16 @@ export async function createPublicStripeCheckoutSession(input: {
       cancelUrl: input.cancelUrl,
       customerEmail: booking.customer.email,
       now,
+    });
+    await persistCheckoutSession({
+      organizationId: branding.id,
+      bookingId: booking.id,
+      principalId: capability.principalId,
+      paymentId: claim.payment.id,
+      idempotencyKey,
+      requestFingerprint,
+      providerReference: checkout.sessionReference,
+      expiresAt: checkout.expiresAt,
     });
     return Object.freeze({
       state: 'CHECKOUT_REQUIRED' as const,

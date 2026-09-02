@@ -19,18 +19,20 @@ model PaymentTransaction {
   idempotencyKey     String                   @db.VarChar(120)
   requestFingerprint String?                  @db.Char(64)
   kind               PaymentTransactionKind
-  status             PaymentTransactionStatus
+  status             PaymentTransactionStatus @default(PENDING)
   providerCode       String                   @db.VarChar(40)
   providerReference  String                   @db.VarChar(160)
   currency           String                   @db.Char(3)
-  amountMinor        BigInt                   @db.BigInt
+  amountMinor        BigInt
   createdAt          DateTime                 @default(now()) @db.Timestamptz(6)
-  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, map: "payment_transactions_organization_fkey")
-  booking            HospitalityBooking       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "payment_transactions_booking_fkey")
 
-  @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
-  @@index([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_idx")
-  @@index([organizationId, bookingId, createdAt], map: "payment_transactions_booking_created_idx")
-  @@index([organizationId, status, createdAt], map: "payment_transactions_status_created_idx")
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  booking      HospitalityBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, providerCode, providerReference])
+  @@index([organizationId, bookingId, createdAt])
+  @@index([organizationId, status, createdAt])
   @@map("payment_transactions")
 }

@@ -45,6 +45,19 @@ export async function cancelHospitalityBooking(input: {
     const paymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
     if (paymentBlockReason) throw new HospitalityBookingConflictError(paymentBlockReason);
 
+    const activePayment = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+        status: 'PENDING',
+      },
+      select: { id: true },
+    });
+    if (activePayment) {
+      throw new HospitalityBookingConflictError('Booking has a payment in progress. Resolve or fail the payment attempt before cancelling the booking.');
+    }
+
     const cancelled = await transaction.hospitalityBooking.update({
       where: { id: booking.id },
       data: { status: 'CANCELLED', cancelledAt: now },

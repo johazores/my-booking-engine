@@ -3,6 +3,7 @@ import test from 'node:test';
 
 const {
   StripeWebhookValidationError,
+  decideStripeCheckoutExpiration,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
@@ -23,6 +24,29 @@ function paymentIntentEvent(overrides: Record<string, unknown> = {}) {
         amount: 12500,
         amount_received: 0,
         currency: 'usd',
+        metadata: {
+          sf_organization_id: organizationId,
+          sf_booking_id: bookingId,
+        },
+        ...overrides,
+      },
+    },
+  });
+}
+
+function checkoutSessionEvent(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    id: 'evt_sf_checkout_1',
+    type: 'checkout.session.expired',
+    created: 1788250002,
+    data: {
+      object: {
+        id: 'cs_test_sf_checkout_1',
+        status: 'expired',
+        payment_status: 'unpaid',
+        amount_total: 12500,
+        currency: 'usd',
+        payment_intent: null,
         metadata: {
           sf_organization_id: organizationId,
           sf_booking_id: bookingId,
@@ -60,7 +84,88 @@ test('Stripe webhook parser normalizes signed-payment fields without trusting pr
   assert.equal(event.paymentIntent?.amountMinor, 12500n);
   assert.equal(event.paymentIntent?.organizationId, organizationId);
   assert.equal(event.paymentIntent?.bookingId, bookingId);
+  assert.equal(event.checkoutSession, null);
   assert.equal(event.refund, null);
+});
+
+test('Stripe webhook parser normalizes Checkout Session abandonment with exact tenant, booking, and money metadata', () => {
+  const event = parseStripeWebhookEventPayload(checkoutSessionEvent());
+  assert.equal(event.providerEventId, 'evt_sf_checkout_1');
+  assert.equal(event.eventType, 'checkout.session.expired');
+  assert.equal(event.paymentIntent, null);
+  assert.equal(event.refund, null);
+  assert.equal(event.checkoutSession?.providerReference, 'cs_test_sf_checkout_1');
+  assert.equal(event.checkoutSession?.status, 'expired');
+  assert.equal(event.checkoutSession?.paymentStatus, 'unpaid');
+  assert.equal(event.checkoutSession?.currency, 'USD');
+  assert.equal(event.checkoutSession?.amountTotalMinor, 12500n);
+  assert.equal(event.checkoutSession?.paymentIntentReference, null);
+  assert.equal(event.checkoutSession?.organizationId, organizationId);
+  assert.equal(event.checkoutSession?.bookingId, bookingId);
+});
+
+test('Stripe webhook parser preserves a Checkout PaymentIntent reference so expiry recovery can fail closed', () => {
+  const event = parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_intent: 'pi_sf_checkout_1' }));
+  assert.equal(event.checkoutSession?.paymentIntentReference, 'pi_sf_checkout_1');
+  assert.throws(
+    () => parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_intent: 'not-a-payment-intent' })),
+    StripeWebhookValidationError,
+  );
+});
+
+test('Stripe webhook parser rejects malformed Checkout Session state, money, and tenant metadata safely', () => {
+  assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent({ status: 'mystery' })), StripeWebhookValidationError);
+  assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_status: 'mystery' })), StripeWebhookValidationError);
+  assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent({ amount_total: 12.5 })), StripeWebhookValidationError);
+
+  const event = parseStripeWebhookEventPayload(checkoutSessionEvent({
+    metadata: { sf_organization_id: 'not-a-uuid', sf_booking_id: bookingId },
+  }));
+  assert.equal(event.checkoutSession?.organizationId, null);
+  assert.equal(event.checkoutSession?.bookingId, bookingId);
+});
+
+test('Checkout expiry cancels only an unpaid internal claim with no PaymentIntent or successful payment', () => {
+  const decision = decideStripeCheckoutExpiration({
+    checkoutStatus: 'expired',
+    checkoutPaymentStatus: 'unpaid',
+    checkoutPaymentIntentReference: null,
+    bookingStatus: 'CONFIRMED',
+    bookingPaymentStatus: 'UNPAID',
+    paymentTransactionStatus: 'PENDING',
+    paymentTransactionProviderReference: `sf_claim_${'a'.repeat(64)}`,
+    hasSuccessfulPayment: false,
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(decision.action, 'CANCEL_BOOKING');
+});
+
+test('Checkout expiry preserves inventory when any provider payment reference or successful payment needs recovery', () => {
+  const withIntent = decideStripeCheckoutExpiration({
+    checkoutStatus: 'expired',
+    checkoutPaymentStatus: 'unpaid',
+    checkoutPaymentIntentReference: 'pi_sf_checkout_1',
+    bookingStatus: 'CONFIRMED',
+    bookingPaymentStatus: 'UNPAID',
+    paymentTransactionStatus: 'PENDING',
+    paymentTransactionProviderReference: `sf_claim_${'b'.repeat(64)}`,
+    hasSuccessfulPayment: false,
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(withIntent.action, 'KEEP_FOR_PAYMENT_RECOVERY');
+
+  const withSuccess = decideStripeCheckoutExpiration({
+    checkoutStatus: 'expired',
+    checkoutPaymentStatus: 'unpaid',
+    checkoutPaymentIntentReference: null,
+    bookingStatus: 'CONFIRMED',
+    bookingPaymentStatus: 'UNPAID',
+    paymentTransactionStatus: 'PENDING',
+    paymentTransactionProviderReference: `sf_claim_${'c'.repeat(64)}`,
+    hasSuccessfulPayment: true,
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(withSuccess.action, 'KEEP_FOR_PAYMENT_RECOVERY');
 });
 
 test('Stripe webhook parser normalizes refund objects with their source PaymentIntent and exact money', () => {
@@ -68,6 +173,7 @@ test('Stripe webhook parser normalizes refund objects with their source PaymentI
   assert.equal(event.providerEventId, 'evt_sf_refund_1');
   assert.equal(event.eventType, 'refund.updated');
   assert.equal(event.paymentIntent, null);
+  assert.equal(event.checkoutSession, null);
   assert.equal(event.refund?.refundReference, 're_sf_refund_1');
   assert.equal(event.refund?.paymentIntentReference, 'pi_sf_payment_1');
   assert.equal(event.refund?.status, 'succeeded');
@@ -83,6 +189,7 @@ test('Stripe webhook parser safely ignores unsupported event bodies after envelo
     data: { object: { id: 'cus_123' } },
   }));
   assert.equal(event.paymentIntent, null);
+  assert.equal(event.checkoutSession, null);
   assert.equal(event.refund, null);
 });
 

@@ -1,6 +1,7 @@
 const STRIPE_EVENT_ID_PATTERN = /^evt_[A-Za-z0-9_]+$/;
 const STRIPE_EVENT_TYPE_PATTERN = /^[a-z0-9_.]{3,120}$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
+const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
@@ -11,6 +12,17 @@ export type StripeWebhookPaymentIntent = Readonly<{
   currency: string;
   amountMinor: bigint;
   amountReceivedMinor: bigint;
+  organizationId: string | null;
+  bookingId: string | null;
+}>;
+
+export type StripeWebhookCheckoutSession = Readonly<{
+  providerReference: string;
+  status: 'open' | 'complete' | 'expired';
+  paymentStatus: 'paid' | 'unpaid' | 'no_payment_required';
+  currency: string;
+  amountTotalMinor: bigint;
+  paymentIntentReference: string | null;
   organizationId: string | null;
   bookingId: string | null;
 }>;
@@ -28,6 +40,7 @@ export type StripeWebhookEvent = Readonly<{
   eventType: string;
   providerCreatedAt: Date;
   paymentIntent: StripeWebhookPaymentIntent | null;
+  checkoutSession: StripeWebhookCheckoutSession | null;
   refund: StripeWebhookRefund | null;
 }>;
 
@@ -42,6 +55,11 @@ export type StripeWebhookRefundCandidate = Readonly<{
   providerReference: string;
   currency: string;
   amountMinor: bigint;
+}>;
+
+export type StripeCheckoutExpirationDecision = Readonly<{
+  action: 'CANCEL_BOOKING' | 'KEEP_FOR_PAYMENT_RECOVERY' | 'IGNORE_TERMINAL';
+  note: string;
 }>;
 
 export class StripeWebhookValidationError extends Error {
@@ -97,6 +115,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       eventType,
       providerCreatedAt,
       paymentIntent: null,
+      checkoutSession: null,
       refund: Object.freeze({
         refundReference,
         paymentIntentReference,
@@ -107,8 +126,58 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     });
   }
 
+  if (eventType.startsWith('checkout.session.')) {
+    const data = objectRecord(event.data, 'Stripe event data');
+    const session = objectRecord(data.object, 'Stripe Checkout Session');
+    const providerReference = requiredString(session.id, 'Stripe Checkout Session reference');
+    if (!STRIPE_CHECKOUT_SESSION_PATTERN.test(providerReference) || providerReference.length > 160) {
+      throw new StripeWebhookValidationError('Stripe Checkout Session reference is invalid.');
+    }
+    const status = requiredString(session.status, 'Stripe Checkout Session status');
+    if (!['open', 'complete', 'expired'].includes(status)) {
+      throw new StripeWebhookValidationError('Stripe Checkout Session status is invalid.');
+    }
+    const paymentStatus = requiredString(session.payment_status, 'Stripe Checkout Session payment status');
+    if (!['paid', 'unpaid', 'no_payment_required'].includes(paymentStatus)) {
+      throw new StripeWebhookValidationError('Stripe Checkout Session payment status is invalid.');
+    }
+    if (!Number.isSafeInteger(session.amount_total) || Number(session.amount_total) < 0) {
+      throw new StripeWebhookValidationError('Stripe Checkout Session total is invalid.');
+    }
+    const currency = requiredString(session.currency, 'Stripe Checkout Session currency').toUpperCase();
+    if (!CURRENCY_PATTERN.test(currency)) throw new StripeWebhookValidationError('Stripe Checkout Session currency is invalid.');
+
+    const paymentIntentReference = optionalString(session.payment_intent);
+    if (paymentIntentReference && (!STRIPE_PAYMENT_INTENT_PATTERN.test(paymentIntentReference) || paymentIntentReference.length > 160)) {
+      throw new StripeWebhookValidationError('Stripe Checkout Session PaymentIntent reference is invalid.');
+    }
+    const metadata = session.metadata === undefined || session.metadata === null
+      ? null
+      : objectRecord(session.metadata, 'Stripe Checkout Session metadata');
+    const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
+    const metadataBookingId = optionalString(metadata?.sf_booking_id);
+
+    return Object.freeze({
+      providerEventId,
+      eventType,
+      providerCreatedAt,
+      paymentIntent: null,
+      refund: null,
+      checkoutSession: Object.freeze({
+        providerReference,
+        status: status as StripeWebhookCheckoutSession['status'],
+        paymentStatus: paymentStatus as StripeWebhookCheckoutSession['paymentStatus'],
+        currency,
+        amountTotalMinor: BigInt(Number(session.amount_total)),
+        paymentIntentReference,
+        organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
+        bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
+      }),
+    });
+  }
+
   if (!eventType.startsWith('payment_intent.')) {
-    return Object.freeze({ providerEventId, eventType, providerCreatedAt, paymentIntent: null, refund: null });
+    return Object.freeze({ providerEventId, eventType, providerCreatedAt, paymentIntent: null, checkoutSession: null, refund: null });
   }
 
   const data = objectRecord(event.data, 'Stripe event data');
@@ -143,6 +212,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     eventType,
     providerCreatedAt,
     refund: null,
+    checkoutSession: null,
     paymentIntent: Object.freeze({
       providerReference,
       status,
@@ -153,6 +223,35 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
     }),
   });
+}
+
+export function decideStripeCheckoutExpiration(input: {
+  checkoutStatus: StripeWebhookCheckoutSession['status'];
+  checkoutPaymentStatus: StripeWebhookCheckoutSession['paymentStatus'];
+  checkoutPaymentIntentReference: string | null;
+  bookingStatus: string;
+  bookingPaymentStatus: string;
+  paymentTransactionStatus: string;
+  paymentTransactionProviderReference: string;
+  hasSuccessfulPayment: boolean;
+  isInternalReference: (reference: string) => boolean;
+}): StripeCheckoutExpirationDecision {
+  if (input.bookingStatus !== 'CONFIRMED') {
+    return Object.freeze({ action: 'IGNORE_TERMINAL', note: 'checkout-session-booking-not-confirmed' });
+  }
+  if (['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED', 'AUTHORIZED'].includes(input.bookingPaymentStatus) || input.hasSuccessfulPayment) {
+    return Object.freeze({ action: 'KEEP_FOR_PAYMENT_RECOVERY', note: 'checkout-session-payment-already-recorded' });
+  }
+  if (input.checkoutStatus !== 'expired' || input.checkoutPaymentStatus !== 'unpaid') {
+    return Object.freeze({ action: 'KEEP_FOR_PAYMENT_RECOVERY', note: 'checkout-session-expiry-state-mismatch' });
+  }
+  if (input.checkoutPaymentIntentReference) {
+    return Object.freeze({ action: 'KEEP_FOR_PAYMENT_RECOVERY', note: 'checkout-session-expired-payment-intent-present' });
+  }
+  if (input.paymentTransactionStatus !== 'PENDING' || !input.isInternalReference(input.paymentTransactionProviderReference)) {
+    return Object.freeze({ action: 'KEEP_FOR_PAYMENT_RECOVERY', note: 'checkout-session-payment-claim-not-pending' });
+  }
+  return Object.freeze({ action: 'CANCEL_BOOKING', note: 'checkout-session-expired-booking-cancelled' });
 }
 
 export function selectStripeWebhookPaymentCandidate(input: {

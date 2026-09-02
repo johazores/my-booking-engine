@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -11,6 +12,7 @@ import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import { reconcileStripeTransactionState, reconciledBookingPaymentStatus } from './stripe-reconciliation-service.ts';
 import {
   StripeWebhookValidationError,
+  decideStripeCheckoutExpiration,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
@@ -92,13 +94,224 @@ export async function ingestStripePaymentWebhook(input: {
         providerEventId: event.providerEventId,
         eventType: event.eventType,
         payloadHash,
-        providerReference: event.paymentIntent?.providerReference ?? event.refund?.refundReference ?? null,
-        bookingId: bookingId ?? event.paymentIntent?.bookingId ?? null,
+        providerReference: event.checkoutSession?.providerReference ?? event.paymentIntent?.providerReference ?? event.refund?.refundReference ?? null,
+        bookingId: bookingId ?? event.checkoutSession?.bookingId ?? event.paymentIntent?.bookingId ?? null,
         status,
         processingNote,
         providerCreatedAt: event.providerCreatedAt,
       },
     });
+
+    if (event.checkoutSession) {
+      if (!event.checkoutSession.organizationId || !event.checkoutSession.bookingId) {
+        return persistEvent('IGNORED', 'checkout-session-missing-sf-metadata', event.checkoutSession.bookingId);
+      }
+      if (event.checkoutSession.organizationId !== input.organizationId) {
+        return persistEvent('IGNORED', 'checkout-session-tenant-metadata-mismatch', null);
+      }
+
+      const tracked = await transaction.paymentCheckoutSession.findUnique({
+        where: {
+          organizationId_providerCode_providerReference: {
+            organizationId: input.organizationId,
+            providerCode: STRIPE_PROVIDER_CODE,
+            providerReference: event.checkoutSession.providerReference,
+          },
+        },
+      });
+      if (!tracked) return persistEvent('IGNORED', 'checkout-session-untracked', event.checkoutSession.bookingId);
+      if (tracked.bookingId !== event.checkoutSession.bookingId) {
+        return persistEvent('IGNORED', 'checkout-session-booking-mismatch', event.checkoutSession.bookingId);
+      }
+
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', tracked.bookingId)}, 0))`;
+      const booking = await transaction.hospitalityBooking.findFirst({
+        where: { id: tracked.bookingId, organizationId: input.organizationId },
+        select: {
+          id: true,
+          propertyId: true,
+          roomTypeId: true,
+          status: true,
+          paymentStatus: true,
+          currency: true,
+          totalMinor: true,
+        },
+      });
+      const payment = await transaction.paymentTransaction.findFirst({
+        where: {
+          id: tracked.paymentTransactionId,
+          organizationId: input.organizationId,
+          bookingId: tracked.bookingId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          kind: 'CAPTURE',
+        },
+      });
+      const currentSession = await transaction.paymentCheckoutSession.findUnique({
+        where: {
+          organizationId_providerCode_providerReference: {
+            organizationId: input.organizationId,
+            providerCode: STRIPE_PROVIDER_CODE,
+            providerReference: tracked.providerReference,
+          },
+        },
+      });
+      if (!booking || !payment || !currentSession || currentSession.paymentTransactionId !== payment.id) {
+        return persistEvent('IGNORED', 'checkout-session-persistence-mismatch', tracked.bookingId);
+      }
+      if (booking.currency !== event.checkoutSession.currency || booking.totalMinor !== event.checkoutSession.amountTotalMinor) {
+        return persistEvent('IGNORED', 'checkout-session-booking-money-mismatch', booking.id);
+      }
+      if (payment.currency !== booking.currency || payment.amountMinor !== booking.totalMinor) {
+        throw new PaymentConflictError('Tracked Stripe Checkout payment does not match the authoritative booking total.');
+      }
+
+      if (event.eventType === 'checkout.session.completed') {
+        if (event.checkoutSession.status !== 'complete') {
+          return persistEvent('IGNORED', 'checkout-session-completed-state-mismatch', booking.id);
+        }
+        if (currentSession.status === 'EXPIRED') {
+          return persistEvent('IGNORED', 'checkout-session-completed-after-expiry', booking.id);
+        }
+
+        if (event.checkoutSession.paymentStatus !== 'paid') {
+          if (currentSession.status === 'OPEN') {
+            await transaction.paymentCheckoutSession.update({
+              where: { id: currentSession.id },
+              data: {
+                status: 'COMPLETED',
+                completedAt: event.providerCreatedAt,
+                providerPaymentReference: event.checkoutSession.paymentIntentReference,
+              },
+            });
+          }
+          return persistEvent('PROCESSED', 'checkout-session-completed-payment-pending', booking.id);
+        }
+        if (!event.checkoutSession.paymentIntentReference) {
+          return persistEvent('IGNORED', 'checkout-session-paid-without-payment-intent', booking.id);
+        }
+        if (booking.status !== 'CONFIRMED') return persistEvent('IGNORED', 'checkout-session-paid-booking-not-confirmed', booking.id);
+
+        const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            providerCode: STRIPE_PROVIDER_CODE,
+            providerReference: event.checkoutSession.paymentIntentReference,
+            id: { not: payment.id },
+          },
+          select: { id: true },
+        });
+        if (providerReferenceConflict) throw new PaymentConflictError('Stripe Checkout PaymentIntent reference belongs to another payment transaction.');
+
+        if (payment.status !== 'SUCCEEDED') {
+          await transaction.paymentTransaction.update({
+            where: { id: payment.id },
+            data: {
+              providerReference: event.checkoutSession.paymentIntentReference,
+              status: 'SUCCEEDED',
+            },
+          });
+        } else if (payment.providerReference !== event.checkoutSession.paymentIntentReference) {
+          throw new PaymentConflictError('Completed Stripe Checkout Session disagrees with the recorded successful payment reference.');
+        }
+        if (booking.paymentStatus !== 'PAID') {
+          await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: 'PAID' } });
+        }
+        if (currentSession.status !== 'COMPLETED') {
+          await transaction.paymentCheckoutSession.update({
+            where: { id: currentSession.id },
+            data: {
+              status: 'COMPLETED',
+              completedAt: event.providerCreatedAt,
+              providerPaymentReference: event.checkoutSession.paymentIntentReference,
+            },
+          });
+        }
+        return persistEvent('PROCESSED', 'checkout-session-paid', booking.id);
+      }
+
+      if (event.eventType === 'checkout.session.expired') {
+        if (currentSession.status === 'COMPLETED') {
+          return persistEvent('IGNORED', 'checkout-session-expired-after-completion', booking.id);
+        }
+
+        const successfulPayment = await transaction.paymentTransaction.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            bookingId: booking.id,
+            providerCode: STRIPE_PROVIDER_CODE,
+            kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+            status: 'SUCCEEDED',
+          },
+          select: { id: true },
+        });
+        const decision = decideStripeCheckoutExpiration({
+          checkoutStatus: event.checkoutSession.status,
+          checkoutPaymentStatus: event.checkoutSession.paymentStatus,
+          checkoutPaymentIntentReference: event.checkoutSession.paymentIntentReference,
+          bookingStatus: booking.status,
+          bookingPaymentStatus: booking.paymentStatus,
+          paymentTransactionStatus: payment.status,
+          paymentTransactionProviderReference: payment.providerReference,
+          hasSuccessfulPayment: Boolean(successfulPayment),
+          isInternalReference: isInternalPaymentClaimReference,
+        });
+
+        if (event.checkoutSession.status === 'expired' && currentSession.status === 'OPEN') {
+          await transaction.paymentCheckoutSession.update({
+            where: { id: currentSession.id },
+            data: {
+              status: 'EXPIRED',
+              expiredAt: event.providerCreatedAt,
+              providerPaymentReference: event.checkoutSession.paymentIntentReference,
+            },
+          });
+        }
+        if (decision.action !== 'CANCEL_BOOKING') {
+          return persistEvent(decision.action === 'IGNORE_TERMINAL' ? 'IGNORED' : 'PROCESSED', decision.note, booking.id);
+        }
+
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityAvailabilityAllocationLockKey({ organizationId: input.organizationId, propertyId: booking.propertyId, roomTypeId: booking.roomTypeId })}, 0))`;
+
+        const lockedBooking = await transaction.hospitalityBooking.findFirst({
+          where: { id: booking.id, organizationId: input.organizationId },
+          select: { status: true, paymentStatus: true },
+        });
+        const lockedPayment = await transaction.paymentTransaction.findFirst({
+          where: { id: payment.id, organizationId: input.organizationId, bookingId: booking.id },
+          select: { status: true, providerReference: true },
+        });
+        const lateSuccess = await transaction.paymentTransaction.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            bookingId: booking.id,
+            providerCode: STRIPE_PROVIDER_CODE,
+            kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+            status: 'SUCCEEDED',
+          },
+          select: { id: true },
+        });
+        if (
+          !lockedBooking
+          || lockedBooking.status !== 'CONFIRMED'
+          || !['UNPAID', 'FAILED'].includes(lockedBooking.paymentStatus)
+          || !lockedPayment
+          || lockedPayment.status !== 'PENDING'
+          || !isInternalPaymentClaimReference(lockedPayment.providerReference)
+          || lateSuccess
+        ) {
+          return persistEvent('PROCESSED', 'checkout-session-expiry-race-preserved-booking', booking.id);
+        }
+
+        await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        await transaction.hospitalityBooking.update({
+          where: { id: booking.id },
+          data: { status: 'CANCELLED', cancelledAt: event.providerCreatedAt },
+        });
+        return persistEvent('PROCESSED', decision.note, booking.id);
+      }
+
+      return persistEvent('IGNORED', 'unsupported-checkout-session-event-type', booking.id);
+    }
 
     if (event.refund) {
       const sourceCandidates = await transaction.paymentTransaction.findMany({
@@ -290,6 +503,23 @@ export async function ingestStripePaymentWebhook(input: {
     const current = pending.find((candidate) => candidate.id === payment.id);
     if (!current || current.currency !== booking.currency || current.amountMinor !== booking.totalMinor) {
       throw new PaymentConflictError('Stripe webhook payment candidate does not match the authoritative booking total.');
+    }
+
+    const checkoutSession = await transaction.paymentCheckoutSession.findUnique({
+      where: {
+        organizationId_paymentTransactionId: {
+          organizationId: input.organizationId,
+          paymentTransactionId: current.id,
+        },
+      },
+      select: { id: true, status: true },
+    });
+    if (
+      checkoutSession
+      && checkoutSession.status === 'OPEN'
+      && !['succeeded', 'requires_capture'].includes(event.paymentIntent.status)
+    ) {
+      return persistEvent('PROCESSED', 'checkout-payment-attempt-not-settled', booking.id);
     }
 
     const reconciliation = reconcileStripeTransactionState({
