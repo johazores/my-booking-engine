@@ -1,6 +1,7 @@
 import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
+import { PaymentProviderError } from './payment-provider.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 
@@ -46,6 +47,14 @@ export function paymentApiError(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return Response.json({ error: 'forbidden' }, { status: 403 });
   if (error instanceof PaymentConflictError) return Response.json({ error: 'conflict', message: error.message }, { status: 409 });
   if (error instanceof PaymentUnavailableError) return Response.json({ error: 'unavailable', message: error.message }, { status: 404 });
+  if (error instanceof PaymentProviderError) {
+    return Response.json({
+      error: 'provider-error',
+      code: error.code,
+      retryable: error.retryable,
+      message: error.message,
+    }, { status: error.retryable ? 503 : 502 });
+  }
   if (error instanceof SyntaxError) return Response.json({ error: 'invalid-json' }, { status: 400 });
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|only|does not accept|zero-value/i.test(error.message)) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400 });

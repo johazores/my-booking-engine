@@ -7,6 +7,13 @@ type RefundAvailability =
   | { available: true; providerCode: 'manual' | 'stripe'; refundableAmount: string; requiresReference: boolean }
   | { available: false; reason: string };
 
+type RefundResponse = {
+  message?: string;
+  error?: string;
+  retryable?: boolean;
+  status?: string;
+};
+
 export function BookingRefundAction(props: {
   bookingId: string;
   availability: RefundAvailability;
@@ -58,8 +65,15 @@ export function BookingRefundAction(props: {
           ...(availability.requiresReference ? { reference: normalizedReference } : {}),
         }),
       });
-      const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null;
-      if (!response.ok) throw new Error(payload?.message ?? payload?.error ?? 'Refund could not be completed.');
+      const payload = await response.json().catch(() => null) as RefundResponse | null;
+      if (!response.ok) {
+        if (payload?.retryable === false) idempotencyKey.current = null;
+        throw new Error(payload?.message ?? payload?.error ?? 'Refund could not be completed.');
+      }
+      if (payload?.status === 'FAILED') {
+        idempotencyKey.current = null;
+        throw new Error('The refund was definitively rejected and no funds were marked refunded. You can try again with a new refund request.');
+      }
       idempotencyKey.current = null;
       setConfirming(false);
       router.refresh();
