@@ -7,6 +7,10 @@ import {
   normalizeHospitalityBookingGuestModificationInput,
   type HospitalityBookingGuestModificationInput,
 } from './booking-guest-modification-domain.ts';
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import {
   HospitalityBookingConflictError,
@@ -27,6 +31,7 @@ export async function updateHospitalityBookingGuests(input: {
   actorUserId: string;
   bookingId: string;
   change: HospitalityBookingGuestModificationInput;
+  now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -38,6 +43,7 @@ export async function updateHospitalityBookingGuests(input: {
   });
   const change = normalizeHospitalityBookingGuestModificationInput(input.change);
   const requestedFingerprint = hospitalityBookingGuestFingerprint(change.guests);
+  const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: input.bookingId })}, 0))`;
@@ -93,6 +99,16 @@ export async function updateHospitalityBookingGuests(input: {
 
     if (existingFingerprint === requestedFingerprint) {
       return { guests: existingGuests, maximumGuests: booking.quantity * booking.roomType.maxOccupancy };
+    }
+
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new HospitalityBookingConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
     }
 
     await transaction.hospitalityBookingGuest.deleteMany({

@@ -1,3 +1,7 @@
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from '../bookings/hospitality-booking-commercial-amendment-guard.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -8,6 +12,7 @@ export async function getBookingRefundAvailability(input: {
   organizationId: string;
   actorUserId: string;
   bookingId: string;
+  now?: Date;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -19,7 +24,8 @@ export async function getBookingRefundAvailability(input: {
     permission: 'payment:manage',
   });
 
-  const [booking, transactions] = await Promise.all([
+  const now = input.now ?? new Date();
+  const [booking, transactions, activeAmendment] = await Promise.all([
     db.hospitalityBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
@@ -36,8 +42,17 @@ export async function getBookingRefundAvailability(input: {
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     }),
+    findActiveHospitalityBookingCommercialAmendment({
+      reader: db,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      now,
+    }),
   ]);
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+  if (activeAmendment) {
+    return { available: false as const, reason: ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE };
+  }
 
   return deriveBookingRefundAvailability({
     status: booking.status,

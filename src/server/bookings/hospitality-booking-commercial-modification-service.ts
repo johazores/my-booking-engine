@@ -16,6 +16,10 @@ import {
   type HospitalityBookingCommercialModificationInput,
 } from './booking-commercial-modification-domain.ts';
 import { hospitalityBookingPriceSnapshotMatches } from './booking-reschedule-domain.ts';
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import {
   HospitalityBookingConflictError,
@@ -182,6 +186,16 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
     }
 
     if (hospitalityBookingCommercialSelectionMatches(booking, change)) return booking;
+
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new HospitalityBookingConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
+    }
 
     const activePayment = await transaction.paymentTransaction.findFirst({
       where: {

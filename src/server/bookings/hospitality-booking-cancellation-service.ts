@@ -4,6 +4,10 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { bookingCancellationPaymentBlockReason } from './booking-cancellation-domain.ts';
 import { assertBookingStateTransition } from './booking-domain.ts';
+import {
+  ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE,
+  findActiveHospitalityBookingCommercialAmendment,
+} from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import { HospitalityBookingConflictError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
 
@@ -41,6 +45,16 @@ export async function cancelHospitalityBooking(input: {
     if (!booking) throw new HospitalityBookingUnavailableError();
     if (booking.status === 'CANCELLED') return booking;
 
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new HospitalityBookingConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
+    }
+
     assertBookingStateTransition(booking.status, 'CANCELLED');
     const paymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
     if (paymentBlockReason) throw new HospitalityBookingConflictError(paymentBlockReason);
@@ -49,7 +63,6 @@ export async function cancelHospitalityBooking(input: {
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
-        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
         status: { in: ['PENDING', 'AMBIGUOUS'] },
       },
       select: { id: true },

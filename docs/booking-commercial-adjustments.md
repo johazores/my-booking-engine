@@ -29,6 +29,12 @@ Preparation requires both `booking:manage` and `payment:manage`, serializes on t
 
 Same-room decreases and rate/add-on-only changes do not create artificial inventory holds. They still expire after the same bounded review window so pricing and booking version cannot remain actionable indefinitely.
 
+## Concurrent mutation boundary
+
+A non-expired `PREPARED` amendment is an exclusive commercial-change window for that booking. Booking cancellation, date rescheduling, traveler snapshot changes, and zero-delta commercial mutations acquire the shared booking mutation lock and fail closed while that amendment is active. Customer-facing refund availability also reports the amendment conflict instead of presenting a refund action that cannot safely race the prepared commercial change.
+
+The guard is tenant-scoped and treats an expired preparation as non-actionable. Idempotent retries and true no-op booking requests may still return their existing result because they do not mutate amendment inputs. Payment write boundaries must acquire the same booking mutation lock before starting a new settlement-changing operation; this keeps preparation and payment claims serializable rather than relying on UI state.
+
 ## Database invariants
 
 The amendment migration adds tenant-safe foreign keys to organization, booking, property, current/target room type, current/target rate plan, and optional target hold. Database checks enforce positive quantities, non-negative monetary components, exact component totals, `delta = after - before`, direction/sign agreement, hold/protection consistency, and terminal lifecycle timestamps.
