@@ -15,14 +15,15 @@ function dateOnlyDaysFromNow(days: number) {
   return value.toISOString().slice(0, 10);
 }
 
-test('public confirmation creates one tenant-owned booking with truthful public attribution and exact retries', async () => {
-  const [{ db }, publicHolds, publicQuotes, publicConfirmations, capabilities, pricing] = await Promise.all([
+test('public confirmation creates one tenant-owned payment-pending booking with bounded allocation protection and exact retries', async () => {
+  const [{ db }, publicHolds, publicQuotes, publicConfirmations, capabilities, pricing, availability] = await Promise.all([
     import('../database.ts'),
     import('./public-hospitality-hold-service.ts'),
     import('./public-hospitality-quote-service.ts'),
     import('./public-hospitality-confirmation-service.ts'),
     import('./public-booking-capability.ts'),
     import('../pricing/hospitality-pricing-service.ts'),
+    import('../availability/hospitality-availability-service.ts'),
   ]);
   const runId = crypto.randomUUID();
   const admin = await db.user.create({ data: { email: `public-confirm-admin-${runId}@example.test`, status: 'ACTIVE' } });
@@ -50,6 +51,8 @@ test('public confirmation creates one tenant-owned booking with truthful public 
     });
 
     const now = new Date();
+    const arrivalDate = dateOnlyDaysFromNow(7);
+    const departureDate = dateOnlyDaysFromNow(9);
     const hold = await publicHolds.createPublicHospitalityAvailabilityHold({
       organizationSlug: organizationA.slug,
       requestKey: crypto.randomUUID(),
@@ -57,8 +60,8 @@ test('public confirmation creates one tenant-owned booking with truthful public 
         propertyId: property.id,
         roomTypeId: roomType.id,
         ratePlanId: ratePlan.id,
-        arrivalDate: dateOnlyDaysFromNow(7),
-        departureDate: dateOnlyDaysFromNow(9),
+        arrivalDate,
+        departureDate,
         quantity: 1,
       },
       now,
@@ -76,11 +79,13 @@ test('public confirmation creates one tenant-owned booking with truthful public 
     };
 
     const created = await publicConfirmations.confirmPublicHospitalityBookingFromHold(request);
-    assert.equal(created.booking.status, 'CONFIRMED');
+    assert.equal(created.booking.status, 'PENDING_CONFIRMATION');
     assert.equal(created.booking.paymentStatus, 'UNPAID');
     assert.equal(created.booking.totalMinor, '25000');
     assert.equal('id' in created.booking, false);
     assert.equal(created.bookingCapability.includes(organizationA.id), false);
+    const paymentStartDeadlineAt = new Date(created.paymentStartDeadlineAt);
+    assert.ok(paymentStartDeadlineAt > now);
 
     const bookingCapability = capabilities.verifyPublicBookingBookingCapability({
       secret: publicBookingSecret,
@@ -97,15 +102,33 @@ test('public confirmation creates one tenant-owned booking with truthful public 
     assert.equal(await db.hospitalityBooking.count({ where: { organizationId: organizationA.id } }), 1);
     assert.equal(await db.customer.count({ where: { organizationId: organizationA.id } }), 1);
     assert.equal(await db.auditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'booking.confirmed' } }), 0);
-    assert.equal(await db.publicBookingAuditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'public-booking.confirmed' } }), 1);
+    assert.equal(await db.publicBookingAuditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'public-booking.payment-pending' } }), 1);
+    assert.equal(await db.publicBookingAuditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'public-booking.confirmed' } }), 0);
+
+    const protectedAvailability = await availability.readHospitalityAvailabilityForOrganization({
+      organizationId: organizationA.id,
+      request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate, departureDate, quantity: 1 },
+      now: new Date(paymentStartDeadlineAt.getTime() - 1),
+    });
+    assert.equal(protectedAvailability.available, false);
+    assert.equal(protectedAvailability.capacity.bookingAllocationCount, 1);
+
+    const releasedAvailability = await availability.readHospitalityAvailabilityForOrganization({
+      organizationId: organizationA.id,
+      request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate, departureDate, quantity: 1 },
+      now: paymentStartDeadlineAt,
+    });
+    assert.equal(releasedAvailability.available, true);
+    assert.equal(releasedAvailability.capacity.bookingAllocationCount, 0);
 
     const retried = await publicConfirmations.confirmPublicHospitalityBookingFromHold(request);
     const retryCapability = capabilities.verifyPublicBookingBookingCapability({ secret: publicBookingSecret, token: retried.bookingCapability, expectedOrganizationId: organizationA.id, now });
     assert.ok(retryCapability);
     assert.equal(retryCapability.bookingId, bookingCapability.bookingId);
+    assert.equal(retried.paymentStartDeadlineAt, created.paymentStartDeadlineAt);
     assert.equal(await db.hospitalityBooking.count({ where: { organizationId: organizationA.id } }), 1);
     assert.equal(await db.customer.count({ where: { organizationId: organizationA.id } }), 1);
-    assert.equal(await db.publicBookingAuditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'public-booking.confirmed' } }), 1);
+    assert.equal(await db.publicBookingAuditEvent.count({ where: { organizationId: organizationA.id, resourceId: bookingCapability.bookingId, action: 'public-booking.payment-pending' } }), 1);
 
     await assert.rejects(
       publicConfirmations.confirmPublicHospitalityBookingFromHold({ ...request, customer: { ...request.customer, firstName: 'Changed' } }),

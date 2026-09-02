@@ -1,4 +1,5 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
+import { shouldProtectPendingPublicBookingAllocation } from '../bookings/public-booking-payment-window.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { calculateAvailabilityHoldCapacity } from './availability-hold-domain.ts';
@@ -97,12 +98,89 @@ export async function readHospitalityAvailabilityForOrganization(input: {
         departureDate: { gt: request.arrivalDate },
         booking: { is: { status: { not: 'CANCELLED' } } },
       },
-      select: { arrivalDate: true, departureDate: true, quantity: true },
+      select: {
+        bookingId: true,
+        arrivalDate: true,
+        departureDate: true,
+        quantity: true,
+        booking: { select: { status: true } },
+      },
     }),
   ]);
 
+  const pendingPublicCandidateIds = [...new Set(
+    allocations
+      .filter((allocation) => allocation.booking.status === 'PENDING_CONFIRMATION')
+      .map((allocation) => allocation.bookingId),
+  )];
+  let protectedAllocations = allocations;
+  if (pendingPublicCandidateIds.length > 0) {
+    const [ownerships, checkoutSessions, paymentTransactions] = await Promise.all([
+      db.publicBookingBookingOwnership.findMany({
+        where: { organizationId: input.organizationId, bookingId: { in: pendingPublicCandidateIds } },
+        select: { bookingId: true, createdAt: true },
+      }),
+      db.paymentCheckoutSession.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: { in: pendingPublicCandidateIds },
+          status: 'OPEN',
+          expiresAt: { gt: now },
+        },
+        select: { bookingId: true, expiresAt: true },
+      }),
+      db.paymentTransaction.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: { in: pendingPublicCandidateIds },
+          kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+          status: { in: ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] },
+        },
+        select: { bookingId: true, status: true, createdAt: true },
+      }),
+    ]);
+    const ownershipByBooking = new Map(ownerships.map((ownership) => [ownership.bookingId, ownership]));
+    const checkoutExpiryByBooking = new Map<string, Date>();
+    for (const session of checkoutSessions) {
+      const current = checkoutExpiryByBooking.get(session.bookingId);
+      if (!current || session.expiresAt > current) checkoutExpiryByBooking.set(session.bookingId, session.expiresAt);
+    }
+    const paymentEvidenceByBooking = new Map<string, { hasSuccessfulPayment: boolean; unresolvedPaymentCreatedAt: Date | null }>();
+    for (const payment of paymentTransactions) {
+      const evidence = paymentEvidenceByBooking.get(payment.bookingId) ?? { hasSuccessfulPayment: false, unresolvedPaymentCreatedAt: null };
+      if (payment.status === 'SUCCEEDED') evidence.hasSuccessfulPayment = true;
+      if (payment.status === 'PENDING' || payment.status === 'AMBIGUOUS') {
+        if (!evidence.unresolvedPaymentCreatedAt || payment.createdAt > evidence.unresolvedPaymentCreatedAt) {
+          evidence.unresolvedPaymentCreatedAt = payment.createdAt;
+        }
+      }
+      paymentEvidenceByBooking.set(payment.bookingId, evidence);
+    }
+
+    protectedAllocations = allocations.filter((allocation) => {
+      if (allocation.booking.status !== 'PENDING_CONFIRMATION') return true;
+      const ownership = ownershipByBooking.get(allocation.bookingId);
+      if (!ownership) return true;
+      const evidence = paymentEvidenceByBooking.get(allocation.bookingId);
+      return shouldProtectPendingPublicBookingAllocation({
+        ownershipCreatedAt: ownership.createdAt,
+        openCheckoutExpiresAt: checkoutExpiryByBooking.get(allocation.bookingId) ?? null,
+        unresolvedPaymentCreatedAt: evidence?.unresolvedPaymentCreatedAt ?? null,
+        hasSuccessfulPayment: evidence?.hasSuccessfulPayment ?? false,
+        now,
+      });
+    });
+  }
+
   const restrictionResult = evaluateAvailabilityRestrictions({ arrivalDate: request.arrivalDate, departureDate: request.departureDate, stayNights: request.stayNights, restrictions });
-  const capacity = calculateAvailabilityHoldCapacity({ physicalCapacity, arrivalDate: request.arrivalDate, departureDate: request.departureDate, windows, holds: activeHolds, allocations });
+  const capacity = calculateAvailabilityHoldCapacity({
+    physicalCapacity,
+    arrivalDate: request.arrivalDate,
+    departureDate: request.departureDate,
+    windows,
+    holds: activeHolds,
+    allocations: protectedAllocations,
+  });
   const capacityAvailable = capacity.sellableUnits >= request.quantity;
 
   return {
@@ -117,7 +195,7 @@ export async function readHospitalityAvailabilityForOrganization(input: {
       allocatedUnits: capacity.peakAllocatedUnits,
       protectedUnits: capacity.peakProtectedUnits,
       constrainedNightCount: capacity.constrainedNightCount,
-      source: allocations.length > 0
+      source: protectedAllocations.length > 0
         ? 'PHYSICAL_ROOMS_WITH_BOOKINGS' as const
         : activeHolds.length > 0
           ? 'PHYSICAL_ROOMS_WITH_WINDOWS_AND_HOLDS' as const
@@ -126,7 +204,7 @@ export async function readHospitalityAvailabilityForOrganization(input: {
             : 'ACTIVE_PHYSICAL_ROOMS' as const,
       windowCount: windows.length,
       activeHoldCount: activeHolds.length,
-      bookingAllocationCount: allocations.length,
+      bookingAllocationCount: protectedAllocations.length,
     },
     restrictions: restrictionResult,
     available: capacityAvailable && restrictionResult.allowed,

@@ -60,8 +60,10 @@ export async function confirmHospitalityBookingFromHoldInTransaction(input: {
   organizationId: string;
   confirmation: HospitalityBookingConfirmationInput;
   now: Date;
+  initialStatus?: 'CONFIRMED' | 'PENDING_CONFIRMATION';
 }) {
   const confirmation = normalizeHospitalityBookingConfirmationInput(input.confirmation);
+  const initialStatus = input.initialStatus ?? 'CONFIRMED';
 
   await input.transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${bookingIdempotencyLockKey(input.organizationId, confirmation.idempotencyKey)}, 0))`;
 
@@ -162,7 +164,7 @@ export async function confirmHospitalityBookingFromHoldInTransaction(input: {
       customerId: confirmation.customerId,
       holdId: hold.id,
       idempotencyKey: confirmation.idempotencyKey,
-      status: 'CONFIRMED',
+      status: initialStatus,
       paymentStatus: 'UNPAID',
       arrivalDate: hold.arrivalDate,
       departureDate: hold.departureDate,
@@ -175,7 +177,7 @@ export async function confirmHospitalityBookingFromHoldInTransaction(input: {
       totalMinor: BigInt(snapshot.totalMinor),
       pricingFingerprint: snapshot.pricingFingerprint,
       addonSelections: confirmation.addonSelections,
-      confirmedAt: input.now,
+      confirmedAt: initialStatus === 'CONFIRMED' ? input.now : null,
     },
   });
 

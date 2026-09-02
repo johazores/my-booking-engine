@@ -2,63 +2,55 @@
 
 ## Status
 
-SF now has a server-side customer-safe confirmation boundary for capability-owned hospitality holds. It is intentionally not exposed as a final anonymous HTTP action yet: confirming an unpaid booking permanently allocates inventory, so the public UI must wait until real payment collection and recovery are connected through the configured payment provider.
+SF has a server-side customer-safe confirmation boundary for capability-owned hospitality holds. Public confirmation now creates a durable `PENDING_CONFIRMATION / UNPAID` booking rather than immediately claiming that payment has been durably started or completed.
+
+The pending booking owns the canonical booking allocation for a bounded payment-start window. If no durable or recoverable payment operation takes over before that window expires, availability stops treating the pending allocation as protected inventory. This prevents a browser/process failure between booking creation and Stripe Checkout persistence from reserving inventory indefinitely.
+
+Staff confirmation behavior is unchanged: authenticated staff bookings still enter the shared core as `CONFIRMED / UNPAID` immediately.
 
 ## Shared canonical transaction
 
-`src/server/bookings/hospitality-booking-confirmation-core.ts` now owns the provider-independent serializable confirmation transaction used by both staff and public callers. The core:
+`src/server/bookings/hospitality-booking-confirmation-core.ts` owns the provider-independent serializable confirmation transaction used by staff and public callers. The core locks the tenant booking idempotency key and room-type allocation boundary, revalidates the active hold/customer/occupancy/current persisted price, creates immutable booking/guest/allocation records, and consumes the hold atomically.
 
-- locks the tenant-scoped booking idempotency key;
-- reuses the same organization/property/room-type allocation advisory lock as availability holds;
-- requires the hold to remain active and unexpired;
-- requires an active tenant-owned customer;
-- enforces room occupancy against immutable guest snapshots;
-- recalculates persisted pricing inside the transaction and requires the reviewed pricing fingerprint to match;
-- creates the confirmed/unpaid booking, guest snapshots, and booking allocation;
-- consumes the hold atomically; and
-- reports whether the booking was newly created so each caller can write truthful actor-specific audit data without duplicate retry events.
-
-The existing staff service still requires `booking:manage` before entering this core and still writes normal `AuditEvent` rows with the authenticated user. Public confirmation does not call that permission wrapper and never creates a synthetic staff user.
+The core accepts an explicit initial booking state. Staff callers use the default `CONFIRMED`. The public boundary uses `PENDING_CONFIRMATION` so commercial confirmation is not reported until a durable payment recovery path exists.
 
 ## Public customer and ownership
 
-`confirmPublicHospitalityBookingFromHold` resolves the active organization from the public slug and verifies both the encrypted hold capability and persisted `PublicBookingHoldOwnership` before any booking is created.
+`confirmPublicHospitalityBookingFromHold` resolves the active organization from the public slug and verifies the encrypted hold capability plus persisted `PublicBookingHoldOwnership` before creating anything.
 
-Public confirmation requires a canonical email so the booking has a durable recovery contact. An existing active customer with the same canonical email inside the same organization is reused; an archived customer is not silently reactivated. A new customer is created inside the same serializable transaction when necessary. Guest names and emails continue to be copied into immutable booking guest snapshots.
+Public confirmation requires canonical recovery email. An existing active customer with that email in the same organization is reused; archived customers are not silently reactivated. New customers are created in the same serializable transaction. Guest identity remains immutable booking-specific snapshot data.
 
-`PublicBookingBookingOwnership` binds the resulting booking to the same public principal and organization. PostgreSQL composite foreign keys prevent a booking or principal from being attached across tenants. The ownership row also stores a SHA-256 request fingerprint covering normalized customer contact, guests, add-ons, and reviewed pricing, so a reused public confirmation request key cannot silently accept changed customer data that the internal booking idempotency shape does not contain.
+`PublicBookingBookingOwnership` binds the booking to the same public principal and organization. Its durable `createdAt` is the source of the payment-start deadline. The public response exposes only the deadline timestamp, customer-safe booking data, and an opaque `booking:manage` capability; internal tenant, principal, booking, customer, and allocation IDs are not exposed.
 
-## Idempotency and capability separation
+## Payment-start lifecycle
 
-Browser request keys remain UUID v4 values. SF derives hold and confirmation idempotency keys with separate HMAC namespaces, so the same external request key cannot collide across lifecycle operations.
+The payment-start window is centralized in `src/server/bookings/public-booking-payment-window.ts` and is currently 15 minutes.
 
-A successful confirmation issues a new AES-256-GCM `booking:manage` capability with a 24-hour recovery window and extends the durable public principal to the same expiry. The booking capability is scope-separated from the hold capability and does not expose organization, principal, or booking IDs in plaintext. Future payment/recovery endpoints must verify this capability **and** the persisted booking ownership row before reading or mutating the booking.
+A pending public allocation remains capacity-protecting while any of these are true:
 
-The hold capability remains short-lived and is not upgraded in place.
+- the ownership payment-start window is still open;
+- an unresolved payment claim is still inside its bounded recovery window;
+- a persisted open Checkout Session exists and has not expired; or
+- successful payment evidence exists.
+
+If none apply, availability ignores that pending public allocation. The booking record remains durable history and cannot later start a fresh Checkout attempt after the window has expired. No process-local timer, background worker, or GitHub Action is required for inventory correctness.
+
+Once Stripe Checkout is durably persisted, the same transaction promotes the booking from `PENDING_CONFIRMATION` to `CONFIRMED` and writes truthful `public-booking.confirmed` attribution. Checkout expiry/payment webhooks then own the existing abandonment/settlement lifecycle.
+
+## Idempotency and capabilities
+
+Browser request keys remain UUID v4 values. Hold, confirmation, and Checkout operations derive separate tenant-bound HMAC namespaces. Public confirmation also stores a SHA-256 request fingerprint covering normalized customer/contact, guests, add-ons, and reviewed pricing so changed retries fail closed.
+
+The `booking:manage` AES-256-GCM capability is scope-separated from the hold capability and remains bound to tenant, principal, booking, scope, and expiry. Payment/recovery endpoints verify both the capability and persisted ownership.
 
 ## Audit attribution
 
-Public confirmation writes only `PublicBookingAuditEvent` rows. `public-booking.confirmed` records status, payment status, quantity, guest count, currency, total, and pricing fingerprint without copying customer email or phone into audit JSON. When the public flow creates a new customer it also writes `public-booking.customer.created` with lifecycle status only.
-
-Staff `booking.confirmed` audit behavior remains unchanged through the shared core wrapper.
-
-## HTTP/UI boundary
-
-No anonymous confirmation route or final `Book now` action is added by this slice. The next dependency is real payment collection and recovery using the configured payment-provider adapter, including safe failure/abandonment handling so public traffic cannot convert holds into indefinitely unpaid inventory reservations.
-
-Only after that payment lifecycle is coherent should the public page collect customer/guest details and expose final confirmation.
+Public booking creation writes `public-booking.payment-pending`, not `public-booking.confirmed`. It records only safe commercial state, guest count, exact-money summary, pricing fingerprint, and payment-start deadline. When Checkout becomes durable, the Checkout transaction emits the actual `public-booking.confirmed` event. Staff auditing remains separate through normal authenticated `AuditEvent` rows.
 
 ## Validation
 
-Dependency-free public capability/request tests cover:
+Dependency-free tests cover the payment-start deadline and allocation-protection decision, including exact-deadline expiry, bounded unresolved-payment recovery, open Checkout protection, and successful-payment protection.
 
-- hold and booking capability tenant/principal binding;
-- scope separation between hold and booking credentials;
-- ciphertext/tag/version tampering rejection;
-- weak-secret rejection;
-- hold-vs-confirmation idempotency namespace separation; and
-- deterministic request fingerprints that change with normalized payload changes.
+`public-hospitality-confirmation.integration.ts` is registered in the disposable PostgreSQL harness and covers tenant-bound ownership, customer create/reuse, exact retries, changed-request rejection, public-only audit attribution, pending allocation protection before the deadline, and automatic capacity release at the deadline when no payment evidence exists.
 
-`public-hospitality-confirmation.integration.ts` is registered in the disposable PostgreSQL harness for tenant-bound ownership, customer creation/reuse, exact retries, changed-request rejection, public-only audit attribution, customer-safe serialization, and cross-tenant denial.
-
-The available automation shell can run only the dependency-free Node tests. Full Prisma validation, migration execution, PostgreSQL integration tests, repository typecheck/lint, and production build still require the repository's Node 24 environment plus a confirmed disposable PostgreSQL target. GitHub Actions are not used.
+Full Prisma/database execution still requires the repository Node 24 environment and an explicitly confirmed disposable PostgreSQL target. GitHub Actions are intentionally not used.

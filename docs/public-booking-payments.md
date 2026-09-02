@@ -1,62 +1,57 @@
 # Public booking Stripe Checkout
 
-SF has a capability-owned Stripe-hosted Checkout boundary for public hospitality bookings. It remains separate from authenticated staff authorization/capture: public callers never receive staff authority, never choose an organization ID or booking ID, and never send raw card details through SF.
+SF has a capability-owned Stripe-hosted Checkout boundary for public hospitality bookings. Public callers never receive staff authority, never choose organization or booking IDs, and never send raw card data through SF.
 
 ## Security and ownership
 
-`POST /api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout` requires a valid opaque `booking:manage` capability plus a UUID-v4 public request key. The server resolves the active organization from the slug, verifies the encrypted capability against that organization, verifies `PublicBookingBookingOwnership`, and verifies the owning public principal is still unexpired before reading or mutating payment state.
+`POST /api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout` requires the opaque `booking:manage` capability plus a UUID-v4 public request key. The server resolves the tenant from the slug, verifies encrypted capability scope, `PublicBookingBookingOwnership`, and the unexpired public principal before payment work.
 
-The browser supplies only the capability and request key. Return URLs are derived from the same-origin request and organization slug; callers cannot supply arbitrary success/cancel redirects. The route is same-origin protected and uses `Cache-Control: no-store`.
+Return URLs are server-derived from the same-origin request. Callers cannot supply arbitrary redirect targets. The payment status recovery endpoint also keeps the capability in the POST body rather than URL/query strings. Public payment responses expose only customer-safe state and exact money—not internal IDs, provider references, idempotency keys, credentials, or card data.
 
-`POST /api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/status` provides capability-owned recovery after returning from Stripe. The capability stays in the request body instead of the URL/query string. The response contains only customer-safe booking/payment state, exact money, and normalized latest-operation state—never provider references, internal IDs, idempotency keys, credentials, or Stripe Checkout URLs.
+## Durable confirmation-to-payment lifecycle
+
+Public hold conversion now creates `PENDING_CONFIRMATION / UNPAID`, not an immediately `CONFIRMED` booking. `PublicBookingBookingOwnership.createdAt` starts a 15-minute payment-start window.
+
+The allocation protects inventory while that window is open. If a provider request has been claimed, bounded unresolved-payment recovery can extend protection long enough to retry the same idempotent operation. A persisted open Checkout Session protects the allocation through its provider expiry. Successful payment evidence always protects it.
+
+If no durable/recoverable payment evidence takes over before the bounded window expires, availability stops counting the pending public allocation. A fresh Checkout start is rejected after that point. This closes the previous crash/browser gap without a process-local timer or scheduler.
+
+When Stripe returns a valid hosted Session, SF persists `PaymentCheckoutSession` under the booking/payment locks. In the same transaction SF promotes `PENDING_CONFIRMATION` to `CONFIRMED`, sets `confirmedAt`, and writes the truthful `public-booking.confirmed` audit event. Therefore a public booking is not called confirmed until the durable provider recovery identity exists.
+
+Existing staff bookings are unaffected and remain immediately `CONFIRMED / UNPAID` after authenticated confirmation.
 
 ## Payment provider boundary
 
-`StripeCheckoutProvider` owns the Stripe-specific `/v1/checkout/sessions` request. It creates a hosted card Checkout Session using the persisted booking currency and exact minor-unit total. Organization and booking metadata are attached to both the Checkout Session and resulting PaymentIntent.
+`StripeCheckoutProvider` owns `/v1/checkout/sessions`. It uses the persisted booking currency and exact minor-unit total, sets organization/booking metadata on the Session and resulting PaymentIntent, and gives Stripe responsibility for hosted card entry and required customer authentication.
 
-SF never handles card numbers or CVCs in this flow. Stripe owns payment entry and required customer authentication on the hosted Checkout page.
+The adapter validates Session identity, HTTPS Checkout URL, expiry, currency, and exact amount before returning anything to the public service. Provider failures use SF's normalized payment failure taxonomy.
 
-The provider validates the returned Checkout object, session reference, HTTPS Checkout URL, expiry, currency, and amount before returning a redirect URL. Provider failures use the normalized payment failure taxonomy.
+## Idempotency and recovery
 
-## Idempotency and durable Checkout identity
+Public Checkout request keys are HMAC-derived into a tenant-bound `payment-checkout` namespace. Before the network call SF serializes payment-idempotency and booking mutation locks and persists a `CAPTURE / PENDING` claim with an internal `sf_claim_*` reference.
 
-Public Checkout request keys are HMAC-derived into a tenant-bound `payment-checkout` namespace. A public key cannot select SF's internal payment idempotency key or collide with hold/confirmation scopes.
+Exact retries reuse the same Stripe idempotency key. Changed operations fail closed. A retry of a recent unresolved claim is allowed inside its bounded recovery window even if the original ownership payment-start window has just elapsed; a stale unresolved claim cannot protect inventory forever.
 
-Before the Stripe network call, SF serializes on the existing payment-idempotency and booking locks and persists a `CAPTURE / PENDING` `PaymentTransaction` with an internal `sf_claim_*` provider reference. Exact retries reuse the same Stripe idempotency key; changed operations fail closed.
-
-After Stripe creates the hosted session and before SF returns the Checkout URL, SF persists a tenant-bound `PaymentCheckoutSession`. The record binds the organization, booking, public principal, payment transaction, provider session reference, expiry, and lifecycle state. Database composite foreign keys prevent a session from being attached across tenants. A process failure after Stripe creation but before persistence is recovered by retrying the same public request key: Stripe idempotency returns the same provider operation and SF attempts the durable bind again before exposing the URL.
-
-The Checkout Session reference is deliberately stored separately from the `PaymentTransaction.providerReference`. The transaction continues to hold the internal claim until signed provider evidence establishes the actual PaymentIntent used for the settled payment.
+After Stripe creates the Session, SF persists the tenant-bound `PaymentCheckoutSession` before returning the Checkout URL. A process failure after provider creation but before persistence is recovered by retrying the same public request key: Stripe idempotency returns the same provider operation and SF attempts the durable bind again.
 
 ## Signed lifecycle recovery
 
-SF parses signed `checkout.session.*` objects only inside the Stripe webhook adapter boundary. Checkout metadata, exact currency/amount, persisted tenant ownership, and the stored Session reference must all agree before state changes are accepted.
+SF parses signed `checkout.session.*` data only inside the Stripe webhook adapter boundary. Tenant/booking metadata, exact money, stored Session identity, ownership, and current payment state must agree before mutations are accepted.
 
-For `checkout.session.completed` with `status=complete` and `payment_status=paid`, SF binds the tracked capture transaction to the Session's PaymentIntent, marks the payment transaction succeeded, marks the booking paid, and records the Checkout Session as completed. Browser redirects never mark a booking paid.
+`checkout.session.completed` with a complete/paid Session can bind the tracked capture operation to the real PaymentIntent, mark payment succeeded, and mark the booking paid. Browser redirects never establish payment truth.
 
-For `checkout.session.expired`, SF records the provider Session as expired. Automatic inventory release is intentionally stricter than the provider minimum: SF cancels the public booking only when all of the following remain true under the canonical booking and availability locks:
+For `checkout.session.expired`, SF only cancels/releases inventory when signed provider state, stored tenant/booking/money, payment claim state, and absence of successful/late-payment evidence all agree. If a PaymentIntent reference or successful payment evidence exists, SF preserves the booking for recovery rather than releasing inventory.
 
-- the signed Session is `expired` and `unpaid`;
-- the Session matches the stored tenant, booking, money, and provider reference;
-- the booking is still confirmed and unpaid/failed;
-- the tracked capture transaction is still a pending internal `sf_claim_*` operation;
-- no successful authorization/capture exists for the booking; and
-- the expired Session carries no PaymentIntent reference.
-
-If a PaymentIntent reference or any successful payment evidence exists, SF preserves the booking for payment recovery rather than releasing inventory. This fails closed against a late-success race. The signed webhook event remains the provider audit lineage; SF does not fabricate a staff actor for provider-driven abandonment.
-
-Checkout can accept more than one card attempt while its Session remains open. A non-settled PaymentIntent webhook associated with an open tracked Checkout Session therefore no longer fails the whole Checkout transaction; the transaction remains pending for a later attempt or authoritative Session expiry. Successful PaymentIntent reconciliation remains supported as an additional signed settlement path.
-
-## Cancellation concurrency
-
-Authenticated staff cancellation uses the same booking and availability lock order as payment recovery. Cancellation now also refuses to cancel a booking while an authorization/capture transaction is `PENDING`. This closes the race where a staff cancellation could previously occur after SF claimed a provider payment but before the provider outcome was known.
+Authenticated staff cancellation uses the same booking lock order and refuses to cancel while authorization/capture is `PENDING` or `AMBIGUOUS`.
 
 ## Current exposure boundary
 
-The provider abandonment dependency is now implemented, but the final public `Book now` journey remains intentionally closed. Public confirmation creates a real `CONFIRMED / UNPAID` booking before Checkout starts. A process/browser failure between confirmation and creation of the first durable Checkout Session could still strand inventory because no provider Session would exist to emit an expiry event.
+The confirmation-to-payment crash gap is now closed at the server lifecycle level. The remaining public-journey work is HTTP/UI orchestration: collect validated customer/guest data, submit confirmation, immediately start Checkout with stable request keys, handle payment-start expiry/recovery states, and present only truthful completion after signed provider settlement.
 
-The next production boundary is therefore a confirmation-to-payment orchestration that cannot leave a newly confirmed booking indefinitely reserved when Checkout is never durably started. That needs a durable booking/payment-start deadline or equivalent recoverable lifecycle—not a cancel-redirect heuristic or process-local timer. Once that gap is closed, the public confirmation API and UI can be exposed without a dead or unsafe primary action.
+That UI/API work can now be implemented without creating indefinitely unpaid inventory reservations.
 
 ## Validation
 
-Dependency-free webhook-domain coverage includes Checkout Session parsing, exact tenant/booking/money normalization, invalid provider-state rejection, PaymentIntent-reference preservation, and the fail-closed expiry decision. Existing public Checkout adapter/idempotency coverage remains applicable. The new persistence constraints and webhook state transitions require Prisma generation/validation and disposable PostgreSQL integration execution when the repository's Node 24 database environment is available.
+Dependency-free payment-start tests cover deadline exclusivity and protection rules. Existing Checkout adapter/webhook-domain tests cover provider money/metadata/idempotency behavior, normalized provider failures, Checkout Session parsing, and fail-closed expiry decisions.
+
+The public confirmation PostgreSQL integration suite now also verifies that a pending allocation protects capacity before its payment-start deadline and no longer protects capacity at the deadline when no payment evidence exists. Full Prisma generation/validation, disposable PostgreSQL integration execution, repository typecheck/lint, and production build still require the repository's Node 24 environment. GitHub Actions are not used.

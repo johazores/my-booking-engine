@@ -18,6 +18,7 @@ import {
   PublicBookingCapabilityConfigurationError,
   verifyPublicBookingHoldCapability,
 } from './public-booking-capability.ts';
+import { publicBookingPaymentStartDeadline } from './public-booking-payment-window.ts';
 import {
   createPublicBookingRequestFingerprint,
   derivePublicBookingConfirmationIdempotencyKey,
@@ -158,6 +159,7 @@ export async function confirmPublicHospitalityBookingFromHold(input: {
         guests,
       },
       now,
+      initialStatus: 'PENDING_CONFIRMATION',
     });
 
     const recoveryExpiresAt = new Date(now.getTime() + PUBLIC_BOOKING_RECOVERY_HOURS * 60 * 60_000);
@@ -170,10 +172,15 @@ export async function confirmPublicHospitalityBookingFromHold(input: {
         || bookingOwnership.principalId !== holdCapability.principalId
         || bookingOwnership.requestFingerprint !== requestFingerprint
       ) throw new PublicHospitalityConfirmationConflictError();
-      return { booking: confirmationResult.booking, principalId: bookingOwnership.principalId, recoveryExpiresAt: principal.expiresAt };
+      return {
+        booking: confirmationResult.booking,
+        principalId: bookingOwnership.principalId,
+        recoveryExpiresAt: principal.expiresAt,
+        paymentStartDeadlineAt: publicBookingPaymentStartDeadline(bookingOwnership.createdAt),
+      };
     }
 
-    await transaction.publicBookingBookingOwnership.create({
+    const bookingOwnership = await transaction.publicBookingBookingOwnership.create({
       data: {
         organizationId: branding.id,
         bookingId: confirmationResult.booking.id,
@@ -197,11 +204,12 @@ export async function confirmPublicHospitalityBookingFromHold(input: {
         },
       });
     }
+    const paymentStartDeadlineAt = publicBookingPaymentStartDeadline(bookingOwnership.createdAt);
     await transaction.publicBookingAuditEvent.create({
       data: {
         organizationId: branding.id,
         actorPrincipalId: holdCapability.principalId,
-        action: 'public-booking.confirmed',
+        action: 'public-booking.payment-pending',
         resourceType: 'hospitality-booking',
         resourceId: confirmationResult.booking.id,
         afterData: {
@@ -212,11 +220,17 @@ export async function confirmPublicHospitalityBookingFromHold(input: {
           currency: confirmationResult.booking.currency,
           totalMinor: confirmationResult.booking.totalMinor.toString(),
           pricingFingerprint: confirmationResult.booking.pricingFingerprint,
+          paymentStartDeadlineAt: paymentStartDeadlineAt.toISOString(),
         },
       },
     });
 
-    return { booking: confirmationResult.booking, principalId: holdCapability.principalId, recoveryExpiresAt };
+    return {
+      booking: confirmationResult.booking,
+      principalId: holdCapability.principalId,
+      recoveryExpiresAt,
+      paymentStartDeadlineAt,
+    };
   }, { isolationLevel: 'Serializable' });
 
   return {
@@ -229,6 +243,7 @@ export async function confirmPublicHospitalityBookingFromHold(input: {
       expiresAt: result.recoveryExpiresAt,
     }),
     capabilityExpiresAt: result.recoveryExpiresAt.toISOString(),
+    paymentStartDeadlineAt: result.paymentStartDeadlineAt.toISOString(),
   };
 }
 

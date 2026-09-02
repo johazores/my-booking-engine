@@ -1,5 +1,6 @@
 import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booking-mutation-lock.ts';
 import { verifyPublicBookingBookingCapability, PublicBookingCapabilityConfigurationError } from '../bookings/public-booking-capability.ts';
+import { publicBookingPaymentStartWindowIsOpen } from '../bookings/public-booking-payment-window.ts';
 import { derivePublicBookingCheckoutIdempotencyKey } from '../bookings/public-booking-request-domain.ts';
 import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hospitality-search-service.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
@@ -56,6 +57,14 @@ function assertExactCheckoutClaim(existing: {
   }
 }
 
+function checkoutRetryKeepsPaymentStartRecoverable(payment: { status: string; createdAt: Date } | null, now: Date) {
+  return Boolean(
+    payment
+    && (payment.status === 'PENDING' || payment.status === 'AMBIGUOUS')
+    && publicBookingPaymentStartWindowIsOpen({ ownershipCreatedAt: payment.createdAt, now }),
+  );
+}
+
 async function markCheckoutClaimFailed(input: {
   organizationId: string;
   bookingId: string;
@@ -103,6 +112,7 @@ async function persistCheckoutSession(input: {
   requestFingerprint: string;
   providerReference: string;
   expiresAt: Date;
+  confirmedAt: Date;
 }) {
   return db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment:${input.organizationId}:idempotency:${input.idempotencyKey}`}, 0))`;
@@ -170,6 +180,15 @@ async function persistCheckoutSession(input: {
         expiresAt: input.expiresAt,
       },
     });
+    const promoted = await transaction.hospitalityBooking.updateMany({
+      where: {
+        id: input.bookingId,
+        organizationId: input.organizationId,
+        status: 'PENDING_CONFIRMATION',
+        paymentStatus: { in: ['UNPAID', 'FAILED'] },
+      },
+      data: { status: 'CONFIRMED', confirmedAt: input.confirmedAt },
+    });
     await transaction.publicBookingAuditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -185,6 +204,23 @@ async function persistCheckoutSession(input: {
         },
       },
     });
+    if (promoted.count === 1) {
+      await transaction.publicBookingAuditEvent.create({
+        data: {
+          organizationId: input.organizationId,
+          actorPrincipalId: input.principalId,
+          action: 'public-booking.confirmed',
+          resourceType: 'hospitality-booking',
+          resourceId: input.bookingId,
+          afterData: {
+            status: 'CONFIRMED',
+            paymentStatus: payment.status === 'SUCCEEDED' ? 'PAID' : 'UNPAID',
+            providerCode: STRIPE_PROVIDER_CODE,
+            checkoutExpiresAt: input.expiresAt.toISOString(),
+          },
+        },
+      });
+    }
     return checkoutSession;
   }, { isolationLevel: 'Serializable' });
 }
@@ -233,7 +269,9 @@ export async function createPublicStripeCheckoutSession(input: {
     },
   });
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
-  if (booking.status !== 'CONFIRMED') throw new PaymentConflictError('Only confirmed public bookings can start payment.');
+  if (booking.status !== 'CONFIRMED' && booking.status !== 'PENDING_CONFIRMATION') {
+    throw new PaymentConflictError('Only active public bookings can start payment.');
+  }
   if (booking.totalMinor <= 0n) throw new PaymentConflictError('A zero-value booking does not require Stripe Checkout.');
   if (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'PARTIALLY_REFUNDED' || booking.paymentStatus === 'REFUNDED') {
     return Object.freeze({ state: 'PAID' as const, paymentStatus: booking.paymentStatus, checkoutUrl: null, expiresAt: null });
@@ -270,6 +308,13 @@ export async function createPublicStripeCheckoutSession(input: {
       return Object.freeze({ state: 'PROCESSING' as const, paymentStatus: booking.paymentStatus, checkoutUrl: null, expiresAt: null });
     }
   }
+  if (
+    booking.status === 'PENDING_CONFIRMATION'
+    && !publicBookingPaymentStartWindowIsOpen({ ownershipCreatedAt: ownership.createdAt, now })
+    && !checkoutRetryKeepsPaymentStartRecoverable(prior, now)
+  ) {
+    throw new PaymentConflictError('The payment-start window expired. Search availability again before booking.');
+  }
 
   const stripe = await loadStripeCheckoutIntegration(branding.id);
   if (!stripe.integration.capabilities.includes('payment-capture')) {
@@ -280,9 +325,35 @@ export async function createPublicStripeCheckoutSession(input: {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment:${branding.id}:idempotency:${idempotencyKey}`}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: branding.id, bookingId: booking.id })}, 0))`;
 
-    const existing = await transaction.paymentTransaction.findUnique({
-      where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
-    });
+    const [existing, currentOwnership, currentBooking] = await Promise.all([
+      transaction.paymentTransaction.findUnique({
+        where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
+      }),
+      transaction.publicBookingBookingOwnership.findUnique({
+        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: booking.id } },
+      }),
+      transaction.hospitalityBooking.findFirst({
+        where: { id: booking.id, organizationId: branding.id },
+        select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
+      }),
+    ]);
+    if (!currentOwnership || currentOwnership.principalId !== capability.principalId) {
+      throw new PublicStripeCheckoutAuthorizationError();
+    }
+    if (!currentBooking || !['CONFIRMED', 'PENDING_CONFIRMATION'].includes(currentBooking.status) || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
+      throw new PaymentConflictError('Booking changed before Stripe Checkout could be claimed.');
+    }
+    if (
+      currentBooking.status === 'PENDING_CONFIRMATION'
+      && !publicBookingPaymentStartWindowIsOpen({ ownershipCreatedAt: currentOwnership.createdAt, now })
+      && !checkoutRetryKeepsPaymentStartRecoverable(existing, now)
+    ) {
+      throw new PaymentConflictError('The payment-start window expired. Search availability again before booking.');
+    }
+    if (currentBooking.paymentStatus !== 'UNPAID' && currentBooking.paymentStatus !== 'FAILED') {
+      throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts Checkout.`);
+    }
+
     if (existing) {
       assertExactCheckoutClaim(existing, {
         bookingId: booking.id,
@@ -294,17 +365,6 @@ export async function createPublicStripeCheckoutSession(input: {
         return { payment: existing, callProvider: false } as const;
       }
       return { payment: existing, callProvider: true } as const;
-    }
-
-    const currentBooking = await transaction.hospitalityBooking.findFirst({
-      where: { id: booking.id, organizationId: branding.id },
-      select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
-    });
-    if (!currentBooking || currentBooking.status !== 'CONFIRMED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
-      throw new PaymentConflictError('Booking changed before Stripe Checkout could be claimed.');
-    }
-    if (currentBooking.paymentStatus !== 'UNPAID' && currentBooking.paymentStatus !== 'FAILED') {
-      throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts Checkout.`);
     }
 
     const blockingPayment = await transaction.paymentTransaction.findFirst({
@@ -380,6 +440,7 @@ export async function createPublicStripeCheckoutSession(input: {
       requestFingerprint,
       providerReference: checkout.sessionReference,
       expiresAt: checkout.expiresAt,
+      confirmedAt: new Date(),
     });
     return Object.freeze({
       state: 'CHECKOUT_REQUIRED' as const,
