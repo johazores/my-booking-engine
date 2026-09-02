@@ -187,7 +187,6 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
-        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
         status: { in: ['PENDING', 'AMBIGUOUS'] },
       },
       select: { id: true },

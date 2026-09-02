@@ -69,7 +69,6 @@ export async function previewHospitalityBookingCommercialAdjustment(input: {
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
-        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
         status: { in: ['PENDING', 'AMBIGUOUS'] },
       },
       select: { id: true },
