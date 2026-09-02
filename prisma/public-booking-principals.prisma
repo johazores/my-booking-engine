@@ -1,0 +1,39 @@
+model PublicBookingPrincipal {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  expiresAt      DateTime @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, expiresAt])
+  @@map("public_booking_principals")
+}
+
+model PublicBookingHoldOwnership {
+  organizationId String   @db.Uuid
+  holdId         String   @db.Uuid
+  principalId    String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([organizationId, holdId])
+  @@index([organizationId, principalId])
+  @@map("public_booking_hold_ownership")
+}
+
+model PublicBookingAuditEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @db.Uuid
+  actorPrincipalId String   @db.Uuid
+  action           String   @db.VarChar(120)
+  resourceType     String   @db.VarChar(80)
+  resourceId       String   @db.VarChar(120)
+  beforeData       Json?
+  afterData        Json?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, actorPrincipalId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("public_booking_audit_events")
+}
