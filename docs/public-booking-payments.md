@@ -8,6 +8,8 @@ SF now has a capability-owned Stripe-hosted Checkout boundary for public hospita
 
 The browser supplies only the capability and request key. Return URLs are derived from the same-origin request and the organization slug; callers cannot supply arbitrary success/cancel redirects. The route is same-origin protected and all responses use `Cache-Control: no-store`.
 
+`POST /api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/status` provides capability-owned recovery after returning from Stripe. The capability stays in the request body rather than the URL/query string, avoiding browser-history, referrer, and ordinary access-log leakage. The response contains only the customer-safe booking/payment state, exact money, and normalized latest operation status—never provider references, internal IDs, idempotency keys, or Stripe session URLs.
+
 ## Payment provider boundary
 
 `StripeCheckoutProvider` owns the Stripe-specific `/v1/checkout/sessions` request. It creates a hosted card Checkout Session using the persisted booking currency and exact minor-unit total. Organization and booking metadata are attached to both the Checkout Session and resulting PaymentIntent so SF's existing signed PaymentIntent webhook can resolve the correct tenant and booking.
@@ -22,7 +24,7 @@ Public Checkout request keys are HMAC-derived into a tenant-bound `payment-check
 
 Before the Stripe network call, SF serializes on the established payment idempotency and booking locks and persists a `CAPTURE / PENDING` `PaymentTransaction` with an internal `sf_claim_*` provider reference. This matches the existing uncertain-outcome pattern used by staff Stripe operations. Exact retries reuse the same Stripe idempotency key; changed operations fail closed.
 
-The existing verified Stripe PaymentIntent webhook already supports binding a pending internal capture claim to the real `pi_*` reference and deriving the authoritative booking payment state from Stripe. The public Checkout service therefore never marks a booking paid from a browser redirect or from the Checkout Session creation response.
+The existing verified Stripe PaymentIntent webhook already supports binding a pending internal capture claim to the real `pi_*` reference and deriving the authoritative booking payment state from Stripe. The public Checkout service therefore never marks a booking paid from a browser redirect or from the Checkout Session creation response. The public status endpoint reads that persisted SF truth; `?payment=processing` is presentation context only.
 
 Public payment activity is attributed through `PublicBookingAuditEvent`; no synthetic staff user is created. Definitive non-retryable Checkout creation failures mark the pending claim failed and record only the normalized failure code. Retryable/ambiguous provider failures leave the claim pending so a retry with the same request key can recover through Stripe idempotency.
 
@@ -30,7 +32,7 @@ Public payment activity is attributed through `PublicBookingAuditEvent`; no synt
 
 This server/payment boundary is real, but the final public confirmation action remains intentionally closed. Public confirmation currently creates a real `CONFIRMED / UNPAID` booking, so exposing it before abandonment recovery could strand inventory when a customer leaves Checkout.
 
-Before the final public `Book now` journey is enabled, SF still needs Checkout abandonment handling (including `checkout.session.expired` or equivalent authoritative recovery), capability-owned payment status/recovery, and safe release/cancellation of unpaid abandoned public bookings. Only after those are connected should the confirmation endpoint and customer-facing payment transition become active.
+Before the final public `Book now` journey is enabled, SF still needs authoritative Checkout abandonment handling (including `checkout.session.expired` or equivalent recovery) and safe cancellation/release of unpaid abandoned public bookings without racing a late successful payment. That work requires preserving the Checkout Session identity separately from the PaymentIntent claim or an equivalent provider recovery contract; it should not be faked by trusting the cancel redirect.
 
 ## Validation
 
