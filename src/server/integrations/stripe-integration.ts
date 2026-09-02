@@ -4,6 +4,7 @@ import { StripePaymentProvider } from '../payments/stripe-payment-provider.ts';
 import { StripePaymentReconciliationProvider } from '../payments/stripe-payment-reconciliation-provider.ts';
 import { StripeRefundReconciliationProvider } from '../payments/stripe-refund-reconciliation-provider.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import type { IntegrationHealthStatus } from './integration-domain.ts';
 import { IntegrationLifecycleError, loadActiveIntegrationCredentials } from './integration-service.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
@@ -16,12 +17,7 @@ export class StripeIntegrationConfigurationError extends Error {
   }
 }
 
-export type StripeIntegrationHealthStatus =
-  | 'HEALTHY'
-  | 'AUTHENTICATION_FAILED'
-  | 'RATE_LIMITED'
-  | 'PROVIDER_UNAVAILABLE'
-  | 'INVALID_RESPONSE';
+export type StripeIntegrationHealthStatus = IntegrationHealthStatus;
 
 export type StripeIntegrationHealthResult = Readonly<{
   status: StripeIntegrationHealthStatus;
