@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { serializePublicHospitalityQuote } from './public-hospitality-quote-domain.ts';
 
-test('serializes only customer-safe final quote fields', () => {
+test('serializes only customer-safe final quote fields, including nested objects', () => {
   const quote = serializePublicHospitalityQuote({
     arrivalDate: '2026-10-10',
     departureDate: '2026-10-12',
@@ -11,8 +11,8 @@ test('serializes only customer-safe final quote fields', () => {
     quantity: 1,
     currency: 'PHP',
     nightly: [{ date: '2026-10-10', amountMinor: '500000' }],
-    charges: [{ code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', amountMinor: '60000' }],
-    addons: [{ code: 'BREAKFAST', pricingModel: 'PER_STAY', selectedQuantity: 1, amountMinor: '50000' }],
+    charges: [{ id: 'internal-charge-id', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', amountMinor: '60000' }],
+    addons: [{ id: 'internal-addon-id', code: 'BREAKFAST', pricingModel: 'PER_STAY', selectedQuantity: 1, amountMinor: '50000' }],
     accommodationSubtotalMinor: '500000',
     taxTotalMinor: '60000',
     feeTotalMinor: '0',
@@ -30,6 +30,10 @@ test('serializes only customer-safe final quote fields', () => {
   assert.equal('organizationId' in quote, false);
   assert.equal('holdId' in quote, false);
   assert.equal('principalId' in quote, false);
+  assert.deepEqual(quote.charges[0], { code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', amountMinor: '60000' });
+  assert.deepEqual(quote.addons[0], { code: 'BREAKFAST', pricingModel: 'PER_STAY', selectedQuantity: 1, amountMinor: '50000' });
+  assert.equal('id' in quote.charges[0], false);
+  assert.equal('id' in quote.addons[0], false);
 });
 
 test('rejects an invalid hold expiry', () => {

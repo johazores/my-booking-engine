@@ -5,8 +5,8 @@ export type PublicHospitalityQuoteInput = {
   quantity: number;
   currency: string;
   nightly: Array<{ date: string; amountMinor: string }>;
-  charges: Array<{ code: string; kind: string; calculation: string; amountMinor: string }>;
-  addons: Array<{ code: string; pricingModel: string; selectedQuantity: number; amountMinor: string }>;
+  charges: Array<{ id?: string; code: string; kind: string; calculation: string; amountMinor: string }>;
+  addons: Array<{ id?: string; code: string; pricingModel: string; selectedQuantity: number; amountMinor: string }>;
   accommodationSubtotalMinor: string;
   taxTotalMinor: string;
   feeTotalMinor: string;
@@ -24,9 +24,19 @@ export function serializePublicHospitalityQuote(quote: PublicHospitalityQuoteInp
     stayNights: quote.stayNights,
     quantity: quote.quantity,
     currency: quote.currency,
-    nightly: quote.nightly,
-    charges: quote.charges,
-    addons: quote.addons,
+    nightly: quote.nightly.map((night) => ({ date: night.date, amountMinor: night.amountMinor })),
+    charges: quote.charges.map((charge) => ({
+      code: charge.code,
+      kind: charge.kind,
+      calculation: charge.calculation,
+      amountMinor: charge.amountMinor,
+    })),
+    addons: quote.addons.map((addon) => ({
+      code: addon.code,
+      pricingModel: addon.pricingModel,
+      selectedQuantity: addon.selectedQuantity,
+      amountMinor: addon.amountMinor,
+    })),
     accommodationSubtotalMinor: quote.accommodationSubtotalMinor,
     taxTotalMinor: quote.taxTotalMinor,
     feeTotalMinor: quote.feeTotalMinor,
