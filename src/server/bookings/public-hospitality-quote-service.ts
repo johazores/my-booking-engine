@@ -1,3 +1,4 @@
+import { formatAvailabilityDate } from '../availability/availability-domain.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
 import type { HospitalityAddonSelectionInput } from '../pricing/hospitality-addon-domain.ts';
@@ -69,8 +70,6 @@ export async function quotePublicHospitalityHold(input: {
           arrivalDate: true,
           departureDate: true,
           quantity: true,
-          adults: true,
-          children: true,
           expiresAt: true,
         },
       }),
@@ -84,11 +83,9 @@ export async function quotePublicHospitalityHold(input: {
         propertyId: hold.propertyId,
         roomTypeId: hold.roomTypeId,
         ratePlanId: hold.ratePlanId,
-        arrivalDate: hold.arrivalDate,
-        departureDate: hold.departureDate,
+        arrivalDate: formatAvailabilityDate(hold.arrivalDate),
+        departureDate: formatAvailabilityDate(hold.departureDate),
         quantity: hold.quantity,
-        adults: hold.adults,
-        children: hold.children,
       },
       addonSelections: input.addonSelections,
     });
