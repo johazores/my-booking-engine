@@ -1,45 +1,46 @@
-# Commercial booking price-adjustment preview
+# Commercial booking adjustments
 
-SF now exposes an authenticated, tenant-scoped price-impact review step for hospitality commercial modifications before any write is attempted.
+SF has an authenticated, tenant-scoped price-impact review contract and now also has the durable internal amendment boundary required before any non-zero commercial booking change can be paid and applied.
 
-## Implemented boundary
+## Price review
 
-`POST /api/bookings/hospitality/[booking-id]/modify/preview` accepts the same normalized room type, rate plan, room quantity, add-on selections, and booking idempotency key used by the existing commercial modification write.
+`POST /api/bookings/hospitality/[booking-id]/modify/preview` accepts normalized room type, rate plan, room quantity, add-on selections, and a booking idempotency key. The server derives organization and actor authority from the authenticated request context and requires `booking:manage`.
 
-The server derives organization and actor authority from the authenticated request context and requires `booking:manage`. It serializes the read on the shared tenant-and-booking advisory lock, re-reads the tenant-owned confirmed booking and retained allocation, rejects unresolved `PENDING` or `AMBIGUOUS` authorization/capture activity, validates the active target room/rate assignment and current traveler occupancy, and recalculates the requested commercial terms from current persisted pricing.
+The review re-reads the tenant-owned confirmed booking, validates the active target room/rate assignment and traveler occupancy, recalculates current persisted pricing, and compares immutable current booking money with the proposed quote using integer minor units only. It returns current/proposed component totals, the signed price delta, booking version, selection fingerprint, and a deterministic SHA-256 adjustment fingerprint.
 
-The preview never trusts browser-supplied current price, tenant identity, payment state, or existing booking monetary fields.
+`ADDITIONAL_CHARGE` and `REFUND` in the review are price-delta directions. They are not permission for the browser to charge or refund money and must not be interpreted as authoritative settlement instructions without reconciling payment history.
 
-## Exact adjustment contract
+## Durable amendment preparation
 
-The preview compares immutable current booking money with the current proposed quote using integer minor units only. It returns:
+`prepareHospitalityBookingCommercialAmendment` is an internal service boundary. It is intentionally not exposed as a route or primary UI action until provider execution and final apply/recovery are complete.
 
-- exact current and proposed accommodation, tax, fee, add-on, and grand-total amounts;
-- a signed grand-total delta;
-- `NONE`, `ADDITIONAL_CHARGE`, or `REFUND` direction;
-- the booking `updatedAt` timestamp as the reviewed booking version;
-- the canonical commercial-selection fingerprint;
-- a deterministic SHA-256 adjustment fingerprint over version, selection, before/after price snapshots, and component deltas; and
-- customer/staff-safe display amounts derived server-side from the tenant currency.
+Preparation requires both `booking:manage` and `payment:manage`, serializes on the shared booking and inventory advisory locks, and accepts the reviewed adjustment fingerprint rather than trusting browser-supplied price or settlement data. It then:
 
-The domain rejects malformed minor-unit values, internally inconsistent component totals, invalid pricing fingerprints, and cross-currency comparisons.
+- re-reads the tenant-owned confirmed booking and verifies that allocation matches the booking's persisted room and quantity;
+- refuses every unresolved `PENDING` or `AMBIGUOUS` payment transaction;
+- currently requires a fully paid booking with one reconciled supported settlement source (`manual` or `stripe`) matching the authoritative booking total;
+- revalidates room/rate assignment, occupancy, restrictions, add-ons, and current transactional pricing;
+- rejects a stale review when the recalculated adjustment fingerprint differs;
+- snapshots immutable current and target commercial terms plus before/after monetary components in `HospitalityBookingCommercialAmendment`;
+- protects only the inventory that would otherwise be lost while payment is arranged: the full target quantity when changing room type, or only incremental units for a same-room-type quantity increase;
+- uses the normal tenant-scoped `HospitalityAvailabilityHold` core for that protection and a bounded 15-minute amendment lifetime;
+- records truthful prepared/expired/cancelled audit events; and
+- supports idempotent preparation and cancellation without mutating the booking itself.
 
-## Execution rules
+Same-room decreases and rate/add-on-only changes do not create artificial inventory holds. They still expire after the same bounded review window so pricing and booking version cannot remain actionable indefinitely.
 
-The preview is deliberately not a payment or inventory mutation. It does not reserve target inventory, create an amendment, charge a payment method, issue a refund, rewrite payment status, or alter the booking.
+## Database invariants
 
-When the reviewed delta is exactly zero, the booking-detail UI exposes the existing real commercial modification action. That write remains authoritative and repeats inventory, restriction, occupancy, unresolved-payment, and current-pricing checks inside its serializable transaction before changing the booking/allocation.
+The amendment migration adds tenant-safe foreign keys to organization, booking, property, current/target room type, current/target rate plan, and optional target hold. Database checks enforce positive quantities, non-negative monetary components, exact component totals, `delta = after - before`, direction/sign agreement, hold/protection consistency, and terminal lifecycle timestamps.
 
-When the delta is non-zero, the UI presents the exact additional-charge or refund impact but does not expose an executable apply action. This avoids a fake or unsafe workflow while the durable amendment/payment-adjustment lifecycle is still incomplete.
+The browser cannot supply organization ownership, current booking money, payment provider authority, current settlement amount, or inventory authority.
 
-## Remaining payment-adjustment work
+## Still intentionally closed
 
-A production non-zero commercial modification still needs durable amendment persistence and orchestration covering target inventory protection, immutable before/after terms, charge/refund intent, provider execution, payment-state transitions, exact retry semantics, ambiguous outcomes, crash recovery, cancellation/expiry, and final booking/payment reconciliation.
+Preparing an amendment does not charge, refund, apply inventory changes, or rewrite booking/payment state. There is no public or staff route for preparation yet because exposing a workflow that cannot finish would create a dead primary action.
 
-The existing Phase 13 general price-changing commercial modification checklist item must remain open until that lifecycle is implemented and validated. This preview is the authoritative preflight contract for that future work, not a claim that the payment adjustment itself is complete.
+The Phase 13 general commercial modification item remains open. The next dependency is provider-aware payment execution and durable recovery for a prepared amendment, followed by a final serializable apply transaction that revalidates amendment expiry, booking version, payment outcome, target inventory protection, and current pricing before atomically replacing booking commercial terms/allocation and recording audit history. Unpaid, authorized, partially refunded, fully refunded, and otherwise unreconciled bookings remain fail-closed until their exact settlement-adjustment semantics are defined.
 
 ## Validation
 
-Dependency-free domain tests cover zero-delta, additional-charge, refund, cross-currency rejection, deterministic/version-sensitive fingerprints, large exact minor-unit arithmetic without JavaScript number conversion, and inconsistent monetary snapshot rejection.
-
-Full repository typecheck/lint/build and PostgreSQL integration execution still require the repository Node 24 toolchain and a confirmed disposable PostgreSQL target.
+Dependency-free amendment-domain tests cover room-type changes, same-room quantity increases/decreases, bounded expiry, deterministic hold identity, and malformed fingerprints. Full repository typecheck/lint/build, Prisma validation/migration execution, and PostgreSQL integration tests still require the repository Node 24 toolchain and a confirmed disposable PostgreSQL target.

@@ -1,0 +1,61 @@
+enum HospitalityBookingCommercialAmendmentStatus {
+  PREPARED
+  CANCELLED
+  EXPIRED
+  APPLIED
+}
+
+enum HospitalityBookingCommercialAmendmentDirection {
+  ADDITIONAL_CHARGE
+  REFUND
+}
+
+model HospitalityBookingCommercialAmendment {
+  id                                String                                         @id @default(uuid()) @db.Uuid
+  organizationId                    String                                         @db.Uuid
+  bookingId                         String                                         @db.Uuid
+  idempotencyKey                    String                                         @db.VarChar(120)
+  status                            HospitalityBookingCommercialAmendmentStatus     @default(PREPARED)
+  direction                         HospitalityBookingCommercialAmendmentDirection
+  bookingVersion                    DateTime                                       @db.Timestamptz(6)
+  selectionFingerprint              String                                         @db.Char(64)
+  adjustmentFingerprint             String                                         @db.Char(64)
+  paymentProviderCode               String                                         @db.VarChar(40)
+  propertyId                        String                                         @db.Uuid
+  currentRoomTypeId                 String                                         @db.Uuid
+  currentRatePlanId                 String                                         @db.Uuid
+  currentQuantity                   Int
+  currentAddonSelections            Json
+  targetRoomTypeId                  String                                         @db.Uuid
+  targetRatePlanId                  String                                         @db.Uuid
+  targetQuantity                    Int
+  targetAddonSelections             Json
+  currency                          String                                         @db.Char(3)
+  beforeAccommodationSubtotalMinor  BigInt                                         @db.BigInt
+  beforeTaxTotalMinor               BigInt                                         @db.BigInt
+  beforeFeeTotalMinor               BigInt                                         @db.BigInt
+  beforeAddonTotalMinor             BigInt                                         @db.BigInt
+  beforeTotalMinor                  BigInt                                         @db.BigInt
+  beforePricingFingerprint          String                                         @db.Char(64)
+  afterAccommodationSubtotalMinor   BigInt                                         @db.BigInt
+  afterTaxTotalMinor                BigInt                                         @db.BigInt
+  afterFeeTotalMinor                BigInt                                         @db.BigInt
+  afterAddonTotalMinor              BigInt                                         @db.BigInt
+  afterTotalMinor                   BigInt                                         @db.BigInt
+  afterPricingFingerprint           String                                         @db.Char(64)
+  deltaMinor                        BigInt                                         @db.BigInt
+  targetHoldId                      String?                                        @db.Uuid
+  protectionQuantity                Int                                            @default(0)
+  expiresAt                         DateTime                                       @db.Timestamptz(6)
+  endedAt                           DateTime?                                      @db.Timestamptz(6)
+  appliedAt                         DateTime?                                      @db.Timestamptz(6)
+  createdAt                         DateTime                                       @default(now()) @db.Timestamptz(6)
+  updatedAt                         DateTime                                       @updatedAt @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, targetHoldId])
+  @@index([organizationId, bookingId, status, expiresAt])
+  @@index([organizationId, status, expiresAt])
+  @@map("hospitality_booking_commercial_amendments")
+}
