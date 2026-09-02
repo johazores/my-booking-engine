@@ -52,6 +52,12 @@ type ApiError = {
   message?: string;
 };
 
+type PaymentRecoveryStatus = {
+  state?: unknown;
+  canResumeCheckout?: unknown;
+  canContinuePayment?: unknown;
+};
+
 const RECOVERY_PREFIX = 'sf-public-booking-recovery:';
 
 function apiPath(organizationSlug: string, suffix: string) {
@@ -111,9 +117,10 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
   const [recovery, setRecovery] = useState<BookingRecovery | null>(null);
   const [state, setState] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [canContinuePayment, setCanContinuePayment] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  async function checkStatus(current: BookingRecovery) {
+  async function checkStatus(current: BookingRecovery, context: { cancelledReturn?: boolean } = {}) {
     setBusy(true);
     try {
       const response = await fetch(apiPath(organizationSlug, 'payments/stripe-checkout/status'), {
@@ -121,26 +128,45 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability: current.bookingCapability }),
       });
-      const result = await readJson(response) as { state?: unknown };
+      const result = await readJson(response) as PaymentRecoveryStatus;
       const nextState = typeof result.state === 'string' ? result.state : 'PROCESSING';
+      const canResumeCheckout = result.canResumeCheckout === true;
+      const canContinue = result.canContinuePayment === true;
       setState(nextState);
+      setCanContinuePayment(canContinue);
       if (nextState === 'PAID') {
         setMessage('Payment confirmed. Your reservation is confirmed.');
         clearRecovery(organizationSlug);
       } else if (nextState === 'PROCESSING') {
-        setMessage('Your payment is still being verified. You can check again safely.');
+        if (context.cancelledReturn && canResumeCheckout) {
+          setMessage('Payment was not completed. Your secure Checkout session is still available, so you can continue without creating another reservation.');
+        } else if (context.cancelledReturn && canContinue) {
+          setMessage('Payment was not completed. Your reservation is still recoverable and secure payment can be retried safely.');
+        } else if (canResumeCheckout) {
+          setMessage('Your secure Checkout session is still available. You can continue payment or check the latest status.');
+        } else if (canContinue) {
+          setMessage('Secure payment can be retried safely while this reservation remains recoverable.');
+        } else {
+          setMessage('Your payment is still being verified. You can check again safely.');
+        }
       } else if (nextState === 'PAYMENT_REQUIRED' || nextState === 'FAILED') {
-        setMessage('Payment is still required for this reservation.');
+        setMessage(context.cancelledReturn
+          ? 'Payment was not completed. Your reservation is still recoverable.'
+          : 'Payment is still required for this reservation.');
       } else if (nextState === 'EXPIRED') {
         setMessage('This reservation attempt expired before payment was secured. Please search availability again.');
+        setCanContinuePayment(false);
         clearRecovery(organizationSlug);
       } else if (nextState === 'CANCELLED') {
         setMessage('This reservation is cancelled.');
+        setCanContinuePayment(false);
         clearRecovery(organizationSlug);
       } else {
         setMessage('We could not confirm the latest payment state.');
+        setCanContinuePayment(false);
       }
     } catch (error) {
+      setCanContinuePayment(false);
       setMessage(error instanceof Error ? error.message : 'Payment status could not be checked.');
     } finally {
       setBusy(false);
@@ -151,13 +177,22 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
     if (!recovery) return;
     setBusy(true);
     setMessage(null);
+
+    const activeRecovery = state === 'FAILED'
+      ? { ...recovery, checkoutRequestKey: crypto.randomUUID() }
+      : recovery;
+    if (activeRecovery !== recovery) {
+      setRecovery(activeRecovery);
+      storeRecovery(organizationSlug, activeRecovery);
+    }
+
     try {
       const response = await fetch(apiPath(organizationSlug, 'payments/stripe-checkout'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          bookingCapability: recovery.bookingCapability,
-          requestKey: recovery.checkoutRequestKey,
+          bookingCapability: activeRecovery.bookingCapability,
+          requestKey: activeRecovery.checkoutRequestKey,
         }),
       });
       const result = await readJson(response) as { state?: unknown; checkoutUrl?: unknown };
@@ -169,14 +204,14 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
       }
       if (result.state === 'PAID') {
         setState('PAID');
+        setCanContinuePayment(false);
         setMessage('Payment confirmed. Your reservation is confirmed.');
         clearRecovery(organizationSlug);
         return;
       }
-      await checkStatus(recovery);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Secure payment could not be resumed.');
-      setBusy(false);
+      await checkStatus(activeRecovery);
+    } catch {
+      await checkStatus(activeRecovery);
     }
   }
 
@@ -184,16 +219,14 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
     const current = readRecovery(organizationSlug);
     if (!current) return;
     setRecovery(current);
-    const paymentReturn = new URLSearchParams(window.location.search).get('payment');
-    if (paymentReturn === 'cancelled') {
-      setMessage('Payment was not completed. Your reservation may still be recoverable.');
-    }
-    void checkStatus(current);
+    const cancelledReturn = new URLSearchParams(window.location.search).get('payment') === 'cancelled';
+    void checkStatus(current, { cancelledReturn });
   }, [organizationSlug]);
 
   if (!recovery && !message) return null;
 
-  const canResume = recovery && (state === 'PAYMENT_REQUIRED' || state === 'FAILED');
+  const canResume = Boolean(recovery && canContinuePayment);
+  const resumeLabel = state === 'FAILED' ? 'Start a new secure payment' : 'Continue secure payment';
   return (
     <section className="sf-public-booking__search-card" aria-live="polite" aria-labelledby="payment-status-title">
       <div>
@@ -202,7 +235,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         <p>{message || 'Checking the latest payment state…'}</p>
       </div>
       <div className="sf-public-booking__price">
-        {canResume ? <button type="button" className="sf-public-booking__contact" onClick={resumePayment} disabled={busy}>Continue secure payment</button> : null}
+        {canResume ? <button type="button" className="sf-public-booking__contact" onClick={resumePayment} disabled={busy}>{resumeLabel}</button> : null}
         {recovery && state !== 'PAID' && state !== 'EXPIRED' && state !== 'CANCELLED'
           ? <button type="button" className="sf-public-booking__contact" onClick={() => checkStatus(recovery)} disabled={busy}>Check status</button>
           : null}
@@ -227,10 +260,31 @@ export function PublicBookingOfferCard({
   const confirmationRequestKey = useRef<string | null>(null);
   const checkoutRequestKey = useRef<string | null>(null);
 
+  function clearHoldClientState() {
+    setHoldCapability(null);
+    setQuote(null);
+    holdRequestKey.current = null;
+    confirmationRequestKey.current = null;
+  }
+
+  async function requestHoldRelease(capability: string) {
+    try {
+      const response = await fetch(apiPath(organizationSlug, 'holds'), {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ capability }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async function reserve() {
     setStage('holding');
     setMessage(null);
     holdRequestKey.current ??= crypto.randomUUID();
+    let createdCapability: string | null = null;
     try {
       const holdResponse = await fetch(apiPath(organizationSlug, 'holds'), {
         method: 'POST',
@@ -249,37 +303,55 @@ export function PublicBookingOfferCard({
       });
       const holdResult = await readJson(holdResponse) as { capability?: unknown };
       if (typeof holdResult.capability !== 'string') throw new Error('The reservation hold response was incomplete.');
-      setHoldCapability(holdResult.capability);
+      createdCapability = holdResult.capability;
+      setHoldCapability(createdCapability);
 
       const quoteResponse = await fetch(apiPath(organizationSlug, 'quote'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ capability: holdResult.capability, addonSelections: [] }),
+        body: JSON.stringify({ capability: createdCapability, addonSelections: [] }),
       });
       const quoteResult = await readJson(quoteResponse) as { quote?: unknown };
       if (!quoteResult.quote || typeof quoteResult.quote !== 'object') throw new Error('Current pricing could not be reviewed.');
       setQuote(quoteResult.quote as Quote);
       setStage('details');
     } catch (error) {
+      const baseMessage = error instanceof Error ? error.message : 'This stay could not be held.';
+      if (createdCapability) {
+        const released = await requestHoldRelease(createdCapability);
+        if (released) {
+          clearHoldClientState();
+          setMessage(`${baseMessage} The temporary hold was released.`);
+        } else {
+          setMessage(`${baseMessage} The temporary hold could not be released right now; you can retry releasing it below.`);
+        }
+      } else {
+        setMessage(baseMessage);
+      }
       setStage('error');
-      setMessage(error instanceof Error ? error.message : 'This stay could not be held.');
     }
   }
 
   async function releaseHold() {
     const capability = holdCapability;
-    setHoldCapability(null);
-    setQuote(null);
+    if (!capability) {
+      clearHoldClientState();
+      setStage('idle');
+      setMessage(null);
+      return;
+    }
+
+    setMessage('Releasing the temporary hold…');
+    const released = await requestHoldRelease(capability);
+    if (!released) {
+      setStage('error');
+      setMessage('The temporary hold could not be released right now. You can retry; otherwise it will expire automatically.');
+      return;
+    }
+
+    clearHoldClientState();
     setStage('idle');
     setMessage(null);
-    holdRequestKey.current = null;
-    confirmationRequestKey.current = null;
-    if (!capability) return;
-    await fetch(apiPath(organizationSlug, 'holds'), {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ capability }),
-    }).catch(() => undefined);
   }
 
   async function startCheckout(bookingCapability: string, currency: string, totalMinor: string) {
@@ -430,6 +502,7 @@ export function PublicBookingOfferCard({
           <p>{message || 'The reservation could not be completed.'}</p>
           {!holdCapability ? <button type="button" className="sf-public-booking__contact" onClick={reserve}>Try this stay again</button> : null}
           {holdCapability && quote ? <button type="button" className="sf-public-booking__contact" onClick={() => setStage('details')}>Review details</button> : null}
+          {holdCapability && !quote ? <button type="button" className="sf-public-booking__contact" onClick={releaseHold}>Release temporary hold</button> : null}
         </div>
       ) : null}
     </article>

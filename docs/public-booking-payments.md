@@ -22,7 +22,7 @@ When Stripe returns a valid hosted Session, SF persists `PaymentCheckoutSession`
 
 ## Public journey orchestration
 
-The public booking page now connects the existing production boundaries end to end:
+The public booking page connects the existing production boundaries end to end:
 
 1. server-rendered tenant branding, live inventory, and current offer pricing;
 2. same-origin public hold creation using a stable UUID-v4 request key;
@@ -33,6 +33,8 @@ The public booking page now connects the existing production boundaries end to e
 7. hosted provider payment;
 8. same-tab return recovery through the capability-owned status endpoint; and
 9. truthful completion only when authoritative provider/webhook state says the booking is paid.
+
+If quote retrieval fails after a hold was created, the browser explicitly requests hold release. A failed cleanup request keeps the capability available and surfaces a retryable release action rather than claiming inventory was released. Customers who cancel hosted Checkout return to an authoritative status check; when the server confirms payment can safely continue, the page exposes a real resume/retry action instead of leaving the reservation stranded.
 
 The confirmation route never accepts organization, principal, hold, booking, customer, or allocation IDs as authority. Tenant scope comes from the public slug and the encrypted hold capability plus persisted ownership.
 
@@ -52,6 +54,8 @@ Exact retries reuse the same Stripe idempotency key. Changed operations fail clo
 
 After Stripe creates the Session, SF persists the tenant-bound `PaymentCheckoutSession` before returning the Checkout URL. A process failure after provider creation but before persistence is recovered by retrying the same public request key: Stripe idempotency returns the same provider operation and SF attempts the durable bind again.
 
+The payment-status boundary returns explicit customer-safe continuation guidance derived from authoritative booking, payment, and Checkout-session state. An active open Checkout or retryable pending provider-start claim can reuse the stored request key. A definitively failed payment attempt requires a fresh browser UUID so the server creates a new tenant-bound idempotency scope. Ambiguous, authorized, terminal, and expired states do not invite another Checkout attempt.
+
 ## Signed lifecycle recovery
 
 SF parses signed `checkout.session.*` data only inside the Stripe webhook adapter boundary. Tenant/booking metadata, exact money, stored Session identity, ownership, and current payment state must agree before mutations are accepted.
@@ -64,6 +68,6 @@ Authenticated staff cancellation uses the same booking lock order and refuses to
 
 ## Validation
 
-Dependency-free payment-start tests cover deadline exclusivity and protection rules. Existing Checkout adapter/webhook-domain tests cover provider money/metadata/idempotency behavior, normalized provider failures, Checkout Session parsing, and fail-closed expiry decisions.
+Dependency-free payment-start tests cover deadline exclusivity and protection rules. Payment-recovery domain tests cover active unpaid continuation, open Checkout resumption, retryable pending provider-start recovery, failed-attempt restart, ambiguous-state blocking, and terminal/expiry denial. Existing Checkout adapter/webhook-domain tests cover provider money/metadata/idempotency behavior, normalized provider failures, Checkout Session parsing, and fail-closed expiry decisions.
 
 The public confirmation PostgreSQL integration suite verifies tenant-bound ownership, idempotent confirmation, pending-allocation protection, and automatic capacity release when the payment-start lifecycle expires without evidence. Full Prisma generation/validation, disposable PostgreSQL integration execution, repository typecheck/lint, and production build still require the repository's Node 24 environment. GitHub Actions are not used.

@@ -4,6 +4,7 @@ import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hos
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
 import { PaymentUnavailableError } from './payment-service.ts';
+import { decidePublicStripePaymentRecovery } from './public-stripe-payment-recovery-domain.ts';
 import { PublicStripeCheckoutAuthorizationError } from './public-stripe-checkout-service.ts';
 
 function publicBookingSecret() {
@@ -60,7 +61,7 @@ export async function getPublicStripePaymentStatus(input: {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { kind: true, status: true, currency: true, amountMinor: true, createdAt: true },
     }),
-    booking.status === 'PENDING_CONFIRMATION'
+    booking.status === 'PENDING_CONFIRMATION' || booking.status === 'CONFIRMED'
       ? db.paymentCheckoutSession.findFirst({
           where: {
             organizationId: branding.id,
@@ -82,17 +83,18 @@ export async function getPublicStripePaymentStatus(input: {
     hasSuccessfulPayment: latest?.status === 'SUCCEEDED',
     now,
   });
-
-  let state: 'PAYMENT_REQUIRED' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
-  if (booking.status === 'CANCELLED') state = 'CANCELLED';
-  else if (['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus)) state = 'PAID';
-  else if (!pendingAllocationProtected) state = 'EXPIRED';
-  else if (latest?.status === 'PENDING' || latest?.status === 'AMBIGUOUS' || booking.paymentStatus === 'AUTHORIZED') state = 'PROCESSING';
-  else if (latest?.status === 'FAILED' || booking.paymentStatus === 'FAILED') state = 'FAILED';
-  else state = 'PAYMENT_REQUIRED';
+  const recovery = decidePublicStripePaymentRecovery({
+    bookingStatus: booking.status,
+    bookingPaymentStatus: booking.paymentStatus,
+    pendingAllocationProtected,
+    latestPaymentStatus: latest?.status ?? null,
+    hasOpenCheckout: Boolean(openCheckout),
+  });
 
   return Object.freeze({
-    state,
+    state: recovery.state,
+    canResumeCheckout: recovery.canResumeCheckout,
+    canContinuePayment: recovery.canContinuePayment,
     bookingStatus: booking.status,
     paymentStatus: booking.paymentStatus,
     currency: booking.currency,
