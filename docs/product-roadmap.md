@@ -96,7 +96,7 @@ Still separate/not claimed complete:
 - PayPal or additional payment providers until prioritized by real product need
 - jurisdiction-specific tax invoice issuance, invoice numbering/tax fields, PDF/email delivery, and accounting integrations
 
-## 14. Booking management — core lifecycle implemented; general commercial modification remains
+## 14. Booking management — zero-delta commercial changes implemented; price-changing adjustment contract remains
 
 Implemented:
 
@@ -105,10 +105,14 @@ Implemented:
 - safe cancellation with payment-state blockers and explicit confirmation
 - date-only rescheduling with availability/restriction/current-price revalidation
 - traveler snapshot add/edit/remove with occupancy enforcement
+- room type, rate plan, room quantity, and add-on changes when every monetary price component remains exactly unchanged
+- target-room capacity/restriction/occupancy validation and deterministic current/target allocation locking
+- durable commercial-modification idempotency and stale-retry protection
+- unresolved authorization/capture blocking for commercial changes
 - shared booking/payment mutation serialization
 - retained commercial history and audited mutations
 
-Remaining major boundary: room type, rate plan, room quantity, add-on, or other commercial modifications that change the immutable price snapshot. Those require an explicit versioned modification/payment-adjustment contract instead of an implicit charge/refund.
+Remaining major boundary: any room, rate, quantity, add-on, date, or other commercial modification that produces a non-zero price delta. That requires an explicit versioned amendment/payment-adjustment contract covering charge/refund intent, provider behavior, payment-state transitions, immutable before/after history, retries, failure/ambiguity recovery, and customer/staff presentation. SF does not silently mutate amount owed or paid.
 
 ## 15. Integration framework — current production management foundation implemented
 

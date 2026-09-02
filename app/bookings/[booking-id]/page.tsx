@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { BookingCancelAction } from '@/components/booking-cancel-action.tsx';
+import { BookingCommercialModificationAction } from '@/components/booking-commercial-modification-action.tsx';
 import { BookingGuestEditAction } from '@/components/booking-guest-edit-action.tsx';
 import { BookingRescheduleAction } from '@/components/booking-reschedule-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
@@ -24,8 +25,19 @@ function safeProviderReference(reference: string | null) {
 function safeAuditPayload(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '—';
   const payload = value as Record<string, unknown>;
-  const allowed = Object.fromEntries(Object.entries(payload).filter(([key]) => !['guestFingerprint', 'idempotencyKey'].includes(key)));
+  const hiddenKeys = ['guestFingerprint', 'idempotencyKey', 'modificationFingerprint', 'pricingFingerprint'];
+  const allowed = Object.fromEntries(Object.entries(payload).filter(([key]) => !hiddenKeys.includes(key)));
   return Object.keys(allowed).length === 0 ? '—' : JSON.stringify(allowed);
+}
+
+function editableAddonSelections(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((selection) => {
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection)) return [];
+    const record = selection as Record<string, unknown>;
+    if (typeof record.addonId !== 'string' || !Number.isSafeInteger(record.quantity) || Number(record.quantity) < 1) return [];
+    return [{ addonId: record.addonId, quantity: Number(record.quantity) }];
+  });
 }
 
 export default async function BookingDetailPage({ params, searchParams }: {
@@ -69,6 +81,7 @@ export default async function BookingDetailPage({ params, searchParams }: {
   }
 
   const addonSelections = Array.isArray(booking.addonSelections) ? booking.addonSelections : [];
+  const commercialAddonSelections = editableAddonSelections(booking.addonSelections);
   const cancellationPaymentBlockReason = bookingCancellationPaymentBlockReason(booking.paymentStatus);
   const arrivalDate = booking.arrivalDate.toISOString().slice(0, 10);
   const departureDate = booking.departureDate.toISOString().slice(0, 10);
@@ -91,6 +104,7 @@ export default async function BookingDetailPage({ params, searchParams }: {
 
     <section className="sf-booking-card" aria-labelledby="booking-audit-title"><div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Audit history</p><h2 id="booking-audit-title">{auditHistory.total} booking event{auditHistory.total === 1 ? '' : 's'}</h2></div><span>Page {auditHistory.page} of {auditHistory.totalPages}</span></div>{auditHistory.events.length === 0 ? <div className="sf-empty-state"><h3>No booking audit events</h3><p>No audit history has been persisted for this booking.</p></div> : <><div className="sf-room-table-wrap"><table className="sf-room-table"><thead><tr><th scope="col">Event</th><th scope="col">Before</th><th scope="col">After</th><th scope="col">Created</th></tr></thead><tbody>{auditHistory.events.map((event) => <tr key={event.id}><th scope="row">{event.action}</th><td>{safeAuditPayload(event.beforeData)}</td><td>{safeAuditPayload(event.afterData)}</td><td>{event.createdAt.toISOString()}</td></tr>)}</tbody></table></div>{auditHistory.totalPages > 1 ? <nav className="sf-actions" aria-label="Booking audit history pages">{auditHistory.page > 1 ? <Link className="sf-button sf-button--secondary" href={`/bookings/${booking.id}?auditPage=${auditHistory.page - 1}${auditQuery}`}>Previous events</Link> : null}{auditHistory.page < auditHistory.totalPages ? <Link className="sf-button sf-button--secondary" href={`/bookings/${booking.id}?auditPage=${auditHistory.page + 1}${auditQuery}`}>Next events</Link> : null}</nav> : null}</>}</section>
 
+    <section className="sf-booking-card" aria-labelledby="booking-commercial-title"><div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Commercial terms</p><h2 id="booking-commercial-title">Room, rate, quantity, and add-ons</h2></div></div><BookingCommercialModificationAction bookingId={booking.id} bookingStatus={booking.status} roomTypeId={booking.roomTypeId} ratePlanId={booking.ratePlanId} quantity={booking.quantity} addonSelections={commercialAddonSelections} /></section>
     <section className="sf-booking-card" aria-labelledby="booking-reschedule-title"><div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Stay changes</p><h2 id="booking-reschedule-title">Reschedule</h2></div></div><BookingRescheduleAction bookingId={booking.id} bookingStatus={booking.status} arrivalDate={arrivalDate} departureDate={departureDate} /></section>
     <section className="sf-booking-card" aria-labelledby="booking-cancellation-title"><div className="sf-booking-card__heading"><div><p className="sf-eyebrow">Reservation lifecycle</p><h2 id="booking-cancellation-title">Cancellation</h2></div></div><BookingCancelAction bookingId={booking.id} bookingStatus={booking.status} paymentBlockReason={cancellationPaymentBlockReason} /></section>
   </div>;

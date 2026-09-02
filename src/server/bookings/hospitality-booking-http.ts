@@ -42,23 +42,30 @@ export function hospitalityBookingJson(value: unknown, status = 200) {
     return item;
   }), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
   });
 }
 
+function bookingApiErrorJson(body: Record<string, string>, status: number) {
+  return Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
+}
+
 export function hospitalityBookingApiError(error: unknown) {
-  if (error instanceof BookingApiRequestError) return Response.json({ error: 'invalid-request', message: error.message }, { status: 403 });
-  if (error instanceof OrganizationPermissionDeniedError) return Response.json({ error: 'forbidden' }, { status: 403 });
-  if (error instanceof HospitalityBookingPriceChangedError) return Response.json({ error: 'price-changed', message: error.message }, { status: 409 });
+  if (error instanceof BookingApiRequestError) return bookingApiErrorJson({ error: 'invalid-request', message: error.message }, 403);
+  if (error instanceof OrganizationPermissionDeniedError) return bookingApiErrorJson({ error: 'forbidden' }, 403);
+  if (error instanceof HospitalityBookingPriceChangedError) return bookingApiErrorJson({ error: 'price-changed', message: error.message }, 409);
   if (error instanceof HospitalityBookingConflictError || error instanceof AvailabilityHoldConflictError) {
-    return Response.json({ error: 'conflict', message: error.message }, { status: 409 });
+    return bookingApiErrorJson({ error: 'conflict', message: error.message }, 409);
   }
   if (error instanceof HospitalityBookingUnavailableError || error instanceof AvailabilityHoldUnavailableError || error instanceof AvailabilityUnavailableError || error instanceof HospitalityPricingUnavailableError) {
-    return Response.json({ error: 'unavailable', message: error.message }, { status: 409 });
+    return bookingApiErrorJson({ error: 'unavailable', message: error.message }, 409);
   }
-  if (error instanceof SyntaxError) return Response.json({ error: 'invalid-json' }, { status: 400 });
+  if (error instanceof SyntaxError) return bookingApiErrorJson({ error: 'invalid-json' }, 400);
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
-    return Response.json({ error: 'validation', message: error.message }, { status: 400 });
+    return bookingApiErrorJson({ error: 'validation', message: error.message }, 400);
   }
-  return Response.json({ error: 'internal-error' }, { status: 500 });
+  return bookingApiErrorJson({ error: 'internal-error' }, 500);
 }

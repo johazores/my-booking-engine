@@ -28,5 +28,21 @@
 .sf-booking-reschedule-form__dates input:focus-visible { outline: 2px solid var(--sf-accent); outline-offset: 2px; }
 .sf-booking-reschedule-form__dates input:disabled { cursor: not-allowed; opacity: .65; }
 .sf-booking-reschedule-form__error { color: var(--sf-danger, #b42318) !important; font-weight: 600; }
+.sf-booking-modification-form { display: grid; gap: 1rem; }
+.sf-booking-modification-form > p { margin: 0; color: var(--sf-text-muted, #667085); max-width: 76ch; }
+.sf-booking-modification-form__grid { display: grid; grid-template-columns: minmax(16rem, 2fr) minmax(7rem, .7fr); gap: .85rem; align-items: end; }
+.sf-booking-modification-form__grid label, .sf-booking-modification-addon__quantity { display: grid; gap: .4rem; font-weight: 600; }
+.sf-booking-modification-form select, .sf-booking-modification-form input[type="number"] { min-width: 0; min-height: 2.75rem; padding: .65rem .75rem; color: var(--sf-text, #101828); background: var(--sf-surface, #fff); border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); font: inherit; }
+.sf-booking-modification-form select:focus-visible, .sf-booking-modification-form input:focus-visible { outline: 2px solid var(--sf-accent); outline-offset: 2px; }
+.sf-booking-modification-form select:disabled, .sf-booking-modification-form input:disabled { cursor: not-allowed; opacity: .65; }
+.sf-booking-modification-form__addons { margin: 0; padding: 0; border: 0; display: grid; gap: .65rem; }
+.sf-booking-modification-form__addons legend { margin-bottom: .65rem; font-weight: 700; }
+.sf-booking-modification-addon { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6rem, 8rem); gap: 1rem; align-items: center; padding: .8rem 1rem; border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); }
+.sf-booking-modification-addon > label:first-child { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.sf-booking-modification-addon > label:first-child > span { display: grid; gap: .15rem; min-width: 0; }
+.sf-booking-modification-addon small { color: var(--sf-text-muted, #667085); overflow-wrap: anywhere; }
+.sf-booking-modification-addon__quantity input { width: 100%; }
+.sf-booking-modification-form__error { color: var(--sf-danger, #b42318) !important; font-weight: 600; }
+.sf-booking-modification-form__success { color: var(--sf-success, #067647) !important; font-weight: 600; }
 @media (max-width: 920px) { .sf-booking-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } }
+@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates, .sf-booking-modification-form__grid, .sf-booking-modification-addon { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } }
