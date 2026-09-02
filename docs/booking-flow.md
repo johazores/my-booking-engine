@@ -6,7 +6,7 @@ SF has a production-safe internal hospitality flow from normalized offer search 
 
 A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, validates booking-specific guest snapshots against room occupancy, persists those guest snapshots, consumes the hold, and writes the booking audit event.
 
-Payments, cancellation/modification, and the public white-label booking journey remain incomplete and must not be presented as finished.
+The public white-label journey now has real tenant-branded discovery plus a dedicated server-side public hold service with durable non-staff ownership and opaque hold capabilities. Anonymous capacity-write HTTP ingress remains deliberately closed until a durable multi-instance abuse-control policy is available; the public UI must not present an unprotected hold action as production-ready.
 
 ## Normalized hospitality search
 
@@ -53,7 +53,15 @@ Hold and booking idempotency keys remain stable across retryable client failures
 
 When confirmation reports a price change, the UI refreshes the quote and requires review. When the hold is unavailable or expired, stale commercial state is cleared and a new availability check is required. Successful confirmation shows persisted booking, payment state, guest count, and immutable total.
 
-This is an internal staff booking desk, not the public white-label customer journey.
+This is an internal staff booking desk. The public journey uses separate non-staff ownership and must never call these staff authorization wrappers.
+
+## Public discovery and hold boundary
+
+`/book/[organization-slug]` resolves the active organization from the slug server-side, applies tenant branding, and searches the same real inventory, restrictions, active holds, permanent allocations, and persisted pricing used by the internal flow. The browser does not choose an organization ID.
+
+`src/server/bookings/public-hospitality-hold-service.ts` is the customer-safe server boundary for the next write step. It derives tenant-bound idempotency from a UUID v4 public request key, calls the canonical hold transaction, atomically creates or reuses durable public ownership, writes separate public audit attribution, and returns customer-safe hold metadata plus an opaque expiring capability. Public release verifies both capability and persisted ownership before using the same allocation-locked hold core.
+
+The HTTP route is intentionally not exposed yet. SF still needs durable deployment-aware abuse controls for anonymous hold creation; a process-local limiter or untrusted forwarded address is not sufficient. See `docs/public-booking-write-boundary.md` for the exact boundary and remaining ingress requirement.
 
 ## Booking-specific guest snapshots
 
@@ -71,7 +79,7 @@ The audit event records guest count but not guest names or email addresses, avoi
 
 ## Concurrency and no-overbooking
 
-Hold creation and confirmation use the same room-type allocation advisory lock. Competing confirmation requests for the same final held unit are serialized; only one can consume the hold and create the permanent allocation. Exact retries of the winning idempotency key return the existing booking and its ordered guest snapshots without duplicate allocation, guests, or audit records.
+Hold creation, hold release, and confirmation use the same room-type allocation advisory lock. Competing creation/confirmation/release operations for the same inventory boundary are serialized, so release cannot race confirmation around hold consumption. Only one confirmation can consume a hold and create the permanent allocation. Exact retries of the winning booking idempotency key return the existing booking and its ordered guest snapshots without duplicate allocation, guests, or audit records.
 
 The internal hospitality policy is no overbooking. Availability subtracts active unexpired holds and non-cancelled permanent booking allocations per occupied night.
 
@@ -83,12 +91,16 @@ Persisted hospitality bookings store currency, accommodation subtotal, tax total
 
 Booking reads and writes always carry `organizationId` server-side. Hold, customer, room type, rate plan, booking, and allocation relations remain tenant constrained by their existing composite database relationships. Guest creation and reads additionally require the validated organization and booking ID in every query. Internal booking management requires explicit booking permissions; search also requires availability and pricing read capabilities.
 
+Public hold writes resolve the organization from the public slug, never from a client-supplied tenant ID. Public principals are not users or members, and public hold ownership plus public audit attribution are protected by same-tenant database constraints.
+
 ## Validation coverage
 
 Unit coverage includes normalized booking/search validation, guest normalization, canonical email handling, required names, guest-count bounds, idempotency payload matching, canonical date/quantity handling, and invalid calendar/range inputs. The disposable PostgreSQL booking suite continues to cover permission denial, cross-tenant denial, stale-price rollback, immutable server-derived totals, competing confirmation requests for one final held unit, idempotent retry, permanent allocation visibility in availability, bounded listing, and single audit-event persistence.
+
+The public hold integration suite additionally covers tenant-derived creation without a staff actor, durable ownership, separate public audit attribution, exact retry reuse, changed-payload conflicts, cross-tenant capability rejection, and idempotent allocation-locked release.
 
 Full execution requires the repository Node 24 runtime and an explicitly disposable PostgreSQL target through the documented local database harness. GitHub Actions are intentionally not part of validation.
 
 ## Next dependency
 
-The next major commercial dependency is payment orchestration. The public white-label journey should reuse the same real search, availability, hold, pricing, customer/guest, and confirmation contracts once its customer-safe authorization model is implemented. Provider-specific reservations remain behind future adapters rather than leaking into the internal booking domain.
+For the public journey, the next dependency is a production ingress abuse-control contract before exposing anonymous hold creation through HTTP. After that, public customer/guest attachment, confirmation, and payment collection/recovery must continue using capability plus persisted ownership rather than staff permissions. Provider-specific reservations remain behind adapters rather than leaking into the internal booking domain.
