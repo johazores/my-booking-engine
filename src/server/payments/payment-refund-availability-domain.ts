@@ -1,4 +1,5 @@
 import { deriveNextBookingRefundSource } from './payment-refund-allocation-domain.ts';
+import { deriveBookingPaymentStatusFromNetSettlement } from './payment-refund-state-domain.ts';
 import {
   deriveBookingSettlementSummary,
   type BookingSettlementTransaction,
@@ -56,13 +57,11 @@ export function deriveBookingRefundAvailability(input: BookingRefundAvailability
   if (!provider || (provider.providerCode !== 'manual' && provider.providerCode !== 'stripe')) {
     return { available: false, reason: 'No successful supported payment settlement is available to refund.' };
   }
-  if (
-    (input.paymentStatus === 'PAID' && settlement.netSettledMinor !== input.totalMinor)
-    || (
-      input.paymentStatus === 'PARTIALLY_REFUNDED'
-      && (settlement.netSettledMinor <= 0n || settlement.netSettledMinor >= input.totalMinor)
-    )
-  ) {
+  const derivedPaymentStatus = deriveBookingPaymentStatusFromNetSettlement({
+    bookingTotalMinor: input.totalMinor,
+    netSettledMinor: settlement.netSettledMinor,
+  });
+  if (!derivedPaymentStatus.reconciled || derivedPaymentStatus.paymentStatus !== input.paymentStatus) {
     return { available: false, reason: 'Booking payment status is inconsistent with settled payment history. Reconcile payment history before refunding.' };
   }
   if (settlement.netSettledMinor <= 0n) {
