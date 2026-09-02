@@ -16,7 +16,22 @@ export const integrationCapabilities = [
 
 export type IntegrationCapability = (typeof integrationCapabilities)[number];
 
+export const integrationHealthStatuses = [
+  'HEALTHY',
+  'AUTHENTICATION_FAILED',
+  'RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'INVALID_RESPONSE',
+] as const;
+
+export type IntegrationHealthStatus = (typeof integrationHealthStatuses)[number];
+export type IntegrationHealthSnapshot = Readonly<{
+  status: IntegrationHealthStatus;
+  checkedAt: Date;
+}>;
+
 const capabilitySet = new Set<string>(integrationCapabilities);
+const healthStatusSet = new Set<string>(integrationHealthStatuses);
 
 export function normalizeIntegrationProviderCode(value: unknown): string {
   if (typeof value !== 'string') throw new Error('Integration provider code is required.');
@@ -43,6 +58,24 @@ export function normalizeIntegrationCapabilities(value: unknown): IntegrationCap
   return normalized;
 }
 
+export function readCurrentIntegrationHealth(input: {
+  integrationStatus: string;
+  credentialVersion: number;
+  event: { createdAt: Date; afterData: unknown } | null;
+}): IntegrationHealthSnapshot | null {
+  if (input.integrationStatus === 'ARCHIVED' || !input.event) return null;
+  const payload = input.event.afterData;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const result = 'result' in payload ? payload.result : null;
+  const credentialVersion = 'credentialVersion' in payload ? payload.credentialVersion : null;
+  if (typeof result !== 'string' || !healthStatusSet.has(result)) return null;
+  if (credentialVersion !== input.credentialVersion) return null;
+  return Object.freeze({
+    status: result as IntegrationHealthStatus,
+    checkedAt: input.event.createdAt,
+  });
+}
+
 export function publicIntegrationRecord<T extends {
   id: string;
   organizationId: string;
@@ -54,7 +87,7 @@ export function publicIntegrationRecord<T extends {
   createdAt: Date;
   updatedAt: Date;
   archivedAt: Date | null;
-}>(integration: T) {
+}>(integration: T, health: IntegrationHealthSnapshot | null = null) {
   return Object.freeze({
     id: integration.id,
     organizationId: integration.organizationId,
@@ -66,5 +99,7 @@ export function publicIntegrationRecord<T extends {
     createdAt: integration.createdAt,
     updatedAt: integration.updatedAt,
     archivedAt: integration.archivedAt,
+    lastHealthStatus: health?.status ?? null,
+    lastHealthCheckedAt: health?.checkedAt ?? null,
   });
 }

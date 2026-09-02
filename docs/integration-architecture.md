@@ -53,7 +53,7 @@ Archived records cannot be enabled or disabled and active credential loading alw
 
 The authenticated `/integrations` management surface provides a Stripe-specific configuration form instead of a generic provider form. It never pre-fills or returns stored credentials. Saving the form replaces the complete encrypted Stripe credential set and activates the integration; lifecycle enable/disable remains a separate operation that does not rotate credentials. Webhook capability is only persisted when a webhook signing secret is supplied, so tenant configuration does not advertise verified webhook readiness when that secret is absent.
 
-Read-only managers can inspect safe provider metadata, status, credential version, update/archive time, and capabilities, but they cannot submit credential, lifecycle, archive, or provider-test mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
+Read-only managers can inspect safe provider metadata, status, credential version, update/archive time, capabilities, and the last connection-test result that still belongs to the current credential version. They cannot submit credential, lifecycle, archive, or provider-test mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
 
 ### Stripe connection testing
 
@@ -61,7 +61,11 @@ Organization administrators can explicitly test an active Stripe configuration f
 
 Connection results are normalized to `HEALTHY`, `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, or `INVALID_RESPONSE`. Network/timeout/provider failures are intentionally separated from invalid credentials so operators are not told to rotate a key when Stripe is merely unavailable. Disabled or archived integrations cannot be tested through the active-credential boundary.
 
-Every explicit connection test writes a PII/secret-free `integration.connection-tested` audit event containing only provider code, normalized result, and credential version. A passing connection test proves that the stored secret key authenticated for that read-only Stripe API call at test time; it does not prove webhook delivery, payment capture, refund settlement, account compliance, or future provider availability.
+Every explicit connection test writes a PII/secret-free `integration.connection-tested` audit event containing only provider code, normalized result, and credential version. Before recording the result, the service rechecks that the same tenant-owned integration is still active on the same credential version, preventing a test that raced with credential rotation or archival from being presented as verification of the newer configuration.
+
+The integrations read model derives its displayed last-health snapshot from the newest connection-test audit event and exposes it only when the event credential version exactly matches the integration's current credential version and the integration is not archived. Credential rotation or fresh-credential reconnection therefore invalidates an older health result automatically without deleting audit history; archived records likewise never present historical health as current. Enable/disable preserves the credential version, so a prior test remains explicitly historical and timestamped for the same credentials.
+
+A passing connection test proves only that the stored secret key authenticated for that read-only Stripe API call at the displayed test time. It does not prove webhook delivery, payment capture, refund settlement, account compliance, or future provider availability.
 
 ## Failure model
 
@@ -73,8 +77,8 @@ The guarded disposable-PostgreSQL suite includes integration persistence coverag
 
 The schema relation, foreign-key migration, archive migration, and integration test are checked in, but live database validation must not be claimed until `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target. That command performs Prisma validation, migration deployment/status/drift checks, and then executes the integration suite with the other persistence tests. GitHub Actions are intentionally not part of this process.
 
-The Stripe connection probe has focused dependency-level coverage for its exact read-only request, successful response normalization, authentication failure, rate limiting, provider outage, malformed success payload, and network failure. The authenticated application-service/audit path still depends on the repository's database-backed integration suite for end-to-end persistence verification.
+The Stripe connection probe has focused dependency-level coverage for its exact read-only request, successful response normalization, authentication failure, rate limiting, provider outage, malformed success payload, and network failure. Integration-domain coverage verifies that displayed health is accepted only for recognized normalized results on the current credential version and is suppressed after archive/version changes. The authenticated application-service/audit path still depends on the repository's database-backed integration suite for end-to-end persistence verification.
 
 ## Remaining management surface
 
-The production Stripe management surface now covers tenant-scoped listing, initial configuration/credential rotation, enable/disable lifecycle control, explicit connection testing, safe two-step removal through credential-purging archival, and fresh-credential reconnection. Additional provider-specific configuration and health/test operations must be added only alongside real adapters and capability contracts.
+The production Stripe management surface now covers tenant-scoped listing, initial configuration/credential rotation, enable/disable lifecycle control, explicit connection testing with durable current-credential health visibility, safe two-step removal through credential-purging archival, and fresh-credential reconnection. Additional provider-specific configuration and health/test operations must be added only alongside real adapters and capability contracts.

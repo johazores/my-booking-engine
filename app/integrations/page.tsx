@@ -29,6 +29,14 @@ const statuses: Record<string, string> = {
   'health-ok': 'Stripe connection test passed. The stored secret key authenticated successfully.',
 };
 
+const healthLabels: Record<string, string> = {
+  HEALTHY: 'Healthy',
+  AUTHENTICATION_FAILED: 'Authentication failed',
+  RATE_LIMITED: 'Rate limited',
+  PROVIDER_UNAVAILABLE: 'Provider unavailable',
+  INVALID_RESPONSE: 'Unexpected response',
+};
+
 const capabilityLabels: Record<string, string> = {
   'payment-authorize': 'Payment authorization',
   'payment-capture': 'Payment capture',
@@ -111,6 +119,11 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <div className="sf-integration-summary">
             <div><span>Display name</span><strong>{stripe.displayName}</strong></div>
             <div><span>Last updated</span><strong>{stripe.updatedAt.toLocaleString()}</strong></div>
+            <div>
+              <span>Last connection test</span>
+              <strong>{stripe.lastHealthStatus ? healthLabels[stripe.lastHealthStatus] ?? stripe.lastHealthStatus : 'Not tested for current credentials'}</strong>
+              {stripe.lastHealthCheckedAt ? <small>{stripe.lastHealthCheckedAt.toLocaleString()}</small> : null}
+            </div>
             {stripe.archivedAt ? <div><span>Archived</span><strong>{stripe.archivedAt.toLocaleString()}</strong></div> : null}
             <div className="sf-integration-summary__wide"><span>Capabilities</span><div className="sf-integration-capabilities">{stripe.capabilities.map((capability) => <span key={capability}>{capabilityLabels[capability] ?? capability}</span>)}</div></div>
           </div>
@@ -138,7 +151,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                     <button className="sf-button sf-button--primary" type="submit">Enable existing configuration</button>
                   </form>
                 ) : null}
-                {stripe ? <p>Connection tests make a read-only authenticated Stripe API request and never display account balances. Enable/disable preserves encrypted credentials; archiving permanently removes stored credential ciphertext.</p> : null}
+                {stripe ? <p>Connection tests make a read-only authenticated Stripe API request and never display account balances. The last result is shown only for the credential version that was actually tested. Enable/disable preserves encrypted credentials; archiving permanently removes stored credential ciphertext.</p> : null}
               </div>
             ) : (
               <div className="sf-integration-readonly"><strong>Archived</strong><span>This record cannot be enabled. Enter fresh Stripe credentials below to reconnect the provider.</span></div>

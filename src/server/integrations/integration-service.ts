@@ -7,6 +7,7 @@ import {
   normalizeIntegrationDisplayName,
   normalizeIntegrationProviderCode,
   publicIntegrationRecord,
+  readCurrentIntegrationHealth,
 } from './integration-domain.ts';
 
 export class IntegrationUnavailableError extends Error {
@@ -108,7 +109,27 @@ export async function listIntegrations(input: { organizationId: string; actorUse
     where: { organizationId: input.organizationId },
     orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
   });
-  return integrations.map(publicIntegrationRecord);
+  if (integrations.length === 0) return [];
+
+  const healthEvents = await Promise.all(integrations.map((integration) => db.auditEvent.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      action: 'integration.connection-tested',
+      resourceType: 'integration',
+      resourceId: integration.id,
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { createdAt: true, afterData: true },
+  })));
+
+  return integrations.map((integration, index) => publicIntegrationRecord(
+    integration,
+    readCurrentIntegrationHealth({
+      integrationStatus: integration.status,
+      credentialVersion: integration.credentialVersion,
+      event: healthEvents[index] ?? null,
+    }),
+  ));
 }
 
 export async function enableIntegration(input: {

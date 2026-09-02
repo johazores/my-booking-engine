@@ -4,7 +4,7 @@ import { StripePaymentProvider } from '../payments/stripe-payment-provider.ts';
 import { StripePaymentReconciliationProvider } from '../payments/stripe-payment-reconciliation-provider.ts';
 import { StripeRefundReconciliationProvider } from '../payments/stripe-refund-reconciliation-provider.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { loadActiveIntegrationCredentials } from './integration-service.ts';
+import { IntegrationLifecycleError, loadActiveIntegrationCredentials } from './integration-service.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const DEFAULT_HEALTH_TIMEOUT_MS = 10_000;
@@ -107,6 +107,14 @@ export async function testStripeIntegrationConnection(input: {
     secretKey: credentials.secretKey,
     fetchImpl: input.fetchImpl,
   });
+
+  const current = await db.integration.findFirst({
+    where: { id: integration.id, organizationId: input.organizationId },
+    select: { status: true, credentialVersion: true },
+  });
+  if (!current || current.status !== 'ACTIVE' || current.credentialVersion !== integration.credentialVersion) {
+    throw new IntegrationLifecycleError('Integration configuration changed while the connection test was running. Run the test again.');
+  }
 
   await db.auditEvent.create({
     data: {
