@@ -101,8 +101,14 @@
   padding: 0 20px;
   cursor: pointer;
 }
-.sf-public-booking__search-form button:hover,
-.sf-public-booking__contact:hover { filter: brightness(.94); }
+.sf-public-booking__search-form button:not(:disabled):hover,
+.sf-public-booking__contact:not(:disabled):hover { filter: brightness(.94); }
+.sf-public-booking__search-form button:disabled,
+.sf-public-booking__contact:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+  filter: none;
+}
 .sf-public-booking__alert,
 .sf-public-booking__notice { margin: 18px 0 0; border-radius: 10px; padding: 12px 14px; line-height: 1.5; }
 .sf-public-booking__alert { background: #fff1f0; color: #8a2520; border: 1px solid #f0c4c0; }
