@@ -1,106 +1,37 @@
 # Booking flow
 
-## Status
+## Current hospitality flow
 
-SF has a production-safe internal hospitality flow from normalized offer search through atomic confirmation. Search discovers active tenant-owned room-type/rate-plan scopes, evaluates real availability and restrictions, requires complete persisted pricing, and returns only currently sellable offers. Selecting an offer carries the exact property, room type, rate plan, dates, and quantity into the authenticated booking desk, which rechecks availability before creating a hold.
+SF has one production hospitality booking core shared by staff and the public-booking server boundary.
 
-A valid tenant-owned availability hold is converted into a confirmed booking and permanent occupied-night allocation in one serializable PostgreSQL transaction. The same transaction re-reads current persisted base rates, taxes/fees, and selected add-ons, recalculates the complete exact-money quote, validates booking-specific guest snapshots against room occupancy, persists those guest snapshots, consumes the hold, and writes the booking audit event.
+### Public discovery and hold lifecycle
 
-The public white-label journey now has real tenant-branded discovery plus a dedicated server-side public hold service with durable non-staff ownership and opaque hold capabilities. Anonymous capacity-write HTTP ingress remains deliberately closed until a durable multi-instance abuse-control policy is available; the public UI must not present an unprotected hold action as production-ready.
+`/book/[organization-slug]` resolves the active tenant from the slug server-side, applies persisted tenant branding, and searches real first-party inventory, restrictions, active holds, booking allocations, and persisted pricing. The browser does not choose `organizationId`.
 
-## Normalized hospitality search
+Anonymous hold creation is available through `POST /api/public-bookings/[organization-slug]/hospitality/holds`. It uses database-backed tenant ingress limits, tenant-derived idempotency, the canonical allocation lock/capacity calculation, a fixed 15-minute hold, durable `PublicBookingPrincipal` ownership, and separate public audit attribution. The returned hold capability is an opaque AES-256-GCM bearer credential.
 
-`src/server/bookings/hospitality-search-service.ts` is the provider-independent internal discovery boundary. It requires both `availability:read` and `pricing:read`, derives organization scope server-side, optionally narrows to one tenant-owned property, and scans a bounded set of active room-type/rate-plan assignments.
+The same hold route supports capability-bound release. `POST /api/public-bookings/[organization-slug]/hospitality/quote` recalculates current persisted pricing for the exact owned hold and returns only customer-safe quote fields. Public writes require the shared same-origin policy and return `Cache-Control: no-store`.
 
-For each candidate scope, search reuses canonical availability and complete pricing services. A result is returned only when the requested quantity is sellable after windows, restrictions, live holds, and permanent allocations, and when complete persisted pricing covers the stay. Search dates are canonicalized before downstream service calls, candidate evaluation runs in bounded batches, and equal-priced offers use stable resource identifiers for deterministic ordering.
+### Confirmation core
 
-The service evaluates at most 50 candidate room/rate scopes per request and returns at most 25 sellable offers. It returns total-scope plus truncation metadata so the authenticated UI never presents a partial broad search as exhaustive.
+`src/server/bookings/hospitality-booking-confirmation-core.ts` owns the serializable confirmation transaction. It locks the booking idempotency key and the organization/property/room-type allocation boundary, revalidates the active hold and customer, rechecks occupancy, recalculates current persisted pricing, requires the reviewed pricing fingerprint, creates the booking/guest snapshots/allocation, and consumes the hold atomically.
 
-## Authenticated booking API
+The authenticated staff service still requires `booking:manage` before entering this core and writes normal user `AuditEvent` records.
 
-The internal API derives tenant identity from the active authenticated organization rather than accepting it from request payloads:
+The public server boundary verifies the encrypted hold capability plus persisted hold ownership, creates or reuses an active tenant-local customer by canonical email, calls the same confirmation core, persists `PublicBookingBookingOwnership`, and writes only `PublicBookingAuditEvent` attribution. Public confirmation request keys use a separate HMAC namespace and an additional request fingerprint protects customer/contact fields that are not part of the internal booking idempotency shape.
 
-- `POST /api/bookings/hospitality/search` returns bounded currently sellable offers with complete pricing.
-- `POST /api/bookings/hospitality/availability` reads normalized availability for an exact stay request.
-- `POST /api/bookings/hospitality/holds` creates an idempotent temporary capacity hold.
-- `POST /api/bookings/hospitality/quote` returns the current complete exact-money quote and deterministic fingerprint.
-- `POST /api/bookings/hospitality/confirm` performs price-atomic hold-to-booking confirmation, including immutable guest snapshots.
-- `GET /api/bookings/hospitality` returns tenant-scoped persisted booking history with bounded pagination.
+A successful public confirmation produces a separate encrypted `booking:manage` capability for the same public principal. That credential is intended for the upcoming payment/recovery lifecycle and does not expose internal organization, principal, or booking IDs.
 
-Every endpoint requires an authenticated session and active organization. State-changing endpoints use same-origin protection. Service-layer permissions, tenant scope, availability locking, pricing calculation, guest validation, and persistence remain authoritative.
+### Booking state and inventory
 
-BigInt monetary values are serialized as decimal strings so JSON transport does not lose precision.
+Confirmed hospitality bookings persist exact-money price snapshots, immutable guest snapshots, and a booking allocation. The consumed hold no longer contributes to active-hold capacity; the non-cancelled booking allocation does. Cancellation and rescheduling continue to use the canonical allocation lock and tenant-scoped booking services.
 
-## Authenticated booking desk
+## Public journey stopping point
 
-`/bookings` lives in the canonical authenticated application shell. The page requires `booking:read` and exposes confirmation controls only with `booking:manage`.
+Final anonymous confirmation is **not** exposed through HTTP or the public UI yet. Creating a confirmed `UNPAID` booking allocates inventory beyond the short hold window, so SF must connect real payment collection and recovery through the configured payment-provider adapter before adding a final `Book now` action. The payment path must verify the booking capability and persisted public booking ownership, preserve idempotency, and define safe failure/abandonment handling.
 
-The workflow is:
+This prevents a half-finished public workflow from converting anonymous holds into indefinitely unpaid reservations.
 
-1. search active hospitality offers for stay dates and room quantity;
-2. select a currently sellable property / room-type / rate-plan offer;
-3. recheck authoritative availability;
-4. select date-applicable add-ons;
-5. create an idempotent capacity hold and fetch the complete server quote;
-6. review exact accommodation, tax, fee, add-on, and total amounts;
-7. select an active tenant customer;
-8. capture one or more booking-specific guest snapshots, with the first guest prefilled from the selected customer but editable independently; and
-9. submit the hold, current pricing fingerprint, selections, customer, guests, and stable booking idempotency key for atomic confirmation.
+## Validation
 
-Guest first/last names are required, guest email is optional and canonicalized, and the total guest count cannot exceed `roomType.maxOccupancy × held room quantity` or the global 100-guest safety limit. Changing guest data invalidates the client booking idempotency attempt so a changed guest payload cannot accidentally reuse a completed request key. The server also includes guests in exact idempotency comparison.
-
-Hold and booking idempotency keys remain stable across retryable client failures. Add-on choices are locked after capacity is held. Guest details may still be corrected before confirmation because they do not alter price or inventory quantity.
-
-When confirmation reports a price change, the UI refreshes the quote and requires review. When the hold is unavailable or expired, stale commercial state is cleared and a new availability check is required. Successful confirmation shows persisted booking, payment state, guest count, and immutable total.
-
-This is an internal staff booking desk. The public journey uses separate non-staff ownership and must never call these staff authorization wrappers.
-
-## Public discovery and hold boundary
-
-`/book/[organization-slug]` resolves the active organization from the slug server-side, applies tenant branding, and searches the same real inventory, restrictions, active holds, permanent allocations, and persisted pricing used by the internal flow. The browser does not choose an organization ID.
-
-`src/server/bookings/public-hospitality-hold-service.ts` is the customer-safe server boundary for the next write step. It derives tenant-bound idempotency from a UUID v4 public request key, calls the canonical hold transaction, atomically creates or reuses durable public ownership, writes separate public audit attribution, and returns customer-safe hold metadata plus an opaque expiring capability. Public release verifies both capability and persisted ownership before using the same allocation-locked hold core.
-
-The HTTP route is intentionally not exposed yet. SF still needs durable deployment-aware abuse controls for anonymous hold creation; a process-local limiter or untrusted forwarded address is not sufficient. See `docs/public-booking-write-boundary.md` for the exact boundary and remaining ingress requirement.
-
-## Booking-specific guest snapshots
-
-Guest data is deliberately separate from the reusable tenant `Customer` record. A customer can be the booker while the actual stay is for a different person or group, and later customer edits must not rewrite historical booking identity.
-
-`HospitalityBookingGuest` stores ordered immutable guest snapshots with tenant ID, booking ID, position, first name, last name, optional canonical email, and creation time. Confirmation creates the guest rows inside the same serializable transaction as the booking, allocation, hold consumption, and audit event. Reads always scope guest rows by both `organizationId` and `bookingId`.
-
-The current Prisma model keeps booking ownership as explicit scalar tenant/booking identifiers rather than exposing an ORM relation from the existing booking model. Application services are therefore the authoritative ownership boundary for this new table. A future schema consolidation may add a composite database foreign key when the booking model is next migrated; until then, SF does not hard-delete bookings, and all guest creation/read paths are transactionally scoped through validated tenant-owned bookings.
-
-## Atomic confirmation
-
-`confirmHospitalityBookingFromHold` requires `booking:manage`, validates tenant/resource identifiers, and executes in a serializable transaction. It serializes the organization/idempotency boundary, returns an existing booking only for an exact retry payload, acquires the shared room-type allocation lock, verifies the active unexpired hold and customer, revalidates the room/rate assignment and occupancy, recalculates complete persisted pricing, compares the deterministic fingerprint, creates the confirmed booking and ordered guest snapshots, creates the permanent allocation, consumes the hold, and writes one safe audit event.
-
-The audit event records guest count but not guest names or email addresses, avoiding unnecessary PII duplication in audit payloads.
-
-## Concurrency and no-overbooking
-
-Hold creation, hold release, and confirmation use the same room-type allocation advisory lock. Competing creation/confirmation/release operations for the same inventory boundary are serialized, so release cannot race confirmation around hold consumption. Only one confirmation can consume a hold and create the permanent allocation. Exact retries of the winning booking idempotency key return the existing booking and its ordered guest snapshots without duplicate allocation, guests, or audit records.
-
-The internal hospitality policy is no overbooking. Availability subtracts active unexpired holds and non-cancelled permanent booking allocations per occupied night.
-
-## Pricing snapshot
-
-Persisted hospitality bookings store currency, accommodation subtotal, tax total, fee total, add-on total, total, and complete pricing fingerprint using exact integer minor units. Total must equal the component sum. The snapshot is derived from current database pricing during confirmation and remains immutable booking history.
-
-## Tenant isolation and authorization
-
-Booking reads and writes always carry `organizationId` server-side. Hold, customer, room type, rate plan, booking, and allocation relations remain tenant constrained by their existing composite database relationships. Guest creation and reads additionally require the validated organization and booking ID in every query. Internal booking management requires explicit booking permissions; search also requires availability and pricing read capabilities.
-
-Public hold writes resolve the organization from the public slug, never from a client-supplied tenant ID. Public principals are not users or members, and public hold ownership plus public audit attribution are protected by same-tenant database constraints.
-
-## Validation coverage
-
-Unit coverage includes normalized booking/search validation, guest normalization, canonical email handling, required names, guest-count bounds, idempotency payload matching, canonical date/quantity handling, and invalid calendar/range inputs. The disposable PostgreSQL booking suite continues to cover permission denial, cross-tenant denial, stale-price rollback, immutable server-derived totals, competing confirmation requests for one final held unit, idempotent retry, permanent allocation visibility in availability, bounded listing, and single audit-event persistence.
-
-The public hold integration suite additionally covers tenant-derived creation without a staff actor, durable ownership, separate public audit attribution, exact retry reuse, changed-payload conflicts, cross-tenant capability rejection, and idempotent allocation-locked release.
-
-Full execution requires the repository Node 24 runtime and an explicitly disposable PostgreSQL target through the documented local database harness. GitHub Actions are intentionally not part of validation.
-
-## Next dependency
-
-For the public journey, the next dependency is a production ingress abuse-control contract before exposing anonymous hold creation through HTTP. After that, public customer/guest attachment, confirmation, and payment collection/recovery must continue using capability plus persisted ownership rather than staff permissions. Provider-specific reservations remain behind adapters rather than leaking into the internal booking domain.
+Dependency-free public capability/request tests run without a database. Staff booking and public hold/confirmation integration tests are registered in `npm run test:database`, which also validates/deploys Prisma migrations and checks drift against an explicitly confirmed disposable PostgreSQL target. GitHub Actions are intentionally not used.
