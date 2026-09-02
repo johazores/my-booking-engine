@@ -49,6 +49,7 @@ run(process.execPath, [
   'src/server/bookings/hospitality-booking.integration.ts',
   'src/server/bookings/hospitality-booking-reschedule.integration.ts',
   'src/server/bookings/hospitality-booking-guest-modification.integration.ts',
+  'src/server/bookings/public-booking-principal.integration.ts',
   'src/server/payments/payment.integration.ts',
   'src/server/payments/stripe-payment.integration.ts',
   'src/server/payments/stripe-refund.integration.ts',
