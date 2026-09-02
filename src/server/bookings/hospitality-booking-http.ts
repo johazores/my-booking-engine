@@ -3,6 +3,7 @@ import { OrganizationPermissionDeniedError } from '../authorization/authorizatio
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '../availability/hospitality-availability-hold-service.ts';
 import { AvailabilityUnavailableError } from '../availability/hospitality-availability-service.ts';
 import { HospitalityPricingUnavailableError } from '../pricing/hospitality-pricing-service.ts';
+import { HospitalityTransactionalPricingUnavailableError } from '../pricing/hospitality-transactional-pricing.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
 import {
   HospitalityBookingConflictError,
@@ -60,7 +61,13 @@ export function hospitalityBookingApiError(error: unknown) {
   if (error instanceof HospitalityBookingConflictError || error instanceof AvailabilityHoldConflictError) {
     return bookingApiErrorJson({ error: 'conflict', message: error.message }, 409);
   }
-  if (error instanceof HospitalityBookingUnavailableError || error instanceof AvailabilityHoldUnavailableError || error instanceof AvailabilityUnavailableError || error instanceof HospitalityPricingUnavailableError) {
+  if (
+    error instanceof HospitalityBookingUnavailableError
+    || error instanceof AvailabilityHoldUnavailableError
+    || error instanceof AvailabilityUnavailableError
+    || error instanceof HospitalityPricingUnavailableError
+    || error instanceof HospitalityTransactionalPricingUnavailableError
+  ) {
     return bookingApiErrorJson({ error: 'unavailable', message: error.message }, 409);
   }
   if (error instanceof SyntaxError) return bookingApiErrorJson({ error: 'invalid-json' }, 400);
