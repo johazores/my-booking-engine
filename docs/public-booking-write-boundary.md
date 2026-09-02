@@ -2,20 +2,39 @@
 
 ## Status
 
-The public booking journey now has its first customer-safe authorization primitive: a tenant-bound, expiring opaque bearer capability for managing a specific availability hold, plus a strong public request-key contract for durable idempotency.
+The public booking journey now has the authorization and persistence primitives required to attribute future capacity writes truthfully without impersonating staff:
 
-This slice deliberately does **not** expose a public capacity-write endpoint yet. Existing hold and booking-confirmation services remain staff-authorized and unchanged. A public route must not call those staff wrappers or invent a synthetic staff user simply to satisfy authorization or audit foreign keys.
+- a tenant-bound, expiring opaque bearer capability for managing one availability hold;
+- a strong public request-key contract for durable idempotency;
+- a durable `PublicBookingPrincipal` identity;
+- tenant-safe `PublicBookingHoldOwnership`; and
+- secret-free `PublicBookingAuditEvent` attribution for non-staff actions.
+
+This slice still deliberately does **not** expose a public capacity-write endpoint. Existing hold and booking-confirmation services remain staff-authorized and unchanged. A public route must not call those staff wrappers or invent a synthetic staff user.
+
+## Durable public principal
+
+`PublicBookingPrincipal` is a short-lived server-created identity belonging to exactly one organization. It is not a `User`, does not receive organization membership, and never inherits staff permissions.
+
+`PublicBookingHoldOwnership` binds a hold to that principal and organization. PostgreSQL composite foreign keys enforce both sides of the ownership boundary: the principal and hold must belong to the same organization as the ownership row. Cross-tenant ownership therefore fails at the database boundary even if application validation regresses.
+
+`PublicBookingAuditEvent` records public-booking actions separately from staff `AuditEvent` rows. It carries organization, public principal, action, resource identity, safe before/after metadata, and timestamp. A composite foreign key guarantees the actor principal belongs to the event organization. Public audit payloads must follow the same secret/PII minimization rules as staff audit events.
+
+The separate public actor model is intentional. `AuditEvent.actorUserId` remains a truthful required staff-user foreign key rather than being made nullable or populated with a fake user. Staff authorization and existing staff audit semantics are therefore unchanged.
 
 ## Hold capability
 
-`public-booking-capability.ts` issues a capability scoped only to `hold:manage`. Its authenticated encrypted payload contains only:
+`public-booking-capability.ts` issues capability version 2 scoped only to `hold:manage`. Its authenticated encrypted payload contains only:
 
 - capability version and fixed hold-management scope;
 - organization ID;
+- durable public principal ID;
 - hold ID;
 - expiry timestamp.
 
-AES-256-GCM provides confidentiality and integrity, so internal tenant and hold identifiers are not exposed as readable token payloads and tampering fails closed. Verification can bind the capability to the already-resolved public organization and rejects the token at expiry.
+AES-256-GCM provides confidentiality and integrity, so internal tenant, principal, and hold identifiers are not exposed as readable token payloads and tampering fails closed. Verification can bind the capability to an already-resolved public organization and principal and rejects the token at expiry.
+
+Version 1 capabilities are intentionally rejected. No public capacity-write endpoint existed while version 1 was current, so SF can fail closed instead of carrying a legacy authorization shape into the first production write boundary.
 
 The key is derived from deployment-provided secret material containing at least 32 bytes. That secret must never be committed to the repository.
 
@@ -27,24 +46,38 @@ A public hold-creation request must carry a cryptographically random UUID v4 req
 
 This gives retries a stable server-side idempotency identity without allowing a caller to choose the internal key namespace directly. The derived key is tenant-bound and conforms to the existing availability-hold key format.
 
-A request key is not itself authorization for subsequent hold operations. Once a hold exists, the opaque hold capability is the authorization credential.
+A request key is not itself authorization for subsequent hold operations. Once a hold exists, the opaque hold capability plus persisted public ownership form the authorization boundary.
 
-## Why public writes remain closed in this slice
+## Database constraints
 
-`HospitalityAvailabilityHold` and `HospitalityBooking` are already strongly tenant-scoped and serialized, but their current service wrappers correctly require staff permissions. `AuditEvent.actorUserId` is also a non-null user foreign key. Weakening either rule or attributing a public customer action to a fake staff account would create misleading audit history and an authorization bypass.
+Migration `20260902123000_public-booking-principals` creates the public-principal, hold-ownership, and public-audit tables. Database constraints enforce:
 
-Before the first public capacity write is enabled, SF needs a durable audit representation for non-staff principals (for example a public-booking session/request principal) and a public hold service that:
+- principal organization ownership;
+- principal expiry after creation;
+- one public owner per tenant/hold;
+- same-tenant principal-to-hold ownership; and
+- same-tenant public audit attribution.
 
-1. resolves the active tenant from the public slug server-side;
-2. derives the internal idempotency key from the strong public request key;
-3. executes the same allocation lock, restriction, capacity, and serializable-transaction rules as staff hold creation;
-4. writes a truthful public-principal audit event in the same transaction;
-5. returns only the opaque hold capability and customer-safe hold metadata;
-6. verifies that capability for release, customer/guest attachment, confirmation, and later payment recovery;
-7. adds bounded abuse controls without weakening legitimate idempotent retries.
+The Prisma models intentionally keep scalar ownership fields without ORM relations. The database foreign keys are authoritative, matching SF's existing preference to keep explicit tenant identifiers visible at sensitive persistence boundaries.
+
+## Why the public hold endpoint remains closed
+
+The misleading-audit blocker is now removed, but the first public capacity-write route still needs a dedicated service boundary that can be completed and validated as one commercial operation. It must:
+
+1. resolve the active tenant from the public slug server-side;
+2. derive the internal idempotency key from the strong public request key;
+3. execute the same allocation lock, restriction, capacity, and serializable-transaction rules as staff hold creation without calling the staff permission wrapper;
+4. create or reuse the durable principal/hold ownership and public audit event in the same transaction as the hold;
+5. return only capability version 2 plus customer-safe hold metadata;
+6. verify both capability and persisted ownership for release, customer/guest attachment, confirmation, and later payment recovery; and
+7. add bounded abuse controls without weakening legitimate idempotent retries.
 
 Only after that boundary exists should the public UI replace its current contact-to-reserve behavior with a real hold action.
 
 ## Validation
 
-The capability and idempotency modules are dependency-free Node/TypeScript domain code with focused tests. Full repository typecheck, lint, Prisma/database validation, and production build still require the repository's documented Node 24 runtime and disposable PostgreSQL environment. GitHub Actions are intentionally not part of this validation path.
+Focused capability coverage now verifies tenant and durable-principal binding, expiry, confidentiality, tamper rejection, legacy-version rejection, weak-secret failure, and tenant-bound request idempotency.
+
+`public-booking-principal.integration.ts` is registered in the disposable PostgreSQL harness and verifies valid ownership/audit creation plus database rejection of cross-tenant principal/hold and principal/audit combinations.
+
+Full repository typecheck, lint, Prisma/database validation, integration execution, and production build still require the documented Node 24 runtime and disposable PostgreSQL environment. GitHub Actions are intentionally not part of this validation path.
