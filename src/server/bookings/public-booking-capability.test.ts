@@ -18,7 +18,7 @@ const holdId = '22222222-2222-4222-8222-222222222222';
 const now = new Date('2026-09-02T00:00:00.000Z');
 const expiresAt = new Date('2026-09-02T00:15:00.000Z');
 
-test('hold capability verifies only for the signed tenant before expiry', () => {
+test('hold capability verifies only for the encrypted tenant before expiry', () => {
   const token = issuePublicBookingHoldCapability({ secret, organizationId, holdId, expiresAt });
   const verified = verifyPublicBookingHoldCapability({ secret, token, expectedOrganizationId: organizationId, now });
 
@@ -29,16 +29,18 @@ test('hold capability verifies only for the signed tenant before expiry', () => 
     holdId,
     expiresAt,
   });
+  assert.equal(token.includes(organizationId), false);
+  assert.equal(token.includes(holdId), false);
   assert.equal(verifyPublicBookingHoldCapability({ secret, token, expectedOrganizationId: '33333333-3333-4333-8333-333333333333', now }), null);
   assert.equal(verifyPublicBookingHoldCapability({ secret, token, expectedOrganizationId: organizationId, now: expiresAt }), null);
 });
 
-test('hold capability rejects tampering and malformed bearer tokens', () => {
+test('hold capability rejects ciphertext, tag, and malformed-token tampering', () => {
   const token = issuePublicBookingHoldCapability({ secret, organizationId, holdId, expiresAt });
-  const [payload, signature] = token.split('.');
+  const [version, iv, ciphertext, tag] = token.split('.');
 
-  assert.equal(verifyPublicBookingHoldCapability({ secret, token: `${payload}x.${signature}`, now }), null);
-  assert.equal(verifyPublicBookingHoldCapability({ secret, token: `${payload}.${signature}x`, now }), null);
+  assert.equal(verifyPublicBookingHoldCapability({ secret, token: `${version}.${iv}.${ciphertext}x.${tag}`, now }), null);
+  assert.equal(verifyPublicBookingHoldCapability({ secret, token: `${version}.${iv}.${ciphertext}.${tag}x`, now }), null);
   assert.equal(verifyPublicBookingHoldCapability({ secret, token: 'not-a-token', now }), null);
 });
 

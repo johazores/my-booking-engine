@@ -2,22 +2,22 @@
 
 ## Status
 
-The public booking journey now has its first customer-safe authorization primitive: a tenant-bound, expiring bearer capability for managing a specific availability hold, plus a strong public request-key contract for durable idempotency.
+The public booking journey now has its first customer-safe authorization primitive: a tenant-bound, expiring opaque bearer capability for managing a specific availability hold, plus a strong public request-key contract for durable idempotency.
 
 This slice deliberately does **not** expose a public capacity-write endpoint yet. Existing hold and booking-confirmation services remain staff-authorized and unchanged. A public route must not call those staff wrappers or invent a synthetic staff user simply to satisfy authorization or audit foreign keys.
 
 ## Hold capability
 
-`public-booking-capability.ts` issues a signed capability scoped only to `hold:manage`. The signed payload contains only:
+`public-booking-capability.ts` issues a capability scoped only to `hold:manage`. Its authenticated encrypted payload contains only:
 
 - capability version and fixed hold-management scope;
 - organization ID;
 - hold ID;
 - expiry timestamp.
 
-It contains no customer PII, provider credentials, payment data, or staff authority. Verification uses HMAC-SHA256 and constant-time signature comparison, rejects malformed or tampered tokens, can bind verification to the already-resolved public organization, and fails closed at expiry.
+AES-256-GCM provides confidentiality and integrity, so internal tenant and hold identifiers are not exposed as readable token payloads and tampering fails closed. Verification can bind the capability to the already-resolved public organization and rejects the token at expiry.
 
-The signing secret must contain at least 32 bytes of key material. It must be supplied through deployment configuration and must never be committed to the repository.
+The key is derived from deployment-provided secret material containing at least 32 bytes. That secret must never be committed to the repository.
 
 The capability is a bearer credential. Future public routes must keep it out of URLs, logs, analytics, audit payloads, and rendered server HTML. Browser storage and transport rules should minimize exposure, with HTTPS required in production.
 
@@ -27,7 +27,7 @@ A public hold-creation request must carry a cryptographically random UUID v4 req
 
 This gives retries a stable server-side idempotency identity without allowing a caller to choose the internal key namespace directly. The derived key is tenant-bound and conforms to the existing availability-hold key format.
 
-A request key is not itself authorization for subsequent hold operations. Once a hold exists, the signed hold capability is the authorization credential.
+A request key is not itself authorization for subsequent hold operations. Once a hold exists, the opaque hold capability is the authorization credential.
 
 ## Why public writes remain closed in this slice
 
@@ -39,7 +39,7 @@ Before the first public capacity write is enabled, SF needs a durable audit repr
 2. derives the internal idempotency key from the strong public request key;
 3. executes the same allocation lock, restriction, capacity, and serializable-transaction rules as staff hold creation;
 4. writes a truthful public-principal audit event in the same transaction;
-5. returns only the hold capability and customer-safe hold metadata;
+5. returns only the opaque hold capability and customer-safe hold metadata;
 6. verifies that capability for release, customer/guest attachment, confirmation, and later payment recovery;
 7. adds bounded abuse controls without weakening legitimate idempotent retries.
 
