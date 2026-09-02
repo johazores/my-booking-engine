@@ -26,7 +26,7 @@ test('public booking principals, hold ownership, and audit attribution are tenan
     await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
     await db.hospitalityRoomTypeRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id } });
-    const now = new Date('2026-09-02T00:00:00.000Z');
+    const now = new Date();
     const hold = await holds.createHospitalityAvailabilityHold({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
