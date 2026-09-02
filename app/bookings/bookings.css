@@ -44,5 +44,13 @@
 .sf-booking-modification-addon__quantity input { width: 100%; }
 .sf-booking-modification-form__error { color: var(--sf-danger, #b42318) !important; font-weight: 600; }
 .sf-booking-modification-form__success { color: var(--sf-success, #067647) !important; font-weight: 600; }
+.sf-booking-modification-preview { display: grid; gap: .85rem; padding: 1rem; border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-lg, 12px); background: color-mix(in srgb, var(--sf-accent) 4%, var(--sf-surface, #fff)); }
+.sf-booking-modification-preview h3, .sf-booking-modification-preview p { margin: 0; }
+.sf-booking-modification-preview__totals { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.sf-booking-modification-preview__totals > div { display: grid; gap: .25rem; padding: .75rem; border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); background: var(--sf-surface, #fff); }
+.sf-booking-modification-preview__totals dt { color: var(--sf-text-muted, #667085); font-size: .85rem; }
+.sf-booking-modification-preview__totals dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sf-booking-modification-preview details { display: grid; gap: .7rem; }
+.sf-booking-modification-preview summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 920px) { .sf-booking-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates, .sf-booking-modification-form__grid, .sf-booking-modification-addon { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } }
+@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates, .sf-booking-modification-form__grid, .sf-booking-modification-addon, .sf-booking-modification-preview__totals { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } }
