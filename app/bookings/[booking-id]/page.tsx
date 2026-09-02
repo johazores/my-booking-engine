@@ -106,6 +106,9 @@ export default async function BookingDetailPage({ params, searchParams }: {
       available: true as const,
       providerCode: refundAvailability.providerCode,
       refundableAmount: money(refundAvailability.refundableMinor, refundAvailability.currency),
+      bookingRefundableAmount: money(refundAvailability.bookingRefundableMinor, refundAvailability.currency),
+      refundableSourceCount: refundAvailability.refundableSourceCount,
+      sourceReference: refundAvailability.sourceReference,
       requiresReference: refundAvailability.requiresReference,
     }
     : refundAvailability;

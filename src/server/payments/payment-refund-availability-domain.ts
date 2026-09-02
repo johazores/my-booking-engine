@@ -9,6 +9,9 @@ export type BookingRefundAvailability = Readonly<
     providerCode: 'manual' | 'stripe';
     currency: string;
     refundableMinor: bigint;
+    bookingRefundableMinor: bigint;
+    refundableSourceCount: number;
+    sourceReference: string | null;
     requiresReference: boolean;
   }
   | {
@@ -56,6 +59,9 @@ export function deriveBookingRefundAvailability(input: BookingRefundAvailability
     providerCode: plan.providerCode,
     currency: input.currency,
     refundableMinor: plan.amountMinor,
+    bookingRefundableMinor: plan.bookingRefundableMinor,
+    refundableSourceCount: plan.refundableSourceCount,
+    sourceReference: plan.providerCode === 'manual' ? plan.sourceProviderReference : null,
     requiresReference: plan.providerCode === 'manual',
   };
 }

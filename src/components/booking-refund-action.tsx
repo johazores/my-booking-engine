@@ -4,7 +4,15 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 type RefundAvailability =
-  | { available: true; providerCode: 'manual' | 'stripe'; refundableAmount: string; requiresReference: boolean }
+  | {
+    available: true;
+    providerCode: 'manual' | 'stripe';
+    refundableAmount: string;
+    bookingRefundableAmount: string;
+    refundableSourceCount: number;
+    sourceReference: string | null;
+    requiresReference: boolean;
+  }
   | { available: false; reason: string };
 
 type RefundResponse = {
@@ -86,18 +94,22 @@ export function BookingRefundAction(props: {
 
   if (!confirming) {
     return <div>
-      <p>Refund amount available for this operation: <strong>{availability.refundableAmount}</strong> through {providerLabel}.</p>
-      <p><small>SF refunds one authoritative settlement source at a time. If another refundable source remains after this operation, refresh will expose the next safe refund.</small></p>
+      <p>Total remaining refundable balance: <strong>{availability.bookingRefundableAmount}</strong>.</p>
+      <p>Next refund operation: <strong>{availability.refundableAmount}</strong> through {providerLabel}.</p>
+      {availability.sourceReference ? <p>External payment source: <strong>{availability.sourceReference}</strong>.</p> : null}
+      {availability.refundableSourceCount > 1
+        ? <p><small>{availability.refundableSourceCount} refundable settlement sources remain. SF processes one authoritative source at a time; after this operation, refresh will expose the next safe refund.</small></p>
+        : null}
       <div className="sf-actions"><button className="sf-button sf-button--secondary" type="button" onClick={() => { setConfirming(true); setError(null); }}>Review refund</button></div>
     </div>;
   }
 
   return <form className="sf-booking-modification-form" onSubmit={submitRefund} aria-labelledby="booking-refund-confirm-title">
     <h3 id="booking-refund-confirm-title">Confirm refund</h3>
-    <p>You are refunding <strong>{availability.refundableAmount}</strong> through {providerLabel} from the next authoritative settlement source.</p>
+    <p>You are refunding <strong>{availability.refundableAmount}</strong> through {providerLabel}.</p>
     {availability.providerCode === 'stripe'
       ? <p>This sends a real refund request through the configured Stripe integration. SF will retain the payment transaction and audit trail.</p>
-      : <p>Only confirm after this exact refund has been completed outside SF. This records the external refund against the selected settlement source as authoritative payment history.</p>}
+      : <p>First complete this exact refund against external payment source <strong>{availability.sourceReference}</strong>, then record its external refund reference below. SF will bind the refund to that settlement source as authoritative payment history.</p>}
     {availability.requiresReference ? <label><span>External refund reference</span><input type="text" maxLength={120} value={reference} onChange={(event) => { setReference(event.target.value); idempotencyKey.current = null; setError(null); }} disabled={submitting} autoComplete="off" required /></label> : null}
     {error ? <p className="sf-booking-modification-form__error" role="alert">{error}</p> : null}
     <div className="sf-actions">

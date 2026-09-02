@@ -9,12 +9,12 @@ const booking = { status: 'CONFIRMED', paymentStatus: 'PAID', currency: 'AUD', t
 
 test('returns the remaining Stripe balance after a partial refund', () => {
   const result = deriveBookingRefundAvailability({ ...booking, paymentStatus: 'PARTIALLY_REFUNDED', transactions: [transaction(), transaction({ kind: 'REFUND', providerReference: 're_1', amountMinor: 2_500n })] });
-  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 10_000n, requiresReference: false });
+  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 10_000n, bookingRefundableMinor: 10_000n, refundableSourceCount: 1, sourceReference: null, requiresReference: false });
 });
 
-test('requires an external reference for manual refunds', () => {
+test('requires an external reference for manual refunds and exposes the selected external source', () => {
   const result = deriveBookingRefundAvailability({ ...booking, transactions: [transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-1' })] });
-  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 12_500n, requiresReference: true });
+  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 12_500n, bookingRefundableMinor: 12_500n, refundableSourceCount: 1, sourceReference: 'receipt-1', requiresReference: true });
 });
 
 test('an unresolved refund blocks another refund', () => {
@@ -42,7 +42,7 @@ test('accepts reconciled net settlement when historical gross money exceeds the 
       transaction({ kind: 'REFUND', providerReference: 're_adjustment', sourceProviderReference: 'pi_123', amountMinor: 2_500n }),
     ],
   });
-  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 12_500n, requiresReference: false });
+  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 12_500n, bookingRefundableMinor: 12_500n, refundableSourceCount: 1, sourceReference: null, requiresReference: false });
 });
 
 test('keeps mixed settled providers unavailable', () => {
@@ -58,7 +58,7 @@ test('keeps mixed settled providers unavailable', () => {
   assert.match(result.reason, /multiple payment providers/i);
 });
 
-test('manual refunds can advance one deterministic source at a time', () => {
+test('manual refunds expose deterministic next source and total booking balance', () => {
   const result = deriveBookingRefundAvailability({
     ...booking,
     transactions: [
@@ -66,7 +66,7 @@ test('manual refunds can advance one deterministic source at a time', () => {
       transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'receipt-large', amountMinor: 7_500n }),
     ],
   });
-  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 7_500n, requiresReference: true });
+  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 7_500n, bookingRefundableMinor: 12_500n, refundableSourceCount: 2, sourceReference: 'receipt-large', requiresReference: true });
 });
 
 test('keeps multiple Stripe settlement sources unavailable until Stripe recovery is source-aware', () => {
@@ -89,7 +89,7 @@ test('manual source allocation continues after an attributed source refund', () 
       transaction({ kind: 'REFUND', providerCode: 'manual', providerReference: 'refund-b', sourceProviderReference: 'receipt-b', amountMinor: 6_500n }),
     ],
   });
-  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 6_000n, requiresReference: true });
+  assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 6_000n, bookingRefundableMinor: 6_000n, refundableSourceCount: 1, sourceReference: 'receipt-a', requiresReference: true });
 });
 
 test('rejects over-refunded histories instead of deriving a negative balance', () => {
