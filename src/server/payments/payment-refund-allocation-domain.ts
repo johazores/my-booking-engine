@@ -22,7 +22,7 @@ type BookingRefundSourceAllocationInput = Readonly<{
 }>;
 
 function sourceKey(source: BookingSettlementSource) {
-  return `${source.providerCode}\u001f${source.providerReference}`;
+  return JSON.stringify([source.providerCode, source.providerReference]);
 }
 
 export function deriveNextBookingRefundSource(
@@ -79,9 +79,9 @@ export function deriveNextBookingRefundSource(
     if (left.remainingMinor !== right.remainingMinor) {
       return left.remainingMinor > right.remainingMinor ? -1 : 1;
     }
-    const providerOrder = left.providerCode.localeCompare(right.providerCode);
-    if (providerOrder !== 0) return providerOrder;
-    return left.providerReference.localeCompare(right.providerReference);
+    if (left.providerCode !== right.providerCode) return left.providerCode < right.providerCode ? -1 : 1;
+    if (left.providerReference === right.providerReference) return 0;
+    return left.providerReference < right.providerReference ? -1 : 1;
   });
   const source = ordered[0]!;
 
