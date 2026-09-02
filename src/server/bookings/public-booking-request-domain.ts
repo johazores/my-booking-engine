@@ -21,7 +21,7 @@ function derivePublicBookingIdempotencyKey(input: {
   secret: string;
   organizationId: string;
   requestKey: string;
-  scope: 'hold' | 'confirmation';
+  scope: 'hold' | 'confirmation' | 'payment-checkout';
 }) {
   if (Buffer.byteLength(input.secret, 'utf8') < MINIMUM_SECRET_BYTES) {
     throw new PublicBookingRequestValidationError(`Public booking request secret must be at least ${MINIMUM_SECRET_BYTES} bytes.`);
@@ -48,6 +48,14 @@ export function derivePublicBookingConfirmationIdempotencyKey(input: {
   requestKey: string;
 }) {
   return derivePublicBookingIdempotencyKey({ ...input, scope: 'confirmation' });
+}
+
+export function derivePublicBookingCheckoutIdempotencyKey(input: {
+  secret: string;
+  organizationId: string;
+  requestKey: string;
+}) {
+  return derivePublicBookingIdempotencyKey({ ...input, scope: 'payment-checkout' });
 }
 
 function stableJson(value: unknown): string {
