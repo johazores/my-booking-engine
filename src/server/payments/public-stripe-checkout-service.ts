@@ -313,11 +313,11 @@ export async function createPublicStripeCheckoutSession(input: {
         bookingId: booking.id,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-        status: { in: ['PENDING', 'SUCCEEDED'] },
+        status: { in: ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] },
       },
       select: { id: true },
     });
-    if (blockingPayment) throw new PaymentConflictError('Booking already has an active or successful Stripe payment attempt.');
+    if (blockingPayment) throw new PaymentConflictError('Booking already has an unresolved or successful Stripe payment attempt.');
 
     const payment = await transaction.paymentTransaction.create({
       data: {

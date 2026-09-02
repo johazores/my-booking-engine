@@ -19,7 +19,6 @@ CREATE TABLE "payment_checkout_sessions" (
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(6) NOT NULL,
     CONSTRAINT "payment_checkout_sessions_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "payment_checkout_sessions_expiry_check" CHECK ("expiresAt" > "createdAt"),
     CONSTRAINT "payment_checkout_sessions_lifecycle_check" CHECK (
       ("status" = 'OPEN' AND "completedAt" IS NULL AND "expiredAt" IS NULL)
       OR ("status" = 'COMPLETED' AND "completedAt" IS NOT NULL AND "expiredAt" IS NULL)

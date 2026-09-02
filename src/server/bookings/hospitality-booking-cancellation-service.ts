@@ -50,12 +50,12 @@ export async function cancelHospitalityBooking(input: {
         organizationId: input.organizationId,
         bookingId: booking.id,
         kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-        status: 'PENDING',
+        status: { in: ['PENDING', 'AMBIGUOUS'] },
       },
       select: { id: true },
     });
     if (activePayment) {
-      throw new HospitalityBookingConflictError('Booking has a payment in progress. Resolve or fail the payment attempt before cancelling the booking.');
+      throw new HospitalityBookingConflictError('Booking has an unresolved payment operation. Resolve or fail the payment attempt before cancelling the booking.');
     }
 
     const cancelled = await transaction.hospitalityBooking.update({
