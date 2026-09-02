@@ -262,7 +262,7 @@ export async function recordManualOfflineRefund(input: {
       throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
     }
 
-    const sourcePayment = await transaction.paymentTransaction.findFirst({
+    const sourcePayments = await transaction.paymentTransaction.findMany({
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
@@ -271,10 +271,17 @@ export async function recordManualOfflineRefund(input: {
         providerCode: manualProvider.code,
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 2,
     });
-    if (!sourcePayment) {
+    if (sourcePayments.length === 0) {
       throw new PaymentConflictError('No successful manual payment is available to refund.');
     }
+    if (sourcePayments.length > 1) {
+      throw new PaymentConflictError(
+        'This booking has multiple manual settlement sources. Source-aware refund allocation is required before another refund can start.',
+      );
+    }
+    const sourcePayment = sourcePayments[0]!;
 
     const refunded = await transaction.paymentTransaction.aggregate({
       where: {
