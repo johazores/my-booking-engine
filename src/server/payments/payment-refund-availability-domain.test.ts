@@ -27,11 +27,22 @@ test('an unresolved capture also blocks a refund', () => {
   assert.deepEqual(result, { available: false, reason: 'A payment operation is still unresolved. Reconcile payment history before continuing.' });
 });
 
-test('keeps internal payment claims and mismatched settlements unavailable', () => {
+test('keeps internal payment claims and under-settled bookings unavailable', () => {
   const internal = deriveBookingRefundAvailability({ ...booking, transactions: [transaction({ providerReference: `sf_claim_${'a'.repeat(64)}` })] });
   assert.equal(internal.available, false);
   const mismatch = deriveBookingRefundAvailability({ ...booking, transactions: [transaction({ amountMinor: 12_000n })] });
   assert.equal(mismatch.available, false);
+});
+
+test('accepts reconciled net settlement when historical gross money exceeds the current booking total', () => {
+  const result = deriveBookingRefundAvailability({
+    ...booking,
+    transactions: [
+      transaction({ amountMinor: 15_000n }),
+      transaction({ kind: 'REFUND', providerReference: 're_adjustment', sourceProviderReference: 'pi_123', amountMinor: 2_500n }),
+    ],
+  });
+  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 12_500n, requiresReference: false });
 });
 
 test('keeps mixed settled providers unavailable', () => {
@@ -47,14 +58,30 @@ test('keeps mixed settled providers unavailable', () => {
   assert.match(result.reason, /multiple payment providers/i);
 });
 
-test('keeps multiple same-provider settlement sources unavailable until source-aware allocation exists', () => {
+test('keeps multiple same-provider settlement sources unavailable until source-aware provider execution exists', () => {
   const result = deriveBookingRefundAvailability({
     ...booking,
     transactions: [transaction({ providerReference: 'pi_1', amountMinor: 6_000n }), transaction({ providerReference: 'pi_2', amountMinor: 6_500n })],
   });
   assert.equal(result.available, false);
   if (result.available) return;
-  assert.match(result.reason, /source-aware refund allocation/i);
+  assert.match(result.reason, /deterministic allocation/i);
+  assert.match(result.reason, /provider execution/i);
+});
+
+test('reconciles attributed multi-source refunds before stopping at the provider-execution boundary', () => {
+  const result = deriveBookingRefundAvailability({
+    ...booking,
+    paymentStatus: 'PARTIALLY_REFUNDED',
+    transactions: [
+      transaction({ providerReference: 'pi_1', amountMinor: 6_000n }),
+      transaction({ providerReference: 'pi_2', amountMinor: 6_500n }),
+      transaction({ kind: 'REFUND', providerReference: 're_1', sourceProviderReference: 'pi_1', amountMinor: 1_000n }),
+    ],
+  });
+  assert.equal(result.available, false);
+  if (result.available) return;
+  assert.match(result.reason, /provider execution/i);
 });
 
 test('rejects over-refunded histories instead of deriving a negative balance', () => {
@@ -68,6 +95,17 @@ test('fails closed when booking payment status disagrees with successful refund 
   const result = deriveBookingRefundAvailability({
     ...booking,
     transactions: [transaction(), transaction({ kind: 'REFUND', providerReference: 're_1', amountMinor: 2_500n })],
+  });
+  assert.equal(result.available, false);
+  if (result.available) return;
+  assert.match(result.reason, /payment status is inconsistent/i);
+});
+
+test('partially refunded status requires a strictly positive balance below the booking total', () => {
+  const result = deriveBookingRefundAvailability({
+    ...booking,
+    paymentStatus: 'PARTIALLY_REFUNDED',
+    transactions: [transaction(), transaction({ kind: 'REFUND', providerReference: 're_all', amountMinor: 12_500n })],
   });
   assert.equal(result.available, false);
   if (result.available) return;

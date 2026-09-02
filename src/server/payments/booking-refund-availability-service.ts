@@ -37,6 +37,7 @@ export async function getBookingRefundAvailability(input: {
         status: true,
         providerCode: true,
         providerReference: true,
+        sourceProviderReference: true,
         currency: true,
         amountMinor: true,
       },
