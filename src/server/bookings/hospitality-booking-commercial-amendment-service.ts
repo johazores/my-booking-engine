@@ -1,11 +1,22 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
-import { createHospitalityAvailabilityHoldInTransaction, releaseHospitalityAvailabilityHoldInTransaction } from '../availability/hospitality-availability-hold-core.ts';
-import { evaluateAvailabilityRestrictions, formatAvailabilityDate, normalizeAvailabilityRequest } from '../availability/availability-domain.ts';
+import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
+import {
+  createHospitalityAvailabilityHoldInTransaction,
+  releaseHospitalityAvailabilityHoldInTransaction,
+} from '../availability/hospitality-availability-hold-core.ts';
+import {
+  evaluateAvailabilityRestrictions,
+  formatAvailabilityDate,
+  normalizeAvailabilityRequest,
+} from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
-import { normalizeHospitalityAddonSelections, type HospitalityAddonSelectionInput } from '../pricing/hospitality-addon-domain.ts';
-import { quoteHospitalityPriceFromReader } from '../pricing/hospitality-transactional-pricing.ts';
 import { deriveBookingRefundAvailability } from '../payments/payment-refund-availability-domain.ts';
+import {
+  normalizeHospitalityAddonSelections,
+  type HospitalityAddonSelectionInput,
+} from '../pricing/hospitality-addon-domain.ts';
+import { quoteHospitalityPriceFromReader } from '../pricing/hospitality-transactional-pricing.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   createHospitalityBookingCommercialAdjustmentPreview,
@@ -30,6 +41,49 @@ import {
   HospitalityBookingUnavailableError,
 } from './hospitality-booking-service.ts';
 
+type ExpirableAmendment = {
+  id: string;
+  bookingId: string;
+  targetHoldId: string | null;
+};
+
+async function expirePreparedAmendment(input: {
+  transaction: Prisma.TransactionClient;
+  amendment: ExpirableAmendment;
+  organizationId: string;
+  actorUserId: string;
+  now: Date;
+}) {
+  if (input.amendment.targetHoldId) {
+    await releaseHospitalityAvailabilityHoldInTransaction({
+      transaction: input.transaction,
+      organizationId: input.organizationId,
+      holdId: input.amendment.targetHoldId,
+      now: input.now,
+    });
+  }
+  const updated = await input.transaction.hospitalityBookingCommercialAmendment.update({
+    where: { id: input.amendment.id },
+    data: { status: 'EXPIRED', endedAt: input.now },
+  });
+  await input.transaction.auditEvent.create({
+    data: {
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      action: 'booking.commercial-amendment.expired',
+      resourceType: 'hospitality-booking-commercial-amendment',
+      resourceId: input.amendment.id,
+      beforeData: { status: 'PREPARED' },
+      afterData: {
+        status: 'EXPIRED',
+        bookingId: input.amendment.bookingId,
+        endedAt: input.now.toISOString(),
+      },
+    },
+  });
+  return updated;
+}
+
 async function expirePreparedAmendments(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
@@ -45,30 +99,15 @@ async function expirePreparedAmendments(input: {
       expiresAt: { lte: input.now },
     },
     orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, bookingId: true, targetHoldId: true },
   });
   for (const amendment of stale) {
-    if (amendment.targetHoldId) {
-      await releaseHospitalityAvailabilityHoldInTransaction({
-        transaction: input.transaction,
-        organizationId: input.organizationId,
-        holdId: amendment.targetHoldId,
-        now: input.now,
-      });
-    }
-    await input.transaction.hospitalityBookingCommercialAmendment.update({
-      where: { id: amendment.id },
-      data: { status: 'EXPIRED', endedAt: input.now },
-    });
-    await input.transaction.auditEvent.create({
-      data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
-        action: 'booking.commercial-amendment.expired',
-        resourceType: 'hospitality-booking-commercial-amendment',
-        resourceId: amendment.id,
-        beforeData: { status: 'PREPARED' },
-        afterData: { status: 'EXPIRED', bookingId: amendment.bookingId, endedAt: input.now.toISOString() },
-      },
+    await expirePreparedAmendment({
+      transaction: input.transaction,
+      amendment,
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      now: input.now,
     });
   }
 }
@@ -84,8 +123,16 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' });
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'booking:manage',
+  });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'payment:manage',
+  });
 
   const change = normalizeHospitalityBookingCommercialModificationInput(input.change);
   const expectedAdjustmentFingerprint = normalizeHospitalityCommercialAdjustmentFingerprint(input.adjustmentFingerprint);
@@ -99,7 +146,12 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
     })}, 0))`;
 
     const existing = await transaction.hospitalityBookingCommercialAmendment.findUnique({
-      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey: change.idempotencyKey } },
+      where: {
+        organizationId_idempotencyKey: {
+          organizationId: input.organizationId,
+          idempotencyKey: change.idempotencyKey,
+        },
+      },
     });
     if (existing) {
       if (
@@ -107,7 +159,18 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
         || existing.adjustmentFingerprint !== expectedAdjustmentFingerprint
         || existing.selectionFingerprint !== selectionFingerprint
       ) {
-        throw new HospitalityBookingConflictError('Commercial amendment idempotency key was already used for a different reviewed change.');
+        throw new HospitalityBookingConflictError(
+          'Commercial amendment idempotency key was already used for a different reviewed change.',
+        );
+      }
+      if (existing.status === 'PREPARED' && existing.expiresAt <= now) {
+        return expirePreparedAmendment({
+          transaction,
+          amendment: existing,
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          now,
+        });
       }
       return existing;
     }
@@ -118,22 +181,53 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
     });
     if (!initial) throw new HospitalityBookingUnavailableError();
 
-    for (const lockKey of hospitalityBookingCommercialAllocationLockKeys({
-      organizationId: input.organizationId,
-      propertyId: initial.propertyId,
-      currentRoomTypeId: initial.roomTypeId,
-      targetRoomTypeId: change.roomTypeId,
-    })) {
+    const staleLockScopes = await transaction.hospitalityBookingCommercialAmendment.findMany({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        status: 'PREPARED',
+        expiresAt: { lte: now },
+        targetHoldId: { not: null },
+      },
+      select: { propertyId: true, targetRoomTypeId: true },
+    });
+    const allocationLockKeys = [...new Set([
+      ...hospitalityBookingCommercialAllocationLockKeys({
+        organizationId: input.organizationId,
+        propertyId: initial.propertyId,
+        currentRoomTypeId: initial.roomTypeId,
+        targetRoomTypeId: change.roomTypeId,
+      }),
+      ...staleLockScopes.map((amendment) => hospitalityAvailabilityAllocationLockKey({
+        organizationId: input.organizationId,
+        propertyId: amendment.propertyId,
+        roomTypeId: amendment.targetRoomTypeId,
+      })),
+    ])].sort();
+    for (const lockKey of allocationLockKeys) {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
     }
 
-    await expirePreparedAmendments({ transaction, organizationId: input.organizationId, bookingId: input.bookingId, actorUserId: input.actorUserId, now });
+    await expirePreparedAmendments({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      actorUserId: input.actorUserId,
+      now,
+    });
     const activeAmendment = await transaction.hospitalityBookingCommercialAmendment.findFirst({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId, status: 'PREPARED', expiresAt: { gt: now } },
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        status: 'PREPARED',
+        expiresAt: { gt: now },
+      },
       select: { id: true },
     });
     if (activeAmendment) {
-      throw new HospitalityBookingConflictError('This booking already has an active commercial amendment. Cancel or finish it before preparing another change.');
+      throw new HospitalityBookingConflictError(
+        'This booking already has an active commercial amendment. Cancel or finish it before preparing another change.',
+      );
     }
 
     const booking = await transaction.hospitalityBooking.findFirst({
@@ -142,17 +236,23 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
     });
     if (!booking) throw new HospitalityBookingUnavailableError();
     if (booking.status !== 'CONFIRMED' || !booking.allocation) {
-      throw new HospitalityBookingConflictError('Only confirmed bookings with an active allocation can prepare a commercial amendment.');
+      throw new HospitalityBookingConflictError(
+        'Only confirmed bookings with an active allocation can prepare a commercial amendment.',
+      );
     }
     if (
       booking.allocation.propertyId !== booking.propertyId
       || booking.allocation.roomTypeId !== booking.roomTypeId
       || booking.allocation.quantity !== booking.quantity
     ) {
-      throw new HospitalityBookingConflictError('Booking allocation is inconsistent with the persisted commercial terms. Reconcile inventory before changing this booking.');
+      throw new HospitalityBookingConflictError(
+        'Booking allocation is inconsistent with the persisted commercial terms. Reconcile inventory before changing this booking.',
+      );
     }
     if (booking.paymentStatus !== 'PAID') {
-      throw new HospitalityBookingConflictError('Commercial payment adjustments are currently prepared only from fully paid bookings with reconciled settlement history.');
+      throw new HospitalityBookingConflictError(
+        'Commercial payment adjustments are currently prepared only from fully paid bookings with reconciled settlement history.',
+      );
     }
 
     const paymentTransactions = await transaction.paymentTransaction.findMany({
@@ -160,7 +260,9 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     if (paymentTransactions.some((payment) => payment.status === 'PENDING' || payment.status === 'AMBIGUOUS')) {
-      throw new HospitalityBookingConflictError('Booking has an unresolved payment operation. Reconcile it before preparing commercial terms.');
+      throw new HospitalityBookingConflictError(
+        'Booking has an unresolved payment operation. Reconcile it before preparing commercial terms.',
+      );
     }
     const settlement = deriveBookingRefundAvailability({
       status: booking.status,
@@ -188,9 +290,15 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       },
       select: { roomType: { select: { maxOccupancy: true } } },
     });
-    if (!assignment) throw new HospitalityBookingUnavailableError('The requested room type and rate plan are no longer active and assigned.');
+    if (!assignment) {
+      throw new HospitalityBookingUnavailableError(
+        'The requested room type and rate plan are no longer active and assigned.',
+      );
+    }
     if (booking._count.guests > change.quantity * assignment.roomType.maxOccupancy) {
-      throw new HospitalityBookingConflictError('The current traveler count exceeds the requested room quantity and room-type occupancy.');
+      throw new HospitalityBookingConflictError(
+        'The current traveler count exceeds the requested room quantity and room-type occupancy.',
+      );
     }
 
     const availabilityRequest = normalizeAvailabilityRequest({
@@ -211,7 +319,14 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
         endDate: { gte: booking.arrivalDate },
         OR: [{ roomTypeId: null }, { roomTypeId: change.roomTypeId }],
       },
-      select: { startDate: true, endDate: true, minStayNights: true, maxStayNights: true, closedToArrival: true, closedToDeparture: true },
+      select: {
+        startDate: true,
+        endDate: true,
+        minStayNights: true,
+        maxStayNights: true,
+        closedToArrival: true,
+        closedToDeparture: true,
+      },
     });
     const restrictionResult = evaluateAvailabilityRestrictions({
       arrivalDate: availabilityRequest.arrivalDate,
@@ -220,16 +335,25 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       restrictions,
     });
     if (!restrictionResult.allowed) {
-      throw new HospitalityBookingUnavailableError(`Requested commercial terms violate booking restrictions: ${restrictionResult.reasons.join(', ')}.`);
+      throw new HospitalityBookingUnavailableError(
+        `Requested commercial terms violate booking restrictions: ${restrictionResult.reasons.join(', ')}.`,
+      );
     }
 
+    if (!Array.isArray(booking.addonSelections)) {
+      throw new HospitalityBookingConflictError(
+        'Persisted booking add-on selections are invalid. Reconcile the booking before changing commercial terms.',
+      );
+    }
     let currentAddonSelections;
     try {
       currentAddonSelections = normalizeHospitalityAddonSelections(
-        Array.isArray(booking.addonSelections) ? booking.addonSelections as HospitalityAddonSelectionInput[] : [],
+        booking.addonSelections as HospitalityAddonSelectionInput[],
       );
     } catch {
-      throw new HospitalityBookingConflictError('Persisted booking add-on selections are invalid. Reconcile the booking before changing commercial terms.');
+      throw new HospitalityBookingConflictError(
+        'Persisted booking add-on selections are invalid. Reconcile the booking before changing commercial terms.',
+      );
     }
 
     const latestPrice = await quoteHospitalityPriceFromReader({
@@ -271,10 +395,14 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       after,
     });
     if (preview.adjustmentFingerprint !== expectedAdjustmentFingerprint) {
-      throw new HospitalityBookingPriceChangedError('The reviewed commercial adjustment is stale. Review the current price again before preparing the amendment.');
+      throw new HospitalityBookingPriceChangedError(
+        'The reviewed commercial adjustment is stale. Review the current price again before preparing the amendment.',
+      );
     }
     if (preview.direction === 'NONE') {
-      throw new HospitalityBookingConflictError('This change has no price delta and should use the existing zero-delta commercial modification flow.');
+      throw new HospitalityBookingConflictError(
+        'This change has no price delta and should use the existing zero-delta commercial modification flow.',
+      );
     }
 
     const protectionQuantity = hospitalityCommercialAmendmentProtectionQuantity({
@@ -308,7 +436,9 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
         },
       });
       if (hold.hold.status !== 'ACTIVE' || hold.hold.expiresAt <= now) {
-        throw new HospitalityBookingConflictError('Target inventory protection is no longer active. Review the commercial change again.');
+        throw new HospitalityBookingConflictError(
+          'Target inventory protection is no longer active. Review the commercial change again.',
+        );
       }
       targetHoldId = hold.hold.id;
       expiresAt = hold.hold.expiresAt;
@@ -389,8 +519,16 @@ export async function cancelHospitalityBookingCommercialAmendment(input: {
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
   assertUuidIdentifier(input.amendmentId, 'amendmentId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' });
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'booking:manage',
+  });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'payment:manage',
+  });
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
@@ -399,12 +537,22 @@ export async function cancelHospitalityBookingCommercialAmendment(input: {
       bookingId: input.bookingId,
     })}, 0))`;
     const amendment = await transaction.hospitalityBookingCommercialAmendment.findFirst({
-      where: { id: input.amendmentId, organizationId: input.organizationId, bookingId: input.bookingId },
+      where: {
+        id: input.amendmentId,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+      },
     });
-    if (!amendment) throw new HospitalityBookingUnavailableError('Commercial amendment is not available in this organization.');
+    if (!amendment) {
+      throw new HospitalityBookingUnavailableError(
+        'Commercial amendment is not available in this organization.',
+      );
+    }
     if (amendment.status === 'CANCELLED' || amendment.status === 'EXPIRED') return amendment;
     if (amendment.status !== 'PREPARED') {
-      throw new HospitalityBookingConflictError(`Commercial amendment state ${amendment.status.toLowerCase()} cannot be cancelled.`);
+      throw new HospitalityBookingConflictError(
+        `Commercial amendment state ${amendment.status.toLowerCase()} cannot be cancelled.`,
+      );
     }
 
     if (amendment.targetHoldId) {
@@ -424,11 +572,17 @@ export async function cancelHospitalityBookingCommercialAmendment(input: {
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: nextStatus === 'EXPIRED' ? 'booking.commercial-amendment.expired' : 'booking.commercial-amendment.cancelled',
+        action: nextStatus === 'EXPIRED'
+          ? 'booking.commercial-amendment.expired'
+          : 'booking.commercial-amendment.cancelled',
         resourceType: 'hospitality-booking-commercial-amendment',
         resourceId: amendment.id,
         beforeData: { status: amendment.status },
-        afterData: { status: nextStatus, bookingId: amendment.bookingId, endedAt: now.toISOString() },
+        afterData: {
+          status: nextStatus,
+          bookingId: amendment.bookingId,
+          endedAt: now.toISOString(),
+        },
       },
     });
     return updated;
