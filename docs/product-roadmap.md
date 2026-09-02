@@ -108,7 +108,7 @@ Implemented:
 - room type, rate plan, room quantity, and add-on changes when every monetary price component remains exactly unchanged
 - target-room capacity/restriction/occupancy validation and deterministic current/target allocation locking
 - durable commercial-modification idempotency and stale-retry protection
-- unresolved authorization/capture blocking for commercial changes
+- unresolved authorization/capture blocking for date reschedules and commercial changes
 - shared booking/payment mutation serialization
 - retained commercial history and audited mutations
 

@@ -58,9 +58,9 @@ This path deliberately rejects every non-zero monetary delta with `price-changed
 
 `POST /api/bookings/hospitality/[booking-id]/reschedule` changes arrival and departure dates only. Room type, rate plan, quantity, guest snapshots, add-on selections, payment records, and the persisted monetary price snapshot are not browser-editable through that operation.
 
-The write serializes first on the shared booking-mutation advisory lock and then on the same room-type allocation lock used by availability and hold workflows. It requires a confirmed booking with retained allocation, revalidates active assignment, restrictions, capacity excluding its own allocation, and complete persisted pricing, then atomically updates booking/allocation dates only when every monetary field and currency remain identical. Price-changing moves fail before mutation and require an explicit payment-adjustment workflow.
+The write serializes first on the shared booking-mutation advisory lock and then on the same room-type allocation lock used by availability and hold workflows. It requires a confirmed booking with retained allocation and blocks unresolved `PENDING` or `AMBIGUOUS` authorization/capture operations before applying a new date change. It then revalidates active assignment, restrictions, capacity excluding its own allocation, and complete persisted pricing, and atomically updates booking/allocation dates only when every monetary field and currency remain identical. Price-changing moves fail before mutation and require an explicit payment-adjustment workflow.
 
-The audit ledger is the persisted reschedule request ledger. Exact current-state retries succeed, changed-payload key reuse is rejected, and stale retries after a later reschedule fail closed.
+The audit ledger is the persisted reschedule request ledger. Exact current-state retries succeed even if a later payment operation is in progress because they do not mutate the booking; changed-payload key reuse is rejected, and stale retries after a later reschedule fail closed.
 
 ## Cancellation contract
 
@@ -76,7 +76,7 @@ The detail page exposes a bounded, 20-row paginated history for `hospitality-boo
 
 Dependency-free booking-domain tests cover cancellation policy, reschedule validation/zero-delta comparison, traveler normalization/fingerprinting, commercial-modification normalization/fingerprinting/selection comparison/allocation-lock ordering, occupancy enforcement, and the shared booking-mutation lock namespace.
 
-The guarded PostgreSQL suite includes dedicated confirmation, cancellation, rescheduling, traveler-modification, and commercial-modification scenarios. The commercial-modification scenario covers `booking:manage` denial, cross-tenant denial, unresolved-payment blocking, safe room/rate/quantity/add-on replacement with identical monetary components, allocation movement, exact retry, changed-payload idempotency conflicts, current-price rejection, capacity rejection, stale retry protection, and non-PII audit payloads.
+The guarded PostgreSQL suite includes dedicated confirmation, cancellation, rescheduling, traveler-modification, and commercial-modification scenarios. Reschedule coverage includes unresolved-payment blocking before a new date mutation. The commercial-modification scenario covers `booking:manage` denial, cross-tenant denial, unresolved-payment blocking, safe room/rate/quantity/add-on replacement with identical monetary components, allocation movement, exact retry, changed-payload idempotency conflicts, current-price rejection, capacity rejection, stale retry protection, and non-PII audit payloads.
 
 These PostgreSQL scenarios are checked in but are not claimed as executed in environments without the required confirmed disposable PostgreSQL target. Full repository validation remains subject to the Node 24 `npm run validate` gate.
 
