@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
+import { PublicBookingOfferCard, PublicBookingRecovery } from './public-booking-flow.tsx';
 import { readPublicHospitalityBookingPage, searchPublicHospitalityOffers } from '@/server/bookings/public-hospitality-search-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 
@@ -11,6 +12,7 @@ type BookingPageQuery = {
   arrival?: string | string[];
   departure?: string | string[];
   quantity?: string | string[];
+  payment?: string | string[];
 };
 
 type BookingPageProps = {
@@ -97,13 +99,15 @@ export default async function PublicBookingPage({ params, searchParams }: Bookin
 
       <section className="sf-public-booking__hero">
         <div className="sf-public-booking__container sf-public-booking__hero-inner">
-          <p className="sf-public-booking__eyebrow">Direct availability</p>
+          <p className="sf-public-booking__eyebrow">Direct booking</p>
           <h1>{title}</h1>
           <p className="sf-public-booking__lead">{description}</p>
         </div>
       </section>
 
       <section className="sf-public-booking__container sf-public-booking__content" aria-labelledby="availability-title">
+        <PublicBookingRecovery organizationSlug={organizationSlug} />
+
         <div className="sf-public-booking__search-card">
           <div className="sf-public-booking__section-heading">
             <div>
@@ -151,33 +155,31 @@ export default async function PublicBookingPage({ params, searchParams }: Bookin
             </div>
             <div className="sf-public-booking__offer-grid">
               {searchResults.offers.map((offer) => (
-                <article className="sf-public-booking__offer" key={`${offer.property.id}:${offer.roomType.id}:${offer.ratePlan.id}`}>
-                  <div className="sf-public-booking__offer-main">
-                    <div>
-                      <p className="sf-public-booking__property">{offer.property.name}</p>
-                      <h3>{offer.roomType.name}</h3>
-                      <p className="sf-public-booking__location">{[offer.property.city, offer.property.region, offer.property.countryCode].filter(Boolean).join(', ')}</p>
-                    </div>
-                    <span className="sf-public-booking__availability">{offer.capacity.sellableUnits} available</span>
-                  </div>
-                  <div className="sf-public-booking__rate">
-                    <strong>{offer.ratePlan.name}</strong>
-                    {offer.ratePlan.description ? <p>{offer.ratePlan.description}</p> : null}
-                  </div>
-                  <dl className="sf-public-booking__facts">
-                    <div><dt>Stay</dt><dd>{offer.stay.nights} night{offer.stay.nights === 1 ? '' : 's'}</dd></div>
-                    <div><dt>Rooms</dt><dd>{offer.stay.quantity}</dd></div>
-                    <div><dt>Max occupancy</dt><dd>{offer.roomType.maxOccupancy} per room</dd></div>
-                  </dl>
-                  <div className="sf-public-booking__price">
-                    <div>
-                      <span>Total stay price</span>
-                      <strong>{formatMoney(offer.price.totalMinor, offer.price.currency)}</strong>
-                    </div>
-                    <small>Includes {formatMoney(offer.price.taxTotalMinor, offer.price.currency)} tax and {formatMoney(offer.price.feeTotalMinor, offer.price.currency)} fees.</small>
-                  </div>
-                  {contactHref ? <a className="sf-public-booking__contact" href={contactHref}>Contact to reserve</a> : <p className="sf-public-booking__contact-note">Online reservation is not yet available. This offer is live availability, not a held room.</p>}
-                </article>
+                <PublicBookingOfferCard
+                  key={`${offer.property.id}:${offer.roomType.id}:${offer.ratePlan.id}`}
+                  organizationSlug={organizationSlug}
+                  offer={{
+                    propertyId: offer.property.id,
+                    roomTypeId: offer.roomType.id,
+                    ratePlanId: offer.ratePlan.id,
+                    propertyName: offer.property.name,
+                    roomTypeName: offer.roomType.name,
+                    ratePlanName: offer.ratePlan.name,
+                    ratePlanDescription: offer.ratePlan.description,
+                    location: [offer.property.city, offer.property.region, offer.property.countryCode].filter(Boolean).join(', '),
+                    sellableUnits: offer.capacity.sellableUnits,
+                    nights: offer.stay.nights,
+                    quantity: offer.stay.quantity,
+                    maxOccupancy: offer.roomType.maxOccupancy,
+                    arrivalDate: offer.stay.arrivalDate,
+                    departureDate: offer.stay.departureDate,
+                    currency: offer.price.currency,
+                    totalMinor: offer.price.totalMinor,
+                    formattedTotal: formatMoney(offer.price.totalMinor, offer.price.currency),
+                    formattedTax: formatMoney(offer.price.taxTotalMinor, offer.price.currency),
+                    formattedFees: formatMoney(offer.price.feeTotalMinor, offer.price.currency),
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -186,7 +188,7 @@ export default async function PublicBookingPage({ params, searchParams }: Bookin
 
       <footer className="sf-public-booking__footer">
         <div className="sf-public-booking__container">
-          <p>Availability and pricing are checked when you search and may change until a reservation is confirmed.</p>
+          <p>Availability and pricing are rechecked before confirmation. Payment is completed securely with the configured payment provider.</p>
           {branding.contactEmail ? <a href={`mailto:${branding.contactEmail}`}>{branding.contactEmail}</a> : null}
           {branding.contactPhone ? <a href={`tel:${branding.contactPhone.replace(/\s+/g, '')}`}>{branding.contactPhone}</a> : null}
         </div>

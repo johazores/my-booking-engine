@@ -2,9 +2,11 @@
 
 ## Status
 
-SF has a server-side customer-safe confirmation boundary for capability-owned hospitality holds. Public confirmation now creates a durable `PENDING_CONFIRMATION / UNPAID` booking rather than immediately claiming that payment has been durably started or completed.
+SF has a server-side customer-safe confirmation boundary for capability-owned hospitality holds. Public confirmation creates a durable `PENDING_CONFIRMATION / UNPAID` booking rather than immediately claiming that payment has been durably started or completed.
 
-The pending booking owns the canonical booking allocation for a bounded payment-start window. If no durable or recoverable payment operation takes over before that window expires, availability stops treating the pending allocation as protected inventory. This prevents a browser/process failure between booking creation and Stripe Checkout persistence from reserving inventory indefinitely.
+`POST /api/public-bookings/[organization-slug]/hospitality/confirmation` is the public ingress for that service. It is same-origin only, no-store, tenant-resolved from the slug, and requires the opaque hold capability, a UUID-v4 public request key, the reviewed pricing fingerprint, normalized customer/recovery contact, and booking guest snapshots. It does not accept a browser-selected organization, principal, hold, booking, customer, or allocation ID as authority.
+
+The public page calls this endpoint only after it has created a tenant-scoped hold and obtained a fresh capability-owned quote. Successful confirmation is immediately followed by Stripe Checkout initiation; the booking capability is retained only in same-tab `sessionStorage` so the return page can recover authoritative payment state without putting the capability in a URL.
 
 Staff confirmation behavior is unchanged: authenticated staff bookings still enter the shared core as `CONFIRMED / UNPAID` immediately.
 
