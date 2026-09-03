@@ -88,6 +88,64 @@ test('creates amendment recovery Checkout with explicit Session and PaymentInten
   assert.equal(form.get('line_items[0][price_data][product_data][name]'), 'Reservation recovery payment');
 });
 
+test('retrieves exact Checkout provider truth for amendment recovery reconciliation', async () => {
+  let capturedUrl = '';
+  let capturedMethod = '';
+  let capturedAuthorization = '';
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (url, init) => {
+      capturedUrl = String(url);
+      capturedMethod = init?.method ?? '';
+      capturedAuthorization = new Headers(init?.headers).get('Authorization') ?? '';
+      return new Response(JSON.stringify(checkoutResponse({
+        status: 'complete',
+        payment_status: 'paid',
+        payment_intent: 'pi_recovery_123',
+        amount_total: 2500,
+        metadata: {
+          sf_organization_id: organizationId,
+          sf_booking_id: bookingId,
+          sf_commercial_amendment_id: amendmentId,
+          sf_checkout_purpose: 'commercial-amendment-recovery',
+        },
+      })), { status: 200 });
+    },
+  });
+
+  const snapshot = await provider.retrievePaymentSession('cs_test_abc123');
+  assert.equal(capturedUrl, 'https://api.stripe.com/v1/checkout/sessions/cs_test_abc123');
+  assert.equal(capturedMethod, 'GET');
+  assert.equal(capturedAuthorization, 'Bearer sk_test_checkout_secret');
+  assert.equal(snapshot.sessionReference, 'cs_test_abc123');
+  assert.equal(snapshot.status, 'complete');
+  assert.equal(snapshot.paymentStatus, 'paid');
+  assert.equal(snapshot.paymentIntentReference, 'pi_recovery_123');
+  assert.equal(snapshot.money.currency, 'USD');
+  assert.equal(snapshot.money.amountMinor, 2500n);
+  assert.equal(snapshot.organizationId, organizationId);
+  assert.equal(snapshot.bookingId, bookingId);
+  assert.equal(snapshot.commercialAmendmentId, amendmentId);
+  assert.equal(snapshot.purpose, 'commercial-amendment-recovery');
+});
+
+test('fails closed when retrieved Checkout provider identity is malformed', async () => {
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+      status: 'complete',
+      payment_status: 'paid',
+      payment_intent: 'not-a-payment-intent',
+      metadata: {},
+    })), { status: 200 }),
+  });
+
+  await assert.rejects(
+    provider.retrievePaymentSession('cs_test_abc123'),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+});
+
 test('rejects amendment metadata on a normal booking Checkout', async () => {
   const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret' });
   await assert.rejects(
