@@ -32,14 +32,24 @@ type CommercialAmendmentStatus = Readonly<{
   canApply: boolean;
 }>;
 
+type CommercialAmendmentCheckout = Readonly<{
+  state: 'CHECKOUT_REQUIRED' | 'PAYMENT_CONFIRMED';
+  checkoutUrl: string | null;
+  expiresAt: string | null;
+}>;
+
 function requestKey(prefix: string) {
   return `${prefix}:${crypto.randomUUID()}`;
 }
 
-async function readJson(response: Response) {
+async function readPayload(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.message ?? payload.error ?? 'Commercial amendment operation could not be completed.');
-  return payload as CommercialAmendmentStatus;
+  return payload;
+}
+
+async function readJson(response: Response) {
+  return await readPayload(response) as CommercialAmendmentStatus;
 }
 
 export function BookingCommercialAmendmentAction(props: {
@@ -76,12 +86,37 @@ export function BookingCommercialAmendmentAction(props: {
     try {
       const response = status.providerCode === 'stripe' && status.direction === 'REFUND' && status.state === 'WAIT_FOR_PROVIDER'
         ? await fetch(`${endpoint}/stripe-refund/status`, { method: 'POST', headers: { Accept: 'application/json' } })
-        : await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        : status.providerCode === 'stripe' && status.direction === 'ADDITIONAL_CHARGE' && status.state === 'WAIT_FOR_PROVIDER'
+          ? await fetch(`${endpoint}/stripe-checkout/status`, { method: 'POST', headers: { Accept: 'application/json' } })
+          : await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
       const next = await readJson(response);
-      accept(next, next.state === 'READY_TO_APPLY' ? 'Provider settlement is confirmed. The reviewed booking change is ready for final apply.' : 'Commercial amendment status refreshed from authoritative server state.');
+      accept(next, next.state === 'READY_TO_APPLY'
+        ? 'Provider settlement is confirmed. The reviewed booking change is ready for final apply.'
+        : next.state === 'STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED'
+          ? 'The previous Stripe Checkout ended without payment. A fresh customer-authorized attempt can be started while the amendment remains active.'
+          : 'Commercial amendment status refreshed from authoritative server state.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Commercial amendment status could not be refreshed.');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startStripeCheckout() {
+    if (busy || status.state !== 'STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED') return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch(`${endpoint}/stripe-checkout`, { method: 'POST', headers: { Accept: 'application/json' } });
+      const checkout = await readPayload(response) as CommercialAmendmentCheckout;
+      if (checkout.state === 'PAYMENT_CONFIRMED') {
+        const refreshed = await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        accept(await readJson(refreshed), 'Stripe payment is already confirmed.');
+        return;
+      }
+      if (!checkout.checkoutUrl) throw new Error('Stripe Checkout did not return a customer payment URL.');
+      window.location.assign(checkout.checkoutUrl);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stripe Checkout could not be started safely.');
       setBusy(false);
     }
   }
@@ -191,11 +226,15 @@ export function BookingCommercialAmendmentAction(props: {
       <button className="sf-button sf-button--primary" type="button" onClick={executeStripeRefund} disabled={busy}>{busy ? 'Refunding…' : 'Issue exact Stripe refund'}</button>
     </div> : null}
 
-    {status.state === 'STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED' ? <p className="sf-booking-modification-form__error">This prepared increase needs a fresh customer-authorized Stripe payment. SF does not reuse old card credentials or treat the prepared delta as permission to charge. Cancel this amendment unless the customer-authorized collection flow is being completed through a supported internal operation.</p> : null}
+    {status.state === 'STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED' ? <div>
+      <p>Collect the exact additional charge through Stripe Checkout. SF derives the amount, tenant, booking, and amendment server-side; the customer enters payment details only on Stripe.</p>
+      <p className="sf-muted"><small>If payment completes after this prepared amendment expires, SF will not apply stale booking terms. The settled money moves into the existing recovery/compensation workflow instead.</small></p>
+      <button className="sf-button sf-button--primary" type="button" onClick={startStripeCheckout} disabled={busy}>{busy ? 'Opening Stripe…' : 'Collect with Stripe'}</button>
+    </div> : null}
 
     {status.state === 'WAIT_FOR_PROVIDER' ? <div>
       <p>Provider truth is still unresolved. Do not apply the booking change or start another money operation until reconciliation finishes.</p>
-      {status.providerCode === 'stripe' && status.direction === 'REFUND' ? <button className="sf-button sf-button--primary" type="button" onClick={refreshStatus} disabled={busy}>{busy ? 'Checking Stripe…' : 'Check Stripe status'}</button> : null}
+      {status.providerCode === 'stripe' ? <button className="sf-button sf-button--primary" type="button" onClick={refreshStatus} disabled={busy}>{busy ? 'Checking Stripe…' : 'Check Stripe status'}</button> : null}
     </div> : null}
 
     {status.state === 'READY_TO_APPLY' ? <div>

@@ -8,7 +8,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const CHECKOUT_EXPIRY_MINUTES = 30;
 
 export type StripeCheckoutFetch = typeof fetch;
-export type StripeCheckoutPurpose = 'booking-payment' | 'commercial-amendment-recovery';
+export type StripeCheckoutPurpose = 'booking-payment' | 'commercial-amendment-charge' | 'commercial-amendment-recovery';
 
 export type StripeCheckoutSessionResult = Readonly<{
   providerCode: 'stripe';
@@ -82,12 +82,13 @@ export class StripeCheckoutProvider {
     const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
     const purpose = input.purpose ?? 'booking-payment';
     const commercialAmendmentId = input.commercialAmendmentId?.trim().toLowerCase() ?? null;
-    if (purpose === 'commercial-amendment-recovery') {
+    const commercialPurpose = purpose === 'commercial-amendment-charge' || purpose === 'commercial-amendment-recovery';
+    if (commercialPurpose) {
       if (!commercialAmendmentId || !UUID_PATTERN.test(commercialAmendmentId)) {
-        throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment recovery Checkout requires a valid amendment ID.');
+        throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment Checkout requires a valid amendment ID.');
       }
     } else if (commercialAmendmentId) {
-      throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for recovery Checkout.');
+      throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
     const expiresAt = new Date((input.now ?? new Date()).getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
@@ -102,7 +103,7 @@ export class StripeCheckoutProvider {
     form.set('metadata[sf_booking_id]', input.bookingId);
     form.set('payment_intent_data[metadata][sf_organization_id]', input.organizationId);
     form.set('payment_intent_data[metadata][sf_booking_id]', input.bookingId);
-    if (purpose === 'commercial-amendment-recovery') {
+    if (commercialPurpose) {
       form.set('metadata[sf_checkout_purpose]', purpose);
       form.set('metadata[sf_commercial_amendment_id]', commercialAmendmentId!);
       form.set('payment_intent_data[metadata][sf_checkout_purpose]', purpose);
@@ -110,10 +111,12 @@ export class StripeCheckoutProvider {
     }
     form.set('line_items[0][price_data][currency]', input.money.currency.toLowerCase());
     form.set('line_items[0][price_data][unit_amount]', input.money.amountMinor.toString());
-    form.set(
-      'line_items[0][price_data][product_data][name]',
-      purpose === 'commercial-amendment-recovery' ? 'Reservation recovery payment' : 'Reservation',
-    );
+    const productName = purpose === 'commercial-amendment-recovery'
+      ? 'Reservation recovery payment'
+      : purpose === 'commercial-amendment-charge'
+        ? 'Reservation change payment'
+        : 'Reservation';
+    form.set('line_items[0][price_data][product_data][name]', productName);
     form.set('line_items[0][quantity]', '1');
     if (input.customerEmail) form.set('customer_email', input.customerEmail);
 
