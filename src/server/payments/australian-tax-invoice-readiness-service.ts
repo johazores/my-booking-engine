@@ -64,7 +64,10 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       preparationSnapshot.pricingEvidenceId !== preparation.pricingEvidenceId
       || preparationSnapshot.issuerProfileId !== preparation.issuerProfileId
       || preparationSnapshot.currency !== preparation.currency
+      || BigInt(preparationSnapshot.accommodationSubtotalMinor) !== preparation.accommodationSubtotalMinor
       || BigInt(preparationSnapshot.taxTotalMinor) !== preparation.taxTotalMinor
+      || BigInt(preparationSnapshot.feeTotalMinor) !== preparation.feeTotalMinor
+      || BigInt(preparationSnapshot.addonTotalMinor) !== preparation.addonTotalMinor
       || BigInt(preparationSnapshot.totalMinor) !== preparation.totalMinor
       || preparationSnapshot.pricingFingerprint !== preparation.pricingFingerprint
       || preparationSnapshot.issuerFingerprint !== preparation.issuerFingerprint
@@ -122,11 +125,17 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       invoiceIssuerProfileFingerprint(issuerSnapshot) !== issuer.fingerprint
       || issuer.fingerprint !== preparation.issuerFingerprint
       || evidence.currency !== preparation.currency
+      || evidence.accommodationSubtotalMinor !== preparation.accommodationSubtotalMinor
       || evidence.taxTotalMinor !== preparation.taxTotalMinor
+      || evidence.feeTotalMinor !== preparation.feeTotalMinor
+      || evidence.addonTotalMinor !== preparation.addonTotalMinor
       || evidence.totalMinor !== preparation.totalMinor
       || evidence.pricingFingerprint !== preparation.pricingFingerprint
       || pricingBreakdown.currency !== preparation.currency
+      || BigInt(pricingBreakdown.accommodationSubtotalMinor) !== preparation.accommodationSubtotalMinor
       || BigInt(pricingBreakdown.taxTotalMinor) !== preparation.taxTotalMinor
+      || BigInt(pricingBreakdown.feeTotalMinor) !== preparation.feeTotalMinor
+      || BigInt(pricingBreakdown.addonTotalMinor) !== preparation.addonTotalMinor
       || BigInt(pricingBreakdown.totalMinor) !== preparation.totalMinor
       || pricingBreakdown.pricingFingerprint !== preparation.pricingFingerprint
     ) {
