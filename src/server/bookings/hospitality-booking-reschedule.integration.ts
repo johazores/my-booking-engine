@@ -50,6 +50,12 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     });
 
     const firstChange = { arrivalDate: '2026-09-11', departureDate: '2026-09-13', idempotencyKey: 'reschedule:first-change' };
+    const firstChangeQuote = await pricing.quoteHospitalityPrice({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      request: { ...originalRequest, arrivalDate: firstChange.arrivalDate, departureDate: firstChange.departureDate },
+    });
+    assert.notEqual(firstChangeQuote.fingerprint, booking.pricingFingerprint);
     await assert.rejects(reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: booking.id, change: firstChange, now }), /permission/i);
     await assert.rejects(reschedules.rescheduleHospitalityBooking({ organizationId: organizationB.id, actorUserId: adminB.id, bookingId: booking.id, change: firstChange, now }), /not available/i);
 
@@ -76,6 +82,7 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     assert.equal(rescheduled.arrivalDate.toISOString().slice(0, 10), '2026-09-11');
     assert.equal(rescheduled.departureDate.toISOString().slice(0, 10), '2026-09-13');
     assert.equal(rescheduled.totalMinor.toString(), booking.totalMinor.toString());
+    assert.equal(rescheduled.pricingFingerprint, firstChangeQuote.fingerprint);
     assert.equal(rescheduled.paymentStatus, booking.paymentStatus);
     const allocation = await db.hospitalityBookingAllocation.findUniqueOrThrow({ where: { organizationId_bookingId: { organizationId: organizationA.id, bookingId: booking.id } } });
     assert.equal(allocation.arrivalDate.toISOString().slice(0, 10), '2026-09-11');
@@ -83,6 +90,7 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
 
     const exactRetry = await reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: firstChange, now });
     assert.equal(exactRetry.id, booking.id);
+    assert.equal(exactRetry.pricingFingerprint, firstChangeQuote.fingerprint);
     assert.equal(await db.auditEvent.count({ where: { organizationId: organizationA.id, resourceType: 'hospitality-booking', resourceId: booking.id, action: 'booking.rescheduled' } }), 1);
     await assert.rejects(
       reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: { ...firstChange, departureDate: '2026-09-14' }, now }),
@@ -96,6 +104,7 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     );
     const afterRejectedPrice = await db.hospitalityBooking.findUniqueOrThrow({ where: { id: booking.id } });
     assert.equal(afterRejectedPrice.arrivalDate.toISOString().slice(0, 10), '2026-09-11');
+    assert.equal(afterRejectedPrice.pricingFingerprint, firstChangeQuote.fingerprint);
     await db.hospitalityBaseRate.update({ where: { id: baseRate.id }, data: { amountMinor: 10_000n } });
 
     const blockingHoldRequest = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-20', departureDate: '2026-09-22', quantity: 1 };
@@ -106,7 +115,13 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     );
 
     const secondChange = { arrivalDate: '2026-09-15', departureDate: '2026-09-17', idempotencyKey: 'reschedule:second-change' };
-    await reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: secondChange, now });
+    const secondChangeQuote = await pricing.quoteHospitalityPrice({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      request: { ...originalRequest, arrivalDate: secondChange.arrivalDate, departureDate: secondChange.departureDate },
+    });
+    const secondReschedule = await reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: secondChange, now });
+    assert.equal(secondReschedule.pricingFingerprint, secondChangeQuote.fingerprint);
     await assert.rejects(
       reschedules.rescheduleHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, change: firstChange, now }),
       /changed again afterward/i,
@@ -115,7 +130,9 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, resourceType: 'hospitality-booking', resourceId: booking.id, action: 'booking.rescheduled' }, orderBy: { createdAt: 'asc' } });
     assert.equal(events.length, 2);
     assert.equal((events[0]?.beforeData as { arrivalDate?: string } | null)?.arrivalDate, '2026-09-10');
+    assert.equal((events[0]?.beforeData as { pricingFingerprint?: string } | null)?.pricingFingerprint, quote.fingerprint);
     assert.equal((events[0]?.afterData as { arrivalDate?: string } | null)?.arrivalDate, '2026-09-11');
+    assert.equal((events[0]?.afterData as { pricingFingerprint?: string } | null)?.pricingFingerprint, firstChangeQuote.fingerprint);
     assert.equal(JSON.stringify(events).includes('reschedule-guest-'), false);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
