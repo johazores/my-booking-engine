@@ -22,9 +22,11 @@ The response includes a deterministic receipt number derived from the booking UU
 
 ## Tax and fee boundary
 
-`taxTotalMinor` and `feeTotalMinor` on the receipt are the immutable aggregate booking pricing snapshots used when the booking was priced. SF does not reconstruct rates or labels from current `HospitalityChargeRule` rows because those rules may later change.
+`taxTotalMinor` and `feeTotalMinor` on the receipt remain the accepted aggregate booking pricing values. The receipt contract intentionally does not re-read current mutable pricing rules to invent historical tax or fee descriptions.
 
-This remains a payment receipt, not a jurisdiction-specific tax invoice. The current booking schema does not persist a complete immutable per-booking tax/fee line-item snapshot with jurisdiction, tax-registration identity, legal numbering, or fiscal wording. SF therefore does not invent invoice numbers, tax rates, VAT/GST registration fields, fee descriptions, PDF tax invoices, or accounting-system synchronization. Those requirements remain open until a real legal/tax contract and durable issuance model are implemented.
+SF now separately persists append-only `HospitalityBookingPricingEvidence` for newly accepted booking/commercial states. That evidence freezes the canonical nightly, tax/fee, and add-on breakdown together with exact aggregates, commercial scope, stay, selections, and pricing fingerprint. It is written through protected server booking/amendment transactions and is not customer/browser authority. Historical bookings created before the evidence migration can legitimately have no such row and are not automatically reconstructed from today's pricing configuration.
+
+The presence of immutable pricing evidence does **not** make this payment receipt a jurisdiction-specific tax invoice. SF still lacks the full legal issuer/tax-registration/billing identity, jurisdiction-specific tax characterization, concurrency-safe fiscal numbering, invoice/credit-note lifecycle, required legal wording, rendering/delivery, retention, and accounting contracts needed to issue regulated documents. The receipt therefore does not invent invoice numbers, VAT/GST registration values, legal tax wording, PDF tax invoices, or accounting synchronization. See `docs/invoice-foundation.md` for the production boundary and remaining dependencies.
 
 ## Provider truth
 
@@ -32,4 +34,6 @@ A browser redirect is never payment evidence. Receipt availability comes only fr
 
 ## Validation
 
-Dependency-free receipt-domain tests cover deterministic numbering, successful-only filtering, internal-reference sanitization, currency and non-positive-money rejection, capture/refund arithmetic, authorization exclusion/direct-settlement fallback, and customer-safe activity projection. Full repository validation, Prisma checks, PostgreSQL integration execution, and production build remain subject to the repository's Node 24 and disposable-database local gates. GitHub Actions are not used.
+Dependency-free receipt-domain tests cover deterministic numbering, successful-only filtering, internal-reference sanitization, currency and non-positive-money rejection, capture/refund arithmetic, authorization exclusion/direct-settlement fallback, and customer-safe activity projection. Booking pricing-evidence domain tests independently cover canonical line-item evidence, strict persisted parsing, aggregate reconciliation, stay/add-on commercial-state matching, and malformed evidence rejection.
+
+Full repository validation, Prisma checks, PostgreSQL integration execution, and production build remain subject to the repository's Node 24 and disposable-database local gates. GitHub Actions are not used.
