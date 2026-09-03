@@ -1,4 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { calculateAvailabilityHoldCapacity } from '../availability/availability-hold-domain.ts';
 import {
   evaluateAvailabilityRestrictions,
   formatAvailabilityDate,
@@ -302,6 +303,66 @@ export async function applyHospitalityBookingCommercialAmendment(input: {
     if (!restrictionResult.allowed) {
       throw new HospitalityBookingUnavailableError(
         `Commercial amendment target violates booking restrictions: ${restrictionResult.reasons.join(', ')}.`,
+      );
+    }
+
+    const [physicalCapacity, windows, competingHolds, otherAllocations] = await Promise.all([
+      transaction.hospitalityRoom.count({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: amendment.targetRoomTypeId,
+          status: 'ACTIVE',
+        },
+      }),
+      transaction.hospitalityAvailabilityWindow.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: amendment.targetRoomTypeId,
+          status: 'ACTIVE',
+          startDate: { lt: booking.departureDate },
+          endDate: { gte: booking.arrivalDate },
+        },
+        select: { startDate: true, endDate: true, capacityLimit: true },
+      }),
+      transaction.hospitalityAvailabilityHold.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: amendment.targetRoomTypeId,
+          status: 'ACTIVE',
+          expiresAt: { gt: now },
+          arrivalDate: { lt: booking.departureDate },
+          departureDate: { gt: booking.arrivalDate },
+          ...(amendment.targetHoldId ? { id: { not: amendment.targetHoldId } } : {}),
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
+      transaction.hospitalityBookingAllocation.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: amendment.targetRoomTypeId,
+          bookingId: { not: booking.id },
+          arrivalDate: { lt: booking.departureDate },
+          departureDate: { gt: booking.arrivalDate },
+          booking: { is: { status: { not: 'CANCELLED' } } },
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
+    ]);
+    const targetCapacity = calculateAvailabilityHoldCapacity({
+      physicalCapacity,
+      arrivalDate: availabilityRequest.arrivalDate,
+      departureDate: availabilityRequest.departureDate,
+      windows,
+      holds: competingHolds,
+      allocations: otherAllocations,
+    });
+    if (targetCapacity.sellableUnits < amendment.targetQuantity) {
+      throw new HospitalityBookingUnavailableError(
+        'Commercial amendment target no longer has enough sellable inventory for the booking.',
       );
     }
 
