@@ -2,6 +2,7 @@ import { PaymentProviderError, normalizePaymentMoney, type PaymentMoney } from '
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
+const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CHECKOUT_EXPIRY_MINUTES = 30;
@@ -17,6 +18,19 @@ export type StripeCheckoutSessionResult = Readonly<{
   money: PaymentMoney;
 }>;
 
+export type StripeCheckoutSessionSnapshot = Readonly<{
+  providerCode: 'stripe';
+  sessionReference: string;
+  status: 'open' | 'complete' | 'expired';
+  paymentStatus: 'paid' | 'unpaid' | 'no_payment_required';
+  paymentIntentReference: string | null;
+  money: PaymentMoney;
+  organizationId: string | null;
+  bookingId: string | null;
+  commercialAmendmentId: string | null;
+  purpose: string | null;
+}>;
+
 type StripeCheckoutSessionResponse = Readonly<{
   id?: unknown;
   object?: unknown;
@@ -24,6 +38,10 @@ type StripeCheckoutSessionResponse = Readonly<{
   expires_at?: unknown;
   amount_total?: unknown;
   currency?: unknown;
+  status?: unknown;
+  payment_status?: unknown;
+  payment_intent?: unknown;
+  metadata?: unknown;
 }>;
 
 type StripeErrorResponse = Readonly<{
@@ -99,7 +117,7 @@ export class StripeCheckoutProvider {
     form.set('line_items[0][quantity]', '1');
     if (input.customerEmail) form.set('customer_email', input.customerEmail);
 
-    const response = await this.request<StripeCheckoutSessionResponse>('/checkout/sessions', form, input.idempotencyKey);
+    const response = await this.requestPost<StripeCheckoutSessionResponse>('/checkout/sessions', form, input.idempotencyKey);
     if (response.object !== 'checkout.session') throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session.', true);
     if (typeof response.id !== 'string' || !STRIPE_CHECKOUT_SESSION_PATTERN.test(response.id)) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session reference.', true);
@@ -109,10 +127,7 @@ export class StripeCheckoutProvider {
     if (!Number.isSafeInteger(response.expires_at) || Number(response.expires_at) <= 0) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout expiry.', true);
     }
-    if (!Number.isSafeInteger(response.amount_total) || Number(response.amount_total) < 0) {
-      throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout amount.', true);
-    }
-    const money = normalizePaymentMoney(response.currency, BigInt(Number(response.amount_total)));
+    const money = normalizeCheckoutMoney(response);
     if (money.currency !== input.money.currency || money.amountMinor !== input.money.amountMinor) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout money that does not match the requested payment amount.', true);
     }
@@ -126,18 +141,58 @@ export class StripeCheckoutProvider {
     });
   }
 
-  private async request<T>(path: string, form: URLSearchParams, idempotencyKey: string): Promise<T> {
+  async retrievePaymentSession(sessionReference: string): Promise<StripeCheckoutSessionSnapshot> {
+    if (!STRIPE_CHECKOUT_SESSION_PATTERN.test(sessionReference) || sessionReference.length > 160) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Stripe Checkout Session reference is invalid.');
+    }
+    const response = await this.requestGet<StripeCheckoutSessionResponse>(`/checkout/sessions/${encodeURIComponent(sessionReference)}`);
+    if (response.object !== 'checkout.session' || response.id !== sessionReference) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different Checkout Session.', true);
+    }
+    const status = normalizeCheckoutStatus(response.status);
+    const paymentStatus = normalizeCheckoutPaymentStatus(response.payment_status);
+    const paymentIntentReference = normalizePaymentIntentReference(response.payment_intent);
+    const metadata = normalizeCheckoutMetadata(response.metadata);
+
+    return Object.freeze({
+      providerCode: 'stripe',
+      sessionReference,
+      status,
+      paymentStatus,
+      paymentIntentReference,
+      money: normalizeCheckoutMoney(response),
+      organizationId: normalizeMetadataUuid(metadata.sf_organization_id),
+      bookingId: normalizeMetadataUuid(metadata.sf_booking_id),
+      commercialAmendmentId: normalizeMetadataUuid(metadata.sf_commercial_amendment_id),
+      purpose: normalizeOptionalString(metadata.sf_checkout_purpose),
+    });
+  }
+
+  private async requestPost<T>(path: string, form: URLSearchParams, idempotencyKey: string): Promise<T> {
+    return this.request<T>(path, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: form.toString(),
+    });
+  }
+
+  private async requestGet<T>(path: string): Promise<T> {
+    return this.request<T>(path, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${this.secretKey}` },
+    });
+  }
+
+  private async request<T>(path: string, init: RequestInit): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const response = await this.fetchImpl(`${STRIPE_API_BASE}${path}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.secretKey}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Idempotency-Key': idempotencyKey,
-        },
-        body: form.toString(),
+        ...init,
         signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as T | StripeErrorResponse;
@@ -153,6 +208,48 @@ export class StripeCheckoutProvider {
       clearTimeout(timeout);
     }
   }
+}
+
+function normalizeCheckoutMoney(response: StripeCheckoutSessionResponse) {
+  if (!Number.isSafeInteger(response.amount_total) || Number(response.amount_total) < 0) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout amount.', true);
+  }
+  return normalizePaymentMoney(response.currency, BigInt(Number(response.amount_total)));
+}
+
+function normalizeCheckoutStatus(value: unknown): StripeCheckoutSessionSnapshot['status'] {
+  if (value === 'open' || value === 'complete' || value === 'expired') return value;
+  throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session status.', true);
+}
+
+function normalizeCheckoutPaymentStatus(value: unknown): StripeCheckoutSessionSnapshot['paymentStatus'] {
+  if (value === 'paid' || value === 'unpaid' || value === 'no_payment_required') return value;
+  throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout payment status.', true);
+}
+
+function normalizePaymentIntentReference(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && STRIPE_PAYMENT_INTENT_PATTERN.test(value) && value.length <= 160) return value;
+  throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout PaymentIntent reference.', true);
+}
+
+function normalizeCheckoutMetadata(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid Checkout metadata.', true);
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeMetadataUuid(value: unknown) {
+  const normalized = normalizeOptionalString(value)?.toLowerCase() ?? null;
+  return normalized && UUID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeCheckoutReturnUrl(value: string) {
