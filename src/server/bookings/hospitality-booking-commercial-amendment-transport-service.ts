@@ -82,7 +82,9 @@ function presentTransport(input: {
 }) {
   const state = deriveHospitalityCommercialAmendmentTransportState(input.decision);
   const executableAmount = input.decision.state === 'EXECUTE' ? input.decision.amountMinor : null;
-  const sourceProviderReference = input.decision.state === 'EXECUTE' && input.decision.operation === 'REFUND'
+  const sourceProviderReference = input.decision.state === 'EXECUTE'
+    && input.decision.operation === 'REFUND'
+    && input.decision.providerCode === 'manual'
     ? input.decision.sourceProviderReference
     : null;
   const refundableSourceCount = input.decision.state === 'EXECUTE' && input.decision.operation === 'REFUND'
@@ -228,7 +230,13 @@ export async function prepareHospitalityBookingCommercialAmendmentTransport(inpu
   now?: Date;
 }) {
   const amendment = await prepareHospitalityBookingCommercialAmendment(input);
-  return readHospitalityBookingCommercialAmendmentTransport({ ...input, amendmentId: amendment.id });
+  return readHospitalityBookingCommercialAmendmentTransport({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    bookingId: input.bookingId,
+    amendmentId: amendment.id,
+    now: input.now,
+  });
 }
 
 export async function recordManualHospitalityBookingCommercialAmendmentTransport(input: {
