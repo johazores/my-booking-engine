@@ -12,9 +12,11 @@ Public hospitality collection uses Stripe-hosted Checkout. SF sends only authori
 
 ## Persisted payment ledger
 
-`PaymentTransaction` is tenant scoped and linked to the tenant-owned booking. It stores operation kind/status, provider code/reference, exact money, request fingerprint where applicable, tenant-unique idempotency identity, and nullable `sourceProviderReference` for refund-to-settlement-source attribution.
+`PaymentTransaction` is tenant scoped and linked to the tenant-owned booking. It stores operation kind/status, provider code/reference, exact money, request fingerprint where applicable, tenant-unique idempotency identity, nullable `sourceProviderReference` for refund-to-settlement-source attribution, and nullable `commercialAmendmentId` for an operation explicitly owned by a commercial amendment.
 
 New manual refunds persist the exact offline payment reference they reduce. New Stripe refund claims persist the exact successful PaymentIntent/capture reference before the provider call. Historical refunds remain nullable so SF does not invent an unsafe backfill.
+
+When `commercialAmendmentId` is present, the database requires the payment row's amendment ID, booking ID, and organization ID to match the same commercial amendment tuple. Existing general payment/refund actions do not populate this field; amendment attribution is reserved for the future amendment-owned execution/recovery boundary so generic writes cannot accidentally claim commercial-adjustment authority.
 
 Payment writes serialize the relevant tenant idempotency, booking, mutation, and provider-reference scopes with PostgreSQL advisory locks and serializable transactions where required. Public hosted Checkout additionally persists `PaymentCheckoutSession`, which binds tenant, public principal, booking, payment claim, provider Session reference, lifecycle status, and provider expiry.
 
@@ -27,6 +29,14 @@ Successful refunds reduce the exact effective settlement source identified by `s
 Settlement reconciliation also fails closed for unresolved `PENDING`/`AMBIGUOUS` operations, cross-currency success, missing provider identity, successful internal `sf_claim_*` markers, duplicate provider references, unknown refund sources, or source-level over-refunds.
 
 Commercial amendment preparation uses authoritative **net settled money** and currently requires it to equal the authoritative booking total through exactly one supported provider (`manual` or `stripe`). Multiple sources from that same provider are valid settlement history when refund attribution is unambiguous.
+
+## Commercial amendment settlement reconciliation
+
+`deriveHospitalityCommercialAmendmentSettlementState` isolates payment rows linked to one persisted commercial amendment and proves whether the immutable delta still requires execution, has unresolved provider work, is fully settled and ready for final apply, or conflicts with authoritative ledger truth. Additional-charge settlement counts successful offline/capture money, not authorization alone. Refund settlement requires source attribution and can progress source by source across multiple refundable settlements.
+
+The reconciliation fails closed when linked rows cross provider/currency, use the wrong operation direction, exceed the required adjustment, leave more than one amendment operation unresolved, or when booking-level net settlement changes outside amendment-linked evidence. This keeps provider execution behind adapters while preserving a provider-neutral proof that the exact before/after booking money relationship is true.
+
+The internal settlement-status service requires both `booking:manage` and `payment:manage`, scopes amendment and ledger reads by organization and booking, and reads them in one serializable snapshot. Lifecycle remains authoritative: a reconciled payment delta does not make an expired or terminal amendment applicable.
 
 ## Deterministic refund execution planning
 
@@ -68,14 +78,16 @@ Webhook processing verifies request bounds/signature before parsing, persists te
 - `POST /api/webhooks/stripe/[organization-id]` verifies and ingests tenant-specific Stripe callbacks.
 - `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped history.
 
+There is intentionally no amendment-payment API route yet. `commercialAmendmentId` is persistence/reconciliation infrastructure, not a browser-controlled field or a signal that provider execution is complete.
+
 BigInt money is serialized as decimal strings. Internal provider-call claim references are serialized as `null` rather than exposed as real provider identifiers.
 
 Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:manage`; `STAFF` receives `payment:read`; `CUSTOMER` receives no internal ledger capability. Public booking payment uses a separate encrypted capability and persisted booking/principal ownership. Webhooks have no user actor and may mutate state only after tenant-specific provider verification and tenant-owned resource resolution.
 
 ## Validation and remaining work
 
-Dependency-free payment-domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, whole-booking payment-state reconciliation, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, and webhook-domain behavior. Allocation/planning coverage verifies input-order independence, largest-balance selection, stable tie-breaking, fully-refunded-source exclusion, source-by-source manual and Stripe progression, explicit cross-source rejection, mixed-provider failure, malformed/duplicate source rejection, payment-state drift rejection, and exact bigint totals.
+Dependency-free payment-domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, whole-booking payment-state reconciliation, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, webhook-domain behavior, and commercial-amendment settlement reconciliation. Amendment settlement coverage includes additional charges, source-split refunds, authorization-before-capture, unresolved/ambiguous operations, retryable failed attempts, provider/currency drift, source-attribution requirements, over-settlement, unrelated ledger drift, and exact bigint deltas.
 
-The guarded disposable PostgreSQL suite remains the required validation gate for Prisma schema/migrations, locking, idempotency, provider persistence, webhook concurrency, and source-attribution behavior. Do not claim that gate passed unless `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target.
+The guarded disposable PostgreSQL suite remains the required validation gate for Prisma schema/migrations, locking, idempotency, provider persistence, webhook concurrency, source-attribution behavior, and the new amendment-payment foreign key. Do not claim that gate passed unless `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target.
 
-Still open in this dependency cluster: commercial-amendment provider execution/final apply, invoices/tax documents, and broader production provider operational validation. Customer-facing Stripe Checkout and source-aware refunds are real and implemented; do not regress to a fake redirect, browser-success model, or browser-selected settlement source.
+Still open in this dependency cluster: amendment-owned provider execution/recovery, final serializable commercial-amendment apply, invoices/tax documents, and broader production provider operational validation. Customer-facing Stripe Checkout and source-aware refunds are real and implemented; do not regress to a fake redirect, browser-success model, browser-selected settlement source, or browser-selected amendment payment identity.
