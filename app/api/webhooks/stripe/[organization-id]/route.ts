@@ -1,3 +1,4 @@
+import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
@@ -15,11 +16,18 @@ export async function POST(
       signature: request.headers.get('stripe-signature'),
       payload,
     });
-    await finalizeVerifiedStripeCommercialAmendmentWebhook({
+    const recoveryFinalization = await finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook({
       organizationId,
       verifiedWebhookEventId: verifiedEvent.id,
       payload,
     });
+    if (!recoveryFinalization.handled) {
+      await finalizeVerifiedStripeCommercialAmendmentWebhook({
+        organizationId,
+        verifiedWebhookEventId: verifiedEvent.id,
+        payload,
+      });
+    }
     return Response.json({ received: true });
   } catch (error) {
     if (error instanceof StripeWebhookRequestError) {

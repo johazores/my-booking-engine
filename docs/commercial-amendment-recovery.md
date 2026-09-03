@@ -34,7 +34,7 @@ When the post-write recovery decision becomes `READY_TO_EXPIRE`, the same transa
 
 The service requires both management permissions, tenant-scopes the amendment, booking, and complete ledger, preserves the prepared booking snapshot, and serializes the shared booking/payment scopes. Every new provider operation uses a deterministic recovery idempotency key derived from booking, amendment, operation, and exact PaymentIntent source. Recovery fingerprints bind the same identity plus exact currency and minor-unit amount.
 
-The Stripe adapter now exposes the normalized `RELEASE_AUTHORIZATION` capability. For `RELEASE_AUTHORIZATION`, SF retrieves current PaymentIntent truth before attempting cancellation. An exact `requires_capture` authorization is canceled through Stripe with a deterministic idempotency key. An already canceled authorization is recorded as released without another provider write. If Stripe proves the authorization actually settled, SF records deterministic matching `CAPTURE / SUCCEEDED` evidence instead of pretending the authorization was released. Unexpected partial or mismatched provider money fails closed.
+The Stripe adapter exposes the normalized `RELEASE_AUTHORIZATION` capability. For `RELEASE_AUTHORIZATION`, SF retrieves current PaymentIntent truth before attempting cancellation. An exact `requires_capture` authorization is canceled through Stripe with a deterministic idempotency key. An already canceled authorization is recorded as released without another provider write. If Stripe proves the authorization actually settled, SF records deterministic matching `CAPTURE / SUCCEEDED` evidence instead of pretending the authorization was released. Unexpected partial or mismatched provider money fails closed.
 
 For `CAPTURE_COMPENSATION`, SF likewise rechecks the exact authorization before capture. Recovery creates an amendment-owned `CAPTURE / AMBIGUOUS` claim bound to the known PaymentIntent before external capture. Successful provider truth becomes `SUCCEEDED`; definitive failures become `FAILED`; retryable or non-final states remain `AMBIGUOUS`. The booking payment/commercial snapshot is never rewritten by this recovery payment evidence.
 
@@ -44,13 +44,21 @@ For `COMPENSATE / REFUND`, SF can refund only the server-selected adjustment-cre
 
 When Stripe recovery restores authoritative net settlement to the original booking total, the shared recovery finalizer releases target protection and marks the amendment `EXPIRED`. If more source-scoped compensation remains, the next invocation re-derives the next provider operation from the current ledger.
 
+## Signed Stripe recovery callbacks
+
+The existing tenant-specific signed Stripe webhook endpoint now gives recovery-owned operations first chance to consume an already verified event through `finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook`. Only provider-known `AMBIGUOUS` recovery `CAPTURE` and compensation `REFUND` rows are eligible. Internal `sf_claim_*` rows remain intentionally unguessable from a webhook and must first obtain an exact Stripe reference through the deterministic executor retry path.
+
+Recovery callback ownership is not inferred from event type or amount alone. The finalizer requires the exact tenant-owned provider reference, deterministic recovery idempotency key, recovery request fingerprint, amendment identity, currency, minor-unit amount, and refund settlement source where applicable. PaymentIntent metadata is treated as additional consistency evidence when present, not as the primary ownership key. A metadata booking mismatch fails closed.
+
+Recovery direction is intentionally the inverse of normal amendment settlement: a recovery capture belongs only to an expired `REFUND` amendment, while a compensation refund belongs only to an expired `ADDITIONAL_CHARGE` amendment. The recovery finalizer therefore runs before the normal commercial-amendment webhook finalizer so a valid recovery operation can never be mistaken for normal settlement and rejected under the wrong direction contract.
+
+A matched callback reuses the same provider-truth charge/refund reconciliation domains as polling, updates only the recovery `PaymentTransaction` plus the verified `PaymentWebhookEvent`, and preserves the booking snapshot, target hold, amendment status, and `HospitalityBooking.paymentStatus`. Recovery terminalization remains a separate server-side step after authoritative net settlement returns to the original booking total.
+
 ## Remaining Stripe boundary
 
 A refund amendment can leave authoritative booking settlement below the original total and therefore require a **fresh compensation charge**. SF does not create that charge without new customer payment authority. The production customer-facing Stripe collection/authentication transport must obtain that authority through a Stripe-hosted or Stripe.js flow, handle required customer authentication, and then feed provider evidence back into the amendment-owned recovery lifecycle.
 
-Signed amendment webhook handling also still needs explicit recovery-operation fingerprint support before recovery-owned capture/refund rows should rely on callback convergence. The dedicated polling boundary is authoritative for the recovery rows implemented here.
-
-Until the fresh compensation-charge transport and signed recovery webhook convergence exist, user-facing amendment settlement/apply orchestration remains closed. Internal recovery does not expose browser-selected amount, source, PaymentIntent, provider state, or amendment authority.
+Until that fresh compensation-charge transport exists, user-facing amendment settlement/apply orchestration remains closed. Internal recovery does not expose browser-selected amount, source, PaymentIntent, provider state, or amendment authority.
 
 ## Validation
 
@@ -58,6 +66,8 @@ The dependency-free recovery-domain suite covers no-money expiry, unresolved pro
 
 `booking-commercial-amendment-stripe-recovery-domain.test.ts` additionally covers deterministic recovery operation identity, money/source-bound fingerprints, exact releasable authorization truth, already-released truth, direct-settlement discovery, non-final provider states, provider drift, partial-cancel money rejection, and refund-reference validation.
 
+`booking-commercial-amendment-stripe-recovery-webhook-domain.test.ts` covers exact recovery capture/refund operation identity, deterministic idempotency/fingerprint validation, refund-source binding, and fail-closed missing-source behavior.
+
 `stripe-payment-provider.test.ts` covers the real Stripe cancellation request boundary and provider identity/money validation. The same adapter sweep also fixes exact partial-capture normalization so Stripe numeric minor units are converted to `bigint` before entering the normalized payment-money contract.
 
-Database validation remains required for advisory-lock ordering, tenant predicates, recovery idempotency, provider persistence, target-hold release, amendment terminalization, and payment/audit persistence. Do not claim those PostgreSQL paths passed unless the guarded disposable database suite runs against an explicitly confirmed disposable target.
+Database validation remains required for advisory-lock ordering, tenant predicates, recovery idempotency, provider persistence, signed webhook/polling concurrency, target-hold release, amendment terminalization, and payment/audit persistence. Do not claim those PostgreSQL paths passed unless the guarded disposable database suite runs against an explicitly confirmed disposable target.
