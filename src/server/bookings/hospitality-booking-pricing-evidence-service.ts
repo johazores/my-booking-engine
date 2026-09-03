@@ -1,5 +1,4 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
-import type { HospitalityAddonSelectionInput } from '../pricing/hospitality-addon-domain.ts';
 import type { quoteHospitalityPriceFromReader } from '../pricing/hospitality-transactional-pricing.ts';
 import {
   HospitalityBookingPricingEvidenceValidationError,
@@ -172,7 +171,7 @@ export async function persistHospitalityBookingPricingEvidenceSnapshot(input: {
       arrivalDate: input.state.arrivalDate,
       departureDate: input.state.departureDate,
       quantity: input.state.quantity,
-      addonSelections: toJsonInput(input.state.addonSelections),
+      addonSelections: toJsonInput(input.state.addonSelections ?? []),
       currency: input.breakdown.currency,
       accommodationSubtotalMinor: BigInt(input.breakdown.accommodationSubtotalMinor),
       taxTotalMinor: BigInt(input.breakdown.taxTotalMinor),
