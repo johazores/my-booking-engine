@@ -172,7 +172,7 @@ export async function createOrResumeStripeHospitalityBookingCommercialAmendmentR
   now?: Date;
 }) {
   const current = await readHospitalityBookingCommercialAmendmentRecoveryTransport(input);
-  if (current.state !== 'CHECKOUT_REQUIRED' && current.state !== 'CHECKOUT_RESUME_REQUIRED') {
+  if (current.state !== 'CHECKOUT_REQUIRED' && current.state !== 'CHECKOUT_RESUME_REQUIRED' && current.state !== 'CHECKOUT_PENDING') {
     throw new HospitalityBookingConflictError('Commercial amendment recovery is not ready for customer-authorized Stripe Checkout.');
   }
 

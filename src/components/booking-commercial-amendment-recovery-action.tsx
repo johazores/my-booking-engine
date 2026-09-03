@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 type RecoveryStatus = Readonly<{
@@ -32,22 +32,12 @@ export function BookingCommercialAmendmentRecoveryAction(props: {
   initialStatus: RecoveryStatus;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const returnState = searchParams.get('commercialAmendmentId') === props.initialStatus.amendmentId
-    && (searchParams.get('commercialRecovery') === 'returned' || searchParams.get('commercialRecovery') === 'cancelled')
-    ? searchParams.get('commercialRecovery') as 'returned' | 'cancelled'
-    : null;
+  const [returnState, setReturnState] = useState<'returned' | 'cancelled' | null>(null);
   const [status, setStatus] = useState(props.initialStatus);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState(
-    returnState === 'returned'
-      ? 'Returned from Stripe. Verifying provider settlement before recovery can close…'
-      : returnState === 'cancelled'
-        ? 'Stripe Checkout was cancelled. SF is verifying provider truth before another payment attempt is allowed…'
-        : '',
-  );
+  const [notice, setNotice] = useState('');
   const autoChecked = useRef(false);
   const endpoint = `/api/bookings/hospitality/${props.bookingId}/commercial-amendments/${status.amendmentId}/recovery/stripe-checkout`;
 
@@ -77,6 +67,17 @@ export function BookingCommercialAmendmentRecoveryAction(props: {
       setChecking(false);
     }
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('commercialAmendmentId') !== props.initialStatus.amendmentId) return;
+    const marker = params.get('commercialRecovery');
+    if (marker !== 'returned' && marker !== 'cancelled') return;
+    setReturnState(marker);
+    setNotice(marker === 'returned'
+      ? 'Returned from Stripe. Verifying provider settlement before recovery can close…'
+      : 'Stripe Checkout was cancelled. SF is verifying provider truth before another payment attempt is allowed…');
+  }, [props.initialStatus.amendmentId]);
 
   useEffect(() => {
     if (!returnState || autoChecked.current) return;
@@ -114,7 +115,7 @@ export function BookingCommercialAmendmentRecoveryAction(props: {
     }
   }
 
-  const checkoutAction = status.state === 'CHECKOUT_REQUIRED' || status.state === 'CHECKOUT_RESUME_REQUIRED';
+  const checkoutAction = status.state === 'CHECKOUT_REQUIRED' || status.state === 'CHECKOUT_RESUME_REQUIRED' || status.state === 'CHECKOUT_PENDING';
   const statusAction = status.state === 'CHECKOUT_PENDING' || status.state === 'WAIT_FOR_PROVIDER' || status.state === 'READY_TO_CLOSE';
 
   return <div className="sf-booking-modification-form">
@@ -130,7 +131,7 @@ export function BookingCommercialAmendmentRecoveryAction(props: {
     {notice ? <p className="sf-booking-modification-form__success" role="status">{notice}</p> : null}
     {error ? <p className="sf-booking-modification-form__error" role="alert">{error}</p> : null}
     <div className="sf-actions">
-      {checkoutAction ? <button className="sf-button sf-button--primary" type="button" onClick={startCheckout} disabled={starting || checking}>{starting ? 'Opening secure Checkout…' : status.state === 'CHECKOUT_RESUME_REQUIRED' ? 'Resume secure Stripe Checkout' : 'Open secure Stripe Checkout'}</button> : null}
+      {checkoutAction ? <button className="sf-button sf-button--primary" type="button" onClick={startCheckout} disabled={starting || checking}>{starting ? 'Opening secure Checkout…' : status.state === 'CHECKOUT_REQUIRED' ? 'Open secure Stripe Checkout' : 'Resume secure Stripe Checkout'}</button> : null}
       {statusAction ? <button className="sf-button sf-button--secondary" type="button" onClick={checkStatus} disabled={checking || starting}>{checking ? 'Checking Stripe…' : status.state === 'READY_TO_CLOSE' ? 'Finish recovery' : 'Check Stripe status'}</button> : null}
     </div>
     {status.state === 'RECOVERY_REQUIRED' || status.state === 'CONFLICT' ? <p className="sf-muted"><small>This recovery state does not permit a customer Checkout action. Resolve the server-derived provider operation or conflict before moving more money.</small></p> : null}

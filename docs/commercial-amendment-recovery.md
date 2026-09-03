@@ -52,18 +52,18 @@ The transport maps the provider-neutral recovery decision into safe product stat
 
 - `CHECKOUT_REQUIRED` — an exact Stripe compensation charge needs customer Checkout.
 - `CHECKOUT_RESUME_REQUIRED` — a prior retryable provider call left the deterministic internal Checkout claim unresolved and must resume the same attempt identity.
-- `CHECKOUT_PENDING` — a real persisted `cs_*` Session exists and must be reconciled before retry.
+- `CHECKOUT_PENDING` — a real persisted `cs_*` Session exists. Staff may poll provider truth or resume that same Stripe Session through the same deterministic idempotent attempt; SF does not create a second charge attempt while it remains non-final.
 - `READY_TO_CLOSE` — settlement is restored and the shared recovery finalizer can close the amendment.
 - `RECOVERED` — recovery is already terminal as `EXPIRED`.
 - `WAIT_FOR_PROVIDER`, `RECOVERY_REQUIRED`, `NOT_EXPIRED`, `TERMINAL`, or `CONFLICT` — no browser-invented money action is allowed.
 
-The staff Checkout attempt key is deterministic from the count of definitively failed attempts. Retryable provider failure therefore resumes the same request identity; a definitively failed Checkout advances to the next bounded attempt. The browser never supplies payment amount, currency, provider/source reference, Checkout Session ID, financial idempotency identity, or arbitrary return URL.
+The staff Checkout attempt key is deterministic from the count of definitively failed attempts. Retryable provider failure therefore resumes the same request identity; a definitively failed or expired Checkout advances to the next bounded attempt only after provider truth is reconciled. The browser never supplies payment amount, currency, provider/source reference, Checkout Session ID, financial idempotency identity, or arbitrary return URL.
 
 ### Start or resume Checkout
 
 `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/recovery/stripe-checkout`
 
-The route requires authenticated same-origin writes and an active organization. It constructs Stripe success/cancel URLs server-side from the exact booking/amendment route and current application origin, then calls the tenant-scoped recovery transport. It never accepts client-provided financial authority.
+The route requires authenticated same-origin writes and an active organization. It constructs Stripe success/cancel URLs server-side from the exact booking/amendment route and current application origin, then calls the tenant-scoped recovery transport. It never accepts client-provided financial authority. If a live `cs_*` Session already exists, the same deterministic provider request can return that Session again so a customer who backed out can resume without creating a new payment attempt.
 
 ### Reconcile Checkout
 
@@ -75,9 +75,9 @@ The browser does not submit a Session ID. The server finds at most one unresolve
 
 The booking detail route is wrapped by a recovery panel only when the authenticated staff member can manage both bookings and payments and an expired prepared amendment exists for that tenant-owned booking. The panel shows only server-derived recovery state, reason, provider/operation, and formatted amount.
 
-A primary customer Checkout action appears only for `CHECKOUT_REQUIRED` or `CHECKOUT_RESUME_REQUIRED`. Provider-status/finalization actions appear only when the transport allows them. Provider-side recovery such as authorization release, compensation capture, compensation refund, or conflict resolution is never presented as a fake browser action.
+A primary customer Checkout action appears only for `CHECKOUT_REQUIRED`, `CHECKOUT_RESUME_REQUIRED`, or a still-live `CHECKOUT_PENDING` Session that can resume the same attempt. Provider-status/finalization actions appear only when the transport allows them. Provider-side recovery such as authorization release, compensation capture, compensation refund, or conflict resolution is never presented as a fake browser action.
 
-Stripe success and cancel returns carry only an amendment/UI resume marker. Both trigger authoritative reconciliation. Cancel is explicitly not treated as proof that no payment occurred, preventing a second charge while provider truth may still be in flight. Loading, error, provider-waiting, retry, and recovered states remain distinct.
+Stripe success and cancel returns carry only an amendment/UI resume marker. Both trigger authoritative reconciliation. Cancel is explicitly not treated as proof that no payment occurred, preventing a second charge while provider truth may still be in flight. The client reads the return marker after hydration rather than making the server layout depend on mutable search parameters. Loading, error, provider-waiting, resume, retry, and recovered states remain distinct.
 
 ## HTTP error boundary
 
