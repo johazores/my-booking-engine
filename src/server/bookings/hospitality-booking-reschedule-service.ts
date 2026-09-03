@@ -236,7 +236,11 @@ export async function rescheduleHospitalityBooking(input: {
 
     const updated = await transaction.hospitalityBooking.update({
       where: { id: booking.id },
-      data: { arrivalDate: change.arrivalDate, departureDate: change.departureDate },
+      data: {
+        arrivalDate: change.arrivalDate,
+        departureDate: change.departureDate,
+        pricingFingerprint: latestPrice.fingerprint,
+      },
     });
     await transaction.hospitalityBookingAllocation.update({
       where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
@@ -255,6 +259,7 @@ export async function rescheduleHospitalityBooking(input: {
           quantity: booking.quantity,
           currency: booking.currency,
           totalMinor: booking.totalMinor.toString(),
+          pricingFingerprint: booking.pricingFingerprint,
           paymentStatus: booking.paymentStatus,
         },
         afterData: {
@@ -263,6 +268,7 @@ export async function rescheduleHospitalityBooking(input: {
           quantity: updated.quantity,
           currency: updated.currency,
           totalMinor: updated.totalMinor.toString(),
+          pricingFingerprint: updated.pricingFingerprint,
           paymentStatus: updated.paymentStatus,
           idempotencyKey: change.idempotencyKey,
         },
