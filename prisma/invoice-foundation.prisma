@@ -36,9 +36,58 @@ model HospitalityInvoicePreparation {
   createdAt                  DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId])
   @@unique([organizationId, preparationKey])
   @@unique([organizationId, documentFingerprint])
   @@index([organizationId, bookingId, createdAt])
   @@index([organizationId, issuerProfileId, createdAt])
   @@map("hospitality_invoice_preparations")
+}
+
+model HospitalityInvoiceNumberSequence {
+  organizationId   String   @db.Uuid
+  jurisdictionCode String   @db.VarChar(16)
+  documentType     String   @db.VarChar(32)
+  nextValue        BigInt   @default(1) @db.BigInt
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@id([organizationId, jurisdictionCode, documentType])
+  @@map("hospitality_invoice_number_sequences")
+}
+
+model HospitalityIssuedInvoice {
+  id                         String   @id @default(uuid()) @db.Uuid
+  organizationId             String   @db.Uuid
+  bookingId                  String   @db.Uuid
+  preparationId              String   @db.Uuid
+  pricingEvidenceId          String   @db.Uuid
+  issuerProfileId            String   @db.Uuid
+  jurisdictionCode           String   @db.VarChar(16)
+  documentType               String   @db.VarChar(32)
+  documentNumber             String   @db.VarChar(64)
+  sequenceValue              BigInt   @db.BigInt
+  issuedByUserId             String   @db.Uuid
+  issuedAt                   DateTime @db.Timestamptz(6)
+  currency                   String   @db.Char(3)
+  accommodationSubtotalMinor BigInt   @db.BigInt
+  taxTotalMinor              BigInt   @db.BigInt
+  feeTotalMinor              BigInt   @db.BigInt
+  addonTotalMinor            BigInt   @db.BigInt
+  totalMinor                 BigInt   @db.BigInt
+  preparationFingerprint     String   @db.Char(64)
+  pricingFingerprint         String   @db.Char(64)
+  issuerFingerprint          String   @db.Char(64)
+  recipientFingerprint       String   @db.Char(64)
+  documentFingerprint        String   @db.Char(64)
+  documentSnapshot           Json
+  createdAt                  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, preparationId])
+  @@unique([organizationId, jurisdictionCode, documentNumber])
+  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
+  @@unique([organizationId, documentFingerprint])
+  @@index([organizationId, bookingId, issuedAt])
+  @@index([organizationId, issuerProfileId, issuedAt])
+  @@map("hospitality_issued_invoices")
 }
