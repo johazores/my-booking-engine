@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
+import { storePublicBookingDocumentCapability } from './public-booking-document-capability.ts';
+
 type PublicOffer = {
   propertyId: string;
   roomTypeId: string;
@@ -226,6 +228,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
   useEffect(() => {
     const current = readRecovery(organizationSlug);
     if (!current) return;
+    storePublicBookingDocumentCapability(organizationSlug, current.bookingCapability);
     setRecovery(current);
     const cancelledReturn = new URLSearchParams(window.location.search).get('payment') === 'cancelled';
     void checkStatus(current, { cancelledReturn });
@@ -370,6 +373,7 @@ export function PublicBookingOfferCard({
       currency,
       totalMinor,
     };
+    storePublicBookingDocumentCapability(organizationSlug, bookingCapability);
     storeRecovery(organizationSlug, recovery);
     setStage('payment');
 
