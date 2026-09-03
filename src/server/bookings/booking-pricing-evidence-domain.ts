@@ -48,7 +48,7 @@ export type HospitalityBookingPricingEvidenceCommercialState = {
   arrivalDate: Date;
   departureDate: Date;
   quantity: number;
-  addonSelections: HospitalityAddonSelectionInput[];
+  addonSelections?: HospitalityAddonSelectionInput[];
 };
 
 export class HospitalityBookingPricingEvidenceValidationError extends Error {
@@ -169,7 +169,7 @@ export function assertHospitalityBookingPricingEvidenceMatchesCommercialState(in
     throw new HospitalityBookingPricingEvidenceValidationError('Pricing evidence nightly dates do not match the commercial stay.');
   }
 
-  const selections = normalizeHospitalityAddonSelections(state.addonSelections);
+  const selections = normalizeHospitalityAddonSelections(state.addonSelections ?? []);
   const evidenceSelections = breakdown.addons
     .map((addon) => ({ addonId: addon.addonId, quantity: addon.selectedQuantity }))
     .sort((left, right) => left.addonId.localeCompare(right.addonId));
