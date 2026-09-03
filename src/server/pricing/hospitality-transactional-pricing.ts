@@ -127,6 +127,7 @@ export async function quoteHospitalityPriceFromReader(input: {
     return [{
       id: rule.id,
       code: rule.code,
+      name: rule.name,
       kind: rule.kind,
       calculation: rule.calculation,
       amountMinor: amountMinor.toString(),
@@ -137,7 +138,7 @@ export async function quoteHospitalityPriceFromReader(input: {
   const feeTotalMinor = addMoneyMinor(charges.filter((charge) => charge.kind === 'FEE').map((charge) => BigInt(charge.amountMinor)));
 
   const selections = normalizeHospitalityAddonSelections(input.addonSelections ?? []);
-  let addons: Array<{ id: string; code: string; pricingModel: string; selectedQuantity: number; amountMinor: string }> = [];
+  let addons: Array<{ id: string; code: string; name: string; pricingModel: string; selectedQuantity: number; amountMinor: string }> = [];
   if (selections.length > 0) {
     const lastOccupiedDate = new Date(request.departureDate.getTime() - DAY_MS);
     const records = await input.reader.hospitalityAddon.findMany({
@@ -174,6 +175,7 @@ export async function quoteHospitalityPriceFromReader(input: {
       return {
         id: record.id,
         code: record.code,
+        name: record.name,
         pricingModel: record.pricingModel,
         selectedQuantity: selection.quantity,
         amountMinor: amountMinor.toString(),
@@ -187,8 +189,20 @@ export async function quoteHospitalityPriceFromReader(input: {
     currency: organization.currency,
     quantity: request.quantity,
     nightly,
-    charges,
-    addons,
+    charges: charges.map((charge) => ({
+      id: charge.id,
+      code: charge.code,
+      kind: charge.kind,
+      calculation: charge.calculation,
+      amountMinor: charge.amountMinor,
+    })),
+    addons: addons.map((addon) => ({
+      id: addon.id,
+      code: addon.code,
+      pricingModel: addon.pricingModel,
+      selectedQuantity: addon.selectedQuantity,
+      amountMinor: addon.amountMinor,
+    })),
   };
 
   return {
