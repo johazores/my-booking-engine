@@ -15,6 +15,7 @@ import {
   findActiveHospitalityBookingCommercialAmendment,
 } from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
+import { persistHospitalityBookingPricingEvidence } from './hospitality-booking-pricing-evidence-service.ts';
 import {
   HospitalityBookingConflictError,
   HospitalityBookingPriceChangedError,
@@ -212,6 +213,7 @@ export async function rescheduleHospitalityBooking(input: {
     if (!Array.isArray(booking.addonSelections)) {
       throw new HospitalityBookingConflictError('Persisted booking add-on selections are invalid.');
     }
+    const addonSelections = booking.addonSelections as Parameters<typeof quoteHospitalityPriceFromReader>[0]['addonSelections'];
     const latestPrice = await quoteHospitalityPriceFromReader({
       reader: transaction,
       organizationId: input.organizationId,
@@ -223,7 +225,7 @@ export async function rescheduleHospitalityBooking(input: {
         departureDate: formatAvailabilityDate(change.departureDate),
         quantity: booking.quantity,
       },
-      addonSelections: booking.addonSelections as Parameters<typeof quoteHospitalityPriceFromReader>[0]['addonSelections'],
+      addonSelections,
     });
     if (!hospitalityBookingPriceSnapshotMatches(booking, latestPrice)) {
       throw new HospitalityBookingPriceChangedError('Rescheduling changes the persisted booking price. Complete a payment-adjustment workflow before applying this change.');
@@ -245,6 +247,24 @@ export async function rescheduleHospitalityBooking(input: {
     await transaction.hospitalityBookingAllocation.update({
       where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
       data: { arrivalDate: change.arrivalDate, departureDate: change.departureDate },
+    });
+    await persistHospitalityBookingPricingEvidence({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      evidenceKey: `reschedule:${booking.id}:${change.idempotencyKey}`,
+      source: 'BOOKING_RESCHEDULE',
+      bookingVersion: updated.updatedAt,
+      state: {
+        propertyId: updated.propertyId,
+        roomTypeId: updated.roomTypeId,
+        ratePlanId: updated.ratePlanId,
+        arrivalDate: updated.arrivalDate,
+        departureDate: updated.departureDate,
+        quantity: updated.quantity,
+        addonSelections,
+      },
+      quote: latestPrice,
     });
     await transaction.auditEvent.create({
       data: {
