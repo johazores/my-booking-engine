@@ -34,6 +34,10 @@ import {
   normalizeHospitalityBookingCommercialModificationInput,
   type HospitalityBookingCommercialModificationInput,
 } from './booking-commercial-modification-domain.ts';
+import {
+  COMMERCIAL_AMENDMENT_PAYMENT_RECOVERY_CONFLICT_MESSAGE,
+  hospitalityCommercialAmendmentHasPaymentActivityRequiringRecovery,
+} from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
 import {
   HospitalityBookingConflictError,
@@ -54,6 +58,18 @@ async function expirePreparedAmendment(input: {
   actorUserId: string;
   now: Date;
 }) {
+  const paymentActivityRequiresRecovery = await hospitalityCommercialAmendmentHasPaymentActivityRequiringRecovery({
+    reader: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: input.amendment.bookingId,
+    amendmentId: input.amendment.id,
+  });
+  if (paymentActivityRequiresRecovery) {
+    throw new HospitalityBookingConflictError(
+      COMMERCIAL_AMENDMENT_PAYMENT_RECOVERY_CONFLICT_MESSAGE,
+    );
+  }
+
   if (input.amendment.targetHoldId) {
     await releaseHospitalityAvailabilityHoldInTransaction({
       transaction: input.transaction,
@@ -556,6 +572,18 @@ export async function cancelHospitalityBookingCommercialAmendment(input: {
     if (amendment.status !== 'PREPARED') {
       throw new HospitalityBookingConflictError(
         `Commercial amendment state ${amendment.status.toLowerCase()} cannot be cancelled.`,
+      );
+    }
+
+    const paymentActivityRequiresRecovery = await hospitalityCommercialAmendmentHasPaymentActivityRequiringRecovery({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      amendmentId: amendment.id,
+    });
+    if (paymentActivityRequiresRecovery) {
+      throw new HospitalityBookingConflictError(
+        COMMERCIAL_AMENDMENT_PAYMENT_RECOVERY_CONFLICT_MESSAGE,
       );
     }
 
