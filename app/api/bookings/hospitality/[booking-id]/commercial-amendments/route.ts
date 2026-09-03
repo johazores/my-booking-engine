@@ -36,7 +36,7 @@ export async function POST(
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return context.response;
     const bookingId = (await params)['booking-id'];
-    const body = await request.json();
+    const body = await request.json().catch(() => { throw new Error('Commercial amendment request must be valid JSON.'); });
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Commercial amendment request must be an object.');
     const payload = body as { change?: unknown; adjustmentFingerprint?: unknown };
     const amendment = await prepareHospitalityBookingCommercialAmendmentTransport({

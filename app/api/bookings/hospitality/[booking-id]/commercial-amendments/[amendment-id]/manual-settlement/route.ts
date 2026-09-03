@@ -13,7 +13,7 @@ export async function POST(
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return context.response;
     const route = await params;
-    const body = await request.json();
+    const body = await request.json().catch(() => { throw new Error('Manual settlement request must be valid JSON.'); });
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Manual settlement request must be an object.');
     const payload = body as { idempotencyKey?: unknown; externalReference?: unknown };
     const amendment = await recordManualHospitalityBookingCommercialAmendmentTransport({
