@@ -58,15 +58,17 @@ Normalized availability windows, physical capacity, restrictions, temporary hold
 
 Public abandoned `PENDING_CONFIRMATION` allocations stop protecting capacity when their bounded payment-start/recovery evidence expires; staff/non-public pending allocations fail safe.
 
-## 11. Pricing — hospitality pricing foundation implemented
+## 11. Pricing — hospitality pricing and accepted-state evidence foundation implemented
 
-Exact integer minor-unit money, tenant currency, base-rate windows, percentage/fixed taxes and fees, persisted add-ons, deterministic complete quotes, pricing fingerprints, transactional revalidation, price-change rejection, management UI, and checked-in integration coverage are implemented.
+Exact integer minor-unit money, tenant currency, base-rate windows, percentage/fixed taxes and fees, persisted add-ons, deterministic complete quotes, pricing fingerprints, transactional revalidation, price-change rejection, management UI, and checked-in pricing coverage are implemented.
 
-Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements.
+Newly accepted hospitality commercial states also persist append-only tenant-scoped pricing evidence containing canonical occupied-night, tax/fee, and add-on line details together with exact aggregates, commercial scope, selected add-ons, and the accepted fingerprint. Confirmation, same-price rescheduling, zero-delta commercial modification, and prepared non-zero commercial-amendment targets use this evidence boundary. Historical records are not fabricated by backfilling from current mutable pricing configuration.
+
+Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements. Jurisdiction-specific legal issuer/tax semantics remain a separate invoice dependency.
 
 ## 12. Complete internal and public hospitality booking flow — implemented in code
 
-Authenticated staff booking and the tenant-branded public customer journey both use the same normalized availability, pricing, hold, confirmation, allocation, and immutable booking snapshot rules.
+Authenticated staff booking and the tenant-branded public customer journey both use the same normalized availability, pricing, hold, confirmation, allocation, immutable booking snapshot, and accepted-state pricing-evidence rules.
 
 The public journey is connected end to end: live discovery → hold → current quote → customer/primary guest → capability-owned confirmation → Stripe-hosted Checkout → signed/provider-truth payment recovery. Public callers never receive staff authority, and browser redirects are never payment proof.
 
@@ -89,30 +91,37 @@ Implemented:
 - partial/full Stripe refunds with safe retry/finalization semantics
 - public capability-owned payment status/recovery and Checkout abandonment handling
 - read-only payment receipt foundation with exact captured/refunded/net settlement data
+- commercial-amendment manual/Stripe settlement, reconciliation, and compensation recovery
 - strict rule that browser redirects never establish payment truth
 
 Still separate/not claimed complete:
 
 - PayPal or additional payment providers until prioritized by real product need
-- jurisdiction-specific tax invoice issuance, invoice numbering/tax fields, PDF/email delivery, and accounting integrations
+- jurisdiction-specific tax invoice issuance: legal issuer/tax-registration/jurisdiction/billing authority, fiscal numbering and document lifecycle, required legal fields/wording, rendering/PDF/email/history, retention, and accounting integrations
 
-## 14. Booking management — zero-delta commercial changes implemented; price-changing adjustment contract remains
+The immutable booking pricing-evidence prerequisite for future legal documents now exists for new accepted commercial states; that does not itself constitute invoice issuance. See `docs/invoice-foundation.md`.
+
+## 14. Booking management — current commercial-amendment scope implemented
 
 Implemented:
 
 - tenant-scoped retrieve/detail view
 - paginated payment and audit history
 - safe cancellation with payment-state blockers and explicit confirmation
-- date-only rescheduling with availability/restriction/current-price revalidation
+- date-only rescheduling with availability/restriction/current-price revalidation when aggregate money remains unchanged
 - traveler snapshot add/edit/remove with occupancy enforcement
-- room type, rate plan, room quantity, and add-on changes when every monetary price component remains exactly unchanged
+- room type, rate plan, room quantity, and add-on changes through zero-delta direct modification or versioned non-zero commercial amendments
 - target-room capacity/restriction/occupancy validation and deterministic current/target allocation locking
-- durable commercial-modification idempotency and stale-retry protection
-- unresolved authorization/capture blocking for date reschedules and commercial changes
+- target inventory protection for prepared non-zero amendments
+- durable commercial-modification/amendment idempotency and stale-retry protection
+- unresolved authorization/capture blocking for conflicting date/commercial changes
+- manual and Stripe amendment-owned charge/refund execution and provider reconciliation
+- signed provider convergence, expiry handling, compensation/recovery, and post-settlement apply-conflict recovery
+- serializable final amendment apply that mutates booking/allocation only after provider settlement is ready
 - shared booking/payment mutation serialization
-- retained commercial history and audited mutations
+- retained commercial history, immutable before/after amendment evidence, and audited mutations
 
-Remaining major boundary: any room, rate, quantity, add-on, date, or other commercial modification that produces a non-zero price delta. That requires an explicit versioned amendment/payment-adjustment contract covering charge/refund intent, provider behavior, payment-state transitions, immutable before/after history, retries, failure/ambiguity recovery, and customer/staff presentation. SF does not silently mutate amount owed or paid.
+Price-changing **date** rescheduling remains deliberately separate from the implemented room/rate/quantity/add-on amendment contract. It should only be introduced if product requirements justify extending amendment stay dates, inventory protection, provider settlement, and recovery semantics together rather than treating dates as an unsafe partial edit.
 
 ## 15. Integration framework — current production management foundation implemented
 
