@@ -2,10 +2,12 @@ import { PaymentProviderError, normalizePaymentMoney, type PaymentMoney } from '
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CHECKOUT_EXPIRY_MINUTES = 30;
 
 export type StripeCheckoutFetch = typeof fetch;
+export type StripeCheckoutPurpose = 'booking-payment' | 'commercial-amendment-recovery';
 
 export type StripeCheckoutSessionResult = Readonly<{
   providerCode: 'stripe';
@@ -55,9 +57,21 @@ export class StripeCheckoutProvider {
     cancelUrl: string;
     customerEmail?: string | null;
     now?: Date;
+    purpose?: StripeCheckoutPurpose;
+    commercialAmendmentId?: string | null;
   }): Promise<StripeCheckoutSessionResult> {
     const successUrl = normalizeCheckoutReturnUrl(input.successUrl);
     const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
+    const purpose = input.purpose ?? 'booking-payment';
+    const commercialAmendmentId = input.commercialAmendmentId?.trim().toLowerCase() ?? null;
+    if (purpose === 'commercial-amendment-recovery') {
+      if (!commercialAmendmentId || !UUID_PATTERN.test(commercialAmendmentId)) {
+        throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment recovery Checkout requires a valid amendment ID.');
+      }
+    } else if (commercialAmendmentId) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for recovery Checkout.');
+    }
+
     const expiresAt = new Date((input.now ?? new Date()).getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
     const form = new URLSearchParams();
     form.set('mode', 'payment');
@@ -70,9 +84,18 @@ export class StripeCheckoutProvider {
     form.set('metadata[sf_booking_id]', input.bookingId);
     form.set('payment_intent_data[metadata][sf_organization_id]', input.organizationId);
     form.set('payment_intent_data[metadata][sf_booking_id]', input.bookingId);
+    if (purpose === 'commercial-amendment-recovery') {
+      form.set('metadata[sf_checkout_purpose]', purpose);
+      form.set('metadata[sf_commercial_amendment_id]', commercialAmendmentId!);
+      form.set('payment_intent_data[metadata][sf_checkout_purpose]', purpose);
+      form.set('payment_intent_data[metadata][sf_commercial_amendment_id]', commercialAmendmentId!);
+    }
     form.set('line_items[0][price_data][currency]', input.money.currency.toLowerCase());
     form.set('line_items[0][price_data][unit_amount]', input.money.amountMinor.toString());
-    form.set('line_items[0][price_data][product_data][name]', 'Reservation');
+    form.set(
+      'line_items[0][price_data][product_data][name]',
+      purpose === 'commercial-amendment-recovery' ? 'Reservation recovery payment' : 'Reservation',
+    );
     form.set('line_items[0][quantity]', '1');
     if (input.customerEmail) form.set('customer_email', input.customerEmail);
 
@@ -91,7 +114,7 @@ export class StripeCheckoutProvider {
     }
     const money = normalizePaymentMoney(response.currency, BigInt(Number(response.amount_total)));
     if (money.currency !== input.money.currency || money.amountMinor !== input.money.amountMinor) {
-      throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout money that does not match the booking total.', true);
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout money that does not match the requested payment amount.', true);
     }
 
     return Object.freeze({

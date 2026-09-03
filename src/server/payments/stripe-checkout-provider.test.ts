@@ -6,6 +6,7 @@ import { StripeCheckoutProvider } from './stripe-checkout-provider.ts';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const bookingId = '22222222-2222-4222-8222-222222222222';
+const amendmentId = '33333333-3333-4333-8333-333333333333';
 const now = new Date('2026-09-02T09:00:00.000Z');
 
 function checkoutResponse(overrides: Record<string, unknown> = {}) {
@@ -55,6 +56,53 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
   assert.equal(result.money.amountMinor, 12500n);
   assert.equal(result.money.currency, 'USD');
   assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:30:00.000Z');
+});
+
+test('creates amendment recovery Checkout with explicit Session and PaymentIntent ownership metadata', async () => {
+  let capturedBody = '';
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (_url, init) => {
+      capturedBody = String(init?.body ?? '');
+      return new Response(JSON.stringify(checkoutResponse({ amount_total: 2500 })), { status: 200 });
+    },
+  });
+
+  await provider.createPaymentSession({
+    organizationId,
+    bookingId,
+    commercialAmendmentId: amendmentId,
+    purpose: 'commercial-amendment-recovery',
+    idempotencyKey: 'ca-stripe-customer-checkout-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 2500n },
+    successUrl: 'https://booking.example.test/recovery/success',
+    cancelUrl: 'https://booking.example.test/recovery/cancel',
+    now,
+  });
+
+  const form = new URLSearchParams(capturedBody);
+  assert.equal(form.get('metadata[sf_checkout_purpose]'), 'commercial-amendment-recovery');
+  assert.equal(form.get('metadata[sf_commercial_amendment_id]'), amendmentId);
+  assert.equal(form.get('payment_intent_data[metadata][sf_checkout_purpose]'), 'commercial-amendment-recovery');
+  assert.equal(form.get('payment_intent_data[metadata][sf_commercial_amendment_id]'), amendmentId);
+  assert.equal(form.get('line_items[0][price_data][product_data][name]'), 'Reservation recovery payment');
+});
+
+test('rejects amendment metadata on a normal booking Checkout', async () => {
+  const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret' });
+  await assert.rejects(
+    provider.createPaymentSession({
+      organizationId,
+      bookingId,
+      commercialAmendmentId: amendmentId,
+      idempotencyKey: 'public:3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success',
+      cancelUrl: 'https://booking.example.test/cancel',
+      now,
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
+  );
 });
 
 test('rejects provider money drift instead of redirecting the customer', async () => {

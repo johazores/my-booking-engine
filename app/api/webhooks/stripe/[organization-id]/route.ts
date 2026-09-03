@@ -1,3 +1,4 @@
+import { finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-checkout-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
@@ -16,17 +17,24 @@ export async function POST(
       signature: request.headers.get('stripe-signature'),
       payload,
     });
-    const recoveryFinalization = await finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook({
+    const checkoutRecoveryFinalization = await finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutWebhook({
       organizationId,
       verifiedWebhookEventId: verifiedEvent.id,
       payload,
     });
-    if (!recoveryFinalization.handled) {
-      await finalizeVerifiedStripeCommercialAmendmentWebhook({
+    if (!checkoutRecoveryFinalization.handled) {
+      const recoveryFinalization = await finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook({
         organizationId,
         verifiedWebhookEventId: verifiedEvent.id,
         payload,
       });
+      if (!recoveryFinalization.handled) {
+        await finalizeVerifiedStripeCommercialAmendmentWebhook({
+          organizationId,
+          verifiedWebhookEventId: verifiedEvent.id,
+          payload,
+        });
+      }
     }
     return Response.json({ received: true });
   } catch (error) {
