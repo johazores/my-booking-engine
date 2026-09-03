@@ -16,7 +16,7 @@ Public hospitality collection uses Stripe-hosted Checkout. SF sends only authori
 
 New manual refunds persist the exact offline payment reference they reduce. New Stripe refund claims persist the exact successful PaymentIntent/capture reference before the provider call. Historical refunds remain nullable so SF does not invent an unsafe backfill.
 
-When `commercialAmendmentId` is present, the database requires the payment row's amendment ID, booking ID, and organization ID to match the same commercial amendment tuple. Existing general payment/refund actions do not populate this field. The internal manual commercial-amendment executor now populates it only for adjustment money explicitly owned by a prepared amendment; future online amendment executors must do the same rather than reusing generic booking-payment writes.
+When `commercialAmendmentId` is present, the database requires the payment row's amendment ID, booking ID, and organization ID to match the same commercial amendment tuple. Existing general payment/refund actions do not populate this field. The internal manual amendment executor and dedicated Stripe amendment refund/charge executors populate it only for adjustment money explicitly owned by a prepared amendment; generic booking-payment writes remain separate.
 
 Payment writes serialize the relevant tenant idempotency, booking, mutation, and provider-reference scopes with PostgreSQL advisory locks and serializable transactions where required. Public hosted Checkout additionally persists `PaymentCheckoutSession`, which binds tenant, public principal, booking, payment claim, provider Session reference, lifecycle status, and provider expiry.
 
@@ -52,7 +52,7 @@ For an additional charge it records exactly the remaining amendment delta agains
 
 The manual adapter still does not move funds. Staff must have completed the external charge/refund before SF records it. The executor intentionally does **not** update `HospitalityBooking.paymentStatus`, commercial fields, allocation, or `updatedAt`; only payment/audit evidence changes before final apply. This preserves the prepared `bookingVersion` stale-write guard.
 
-Online amendment execution remains separate. Stripe adjustment operations must gain amendment-attributed claim/retry/reconciliation/webhook handling that never routes through generic booking-payment status mutation before final apply. Expiry, hold recovery, and compensation remain required before any amendment settlement action is user-facing.
+Stripe amendment settlement is also isolated from generic booking-payment writes. Dedicated internal Stripe services now move/reconcile amendment-owned refunds and additional charges while preserving the prepared booking snapshot. Customer-facing collection/authentication, signed amendment webhook finalization, expiry/hold recovery, and compensation remain required before any amendment settlement action is user-facing.
 
 ## Deterministic refund execution planning
 
@@ -74,7 +74,7 @@ Stripe generic refund writes, exact retries, read-only polling reconciliation, a
 
 `reconcileStripePaymentTransaction` resolves persisted pending authorization/capture rows from provider truth without replaying writes. `reconcileStripeRefundTransaction` does the same for pending refunds that already have a real provider refund reference. Internal claim references are never presented as provider truth. A legacy pending Stripe refund without persisted source attribution cannot be safely recovered automatically and fails closed for operator reconciliation rather than guessing.
 
-These generic Stripe boundaries currently update the booking payment state for normal booking payments/refunds. They must not be reused unchanged for amendment-linked Stripe transactions because the prepared booking version must remain untouched until final apply. Amendment-aware Stripe recovery is therefore a required dependency before any Stripe commercial-amendment executor is enabled.
+Generic Stripe boundaries continue to update booking payment state only for normal booking payments/refunds. Amendment-linked Stripe transactions use dedicated services and `AMBIGUOUS` claims so generic `PENDING` finalizers cannot mutate `HospitalityBooking.paymentStatus` before final apply. `refundStripeHospitalityBookingCommercialAmendment` plus its reconciliation service own refund evidence; `chargeStripeHospitalityBookingCommercialAmendment` plus `reconcileStripeHospitalityBookingCommercialAmendmentCharge` own additional-charge authorization/capture evidence. Detailed additional-charge semantics are in `docs/stripe-commercial-amendment-charges.md`.
 
 Detailed refund semantics and callback rules remain documented in `docs/stripe-refunds.md`.
 
@@ -83,6 +83,8 @@ Detailed refund semantics and callback rules remain documented in `docs/stripe-r
 `POST /api/webhooks/stripe/[organization-id]` is the external Stripe callback boundary. It is not session-authenticated or same-origin protected because Stripe is the caller; authenticity comes from the tenant-specific encrypted webhook secret and signature over the original raw body.
 
 Webhook processing verifies request bounds/signature before parsing, persists tenant/provider event identity plus a payload hash for idempotency, and resolves only tenant-owned persisted payment/Checkout/refund operations. PaymentIntent metadata, Checkout persistence, booking ownership, exact money, and provider-reference ownership are revalidated before mutation. Refund callbacks additionally bind the Stripe refund object's `payment_intent` to the persisted refund `sourceProviderReference` and re-derive the whole-booking refund plan before accepting final state. Unsupported, mismatched, ambiguous, or untracked events are recorded as ignored rather than guessed.
+
+Amendment-owned Stripe operations intentionally remain outside these generic callback finalizers for now. Signed webhook finalization must be amendment-aware and preserve the prepared booking snapshot exactly as the dedicated polling paths do.
 
 ## API and authorization boundaries
 
@@ -96,7 +98,7 @@ Webhook processing verifies request bounds/signature before parsing, persists te
 - `POST /api/webhooks/stripe/[organization-id]` verifies and ingests tenant-specific Stripe callbacks.
 - `GET /api/payments/transactions?bookingId=...` returns paginated tenant-scoped history.
 
-There is intentionally no amendment-payment or amendment-apply API route yet. The internal manual amendment executor, `commercialAmendmentId`, settlement decision, and final apply service are infrastructure, not browser-controlled fields or signals that the full provider lifecycle is ready for users.
+There is intentionally no amendment-payment or amendment-apply API route yet. The internal manual and Stripe amendment executors, `commercialAmendmentId`, settlement decision, and final apply service are infrastructure, not browser-controlled fields or signals that the full provider lifecycle is ready for users.
 
 BigInt money is serialized as decimal strings. Internal provider-call claim references are serialized as `null` rather than exposed as real provider identifiers.
 
@@ -104,10 +106,10 @@ Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:man
 
 ## Validation and remaining work
 
-Dependency-free payment/amendment domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, whole-booking payment-state reconciliation, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, webhook-domain behavior, commercial-amendment settlement reconciliation, provider-neutral amendment execution decisions, and final-apply consistency. Amendment apply coverage rejects booking version/current-term/current-price drift, target-selection drift, inventory-protection mismatches, target-price drift, and adjustment-identity drift before mutation.
+Dependency-free payment/amendment domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, whole-booking payment-state reconciliation, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, webhook-domain behavior, commercial-amendment settlement reconciliation, provider-neutral amendment execution decisions, Stripe amendment refund/charge recovery domains, and final-apply consistency. Amendment apply coverage rejects booking version/current-term/current-price drift, target-selection drift, inventory-protection mismatches, target-price drift, and adjustment-identity drift before mutation.
 
-The focused amendment execution-decision tests pass under the available runtime. The new manual amendment executor passes TypeScript syntax parsing, but database-backed persistence/locking/idempotency validation remains unclaimed until the guarded disposable PostgreSQL suite can run.
+The focused Stripe amendment-charge domain suite passes 9/9 under the available runtime, and the new domain/test/service files pass the available TypeScript syntax parser. The manual/Stripe amendment service persistence, advisory-lock, idempotency, and live provider behavior remain unclaimed until the guarded disposable PostgreSQL/provider environment can run.
 
-The guarded disposable PostgreSQL suite remains the required validation gate for Prisma schema/migrations, locking, idempotency, provider persistence, webhook concurrency, source-attribution behavior, amendment-payment foreign keys, the manual amendment executor, and the final apply transaction. Do not claim that gate passed unless `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target.
+The guarded disposable PostgreSQL suite remains the required validation gate for Prisma schema/migrations, locking, idempotency, provider persistence, webhook concurrency, source-attribution behavior, amendment-payment foreign keys, amendment executors, and the final apply transaction. Do not claim that gate passed unless `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target.
 
-Still open in this dependency cluster: Stripe amendment-owned provider execution/recovery/compensation, safe API/UI exposure after that lifecycle exists, invoices/tax documents, and broader production provider operational validation. Customer-facing Stripe Checkout, source-aware generic refunds, settlement proof, the internal manual amendment executor, and the internal final apply transaction are real and implemented; do not regress to a fake redirect, browser-success model, browser-selected settlement source, browser-selected amendment payment identity, or browser-authorized apply.
+Still open in this dependency cluster: customer-facing Stripe amendment collection/authentication, signed amendment-owned Stripe webhook finalization, expired-hold compensation/recovery, safe API/UI exposure after that lifecycle exists, invoices/tax documents, and broader production provider operational validation. Customer-facing normal-booking Stripe Checkout, source-aware generic refunds, settlement proof, internal manual/Stripe amendment executors, and the internal final apply transaction are real and implemented; do not regress to a fake redirect, browser-success model, browser-selected settlement source, browser-selected amendment payment identity, or browser-authorized apply.
