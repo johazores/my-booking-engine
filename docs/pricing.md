@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, and price revalidation. Provider-specific pricing rules and immutable booking price snapshots remain future work.
+SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, transactional revalidation, booking-level aggregate price snapshots, and deterministic pricing identity. Provider-specific pricing rules and jurisdiction-specific legal invoice/tax snapshots remain future work.
 
 ## Money model
 
@@ -63,24 +63,32 @@ Active add-ons protect their dependencies: scoped add-ons prevent room-type/rate
 
 - exact nightly minor-unit amounts
 - accommodation subtotal
-- individual applied tax/fee components
+- individual applied tax/fee components with stable identifiers/codes and human-readable labels
 - tax total
 - fee total
-- resolved selected add-ons
+- resolved selected add-ons with stable identifiers/codes and human-readable labels
 - add-on total
 - final total
 - currency
 - a deterministic SHA-256 pricing fingerprint
 
-The complete fingerprint includes effective nightly values, applied charges, and normalized resolved add-on selections/amounts. It contains no secret values and is not treated as authorization. The server never accepts browser-submitted totals as authoritative.
+The complete fingerprint includes effective nightly values, applied charge identity/calculation/amounts, and normalized resolved add-on identity/pricing/amounts. Human-readable labels are deliberately excluded from the fingerprint so a catalog display-name edit does not falsely create a commercial price change. The fingerprint contains no secret values and is not treated as authorization. The server never accepts browser-submitted totals as authoritative.
 
-## Revalidation and price changes
+## Booking price snapshots and revalidation
 
 `revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes, fees, and the same normalized add-on selections, and compares its complete fingerprint with the previously presented value.
 
 A base-rate or charge change therefore produces `changed: true`. A selected add-on that is archived, moved out of the requested stay/scope, or otherwise no longer eligible fails revalidation as unavailable rather than silently dropping a customer selection from the total. Revalidation accepts only canonical SHA-256 hexadecimal fingerprints; malformed or truncated fingerprints are validation errors.
 
-The future booking-creation transaction must use complete-price revalidation before permanent inventory confirmation and persist an immutable booking price snapshot. A displayed quote or browser redirect is never sufficient proof of the commercial amount to persist.
+Booking confirmation already performs the complete price quote again inside the protected booking transaction before permanent allocation is created. The persisted booking stores the authoritative currency, accommodation subtotal, tax total, fee total, add-on total, final total, normalized add-on selections, and pricing fingerprint. A displayed quote or browser redirect is never sufficient proof of the commercial amount persisted on a booking.
+
+A same-price reschedule intentionally compares the persisted aggregate commercial snapshot rather than requiring the old fingerprint to match: nightly dates can legitimately change the pricing fingerprint even when all persisted totals remain identical. Once the new dates pass inventory/restriction checks and the latest aggregate quote still matches the persisted booking amount, the reschedule stores the new quote fingerprint in the same serializable transaction and records the before/after pricing identity in audit evidence. A reschedule that changes any persisted aggregate price component is rejected and must use the commercial-adjustment workflow.
+
+Zero-delta commercial modifications and the final commercial-amendment apply transaction likewise replace the booking pricing fingerprint with the accepted current quote. This keeps the booking's pricing identity aligned with its current stay/commercial terms instead of leaving a fingerprint for superseded dates or selections.
+
+SF also has a canonical `createHospitalityPricingBreakdownSnapshot` domain builder for complete nightly, tax/fee, and add-on pricing evidence. It validates line identity, labels, calculations, amounts, date coverage, duplicate lines, and aggregate reconciliation, and converts all money values to canonical decimal strings suitable for immutable JSON persistence. Transactional pricing now supplies the labels required by that contract.
+
+That complete line-item breakdown is **not yet persisted on `HospitalityBooking`**. The current booking schema persists aggregate tax/fee/add-on totals plus the pricing fingerprint and selected add-ons. Therefore the platform must not present the aggregate booking snapshot as a jurisdiction-specific legal tax invoice: immutable tax-registration identity, jurisdiction, complete legal line-item evidence, fiscal numbering, required legal wording, and related invoice-delivery/accounting requirements still need an explicit production design and migration.
 
 ## Service boundaries
 
@@ -106,9 +114,9 @@ The add-on workspace supports paginated catalog history, paginated sellable-scop
 
 ## Validation coverage
 
-The standard unit command includes money, base-rate, charge-rule, pricing-boundary, and hospitality add-on domain tests. Add-on domain tests cover exact currency conversion, complete optional scope, unsupported/malformed prices, deterministic unique selection normalization, all supported multipliers, quantity bounds, and prevention of browser quantity multiplication for non-unit add-ons.
+The standard unit command includes money, base-rate, charge-rule, pricing-boundary, booking pricing-breakdown, reschedule-domain, and hospitality add-on domain tests. Pricing-breakdown tests cover canonical line-item evidence and aggregate reconciliation. Reschedule PostgreSQL coverage verifies tenant/permission isolation, unresolved-payment blocking, capacity and price-change rejection, idempotency, allocation movement, pricing-fingerprint refresh across same-price date changes, and audit evidence.
 
-The disposable PostgreSQL suite includes hospitality add-on coverage for permission enforcement, cross-tenant denial, property-wide/scoped persistence, concurrent same-code definition conflicts, exact multi-model quote totals, deterministic add-on fingerprint/revalidation behavior, selected-quantity limits, currency/assignment dependency protection, and audit events. The database migration also adds check constraints for scope shape, positive amount, quantity range, non-unit quantity semantics, and valid date windows.
+The disposable PostgreSQL suite additionally covers hospitality add-ons for permission enforcement, cross-tenant denial, property-wide/scoped persistence, concurrent same-code definition conflicts, exact multi-model quote totals, deterministic add-on fingerprint/revalidation behavior, selected-quantity limits, currency/assignment dependency protection, and audit events. The database migration also adds check constraints for scope shape, positive amount, quantity range, non-unit quantity semantics, and valid date windows.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
@@ -116,4 +124,4 @@ Full repository validation still requires Node 24 and an explicitly disposable P
 
 Advanced tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
 
-The next core dependency is the permanent booking allocation/transaction boundary: booking creation must atomically revalidate complete price, convert/consume a hold (or directly allocate), persist immutable booking and price snapshots, and protect last-unit capacity without trusting the browser.
+For invoice/tax work, the next pricing dependency is a deliberate immutable legal pricing-evidence persistence contract: decide which complete pricing lines and tax-registration/jurisdiction fields must be frozen per booking/amendment, add the database migration, backfill/fallback rules where safe, and only then build jurisdiction-specific invoice numbering/rendering/delivery. The existing customer-safe payment receipt must remain separate from that legal invoice boundary.
