@@ -9,6 +9,7 @@ import {
   type HospitalityBookingConfirmationInput,
   type HospitalityBookingGuestInput,
 } from './booking-domain.ts';
+import { persistHospitalityBookingPricingEvidence } from './hospitality-booking-pricing-evidence-service.ts';
 
 export class HospitalityBookingConflictError extends Error {
   constructor(message: string) {
@@ -179,6 +180,25 @@ export async function confirmHospitalityBookingFromHoldInTransaction(input: {
       addonSelections: confirmation.addonSelections,
       confirmedAt: initialStatus === 'CONFIRMED' ? input.now : null,
     },
+  });
+
+  await persistHospitalityBookingPricingEvidence({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: booking.id,
+    evidenceKey: `booking-confirmation:${booking.id}`,
+    source: 'BOOKING_CONFIRMATION',
+    bookingVersion: booking.updatedAt,
+    state: {
+      propertyId: booking.propertyId,
+      roomTypeId: booking.roomTypeId,
+      ratePlanId: booking.ratePlanId,
+      arrivalDate: booking.arrivalDate,
+      departureDate: booking.departureDate,
+      quantity: booking.quantity,
+      addonSelections: confirmation.addonSelections,
+    },
+    quote: latestPrice,
   });
 
   await input.transaction.hospitalityBookingGuest.createMany({
