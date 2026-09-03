@@ -24,8 +24,9 @@ The current repository includes real persisted production boundaries for:
 - tenant-owned customers and immutable booking-specific guest snapshots;
 - hospitality properties, room types, rooms, amenities, images, rate plans, restrictions, availability windows, holds, allocation locking, pricing, taxes/fees, and add-ons;
 - exact-money hospitality quoting, price fingerprints, atomic hold-to-booking confirmation, idempotency, permanent booking allocations, and booking audit history;
-- authenticated booking detail, cancellation, date-only rescheduling, traveler snapshot editing, payment history, receipts, and audit history;
-- a normalized payment contract plus manual/offline payments and a real Stripe adapter for authorization/capture, hosted Checkout, verified webhooks, reconciliation, refunds, and public payment recovery;
+- authenticated booking detail, cancellation, same-price date rescheduling, traveler snapshot editing, provider-aware refunds, receipts, audit history, and room/rate/quantity/add-on commercial modification;
+- an explicit versioned commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
+- a normalized payment contract plus manual/offline payments and a real Stripe adapter for authorization/capture, hosted Checkout, verified webhooks, reconciliation, refunds, public payment recovery, and commercial-amendment settlement;
 - encrypted tenant integration credentials, provider capabilities, lifecycle management, connection health, rotation, disable/enable/archive/reconnect behavior, and secret-safe auditing; and
 - a real tenant-branded public hospitality journey from live discovery through hold, current-price review, customer/guest capture, booking confirmation, Stripe Checkout, signed payment completion, abandonment handling, and recovery.
 
@@ -35,8 +36,8 @@ Provider-specific behavior remains behind adapters. Browser redirects are never 
 
 The repository does not pretend unfinished product areas are complete. Notable remaining work includes:
 
-- general booking modifications that change room type, rate plan, quantity, add-ons, or commercial totals and therefore require an explicit payment-adjustment contract;
-- jurisdiction-specific invoice/tax-document issuance, PDF/email delivery, and accounting integrations;
+- price-changing date reschedules beyond the current same-price reschedule contract, if that product capability is prioritized;
+- jurisdiction-specific invoice/tax-document issuance, immutable legal tax evidence, fiscal numbering, PDF/email delivery, and accounting integrations;
 - the first external supplier/GDS adapter and later provider-specific supplier integrations;
 - additional payment/email/SMS providers only when there is a real product requirement; and
 - tours, appointments, rentals, marketplace capabilities, and other advanced business modules after the shared booking foundation is proven.
@@ -80,6 +81,8 @@ Start with:
 - `docs/public-booking-payments.md`
 - `docs/payments.md`
 - `docs/booking-management.md`
+- `docs/booking-commercial-adjustments.md`
+- `docs/commercial-amendment-orchestration.md`
 - `docs/integration-architecture.md`
 - `docs/development-guide.md`
 
