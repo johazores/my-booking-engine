@@ -72,8 +72,12 @@ If an amendment expires before money moves, cancellation/expiry can safely relea
 
 A provider success does not weaken lifecycle authority. Settlement that completes while the amendment is still valid can advance to `READY_TO_APPLY`; settlement that becomes authoritative after expiry is recovery evidence, not permission to commit stale inventory or price terms.
 
+A known booking, price, or inventory conflict can still occur after the exact amendment delta has settled but before the final serializable booking mutation commits. The apply transport now handles that boundary explicitly. After the failed apply transaction rolls back, a separate tenant-scoped serializable routing transaction re-reads the complete booking payment ledger. It surrenders the amendment's remaining apply window only when settlement independently re-derives as `READY_TO_APPLY`; unresolved or conflicting payment evidence never triggers compensation routing.
+
+For a fully settled failed apply, SF moves the still-`PREPARED` amendment into the existing recovery lifecycle by shortening `expiresAt` to the current time without ever extending an older expiry, releasing any remaining target hold, and recording audit evidence. Booking commercial/payment state and provider evidence remain unchanged. The existing expired-amendment recovery service then owns compensation or operator reconciliation, and booking/payment mutation guards remain blocking until settlement is restored and the amendment is safely terminalized.
+
 ## Validation
 
-Dependency-free orchestration coverage includes manual execution, Stripe refund execution, customer-authorized Stripe Checkout identity/reconciliation, provider waiting, ready-to-apply, recovery, expiry, terminal states, and conflicts. Checkout webhook-domain coverage verifies normal amendment ownership is distinct from recovery and normal booking Checkout events.
+Dependency-free orchestration coverage includes manual execution, Stripe refund execution, customer-authorized Stripe Checkout identity/reconciliation, provider waiting, ready-to-apply, recovery, expiry, terminal states, conflicts, and post-settlement apply-failure routing. Checkout webhook-domain coverage verifies normal amendment ownership is distinct from recovery and normal booking Checkout events.
 
 Full repository typecheck/lint/test/build, Prisma validation/migrations, PostgreSQL integration/concurrency tests, and real provider operational validation remain mandatory before production release. They must run in the repository-required Node 24 environment with an explicitly disposable PostgreSQL target. GitHub Actions are not used.

@@ -2,6 +2,8 @@
 
 Commercial amendment expiry is not permission to discard provider money. A `PREPARED` hospitality commercial amendment that reaches its expiry time remains blocking whenever amendment-owned payment evidence shows unresolved or successful external activity. Recovery must restore authoritative booking settlement to the immutable pre-amendment total before the amendment can become terminal and release its target inventory protection.
 
+A fully settled amendment can also enter this same recovery lifecycle immediately when final booking application fails with a known booking, pricing, or inventory conflict. That routing is allowed only after a fresh tenant-scoped ledger read proves the amendment is `READY_TO_APPLY`; unresolved or conflicting payment evidence cannot be converted into compensation authority. The failed apply transaction is rolled back first, then a separate serializable transaction shortens the still-`PREPARED` amendment expiry, releases remaining target protection, and records audit evidence without mutating booking or provider truth.
+
 ## Recovery authority
 
 `deriveHospitalityCommercialAmendmentRecoveryDecision` is the provider-neutral recovery authority. It consumes the immutable before/after amendment snapshot plus the complete tenant-owned booking payment ledger and returns one of these states:
@@ -44,7 +46,7 @@ Signed Stripe callbacks give recovery-owned Checkout and provider recovery opera
 
 ## Authenticated product transport
 
-The booking workspace now exposes expired amendment recovery through a dedicated authenticated transport instead of requiring an internal-only service caller.
+The booking workspace exposes expired amendment recovery through a dedicated authenticated transport instead of requiring an internal-only service caller.
 
 `findHospitalityBookingCommercialAmendmentRecoveryTransport` discovers at most one expired `PREPARED` amendment for the exact `organizationId + bookingId`. It requires both `booking:manage` and `payment:manage`. Multiple expired prepared amendments fail closed for operator reconciliation.
 
@@ -81,14 +83,22 @@ Stripe success and cancel returns carry only an amendment/UI resume marker. Both
 
 ## HTTP error boundary
 
-The booking HTTP boundary now maps payment-domain failures explicitly for these booking-owned payment routes: payment conflicts return `409`, payment unavailability returns `404`, retryable provider errors return `503`, and non-retryable provider errors return `502`. Responses remain `no-store`; payment failures no longer collapse into a generic booking `500` solely because the route is under the booking namespace.
+The booking HTTP boundary maps payment-domain failures explicitly for these booking-owned payment routes: payment conflicts return `409`, payment unavailability returns `404`, retryable provider errors return `503`, and non-retryable provider errors return `502`. Responses remain `no-store`; payment failures do not collapse into a generic booking `500` solely because the route is under the booking namespace.
+
+## Post-settlement apply failure routing
+
+`routeSettledHospitalityBookingCommercialAmendmentApplyFailureToRecovery` is the durable bridge between a failed final apply and the existing expired-amendment compensation lifecycle. It requires both management permissions, takes the booking mutation advisory lock, scopes the amendment and complete payment ledger by organization plus booking, and re-derives amendment settlement inside a serializable transaction.
+
+Only `READY_TO_APPLY` settlement can be routed. The service never converts `REQUIRES_EXECUTION`, `IN_PROGRESS`, or `CONFLICT` into compensation authority. For eligible settled failures it preserves `PREPARED`, never extends expiry, releases any remaining tenant-owned target hold, and records `booking.commercial-amendment.recovery-required` audit evidence. Existing expired-amendment guards therefore continue blocking unrelated booking/payment mutation while recovery owns the money.
+
+The normal apply transport invokes this routing only for known booking conflict, price-change, or booking-unavailable domain failures after the original apply transaction has rolled back. Arbitrary infrastructure exceptions are not reclassified as commercial recovery events.
 
 ## Remaining Phase 13 boundary
 
-Expired Stripe compensation-charge recovery is now operable from the authenticated booking workspace. This does not complete the broader price-changing amendment workflow.
+Reviewed price changes now connect through durable amendment preparation, manual/Stripe settlement, customer-authorized Stripe Checkout, signed/polling reconciliation, final serializable apply, explicit expiry recovery, and immediate recovery routing when fully settled money cannot be applied safely.
 
-The remaining dependency is the normal prepared-amendment orchestration: connect reviewed price change -> prepare amendment/target inventory protection -> provider settlement/reconciliation -> final serializable amendment apply, with post-provider compensation guarantees when final booking/inventory application cannot commit. Until that normal settlement/apply flow is complete and database-validated, price-changing edits remain correctly closed in the commercial-modification UI.
+Phase 13 still requires the repository's remaining production checklist work and environment-backed verification before it can be marked complete. In particular, PostgreSQL concurrency/migration validation, full Node 24 repository validation, real-provider operational checks, and any still-open invoice/tax or release requirements in GitHub issue #1 remain authoritative. Do not infer completion from dependency-free domain coverage alone.
 
 ## Validation expectations
 
-Dependency-free tests cover recovery decisions, Stripe recovery operation identity, recovery webhook ownership, Checkout reconciliation, and the product transport state/attempt-key mapping. Database validation remains required for advisory-lock ordering, tenant predicates, idempotency races, provider persistence, signed webhook/polling concurrency, target-hold release, amendment terminalization, and payment/audit persistence. Do not claim those PostgreSQL paths passed unless the guarded disposable database suite runs against an explicitly confirmed disposable target.
+Dependency-free tests cover recovery decisions, Stripe recovery operation identity, recovery webhook ownership, Checkout reconciliation, product transport state/attempt-key mapping, and post-settlement apply-failure routing. Database validation remains required for advisory-lock ordering, tenant predicates, idempotency races, provider persistence, signed webhook/polling concurrency, target-hold release, apply-failure recovery routing, amendment terminalization, and payment/audit persistence. Do not claim those PostgreSQL paths passed unless the guarded disposable database suite runs against an explicitly confirmed disposable target.

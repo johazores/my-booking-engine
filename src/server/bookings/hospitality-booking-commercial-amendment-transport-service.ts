@@ -9,6 +9,7 @@ import { deriveHospitalityCommercialAmendmentExecutionDecision } from './booking
 import { deriveHospitalityCommercialAmendmentSettlementState } from './booking-commercial-amendment-settlement-domain.ts';
 import { deriveHospitalityCommercialAmendmentTransportState } from './booking-commercial-amendment-transport-domain.ts';
 import type { HospitalityBookingCommercialModificationInput } from './booking-commercial-modification-domain.ts';
+import { routeSettledHospitalityBookingCommercialAmendmentApplyFailureToRecovery } from './hospitality-booking-commercial-amendment-apply-recovery-service.ts';
 import { applyHospitalityBookingCommercialAmendment } from './hospitality-booking-commercial-amendment-apply-service.ts';
 import {
   cancelHospitalityBookingCommercialAmendment,
@@ -21,6 +22,7 @@ import {
 } from './hospitality-booking-commercial-amendment-stripe-refund-service.ts';
 import {
   HospitalityBookingConflictError,
+  HospitalityBookingPriceChangedError,
   HospitalityBookingUnavailableError,
 } from './hospitality-booking-service.ts';
 
@@ -63,6 +65,12 @@ function decisionReason(decision: ReturnType<typeof deriveHospitalityCommercialA
     return 'This additional charge requires fresh customer authorization through a Stripe-hosted payment flow before it can settle.';
   }
   return 'Commercial amendment state requires operator reconciliation.';
+}
+
+function isRecoverableApplyFailure(error: unknown): error is Error {
+  return error instanceof HospitalityBookingConflictError
+    || error instanceof HospitalityBookingPriceChangedError
+    || error instanceof HospitalityBookingUnavailableError;
 }
 
 function presentTransport(input: {
@@ -306,7 +314,16 @@ export async function applyHospitalityBookingCommercialAmendmentTransport(input:
   amendmentId: string;
   now?: Date;
 }) {
-  await applyHospitalityBookingCommercialAmendment(input);
+  try {
+    await applyHospitalityBookingCommercialAmendment(input);
+  } catch (error) {
+    if (!isRecoverableApplyFailure(error)) throw error;
+    const recovery = await routeSettledHospitalityBookingCommercialAmendmentApplyFailureToRecovery({
+      ...input,
+      applyFailureReason: error.message,
+    });
+    if (!recovery.routed) throw error;
+  }
   return readHospitalityBookingCommercialAmendmentTransport(input);
 }
 
