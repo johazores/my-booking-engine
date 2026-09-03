@@ -47,13 +47,6 @@ export function deriveBookingRefundAvailability(input: BookingRefundAvailability
   });
   if (!plan.planned) return { available: false, reason: plan.reason };
 
-  if (plan.providerCode === 'stripe' && plan.refundableSourceCount > 1) {
-    return {
-      available: false,
-      reason: 'This booking has multiple Stripe settlement sources. Deterministic allocation is defined, but source-aware Stripe execution and recovery must be completed before another general refund can be started.',
-    };
-  }
-
   return {
     available: true,
     providerCode: plan.providerCode,

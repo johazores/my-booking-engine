@@ -69,14 +69,25 @@ test('manual refunds expose deterministic next source and total booking balance'
   assert.deepEqual(result, { available: true, providerCode: 'manual', currency: 'AUD', refundableMinor: 7_500n, bookingRefundableMinor: 12_500n, refundableSourceCount: 2, sourceReference: 'receipt-large', requiresReference: true });
 });
 
-test('keeps multiple Stripe settlement sources unavailable until Stripe recovery is source-aware', () => {
+test('multiple Stripe settlement sources expose the deterministic next source-scoped refund', () => {
   const result = deriveBookingRefundAvailability({
     ...booking,
     transactions: [transaction({ providerReference: 'pi_1', amountMinor: 6_000n }), transaction({ providerReference: 'pi_2', amountMinor: 6_500n })],
   });
-  assert.equal(result.available, false);
-  if (result.available) return;
-  assert.match(result.reason, /source-aware Stripe execution and recovery/i);
+  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 6_500n, bookingRefundableMinor: 12_500n, refundableSourceCount: 2, sourceReference: null, requiresReference: false });
+});
+
+test('Stripe source allocation continues after an attributed source refund', () => {
+  const result = deriveBookingRefundAvailability({
+    ...booking,
+    paymentStatus: 'PARTIALLY_REFUNDED',
+    transactions: [
+      transaction({ providerReference: 'pi_a', amountMinor: 6_000n }),
+      transaction({ providerReference: 'pi_b', amountMinor: 6_500n }),
+      transaction({ kind: 'REFUND', providerReference: 're_b', sourceProviderReference: 'pi_b', amountMinor: 6_500n }),
+    ],
+  });
+  assert.deepEqual(result, { available: true, providerCode: 'stripe', currency: 'AUD', refundableMinor: 6_000n, bookingRefundableMinor: 6_000n, refundableSourceCount: 1, sourceReference: null, requiresReference: false });
 });
 
 test('manual source allocation continues after an attributed source refund', () => {

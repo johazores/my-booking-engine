@@ -34,11 +34,9 @@ Commercial amendment preparation uses authoritative **net settled money** and cu
 
 `deriveBookingRefundExecutionPlan` composes that allocation with authoritative booking settlement and whole-booking payment-state reconciliation. For one refund operation it returns the exact provider, settlement source, source balance, operation amount, total booking refundable balance, refundable-source count, and resulting whole-booking payment status. Omitting an amount means refund the selected source's remaining balance; an explicit amount cannot silently span multiple settlement sources.
 
-Manual refund execution now consumes this contract end to end. Under the existing tenant booking/mutation/idempotency locks, SF re-reads the full tenant-owned payment ledger, selects the authoritative manual source server-side, records the external refund against that exact source, and derives the booking's next payment status from whole-booking net settlement. Multiple manual settlement sources are therefore supported sequentially without treating one exhausted source as a fully refunded booking.
+Manual and Stripe refund execution consume this contract end to end. Under tenant booking/mutation/idempotency locks, SF re-reads the full tenant-owned payment ledger, selects the authoritative source server-side, binds the refund to that exact source, and derives the booking's next payment status from whole-booking net settlement. Multiple settlement sources from one supported provider can therefore be refunded sequentially without treating one exhausted source as a fully refunded booking.
 
-The booking-detail refund UI shows both the total remaining refundable balance and the amount of the next source-scoped operation. For manual payments it also shows the exact external payment source that staff must refund outside SF before entering the real external refund reference. The browser does not choose the source.
-
-Multiple Stripe settlement sources remain intentionally unavailable through the general refund action until the Stripe write, retry, reconciliation, and webhook paths all consume the same source-aware execution contract. Single-source Stripe refunds continue to use the existing real provider workflow.
+The booking-detail refund UI shows both the total remaining refundable balance and the amount of the next source-scoped operation. For manual payments it also shows the exact external payment source that staff must refund outside SF before entering the real external refund reference. Stripe source authority remains server-side; the browser does not choose or override the PaymentIntent source.
 
 Refund availability reconciles booking payment state against **net** settled money rather than gross settlement. `PAID` requires net settlement to equal the current authoritative booking total. `PARTIALLY_REFUNDED` requires a strictly positive net balance below that total. This supports price-adjustment histories where historical gross settlement can exceed the current booking total after an attributed compensating refund.
 
@@ -46,7 +44,9 @@ Refund availability reconciles booking payment state against **net** settled mon
 
 Stripe authorization/capture/refund writes require `payment:manage`, tenant-owned booking access, immutable booking money, configured tenant integration capabilities, provider capability checks, and persisted idempotency/fingerprint evidence. Provider calls are claimed in the ledger before the external request where ambiguity must be recoverable. Retryable transport/timeout failures preserve unresolved state; definitive failures do not claim success.
 
-`reconcileStripePaymentTransaction` resolves persisted pending authorization/capture rows from provider truth without replaying writes. `reconcileStripeRefundTransaction` does the same for pending refunds that already have a real provider refund reference. Internal claim references are never presented as provider truth.
+Stripe refund writes, exact retries, read-only polling reconciliation, and signed refund webhook finalization all use the persisted `sourceProviderReference` plus the same deterministic execution plan. Each provider request refunds one selected source at a time. Before a retry or finalization can change money state, SF re-derives the authoritative ledger allocation and fails closed if source, amount, currency, booking state, or settlement history drifted.
+
+`reconcileStripePaymentTransaction` resolves persisted pending authorization/capture rows from provider truth without replaying writes. `reconcileStripeRefundTransaction` does the same for pending refunds that already have a real provider refund reference. Internal claim references are never presented as provider truth. A legacy pending Stripe refund without persisted source attribution cannot be safely recovered automatically and fails closed for operator reconciliation rather than guessing.
 
 Detailed refund semantics and callback rules remain documented in `docs/stripe-refunds.md`.
 
@@ -54,13 +54,13 @@ Detailed refund semantics and callback rules remain documented in `docs/stripe-r
 
 `POST /api/webhooks/stripe/[organization-id]` is the external Stripe callback boundary. It is not session-authenticated or same-origin protected because Stripe is the caller; authenticity comes from the tenant-specific encrypted webhook secret and signature over the original raw body.
 
-Webhook processing verifies request bounds/signature before parsing, persists tenant/provider event identity plus a payload hash for idempotency, and resolves only tenant-owned persisted payment/Checkout/refund operations. PaymentIntent metadata, Checkout persistence, booking ownership, exact money, and provider-reference ownership are revalidated before mutation. Unsupported, mismatched, ambiguous, or untracked events are recorded as ignored rather than guessed.
+Webhook processing verifies request bounds/signature before parsing, persists tenant/provider event identity plus a payload hash for idempotency, and resolves only tenant-owned persisted payment/Checkout/refund operations. PaymentIntent metadata, Checkout persistence, booking ownership, exact money, and provider-reference ownership are revalidated before mutation. Refund callbacks additionally bind the Stripe refund object's `payment_intent` to the persisted refund `sourceProviderReference` and re-derive the whole-booking refund plan before accepting final state. Unsupported, mismatched, ambiguous, or untracked events are recorded as ignored rather than guessed.
 
 ## API and authorization boundaries
 
 - `POST /api/payments/manual` records a confirmed offline payment.
 - `POST /api/payments/manual/refunds` records a confirmed offline refund, including source-aware sequential refunds across multiple manual settlements.
-- `POST /api/payments/stripe/refunds` creates a server-authorized Stripe refund operation.
+- `POST /api/payments/stripe/refunds` creates a server-authorized source-aware Stripe refund operation, including sequential refunds across multiple Stripe settlements.
 - `POST /api/payments/stripe/reconcile` reconciles one tenant-owned pending Stripe authorization/capture transaction.
 - `POST /api/payments/stripe/refunds/reconcile` reconciles one tenant-owned pending Stripe refund.
 - `POST /api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout` creates or resumes the capability-owned hosted Checkout operation.
@@ -74,8 +74,8 @@ Organization `ADMIN` and `MANAGER` roles receive `payment:read` and `payment:man
 
 ## Validation and remaining work
 
-Dependency-free payment-domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, and webhook-domain behavior. Allocation/planning coverage verifies input-order independence, largest-balance selection, stable tie-breaking, fully-refunded-source exclusion, source-by-source manual progression, explicit cross-source rejection, mixed-provider failure, malformed/duplicate source rejection, payment-state drift rejection, and exact bigint totals.
+Dependency-free payment-domain coverage includes settlement reconciliation, refund-source attribution, deterministic refund allocation/execution planning, whole-booking payment-state reconciliation, refund availability, provider normalization, Stripe request/recovery domains, public payment recovery, and webhook-domain behavior. Allocation/planning coverage verifies input-order independence, largest-balance selection, stable tie-breaking, fully-refunded-source exclusion, source-by-source manual and Stripe progression, explicit cross-source rejection, mixed-provider failure, malformed/duplicate source rejection, payment-state drift rejection, and exact bigint totals.
 
 The guarded disposable PostgreSQL suite remains the required validation gate for Prisma schema/migrations, locking, idempotency, provider persistence, webhook concurrency, and source-attribution behavior. Do not claim that gate passed unless `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target.
 
-Still open in this dependency cluster: source-aware multi-source Stripe refund execution/recovery, commercial-amendment provider execution/final apply, invoices/tax documents, and broader production provider operational validation. Customer-facing Stripe Checkout is real and implemented; do not regress to a fake redirect or browser-success model.
+Still open in this dependency cluster: commercial-amendment provider execution/final apply, invoices/tax documents, and broader production provider operational validation. Customer-facing Stripe Checkout and source-aware refunds are real and implemented; do not regress to a fake redirect, browser-success model, or browser-selected settlement source.
