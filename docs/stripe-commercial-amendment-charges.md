@@ -1,52 +1,86 @@
 # Stripe commercial amendment additional charges
 
-SF has an internal Stripe additional-charge executor for prepared hospitality commercial amendments. It is infrastructure for production settlement/recovery and is intentionally not exposed as a browser API or primary UI action yet.
+SF supports two production-safe Stripe additional-charge boundaries for prepared hospitality commercial amendments:
+
+- the internal authorization/capture executor for server-owned PaymentMethod workflows; and
+- customer-authorized Stripe-hosted Checkout for the normal booking-workspace price-increase journey.
+
+Both boundaries are amendment-owned. Neither can change booking commercial terms or `HospitalityBooking.paymentStatus` before the existing final amendment apply service proves settlement and revalidates inventory/pricing state.
 
 ## Authority and scope
 
-`chargeStripeHospitalityBookingCommercialAmendment` requires both `booking:manage` and `payment:manage`. The service accepts organization, actor, booking, amendment, a stable request idempotency key, and—only when a fresh authorization is actually required—a Stripe-issued PaymentMethod reference. SF never accepts raw card data.
+All authenticated amendment settlement boundaries require both `booking:manage` and `payment:manage` and resolve the amendment by `(organizationId, bookingId, amendmentId)`. The server verifies the exact confirmed/paid booking snapshot that was prepared and re-derives the complete tenant-owned payment ledger before authorizing provider work.
 
-Before any provider call the service serializes the tenant booking mutation/payment scopes, resolves the amendment by `(organizationId, bookingId, amendmentId)`, proves it is a Stripe `ADDITIONAL_CHARGE`, verifies the booking is still the exact confirmed/paid snapshot that was prepared, and re-derives the complete booking/amendment settlement ledger. Browser input never supplies the amount, currency, capture reference, or settlement state.
+The browser never supplies organization identity, payment provider, currency, amount, PaymentIntent source, settlement state, or apply authority. SF never accepts raw card data.
 
-The provider-issued PaymentMethod is authority only for the new Stripe authorization request. SF does not reuse a historical settlement credential or PaymentIntent to create a new charge.
+The internal executor accepts a Stripe-issued PaymentMethod reference only when fresh authorization is actually required. The hosted Checkout flow does not accept a PaymentMethod from the browser at all; the customer enters payment details only on Stripe.
+
+## Customer-authorized hosted Checkout
+
+A prepared Stripe `ADDITIONAL_CHARGE` that reaches `STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED` can now start or resume:
+
+`POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/stripe-checkout`
+
+The route uses the authenticated same-origin booking context. Success/cancel URLs are created on the server and return to the booking workspace; redirects are navigation only and never establish payment truth.
+
+`hospitality-booking-commercial-amendment-stripe-checkout-service.ts` creates an amendment-attributed `CAPTURE / AMBIGUOUS` claim before provider I/O. The request identity is deterministic and tenant-bound to organization, booking, amendment, and the server-derived attempt number. The fingerprint binds booking, amendment, exact currency, and exact remaining adjustment money.
+
+Only one unresolved provider operation may exist for the amendment. Definitive failed Checkout attempts allow a fresh deterministic attempt. An unresolved internal claim or bound Checkout Session resumes the same attempt instead of starting another charge.
+
+Stripe Checkout receives explicit Session and PaymentIntent metadata:
+
+- `sf_organization_id`
+- `sf_booking_id`
+- `sf_commercial_amendment_id`
+- `sf_checkout_purpose=commercial-amendment-charge`
+
+The adapter validates the returned `cs_*` reference, hosted HTTPS URL, expiry, currency, and amount before the Session is bound to the persisted claim. Provider configuration remains behind the Stripe integration adapter.
+
+## Checkout reconciliation and signed callbacks
+
+`POST .../[amendment-id]/stripe-checkout/status` retrieves the exact persisted Checkout Session from Stripe. Reconciliation validates Session identity, tenant, booking, amendment, purpose, exact currency/amount, and PaymentIntent identity before changing amendment-owned payment evidence.
+
+A complete/paid Session becomes `CAPTURE / SUCCEEDED` and replaces the local `cs_*` reference with the real `pi_*` reference. An expired/unpaid Session with no PaymentIntent becomes a definitive `FAILED` attempt. Other provider states remain `AMBIGUOUS`; SF does not guess success.
+
+Signed Stripe Checkout callbacks use the same ownership contract. After tenant-specific signature verification and durable webhook ingestion, `finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook` handles only `commercial-amendment-charge` Checkout events and requires the exact verified event identity/hash plus exact persisted amendment claim, Session reference, money, and ownership metadata. It updates only the amendment payment transaction and webhook event ledger.
+
+Normal commercial Checkout finalization runs before generic booking-payment webhook finalization, so amendment-owned customer payments cannot accidentally mutate the booking through normal payment-state logic.
 
 ## Authorization and capture lifecycle
 
-A fresh additional charge is split into explicit Stripe authorization and capture stages.
+The internal additional-charge executor remains available for trusted server-owned PaymentMethod workflows. Fresh charges are split into explicit Stripe authorization and capture stages.
 
 - Each stage receives a deterministic tenant-safe internal idempotency key derived from the caller's stable root request key, booking, amendment, and stage.
 - Authorization fingerprints bind booking, amendment, exact server-derived money, and the Stripe PaymentMethod reference.
 - Capture fingerprints bind booking, amendment, exact money, and the successful Stripe PaymentIntent reference.
 - Provider calls are claimed as amendment-attributed `PaymentTransaction` rows before external I/O.
-- Claims use `AMBIGUOUS`, not generic `PENDING`, so the existing normal-booking payment webhook/reconciliation paths cannot mutate `HospitalityBooking.paymentStatus` while an amendment is still only prepared.
+- Claims use `AMBIGUOUS`, not generic `PENDING`, so normal-booking payment webhook/reconciliation paths cannot mutate `HospitalityBooking.paymentStatus` while an amendment is only prepared.
 - Definitive provider failures become `FAILED`; retryable/uncertain outcomes remain recoverable.
-- A successful manual-capture authorization is persisted as `AUTHORIZATION / SUCCEEDED`, then the executor advances to capture while the amendment is still unexpired.
+- A successful manual-capture authorization is persisted as `AUTHORIZATION / SUCCEEDED`, then the executor advances to capture while lifecycle permits it.
 - A successful capture is persisted as `CAPTURE / SUCCEEDED` with the same PaymentIntent reference.
 
-If Stripe reports an authorization as already `succeeded` rather than `requires_capture`, SF records both the successful authorization and deterministic successful capture evidence for that same PaymentIntent. This is not invented payment: the capture ledger row is created only from provider truth proving the full exact amount was already received. Settlement reconciliation de-duplicates the matching authorization/capture reference.
-
-A successful standalone authorization is capturable only when it exactly equals the amendment's current remaining adjustment. If earlier linked settlement changed that remaining amount, capture fails closed instead of overcharging.
+If Stripe reports an authorization as already `succeeded` rather than `requires_capture`, SF records deterministic successful settlement evidence only from that provider truth. Settlement reconciliation de-duplicates matching authorization/capture references.
 
 ## Expiry and recovery
 
-Expiry remains authoritative. The executor re-evaluates amendment lifecycle before capture. If the amendment expires after authorization, SF does not start a new capture merely because authorization exists; the amendment enters the existing recovery-required boundary.
+The commercial amendment/target-inventory window is still authoritative for **applying booking terms**. Stripe Checkout may remain open longer than that prepared window. SF therefore treats a late payment as real money but never as permission to apply stale terms.
 
-An `AMBIGUOUS` transaction with a real PaymentIntent reference is never replayed blindly. `reconcileStripeHospitalityBookingCommercialAmendmentCharge` retrieves Stripe provider truth and updates only the amendment-owned payment evidence. It works for both authorization and capture and validates PaymentIntent identity, currency, exact amount, received/capturable money, tenant ownership, booking ownership, and amendment ownership.
+If the amendment expires while Checkout/provider state is unresolved, the amendment remains recovery-blocking. Polling or signed callbacks may still resolve the exact provider result. A late successful additional charge becomes amendment-owned `SUCCEEDED` evidence, after which the existing expired-amendment recovery domain derives the exact compensating refund from the adjustment-created settlement source. The stale booking change is not applied.
 
-Signed Stripe PaymentIntent callbacks can now finalize the same provider-known `AMBIGUOUS` authorization/capture evidence through `finalizeVerifiedStripeCommercialAmendmentWebhook`. The public webhook route first performs the existing tenant-secret signature verification and durable event ingestion, then the amendment finalizer requires that exact verified event identity/hash plus the exact persisted PaymentIntent, booking, amendment, currency, and money before changing only amendment payment evidence. Directly settled authorization callbacks create the same deterministic capture evidence as polling. See `docs/stripe-commercial-amendment-webhooks.md`.
+If Checkout expires unpaid with no provider payment evidence, the claim becomes `FAILED`; normal expiry can then release target protection once no other recovery-blocking payment activity remains.
 
-If the local claim still has only an internal `sf_claim_*` reference, neither polling nor webhook finalization guesses provider ownership. The exact idempotent operation must be retried while lifecycle still permits new money movement; once the amendment has expired, that uncertainty requires operator recovery rather than a potentially new external charge.
+For the internal authorization/capture executor, an authorization that outlives the amendment enters the existing release/capture recovery logic rather than being captured merely because it exists.
 
-Webhook and polling reconciliation deliberately do not change booking payment/commercial state. Final booking mutation remains exclusively owned by `applyHospitalityBookingCommercialAmendment` after provider-neutral settlement reaches `READY_TO_APPLY` and all pricing, inventory, booking-version, and target-hold checks still pass.
+An `AMBIGUOUS` transaction with a real provider reference is never replayed blindly. Polling and signed callbacks validate exact provider identity and money. Internal `sf_claim_*` references are never treated as provider truth; exact idempotent retry is required while lifecycle permits it, otherwise operator/recovery handling owns the uncertainty.
 
-## What remains closed
+## Final apply
 
-This executor consumes a Stripe-issued PaymentMethod but does not itself provide the customer-facing collection transport. A production browser flow still needs a Stripe-hosted/Stripe.js collection boundary with required customer authentication, safe return/recovery handling, and no exposure of internal amendment authority.
+Provider settlement deliberately does not rewrite the booking. After an unexpired amendment reaches `READY_TO_APPLY`, only `applyHospitalityBookingCommercialAmendment` can commit the change. It revalidates booking version, current/target commercial terms, target hold, target inventory, restrictions, current transactional pricing, adjustment identity, and the complete amendment ledger inside the serializable booking/inventory transaction.
 
-Explicit compensation and target-inventory recovery for provider money that settles after amendment expiry or after a final-apply conflict must be completed before any amendment settlement/apply action is exposed to staff or customers. Pre-reference `sf_claim_*` uncertainty also remains exact-retry/operator recovery work rather than webhook guesswork.
+If those checks cannot pass after money settled, the amendment does not force stale terms into the booking; recovery/compensation remains the safe path.
 
 ## Validation
 
-The dependency-free `booking-commercial-amendment-stripe-charge-domain.test.ts` suite covers deterministic stage idempotency, payment-method/PaymentIntent fingerprint separation, provider-state normalization, exact authorization/capture reconciliation, direct-settlement evidence identity, and provider/money drift rejection. `booking-commercial-amendment-stripe-webhook-domain.test.ts` adds exact provider-reference/money selection and proves that internal pre-reference claims are not guessed from signed events.
+Dependency-free coverage now includes the direct authorization/capture domain, normal commercial Checkout deterministic identity/fingerprint/reconciliation, Checkout ownership metadata, Checkout webhook parsing, amendment Stripe refund/recovery domains, and provider-drift rejection.
 
-The available automation runtime can execute those pure-domain suites and TypeScript syntax parsing. Full repository typecheck/lint/build, Prisma generation/validation, migration checks, and database-backed locking/idempotency/webhook concurrency validation still require the repository's Node 24 environment and an explicitly confirmed disposable PostgreSQL target. GitHub Actions are not used.
+Full repository typecheck/lint/test/build, Prisma generation/validation/migration checks, and PostgreSQL locking/idempotency/webhook concurrency validation remain mandatory before production release and must run in the repository-required Node 24 environment with an explicitly disposable PostgreSQL target. GitHub Actions are not used.

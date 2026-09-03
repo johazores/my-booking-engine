@@ -1,10 +1,10 @@
 # Commercial amendment orchestration
 
-This document describes the authenticated product boundary that turns a reviewed non-zero hospitality price change into a recoverable commercial amendment. It sits above the existing amendment preparation, provider execution/reconciliation, recovery, and final serializable apply services. It does not replace those domain boundaries and does not let the browser supply money, provider authority, tenant identity, settlement source, or booking truth.
+This document describes the authenticated product boundary that turns a reviewed non-zero hospitality price change into a recoverable commercial amendment. It sits above amendment preparation, provider execution/reconciliation, recovery, and final serializable apply services. It does not replace those domain boundaries and does not let the browser supply money, provider authority, tenant identity, settlement source, or booking truth.
 
 ## Product flow
 
-A confirmed booking still starts with `POST /api/bookings/hospitality/[booking-id]/modify/preview`. The browser can prepare a non-zero reviewed change only by sending the selected commercial terms plus the exact `adjustmentFingerprint` returned by that server review to:
+A confirmed booking starts with `POST /api/bookings/hospitality/[booking-id]/modify/preview`. The browser can prepare a non-zero reviewed change only by sending the selected commercial terms plus the exact `adjustmentFingerprint` returned by that server review to:
 
 `POST /api/bookings/hospitality/[booking-id]/commercial-amendments`
 
@@ -18,16 +18,16 @@ The booking detail layout discovers at most one unexpired `PREPARED` amendment f
 
 - `MANUAL_SETTLEMENT_REQUIRED` — staff must complete the exact external payment or refund outside SF and then record the real external reference.
 - `STRIPE_REFUND_REQUIRED` — SF can execute the next exact server-selected source-scoped Stripe refund.
-- `STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED` — a Stripe price increase needs fresh customer authorization; the normal amendment Checkout transport is not yet exposed.
+- `STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED` — a Stripe price increase can start/resume the customer-authorized hosted Checkout flow; amount, currency, tenant, amendment, and operation identity remain server-derived.
 - `WAIT_FOR_PROVIDER` — an amendment-owned provider operation is unresolved and must converge before another money action.
 - `READY_TO_APPLY` — authoritative amendment settlement matches the prepared target total.
-- `RECOVERY_REQUIRED`, `EXPIRED`, `APPLIED`, `CANCELLED`, and `CONFLICT` preserve lifecycle/recovery truth and do not create money-moving browser actions.
+- `RECOVERY_REQUIRED`, `EXPIRED`, `APPLIED`, `CANCELLED`, and `CONFLICT` preserve lifecycle/recovery truth and do not create unsafe money-moving browser actions.
 
 `hospitality-booking-commercial-amendment-transport-service.ts` derives this state from one tenant-owned amendment and the complete tenant-owned payment ledger. Refund source selection comes from authoritative settlement reconciliation and `deriveNextBookingRefundSource`; the browser never chooses a source or amount. Stripe settlement source references are not exposed through the product transport; manual refund source references are shown only because staff must perform that exact external refund before recording it in SF.
 
 ## Authenticated API boundary
 
-All write routes use the existing authenticated same-origin booking context. The transport service independently requires both `booking:manage` and `payment:manage` and scopes amendment and payment reads by organization plus booking.
+All write routes use the existing authenticated same-origin booking context. The transport services independently require both `booking:manage` and `payment:manage` and scope amendment and payment reads by organization plus booking.
 
 - `GET /api/bookings/hospitality/[booking-id]/commercial-amendments` discovers the current unexpired prepared amendment for resumable UI.
 - `POST /api/bookings/hospitality/[booking-id]/commercial-amendments` prepares the reviewed price-changing amendment.
@@ -35,10 +35,12 @@ All write routes use the existing authenticated same-origin booking context. The
 - `POST .../[amendment-id]/manual-settlement` records a real external manual payment/refund reference through the existing manual amendment executor.
 - `POST .../[amendment-id]/stripe-refund` executes the next exact source-scoped Stripe refund through the amendment-owned Stripe refund service.
 - `POST .../[amendment-id]/stripe-refund/status` performs exact retry/provider reconciliation for the one unresolved amendment-owned Stripe refund.
+- `POST .../[amendment-id]/stripe-checkout` creates or resumes the one customer-authorized Stripe Checkout attempt for a normal additional charge.
+- `POST .../[amendment-id]/stripe-checkout/status` reconciles the exact persisted Checkout Session with Stripe provider truth.
 - `POST .../[amendment-id]/apply` invokes the existing final serializable apply boundary only after settlement proves `READY_TO_APPLY`.
 - `POST .../[amendment-id]/cancel` invokes the existing guarded cancellation boundary. The UI offers cancellation only before adjustment money has settled and the service revalidates that rule server-side.
 
-These routes do not accept organization IDs, money amounts, currencies, payment providers, settlement references, or refund sources from the browser. Idempotency keys identify user-initiated attempts; all financial authority is re-derived under the existing booking/payment locks.
+These routes do not accept organization IDs, money amounts, currencies, payment providers, settlement references, or refund sources from the browser. Manual references identify real external operations. Stripe Checkout attempt identity is derived server-side from the amendment's definitive failed-attempt count, so the browser cannot create a new financial idempotency namespace.
 
 ## Manual settlement behavior
 
@@ -54,16 +56,24 @@ If Stripe returns non-final or transport-ambiguous state, the amendment remains 
 
 ## Stripe price increases
 
-Normal Stripe additional-charge infrastructure already has amendment-owned authorization/capture, polling, and signed webhook convergence, but the booking UI still does not collect or reuse card credentials. `STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED` is therefore an explicit safe boundary, not a fake payment action. The prepared amendment can be cancelled while no adjustment money has settled.
+`STRIPE_CUSTOMER_AUTHORIZATION_REQUIRED` now has a real Stripe-hosted Checkout action rather than a dead placeholder. SF derives the exact remaining additional charge from the amendment ledger, creates an amendment-attributed `CAPTURE / AMBIGUOUS` claim under booking/payment/idempotency locks, and passes only authoritative money/ownership metadata and server return URLs to the Stripe adapter.
 
-The next dependency for the normal online price-increase journey is a customer-authorized Stripe-hosted collection transport that creates/resumes one deterministic amendment payment attempt and converges through polling/signed webhook evidence before final apply. The existing expired-amendment recovery Checkout is a recovery-specific flow and must not be reused as normal amendment authority without the normal lifecycle contract.
+The customer enters card/payment details only on Stripe. SF does not reuse historical card credentials, expose a PaymentMethod input in the booking workspace, or treat browser return navigation as payment truth. A bound Checkout Session is resumed with the same deterministic provider idempotency identity until it reaches a definitive provider state.
+
+Polling through `stripe-checkout/status` and signed `checkout.session.completed` / `checkout.session.expired` callbacks validate exact tenant, booking, amendment, purpose, Session, currency, amount, and PaymentIntent identity before changing only amendment-owned payment evidence. Generic booking payment finalizers cannot mutate the booking from these amendment claims.
+
+The Stripe-hosted Session can remain open beyond the prepared amendment/inventory-protection window. If payment arrives after amendment expiry, SF records the real settlement evidence but does not apply stale booking terms. The expired-amendment recovery domain then owns compensation, including a server-selected refund from adjustment-created settlement money. An unpaid expired Checkout becomes a definitive failed attempt and can stop blocking expiry once no other payment evidence requires recovery.
 
 ## Final apply and expiry
 
-Only the existing `applyHospitalityBookingCommercialAmendment` service can rewrite booking commercial terms, immutable price components, allocation, and denormalized payment status. It revalidates booking version, target hold, target inventory, restrictions, pricing, adjustment identity, and complete amendment settlement inside a serializable transaction.
+Only `applyHospitalityBookingCommercialAmendment` can rewrite booking commercial terms, immutable price components, allocation, and denormalized payment status. It revalidates booking version, target hold, target inventory, restrictions, pricing, adjustment identity, and complete amendment settlement inside a serializable transaction.
 
-If an amendment expires before money moves, cancellation/expiry can safely release target protection. If amendment-attributed money or unresolved provider evidence exists, the normal orchestration must stop and the existing commercial-amendment recovery boundary owns reconciliation/compensation. Browser redirects, local component state, and clock expiry are never payment truth.
+If an amendment expires before money moves, cancellation/expiry can safely release target protection. If amendment-attributed money or unresolved provider evidence exists, normal orchestration stops and the existing commercial-amendment recovery boundary owns reconciliation/compensation. Browser redirects, local component state, and clock expiry are never payment truth.
+
+A provider success does not weaken lifecycle authority. Settlement that completes while the amendment is still valid can advance to `READY_TO_APPLY`; settlement that becomes authoritative after expiry is recovery evidence, not permission to commit stale inventory or price terms.
 
 ## Validation
 
-The dependency-free transport-state suite covers manual execution, Stripe refund execution, the intentionally closed Stripe customer-authorization state, provider waiting, ready-to-apply, recovery, expiry, terminal states, and conflicts. Full repository typecheck/lint/build, Prisma validation/migrations, and PostgreSQL integration/concurrency tests remain mandatory before production release and must be run only in a supported Node 24 environment with an explicitly disposable PostgreSQL target.
+Dependency-free orchestration coverage includes manual execution, Stripe refund execution, customer-authorized Stripe Checkout identity/reconciliation, provider waiting, ready-to-apply, recovery, expiry, terminal states, and conflicts. Checkout webhook-domain coverage verifies normal amendment ownership is distinct from recovery and normal booking Checkout events.
+
+Full repository typecheck/lint/test/build, Prisma validation/migrations, PostgreSQL integration/concurrency tests, and real provider operational validation remain mandatory before production release. They must run in the repository-required Node 24 environment with an explicitly disposable PostgreSQL target. GitHub Actions are not used.
