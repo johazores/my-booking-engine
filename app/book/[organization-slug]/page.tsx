@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 import { PublicBookingOfferCard, PublicBookingRecovery } from './public-booking-flow.tsx';
+import { PublicBookingSettlementReceipt } from './public-booking-receipt.tsx';
 import { readPublicHospitalityBookingPage, searchPublicHospitalityOffers } from '@/server/bookings/public-hospitality-search-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 
@@ -107,6 +108,7 @@ export default async function PublicBookingPage({ params, searchParams }: Bookin
 
       <section className="sf-public-booking__container sf-public-booking__content" aria-labelledby="availability-title">
         <PublicBookingRecovery organizationSlug={organizationSlug} />
+        <PublicBookingSettlementReceipt organizationSlug={organizationSlug} />
 
         <div className="sf-public-booking__search-card">
           <div className="sf-public-booking__section-heading">

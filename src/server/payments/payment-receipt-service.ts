@@ -1,52 +1,14 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import {
+  buildPaymentReceiptNumber,
+  isReceiptEligiblePaymentStatus,
+  PaymentReceiptEvidenceError,
+  sanitizeSuccessfulPaymentTransactions,
+  summarizeSuccessfulPaymentActivity,
+} from './payment-receipt-domain.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
-
-export type PaymentReceiptTransaction = Readonly<{
-  id: string;
-  kind: 'OFFLINE_PAYMENT' | 'AUTHORIZATION' | 'CAPTURE' | 'REFUND';
-  status: string;
-  providerCode: string;
-  providerReference: string | null;
-  currency: string;
-  amountMinor: bigint;
-  createdAt: Date;
-}>;
-
-export function buildPaymentReceiptNumber(bookingId: string): string {
-  return `SF-${bookingId.replaceAll('-', '').slice(0, 16).toUpperCase()}`;
-}
-
-export function summarizeSuccessfulPaymentActivity(
-  transactions: PaymentReceiptTransaction[],
-  bookingPaymentStatus?: string,
-) {
-  let capturedMinor = 0n;
-  let refundedMinor = 0n;
-  let successfulAuthorizationMinor = 0n;
-
-  for (const transaction of transactions) {
-    if (transaction.kind === 'OFFLINE_PAYMENT' || transaction.kind === 'CAPTURE') {
-      capturedMinor += transaction.amountMinor;
-    } else if (transaction.kind === 'REFUND') {
-      refundedMinor += transaction.amountMinor;
-    } else if (transaction.kind === 'AUTHORIZATION') {
-      successfulAuthorizationMinor = transaction.amountMinor;
-    }
-  }
-
-  const bookingProvesSettlement = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(bookingPaymentStatus ?? '');
-  if (capturedMinor === 0n && bookingProvesSettlement && successfulAuthorizationMinor > 0n) {
-    capturedMinor = successfulAuthorizationMinor;
-  }
-
-  return {
-    capturedMinor,
-    refundedMinor,
-    netPaidMinor: capturedMinor - refundedMinor,
-  };
-}
 
 export async function getBookingPaymentReceipt(input: {
   organizationId: string;
@@ -99,17 +61,22 @@ export async function getBookingPaymentReceipt(input: {
   if (!organization || !booking) {
     throw new PaymentUnavailableError('Booking payment receipt is not available in this organization.');
   }
-  if (booking.status !== 'CONFIRMED') {
-    throw new PaymentConflictError('Only confirmed bookings can have a payment receipt.');
+  if (!['CONFIRMED', 'CANCELLED'].includes(booking.status)) {
+    throw new PaymentConflictError('A payment receipt is available only after the booking is confirmed.');
   }
-  if (!['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.paymentStatus)) {
+  if (!isReceiptEligiblePaymentStatus(booking.paymentStatus)) {
     throw new PaymentConflictError('A payment receipt is available only after successful payment.');
   }
 
-  const safeTransactions = transactions.map((transaction) => ({
-    ...transaction,
-    providerReference: transaction.providerReference.startsWith('sf_claim_') ? null : transaction.providerReference,
-  }));
+  let safeTransactions;
+  try {
+    safeTransactions = sanitizeSuccessfulPaymentTransactions(transactions, booking.currency);
+  } catch (error) {
+    if (error instanceof PaymentReceiptEvidenceError) {
+      throw new PaymentConflictError(error.message);
+    }
+    throw error;
+  }
   const settlement = summarizeSuccessfulPaymentActivity(safeTransactions, booking.paymentStatus);
 
   if (settlement.capturedMinor <= 0n) {
@@ -122,7 +89,7 @@ export async function getBookingPaymentReceipt(input: {
   return {
     documentType: 'PAYMENT_RECEIPT' as const,
     receiptNumber: buildPaymentReceiptNumber(booking.id),
-    issuedAt: transactions.at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt,
+    issuedAt: safeTransactions.at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt,
     organization,
     customer: booking.customer,
     booking: {
@@ -146,3 +113,9 @@ export async function getBookingPaymentReceipt(input: {
     note: 'This document is a payment receipt derived from SF booking and payment records. It is not a jurisdiction-specific tax invoice.',
   };
 }
+
+export {
+  buildPaymentReceiptNumber,
+  summarizeSuccessfulPaymentActivity,
+} from './payment-receipt-domain.ts';
+export type { PaymentReceiptTransaction } from './payment-receipt-domain.ts';

@@ -1,36 +1,35 @@
 # Payment receipts
 
-SF exposes a read-only payment receipt foundation for confirmed hospitality bookings that have proven successful payment state. The receipt is derived from immutable booking price snapshots plus persisted successful payment/refund ledger rows; it does not create a second money source of truth.
+SF exposes read-only payment receipts for hospitality bookings with proven successful monetary settlement. Receipts are derived from immutable booking price snapshots plus persisted successful payment/refund ledger rows; they do not create a second money source of truth.
 
 ## Security and tenant scope
 
-`getBookingPaymentReceipt` requires `payment:read`, validates organization/user/booking identifiers, and selects the booking by `(bookingId, organizationId)`. The caller never supplies organization identity through the receipt payload. Cross-tenant booking IDs therefore resolve as unavailable rather than leaking receipt data.
+Authenticated staff use `getBookingPaymentReceipt`, which requires `payment:read`, validates organization/user/booking identifiers, and selects the booking by `(bookingId, organizationId)`. Cross-tenant booking IDs resolve as unavailable rather than leaking receipt data. The staff endpoint is `GET /api/payments/receipt?bookingId=...` and uses the active-organization payment API context.
 
-The endpoint is `GET /api/payments/receipt?bookingId=...` and uses the same authenticated active-organization payment API context as transaction history.
+Public-booking customers use `POST /api/public-bookings/[organization-slug]/hospitality/payments/receipt`. The request contains only the opaque booking capability. The server resolves the tenant from the slug, verifies the encrypted `booking:manage` capability, then independently verifies `PublicBookingBookingOwnership` and the unexpired tenant-bound public principal before reading the booking or payment ledger. The endpoint is same-origin only, `no-store`, and does not accept organization, booking, customer, provider, money, or transaction identifiers as browser authority.
+
+The public booking page copies the short-lived booking capability from same-tab recovery storage into a receipt-only sessionStorage slot before payment recovery can clear its Checkout state. This permits the customer to refresh the verified receipt in the same browser tab while the existing capability remains valid, without putting the capability in a URL or creating a new identity/recovery mechanism.
 
 ## Receipt semantics
 
-A receipt is available only for confirmed bookings whose payment state is `PAID`, `PARTIALLY_REFUNDED`, or `REFUNDED`. Pending, unpaid, authorized-only, and failed bookings cannot produce a successful-payment receipt.
+A receipt is available only after a booking has reached a settled payment state: `PAID`, `PARTIALLY_REFUNDED`, or `REFUNDED`. Confirmed bookings and later-cancelled bookings retain access to their historical successful settlement evidence. Pending confirmation, unpaid, authorized-only, and failed payment states cannot produce a successful-payment receipt.
 
-The response contains:
+Only `SUCCEEDED` ledger rows participate. Successful capture rows and real offline payments contribute captured money; successful refunds reduce net settlement. Authorization holds do not count as money received. The existing direct-settlement fallback is retained only when the booking itself proves a settled state and there is no capture/offline-payment row; in that case the final successful authorization evidence can represent the provider lifecycle that settled directly.
 
-- a deterministic receipt number derived from the booking UUID;
-- tenant business/contact identity;
-- customer identity already attached to the booking;
-- stay dates, room type, rate plan, quantity, currency, and immutable accommodation/tax/fee/add-on/total snapshots;
-- successful payment/refund ledger activity in chronological order;
-- captured, refunded, and net-paid totals calculated with integer minor units.
+Receipt derivation fails closed when successful ledger money has a different currency from the immutable booking currency, has a non-positive amount, has no captured settlement evidence, or claims refunds greater than captured money. Internal `sf_claim_*` references are sanitized. The staff receipt retains customer-safe provider references for operational audit; the public receipt intentionally exposes no provider references, transaction IDs, idempotency keys, fingerprints, credentials, or card data.
 
-Successful capture rows and real offline payments contribute to captured money; successful refunds reduce the net settlement total. Authorization-only holds do not count as captured money. The one fallback is a booking already persisted as `PAID` with a successful authorization row and no capture/offline-payment row, which covers provider truth that finalized payment during the authorization lifecycle. Pending and failed provider operations are excluded from receipt settlement proof.
+The response includes a deterministic receipt number derived from the booking UUID, tenant business/contact identity, the attached customer, stay/room/rate data, immutable accommodation/tax/fee/add-on/total snapshots, captured/refunded/net-paid totals using integer minor units, and chronological customer-safe `PAYMENT` / `REFUND` activity. The public UI renders those stored values and supports refreshing the receipt so later verified refunds are reflected.
 
-Internal `sf_claim_*` references are never returned as provider references. The receipt API uses the standard payment JSON serializer so BigInt money is returned as decimal strings.
+## Tax and fee boundary
 
-## Explicit non-goals
+`taxTotalMinor` and `feeTotalMinor` on the receipt are the immutable aggregate booking pricing snapshots used when the booking was priced. SF does not reconstruct rates or labels from current `HospitalityChargeRule` rows because those rules may later change.
 
-This is a payment-receipt/document foundation, not a jurisdiction-specific tax invoice engine. SF does not currently invent invoice numbers, tax-registration fields, legal fiscal wording, PDF generation, email delivery, or accounting-system synchronization. Those requirements must be added from real tenant/jurisdiction requirements rather than presented as complete.
+This remains a payment receipt, not a jurisdiction-specific tax invoice. The current booking schema does not persist a complete immutable per-booking tax/fee line-item snapshot with jurisdiction, tax-registration identity, legal numbering, or fiscal wording. SF therefore does not invent invoice numbers, tax rates, VAT/GST registration fields, fee descriptions, PDF tax invoices, or accounting-system synchronization. Those requirements remain open until a real legal/tax contract and durable issuance model are implemented.
 
-The receipt also never treats a browser redirect as payment evidence. It can only be produced from persisted server-side payment state that came through manual recording or verified provider processing/reconciliation/webhooks.
+## Provider truth
+
+A browser redirect is never payment evidence. Receipt availability comes only from persisted server-side settlement state established through real manual recording or verified provider processing, reconciliation, and signed webhooks. Pending, ambiguous, failed, and internal pre-provider claims are excluded from successful monetary proof.
 
 ## Validation
 
-Focused dependency-free tests cover deterministic receipt numbering and settlement math, including authorization exclusion, the paid-authorization fallback, captured payments, offline payments, and refunds. Full repository and PostgreSQL validation remain subject to the normal local `npm run validate` and explicitly confirmed disposable `npm run test:database` gates.
+Dependency-free receipt-domain tests cover deterministic numbering, successful-only filtering, internal-reference sanitization, currency and non-positive-money rejection, capture/refund arithmetic, authorization exclusion/direct-settlement fallback, and customer-safe activity projection. Full repository validation, Prisma checks, PostgreSQL integration execution, and production build remain subject to the repository's Node 24 and disposable-database local gates. GitHub Actions are not used.
