@@ -1,3 +1,5 @@
+import { deriveBookingSettlementSummary, type BookingSettlementTransaction } from './payment-settlement-domain.ts';
+
 export type ReconciledBookingPaymentStatus = 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
 
 export type BookingPaymentStatusFromSettlement = Readonly<
@@ -21,4 +23,20 @@ export function deriveBookingPaymentStatusFromNetSettlement(input: {
   if (input.netSettledMinor === 0n) return { reconciled: true, paymentStatus: 'REFUNDED' };
   if (input.netSettledMinor === input.bookingTotalMinor) return { reconciled: true, paymentStatus: 'PAID' };
   return { reconciled: true, paymentStatus: 'PARTIALLY_REFUNDED' };
+}
+
+export function deriveBookingPaymentStatusFromSettlementTransactions(input: {
+  bookingTotalMinor: bigint;
+  currency: string;
+  transactions: readonly BookingSettlementTransaction[];
+}): BookingPaymentStatusFromSettlement {
+  const settlement = deriveBookingSettlementSummary({
+    currency: input.currency,
+    transactions: input.transactions,
+  });
+  if (settlement.reconciled === false) return { reconciled: false, reason: settlement.reason };
+  return deriveBookingPaymentStatusFromNetSettlement({
+    bookingTotalMinor: input.bookingTotalMinor,
+    netSettledMinor: settlement.netSettledMinor,
+  });
 }
