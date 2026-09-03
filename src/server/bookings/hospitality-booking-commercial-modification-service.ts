@@ -21,6 +21,7 @@ import {
   findActiveHospitalityBookingCommercialAmendment,
 } from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
+import { persistHospitalityBookingPricingEvidence } from './hospitality-booking-pricing-evidence-service.ts';
 import {
   HospitalityBookingConflictError,
   HospitalityBookingPriceChangedError,
@@ -368,6 +369,24 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
     await transaction.hospitalityBookingAllocation.update({
       where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
       data: { roomTypeId: change.roomTypeId, quantity: change.quantity },
+    });
+    await persistHospitalityBookingPricingEvidence({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      evidenceKey: `commercial-modification:${booking.id}:${change.idempotencyKey}`,
+      source: 'BOOKING_COMMERCIAL_MODIFICATION',
+      bookingVersion: updated.updatedAt,
+      state: {
+        propertyId: updated.propertyId,
+        roomTypeId: updated.roomTypeId,
+        ratePlanId: updated.ratePlanId,
+        arrivalDate: updated.arrivalDate,
+        departureDate: updated.departureDate,
+        quantity: updated.quantity,
+        addonSelections: change.addonSelections,
+      },
+      quote: latestPrice,
     });
     await transaction.auditEvent.create({
       data: {
