@@ -16,6 +16,7 @@ model PaymentTransaction {
   id                      String                   @id @default(uuid()) @db.Uuid
   organizationId          String                   @db.Uuid
   bookingId               String                   @db.Uuid
+  commercialAmendmentId   String?                  @db.Uuid
   idempotencyKey          String                   @db.VarChar(120)
   requestFingerprint      String?                  @db.Char(64)
   kind                    PaymentTransactionKind
@@ -35,6 +36,7 @@ model PaymentTransaction {
   @@index([organizationId, providerCode, providerReference])
   @@index([organizationId, providerCode, sourceProviderReference])
   @@index([organizationId, bookingId, createdAt])
+  @@index([organizationId, commercialAmendmentId, createdAt])
   @@index([organizationId, status, createdAt])
   @@map("payment_transactions")
 }

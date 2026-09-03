@@ -53,6 +53,7 @@ model HospitalityBookingCommercialAmendment {
   updatedAt                         DateTime                                       @updatedAt @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId])
   @@unique([organizationId, idempotencyKey])
   @@unique([organizationId, targetHoldId])
   @@index([organizationId, bookingId, status, expiresAt])
