@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { readPublicBookingDocumentCapability } from './public-booking-document-capability.ts';
+
 type PublicReceipt = {
   receiptNumber: string;
   issuedAt: string;
@@ -27,29 +29,6 @@ type PublicReceipt = {
   note: string;
 };
 
-const RECOVERY_PREFIX = 'sf-public-booking-recovery:';
-const RECEIPT_PREFIX = 'sf-public-booking-receipt:';
-
-function receiptKey(organizationSlug: string) {
-  return `${RECEIPT_PREFIX}${organizationSlug}`;
-}
-
-function captureReceiptCapability(organizationSlug: string): string | null {
-  const stored = window.sessionStorage.getItem(receiptKey(organizationSlug));
-  if (stored) return stored;
-
-  const recovery = window.sessionStorage.getItem(`${RECOVERY_PREFIX}${organizationSlug}`);
-  if (!recovery) return null;
-  try {
-    const parsed = JSON.parse(recovery) as { bookingCapability?: unknown };
-    if (typeof parsed.bookingCapability !== 'string') return null;
-    window.sessionStorage.setItem(receiptKey(organizationSlug), parsed.bookingCapability);
-    return parsed.bookingCapability;
-  } catch {
-    return null;
-  }
-}
-
 function formatMinor(amountMinor: string, currency: string) {
   const fractionDigits = new Intl.NumberFormat(undefined, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
   const scale = 10n ** BigInt(fractionDigits);
@@ -66,7 +45,7 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
   const [busy, setBusy] = useState(false);
 
   const loadReceipt = useCallback(async () => {
-    const bookingCapability = captureReceiptCapability(organizationSlug);
+    const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
     if (!bookingCapability) return;
 
     setBusy(true);
@@ -77,7 +56,6 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
         body: JSON.stringify({ bookingCapability }),
       });
       if (response.status === 404) {
-        window.sessionStorage.removeItem(receiptKey(organizationSlug));
         setReceipt(null);
         return;
       }
