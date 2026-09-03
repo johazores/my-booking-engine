@@ -7,6 +7,7 @@ export const paymentProviderCapabilities = [
   'OFFLINE_REFUND_RECORDING',
   'AUTHORIZE',
   'CAPTURE',
+  'RELEASE_AUTHORIZATION',
   'REFUND',
   'WEBHOOKS',
 ] as const;
@@ -52,6 +53,7 @@ export interface PaymentProviderAdapter {
   recordOfflineRefund?(input: PaymentOperationContext & { paymentReference: string; refundReference: string }): Promise<ProviderRefundResult>;
   authorizePayment?(input: PaymentAuthorizationInput): Promise<ProviderPaymentResult>;
   capturePayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult>;
+  releaseAuthorization?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult>;
   refundPayment?(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult>;
   verifyWebhookSignature?(input: PaymentWebhookVerificationInput): boolean;
 }

@@ -27,7 +27,7 @@ type StripeErrorResponse = Readonly<{ error?: Readonly<{ code?: string; decline_
 
 export class StripePaymentProvider implements PaymentProviderAdapter {
   readonly code = 'stripe';
-  readonly capabilities: ReadonlySet<PaymentProviderCapability> = new Set(['AUTHORIZE', 'CAPTURE', 'REFUND', 'WEBHOOKS']);
+  readonly capabilities: ReadonlySet<PaymentProviderCapability> = new Set(['AUTHORIZE', 'CAPTURE', 'RELEASE_AUTHORIZATION', 'REFUND', 'WEBHOOKS']);
 
   private readonly secretKey: string;
   private readonly fetchImpl: StripeFetch;
@@ -74,6 +74,23 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     return normalizeCapturedPaymentIntent(intent, input.money);
   }
 
+  async releaseAuthorization(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
+    const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
+    const form = new URLSearchParams();
+    form.set('cancellation_reason', 'abandoned');
+    const intent = await this.request<StripePaymentIntent>(
+      `/payment_intents/${encodeURIComponent(providerReference)}/cancel`,
+      form,
+      input.idempotencyKey,
+    );
+    if (normalizeStripePaymentIntentReference(intent.id) !== providerReference) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
+    }
+    const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
+    assertMatchingMoney(money, input.money, 'authorization release');
+    return normalizedIntentResult(intent, money);
+  }
+
   async refundPayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult> {
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
@@ -83,7 +100,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     form.set('metadata[sf_booking_id]', input.bookingId);
 
     const refund = await this.request<StripeRefund>('/refunds', form, input.idempotencyKey);
-    const money = normalizePaymentMoney(refund.currency, BigInt(refund.amount));
+    const money = normalizePaymentMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
     assertMatchingMoney(money, input.money, 'refund');
 
     let status: ProviderRefundResult['status'];
@@ -144,16 +161,27 @@ export function normalizeStripePaymentMethodReference(value: unknown): string {
 }
 
 function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
-  const money = normalizePaymentMoney(intent.currency, BigInt(intent.amount));
+  const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
   assertMatchingMoney(money, expectedMoney, 'payment');
   return normalizedIntentResult(intent, money);
 }
 
 function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
-  const capturedAmount = intent.amount_received ?? (intent.status === 'succeeded' ? expectedMoney.amountMinor : BigInt(intent.amount));
+  const capturedAmount = intent.amount_received !== undefined
+    ? normalizeStripeMinorAmount(intent.amount_received, 'captured amount')
+    : intent.status === 'succeeded'
+      ? expectedMoney.amountMinor
+      : normalizeStripeMinorAmount(intent.amount, 'capture amount');
   const money = normalizePaymentMoney(intent.currency, capturedAmount);
   assertMatchingMoney(money, expectedMoney, 'capture');
   return normalizedIntentResult(intent, money);
+}
+
+function normalizeStripeMinorAmount(value: number, label: string): bigint {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new PaymentProviderError('UNKNOWN', `Stripe returned an invalid ${label}.`, true);
+  }
+  return BigInt(value);
 }
 
 function normalizedIntentResult(intent: StripePaymentIntent, money: PaymentOperationContext['money']): ProviderPaymentResult {

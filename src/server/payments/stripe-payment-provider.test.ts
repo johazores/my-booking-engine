@@ -18,7 +18,7 @@ test('stripe adapter authorizes with manual capture and server-owned metadata', 
   };
   const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl });
   const result = await provider.authorizePayment!({ ...context(), paymentMethodReference: 'pm_card_1' });
-  assert.deepEqual([...provider.capabilities], ['AUTHORIZE', 'CAPTURE', 'REFUND', 'WEBHOOKS']);
+  assert.deepEqual([...provider.capabilities], ['AUTHORIZE', 'CAPTURE', 'RELEASE_AUTHORIZATION', 'REFUND', 'WEBHOOKS']);
   assert.equal(requestUrl, 'https://api.stripe.com/v1/payment_intents');
   assert.equal(new Headers(requestInit?.headers).get('idempotency-key'), 'stripe:payment:1');
   const form = new URLSearchParams(String(requestInit?.body));
@@ -28,20 +28,47 @@ test('stripe adapter authorizes with manual capture and server-owned metadata', 
   assert.deepEqual(result, { providerCode: 'stripe', providerReference: 'pi_authorized_1', status: 'AUTHORIZED', money: { currency: 'USD', amountMinor: 24100n } });
 });
 
-test('stripe adapter supports exact partial capture and pending refunds', async () => {
+test('stripe adapter supports exact partial capture, authorization release, and pending refunds', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: StripeFetch = async (input, init) => {
     const url = String(input); requests.push({ url, init });
     if (url.endsWith('/capture')) return new Response(JSON.stringify({ id: 'pi_capture_1', status: 'succeeded', amount: 24100, amount_received: 12000, currency: 'usd' }), { status: 200 });
+    if (url.endsWith('/cancel')) return new Response(JSON.stringify({ id: 'pi_capture_1', status: 'canceled', amount: 24100, amount_received: 0, amount_capturable: 0, currency: 'usd' }), { status: 200 });
     return new Response(JSON.stringify({ id: 're_refund_1', payment_intent: 'pi_capture_1', status: 'pending', amount: 4100, currency: 'usd' }), { status: 200 });
   };
   const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl });
   const captured = await provider.capturePayment!({ ...context('stripe:capture:1'), money: { currency: 'USD', amountMinor: 12000n }, providerReference: 'pi_capture_1' });
+  const released = await provider.releaseAuthorization!({ ...context('stripe:release:1'), providerReference: 'pi_capture_1' });
   const refunded = await provider.refundPayment!({ ...context('stripe:refund:1'), money: { currency: 'USD', amountMinor: 4100n }, providerReference: 'pi_capture_1' });
   assert.deepEqual(captured.money, { currency: 'USD', amountMinor: 12000n }); assert.equal(captured.status, 'PAID');
   assert.equal(new URLSearchParams(String(requests[0]?.init?.body)).get('amount_to_capture'), '12000');
+  assert.equal(requests[1]?.url, 'https://api.stripe.com/v1/payment_intents/pi_capture_1/cancel');
+  assert.equal(new URLSearchParams(String(requests[1]?.init?.body)).get('cancellation_reason'), 'abandoned');
+  assert.equal(new Headers(requests[1]?.init?.headers).get('idempotency-key'), 'stripe:release:1');
+  assert.equal(released.status, 'FAILED');
+  assert.deepEqual(released.money, { currency: 'USD', amountMinor: 24100n });
   assert.equal(refunded.status, 'PENDING'); assert.equal(refunded.refundReference, 're_refund_1');
-  assert.equal(new Headers(requests[1]?.init?.headers).get('idempotency-key'), 'stripe:refund:1');
+  assert.equal(new Headers(requests[2]?.init?.headers).get('idempotency-key'), 'stripe:refund:1');
+});
+
+test('stripe authorization release rejects provider identity and money drift', async () => {
+  const wrongReference = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_other', status: 'canceled', amount: 24100, currency: 'usd' }), { status: 200 }),
+  });
+  await assert.rejects(
+    wrongReference.releaseAuthorization!({ ...context('stripe:release:2'), providerReference: 'pi_expected' }),
+    /different PaymentIntent/,
+  );
+
+  const wrongMoney = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_expected', status: 'canceled', amount: 1, currency: 'usd' }), { status: 200 }),
+  });
+  await assert.rejects(
+    wrongMoney.releaseAuthorization!({ ...context('stripe:release:3'), providerReference: 'pi_expected' }),
+    /does not match/,
+  );
 });
 
 test('stripe adapter normalizes declines, rate limits, idempotency errors, and money mismatches', async () => {
