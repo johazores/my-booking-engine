@@ -1,0 +1,43 @@
+model InvoiceIssuerProfile {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  version         Int
+  fingerprint     String   @db.Char(64)
+  countryCode     String   @db.Char(2)
+  profileSnapshot Json
+  createdByUserId String   @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, version])
+  @@index([organizationId, createdAt])
+  @@map("invoice_issuer_profiles")
+}
+
+model HospitalityInvoicePreparation {
+  id                         String   @id @default(uuid()) @db.Uuid
+  organizationId             String   @db.Uuid
+  bookingId                  String   @db.Uuid
+  pricingEvidenceId          String   @db.Uuid
+  issuerProfileId            String   @db.Uuid
+  preparationKey             String   @db.VarChar(220)
+  currency                   String   @db.Char(3)
+  accommodationSubtotalMinor BigInt   @db.BigInt
+  taxTotalMinor              BigInt   @db.BigInt
+  feeTotalMinor              BigInt   @db.BigInt
+  addonTotalMinor            BigInt   @db.BigInt
+  totalMinor                 BigInt   @db.BigInt
+  pricingFingerprint         String   @db.Char(64)
+  issuerFingerprint          String   @db.Char(64)
+  documentFingerprint        String   @db.Char(64)
+  preparationSnapshot        Json
+  createdByUserId            String   @db.Uuid
+  createdAt                  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, preparationKey])
+  @@unique([organizationId, documentFingerprint])
+  @@index([organizationId, bookingId, createdAt])
+  @@index([organizationId, issuerProfileId, createdAt])
+  @@map("hospitality_invoice_preparations")
+}

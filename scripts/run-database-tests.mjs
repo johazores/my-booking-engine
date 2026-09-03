@@ -54,6 +54,7 @@ run(process.execPath, [
   'src/server/bookings/public-hospitality-hold.integration.ts',
   'src/server/bookings/public-hospitality-confirmation.integration.ts',
   'src/server/payments/payment.integration.ts',
+  'src/server/payments/hospitality-invoice-preparation.integration.ts',
   'src/server/payments/stripe-payment.integration.ts',
   'src/server/payments/stripe-refund.integration.ts',
   'src/server/payments/stripe-refund-webhook.integration.ts',

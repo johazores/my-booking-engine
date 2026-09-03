@@ -32,6 +32,7 @@ model HospitalityBookingPricingEvidence {
   createdAt                   DateTime                                 @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId])
   @@unique([organizationId, evidenceKey])
   @@index([organizationId, bookingId, createdAt])
   @@index([organizationId, commercialAmendmentId, source])

@@ -2,69 +2,75 @@
 
 ## Status
 
-SF now persists immutable booking pricing evidence for newly accepted hospitality commercial states. This is a production data foundation for future jurisdiction-specific invoices and tax documents; it is **not** itself a legal invoice implementation.
+SF now has three internal immutable-evidence layers for future jurisdiction-specific hospitality invoices and tax documents:
 
-The existing customer-safe payment receipt remains the supported customer settlement document. It must not be relabeled as a tax invoice, fiscal receipt, credit note, or other jurisdiction-regulated document until the required legal data and document lifecycle are implemented.
+1. accepted-state `HospitalityBookingPricingEvidence` for the exact commercial line items;
+2. versioned tenant-owned `InvoiceIssuerProfile` snapshots for declared legal issuer identity; and
+3. `HospitalityInvoicePreparation`, which binds one accepted booking pricing-evidence row to one exact issuer-profile version with deterministic fingerprints and money totals.
 
-## Persisted pricing evidence
+These records are a production data foundation only. SF still does **not** issue a jurisdiction-specific legal invoice, tax invoice, fiscal receipt, or credit note. The existing customer-safe payment receipt remains the supported settlement document and must not be relabeled as a regulated document.
+
+## Immutable booking pricing evidence
 
 `HospitalityBookingPricingEvidence` is an append-only application record scoped by organization and booking. When applicable it is also bound to a commercial amendment through the same organization + booking + amendment identity enforced by the database.
 
-Each evidence row freezes:
+Each evidence row freezes organization/booking ownership, source/version, commercial stay/scope/selections, exact currency and aggregate money, the accepted pricing fingerprint, and a canonical schema-versioned nightly/tax/fee/add-on breakdown. Database checks and composite foreign keys independently reinforce tenant/resource ownership, date/quantity/currency/fingerprint shape, aggregate reconciliation, JSON shape, evidence identity, and amendment/source consistency.
 
-- organization, booking, and optional commercial-amendment ownership;
-- a deterministic evidence key and evidence source;
-- the observed booking version;
-- property, room type, rate plan, arrival/departure dates, quantity, and normalized add-on selections;
-- exact currency and accommodation/tax/fee/add-on/final minor-unit aggregates;
-- the accepted pricing fingerprint; and
-- a canonical schema-versioned pricing breakdown containing occupied-night prices, applied tax/fee rules, and selected add-ons with stable identifiers, codes, labels, calculations, quantities, and exact amounts.
+Pricing evidence is written inside the same protected database transaction as the accepted commercial state. Booking confirmation, same-price rescheduling, zero-delta commercial modification, and non-zero amendment preparation all freeze authoritative server-derived pricing rather than browser totals.
 
-The database independently enforces tenant/resource foreign keys, commercial-amendment ownership, valid date/quantity/currency/fingerprint shapes, aggregate money reconciliation, JSON shape, deterministic organization-scoped evidence identity, and amendment/source consistency.
+## Versioned issuer identity
 
-## Accepted-state write boundaries
+`InvoiceIssuerProfile` stores a normalized, schema-versioned snapshot of the tenant-declared issuer identity: legal name, business address, country code, optional contact email, and zero or more declared registration identifiers. Every snapshot receives a deterministic SHA-256 fingerprint and a monotonically increasing organization-scoped version.
 
-Pricing evidence is written inside the same protected database transaction as the commercial state it represents:
+Creating or reading the current issuer profile requires `organization-settings:manage`. The service validates tenant/actor identifiers, revalidates active organization access, normalizes input, and writes new versions in a serializable transaction. Exact retries of the current profile are idempotent; a later return to older legal details creates another version instead of mutating history. Concurrent version allocation retries bounded serialization/uniqueness conflicts and fails safely if it cannot converge.
 
-- booking confirmation writes `BOOKING_CONFIRMATION` evidence from the authoritative transactional quote before the confirmation transaction commits;
-- same-price rescheduling writes `BOOKING_RESCHEDULE` evidence for the accepted new stay and refreshed pricing identity;
-- zero-delta room/rate/quantity/add-on modification writes `BOOKING_COMMERCIAL_MODIFICATION` evidence for the accepted new commercial selection; and
-- a prepared non-zero commercial amendment writes `COMMERCIAL_AMENDMENT_TARGET` evidence for the exact target quote before any amendment-owned external settlement is allowed to proceed.
+Issuer-profile audit events include the version, fingerprint, country, and registration schemes/countries. Registration identifier values are deliberately omitted from audit JSON.
 
-The evidence domain rebuilds and validates the canonical line-item snapshot before persistence. It fails closed if nightly coverage, quantity, selected add-ons, tax/fee/add-on totals, final total, currency, or pricing fingerprint do not reconcile to the authoritative commercial state.
+A country code or tenant-entered registration does **not** mean SF has validated that registration with a tax authority, determined tax residence, or declared the jurisdiction supported. These values are immutable tenant-declared identity evidence only until a supported-jurisdiction contract defines their legal meaning and validation requirements.
 
-Prepared amendment target evidence is intentionally frozen before provider settlement. Human-readable pricing labels are not part of the pricing fingerprint, so retaining the reviewed labels at preparation prevents a later catalog rename from rewriting the descriptive evidence associated with the accepted amendment target.
+## Invoice preparation evidence
 
-## Tenant and authorization boundary
+`HospitalityInvoicePreparation` is an internal immutable preparation record. It is not an issued document and has no fiscal number, issuance timestamp, delivery state, PDF, or legal wording.
 
-No public or browser input can create authoritative pricing evidence directly. Evidence is produced only by existing server-side booking and amendment services after their normal permission, tenant, inventory, pricing, idempotency, and transaction checks have succeeded.
+`prepareHospitalityInvoice` requires `payment:manage` and derives all authority server-side. Inside a serializable transaction it resolves the exact tenant-owned booking, allows only an accepted confirmed/cancelled commercial state, resolves the latest issuer profile, finds immutable pricing evidence that exactly matches the booking, reparses and revalidates the complete breakdown, and refuses to reconstruct missing historical lines from current mutable pricing rules.
 
-The evidence table has no public write route and no client-controlled organization/booking/amendment ownership fields. Composite database constraints prevent cross-tenant or cross-booking attachment even if an application bug attempted an inconsistent insert.
+The preparation snapshot binds the exact pricing-evidence ID, issuer-profile ID, currency, accommodation/tax/fee/add-on/final minor-unit amounts, pricing fingerprint, and issuer fingerprint. Deterministic organization/booking-scoped identity makes exact retries idempotent. If accepted pricing or the issuer version changes, preparation creates a new immutable record rather than rewriting the old one.
 
-## Legacy records and backfill policy
+Composite database foreign keys require the preparation, booking, pricing evidence, issuer profile, and organization to agree. Database checks also enforce currency/fingerprint/key shape, exact aggregate money, and snapshot-to-column identity/money consistency.
 
-Bookings and amendments created before the pricing-evidence migration can legitimately have no `HospitalityBookingPricingEvidence` row. SF must not fabricate historical legal line items by re-reading today's mutable pricing configuration because names, tax rules, applicability, and other descriptive/legal facts may have changed since the original transaction.
+There is intentionally no public or browser write route for pricing evidence, issuer evidence, or invoice preparation. A future legal issuance workflow must consume these server-owned records; it may not accept browser-supplied totals, tax registrations, issuer identity, evidence IDs, or fiscal numbers as authority.
 
-Any future legal invoice issuer must therefore fail closed when required historical evidence is absent unless a deliberate, audited reconciliation/backfill process can prove the original facts from trustworthy historical records. There is no automatic unsafe backfill in this migration.
+## Legacy records and fail-closed policy
 
-## What this does not implement
+Bookings and amendments created before the pricing-evidence migration can legitimately have no `HospitalityBookingPricingEvidence` row. SF must not fabricate historical legal line items by re-reading today's mutable pricing configuration because labels, tax rules, applicability, and other descriptive/legal facts may have changed since the original transaction.
 
-The following remain explicit production requirements before SF can claim jurisdiction-specific invoice or tax-document issuance:
+Invoice preparation therefore fails closed when matching immutable pricing evidence is absent. Any future historical reconciliation/backfill process must be deliberate, auditable, and based on trustworthy original records rather than current pricing configuration.
 
-- legal issuer identity and immutable business address/contact data;
-- tax registration identifiers and jurisdiction-specific registration state;
-- customer legal/billing identity fields where required;
-- jurisdiction and tax-characterization rules, exemptions, inclusive/exclusive tax semantics, and legally required tax fields;
-- tenant/jurisdiction-scoped fiscal numbering sequences with concurrency-safe uniqueness and immutable issuance timestamps;
-- invoice versus receipt versus credit-note/document lifecycle semantics, including correction/void/reissue rules;
+## What this still does not implement
+
+The Phase 12 legal invoice/tax checklist remains open. The following are still required before SF can claim jurisdiction-specific issuance:
+
+- a product-selected supported jurisdiction contract and explicit tax-characterization rules, including inclusive/exclusive treatment, exemptions, and required legal fields;
+- verification semantics for issuer registrations where required;
+- customer legal/billing identity fields and immutable billing snapshots where required;
+- tenant/jurisdiction/document-type fiscal numbering with concurrency-safe uniqueness and immutable issuance timestamps;
+- invoice/tax-invoice/fiscal-receipt/credit-note lifecycle, including correction, void, reissue, and refund/credit allocation rules;
 - legally required wording, currency/exchange-rate disclosures, localization, and retention requirements;
-- deterministic document rendering/PDF generation from immutable evidence;
+- deterministic document rendering/PDF generation from immutable issued evidence;
 - authenticated/public-safe document access, delivery/email, resend/history, and revocation rules;
 - accounting/export/provider integration requirements where product scope requires them; and
-- explicit production validation for each supported jurisdiction.
+- explicit production validation for every supported jurisdiction.
 
-No invoice UI, PDF, email action, fiscal number, tax-registration value, or legal wording should be introduced until the corresponding persisted authority exists. Placeholder or inferred legal data is not acceptable.
+No invoice UI, PDF, email action, fiscal number, legal tax wording, or customer-visible tax-invoice label should be introduced until those persisted authorities and lifecycle rules exist. Placeholder or inferred legal data is not acceptable.
+
+## Validation boundary
+
+Dependency-free issuer-profile and invoice-preparation domain tests cover canonicalization, deterministic fingerprints, strict persisted parsing, registration validation, exact-money reconciliation, UUID/currency/fingerprint validation, and deterministic preparation identity.
+
+A disposable PostgreSQL integration test covers tenant permissions, issuer version idempotency, historical-version preservation, preparation idempotency, issuer-version changes, audit redaction, and database rejection of cross-tenant preparation ownership. It is wired into the existing local `test:database` runner.
+
+Full Prisma migration/deploy/drift validation, the new database integration test, complete Node 24 typecheck/lint/test, and production build still require the repository's Node 24 dependency checkout plus an explicitly disposable PostgreSQL target. GitHub Actions are not used.
 
 ## Next dependency
 
-The next coherent invoice slice is the legal issuer/jurisdiction configuration and immutable issuance model. It should define the minimum supported jurisdiction contract first, then add concurrency-safe numbering and document lifecycle state before rendering or delivery is exposed to users.
+The next coherent invoice slice is to define the first supported jurisdiction contract and billing-identity requirements. Only after that legal contract is explicit should SF add concurrency-safe fiscal numbering and an issued invoice/credit-note state machine. Rendering, customer delivery/email, and accounting export come after immutable issuance authority exists.
