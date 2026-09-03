@@ -1,6 +1,6 @@
 # Commercial booking adjustments
 
-SF has an authenticated, tenant-scoped price-impact review contract, a durable internal amendment boundary for non-zero commercial booking changes, and an amendment-attributed settlement/reconciliation boundary. Provider execution and final booking apply remain deliberately closed until their expiry, ambiguity, and recovery semantics are complete.
+SF has an authenticated, tenant-scoped price-impact review contract, a durable internal amendment boundary for non-zero commercial booking changes, amendment-attributed settlement/reconciliation, and an internal final serializable apply boundary. Provider execution remains deliberately closed until expiry, ambiguity, recovery, and compensation semantics are complete.
 
 ## Price review
 
@@ -12,7 +12,7 @@ The server re-reads the tenant-owned confirmed booking, validates active room/ra
 
 ## Durable amendment preparation
 
-`prepareHospitalityBookingCommercialAmendment` is an internal service boundary and is not exposed as a route or primary UI action until provider execution and final apply/recovery are complete.
+`prepareHospitalityBookingCommercialAmendment` is an internal service boundary and is not exposed as a route or primary UI action until provider execution and recovery are complete.
 
 Preparation requires `booking:manage` and `payment:manage`, serializes on shared booking/inventory advisory locks, and accepts the reviewed adjustment fingerprint rather than browser-supplied price or settlement authority. It revalidates the tenant-owned booking, current allocation, room/rate assignment, occupancy, restrictions, add-ons, transactional pricing, payment settlement, and target inventory before persisting immutable before/after commercial snapshots.
 
@@ -46,7 +46,19 @@ Refund availability compares booking state to **net** settled money. This is req
 
 `getHospitalityBookingCommercialAmendmentSettlementState` is an internal, tenant-scoped read boundary. It requires both `booking:manage` and `payment:manage`, reads the amendment and complete payment ledger in one serializable snapshot, and combines lifecycle with settlement truth. `canApply` is false once the prepared amendment is expired or terminal even when external money evidence would otherwise reconcile to the target total.
 
-The new attribution column is intentionally not populated by existing generic refund/payment actions. Only the future amendment-owned provider executor may create amendment-linked transactions, after that executor also owns expiry/hold recovery and compensation semantics. This avoids accidentally moving money after target inventory protection has expired.
+The attribution column is intentionally not populated by existing generic refund/payment actions. Only an amendment-owned provider executor may create amendment-linked transactions, after that executor also owns expiry/hold recovery and compensation semantics. This avoids accidentally moving money after target inventory protection has expired.
+
+## Final serializable apply
+
+`applyHospitalityBookingCommercialAmendment` is an internal service boundary. It requires both `booking:manage` and `payment:manage`, serializes on the shared booking mutation lock plus stable current/target allocation locks, and never trusts browser-supplied money, settlement, provider, inventory, or tenant authority.
+
+Before mutation it requires an unexpired `PREPARED` amendment and revalidates the tenant-owned confirmed booking, exact current allocation and stay dates, immutable booking version/current terms/current price, normalized add-ons, target room/rate assignment, traveler occupancy, stay restrictions, target selection fingerprint, protection quantity, authoritative transactional target price, adjustment fingerprint, and amendment-attributed payment settlement. Price drift is rejected as a fresh-price conflict rather than silently applying stale reviewed money.
+
+When target protection is required, apply also requires the exact active hold created for this amendment: tenant, hold ID, deterministic hold idempotency identity, property, room type, rate plan, stay dates, protected quantity, and expiry must all still match. An expired or mismatched hold fails closed. The service does not auto-expire an amendment after external settlement could exist; that state requires recovery or compensation rather than deleting evidence.
+
+Only `READY_TO_APPLY` settlement may cross the mutation boundary. In one serializable transaction SF replaces booking room/rate/quantity/add-ons and all authoritative price components, updates the booking allocation, restores the denormalized booking payment status to `PAID` because net settlement now equals the amended total, releases the target hold, marks the amendment `APPLIED`, and writes booking plus amendment audit history. Replaying an already `APPLIED` amendment is idempotent and does not mutate booking state again.
+
+The future amendment settlement executor must persist its money evidence in `PaymentTransaction` without rewriting the booking's commercial/payment snapshot before final apply. The prepared `bookingVersion` is intentionally part of the apply guard; provider execution must not invalidate its own reviewed commercial snapshot by touching `HospitalityBooking.updatedAt` early.
 
 ## Database invariants
 
@@ -56,16 +68,14 @@ The browser cannot supply organization ownership, current booking money, provide
 
 ## Still intentionally closed
 
-Preparing an amendment does not charge, refund, apply inventory changes, or rewrite booking/payment state. The Phase 13 general commercial modification item remains open.
+Preparing an amendment does not charge, refund, apply inventory changes, or rewrite booking/payment state. The internal final apply service is deliberately not exposed as a route or primary UI action while no safe amendment-owned provider executor exists. The Phase 13 general commercial modification item remains open.
 
-The next dependency is the amendment-owned provider executor/recovery lifecycle, followed by a final serializable apply transaction that revalidates amendment expiry, booking version, authoritative net settlement, payment outcome, target inventory protection, and current pricing before atomically replacing booking commercial terms/allocation and recording audit history.
+The next dependency is the amendment-owned provider executor/recovery lifecycle. For an additional-charge amendment, SF still needs a durable provider operation that can survive retry/ambiguity and prove the new net settlement. For a refund-direction amendment, the source-aware refund infrastructure provides source allocation and recovery primitives, but the amendment lifecycle must own when each refund is initiated, how each provider operation receives `commercialAmendmentId`, and how expiry/cancellation/compensation behaves after external money movement.
 
-For an additional-charge amendment, SF still needs a durable provider operation that can survive retry/ambiguity and prove the new net settlement before apply. For a refund-direction amendment, the source-aware refund infrastructure provides source allocation and recovery primitives, but the amendment lifecycle must own when each refund is initiated, how each provider operation receives `commercialAmendmentId`, and how expiry/cancellation/compensation behaves after external money movement.
-
-The current 15-minute protection window is intentionally not extended merely because settlement started. A future executor must solve the target-inventory hold lifecycle and crash recovery coherently before any user-facing action can move amendment money.
+The current 15-minute protection window is intentionally not extended merely because settlement started. The executor must solve target-inventory hold recovery and crash/ambiguity compensation coherently before any user-facing action can move amendment money. Once settlement reaches `READY_TO_APPLY` while protection and booking version are still valid, the internal final apply boundary is available to complete the commercial state transition atomically.
 
 ## Validation
 
-Dependency-free amendment/payment-domain tests cover room-type changes, same-room quantity changes, bounded expiry, deterministic hold identity, malformed fingerprints, refund-to-source attribution, source balances, legacy single-source inference, legacy multi-source fail-closed behavior, source-level over-refunds, deterministic next-source allocation, source-scoped execution planning, input-order independence, stable tie-breaking, exact bigint money, net-settlement refund availability, sequential manual/Stripe multi-source refunds, amendment-attributed additional settlement/refund progression, authorization-versus-capture semantics, partial source-split adjustment refunds, settlement drift, over-settlement, and unresolved-operation conflicts.
+Dependency-free amendment/payment-domain tests cover room-type changes, same-room quantity changes, bounded expiry, deterministic hold identity, malformed fingerprints, refund-to-source attribution, source balances, legacy single-source inference, legacy multi-source fail-closed behavior, source-level over-refunds, deterministic next-source allocation, source-scoped execution planning, input-order independence, stable tie-breaking, exact bigint money, net-settlement refund availability, sequential manual/Stripe multi-source refunds, amendment-attributed additional settlement/refund progression, authorization-versus-capture semantics, partial source-split adjustment refunds, settlement drift, over-settlement, unresolved-operation conflicts, and final-apply consistency checks for booking version/current terms/current price, target selection, inventory protection, target price, and adjustment identity.
 
-Full repository typecheck/lint/build, Prisma validation/migration execution, and PostgreSQL integration tests still require the repository Node 24 toolchain and a confirmed disposable PostgreSQL target.
+Full repository typecheck/lint/build, Prisma validation/migration execution, and PostgreSQL integration tests still require the repository Node 24 toolchain and a confirmed disposable PostgreSQL target. The final apply service therefore remains subject to that database-backed locking/persistence validation gate before Phase 13 can be considered complete.
