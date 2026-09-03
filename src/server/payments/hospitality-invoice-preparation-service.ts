@@ -21,6 +21,11 @@ import {
   parseHospitalityInvoicePreparationSnapshot,
   type HospitalityInvoicePreparationSnapshot,
 } from './hospitality-invoice-preparation-domain.ts';
+import {
+  HospitalityInvoiceRecipientValidationError,
+  createHospitalityInvoiceRecipientSnapshot,
+  type HospitalityInvoiceRecipientInput,
+} from './hospitality-invoice-recipient-domain.ts';
 
 export class HospitalityInvoicePreparationUnavailableError extends Error {
   constructor(message = 'Invoice preparation is not available for this booking.') {
@@ -188,12 +193,13 @@ function assertPersistedPreparation(input: {
     totalMinor: bigint;
     pricingFingerprint: string;
     issuerFingerprint: string;
+    recipientFingerprint: string | null;
     documentFingerprint: string;
     preparationSnapshot: Prisma.JsonValue;
   };
   expected: HospitalityInvoicePreparationSnapshot;
 }) {
-  let snapshot: HospitalityInvoicePreparationSnapshot;
+  let snapshot;
   try {
     snapshot = parseHospitalityInvoicePreparationSnapshot(input.row.preparationSnapshot);
   } catch (error) {
@@ -203,6 +209,9 @@ function assertPersistedPreparation(input: {
     throw error;
   }
 
+  if (snapshot.schemaVersion !== 2) {
+    throw new HospitalityInvoicePreparationPersistenceError('Persisted invoice preparation is missing immutable recipient evidence.');
+  }
   const expectedFingerprint = hospitalityInvoicePreparationFingerprint(snapshot);
   if (
     snapshot.pricingEvidenceId !== input.expected.pricingEvidenceId
@@ -215,6 +224,7 @@ function assertPersistedPreparation(input: {
     || snapshot.totalMinor !== input.expected.totalMinor
     || snapshot.pricingFingerprint !== input.expected.pricingFingerprint
     || snapshot.issuerFingerprint !== input.expected.issuerFingerprint
+    || snapshot.recipientFingerprint !== input.expected.recipientFingerprint
     || input.row.pricingEvidenceId !== snapshot.pricingEvidenceId
     || input.row.issuerProfileId !== snapshot.issuerProfileId
     || input.row.currency !== snapshot.currency
@@ -225,6 +235,7 @@ function assertPersistedPreparation(input: {
     || input.row.totalMinor !== BigInt(snapshot.totalMinor)
     || input.row.pricingFingerprint !== snapshot.pricingFingerprint
     || input.row.issuerFingerprint !== snapshot.issuerFingerprint
+    || input.row.recipientFingerprint !== snapshot.recipientFingerprint
     || input.row.documentFingerprint !== expectedFingerprint
   ) {
     throw new HospitalityInvoicePreparationPersistenceError('Persisted invoice preparation failed integrity validation.');
@@ -232,10 +243,26 @@ function assertPersistedPreparation(input: {
   return snapshot;
 }
 
+function defaultRecipientFromCustomer(customer: { firstName: string; lastName: string; email: string | null }) {
+  try {
+    return createHospitalityInvoiceRecipientSnapshot({
+      recipientType: 'INDIVIDUAL',
+      legalName: `${customer.firstName.trim()} ${customer.lastName.trim()}`.replace(/\s+/g, ' ').trim(),
+      email: customer.email,
+    });
+  } catch (error) {
+    if (error instanceof HospitalityInvoiceRecipientValidationError) {
+      throw new HospitalityInvoicePreparationPersistenceError(`Persisted customer cannot form invoice recipient evidence: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
 export async function prepareHospitalityInvoice(input: {
   organizationId: string;
   actorUserId: string;
   bookingId: string;
+  recipient?: HospitalityInvoiceRecipientInput;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -254,6 +281,7 @@ export async function prepareHospitalityInvoice(input: {
           where: { id: input.bookingId, organizationId: input.organizationId },
           select: {
             id: true,
+            customerId: true,
             status: true,
             propertyId: true,
             roomTypeId: true,
@@ -278,10 +306,19 @@ export async function prepareHospitalityInvoice(input: {
           );
         }
 
-        const issuer = await readCurrentInvoiceIssuerProfileForPreparation({
-          transaction,
-          organizationId: input.organizationId,
-        });
+        const [issuer, customer] = await Promise.all([
+          readCurrentInvoiceIssuerProfileForPreparation({ transaction, organizationId: input.organizationId }),
+          transaction.customer.findFirst({
+            where: { id: booking.customerId, organizationId: input.organizationId },
+            select: { firstName: true, lastName: true, email: true },
+          }),
+        ]);
+        if (!customer) {
+          throw new HospitalityInvoicePreparationPersistenceError('Tenant-owned invoice customer identity is unavailable.');
+        }
+        const recipient = input.recipient
+          ? createHospitalityInvoiceRecipientSnapshot(input.recipient)
+          : defaultRecipientFromCustomer(customer);
 
         const evidence = await transaction.hospitalityBookingPricingEvidence.findFirst({
           where: {
@@ -321,6 +358,7 @@ export async function prepareHospitalityInvoice(input: {
           totalMinor: booking.totalMinor,
           pricingFingerprint: booking.pricingFingerprint,
           issuerFingerprint: issuer.fingerprint,
+          recipient,
         });
         const documentFingerprint = hospitalityInvoicePreparationFingerprint(snapshot);
         const preparationKey = hospitalityInvoicePreparationKey({
@@ -352,6 +390,7 @@ export async function prepareHospitalityInvoice(input: {
             totalMinor: BigInt(snapshot.totalMinor),
             pricingFingerprint: snapshot.pricingFingerprint,
             issuerFingerprint: snapshot.issuerFingerprint,
+            recipientFingerprint: snapshot.recipientFingerprint,
             documentFingerprint,
             preparationSnapshot: toJsonInput(snapshot),
             createdByUserId: input.actorUserId,
@@ -373,6 +412,8 @@ export async function prepareHospitalityInvoice(input: {
               totalMinor: snapshot.totalMinor,
               pricingFingerprint: snapshot.pricingFingerprint,
               issuerFingerprint: snapshot.issuerFingerprint,
+              recipientType: snapshot.recipient.recipientType,
+              recipientFingerprint: snapshot.recipientFingerprint,
               documentFingerprint,
             },
           },
@@ -385,6 +426,7 @@ export async function prepareHospitalityInvoice(input: {
         error instanceof HospitalityInvoicePreparationUnavailableError
         || error instanceof HospitalityInvoicePreparationConflictError
         || error instanceof HospitalityInvoicePreparationPersistenceError
+        || error instanceof HospitalityInvoiceRecipientValidationError
         || error instanceof InvoiceIssuerProfilePersistenceError
       ) {
         throw error;

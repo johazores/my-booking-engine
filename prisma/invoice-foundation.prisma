@@ -29,6 +29,7 @@ model HospitalityInvoicePreparation {
   totalMinor                 BigInt   @db.BigInt
   pricingFingerprint         String   @db.Char(64)
   issuerFingerprint          String   @db.Char(64)
+  recipientFingerprint       String?  @db.Char(64)
   documentFingerprint        String   @db.Char(64)
   preparationSnapshot        Json
   createdByUserId            String   @db.Uuid

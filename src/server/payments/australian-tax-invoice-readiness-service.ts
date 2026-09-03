@@ -7,6 +7,7 @@ import {
   hospitalityInvoicePreparationFingerprint,
   parseHospitalityInvoicePreparationSnapshot,
 } from './hospitality-invoice-preparation-domain.ts';
+import { hospitalityInvoiceRecipientFingerprint } from './hospitality-invoice-recipient-domain.ts';
 import {
   invoiceIssuerProfileFingerprint,
   parseInvoiceIssuerProfileSnapshot,
@@ -24,11 +25,6 @@ export class AustralianTaxInvoiceReadinessPersistenceError extends Error {
     super(message);
     this.name = 'AustralianTaxInvoiceReadinessPersistenceError';
   }
-}
-
-function buyerIdentity(firstName: string, lastName: string) {
-  const normalized = `${firstName.trim()} ${lastName.trim()}`.replace(/\s+/g, ' ').trim();
-  return normalized || null;
 }
 
 export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
@@ -60,6 +56,11 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
         error instanceof Error ? error.message : 'Persisted invoice preparation is invalid.',
       );
     }
+    if (preparationSnapshot.schemaVersion !== 2) {
+      throw new AustralianTaxInvoiceReadinessPersistenceError(
+        'Legacy invoice preparation is missing immutable recipient evidence and cannot be used for Australian tax-invoice readiness.',
+      );
+    }
     if (
       preparationSnapshot.pricingEvidenceId !== preparation.pricingEvidenceId
       || preparationSnapshot.issuerProfileId !== preparation.issuerProfileId
@@ -71,6 +72,8 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       || BigInt(preparationSnapshot.totalMinor) !== preparation.totalMinor
       || preparationSnapshot.pricingFingerprint !== preparation.pricingFingerprint
       || preparationSnapshot.issuerFingerprint !== preparation.issuerFingerprint
+      || preparationSnapshot.recipientFingerprint !== preparation.recipientFingerprint
+      || hospitalityInvoiceRecipientFingerprint(preparationSnapshot.recipient) !== preparationSnapshot.recipientFingerprint
       || hospitalityInvoicePreparationFingerprint(preparationSnapshot) !== preparation.documentFingerprint
     ) {
       throw new AustralianTaxInvoiceReadinessPersistenceError(
@@ -81,10 +84,7 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
     const [booking, issuer, evidence] = await Promise.all([
       transaction.hospitalityBooking.findFirst({
         where: { id: preparation.bookingId, organizationId: input.organizationId },
-        select: {
-          id: true,
-          customerId: true,
-        },
+        select: { id: true },
       }),
       transaction.invoiceIssuerProfile.findFirst({
         where: { id: preparation.issuerProfileId, organizationId: input.organizationId },
@@ -101,14 +101,6 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       throw new AustralianTaxInvoiceReadinessPersistenceError(
         'Invoice preparation dependencies are missing or outside the tenant boundary.',
       );
-    }
-
-    const customer = await transaction.customer.findFirst({
-      where: { id: booking.customerId, organizationId: input.organizationId },
-      select: { firstName: true, lastName: true },
-    });
-    if (!customer) {
-      throw new AustralianTaxInvoiceReadinessPersistenceError('Invoice recipient identity is unavailable.');
     }
 
     let issuerSnapshot;
@@ -144,11 +136,10 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       );
     }
 
-    const recipientIdentity = buyerIdentity(customer.firstName, customer.lastName);
     const assessment = assessAustralianTaxInvoiceReadiness({
       issuer: issuerSnapshot,
       pricing: pricingBreakdown,
-      buyerIdentity: recipientIdentity,
+      buyer: preparationSnapshot.recipient,
     });
 
     return Object.freeze({
@@ -158,7 +149,10 @@ export async function assessHospitalityAustralianTaxInvoiceReadiness(input: {
       contentReady: assessment.contentReady,
       supplierAbn: assessment.supplierAbn,
       buyerIdentityRequired: assessment.buyerIdentityRequired,
-      buyerIdentity: recipientIdentity,
+      buyerIdentity: assessment.buyerIdentity,
+      buyerAbn: assessment.buyerAbn,
+      recipientType: preparationSnapshot.recipient.recipientType,
+      recipientFingerprint: preparationSnapshot.recipientFingerprint,
       requirements: assessment.requirements,
     });
   }, { isolationLevel: 'Serializable' });

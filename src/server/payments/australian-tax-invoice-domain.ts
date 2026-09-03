@@ -23,6 +23,8 @@ export type AustralianTaxInvoiceRequirementCode =
   | 'MULTIPLE_TAX_SCHEMES_UNSUPPORTED'
   | 'GST_TOTAL_MISMATCH'
   | 'STANDARD_GST_EVIDENCE_INCOMPLETE'
+  | 'BUYER_ABN_MULTIPLE'
+  | 'BUYER_ABN_INVALID'
   | 'BUYER_IDENTITY_REQUIRED';
 
 export type AustralianTaxInvoiceRequirement = Readonly<{
@@ -30,7 +32,7 @@ export type AustralianTaxInvoiceRequirement = Readonly<{
   message: string;
 }>;
 
-type IssuerRegistration = Readonly<{
+type Registration = Readonly<{
   scheme: string;
   identifier: string;
   countryCode: string;
@@ -38,7 +40,13 @@ type IssuerRegistration = Readonly<{
 
 type IssuerSnapshot = Readonly<{
   countryCode: string;
-  registrations: readonly IssuerRegistration[];
+  registrations: readonly Registration[];
+}>;
+
+type BuyerSnapshot = Readonly<{
+  recipientType: 'INDIVIDUAL' | 'BUSINESS';
+  legalName: string;
+  registrations: readonly Registration[];
 }>;
 
 type PricingBreakdown = Readonly<{
@@ -60,7 +68,7 @@ function normalizedRegistrationScheme(value: string) {
   return value.trim().toUpperCase();
 }
 
-function registrationFor(input: IssuerSnapshot, scheme: 'ABN' | 'GST') {
+function registrationFor(input: { registrations: readonly Registration[] }, scheme: 'ABN' | 'GST') {
   return input.registrations.filter((entry) =>
     entry.countryCode.trim().toUpperCase() === 'AU'
     && normalizedRegistrationScheme(entry.scheme) === scheme);
@@ -71,10 +79,26 @@ function parseMinorUnits(value: string, label: string) {
   return BigInt(value);
 }
 
+function assessBuyer(input: BuyerSnapshot | null | undefined, requirements: AustralianTaxInvoiceRequirement[]) {
+  const buyerIdentity = input?.legalName.trim() || null;
+  const abnRegistrations = input ? registrationFor(input, 'ABN') : [];
+  let buyerAbn: string | null = null;
+  if (abnRegistrations.length > 1) {
+    requirements.push(requirement('BUYER_ABN_MULTIPLE', 'At most one Australian ABN may identify the invoice recipient.'));
+  } else if (abnRegistrations.length === 1) {
+    try {
+      buyerAbn = normalizeAustralianBusinessNumber(abnRegistrations[0]?.identifier);
+    } catch {
+      requirements.push(requirement('BUYER_ABN_INVALID', 'The recipient ABN is not structurally valid.'));
+    }
+  }
+  return { buyerIdentity, buyerAbn };
+}
+
 export function assessAustralianTaxInvoiceReadiness(input: {
   issuer: IssuerSnapshot;
   pricing: PricingBreakdown;
-  buyerIdentity?: string | null;
+  buyer?: BuyerSnapshot | null;
 }) {
   const requirements: AustralianTaxInvoiceRequirement[] = [];
   const issuerCountryCode = input.issuer.countryCode.trim().toUpperCase();
@@ -137,9 +161,6 @@ export function assessAustralianTaxInvoiceReadiness(input: {
     }
   }
 
-  // The first AU contract is deliberately narrow: every supply on the document must be
-  // standard-rate taxable and the GST total must therefore be exactly 1/11 of the GST-inclusive total.
-  // This fails closed until pricing evidence can prove more complex mixed/GST-free treatment.
   if (totalMinor <= 0n || taxTotalMinor <= 0n || taxTotalMinor * 11n !== totalMinor) {
     requirements.push(requirement(
       'STANDARD_GST_EVIDENCE_INCOMPLETE',
@@ -147,9 +168,9 @@ export function assessAustralianTaxInvoiceReadiness(input: {
     ));
   }
 
+  const { buyerIdentity, buyerAbn } = assessBuyer(input.buyer, requirements);
   const buyerIdentityRequired = totalMinor >= AUSTRALIAN_TAX_INVOICE_BUYER_IDENTITY_THRESHOLD_MINOR;
-  const buyerIdentity = input.buyerIdentity?.trim() ?? '';
-  if (buyerIdentityRequired && !buyerIdentity) {
+  if (buyerIdentityRequired && !buyerIdentity && !buyerAbn) {
     requirements.push(requirement('BUYER_IDENTITY_REQUIRED', 'Australian tax invoices of AUD 1,000 or more require buyer identity or ABN.'));
   }
 
@@ -158,6 +179,8 @@ export function assessAustralianTaxInvoiceReadiness(input: {
     contentReady: requirements.length === 0,
     supplierAbn: abn,
     buyerIdentityRequired,
+    buyerIdentity,
+    buyerAbn,
     requirements: Object.freeze(requirements),
   });
 }

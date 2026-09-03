@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
 
+import {
+  hospitalityInvoiceRecipientFingerprint,
+  parseHospitalityInvoiceRecipientSnapshot,
+  type HospitalityInvoiceRecipientSnapshot,
+} from './hospitality-invoice-recipient-domain.ts';
+
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,11 +17,7 @@ export class HospitalityInvoicePreparationValidationError extends Error {
   }
 }
 
-export type HospitalityInvoicePreparationSnapshot = Readonly<{
-  schemaVersion: 1;
-  kind: 'INVOICE';
-  pricingEvidenceId: string;
-  issuerProfileId: string;
+type HospitalityInvoicePreparationMoney = Readonly<{
   currency: string;
   accommodationSubtotalMinor: string;
   taxTotalMinor: string;
@@ -25,6 +27,26 @@ export type HospitalityInvoicePreparationSnapshot = Readonly<{
   pricingFingerprint: string;
   issuerFingerprint: string;
 }>;
+
+export type LegacyHospitalityInvoicePreparationSnapshot = HospitalityInvoicePreparationMoney & Readonly<{
+  schemaVersion: 1;
+  kind: 'INVOICE';
+  pricingEvidenceId: string;
+  issuerProfileId: string;
+}>;
+
+export type HospitalityInvoicePreparationSnapshot = HospitalityInvoicePreparationMoney & Readonly<{
+  schemaVersion: 2;
+  kind: 'INVOICE';
+  pricingEvidenceId: string;
+  issuerProfileId: string;
+  recipientFingerprint: string;
+  recipient: HospitalityInvoiceRecipientSnapshot;
+}>;
+
+export type HospitalityInvoicePreparationPersistedSnapshot =
+  | LegacyHospitalityInvoicePreparationSnapshot
+  | HospitalityInvoicePreparationSnapshot;
 
 function requiredIdentifier(value: unknown, label: string) {
   if (typeof value !== 'string' || !UUID_PATTERN.test(value.trim())) {
@@ -58,9 +80,7 @@ function money(value: unknown, label: string) {
   return value;
 }
 
-export function createHospitalityInvoicePreparationSnapshot(input: {
-  pricingEvidenceId: unknown;
-  issuerProfileId: unknown;
+function normalizedMoney(input: {
   currency: unknown;
   accommodationSubtotalMinor: unknown;
   taxTotalMinor: unknown;
@@ -69,7 +89,7 @@ export function createHospitalityInvoicePreparationSnapshot(input: {
   totalMinor: unknown;
   pricingFingerprint: unknown;
   issuerFingerprint: unknown;
-}): HospitalityInvoicePreparationSnapshot {
+}): HospitalityInvoicePreparationMoney {
   const accommodationSubtotalMinor = money(input.accommodationSubtotalMinor, 'accommodationSubtotalMinor');
   const taxTotalMinor = money(input.taxTotalMinor, 'taxTotalMinor');
   const feeTotalMinor = money(input.feeTotalMinor, 'feeTotalMinor');
@@ -78,12 +98,7 @@ export function createHospitalityInvoicePreparationSnapshot(input: {
   if (accommodationSubtotalMinor + taxTotalMinor + feeTotalMinor + addonTotalMinor !== totalMinor) {
     throw new HospitalityInvoicePreparationValidationError('Invoice preparation totals do not reconcile.');
   }
-
   return Object.freeze({
-    schemaVersion: 1,
-    kind: 'INVOICE',
-    pricingEvidenceId: requiredIdentifier(input.pricingEvidenceId, 'pricingEvidenceId'),
-    issuerProfileId: requiredIdentifier(input.issuerProfileId, 'issuerProfileId'),
     currency: currency(input.currency),
     accommodationSubtotalMinor: accommodationSubtotalMinor.toString(),
     taxTotalMinor: taxTotalMinor.toString(),
@@ -95,43 +110,114 @@ export function createHospitalityInvoicePreparationSnapshot(input: {
   });
 }
 
-export function parseHospitalityInvoicePreparationSnapshot(value: unknown) {
+type HospitalityInvoicePreparationBaseInput = {
+  pricingEvidenceId: unknown;
+  issuerProfileId: unknown;
+  currency: unknown;
+  accommodationSubtotalMinor: unknown;
+  taxTotalMinor: unknown;
+  feeTotalMinor: unknown;
+  addonTotalMinor: unknown;
+  totalMinor: unknown;
+  pricingFingerprint: unknown;
+  issuerFingerprint: unknown;
+};
+
+export function createHospitalityInvoicePreparationSnapshot(
+  input: HospitalityInvoicePreparationBaseInput & { recipient: HospitalityInvoiceRecipientSnapshot },
+): HospitalityInvoicePreparationSnapshot;
+export function createHospitalityInvoicePreparationSnapshot(
+  input: HospitalityInvoicePreparationBaseInput & { recipient?: undefined },
+): LegacyHospitalityInvoicePreparationSnapshot;
+export function createHospitalityInvoicePreparationSnapshot(
+  input: HospitalityInvoicePreparationBaseInput & { recipient?: HospitalityInvoiceRecipientSnapshot },
+): HospitalityInvoicePreparationPersistedSnapshot {
+  const base = {
+    kind: 'INVOICE' as const,
+    pricingEvidenceId: requiredIdentifier(input.pricingEvidenceId, 'pricingEvidenceId'),
+    issuerProfileId: requiredIdentifier(input.issuerProfileId, 'issuerProfileId'),
+    ...normalizedMoney(input),
+  };
+  if (!input.recipient) return Object.freeze({ schemaVersion: 1 as const, ...base });
+
+  const recipient = parseHospitalityInvoiceRecipientSnapshot(input.recipient);
+  const recipientFingerprint = hospitalityInvoiceRecipientFingerprint(recipient);
+  return Object.freeze({
+    schemaVersion: 2,
+    ...base,
+    recipientFingerprint,
+    recipient,
+  });
+}
+
+function bigintField(record: Record<string, unknown>, name: string) {
+  const candidate = record[name];
+  if (typeof candidate !== 'string' || !/^\d+$/.test(candidate)) {
+    throw new HospitalityInvoicePreparationValidationError(`${name} is invalid.`);
+  }
+  return BigInt(candidate);
+}
+
+function parseLegacySnapshot(record: Record<string, unknown>): LegacyHospitalityInvoicePreparationSnapshot {
+  return Object.freeze({
+    schemaVersion: 1,
+    kind: 'INVOICE',
+    pricingEvidenceId: requiredIdentifier(record.pricingEvidenceId, 'pricingEvidenceId'),
+    issuerProfileId: requiredIdentifier(record.issuerProfileId, 'issuerProfileId'),
+    ...normalizedMoney({
+      currency: record.currency,
+      accommodationSubtotalMinor: bigintField(record, 'accommodationSubtotalMinor'),
+      taxTotalMinor: bigintField(record, 'taxTotalMinor'),
+      feeTotalMinor: bigintField(record, 'feeTotalMinor'),
+      addonTotalMinor: bigintField(record, 'addonTotalMinor'),
+      totalMinor: bigintField(record, 'totalMinor'),
+      pricingFingerprint: record.pricingFingerprint,
+      issuerFingerprint: record.issuerFingerprint,
+    }),
+  });
+}
+
+export function parseHospitalityInvoicePreparationSnapshot(value: unknown): HospitalityInvoicePreparationPersistedSnapshot {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new HospitalityInvoicePreparationValidationError('Persisted invoice preparation must be an object.');
   }
   const record = value as Record<string, unknown>;
-  if (record.schemaVersion !== 1 || record.kind !== 'INVOICE') {
-    throw new HospitalityInvoicePreparationValidationError('Unsupported invoice preparation schema or kind.');
+  if (record.kind !== 'INVOICE') {
+    throw new HospitalityInvoicePreparationValidationError('Unsupported invoice preparation kind.');
   }
-  const bigintField = (name: string) => {
-    const candidate = record[name];
-    if (typeof candidate !== 'string' || !/^\d+$/.test(candidate)) {
-      throw new HospitalityInvoicePreparationValidationError(`${name} is invalid.`);
-    }
-    return BigInt(candidate);
-  };
-  return createHospitalityInvoicePreparationSnapshot({
+  if (record.schemaVersion === 1) return parseLegacySnapshot(record);
+  if (record.schemaVersion !== 2) {
+    throw new HospitalityInvoicePreparationValidationError('Unsupported invoice preparation schema version.');
+  }
+
+  const recipient = parseHospitalityInvoiceRecipientSnapshot(record.recipient);
+  const snapshot = createHospitalityInvoicePreparationSnapshot({
     pricingEvidenceId: record.pricingEvidenceId,
     issuerProfileId: record.issuerProfileId,
     currency: record.currency,
-    accommodationSubtotalMinor: bigintField('accommodationSubtotalMinor'),
-    taxTotalMinor: bigintField('taxTotalMinor'),
-    feeTotalMinor: bigintField('feeTotalMinor'),
-    addonTotalMinor: bigintField('addonTotalMinor'),
-    totalMinor: bigintField('totalMinor'),
+    accommodationSubtotalMinor: bigintField(record, 'accommodationSubtotalMinor'),
+    taxTotalMinor: bigintField(record, 'taxTotalMinor'),
+    feeTotalMinor: bigintField(record, 'feeTotalMinor'),
+    addonTotalMinor: bigintField(record, 'addonTotalMinor'),
+    totalMinor: bigintField(record, 'totalMinor'),
     pricingFingerprint: record.pricingFingerprint,
     issuerFingerprint: record.issuerFingerprint,
+    recipient,
   });
+  if (snapshot.recipientFingerprint !== fingerprint(record.recipientFingerprint, 'recipientFingerprint')) {
+    throw new HospitalityInvoicePreparationValidationError('Persisted invoice recipient fingerprint does not match its snapshot.');
+  }
+  return snapshot;
 }
 
-export function hospitalityInvoicePreparationFingerprint(snapshot: HospitalityInvoicePreparationSnapshot) {
+export function hospitalityInvoicePreparationFingerprint(snapshot: HospitalityInvoicePreparationPersistedSnapshot) {
   return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
 }
 
 export function hospitalityInvoicePreparationKey(input: {
   organizationId: string;
   bookingId: string;
-  snapshot: HospitalityInvoicePreparationSnapshot;
+  snapshot: HospitalityInvoicePreparationPersistedSnapshot;
 }) {
   const organizationId = requiredIdentifier(input.organizationId, 'organizationId');
   const bookingId = requiredIdentifier(input.bookingId, 'bookingId');
@@ -139,5 +225,5 @@ export function hospitalityInvoicePreparationKey(input: {
   const digest = createHash('sha256')
     .update(JSON.stringify({ organizationId, bookingId, documentFingerprint }))
     .digest('hex');
-  return `invoice-preparation:v1:${digest}`;
+  return `invoice-preparation:v${input.snapshot.schemaVersion}:${digest}`;
 }

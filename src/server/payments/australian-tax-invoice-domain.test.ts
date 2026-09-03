@@ -10,6 +10,7 @@ const issuer = {
     { scheme: 'GST', identifier: '51824753556', countryCode: 'AU' },
   ],
 };
+const individualBuyer = { recipientType: 'INDIVIDUAL' as const, legalName: 'Example Buyer', registrations: [] };
 
 function pricing(totalMinor = '11000', taxTotalMinor = '1000') {
   return {
@@ -21,18 +22,16 @@ function pricing(totalMinor = '11000', taxTotalMinor = '1000') {
 }
 
 test('accepts the deliberately narrow fully-taxable Australian GST contract', () => {
-  const result = assessAustralianTaxInvoiceReadiness({ issuer, pricing: pricing(), buyerIdentity: null });
+  const result = assessAustralianTaxInvoiceReadiness({ issuer, pricing: pricing(), buyer: individualBuyer });
   assert.equal(result.contentReady, true);
   assert.equal(result.supplierAbn, '51824753556');
   assert.equal(result.buyerIdentityRequired, false);
+  assert.equal(result.buyerIdentity, 'Example Buyer');
   assert.deepEqual(result.requirements, []);
 });
 
-test('requires buyer identity at AUD 1,000 or more', () => {
-  const withoutBuyer = assessAustralianTaxInvoiceReadiness({
-    issuer,
-    pricing: pricing('110000', '10000'),
-  });
+test('requires immutable buyer identity or ABN at AUD 1,000 or more', () => {
+  const withoutBuyer = assessAustralianTaxInvoiceReadiness({ issuer, pricing: pricing('110000', '10000') });
   assert.equal(withoutBuyer.contentReady, false);
   assert.equal(withoutBuyer.buyerIdentityRequired, true);
   assert.equal(withoutBuyer.requirements.some((item) => item.code === 'BUYER_IDENTITY_REQUIRED'), true);
@@ -40,9 +39,52 @@ test('requires buyer identity at AUD 1,000 or more', () => {
   const withBuyer = assessAustralianTaxInvoiceReadiness({
     issuer,
     pricing: pricing('110000', '10000'),
-    buyerIdentity: 'Example Buyer',
+    buyer: individualBuyer,
   });
   assert.equal(withBuyer.contentReady, true);
+});
+
+test('supports a structurally validated Australian business recipient ABN', () => {
+  const result = assessAustralianTaxInvoiceReadiness({
+    issuer,
+    pricing: pricing('110000', '10000'),
+    buyer: {
+      recipientType: 'BUSINESS',
+      legalName: 'Example Buyer Pty Ltd',
+      registrations: [{ scheme: 'ABN', identifier: '12 004 021 809', countryCode: 'AU' }],
+    },
+  });
+  assert.equal(result.contentReady, true);
+  assert.equal(result.buyerAbn, '12004021809');
+});
+
+test('fails closed on invalid or ambiguous recipient ABN evidence', () => {
+  const invalid = assessAustralianTaxInvoiceReadiness({
+    issuer,
+    pricing: pricing(),
+    buyer: {
+      recipientType: 'BUSINESS',
+      legalName: 'Buyer Pty Ltd',
+      registrations: [{ scheme: 'ABN', identifier: '12345678901', countryCode: 'AU' }],
+    },
+  });
+  assert.equal(invalid.contentReady, false);
+  assert.equal(invalid.requirements.some((item) => item.code === 'BUYER_ABN_INVALID'), true);
+
+  const multiple = assessAustralianTaxInvoiceReadiness({
+    issuer,
+    pricing: pricing(),
+    buyer: {
+      recipientType: 'BUSINESS',
+      legalName: 'Buyer Pty Ltd',
+      registrations: [
+        { scheme: 'ABN', identifier: '51 824 753 556', countryCode: 'AU' },
+        { scheme: 'ABN', identifier: '12 004 021 809', countryCode: 'AU' },
+      ],
+    },
+  });
+  assert.equal(multiple.contentReady, false);
+  assert.equal(multiple.requirements.some((item) => item.code === 'BUYER_ABN_MULTIPLE'), true);
 });
 
 test('fails closed on missing GST declaration, invalid ABN, non-AUD money, and mixed tax schemes', () => {
@@ -60,7 +102,7 @@ test('fails closed on missing GST declaration, invalid ABN, non-AUD money, and m
         { code: 'CITY_TAX', kind: 'TAX', amountMinor: '100' },
       ],
     },
-    buyerIdentity: 'Buyer',
+    buyer: individualBuyer,
   });
   const codes = result.requirements.map((item) => item.code);
   assert.equal(result.contentReady, false);
@@ -82,6 +124,7 @@ test('requires the GST declaration to carry the same ABN as the issuer', () => {
       ],
     },
     pricing: pricing(),
+    buyer: individualBuyer,
   });
   assert.equal(result.contentReady, false);
   assert.equal(result.requirements.some((item) => item.code === 'GST_REGISTRATION_ABN_MISMATCH'), true);
