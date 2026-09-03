@@ -1,3 +1,4 @@
+import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
 
@@ -7,10 +8,16 @@ export async function POST(
 ) {
   try {
     const routeParams = await params;
+    const organizationId = routeParams['organization-id'];
     const payload = await request.text();
-    await ingestStripePaymentWebhook({
-      organizationId: routeParams['organization-id'],
+    const verifiedEvent = await ingestStripePaymentWebhook({
+      organizationId,
       signature: request.headers.get('stripe-signature'),
+      payload,
+    });
+    await finalizeVerifiedStripeCommercialAmendmentWebhook({
+      organizationId,
+      verifiedWebhookEventId: verifiedEvent.id,
       payload,
     });
     return Response.json({ received: true });
