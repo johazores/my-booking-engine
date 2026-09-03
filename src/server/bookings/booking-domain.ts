@@ -4,7 +4,14 @@ const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const PRICING_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BOOKING_GUESTS = 100;
+const MAX_STAY_NIGHTS = 365;
+const MAX_ROOM_QUANTITY = 50;
+const MAX_PRICING_LINES = 100;
+const HOSPITALITY_CHARGE_KINDS = ['TAX', 'FEE'] as const;
+const HOSPITALITY_CHARGE_CALCULATIONS = ['PERCENTAGE', 'FIXED_PER_BOOKING', 'FIXED_PER_ROOM_NIGHT'] as const;
+const HOSPITALITY_ADDON_PRICING_MODELS = ['PER_BOOKING', 'PER_ROOM', 'PER_ROOM_NIGHT', 'PER_UNIT'] as const;
 
 export const bookingStates = ['PENDING_CONFIRMATION', 'CONFIRMED', 'CANCELLED'] as const;
 export type BookingState = (typeof bookingStates)[number];
@@ -47,6 +54,56 @@ export type HospitalityPriceSnapshot = {
   pricingFingerprint: string;
 };
 
+export type HospitalityPricingBreakdownSnapshotInput = HospitalityPriceSnapshotInput & {
+  quantity: number;
+  nightly: Array<{ date: string; amountMinor: string }>;
+  charges: Array<{
+    id: string;
+    code: string;
+    name: string;
+    kind: string;
+    calculation: string;
+    amountMinor: string;
+  }>;
+  addons: Array<{
+    id: string;
+    code: string;
+    name: string;
+    pricingModel: string;
+    selectedQuantity: number;
+    amountMinor: string;
+  }>;
+};
+
+export type HospitalityPricingBreakdownSnapshot = Readonly<{
+  schemaVersion: 1;
+  currency: string;
+  quantity: number;
+  accommodationSubtotalMinor: string;
+  taxTotalMinor: string;
+  feeTotalMinor: string;
+  addonTotalMinor: string;
+  totalMinor: string;
+  pricingFingerprint: string;
+  nightly: ReadonlyArray<Readonly<{ date: string; amountMinor: string }>>;
+  charges: ReadonlyArray<Readonly<{
+    ruleId: string;
+    code: string;
+    name: string;
+    kind: 'TAX' | 'FEE';
+    calculation: 'PERCENTAGE' | 'FIXED_PER_BOOKING' | 'FIXED_PER_ROOM_NIGHT';
+    amountMinor: string;
+  }>>;
+  addons: ReadonlyArray<Readonly<{
+    addonId: string;
+    code: string;
+    name: string;
+    pricingModel: 'PER_BOOKING' | 'PER_ROOM' | 'PER_ROOM_NIGHT' | 'PER_UNIT';
+    selectedQuantity: number;
+    amountMinor: string;
+  }>>;
+}>;
+
 export class BookingDomainValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -62,7 +119,7 @@ function requireNonEmpty(value: unknown, label: string) {
 }
 
 function normalizeBoundedText(value: unknown, label: string, maxLength: number) {
-  const normalized = requireNonEmpty(value, label);
+  const normalized = requireNonEmpty(value, label).replace(/\s+/g, ' ');
   if (normalized.length > maxLength) throw new BookingDomainValidationError(`${label} must be at most ${maxLength} characters.`);
   return normalized;
 }
@@ -88,6 +145,30 @@ function normalizeGuestEmail(value: unknown) {
   if (normalized.length === 0) return null;
   if (normalized.length > 320 || !EMAIL_PATTERN.test(normalized)) throw new BookingDomainValidationError('Guest email must be a valid email address.');
   return normalized;
+}
+
+function normalizePricingLineCode(value: unknown, label: string) {
+  const normalized = requireNonEmpty(value, label).toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_-]{0,31}$/.test(normalized)) {
+    throw new BookingDomainValidationError(`${label} must use 1-32 letters, numbers, underscores, or hyphens.`);
+  }
+  return normalized;
+}
+
+function normalizePricingDate(value: unknown, label: string) {
+  const normalized = requireNonEmpty(value, label);
+  if (!DATE_PATTERN.test(normalized)) throw new BookingDomainValidationError(`${label} must use YYYY-MM-DD.`);
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new BookingDomainValidationError(`${label} must be a valid calendar date.`);
+  }
+  return normalized;
+}
+
+function normalizeEnumValue<const T extends readonly string[]>(value: unknown, label: string, allowed: T): T[number] {
+  const normalized = requireNonEmpty(value, label).toUpperCase();
+  if (!allowed.includes(normalized)) throw new BookingDomainValidationError(`${label} is not supported.`);
+  return normalized as T[number];
 }
 
 export function normalizeHospitalityBookingGuests(value: unknown) {
@@ -163,6 +244,105 @@ export function createHospitalityPriceSnapshot(input: HospitalityPriceSnapshotIn
   }
 
   return Object.freeze(snapshot);
+}
+
+export function createHospitalityPricingBreakdownSnapshot(
+  input: HospitalityPricingBreakdownSnapshotInput,
+): HospitalityPricingBreakdownSnapshot {
+  const price = createHospitalityPriceSnapshot(input);
+  if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > MAX_ROOM_QUANTITY) {
+    throw new BookingDomainValidationError(`Pricing breakdown room quantity must be between 1 and ${MAX_ROOM_QUANTITY}.`);
+  }
+  if (!Array.isArray(input.nightly) || input.nightly.length < 1 || input.nightly.length > MAX_STAY_NIGHTS) {
+    throw new BookingDomainValidationError(`Pricing breakdown must contain between 1 and ${MAX_STAY_NIGHTS} nightly prices.`);
+  }
+  if (!Array.isArray(input.charges) || input.charges.length > MAX_PRICING_LINES) {
+    throw new BookingDomainValidationError(`Pricing breakdown cannot contain more than ${MAX_PRICING_LINES} charge lines.`);
+  }
+  if (!Array.isArray(input.addons) || input.addons.length > MAX_PRICING_LINES) {
+    throw new BookingDomainValidationError(`Pricing breakdown cannot contain more than ${MAX_PRICING_LINES} add-on lines.`);
+  }
+
+  let previousDate = '';
+  const nightly = input.nightly.map((night, index) => {
+    const date = normalizePricingDate(night.date, `Night ${index + 1} date`);
+    if (date <= previousDate) throw new BookingDomainValidationError('Pricing breakdown nightly dates must be strictly increasing and unique.');
+    previousDate = date;
+    return Object.freeze({
+      date,
+      amountMinor: normalizeMoneyMinor(night.amountMinor, `Night ${index + 1} amount`),
+    });
+  });
+  const expectedAccommodationSubtotal = nightly.reduce(
+    (sum, night) => sum + BigInt(night.amountMinor) * BigInt(input.quantity),
+    0n,
+  );
+  if (expectedAccommodationSubtotal !== BigInt(price.accommodationSubtotalMinor)) {
+    throw new BookingDomainValidationError('Pricing breakdown nightly prices do not equal the accommodation subtotal.');
+  }
+
+  const seenChargeIds = new Set<string>();
+  const charges = input.charges.map((charge, index) => {
+    const ruleId = normalizeUuid(charge.id, `Charge ${index + 1} rule ID`);
+    if (seenChargeIds.has(ruleId)) throw new BookingDomainValidationError('Pricing breakdown cannot contain the same charge rule more than once.');
+    seenChargeIds.add(ruleId);
+    return Object.freeze({
+      ruleId,
+      code: normalizePricingLineCode(charge.code, `Charge ${index + 1} code`),
+      name: normalizeBoundedText(charge.name, `Charge ${index + 1} name`, 120),
+      kind: normalizeEnumValue(charge.kind, `Charge ${index + 1} kind`, HOSPITALITY_CHARGE_KINDS),
+      calculation: normalizeEnumValue(
+        charge.calculation,
+        `Charge ${index + 1} calculation`,
+        HOSPITALITY_CHARGE_CALCULATIONS,
+      ),
+      amountMinor: normalizeMoneyMinor(charge.amountMinor, `Charge ${index + 1} amount`),
+    });
+  });
+  const taxTotalMinor = charges
+    .filter((charge) => charge.kind === 'TAX')
+    .reduce((sum, charge) => sum + BigInt(charge.amountMinor), 0n);
+  const feeTotalMinor = charges
+    .filter((charge) => charge.kind === 'FEE')
+    .reduce((sum, charge) => sum + BigInt(charge.amountMinor), 0n);
+  if (taxTotalMinor !== BigInt(price.taxTotalMinor) || feeTotalMinor !== BigInt(price.feeTotalMinor)) {
+    throw new BookingDomainValidationError('Pricing breakdown charge lines do not equal the persisted tax and fee totals.');
+  }
+
+  const seenAddonIds = new Set<string>();
+  const addons = input.addons.map((addon, index) => {
+    const addonId = normalizeUuid(addon.id, `Add-on ${index + 1} ID`);
+    if (seenAddonIds.has(addonId)) throw new BookingDomainValidationError('Pricing breakdown cannot contain the same add-on more than once.');
+    seenAddonIds.add(addonId);
+    if (!Number.isSafeInteger(addon.selectedQuantity) || addon.selectedQuantity < 1 || addon.selectedQuantity > 100) {
+      throw new BookingDomainValidationError(`Add-on ${index + 1} selected quantity must be between 1 and 100.`);
+    }
+    return Object.freeze({
+      addonId,
+      code: normalizePricingLineCode(addon.code, `Add-on ${index + 1} code`),
+      name: normalizeBoundedText(addon.name, `Add-on ${index + 1} name`, 120),
+      pricingModel: normalizeEnumValue(
+        addon.pricingModel,
+        `Add-on ${index + 1} pricing model`,
+        HOSPITALITY_ADDON_PRICING_MODELS,
+      ),
+      selectedQuantity: addon.selectedQuantity,
+      amountMinor: normalizeMoneyMinor(addon.amountMinor, `Add-on ${index + 1} amount`),
+    });
+  });
+  const addonTotalMinor = addons.reduce((sum, addon) => sum + BigInt(addon.amountMinor), 0n);
+  if (addonTotalMinor !== BigInt(price.addonTotalMinor)) {
+    throw new BookingDomainValidationError('Pricing breakdown add-on lines do not equal the persisted add-on total.');
+  }
+
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    ...price,
+    quantity: input.quantity,
+    nightly: Object.freeze(nightly),
+    charges: Object.freeze(charges),
+    addons: Object.freeze(addons),
+  });
 }
 
 export function assertBookingPriceSnapshotMatchesConfirmation(
