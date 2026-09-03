@@ -1,0 +1,39 @@
+enum HospitalityBookingPricingEvidenceSource {
+  BOOKING_CONFIRMATION
+  BOOKING_RESCHEDULE
+  BOOKING_COMMERCIAL_MODIFICATION
+  COMMERCIAL_AMENDMENT_TARGET
+  COMMERCIAL_AMENDMENT_APPLY
+}
+
+model HospitalityBookingPricingEvidence {
+  id                          String                                   @id @default(uuid()) @db.Uuid
+  organizationId              String                                   @db.Uuid
+  bookingId                   String                                   @db.Uuid
+  commercialAmendmentId       String?                                  @db.Uuid
+  evidenceKey                 String                                   @db.VarChar(220)
+  source                      HospitalityBookingPricingEvidenceSource
+  bookingVersion              DateTime                                 @db.Timestamptz(6)
+  propertyId                  String                                   @db.Uuid
+  roomTypeId                  String                                   @db.Uuid
+  ratePlanId                  String                                   @db.Uuid
+  arrivalDate                 DateTime                                 @db.Date
+  departureDate               DateTime                                 @db.Date
+  quantity                    Int
+  addonSelections             Json
+  currency                    String                                   @db.Char(3)
+  accommodationSubtotalMinor  BigInt                                   @db.BigInt
+  taxTotalMinor               BigInt                                   @db.BigInt
+  feeTotalMinor               BigInt                                   @db.BigInt
+  addonTotalMinor             BigInt                                   @db.BigInt
+  totalMinor                  BigInt                                   @db.BigInt
+  pricingFingerprint          String                                   @db.Char(64)
+  pricingBreakdown            Json
+  createdAt                   DateTime                                 @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, evidenceKey])
+  @@index([organizationId, bookingId, createdAt])
+  @@index([organizationId, commercialAmendmentId, source])
+  @@map("hospitality_booking_pricing_evidence")
+}
