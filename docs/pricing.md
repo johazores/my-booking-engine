@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, transactional revalidation, booking-level aggregate price snapshots, and deterministic pricing identity. Provider-specific pricing rules and jurisdiction-specific legal invoice/tax snapshots remain future work.
+SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, transactional revalidation, booking-level aggregate price snapshots, deterministic pricing identity, and append-only accepted-state line-item pricing evidence. Provider-specific pricing rules and jurisdiction-specific legal invoice/tax issuance remain future work.
 
 ## Money model
 
@@ -74,21 +74,27 @@ Active add-ons protect their dependencies: scoped add-ons prevent room-type/rate
 
 The complete fingerprint includes effective nightly values, applied charge identity/calculation/amounts, and normalized resolved add-on identity/pricing/amounts. Human-readable labels are deliberately excluded from the fingerprint so a catalog display-name edit does not falsely create a commercial price change. The fingerprint contains no secret values and is not treated as authorization. The server never accepts browser-submitted totals as authoritative.
 
-## Booking price snapshots and revalidation
+## Booking price snapshots, immutable evidence, and revalidation
 
 `revalidateHospitalityBasePrice` preserves the accommodation-only contract and compares a prior base-price fingerprint against the latest base rates. `revalidateHospitalityPrice` recalculates the complete latest quote, including taxes, fees, and the same normalized add-on selections, and compares its complete fingerprint with the previously presented value.
 
 A base-rate or charge change therefore produces `changed: true`. A selected add-on that is archived, moved out of the requested stay/scope, or otherwise no longer eligible fails revalidation as unavailable rather than silently dropping a customer selection from the total. Revalidation accepts only canonical SHA-256 hexadecimal fingerprints; malformed or truncated fingerprints are validation errors.
 
-Booking confirmation already performs the complete price quote again inside the protected booking transaction before permanent allocation is created. The persisted booking stores the authoritative currency, accommodation subtotal, tax total, fee total, add-on total, final total, normalized add-on selections, and pricing fingerprint. A displayed quote or browser redirect is never sufficient proof of the commercial amount persisted on a booking.
+Booking confirmation performs the complete price quote again inside the protected booking transaction before permanent allocation is created. The persisted booking stores the authoritative currency, accommodation subtotal, tax total, fee total, add-on total, final total, normalized add-on selections, and pricing fingerprint. A displayed quote or browser redirect is never sufficient proof of the commercial amount persisted on a booking.
 
 A same-price reschedule intentionally compares the persisted aggregate commercial snapshot rather than requiring the old fingerprint to match: nightly dates can legitimately change the pricing fingerprint even when all persisted totals remain identical. Once the new dates pass inventory/restriction checks and the latest aggregate quote still matches the persisted booking amount, the reschedule stores the new quote fingerprint in the same serializable transaction and records the before/after pricing identity in audit evidence. A reschedule that changes any persisted aggregate price component is rejected and must use the commercial-adjustment workflow.
 
 Zero-delta commercial modifications and the final commercial-amendment apply transaction likewise replace the booking pricing fingerprint with the accepted current quote. This keeps the booking's pricing identity aligned with its current stay/commercial terms instead of leaving a fingerprint for superseded dates or selections.
 
-SF also has a canonical `createHospitalityPricingBreakdownSnapshot` domain builder for complete nightly, tax/fee, and add-on pricing evidence. It validates line identity, labels, calculations, amounts, date coverage, duplicate lines, and aggregate reconciliation, and converts all money values to canonical decimal strings suitable for immutable JSON persistence. Transactional pricing now supplies the labels required by that contract.
+`createHospitalityPricingBreakdownSnapshot` is the canonical schema-versioned line-item evidence builder. It validates nightly line coverage/order, tax/fee and add-on identities, labels, calculations, selected quantities, exact amounts, duplicate identities, aggregate reconciliation, currency, and the accepted pricing fingerprint. All money values are normalized to decimal strings suitable for immutable JSON persistence.
 
-That complete line-item breakdown is **not yet persisted on `HospitalityBooking`**. The current booking schema persists aggregate tax/fee/add-on totals plus the pricing fingerprint and selected add-ons. Therefore the platform must not present the aggregate booking snapshot as a jurisdiction-specific legal tax invoice: immutable tax-registration identity, jurisdiction, complete legal line-item evidence, fiscal numbering, required legal wording, and related invoice-delivery/accounting requirements still need an explicit production design and migration.
+`HospitalityBookingPricingEvidence` now persists that canonical breakdown separately from the mutable booking row. For newly accepted states, SF writes evidence inside the same protected transaction as booking confirmation, same-price rescheduling, and zero-delta commercial modification. Preparing a non-zero commercial amendment also freezes the authoritative target quote as amendment-owned pricing evidence before external adjustment settlement can proceed. Evidence is scoped by organization/booking and, where applicable, by the same organization + booking + commercial-amendment identity enforced by the database.
+
+Each evidence row freezes the commercial scope/stay/quantity/add-on selections, exact aggregate money, fingerprint, and complete nightly/tax/fee/add-on breakdown. Database checks enforce date/quantity/currency/fingerprint shape, aggregate money reconciliation, JSON shape, deterministic tenant-scoped evidence identity, source/amendment consistency, and composite tenant/resource foreign keys. There is no public or browser-authoritative write path for this table.
+
+Bookings or amendments created before the pricing-evidence migration may legitimately have no evidence row. SF does not reconstruct historical legal line items from today's mutable pricing configuration because labels, tax rules, applicability, and other descriptive/legal facts may have changed. Any future legal document issuer must fail closed or use a deliberate audited historical reconciliation process when required evidence is absent.
+
+This accepted-state pricing evidence is still **not a jurisdiction-specific legal invoice**. SF does not yet persist all required issuer/business identity, tax-registration identity, jurisdiction/tax characterization, billing identity, fiscal numbering, document lifecycle/credit-note semantics, required legal wording, localization/retention rules, rendering/delivery, or accounting evidence. See `docs/invoice-foundation.md` for the explicit legal boundary.
 
 ## Service boundaries
 
@@ -104,7 +110,7 @@ This duplicates critical safety checks intentionally: browser parsing improves U
 - staff: `pricing:read`
 - customer-role organization memberships: no internal pricing access
 
-All reads/writes validate organization membership and permission server-side. Resource identifiers are tenant/property scoped before database access. Composite foreign keys independently prevent base rates, charge rules, and add-ons from referencing inventory or rate plans from another tenant/property.
+All reads/writes validate organization membership and permission server-side. Resource identifiers are tenant/property scoped before database access. Composite foreign keys independently prevent base rates, charge rules, add-ons, and persisted booking pricing evidence from referencing commercial resources from another tenant/property/booking.
 
 ## UI
 
@@ -112,11 +118,13 @@ All reads/writes validate organization membership and permission server-side. Re
 
 The add-on workspace supports paginated catalog history, paginated sellable-scope selection, property-wide or scoped creation, all four pricing models, exact currency amounts, optional descriptions, applicability dates, bounded per-unit quantities, archival, status/error feedback, and archived/read-only property states. It reuses the existing SF application shell, responsive inventory tables/cards, focus behavior, forms, status patterns, and design tokens rather than introducing another design system.
 
+Pricing evidence currently has no standalone primary UI action. It is internal commercial evidence consumed by protected booking/amendment workflows and is intentionally not presented as a legal invoice.
+
 ## Validation coverage
 
-The standard unit command includes money, base-rate, charge-rule, pricing-boundary, booking pricing-breakdown, reschedule-domain, and hospitality add-on domain tests. Pricing-breakdown tests cover canonical line-item evidence and aggregate reconciliation. Reschedule PostgreSQL coverage verifies tenant/permission isolation, unresolved-payment blocking, capacity and price-change rejection, idempotency, allocation movement, pricing-fingerprint refresh across same-price date changes, and audit evidence.
+The standard unit command includes money, base-rate, charge-rule, pricing-boundary, booking pricing-breakdown, booking pricing-evidence, reschedule-domain, and hospitality add-on domain tests. Pricing-breakdown/evidence tests cover canonical line-item evidence, strict persisted round-trip parsing, commercial-state matching, aggregate reconciliation, malformed schema rejection, stay drift, add-on drift, and transactional quote mismatch.
 
-The disposable PostgreSQL suite additionally covers hospitality add-ons for permission enforcement, cross-tenant denial, property-wide/scoped persistence, concurrent same-code definition conflicts, exact multi-model quote totals, deterministic add-on fingerprint/revalidation behavior, selected-quantity limits, currency/assignment dependency protection, and audit events. The database migration also adds check constraints for scope shape, positive amount, quantity range, non-unit quantity semantics, and valid date windows.
+The disposable PostgreSQL suite additionally covers hospitality pricing/add-ons plus booking confirmation, rescheduling, and commercial modification. The pricing-evidence migration participates in the same guarded `prisma:validate` → deploy → status → drift database gate. A confirmed disposable PostgreSQL target is still required before claiming the new migration and persistence writes have passed integration validation.
 
 Full repository validation still requires Node 24 and an explicitly disposable PostgreSQL target.
 
@@ -124,4 +132,4 @@ Full repository validation still requires Node 24 and an explicitly disposable P
 
 Advanced tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
 
-For invoice/tax work, the next pricing dependency is a deliberate immutable legal pricing-evidence persistence contract: decide which complete pricing lines and tax-registration/jurisdiction fields must be frozen per booking/amendment, add the database migration, backfill/fallback rules where safe, and only then build jurisdiction-specific invoice numbering/rendering/delivery. The existing customer-safe payment receipt must remain separate from that legal invoice boundary.
+For invoice/tax work, immutable accepted-state pricing evidence is now in place for new booking/commercial states. The next coherent dependency is a deliberate legal issuer/jurisdiction configuration and issuance model: persist immutable issuer/tax-registration/billing authority, define supported jurisdiction/tax semantics, add concurrency-safe fiscal numbering and legal document lifecycle, and only then add invoice/credit-note rendering, authenticated delivery/email, and accounting integration. The existing customer-safe payment receipt remains separate from that legal invoice boundary.
