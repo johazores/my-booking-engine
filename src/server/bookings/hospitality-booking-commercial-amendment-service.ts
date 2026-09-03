@@ -39,6 +39,7 @@ import {
   hospitalityCommercialAmendmentHasPaymentActivityRequiringRecovery,
 } from './hospitality-booking-commercial-amendment-guard.ts';
 import { hospitalityBookingMutationLockKey } from './hospitality-booking-mutation-lock.ts';
+import { persistHospitalityBookingPricingEvidence } from './hospitality-booking-pricing-evidence-service.ts';
 import {
   HospitalityBookingConflictError,
   HospitalityBookingPriceChangedError,
@@ -501,6 +502,25 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
         protectionQuantity,
         expiresAt,
       },
+    });
+    await persistHospitalityBookingPricingEvidence({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      commercialAmendmentId: amendment.id,
+      evidenceKey: `commercial-amendment-target:${amendment.id}`,
+      source: 'COMMERCIAL_AMENDMENT_TARGET',
+      bookingVersion: booking.updatedAt,
+      state: {
+        propertyId: booking.propertyId,
+        roomTypeId: change.roomTypeId,
+        ratePlanId: change.ratePlanId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: change.quantity,
+        addonSelections: change.addonSelections,
+      },
+      quote: latestPrice,
     });
     await transaction.auditEvent.create({
       data: {
