@@ -52,5 +52,19 @@
 .sf-booking-modification-preview__totals dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .sf-booking-modification-preview details { display: grid; gap: .7rem; }
 .sf-booking-modification-preview summary { cursor: pointer; font-weight: 600; }
+.sf-booking-invoice-issuance { display: grid; gap: 1rem; }
+.sf-booking-invoice-issuance > p { margin: 0; max-width: 76ch; }
+.sf-booking-invoice-recipient { margin: 0; padding: 0; border: 0; display: grid; gap: .7rem; }
+.sf-booking-invoice-recipient legend { margin-bottom: .7rem; font-weight: 700; }
+.sf-booking-invoice-recipient__choice { display: flex; align-items: flex-start; gap: .75rem; padding: .8rem 1rem; border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); cursor: pointer; }
+.sf-booking-invoice-recipient__choice input { margin-top: .2rem; }
+.sf-booking-invoice-recipient__choice span { display: grid; gap: .2rem; }
+.sf-booking-invoice-recipient__choice small { color: var(--sf-text-muted, #667085); font-weight: 400; }
+.sf-booking-invoice-recipient__business { display: grid; grid-template-columns: minmax(14rem, 2fr) minmax(10rem, 1fr); gap: .8rem; padding: 1rem; border-radius: var(--sf-radius-md, 8px); background: color-mix(in srgb, var(--sf-accent) 4%, var(--sf-surface, #fff)); }
+.sf-booking-invoice-recipient__business label { display: grid; gap: .4rem; font-weight: 600; }
+.sf-booking-invoice-recipient__business input { min-width: 0; min-height: 2.75rem; padding: .65rem .75rem; color: var(--sf-text, #101828); background: var(--sf-surface, #fff); border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); font: inherit; }
+.sf-booking-invoice-recipient__business input:focus-visible { outline: 2px solid var(--sf-accent); outline-offset: 2px; }
+.sf-booking-invoice-recipient__business input:disabled { cursor: not-allowed; opacity: .65; }
+.sf-booking-invoice-recipient__business p { grid-column: 1 / -1; margin: 0; color: var(--sf-text-muted, #667085); font-size: .9rem; }
 @media (max-width: 920px) { .sf-booking-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates, .sf-booking-modification-form__grid, .sf-booking-modification-addon, .sf-booking-modification-preview__totals { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } }
+@media (max-width: 640px) { .sf-booking-grid, .sf-booking-property-form, .sf-booking-reschedule-form__dates, .sf-booking-modification-form__grid, .sf-booking-modification-addon, .sf-booking-modification-preview__totals, .sf-booking-invoice-recipient__business { grid-template-columns: 1fr; } .sf-booking-card__heading, .sf-booking-status, .sf-booking-addon { align-items: stretch; flex-direction: column; } .sf-booking-addon input { width: 100%; } .sf-booking-invoice-recipient__business p { grid-column: auto; } }
