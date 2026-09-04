@@ -49,7 +49,10 @@ export default async function InvoiceRegisterPage({ searchParams }: {
   return <div className="sf-invoice-page sf-invoice-history-page sf-invoice-register-page">
     <header className="sf-invoice-history-page__header">
       <div><p className="sf-eyebrow">Legal documents</p><h1>Tax invoice register</h1><p>Tenant-scoped immutable Australian tax invoices issued from accepted booking evidence.</p></div>
-      <a className="sf-button sf-button--secondary" href="/api/invoices/hospitality/accounting">Download accounting CSV</a>
+      <div className="sf-invoice-toolbar">
+        <Link className="sf-button sf-button--secondary" href="/invoices/adjustments">Adjustment notes</Link>
+        <a className="sf-button sf-button--secondary" href="/api/invoices/hospitality/accounting">Download accounting CSV</a>
+      </div>
     </header>
 
     <section className="sf-invoice-history-card" aria-labelledby="invoice-register-title">
