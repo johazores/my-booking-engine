@@ -17,6 +17,7 @@ type InvoiceParty = {
 };
 
 type PublicTaxInvoice = {
+  documentTitle: 'Tax invoice';
   documentNumber: string;
   issuedAt: string;
   currency: string;
@@ -53,6 +54,20 @@ function addressLines(party: InvoiceParty) {
   return [party.addressLine1, party.addressLine2, locality || null, party.countryCode].filter((line): line is string => Boolean(line));
 }
 
+function printInvoice(button: HTMLButtonElement) {
+  const invoice = button.closest('.sf-public-invoice');
+  if (!(invoice instanceof HTMLElement)) return;
+
+  document.body.classList.add('sf-public-tax-invoice-printing');
+  invoice.classList.add('sf-public-invoice--print');
+  try {
+    window.print();
+  } finally {
+    invoice.classList.remove('sf-public-invoice--print');
+    document.body.classList.remove('sf-public-tax-invoice-printing');
+  }
+}
+
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {
   const [history, setHistory] = useState<InvoiceHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +82,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
     try {
       const response = await fetch(`/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/tax-invoices`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'accept': 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
       if (response.status === 404) {
@@ -94,7 +109,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
   if (!history?.items.length && !error) return null;
 
   return (
-    <section className="sf-public-booking__search-card" aria-labelledby="tax-invoice-history-title">
+    <section className="sf-public-booking__search-card sf-public-invoice-history" aria-labelledby="tax-invoice-history-title">
       <div className="sf-public-booking__section-heading">
         <div>
           <p className="sf-public-booking__eyebrow">Issued documents</p>
@@ -109,26 +124,35 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       {history?.items.map((invoice, index) => {
         const sellerAddress = addressLines(invoice.seller);
         const buyerAddress = addressLines(invoice.buyer);
+        const issuedDate = new Date(invoice.issuedAt).toLocaleDateString('en-AU');
         return (
-          <details className="sf-public-invoice" key={invoice.documentNumber} open={index === 0}>
+          <details className="sf-public-invoice" key={invoice.documentNumber} open={index === 0 ? true : undefined}>
             <summary className="sf-public-invoice__summary">
-              <span><strong>{invoice.documentNumber}</strong><small>Issued {new Date(invoice.issuedAt).toLocaleDateString('en-AU')}</small></span>
+              <span><strong>{invoice.documentNumber}</strong><small>Issued {issuedDate}</small></span>
               <strong>{formatMinor(invoice.totalMinor, invoice.currency)}</strong>
             </summary>
             <div className="sf-public-invoice__body">
+              <header className="sf-public-invoice__document-heading">
+                <div>
+                  <p className="sf-public-booking__eyebrow">{invoice.documentTitle}</p>
+                  <h3>{invoice.documentNumber}</h3>
+                </div>
+                <p><span>Issued</span><strong>{issuedDate}</strong></p>
+              </header>
+
               <div className="sf-public-invoice__parties">
                 <section aria-label="Tax invoice seller">
                   <h3>Seller</h3>
                   <p><strong>{invoice.seller.legalName}</strong></p>
                   <p>ABN {invoice.supplierAbn}</p>
-                  {sellerAddress.map((line) => <p key={line}>{line}</p>)}
+                  {sellerAddress.map((line, lineIndex) => <p key={`seller:${lineIndex}`}>{line}</p>)}
                   {invoice.seller.contactEmail ? <p>{invoice.seller.contactEmail}</p> : null}
                 </section>
                 <section aria-label="Tax invoice buyer">
                   <h3>Buyer</h3>
                   <p><strong>{invoice.buyer.legalName}</strong></p>
                   {invoice.buyerAbn ? <p>ABN {invoice.buyerAbn}</p> : null}
-                  {buyerAddress.map((line) => <p key={line}>{line}</p>)}
+                  {buyerAddress.map((line, lineIndex) => <p key={`buyer:${lineIndex}`}>{line}</p>)}
                   {invoice.buyer.email ? <p>{invoice.buyer.email}</p> : null}
                 </section>
               </div>
@@ -152,6 +176,15 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
                 <div className="sf-public-invoice__total"><dt>Total incl. GST</dt><dd>{formatMinor(invoice.totalMinor, invoice.currency)}</dd></div>
               </dl>
               <p className="sf-public-booking__contact-note">{invoice.taxableSaleStatement}</p>
+              <div className="sf-public-invoice__actions">
+                <button
+                  type="button"
+                  className="sf-public-invoice__print-button"
+                  onClick={(event) => printInvoice(event.currentTarget)}
+                >
+                  Print or save copy
+                </button>
+              </div>
             </div>
           </details>
         );
