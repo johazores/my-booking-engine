@@ -85,7 +85,8 @@
 .sf-public-booking__search-form button:focus-visible,
 .sf-public-booking__contact:focus-visible,
 .sf-public-booking a:focus-visible,
-.sf-public-invoice__summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--sf-public-accent) 65%, #fff); outline-offset: 3px; }
+.sf-public-invoice__summary:focus-visible,
+.sf-public-invoice__print-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--sf-public-accent) 65%, #fff); outline-offset: 3px; }
 .sf-public-booking__search-form button,
 .sf-public-booking__contact {
   min-height: 48px;
@@ -147,6 +148,10 @@
 .sf-public-invoice__summary > strong { color: var(--sf-public-primary); white-space: nowrap; }
 .sf-public-invoice[open] .sf-public-invoice__summary { border-bottom: 1px solid #e4e9ed; background: #f8fafb; }
 .sf-public-invoice__body { padding: 18px; }
+.sf-public-invoice__document-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.sf-public-invoice__document-heading h3 { margin: 0; font-size: 1.45rem; }
+.sf-public-invoice__document-heading > p { display: grid; gap: 4px; margin: 0; text-align: right; }
+.sf-public-invoice__document-heading > p span { color: #697582; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .sf-public-invoice__parties { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .sf-public-invoice__parties section { padding: 16px; border-radius: 10px; background: #f5f7f9; }
 .sf-public-invoice__parties h3 { margin: 0 0 10px; font-size: 1rem; }
@@ -164,6 +169,19 @@
 .sf-public-invoice__totals > div { display: flex; justify-content: space-between; gap: 16px; }
 .sf-public-invoice__totals dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sf-public-invoice__total { margin-top: 4px; padding-top: 10px; border-top: 1px solid #dfe5ea; font-size: 1.05rem; }
+.sf-public-invoice__actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+.sf-public-invoice__print-button {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--sf-public-primary) 35%, #cfd7df);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--sf-public-primary);
+  font: inherit;
+  font-weight: 800;
+  padding: 0 16px;
+  cursor: pointer;
+}
+.sf-public-invoice__print-button:hover { background: color-mix(in srgb, var(--sf-public-secondary) 70%, #fff); }
 
 .sf-public-booking__footer { border-top: 1px solid #e2e7ec; background: #fff; }
 .sf-public-booking__footer .sf-public-booking__container { min-height: 92px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; color: #64717e; font-size: .88rem; }
@@ -185,7 +203,9 @@
   .sf-public-booking__offer { padding: 18px; border-radius: 14px; }
   .sf-public-booking__section-heading,
   .sf-public-booking__results-heading,
-  .sf-public-booking__price { display: grid; gap: 8px; }
+  .sf-public-booking__price,
+  .sf-public-invoice__document-heading { display: grid; gap: 8px; }
+  .sf-public-invoice__document-heading > p { text-align: left; }
   .sf-public-booking__search-form { grid-template-columns: 1fr; }
   .sf-public-booking__search-form button { grid-column: auto; }
   .sf-public-booking__facts { grid-template-columns: 1fr; }
@@ -196,5 +216,29 @@
   .sf-public-invoice__summary > strong { white-space: normal; }
   .sf-public-invoice__parties { grid-template-columns: 1fr; }
   .sf-public-invoice__body { padding: 14px; }
+  .sf-public-invoice__actions { justify-content: stretch; }
+  .sf-public-invoice__print-button { width: 100%; }
   .sf-public-booking__footer .sf-public-booking__container { padding: 22px 0; align-items: flex-start; }
+}
+
+@media print {
+  body.sf-public-tax-invoice-printing { background: #fff; }
+  body.sf-public-tax-invoice-printing .sf-public-booking__header,
+  body.sf-public-tax-invoice-printing .sf-public-booking__hero,
+  body.sf-public-tax-invoice-printing .sf-public-booking__footer,
+  body.sf-public-tax-invoice-printing .sf-public-booking__content > :not(.sf-public-invoice-history) { display: none !important; }
+  body.sf-public-tax-invoice-printing .sf-public-booking { min-height: 0; background: #fff; }
+  body.sf-public-tax-invoice-printing .sf-public-booking__content { width: 100%; padding: 0; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice-history { border: 0; border-radius: 0; box-shadow: none; padding: 0; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice-history > :not(.sf-public-invoice--print) { display: none !important; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice--print { display: block !important; margin: 0; border: 0; border-radius: 0; overflow: visible; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice--print > .sf-public-invoice__summary { display: none !important; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice--print > .sf-public-invoice__body { display: block !important; padding: 0; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice__parties section,
+  body.sf-public-tax-invoice-printing .sf-public-invoice__table thead th { background: #fff; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice__table-wrap { overflow: visible; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice__table { min-width: 0; }
+  body.sf-public-tax-invoice-printing .sf-public-invoice__actions { display: none !important; }
+
+  @page { margin: 18mm; }
 }
