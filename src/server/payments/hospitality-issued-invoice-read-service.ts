@@ -123,6 +123,12 @@ export async function listHospitalityIssuedTaxInvoices(input: {
   assertUuidIdentifier(input.bookingId, 'bookingId');
   await requireIssuedInvoiceReadAccess(input);
 
+  const booking = await db.hospitalityBooking.findFirst({
+    where: { id: input.bookingId, organizationId: input.organizationId },
+    select: { id: true },
+  });
+  if (!booking) throw new HospitalityIssuedInvoiceUnavailableError();
+
   const page = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 20, 'pageSize', 100);
   const where = { organizationId: input.organizationId, bookingId: input.bookingId, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' } as const;

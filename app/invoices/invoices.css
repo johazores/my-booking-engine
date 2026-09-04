@@ -18,5 +18,19 @@
 .sf-invoice-totals strong { font-variant-numeric: tabular-nums; }
 .sf-invoice-totals__total { border-top: 2px solid var(--sf-text, #101828); padding-top: .75rem; font-size: 1.1rem; }
 .sf-invoice-note { margin: 0; color: var(--sf-text-muted, #667085); }
-@media (max-width: 640px) { .sf-invoice-document__header, .sf-invoice-parties { grid-template-columns: 1fr; display: grid; } .sf-invoice-document__number { text-align: left; } .sf-invoice-table { font-size: .9rem; } }
+.sf-invoice-history-page__header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.sf-invoice-history-page__header h1, .sf-invoice-history-card h2, .sf-invoice-history-empty h3 { margin: 0; }
+.sf-invoice-history-page__header p { margin: .25rem 0 0; color: var(--sf-text-muted, #667085); }
+.sf-invoice-history-card { background: var(--sf-surface, #fff); border: 1px solid var(--sf-border, #d8dee8); border-radius: var(--sf-radius-lg, 12px); padding: clamp(1rem, 3vw, 1.5rem); display: grid; gap: 1rem; }
+.sf-invoice-history-card__heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.sf-invoice-history-card__heading span { color: var(--sf-text-muted, #667085); }
+.sf-invoice-history-table-wrap { overflow-x: auto; }
+.sf-invoice-history-table { width: 100%; border-collapse: collapse; min-width: 42rem; }
+.sf-invoice-history-table th, .sf-invoice-history-table td { text-align: left; padding: .75rem .5rem; border-bottom: 1px solid var(--sf-border, #d8dee8); }
+.sf-invoice-history-table td:nth-child(3) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sf-invoice-history-table a { font-weight: 600; }
+.sf-invoice-history-empty { padding: 1rem; border: 1px dashed var(--sf-border, #d8dee8); border-radius: var(--sf-radius-md, 8px); }
+.sf-invoice-history-empty p { margin: .35rem 0 0; color: var(--sf-text-muted, #667085); }
+.sf-invoice-history-pagination { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+@media (max-width: 640px) { .sf-invoice-document__header, .sf-invoice-parties { grid-template-columns: 1fr; display: grid; } .sf-invoice-document__number { text-align: left; } .sf-invoice-table { font-size: .9rem; } .sf-invoice-history-page__header { display: grid; } }
 @media print { .sf-app-sidebar, .sf-app-header, .sf-app-mobile-nav, .sf-skip-link, .sf-invoice-toolbar { display: none !important; } .sf-app-shell, .sf-app-workspace, .sf-app-main { display: block !important; margin: 0 !important; padding: 0 !important; min-height: 0 !important; } .sf-invoice-page { max-width: none; } .sf-invoice-document { border: 0; border-radius: 0; padding: 0; box-shadow: none; } }
