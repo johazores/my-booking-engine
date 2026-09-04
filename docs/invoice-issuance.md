@@ -2,52 +2,56 @@
 
 ## Purpose
 
-SF separates invoice preparation, jurisdiction readiness, immutable issuance, rendering, PDF projection, adjustment documents, accounting export, and delivery so no browser action or mutable customer/pricing record becomes legal-document authority by accident.
+SF separates invoice preparation, jurisdiction readiness, immutable issuance, rendering, PDF projection, adjustment documents, accounting export, and delivery so browser input or mutable booking/customer data never becomes legal-document authority by accident.
 
-The implemented Australian issuance foundation supports tax invoices plus two narrow source-ordinal-1 decreasing-adjustment reasons: full booking cancellation and one applied price-decreasing commercial amendment. Persistence now also reserves a strict predecessor-chain shape for future repeated commercial amendments without making repeated issuance reachable.
+The Australian foundation supports tax invoices, full-cancellation decreasing adjustment notes, and first commercial-amendment decreasing adjustment notes. A protected internal ordinal-`2+` commercial-amendment write boundary now also exists, but repeated issuance is intentionally not exposed until downstream readers and delivery paths are chain-aware.
 
 ## Persistence
 
-`HospitalityInvoicePreparation` freezes accepted pricing evidence, issuer fingerprint, immutable recipient snapshot/fingerprint, exact money, and preparation fingerprint.
+`HospitalityInvoicePreparation` freezes accepted pricing evidence, issuer fingerprint, recipient snapshot/fingerprint, exact money, and preparation fingerprint.
 
-`HospitalityInvoiceNumberSequence` owns the next integer sequence by `organizationId`, `jurisdictionCode`, and `documentType`. Allocation happens in the same serializable transaction as issued-document creation.
+`HospitalityInvoiceNumberSequence` owns the next integer sequence by organization, jurisdiction, and document type. Allocation occurs inside the same serializable transaction as document creation.
 
 `HospitalityIssuedInvoice` stores immutable tax-invoice identity and evidence.
 
 `HospitalityIssuedAdjustmentNote` is reason- and schema-specific:
 
 - schema version 1 / `BOOKING_CANCELLATION`: one exact `refundTransactionId`, no commercial-amendment/target/predecessor authority, ordinal `1`;
-- schema version 2 / first `COMMERCIAL_AMENDMENT`: no refund transaction, exact `commercialAmendmentId`, exact immutable `targetPricingEvidenceId`, no predecessor authority, ordinal `1`; and
-- schema version 3 / future repeated `COMMERCIAL_AMENDMENT`: same amendment/target authority plus exact immediate-predecessor identity, ordinal `2+`.
+- schema version 2 / first `COMMERCIAL_AMENDMENT`: exact `commercialAmendmentId` and immutable `targetPricingEvidenceId`, no synthetic refund id or predecessor, ordinal `1`; and
+- schema version 3 / repeated `COMMERCIAL_AMENDMENT`: the same amendment/target authority plus exact immediate-predecessor authority, ordinal `2+`.
 
-PostgreSQL preserves the current v1/v2 rows and now adds a structural repeated-chain contract. The composite predecessor self-FK requires the same tenant, booking, original source invoice, adjustment reason, and exact previous ordinal. Unique predecessor authority prevents forks, ordinal checks prevent gaps/self-predecessors, and schema-version-3 JSON/material checks bind the row to persisted predecessor identity and immutable pricing-fingerprint continuity.
+PostgreSQL binds repeated predecessor rows to the same tenant, booking, original source invoice, adjustment reason, and exact previous ordinal. Unique predecessor authority prevents forks; checks prevent gaps and self-predecessors; and schema-version-3 snapshot/material checks preserve predecessor and pricing-fingerprint continuity.
 
-This persistence shape does **not** enable repeated issuance. Current service/read paths still reject ordinal `2+` until they independently revalidate the complete predecessor legal-document chain.
+## Tax-invoice and ordinal-1 issuance
 
-## Server authority
+`issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, and derives sequence, number, issue time, legal snapshot, and fingerprint server-side.
 
-`issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, then derives sequence, number, issue time, legal snapshot, and fingerprint server-side.
+`issueHospitalityCancellationAdjustmentNote` requires `payment:manage`, verifies source invoice, cancellation/refund state, one exact attributed successful full refund, and immutable money. It refuses issuance when another legal adjustment already exists for the source invoice.
 
-`issueHospitalityCancellationAdjustmentNote` requires `payment:manage`, verifies source invoice, cancellation/refund status, one exact attributed successful full refund, and immutable money. It refuses issuance if any legal adjustment already exists for the source invoice.
+`issueHospitalityCommercialAmendmentAdjustmentNote` requires `payment:manage` and remains first-adjustment-only. In a serializable transaction it verifies the source invoice, one exact applied `REFUND` amendment, immutable target pricing evidence, standard-GST before/after values, complete provider-neutral settlement, and first-adjustment exclusivity before allocating the shared `AU / ADJUSTMENT_NOTE` sequence and persisting schema-version-2 evidence.
 
-`issueHospitalityCommercialAmendmentAdjustmentNote` also requires `payment:manage`. Inside a serializable transaction it currently revalidates the source invoice, exact applied `REFUND` amendment, exact immutable target pricing evidence, standard-GST before/after values, complete provider-neutral booking settlement, and first-adjustment exclusivity. It then allocates the shared `AU / ADJUSTMENT_NOTE` sequence, creates/fingerprints schema-version-2 evidence, persists amendment/target authority with no synthetic refund id, writes a safe audit event, and is idempotent by tenant + commercial amendment.
+## Repeated commercial-amendment write boundary
 
-The cumulative readiness domain can already assess a verified predecessor chain and returns the expected next ordinal/chain head. The issuance service does not yet load that chain, so its current behavior remains first-adjustment-only even after the database migration.
+`issueHospitalityRepeatedCommercialAmendmentAdjustmentNote` is the internal ordinal-`2+` production write service. It is not wired to the current API/UI.
 
-The browser supplies only identifiers needed to request a supported operation. Legal reason, GST, currency, money, provider truth, settlement result, parties, ABN, sequence, issue time, fingerprints, and predecessor authority remain server-derived.
+The service requires `payment:manage`, scopes all reads by tenant + booking, rejects non-commercial legal history, and acquires the source-chain advisory lock through `selectVerifiedHospitalityCommercialAmendmentAdjustmentChainHeadForWrite` inside a serializable transaction.
+
+It then reloads the exact amendment and immutable target pricing evidence, derives settlement from the provider-neutral payment ledger, and reruns cumulative Australian readiness with the complete verified predecessor set. The readiness result must match the locked chain head on next ordinal, predecessor id, predecessor document number, and predecessor document fingerprint.
+
+Only then does the service allocate the shared adjustment-note sequence, create schema-version-3 evidence with the exact predecessor document/fingerprint/after-price authority, and persist both immutable snapshot and relational predecessor columns. The complete chain is reloaded before commit; the new row must be the verified head and advance the next expected ordinal exactly once. Idempotency remains commercial-amendment based and supported serialization/uniqueness conflicts use the bounded retry policy.
+
+The browser never supplies legal reason, GST, amount, currency, provider truth, settlement result, parties, ABN, sequence, issue time, fingerprint, or predecessor authority.
 
 ## Authenticated and customer projections
 
-Authenticated staff tax-document reads require `booking:read` plus `payment:read`. Issuance remains a separate `payment:manage` operation.
+Authenticated staff tax-document reads require `booking:read` plus `payment:read`. Issuance is a separate `payment:manage` operation.
 
-Authenticated adjustment-note detail/register, accounting CSV, tax-document reconciliation, and deterministic PDF projection validate both currently issued ordinal-1 adjustment reasons. The shared adjustment read boundary revalidates the complete immutable source tax invoice and then the reason-specific refund or amendment/target-pricing authority before a PDF is generated.
+Current adjustment detail/register, accounting CSV, tax-document reconciliation, deterministic PDF, and public booking-capability history independently validate the two reachable ordinal-1 reasons. They still reject schema-version-3 rows.
 
-Public booking-capability history and PDF delivery also support both current ordinal-1 reasons. Public access derives the active tenant from the organization slug, verifies the encrypted booking capability, persisted booking ownership, unexpired matching public principal, and tenant-owned booking, then revalidates the adjustment row, complete source tax invoice, and reason-specific authority before returning customer-safe data.
+The existing commercial-amendment API route and tax-invoice page continue to use `issueHospitalityCommercialAmendmentAdjustmentNote`, so the new repeated writer cannot create documents through normal product surfaces before downstream support is ready.
 
-Persisted schema-version-3/ordinal-2+ documents remain intentionally unsupported by current readers, accounting/reconciliation, HTML, PDF, and public delivery until full predecessor-chain validation is added. Customer-safe outputs continue to exclude internal fingerprints, actors, provider/payment/refund references, idempotency keys, credentials, and secrets unless a value is legally required on the document itself.
+## Next dependency
 
-## Remaining correction boundaries
+Staff/public adjustment readers, accounting/reconciliation, HTML, and PDF must move to the complete verified-chain boundary. After that validation is in place, availability plus the existing API/UI can safely expose repeated issuance.
 
-The database can now represent a linear repeated commercial-amendment chain, but repeated issuance remains blocked until serializable chain-head selection and full predecessor evidence revalidation are connected through issuance, read, accounting/reconciliation, HTML/PDF, and public delivery.
-
-Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, generic reissue/void workflows, durable re-authenticated customer history, email delivery/resend, universal Unicode-safe PDF rendering, full Node 24/PostgreSQL validation, statutory deadline automation, reviewed disposal/de-identification, and legal review remain separate production work.
+Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, generic reissue/void/correction, durable re-authenticated customer history, email delivery/resend, universal Unicode-safe PDF rendering, production Node 24/PostgreSQL verification, reviewed disposal/de-identification, and jurisdiction/legal review remain separate production work.
