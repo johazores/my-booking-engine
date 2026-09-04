@@ -38,7 +38,9 @@ The first jurisdiction contract is documented in `docs/australian-tax-invoice-co
 
 Issued records remain historical evidence even after later booking changes. They are never edited to reflect a refund or commercial amendment.
 
-The first adjustment contract is documented in `docs/australian-adjustment-notes.md`. It supports only a verified source tax invoice followed by full booking cancellation and one attributed successful full refund. SF creates a separate `AU / ADJUSTMENT_NOTE` number and immutable document rather than rewriting the original invoice. Partial/multiple refunds, commercial-amendment adjustments, and mixed taxability remain unsupported and fail closed.
+The first adjustment contract is documented in `docs/australian-adjustment-notes.md`. It supports only a verified source tax invoice followed by full booking cancellation and one attributed successful full refund. SF creates a separate `AU / ADJUSTMENT_NOTE` number and immutable document rather than rewriting the original invoice. Partial/multiple refunds and mixed taxability remain unsupported and fail closed.
+
+A separate internal commercial-amendment readiness contract is documented in `docs/australian-commercial-amendment-adjustment-readiness.md`. It can prove the first post-invoice applied decreasing amendment only when immutable before/after pricing evidence, standard GST, amendment-owned settlement, chronology, tenant scope, and the source-invoice legal baseline all reconcile. It does not issue or persist a commercial-amendment adjustment note yet; the existing adjustment-note schema still models the single-refund booking-cancellation authority and must be deliberately evolved before that workflow is exposed.
 
 ## Read, PDF, accounting, retention, and reconciliation projections
 
@@ -55,7 +57,7 @@ The tenant-wide tax-invoice and adjustment-note registers are independently pagi
 The Phase 12 legal-document item remains open for:
 
 - richer mixed-taxability semantics when product scope requires them;
-- partial-refund, multiple-refund, commercial-amendment, credit/correction/void/reissue rules beyond the currently supported full-cancellation decreasing adjustment;
+- persisted issuance/read/PDF/accounting/reconciliation for commercial-amendment adjustments, plus partial-refund, multiple-refund, credit/correction/void/reissue rules beyond the currently supported full-cancellation decreasing adjustment;
 - universal Unicode-safe deterministic PDF rendering;
 - durable re-authenticated customer history, email delivery, and resend beyond the current public recovery capability;
 - a reviewed customer-data disposal/de-identification lifecycle and any future accounting-provider integration;
@@ -65,6 +67,6 @@ The Phase 12 legal-document item remains open for:
 
 ## Validation boundary
 
-Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, tax-invoice and adjustment-note accounting CSV behavior, deterministic PDF generation, and the retention/reconciliation result contract. Disposable PostgreSQL suites cover tenant permissions, cross-tenant denial, issuer/preparation persistence, issuance concurrency/idempotency, stale-state rejection, and audit behavior when the guarded database harness can be executed.
+Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, commercial-amendment decreasing-adjustment readiness, tax-invoice and adjustment-note accounting CSV behavior, deterministic PDF generation, and the retention/reconciliation result contract. Disposable PostgreSQL suites cover tenant permissions, cross-tenant denial, issuer/preparation persistence, issuance concurrency/idempotency, stale-state rejection, and audit behavior when the guarded database harness can be executed.
 
 Full repository and live-database validation require the supported Node 24 dependency checkout and an explicitly disposable PostgreSQL target. GitHub Actions are not used.
