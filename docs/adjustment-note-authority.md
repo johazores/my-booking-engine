@@ -36,10 +36,12 @@ Authenticated adjustment-note detail, register, accounting export, and reconcili
 - cancellation reads revalidate the attributed successful full refund; and
 - commercial-amendment reads revalidate the applied amendment plus exact target pricing-evidence row and parsed pricing breakdown against the immutable source baseline and schema-version-2 snapshot.
 
+Public booking-capability reads enforce an independent customer authorization boundary first, then apply the same reason-specific legal evidence checks. Public cancellation reads now also revalidate the refund transaction authority instead of relying only on the persisted adjustment snapshot/source fingerprint. Revoked or expired public principals are rejected before legal-document history is loaded.
+
 Unknown reasons, cross-tenant links, material-column drift, source-invoice drift, stale amendment evidence, malformed target pricing evidence, or broken authority fail closed.
 
-The authenticated HTML renderer and accounting/reconciliation projections support both current authority forms. The deterministic adjustment-note PDF and public booking-capability document projection remain cancellation-only until their commercial-amendment validation/rendering paths are completed; the UI does not present those unavailable outputs as working.
+The authenticated HTML renderer, public customer-safe projection, accounting/reconciliation projections, and deterministic adjustment-note PDF support both current authority forms. The PDF renderer additionally verifies the reason-specific before/after price effect before producing bytes.
 
 ## Validation status
 
-The commercial snapshot domain and shared legal-document projection have dependency-free tests, and changed TypeScript/TSX surfaces are syntax-checked where the current environment permits. Full Node 24 repository validation, Prisma migration verification, PostgreSQL concurrency/integration tests, and jurisdiction/legal review remain required before production enablement is treated as complete.
+The commercial snapshot domain and shared legal-document projection have dependency-free tests. The deterministic adjustment-note PDF suite covers both cancellation and commercial-amendment price effects. Changed TypeScript/TSX surfaces are syntax-checked where the current environment permits. Full Node 24 repository validation, Prisma migration verification, PostgreSQL concurrency/integration tests, universal Unicode-safe PDF support, and jurisdiction/legal review remain required before production enablement is treated as complete.

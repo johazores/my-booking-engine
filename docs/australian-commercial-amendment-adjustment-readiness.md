@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SF has a server-side readiness and issuance contract for the first Australian hospitality **commercial-amendment decreasing adjustment**. The contract remains intentionally narrow so legal-document issuance cannot outrun the immutable evidence model.
+SF has a server-side readiness, issuance, read, PDF, and public-delivery contract for the first Australian hospitality **commercial-amendment decreasing adjustment**. The contract remains intentionally narrow so legal-document behavior cannot outrun the immutable evidence model.
 
 The readiness layer answers whether a previously invoiced booking has enough immutable evidence to support one exact decreasing adjustment. The issuance layer re-runs that evidence inside the serializable write that creates the adjustment note.
 
@@ -74,12 +74,14 @@ The authenticated tax-invoice page exposes the commercial issuance action only t
 
 ## Read and downstream status
 
-Authenticated adjustment-note detail and register reads now support both cancellation and commercial-amendment documents. The shared read boundary revalidates the immutable source invoice and the reason-specific authority server-side. Accounting CSV export and tax-document reconciliation use the same generic validated register, so commercial documents cannot bypass integrity checking.
+Authenticated adjustment-note detail and register reads support both cancellation and commercial-amendment documents. The shared read boundary revalidates the immutable source invoice and the reason-specific authority server-side. Accounting CSV export and tax-document reconciliation use the same generic validated register, so commercial documents cannot bypass integrity checking.
 
-The deterministic adjustment-note PDF and public booking-capability document history remain cancellation-only. Commercial documents are therefore not offered a PDF download or public-customer projection yet. Those are explicit remaining dependencies, not simulated workflows.
+The deterministic adjustment-note PDF now supports the commercial document projection and enforces an exact `before > after` and `before - after = decrease` price effect. Authenticated detail pages therefore expose the same real **Download PDF** action for both current reasons.
+
+Public booking-capability document history and PDF delivery also support commercial adjustment notes. The public service first verifies the tenant slug, encrypted booking capability, persisted booking ownership, unexpired matching public principal, and tenant-owned booking, then fully revalidates the source tax invoice and applied amendment + target-pricing authority before returning customer-safe document data. The public PDF route continues to keep the booking capability out of URLs through same-origin POST.
 
 ## Remaining boundary
 
-This implementation does not define partial, repeated, cumulative, increasing, mixed-taxability, or predecessor-chain adjustments. It also does not complete durable customer re-authentication/email delivery, Unicode-safe PDF rendering, production Node 24/PostgreSQL validation, or jurisdiction/legal review.
+This implementation does not define partial, repeated, cumulative, increasing, mixed-taxability, or predecessor-chain adjustments. It also does not complete durable customer re-authentication/email delivery, Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/PostgreSQL validation, or jurisdiction/legal review.
 
 ATO guidance treats a change in consideration as an adjustment event. SF keeps this implementation narrow and does not treat the code or this document as legal advice; jurisdiction/legal review remains required before commercial-amendment adjustment-note issuance is enabled in production operations.

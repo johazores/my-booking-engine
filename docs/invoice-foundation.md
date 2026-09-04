@@ -13,9 +13,10 @@ SF has a real narrow Australian hospitality tax-document lifecycle rather than o
 7. deterministic tax-invoice PDF projection for losslessly supported legal text;
 8. reason-specific `HospitalityIssuedAdjustmentNote` authority for full booking cancellation and the first supported decreasing commercial amendment;
 9. serializable cancellation and commercial-amendment adjustment-note issuance with immutable schema-versioned evidence;
-10. authenticated adjustment-note detail/register projection for both current adjustment reasons;
-11. tenant registers plus bounded exact-money accounting CSV exports for tax invoices and both current adjustment-note authorities; and
-12. tenant-scoped live integrity reconciliation plus an explicit no-automatic-disposal retention rule for issued legal documents.
+10. authenticated and capability-owned adjustment-note rendering/history for both current adjustment reasons;
+11. deterministic adjustment-note PDF projection for both current reasons where legal text is representable losslessly;
+12. tenant registers plus bounded exact-money accounting CSV exports for tax invoices and both current adjustment-note authorities; and
+13. tenant-scoped live integrity reconciliation plus an explicit no-automatic-disposal retention rule for issued legal documents.
 
 The customer-safe payment receipt remains separate settlement evidence and must never be relabeled as a regulated invoice or adjustment document.
 
@@ -49,9 +50,9 @@ The commercial readiness and issuance contract is documented in `docs/australian
 
 Authenticated issued-document reads require `booking:read` plus `payment:read`. Public reads are limited to the existing encrypted booking capability and independently verify booking ownership and an unexpired matching public principal.
 
-Authenticated adjustment-note detail and register reads support cancellation and commercial-amendment notes. They validate the immutable adjustment row/snapshot/fingerprint, revalidate the complete source tax invoice, then revalidate the reason-specific refund or commercial-amendment/target-pricing authority server-side.
+Authenticated adjustment-note detail/register and public booking-capability history support cancellation and commercial-amendment notes. They validate the immutable adjustment row/snapshot/fingerprint, revalidate the complete source tax invoice, then revalidate the reason-specific refund or commercial-amendment/target-pricing authority server-side.
 
-The deterministic adjustment-note PDF and public booking recovery/history projection remain cancellation-only. Commercial documents do not expose a PDF action or public projection until those paths gain the same reason-specific validation. Tax-invoice deterministic PDF behavior is unchanged. Broader Unicode-safe embedded-font support remains open; see `docs/invoice-pdf.md`.
+The deterministic adjustment-note PDF supports both current adjustment reasons. Cancellation PDFs require the full-cancellation before/after price effect; commercial-amendment PDFs require `before > after` and an exact `before - after = decrease` price effect. Authenticated and public PDF routes consume only the already verified legal-document projection. Broader Unicode-safe embedded-font support remains open; see `docs/invoice-pdf.md`.
 
 Tenant-wide tax-invoice and adjustment-note registers are independently paginated. Accounting CSV generation revalidates every included legal document, exact decimal money strings are used, mutable/secret/provider/refund-reference data is excluded, and synchronous exports larger than 5,000 rows fail closed rather than returning partial data.
 
@@ -61,7 +62,6 @@ Tenant-wide tax-invoice and adjustment-note registers are independently paginate
 
 The Phase 12 legal-document item remains open for:
 
-- commercial-amendment deterministic PDF and public booking-capability document projection;
 - partial/multiple/cumulative adjustment semantics, mixed taxability, and generic correction/void/reissue rules;
 - universal Unicode-safe deterministic PDF rendering;
 - durable re-authenticated customer history, email delivery, and resend beyond the current public recovery capability;
@@ -72,7 +72,7 @@ The Phase 12 legal-document item remains open for:
 
 ## Validation boundary
 
-Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, commercial-amendment decreasing-adjustment readiness, schema-version-2 commercial adjustment evidence, shared adjustment document projection, tax-invoice/adjustment accounting CSV behavior, deterministic cancellation PDF generation, and the retention/reconciliation result contract.
+Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, commercial-amendment decreasing-adjustment readiness, schema-version-2 commercial adjustment evidence, shared adjustment document projection, tax-invoice/adjustment accounting CSV behavior, deterministic cancellation and commercial-amendment PDF generation, and the retention/reconciliation result contract.
 
 Disposable PostgreSQL suites remain the required validation surface for tenant permissions, cross-tenant denial, schema migration behavior, issuance concurrency/idempotency, stale-state rejection, and audit behavior when the guarded database harness can be executed.
 

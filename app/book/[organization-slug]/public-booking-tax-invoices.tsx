@@ -43,7 +43,7 @@ type PublicAdjustmentNote = {
   buyer: InvoiceParty;
   supplierAbn: string;
   adjustmentType: 'Decreasing adjustment';
-  adjustmentReason: 'Booking cancellation';
+  adjustmentReason: 'Booking cancellation' | 'Commercial booking amendment';
   priceBeforeAdjustmentMinor: string;
   priceAfterAdjustmentMinor: string;
   decreaseSubtotalMinor: string;
@@ -101,6 +101,12 @@ function downloadPath(organizationSlug: string, documentNumber: string, kind: Do
 
 function downloadLabel(kind: DownloadDocumentKind) {
   return kind === 'tax-invoice' ? 'tax invoice' : 'adjustment note';
+}
+
+function adjustmentNoteStatement(reason: PublicAdjustmentNote['adjustmentReason']) {
+  return reason === 'Booking cancellation'
+    ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.'
+    : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.';
 }
 
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {
@@ -296,7 +302,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
                 <div><dt>GST decrease</dt><dd>{formatMinor(note.decreaseGstMinor, note.currency)}</dd></div>
                 <div className="sf-public-invoice__total"><dt>Total decrease incl. GST</dt><dd>{formatMinor(note.decreaseTotalMinor, note.currency)}</dd></div>
               </dl>
-              <p className="sf-public-booking__contact-note">This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.</p>
+              <p className="sf-public-booking__contact-note">{adjustmentNoteStatement(note.adjustmentReason)}</p>
               <div className="sf-public-invoice__actions">
                 <button type="button" className="sf-public-invoice__print-button" onClick={() => void downloadPdf(note.documentNumber, 'adjustment-note')} disabled={Boolean(downloadingDocumentNumber)} aria-busy={downloading || undefined}>
                   {downloading ? 'Preparing PDF…' : 'Download PDF'}

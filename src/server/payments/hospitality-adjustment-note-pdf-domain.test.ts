@@ -25,7 +25,18 @@ const base = {
   decreaseTotalMinor: '11000',
 };
 
-test('renders byte-for-byte deterministic adjustment-note PDF with immutable identities', () => {
+const commercial = {
+  ...base,
+  documentNumber: 'AU-ADJ-00000008',
+  adjustmentReason: 'Commercial booking amendment' as const,
+  priceBeforeAdjustmentMinor: '11000',
+  priceAfterAdjustmentMinor: '8800',
+  decreaseSubtotalMinor: '2000',
+  decreaseGstMinor: '200',
+  decreaseTotalMinor: '2200',
+};
+
+test('renders byte-for-byte deterministic cancellation adjustment-note PDF with immutable identities', () => {
   const first = createHospitalityAdjustmentNotePdf(base);
   const second = createHospitalityAdjustmentNotePdf(structuredClone(base));
   assert.deepEqual(first, second);
@@ -35,6 +46,16 @@ test('renders byte-for-byte deterministic adjustment-note PDF with immutable ide
   assert.match(first.toString('ascii'), /41552D5441582D3030303030303432/);
   assert.match(first.toString('ascii'), /41646A7573746D656E74206E6F7465/);
   assert.doesNotMatch(first.toString('utf8'), /guest@example\.com/);
+});
+
+test('renders byte-for-byte deterministic commercial-amendment adjustment-note PDF', () => {
+  const first = createHospitalityAdjustmentNotePdf(commercial);
+  const second = createHospitalityAdjustmentNotePdf(structuredClone(commercial));
+  assert.deepEqual(first, second);
+  assert.equal(first.subarray(0, 8).toString('ascii'), '%PDF-1.4');
+  assert.match(first.toString('ascii'), /436F6D6D65726369616C20626F6F6B696E6720616D656E646D656E74/);
+  assert.match(first.toString('ascii'), /4155442038382E3030/);
+  assert.match(first.toString('ascii'), /4155442032322E3030/);
 });
 
 test('fails closed rather than corrupting unsupported legal text', () => {
@@ -55,9 +76,24 @@ test('rejects inconsistent cancellation price effects and totals', () => {
   );
 });
 
-test('rejects non-AUD and impossible source-document chronology', () => {
+test('rejects inconsistent commercial-amendment price effects', () => {
+  assert.throws(
+    () => createHospitalityAdjustmentNotePdf({ ...commercial, priceAfterAdjustmentMinor: '8700' }),
+    HospitalityAdjustmentNotePdfValidationError,
+  );
+  assert.throws(
+    () => createHospitalityAdjustmentNotePdf({ ...commercial, priceAfterAdjustmentMinor: '11000' }),
+    HospitalityAdjustmentNotePdfValidationError,
+  );
+});
+
+test('rejects non-AUD, unknown reasons, and impossible source-document chronology', () => {
   assert.throws(
     () => createHospitalityAdjustmentNotePdf({ ...base, currency: 'USD' }),
+    HospitalityAdjustmentNotePdfValidationError,
+  );
+  assert.throws(
+    () => createHospitalityAdjustmentNotePdf({ ...base, adjustmentReason: 'Manual correction' as never }),
     HospitalityAdjustmentNotePdfValidationError,
   );
   assert.throws(

@@ -55,7 +55,7 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
     <div className="sf-invoice-toolbar">
       <Link className="sf-button sf-button--secondary" href={`/invoices/${encodeURIComponent(document.sourceTaxInvoiceNumber)}`}>Back to tax invoice</Link>
       <Link className="sf-button sf-button--secondary" href={`/bookings/${document.bookingId}`}>View booking</Link>
-      {cancellationAdjustment ? <a className="sf-button sf-button--secondary" href={pdfHref} download={`${document.documentNumber}.pdf`}>Download PDF</a> : null}
+      <a className="sf-button sf-button--secondary" href={pdfHref} download={`${document.documentNumber}.pdf`}>Download PDF</a>
       <PrintInvoiceAction />
     </div>
     <article className="sf-invoice-document" aria-labelledby="adjustment-note-title">

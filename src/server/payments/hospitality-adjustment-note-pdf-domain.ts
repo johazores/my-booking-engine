@@ -47,7 +47,7 @@ export type HospitalityAdjustmentNotePdfDocument = Readonly<{
   buyer: PdfParty;
   supplierAbn: string;
   adjustmentType: 'Decreasing adjustment';
-  adjustmentReason: 'Booking cancellation';
+  adjustmentReason: 'Booking cancellation' | 'Commercial booking amendment';
   priceBeforeAdjustmentMinor: string;
   priceAfterAdjustmentMinor: string;
   decreaseSubtotalMinor: string;
@@ -170,7 +170,9 @@ function validateDocument(document: HospitalityAdjustmentNotePdfDocument) {
   if (document.currency !== 'AUD') throw new HospitalityAdjustmentNotePdfValidationError('Deterministic adjustment-note PDF currently supports AUD only.');
   if (!/^\d{11}$/.test(document.supplierAbn)) throw new HospitalityAdjustmentNotePdfValidationError('supplierAbn is invalid.');
   if (document.adjustmentType !== 'Decreasing adjustment') throw new HospitalityAdjustmentNotePdfValidationError('adjustmentType is invalid.');
-  if (document.adjustmentReason !== 'Booking cancellation') throw new HospitalityAdjustmentNotePdfValidationError('adjustmentReason is invalid.');
+  if (document.adjustmentReason !== 'Booking cancellation' && document.adjustmentReason !== 'Commercial booking amendment') {
+    throw new HospitalityAdjustmentNotePdfValidationError('adjustmentReason is invalid.');
+  }
 
   assertText(document.seller.legalName, 'seller legalName', 200);
   assertText(document.buyer.legalName, 'buyer legalName', 200);
@@ -200,8 +202,12 @@ function validateDocument(document: HospitalityAdjustmentNotePdfDocument) {
   if (decreaseSubtotal + decreaseGst !== decreaseTotal) {
     throw new HospitalityAdjustmentNotePdfValidationError('Adjustment-note totals do not reconcile.');
   }
-  if (priceBefore !== decreaseTotal || priceAfter !== 0n) {
-    throw new HospitalityAdjustmentNotePdfValidationError('Cancellation adjustment price effect is inconsistent.');
+  if (document.adjustmentReason === 'Booking cancellation') {
+    if (priceBefore !== decreaseTotal || priceAfter !== 0n) {
+      throw new HospitalityAdjustmentNotePdfValidationError('Cancellation adjustment price effect is inconsistent.');
+    }
+  } else if (priceBefore <= priceAfter || priceBefore - priceAfter !== decreaseTotal) {
+    throw new HospitalityAdjustmentNotePdfValidationError('Commercial-amendment adjustment price effect is inconsistent.');
   }
   return documentNumber;
 }
@@ -288,7 +294,9 @@ function createContentPages(document: HospitalityAdjustmentNotePdfDocument) {
   composer.add(`GST decrease: ${formatAudMinor(document.decreaseGstMinor)}`, { bold: true });
   composer.add(`Total decrease incl. GST: ${formatAudMinor(document.decreaseTotalMinor)}`, { bold: true, gapAfter: 8 });
   composer.addWrapped(
-    'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.',
+    document.adjustmentReason === 'Booking cancellation'
+      ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
+      : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.',
     82,
     { size: PDF_SMALL_FONT_SIZE },
   );

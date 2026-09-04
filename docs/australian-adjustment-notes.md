@@ -76,7 +76,9 @@ Unknown authority, cross-tenant links, stale/malformed evidence, source-invoice 
 
 The authenticated HTML adjustment-note document supports both current reasons and clearly shows the source tax invoice, reason, before/after amount, and exact GST decrease.
 
-The deterministic server PDF and public booking-capability document projection remain cancellation-only. Commercial adjustment notes therefore do not display a PDF action and are not exposed through public recovery/history yet. Those paths must be expanded with the same reason-specific integrity checks before being enabled.
+The deterministic server PDF also supports both current reasons. It keeps cancellation semantics strict (`before = decrease`, `after = 0`) and commercial-amendment semantics strict (`before > after`, `before - after = decrease`), uses exact AUD minor units, and emits reason-specific explanatory text from the verified immutable document projection. Unsupported legal text continues to fail closed under the current WinAnsi font contract.
+
+Public booking-capability history and PDF delivery support both reasons. Public reads first verify the organization slug, encrypted booking capability, persisted booking ownership, unexpired matching public principal, and tenant-owned booking. They then revalidate each adjustment row, the complete immutable source tax invoice, and the reason-specific refund or commercial-amendment/target-pricing authority before exposing the customer-safe projection. Provider references, refund IDs, amendment IDs, target evidence IDs, fingerprints, actors, credentials, and secrets remain server-only.
 
 ## Unsupported adjustments
 
@@ -84,4 +86,4 @@ Partial refunds, repeated/multiple adjustments, cumulative predecessor chains, i
 
 ## Legal and operational boundary
 
-Australian Taxation Office guidance treats cancellation or a change in consideration as an adjustment event. SF does not treat this implementation or documentation as legal advice. Durable customer authentication/history, email/resend, commercial-amendment deterministic PDF/public delivery, universal Unicode-safe PDF support, production Node 24/PostgreSQL verification, and jurisdiction/legal review remain separate production work.
+Australian Taxation Office guidance treats cancellation or a change in consideration as an adjustment event. SF does not treat this implementation or documentation as legal advice. Durable customer authentication/history, email/resend, universal Unicode-safe PDF support, production Node 24/PostgreSQL verification, reviewed disposal/de-identification, and jurisdiction/legal review remain separate production work.

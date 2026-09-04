@@ -31,13 +31,13 @@ PostgreSQL enforces the supported authority shape, source-invoice/ordinal unique
 
 The browser supplies only identifiers needed to request the operation. Legal reason, GST, currency, money, provider truth, settlement result, parties, ABN, sequence, issue time, and fingerprints remain server-derived.
 
-## Authenticated read and downstream projections
+## Authenticated and customer projections
 
 Authenticated staff tax-document reads require `booking:read` plus `payment:read`. Issuance remains a separate `payment:manage` operation.
 
-Authenticated adjustment-note detail/register, accounting CSV, and tax-document reconciliation now validate both supported adjustment reasons. The shared adjustment read boundary revalidates the complete immutable source tax invoice and then the reason-specific refund or amendment/target-pricing authority.
+Authenticated adjustment-note detail/register, accounting CSV, tax-document reconciliation, and deterministic PDF projection validate both supported adjustment reasons. The shared adjustment read boundary revalidates the complete immutable source tax invoice and then the reason-specific refund or amendment/target-pricing authority before a PDF is generated.
 
-The deterministic adjustment-note PDF and public booking-capability document projection remain cancellation-only. Commercial adjustment notes are not offered through those paths until the same integrity contract is implemented there. Tax-invoice PDF/public behavior and existing cancellation PDF/public behavior remain unchanged.
+Public booking-capability history and PDF delivery also support both current adjustment reasons. Public access derives the active tenant from the organization slug, verifies the encrypted booking capability, persisted booking ownership, unexpired matching public principal, and tenant-owned booking, then revalidates the adjustment row, complete source tax invoice, and reason-specific refund or commercial-amendment authority before returning customer-safe data. Revoked/expired ownership is checked before document history is loaded.
 
 Customer-safe outputs continue to exclude internal fingerprints, actors, provider/payment/refund references, idempotency keys, credentials, and secrets unless a value is legally required on the document itself.
 
@@ -45,4 +45,4 @@ Customer-safe outputs continue to exclude internal fingerprints, actors, provide
 
 The current `sourceAdjustmentOrdinal = 1` rule explicitly blocks cumulative/multiple adjustments until SF defines how prior legal adjustments change the baseline for a later note.
 
-Partial refunds, multiple/cumulative adjustments, mixed taxability, generic reissue/void workflows, durable re-authenticated customer history, email delivery/resend, commercial-amendment public/PDF delivery, universal Unicode-safe PDF rendering, full Node 24/PostgreSQL validation, statutory deadline automation, reviewed disposal/de-identification, and legal review remain separate production work.
+Partial refunds, multiple/cumulative adjustments, mixed taxability, generic reissue/void workflows, durable re-authenticated customer history, email delivery/resend, universal Unicode-safe PDF rendering, full Node 24/PostgreSQL validation, statutory deadline automation, reviewed disposal/de-identification, and legal review remain separate production work.

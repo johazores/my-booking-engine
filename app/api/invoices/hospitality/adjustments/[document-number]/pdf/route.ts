@@ -2,7 +2,7 @@ import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityB
 import {
   HospitalityIssuedAdjustmentNotePersistenceError,
   HospitalityIssuedAdjustmentNoteUnavailableError,
-  getHospitalityIssuedCancellationAdjustmentNoteDocument,
+  getHospitalityIssuedAdjustmentNoteDocument,
 } from '@/server/payments/hospitality-issued-adjustment-note-read-service.ts';
 import {
   HospitalityAdjustmentNotePdfValidationError,
@@ -17,7 +17,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (apiContext.response) return apiContext.response;
 
     const { 'document-number': rawDocumentNumber } = await context.params;
-    const document = await getHospitalityIssuedCancellationAdjustmentNoteDocument({
+    const document = await getHospitalityIssuedAdjustmentNoteDocument({
       organizationId: apiContext.organizationId,
       actorUserId: apiContext.actorUserId,
       documentNumber: decodeURIComponent(rawDocumentNumber),
