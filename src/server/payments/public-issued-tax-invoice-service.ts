@@ -233,6 +233,8 @@ function customerAdjustmentDocument(document: ReturnType<typeof createHospitalit
     supplierAbn: document.supplierAbn,
     adjustmentType: document.adjustmentType,
     adjustmentReason: document.adjustmentReason,
+    priceBeforeAdjustmentMinor: document.priceBeforeAdjustmentMinor,
+    priceAfterAdjustmentMinor: document.priceAfterAdjustmentMinor,
     decreaseSubtotalMinor: document.decreaseSubtotalMinor,
     decreaseGstMinor: document.decreaseGstMinor,
     decreaseTotalMinor: document.decreaseTotalMinor,
