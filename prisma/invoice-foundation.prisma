@@ -98,9 +98,9 @@ model HospitalityIssuedAdjustmentNote {
   organizationId           String   @db.Uuid
   bookingId                String   @db.Uuid
   sourceInvoiceId          String   @db.Uuid
-  refundTransactionId      String?  @db.Uuid
-  commercialAmendmentId    String?  @db.Uuid
-  targetPricingEvidenceId  String?  @db.Uuid
+  refundTransactionId      String?  @unique(map: "hospitality_adj_notes_refund_transaction_key") @db.Uuid
+  commercialAmendmentId    String?  @unique(map: "hospitality_adj_notes_commercial_amendment_key") @db.Uuid
+  targetPricingEvidenceId  String?  @unique(map: "hospitality_adj_notes_target_pricing_key") @db.Uuid
   sourceAdjustmentOrdinal  Int      @default(1)
   jurisdictionCode         String   @db.VarChar(16)
   documentType             String   @db.VarChar(32)
@@ -121,9 +121,6 @@ model HospitalityIssuedAdjustmentNote {
   createdAt                DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
-  @@unique([organizationId, refundTransactionId])
-  @@unique([organizationId, commercialAmendmentId])
-  @@unique([organizationId, targetPricingEvidenceId])
   @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal])
   @@unique([organizationId, jurisdictionCode, documentNumber])
   @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
