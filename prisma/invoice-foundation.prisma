@@ -94,33 +94,36 @@ model HospitalityIssuedInvoice {
 }
 
 model HospitalityIssuedAdjustmentNote {
-  id                       String   @id @default(uuid()) @db.Uuid
-  organizationId           String   @db.Uuid
-  bookingId                String   @db.Uuid
-  sourceInvoiceId          String   @db.Uuid
-  refundTransactionId      String?  @unique(map: "hospitality_adj_notes_refund_transaction_key") @db.Uuid
-  commercialAmendmentId    String?  @unique(map: "hospitality_adj_notes_commercial_amendment_key") @db.Uuid
-  targetPricingEvidenceId  String?  @unique(map: "hospitality_adj_notes_target_pricing_key") @db.Uuid
-  sourceAdjustmentOrdinal  Int      @default(1)
-  jurisdictionCode         String   @db.VarChar(16)
-  documentType             String   @db.VarChar(32)
-  documentNumber           String   @db.VarChar(64)
-  sequenceValue            BigInt   @db.BigInt
-  issuedByUserId           String   @db.Uuid
-  issuedAt                 DateTime @db.Timestamptz(6)
-  currency                 String   @db.Char(3)
-  adjustmentReason         String   @db.VarChar(32)
-  decreaseSubtotalMinor    BigInt   @db.BigInt
-  decreaseTaxMinor         BigInt   @db.BigInt
-  decreaseTotalMinor       BigInt   @db.BigInt
-  sourceInvoiceFingerprint String   @db.Char(64)
-  issuerFingerprint        String   @db.Char(64)
-  recipientFingerprint     String   @db.Char(64)
-  documentFingerprint      String   @db.Char(64)
-  documentSnapshot         Json
-  createdAt                DateTime @default(now()) @db.Timestamptz(6)
+  id                                 String   @id @default(uuid()) @db.Uuid
+  organizationId                     String   @db.Uuid
+  bookingId                          String   @db.Uuid
+  sourceInvoiceId                    String   @db.Uuid
+  refundTransactionId                String?  @unique(map: "hospitality_adj_notes_refund_transaction_key") @db.Uuid
+  commercialAmendmentId              String?  @unique(map: "hospitality_adj_notes_commercial_amendment_key") @db.Uuid
+  targetPricingEvidenceId            String?  @unique(map: "hospitality_adj_notes_target_pricing_key") @db.Uuid
+  predecessorAdjustmentNoteId        String?  @unique(map: "hospitality_adj_notes_predecessor_key") @db.Uuid
+  predecessorSourceAdjustmentOrdinal Int?
+  sourceAdjustmentOrdinal            Int      @default(1)
+  jurisdictionCode                   String   @db.VarChar(16)
+  documentType                       String   @db.VarChar(32)
+  documentNumber                     String   @db.VarChar(64)
+  sequenceValue                      BigInt   @db.BigInt
+  issuedByUserId                     String   @db.Uuid
+  issuedAt                           DateTime @db.Timestamptz(6)
+  currency                           String   @db.Char(3)
+  adjustmentReason                   String   @db.VarChar(32)
+  decreaseSubtotalMinor              BigInt   @db.BigInt
+  decreaseTaxMinor                   BigInt   @db.BigInt
+  decreaseTotalMinor                 BigInt   @db.BigInt
+  sourceInvoiceFingerprint           String   @db.Char(64)
+  issuerFingerprint                  String   @db.Char(64)
+  recipientFingerprint               String   @db.Char(64)
+  documentFingerprint                String   @db.Char(64)
+  documentSnapshot                   Json
+  createdAt                          DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal, adjustmentReason], map: "hospitality_adj_notes_chain_reference_key")
   @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal])
   @@unique([organizationId, jurisdictionCode, documentNumber])
   @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])

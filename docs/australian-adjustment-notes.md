@@ -37,68 +37,66 @@ The immutable schema-version-2 document keeps the exact `commercialAmendmentId` 
 
 ## Repeated commercial-amendment readiness foundation
 
-The domain layer now has an explicit cumulative predecessor-chain contract for future repeated decreasing commercial amendments. It can assess a second or later amendment only when the caller supplies the complete already-verified legal chain.
+The domain layer has an explicit cumulative predecessor-chain contract for future repeated decreasing commercial amendments. It can assess a second or later amendment only when the caller supplies the complete already-verified legal chain.
 
 That chain must be linear and contiguous from source ordinal `1`; preserve unique adjustment/document identity; move forward chronologically; begin from the immutable source tax-invoice price; link each predecessor after-price exactly to the next predecessor before-price; preserve fully taxable standard GST for every decrease; and finish at the new amendment before-price. The assessment returns the expected next ordinal and immediate predecessor identity only after the chain passes.
 
-This does not enable repeated issuance. Current services still pass only the count of prior adjustment notes, so the domain deliberately returns a blocking requirement when prior documents exist without complete verified chain evidence.
+Current issuance still does not supply that predecessor-chain evidence, so a source invoice with an existing adjustment continues to fail closed. The persisted chain foundation described below removes the database-shape blocker without making repeated issuance reachable.
 
 ## Immutable repeated-document contract
 
 First commercial-amendment documents remain schema version 2 and ordinal `1`.
 
-The commercial snapshot domain now also defines schema version 3 for a future repeated commercial-amendment adjustment note. A schema-version-3 snapshot requires ordinal `2` or greater and binds the immediate predecessor adjustment-note id, document number, issue timestamp, document fingerprint, and predecessor after-pricing fingerprint. The latter must equal the new document before-pricing fingerprint.
+The commercial snapshot domain defines schema version 3 for a future repeated commercial-amendment adjustment note. A schema-version-3 snapshot requires ordinal `2` or greater and binds the immediate predecessor adjustment-note id, document number, issue timestamp, document fingerprint, and predecessor after-pricing fingerprint. The latter must equal the new document before-pricing fingerprint.
 
-The schema-version-3 parser fails closed on missing predecessor evidence, ordinal gaps, chronology errors, self-predecessor document numbers, malformed fingerprints, hidden predecessor fields in schema version 2, and predecessor/before-pricing mismatch. The predecessor evidence is part of the canonical document fingerprint, so it cannot be changed without changing the legal-document fingerprint.
+The schema-version-3 parser fails closed on missing predecessor evidence, ordinal gaps, chronology errors, self-predecessor document numbers, malformed fingerprints, hidden predecessor fields in schema version 2, and predecessor/before-pricing mismatch. Predecessor evidence participates in the canonical document fingerprint.
 
 ## Persistence and database integrity
 
-`HospitalityIssuedAdjustmentNote` still carries nullable cancellation/commercial authority columns plus `sourceAdjustmentOrdinal`. PostgreSQL currently fixes the ordinal to `1` and enforces one `(organizationId, sourceInvoiceId, sourceAdjustmentOrdinal)` record. There is not yet a persisted predecessor-adjustment relation.
+`HospitalityIssuedAdjustmentNote` now has explicit nullable predecessor authority:
 
-The database independently enforces the current issued contract:
+- `predecessorAdjustmentNoteId` identifies the immediate predecessor legal document;
+- `predecessorSourceAdjustmentOrdinal` freezes the ordinal expected on that predecessor; and
+- `sourceAdjustmentOrdinal` remains unique within the tenant + source invoice.
 
-- AU/AUD adjustment-note identity and numbering shape;
-- reason-specific authority exclusivity;
-- source ordinal `1`;
-- tenant + booking composite foreign keys to source invoice and reason-specific authority;
-- schema-version-1 cancellation versus schema-version-2 commercial snapshot shape;
-- material decrease/fingerprint agreement; and
-- commercial before/after standard-GST reconciliation inside the immutable snapshot.
+PostgreSQL preserves all existing ordinal-1 cancellation/schema-version-1 and commercial/schema-version-2 rows. Repeated commercial rows are structurally allowed only at ordinal `2` or greater and must use schema version 3.
 
-Schema version 3 is therefore domain-only readiness. It cannot be persisted or issued until a migration adds same-tenant/same-booking/same-source predecessor authority, no-fork protection, contiguous ordinal checks, and schema-version-3 JSON/material-column constraints.
+The cumulative-chain migration independently enforces:
 
-## Authorization and issuance
+- the immediate predecessor belongs to the same booking, organization, original source invoice, adjustment reason, and exact predecessor ordinal through one composite self foreign key;
+- ordinal continuity through `predecessorSourceAdjustmentOrdinal = sourceAdjustmentOrdinal - 1`;
+- no self-predecessor;
+- one-successor/no-fork semantics through a unique predecessor id;
+- cancellation remains ordinal `1` with no predecessor authority;
+- first commercial adjustment remains ordinal `1` with no predecessor authority;
+- repeated commercial adjustment requires predecessor authority and schema-version-3 snapshot identity; and
+- schema-version-3 JSON binds the persisted predecessor id and preserves exact before/after standard-GST decrease checks, including predecessor-after/before pricing-fingerprint continuity inside the immutable snapshot.
+
+The database does not make repeated issuance reachable by itself. Application read/issuance code must still revalidate the actual predecessor immutable document number, issue time, document fingerprint, after-pricing fingerprint, amendment authority, and complete chain before accepting or exposing a repeated legal document.
+
+## Authorization and current issuance
 
 Both current issuance paths require `payment:manage`. The browser cannot supply legal seller/buyer identity, ABN, reason, GST, money, sequence, provider truth, fingerprints, or settlement authority.
 
-First commercial-amendment issuance re-runs readiness inside a serializable transaction, binds the exact amendment + target-pricing identities, allocates the shared `AU / ADJUSTMENT_NOTE` sequence atomically, creates the schema-version-2 snapshot/fingerprint, writes a safe audit event, and is idempotent by commercial-amendment authority. Concurrent first-adjustment issuance remains protected by the tenant/source/ordinal unique contract plus serializable retry handling.
+First commercial-amendment issuance re-runs readiness inside a serializable transaction, binds the exact amendment + target-pricing identities, allocates the shared `AU / ADJUSTMENT_NOTE` sequence atomically, creates the schema-version-2 snapshot/fingerprint, writes a safe audit event, and is idempotent by commercial-amendment authority.
 
-The authenticated tax-invoice page exposes a real commercial-amendment issuance action only when one unambiguous first amendment is ready. Existing cancellation issuance retains priority when its supported event is available, avoiding competing legal-document primary actions. No repeated-adjustment primary action exists.
+The authenticated tax-invoice page exposes a real commercial-amendment issuance action only when one unambiguous first amendment is ready. Existing cancellation issuance retains priority when its supported event is available. No repeated-adjustment primary action exists.
 
 ## Authenticated reads, accounting, and reconciliation
 
-Authenticated adjustment-note reads require both `booking:read` and `payment:read` and support both current issued reasons. The shared read boundary validates:
+Authenticated adjustment-note reads require both `booking:read` and `payment:read` and support the two currently issued ordinal-1 reasons. The shared read boundary validates persisted row, immutable snapshot/material columns/fingerprint, the complete immutable source tax invoice, and reason-specific authority.
 
-- persisted row, schema-version-specific snapshot, material columns, and document fingerprint;
-- the complete immutable source tax invoice;
-- cancellation refund authority for cancellation notes; or
-- applied amendment + exact target pricing evidence for first commercial-amendment notes.
-
-The authenticated adjustment register and detail page use that shared validated projection. Accounting CSV export also uses it, and tenant tax-document reconciliation validates the complete current adjustment-note register.
-
-Unknown authority, cross-tenant links, stale/malformed evidence, source-invoice drift, unsupported repeated persistence, or unsupported document reason fail closed.
+The authenticated adjustment register, detail page, accounting CSV export, and tenant tax-document reconciliation continue to fail closed on unsupported repeated persistence until their predecessor-chain validation is implemented. The new database shape must not be interpreted as downstream read support.
 
 ## Customer document and PDF boundary
 
-The authenticated HTML adjustment-note document supports both current issued reasons and clearly shows the source tax invoice, reason, before/after amount, and exact GST decrease.
+The authenticated HTML adjustment-note document and deterministic server PDF support the two current ordinal-1 reasons. Public booking-capability history and PDF delivery use the same reason-specific legal evidence checks after independent customer authorization.
 
-The deterministic server PDF also supports both current issued reasons. It keeps cancellation semantics strict (`before = decrease`, `after = 0`) and first commercial-amendment semantics strict (`before > after`, `before - after = decrease`), uses exact AUD minor units, and emits reason-specific explanatory text from the verified immutable document projection. Unsupported legal text continues to fail closed under the current WinAnsi font contract.
-
-Public booking-capability history and PDF delivery support both current issued reasons. Public reads first verify the organization slug, encrypted booking capability, persisted booking ownership, unexpired matching public principal, and tenant-owned booking. They then revalidate each adjustment row, the complete immutable source tax invoice, and the reason-specific refund or first-commercial-amendment/target-pricing authority before exposing the customer-safe projection. Provider references, refund IDs, amendment IDs, target evidence IDs, fingerprints, actors, credentials, and secrets remain server-only.
+Repeated schema-version-3 HTML/PDF/public delivery remains unavailable until the read boundary validates the persisted predecessor chain end to end. Provider references, payment transaction ids, amendment ids, target evidence ids, fingerprints, actors, credentials, and secrets remain server-only on customer-safe projections.
 
 ## Unsupported adjustments
 
-Repeated/cumulative adjustment **issuance** remains unsupported even though its domain and immutable-snapshot contracts are now defined. Partial adjustments, increasing adjustments, cancellation-after-amendment semantics, mixed taxability, arbitrary staff-entered reasons, generic reissue/void/correction workflows, non-AUD documents, and other jurisdictions also remain unsupported and must fail closed.
+Repeated/cumulative adjustment **issuance and delivery** remain unsupported even though the domain, immutable snapshot, and database-chain contracts now exist. Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, arbitrary staff-entered reasons, generic reissue/void/correction workflows, non-AUD documents, and other jurisdictions also remain unsupported and must fail closed.
 
 ## Legal and operational boundary
 
