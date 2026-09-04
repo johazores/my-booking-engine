@@ -8,17 +8,20 @@ export function CommercialAmendmentAdjustmentNoteAction({
   commercialAmendmentId,
   sourceInvoiceDocumentNumber,
   sourceAdjustmentOrdinal,
+  adjustmentType,
 }: {
   bookingId: string;
   commercialAmendmentId: string;
   sourceInvoiceDocumentNumber: string;
   sourceAdjustmentOrdinal: number;
+  adjustmentType: 'DECREASING' | 'INCREASING';
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const repeated = sourceAdjustmentOrdinal > 1;
+  const increasing = adjustmentType === 'INCREASING';
+  const repeated = adjustmentType === 'DECREASING' && sourceAdjustmentOrdinal > 1;
 
   async function issueAdjustmentNote() {
     setSubmitting(true);
@@ -47,15 +50,20 @@ export function CommercialAmendmentAdjustmentNoteAction({
 
   if (!confirming) {
     return <button className="sf-button" type="button" onClick={() => setConfirming(true)}>
-      {repeated ? 'Issue next amendment adjustment note' : 'Issue amendment adjustment note'}
+      {increasing
+        ? 'Issue increase adjustment note'
+        : repeated
+          ? 'Issue next amendment adjustment note'
+          : 'Issue amendment adjustment note'}
     </button>;
   }
 
   return <div className="sf-empty-state" role="group" aria-labelledby="issue-commercial-adjustment-note-title">
     <h3 id="issue-commercial-adjustment-note-title">Confirm adjustment-note issuance</h3>
     <p>
-      This permanently binds the applied price decrease and its immutable pricing evidence to this tax invoice,
-      then allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.
+      {increasing
+        ? 'This permanently binds the applied price increase and its immutable pricing evidence to this tax invoice, then allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.'
+        : 'This permanently binds the applied price decrease and its immutable pricing evidence to this tax invoice, then allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.'}
     </p>
     {repeated ? <p>
       This will become adjustment {sourceAdjustmentOrdinal} in the verified legal-document chain for the source tax invoice.

@@ -5,7 +5,7 @@ import {
 } from '@/server/bookings/hospitality-booking-http.ts';
 import {
   issueHospitalityNextCommercialAmendmentAdjustmentNote,
-} from '@/server/payments/hospitality-commercial-amendment-adjustment-orchestration-service.ts';
+} from '@/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts';
 import {
   HospitalityCommercialAmendmentAdjustmentNoteConflictError,
   HospitalityCommercialAmendmentAdjustmentNotePersistenceError,
@@ -59,7 +59,9 @@ export async function POST(
       documentNumber: issued.documentNumber,
       issuedAt: issued.issuedAt,
       currency: issued.currency,
+      adjustmentType: issued.adjustmentType,
       decreaseTotalMinor: issued.decreaseTotalMinor,
+      increaseTotalMinor: issued.increaseTotalMinor,
       sourceAdjustmentOrdinal: issued.sourceAdjustmentOrdinal,
     });
   } catch (error) {

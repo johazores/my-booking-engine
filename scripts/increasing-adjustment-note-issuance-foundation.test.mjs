@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const writer = readFileSync('src/server/payments/hospitality-commercial-amendment-increasing-adjustment-note-service.ts', 'utf8');
+const productOrchestration = readFileSync('src/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts', 'utf8');
 const route = readFileSync('app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/adjustment-note/route.ts', 'utf8');
 
 test('increasing adjustment-note writer is tenant-authorized and serializable', () => {
@@ -44,7 +45,11 @@ test('writer remains idempotent by tenant-owned commercial amendment and records
   assert.doesNotMatch(writer, /providerReference[^\n]*afterData/);
 });
 
-test('increasing writer is intentionally not reachable through the current product route yet', () => {
-  assert.doesNotMatch(route, /IncreasingAdjustmentNote/);
+test('increasing writer is reachable only through server-derived product orchestration', () => {
+  assert.match(productOrchestration, /issueHospitalityCommercialAmendmentIncreasingAdjustmentNote/);
+  assert.match(productOrchestration, /availability\.adjustmentType === 'INCREASING'/);
+  assert.match(productOrchestration, /verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows/);
+  assert.match(route, /hospitality-commercial-amendment-adjustment-product-service/);
   assert.match(route, /issueHospitalityNextCommercialAmendmentAdjustmentNote/);
+  assert.doesNotMatch(route, /issueHospitalityCommercialAmendmentIncreasingAdjustmentNote/);
 });

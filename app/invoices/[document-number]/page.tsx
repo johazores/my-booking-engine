@@ -10,7 +10,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { getHospitalityCancellationAdjustmentNoteAvailability } from '@/server/payments/hospitality-adjustment-note-service.ts';
 import {
   getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability,
-} from '@/server/payments/hospitality-commercial-amendment-adjustment-orchestration-service.ts';
+} from '@/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts';
 import {
   HospitalityIssuedInvoiceUnavailableError,
   getHospitalityIssuedTaxInvoiceDocument,
@@ -109,6 +109,7 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
         commercialAmendmentId={commercialAdjustmentAvailability.commercialAmendmentId}
         sourceInvoiceDocumentNumber={invoice.documentNumber}
         sourceAdjustmentOrdinal={commercialAdjustmentAvailability.sourceAdjustmentOrdinal}
+        adjustmentType={commercialAdjustmentAvailability.adjustmentType}
       /> : null}
       {existingAdjustmentDocumentNumber
         ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(existingAdjustmentDocumentNumber)}`}>View latest adjustment note</Link>
