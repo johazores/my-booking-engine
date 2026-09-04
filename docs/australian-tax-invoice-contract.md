@@ -10,12 +10,13 @@ Current server/document authorities are:
 2. Australian content/readiness assessment over frozen issuer, recipient, and accepted pricing evidence;
 3. concurrency-safe immutable tax-invoice numbering and issuance;
 4. authenticated and capability-owned customer rendering/history;
-5. deterministic server-side PDF projection for legal text that is losslessly representable by the current PDF font contract; and
-6. tenant-wide paginated register plus bounded accounting CSV export.
+5. deterministic server-side PDF projection for legal text that is losslessly representable by the current PDF font contract;
+6. tenant-wide paginated register plus bounded accounting CSV export; and
+7. tenant-scoped live legal-document integrity reconciliation with an explicit no-automatic-disposal retention rule.
 
 The generated customer document identifies itself as `Tax invoice` and derives issue date/number, seller/buyer, applicable ABNs, supply lines, GST, and total only from immutable issued evidence. The payment receipt remains separate settlement evidence.
 
-The Phase 12 jurisdiction lifecycle is not production-complete yet: adjustment/correction documents, durable customer re-authentication and email/resend, universal Unicode-safe PDF font coverage, retention/reconciliation policy, live Node 24/PostgreSQL validation, and legal review remain open.
+The Phase 12 jurisdiction lifecycle is not production-complete yet: broader partial/multiple/commercial-amendment adjustment/correction contracts, durable customer re-authentication and email/resend, universal Unicode-safe PDF font coverage, a reviewed disposal/de-identification lifecycle, live Node 24/PostgreSQL validation, and legal review remain open.
 
 ## Official requirements used by the contract
 
@@ -70,24 +71,26 @@ Authenticated PDF download re-enters issued-invoice read authorization. Public P
 
 The renderer currently uses standard PDF Helvetica fonts with WinAnsi encoding. Printable ASCII, Latin-1, and defined Windows-1252 punctuation are rendered losslessly. Unsupported legal text fails closed with no substitution or transliteration. Browser Print/Save remains available but is not PDF artifact authority. Universal Unicode-safe embedded-font rendering remains open.
 
-## Accounting boundary
+## Accounting, retention, and reconciliation boundary
 
 `/invoices` is a tenant-wide paginated register. The accounting CSV is server-generated only after each row passes persisted snapshot/material-column/fingerprint validation, contains exact invoice-number/date/booking/currency/accommodation/fee/add-on/GST/total fields, excludes secrets/payment-provider data, and is capped at 5,000 rows so the synchronous route never returns an unbounded or partial export.
+
+`/invoices/reconciliation` performs a tenant-scoped point-in-time integrity review over the current AU invoice and adjustment-note registers. It reuses the same immutable evidence validators, revalidates adjustment-note source invoice linkage, rejects concurrent register changes, and fails closed above 5,000 combined documents. `docs/tax-document-retention-and-reconciliation.md` defines the current no-automatic-disposal rule and the separate future tax/privacy/legal authority required before disposal or de-identification.
 
 ## Remaining production boundaries
 
 The master invoice/tax-document item remains open for:
 
 - mixed taxable/GST-free/input-taxed/exempt semantics when product scope requires them;
-- immutable adjustment-note/credit/correction/void/reissue lifecycle tied to refunds and commercial amendments without mutating invoices;
+- broader partial-refund, multiple-refund, commercial-amendment, credit/correction/void/reissue semantics without mutating issued evidence;
 - universal Unicode-safe deterministic PDF rendering;
 - durable re-authenticated customer history beyond the 24-hour recovery capability, plus email delivery/resend;
-- explicit retention and accounting/reconciliation policy beyond the current bounded export;
+- a reviewed customer-data disposal/de-identification lifecycle and any future accounting-provider integration;
 - repository-required Node 24 and disposable PostgreSQL validation; and
 - jurisdiction/legal review before SF represents the workflow as production-compliant for all supported Australian cases.
 
 ## Validation
 
-Dependency-free tests cover Australian ABN/readiness rules, issued-document identity/fingerprints, and deterministic PDF behavior including pagination and fail-closed unsupported text. The disposable PostgreSQL suites cover authorization, cross-tenant denial, issuance idempotency/sequence uniqueness, stale-state rejection, persisted money, and audits when executed through the guarded database harness.
+Dependency-free tests cover Australian ABN/readiness rules, issued-document identity/fingerprints, deterministic PDF behavior including pagination and fail-closed unsupported text, and the retention/reconciliation result contract. The disposable PostgreSQL suites cover authorization, cross-tenant denial, issuance idempotency/sequence uniqueness, stale-state rejection, persisted money, and audits when executed through the guarded database harness.
 
 GitHub Actions are not used.
