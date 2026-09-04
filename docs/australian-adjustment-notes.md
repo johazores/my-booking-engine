@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SF now has a deliberately narrow first Australian decreasing-adjustment workflow for a previously issued hospitality tax invoice when the booking is later cancelled and fully refunded.
+SF has a deliberately narrow Australian decreasing-adjustment workflow for a previously issued hospitality tax invoice when the booking is later cancelled and fully refunded.
 
 This is production evidence infrastructure, not a generic credit-note button. The original tax invoice remains immutable and the adjustment note is a separate numbered legal-document record linked to the exact source invoice and refund transaction.
 
@@ -43,22 +43,33 @@ The sequence is allocated in the same serializable transaction as issuance. A re
 
 Issuance requires `payment:manage` server-side. The browser supplies only the source tax-invoice number and selected refund-transaction identifier; it cannot supply seller identity, ABN, buyer identity, reason, currency, tax money, totals, sequence, document number, or fingerprints as authority.
 
-Authenticated document reads require both `booking:read` and `payment:read`, then revalidate the active organization, immutable adjustment snapshot, material columns, document fingerprint, and linked source tax invoice.
+Authenticated document reads, PDF downloads, tenant register reads, and accounting exports require both `booking:read` and `payment:read`, then revalidate the active organization, immutable adjustment snapshot, material columns, document fingerprint, and linked source tax invoice.
 
-The existing public booking capability can also read the customer-safe adjustment document during its valid recovery window. The capability remains out of URLs, ownership/principal/tenant scope is rechecked, and source-invoice linkage is revalidated. Public output does not expose refund IDs, provider references, actors, internal fingerprints, idempotency keys, or credentials.
+The existing public booking capability can also read and download the customer-safe adjustment document during its valid recovery window. The capability remains out of URLs, ownership/principal/tenant scope is rechecked, and source-invoice linkage is revalidated. Public output does not expose refund IDs, provider references, actors, internal fingerprints, idempotency keys, or credentials.
 
-## Customer document
+## Customer document and deterministic PDF
 
-The rendered document identifies itself as `Adjustment note` and shows:
+The verified document identifies itself as `Adjustment note` and shows:
 
 - adjustment-note number and issue date;
 - seller legal identity and ABN;
 - frozen buyer identity;
 - decreasing-adjustment type and booking-cancellation reason;
-- original tax-invoice number and date; and
+- original tax-invoice number and date;
+- price before and after the cancellation adjustment; and
 - decrease excluding GST, GST decrease, and total decrease including GST.
 
-Authenticated and capability-owned public views support browser Print/Save. A deterministic SF-generated PDF for adjustment notes is not implemented yet and must not be implied by UI wording.
+Authenticated and capability-owned public views support both browser Print/Save and deterministic SF-generated PDF download. Browser Print/Save remains a convenience; the server-generated PDF is the deterministic artifact projection.
+
+`src/server/payments/hospitality-adjustment-note-pdf-domain.ts` renders only the verified customer document. It uses no current clock, randomness, mutable provider data, or browser-supplied legal/tax values. It revalidates AU/AUD document identity, source-invoice chronology, exact cancellation price effect, exact GST reconciliation, and supported legal text before emitting deterministic PDF 1.4 bytes.
+
+The PDF font boundary deliberately matches the tax-invoice renderer: standard Helvetica/Helvetica Bold with WinAnsi-compatible legal text only. Unsupported scripts fail closed rather than being transliterated or corrupted. Universal Unicode-safe embedded-font rendering remains open.
+
+## Tenant register and accounting export
+
+`/invoices/adjustments` is a tenant-scoped paginated register of verified issued adjustment notes. Each listed row is revalidated together with its source tax invoice before display.
+
+`GET /api/invoices/hospitality/adjustments/accounting` provides a bounded accounting CSV. It revalidates every included adjustment note and source tax invoice, uses exact money strings, and includes only legal/accounting-safe fields: adjustment-note identity/date, booking, source tax-invoice identity/date, currency, reason, decrease excluding GST, GST decrease, and total decrease. Refund transaction IDs, payment-provider references, actors, credentials, secrets, and mutable customer data are excluded. The synchronous export fails closed above 5,000 adjustment notes rather than returning a partial dataset.
 
 ## Legal and operational boundary
 
@@ -68,4 +79,4 @@ SF does **not** yet automate the statutory delivery deadline, email/resend, dura
 
 ## Remaining expansion
 
-Future work must use separate explicit contracts for partial refunds, price corrections, commercial-amendment adjustments, multiple source/refund relationships, broader taxability, deterministic adjustment-note PDFs, durable delivery, retention/accounting export treatment, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
+Future work must use separate explicit contracts for partial refunds, price corrections, commercial-amendment adjustments, multiple source/refund relationships, broader taxability, durable customer delivery, explicit retention/reconciliation policy, universal Unicode-safe PDFs, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
