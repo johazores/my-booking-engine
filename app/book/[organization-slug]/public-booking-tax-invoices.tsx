@@ -159,7 +159,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
 
               <div className="sf-public-invoice__table-wrap">
                 <table className="sf-public-invoice__table">
-                  <thead><tr><th scope="col">Supply</th><th scope="col">Quantity</th><th scope="col">Price excl. GST</th></tr></thead>
+                  <thead><tr><th scope="col">Supply</th><th scope="col">Quantity</th><th scope="col">Amount excl. GST</th></tr></thead>
                   <tbody>{invoice.lines.map((line, lineIndex) => (
                     <tr key={`${line.description}:${lineIndex}`}>
                       <th scope="row">{line.description}</th>
