@@ -3,12 +3,12 @@ import {
   PublicBookingCapabilityConfigurationError,
   verifyPublicBookingBookingCapability,
 } from '../bookings/public-booking-capability.ts';
-import {
-  parseHospitalityBookingPricingEvidenceBreakdown,
-} from '../bookings/booking-pricing-evidence-domain.ts';
 import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hospitality-search-service.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
+import {
+  verifyHospitalityCommercialAmendmentAdjustmentRows,
+} from './hospitality-commercial-amendment-adjustment-chain-read-service.ts';
 import {
   hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
@@ -79,12 +79,15 @@ type PersistedInvoice = {
 };
 
 type PersistedAdjustmentNote = {
+  id: string;
   organizationId: string;
   bookingId: string;
   sourceInvoiceId: string;
   refundTransactionId: string | null;
   commercialAmendmentId: string | null;
   targetPricingEvidenceId: string | null;
+  predecessorAdjustmentNoteId: string | null;
+  predecessorSourceAdjustmentOrdinal: number | null;
   sourceAdjustmentOrdinal: number;
   jurisdictionCode: string;
   documentType: string;
@@ -170,6 +173,8 @@ function validateCancellationAdjustmentNote(row: PersistedAdjustmentNote): Valid
     || row.refundTransactionId === null
     || row.commercialAmendmentId !== null
     || row.targetPricingEvidenceId !== null
+    || row.predecessorAdjustmentNoteId !== null
+    || row.predecessorSourceAdjustmentOrdinal !== null
     || row.sourceAdjustmentOrdinal !== 1
     || snapshot.organizationId !== row.organizationId
     || snapshot.bookingId !== row.bookingId
@@ -196,6 +201,17 @@ function validateCancellationAdjustmentNote(row: PersistedAdjustmentNote): Valid
   return Object.freeze({ kind: 'BOOKING_CANCELLATION', row, snapshot, document });
 }
 
+function commercialPredecessorMatches(row: PersistedAdjustmentNote, snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot>) {
+  if (snapshot.schemaVersion === 2) {
+    return row.sourceAdjustmentOrdinal === 1
+      && row.predecessorAdjustmentNoteId === null
+      && row.predecessorSourceAdjustmentOrdinal === null;
+  }
+  return row.sourceAdjustmentOrdinal >= 2
+    && row.predecessorAdjustmentNoteId === snapshot.predecessorAdjustmentNoteId
+    && row.predecessorSourceAdjustmentOrdinal === row.sourceAdjustmentOrdinal - 1;
+}
+
 function validateCommercialAdjustmentNote(row: PersistedAdjustmentNote): ValidatedCommercialAmendment {
   const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
   if (
@@ -205,13 +221,13 @@ function validateCommercialAdjustmentNote(row: PersistedAdjustmentNote): Validat
     || row.refundTransactionId !== null
     || row.commercialAmendmentId === null
     || row.targetPricingEvidenceId === null
-    || row.sourceAdjustmentOrdinal !== 1
+    || !commercialPredecessorMatches(row, snapshot)
     || snapshot.organizationId !== row.organizationId
     || snapshot.bookingId !== row.bookingId
     || snapshot.sourceInvoiceId !== row.sourceInvoiceId
     || snapshot.commercialAmendmentId !== row.commercialAmendmentId
     || snapshot.targetPricingEvidenceId !== row.targetPricingEvidenceId
-    || snapshot.sourceAdjustmentOrdinal !== '1'
+    || snapshot.sourceAdjustmentOrdinal !== String(row.sourceAdjustmentOrdinal)
     || snapshot.documentNumber !== row.documentNumber
     || BigInt(snapshot.sequenceValue) !== row.sequenceValue
     || new Date(snapshot.issuedAt).getTime() !== row.issuedAt.getTime()
@@ -294,110 +310,6 @@ function validateCancellationAuthority(
     || refund.createdAt.getTime() > item.row.issuedAt.getTime()
   ) {
     throw new PublicIssuedTaxInvoicePersistenceError('Cancellation adjustment-note refund authority failed integrity validation.');
-  }
-}
-
-function validateCommercialAuthority(
-  item: ValidatedCommercialAmendment,
-  sourceInvoice: PersistedInvoice,
-  amendment: {
-    id: string;
-    bookingId: string;
-    status: string;
-    direction: string;
-    appliedAt: Date | null;
-    currency: string;
-    beforeAccommodationSubtotalMinor: bigint;
-    beforeTaxTotalMinor: bigint;
-    beforeFeeTotalMinor: bigint;
-    beforeAddonTotalMinor: bigint;
-    beforeTotalMinor: bigint;
-    afterAccommodationSubtotalMinor: bigint;
-    afterTaxTotalMinor: bigint;
-    afterFeeTotalMinor: bigint;
-    afterAddonTotalMinor: bigint;
-    afterTotalMinor: bigint;
-    beforePricingFingerprint: string;
-    afterPricingFingerprint: string;
-  } | undefined,
-  targetEvidence: {
-    id: string;
-    bookingId: string;
-    commercialAmendmentId: string | null;
-    source: string;
-    currency: string;
-    accommodationSubtotalMinor: bigint;
-    taxTotalMinor: bigint;
-    feeTotalMinor: bigint;
-    addonTotalMinor: bigint;
-    totalMinor: bigint;
-    pricingFingerprint: string;
-    pricingBreakdown: Prisma.JsonValue;
-  } | undefined,
-) {
-  if (
-    !amendment
-    || amendment.id !== item.snapshot.commercialAmendmentId
-    || amendment.bookingId !== item.row.bookingId
-    || amendment.status !== 'APPLIED'
-    || amendment.direction !== 'REFUND'
-    || !amendment.appliedAt
-    || amendment.appliedAt.getTime() !== new Date(item.snapshot.commercialAmendmentAppliedAt).getTime()
-    || amendment.currency !== item.document.currency
-    || sourceInvoice.currency !== amendment.currency
-    || sourceInvoice.accommodationSubtotalMinor !== amendment.beforeAccommodationSubtotalMinor
-    || sourceInvoice.taxTotalMinor !== amendment.beforeTaxTotalMinor
-    || sourceInvoice.feeTotalMinor !== amendment.beforeFeeTotalMinor
-    || sourceInvoice.addonTotalMinor !== amendment.beforeAddonTotalMinor
-    || sourceInvoice.totalMinor !== amendment.beforeTotalMinor
-    || sourceInvoice.pricingFingerprint !== amendment.beforePricingFingerprint
-    || amendment.beforeTaxTotalMinor !== BigInt(item.snapshot.beforeTaxMinor)
-    || amendment.beforeTotalMinor !== BigInt(item.snapshot.beforeTotalMinor)
-    || amendment.afterTaxTotalMinor !== BigInt(item.snapshot.afterTaxMinor)
-    || amendment.afterTotalMinor !== BigInt(item.snapshot.afterTotalMinor)
-    || amendment.beforePricingFingerprint !== item.snapshot.beforePricingFingerprint
-    || amendment.afterPricingFingerprint !== item.snapshot.afterPricingFingerprint
-  ) {
-    throw new PublicIssuedTaxInvoicePersistenceError('Commercial-amendment adjustment-note authority failed integrity validation.');
-  }
-
-  if (
-    !targetEvidence
-    || targetEvidence.id !== item.snapshot.targetPricingEvidenceId
-    || targetEvidence.bookingId !== item.row.bookingId
-    || targetEvidence.commercialAmendmentId !== item.snapshot.commercialAmendmentId
-    || targetEvidence.source !== 'COMMERCIAL_AMENDMENT_TARGET'
-    || targetEvidence.currency !== item.document.currency
-    || targetEvidence.accommodationSubtotalMinor !== amendment.afterAccommodationSubtotalMinor
-    || targetEvidence.taxTotalMinor !== amendment.afterTaxTotalMinor
-    || targetEvidence.feeTotalMinor !== amendment.afterFeeTotalMinor
-    || targetEvidence.addonTotalMinor !== amendment.afterAddonTotalMinor
-    || targetEvidence.totalMinor !== amendment.afterTotalMinor
-    || targetEvidence.taxTotalMinor !== BigInt(item.snapshot.afterTaxMinor)
-    || targetEvidence.totalMinor !== BigInt(item.snapshot.afterTotalMinor)
-    || targetEvidence.pricingFingerprint !== item.snapshot.afterPricingFingerprint
-  ) {
-    throw new PublicIssuedTaxInvoicePersistenceError('Commercial-amendment target pricing authority failed integrity validation.');
-  }
-
-  try {
-    const breakdown = parseHospitalityBookingPricingEvidenceBreakdown(targetEvidence.pricingBreakdown);
-    if (
-      breakdown.currency !== targetEvidence.currency
-      || BigInt(breakdown.accommodationSubtotalMinor) !== targetEvidence.accommodationSubtotalMinor
-      || BigInt(breakdown.taxTotalMinor) !== targetEvidence.taxTotalMinor
-      || BigInt(breakdown.feeTotalMinor) !== targetEvidence.feeTotalMinor
-      || BigInt(breakdown.addonTotalMinor) !== targetEvidence.addonTotalMinor
-      || BigInt(breakdown.totalMinor) !== targetEvidence.totalMinor
-      || breakdown.pricingFingerprint !== targetEvidence.pricingFingerprint
-    ) {
-      throw new PublicIssuedTaxInvoicePersistenceError('Commercial-amendment target pricing breakdown failed immutable validation.');
-    }
-  } catch (error) {
-    if (error instanceof PublicIssuedTaxInvoicePersistenceError) throw error;
-    throw new PublicIssuedTaxInvoicePersistenceError(
-      error instanceof Error ? error.message : 'Commercial-amendment target pricing breakdown is invalid.',
-    );
   }
 }
 
@@ -507,7 +419,6 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
       select: { id: true },
     }),
   ]);
-
   if (!ownership || ownership.principalId !== capability.principalId || !principal || !booking) {
     throw new PublicIssuedTaxInvoiceAuthorizationError();
   }
@@ -542,7 +453,7 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
 
   const items = rows.map((row) => customerDocument(validatePersistedInvoice(row)));
   const validatedAdjustments = adjustmentRows.map(validatePersistedAdjustmentNote);
-  const sourceInvoiceIds = [...new Set(validatedAdjustments.map(({ snapshot }) => snapshot.sourceInvoiceId))];
+  const sourceInvoiceIds = [...new Set(validatedAdjustments.map(({ row }) => row.sourceInvoiceId))];
   const cancellationItems = validatedAdjustments.filter(
     (item): item is ValidatedCancellation => item.kind === 'BOOKING_CANCELLATION',
   );
@@ -550,10 +461,8 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
     (item): item is ValidatedCommercialAmendment => item.kind === 'COMMERCIAL_AMENDMENT',
   );
   const refundIds = [...new Set(cancellationItems.map((item) => item.snapshot.refundTransactionId))];
-  const amendmentIds = [...new Set(commercialItems.map((item) => item.snapshot.commercialAmendmentId))];
-  const targetEvidenceIds = [...new Set(commercialItems.map((item) => item.snapshot.targetPricingEvidenceId))];
 
-  const [sourceInvoices, refunds, amendments, targetEvidenceRows] = await Promise.all([
+  const [sourceInvoices, refunds] = await Promise.all([
     sourceInvoiceIds.length
       ? db.hospitalityIssuedInvoice.findMany({
           where: {
@@ -585,84 +494,32 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
           },
         })
       : [],
-    amendmentIds.length
-      ? db.hospitalityBookingCommercialAmendment.findMany({
-          where: {
-            id: { in: amendmentIds },
-            organizationId: branding.id,
-            bookingId: capability.bookingId,
-          },
-          select: {
-            id: true,
-            bookingId: true,
-            status: true,
-            direction: true,
-            appliedAt: true,
-            currency: true,
-            beforeAccommodationSubtotalMinor: true,
-            beforeTaxTotalMinor: true,
-            beforeFeeTotalMinor: true,
-            beforeAddonTotalMinor: true,
-            beforeTotalMinor: true,
-            afterAccommodationSubtotalMinor: true,
-            afterTaxTotalMinor: true,
-            afterFeeTotalMinor: true,
-            afterAddonTotalMinor: true,
-            afterTotalMinor: true,
-            beforePricingFingerprint: true,
-            afterPricingFingerprint: true,
-          },
-        })
-      : [],
-    targetEvidenceIds.length
-      ? db.hospitalityBookingPricingEvidence.findMany({
-          where: {
-            id: { in: targetEvidenceIds },
-            organizationId: branding.id,
-            bookingId: capability.bookingId,
-          },
-          select: {
-            id: true,
-            bookingId: true,
-            commercialAmendmentId: true,
-            source: true,
-            currency: true,
-            accommodationSubtotalMinor: true,
-            taxTotalMinor: true,
-            feeTotalMinor: true,
-            addonTotalMinor: true,
-            totalMinor: true,
-            pricingFingerprint: true,
-            pricingBreakdown: true,
-          },
-        })
-      : [],
   ]);
-
   const sourceById = new Map(sourceInvoices.map((entry) => [entry.id, entry]));
   const refundById = new Map(refunds.map((entry) => [entry.id, entry]));
-  const amendmentById = new Map(amendments.map((entry) => [entry.id, entry]));
-  const targetById = new Map(targetEvidenceRows.map((entry) => [entry.id, entry]));
 
-  const adjustmentItems = validatedAdjustments.map((item) => {
-    const sourceInvoice = sourceById.get(item.snapshot.sourceInvoiceId);
-    validateAdjustmentSourceInvoice(item, sourceInvoice);
-    if (!sourceInvoice) {
-      throw new PublicIssuedTaxInvoicePersistenceError('Adjustment-note source tax invoice failed integrity validation.');
-    }
+  for (const item of validatedAdjustments) {
+    validateAdjustmentSourceInvoice(item, sourceById.get(item.row.sourceInvoiceId));
     if (item.kind === 'BOOKING_CANCELLATION') {
       validateCancellationAuthority(item, refundById.get(item.snapshot.refundTransactionId));
-    } else {
-      validateCommercialAuthority(
-        item,
-        sourceInvoice,
-        amendmentById.get(item.snapshot.commercialAmendmentId),
-        targetById.get(item.snapshot.targetPricingEvidenceId),
-      );
     }
-    return customerAdjustmentDocument(item.document);
-  });
+  }
+  try {
+    await verifyHospitalityCommercialAmendmentAdjustmentRows({
+      organizationId: branding.id,
+      rows: commercialItems.map((item) => ({
+        id: item.row.id,
+        bookingId: item.row.bookingId,
+        sourceInvoiceId: item.row.sourceInvoiceId,
+      })),
+    });
+  } catch (error) {
+    throw new PublicIssuedTaxInvoicePersistenceError(
+      error instanceof Error ? error.message : 'Commercial adjustment-note chain failed integrity validation.',
+    );
+  }
 
+  const adjustmentItems = validatedAdjustments.map((item) => customerAdjustmentDocument(item.document));
   return Object.freeze({
     total,
     truncated: total > items.length,
