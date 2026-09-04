@@ -44,6 +44,8 @@ type PublicAdjustmentNote = {
   supplierAbn: string;
   adjustmentType: 'Decreasing adjustment';
   adjustmentReason: 'Booking cancellation';
+  priceBeforeAdjustmentMinor: string;
+  priceAfterAdjustmentMinor: string;
   decreaseSubtotalMinor: string;
   decreaseGstMinor: string;
   decreaseTotalMinor: string;
@@ -59,6 +61,8 @@ type InvoiceHistory = {
     items: PublicAdjustmentNote[];
   };
 };
+
+type DownloadDocumentKind = 'tax-invoice' | 'adjustment-note';
 
 function formatMinor(amountMinor: string, currency: string) {
   const fractionDigits = new Intl.NumberFormat(undefined, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
@@ -88,6 +92,15 @@ function printInvoice(button: HTMLButtonElement) {
     invoice.classList.remove('sf-public-invoice--print');
     document.body.classList.remove('sf-public-tax-invoice-printing');
   }
+}
+
+function downloadPath(organizationSlug: string, documentNumber: string, kind: DownloadDocumentKind) {
+  const collection = kind === 'tax-invoice' ? 'tax-invoices' : 'adjustment-notes';
+  return `/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/${collection}/${encodeURIComponent(documentNumber)}/pdf`;
+}
+
+function downloadLabel(kind: DownloadDocumentKind) {
+  return kind === 'tax-invoice' ? 'tax invoice' : 'adjustment note';
 }
 
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {
@@ -125,25 +138,22 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
     }
   }, [organizationSlug]);
 
-  const downloadPdf = useCallback(async (documentNumber: string) => {
+  const downloadPdf = useCallback(async (documentNumber: string, kind: DownloadDocumentKind) => {
     const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
     if (!bookingCapability || downloadingDocumentNumber) return;
 
     setDownloadingDocumentNumber(documentNumber);
     setError(null);
     try {
-      const response = await fetch(
-        `/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/tax-invoices/${encodeURIComponent(documentNumber)}/pdf`,
-        {
-          method: 'POST',
-          headers: { 'accept': 'application/pdf', 'content-type': 'application/json' },
-          body: JSON.stringify({ bookingCapability }),
-        },
-      );
+      const response = await fetch(downloadPath(organizationSlug, documentNumber, kind), {
+        method: 'POST',
+        headers: { 'accept': 'application/pdf', 'content-type': 'application/json' },
+        body: JSON.stringify({ bookingCapability }),
+      });
       if (!response.ok) {
         setError(response.status === 422
-          ? 'This tax invoice contains text that cannot be represented losslessly in the current PDF format. You can still print the verified document.'
-          : 'The PDF copy could not be prepared right now.');
+          ? `This ${downloadLabel(kind)} contains text that cannot be represented losslessly in the current PDF format. You can still print the verified document.`
+          : `The ${downloadLabel(kind)} PDF could not be prepared right now.`);
         return;
       }
       const blob = await response.blob();
@@ -157,7 +167,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      setError('The PDF copy could not be downloaded right now.');
+      setError(`The ${downloadLabel(kind)} PDF could not be downloaded right now.`);
     } finally {
       setDownloadingDocumentNumber(null);
     }
@@ -231,7 +241,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
               </dl>
               <p className="sf-public-booking__contact-note">{invoice.taxableSaleStatement}</p>
               <div className="sf-public-invoice__actions">
-                <button type="button" className="sf-public-invoice__print-button" onClick={() => void downloadPdf(invoice.documentNumber)} disabled={Boolean(downloadingDocumentNumber)} aria-busy={downloading || undefined}>
+                <button type="button" className="sf-public-invoice__print-button" onClick={() => void downloadPdf(invoice.documentNumber, 'tax-invoice')} disabled={Boolean(downloadingDocumentNumber)} aria-busy={downloading || undefined}>
                   {downloading ? 'Preparing PDF…' : 'Download PDF'}
                 </button>
                 <button type="button" className="sf-public-invoice__print-button" onClick={(event) => printInvoice(event.currentTarget)} disabled={Boolean(downloadingDocumentNumber)}>
@@ -249,6 +259,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         const buyerAddress = addressLines(note.buyer);
         const issuedDate = new Date(note.issuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' });
         const sourceDate = new Date(note.sourceTaxInvoiceIssuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' });
+        const downloading = downloadingDocumentNumber === note.documentNumber;
         return (
           <details className="sf-public-invoice" key={note.documentNumber}>
             <summary className="sf-public-invoice__summary">
@@ -279,12 +290,17 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
                 <div><dt>Reason</dt><dd>{note.adjustmentReason}</dd></div>
                 <div><dt>Original tax invoice</dt><dd>{note.sourceTaxInvoiceNumber}</dd></div>
                 <div><dt>Original invoice date</dt><dd>{sourceDate}</dd></div>
+                <div><dt>Price before adjustment</dt><dd>{formatMinor(note.priceBeforeAdjustmentMinor, note.currency)}</dd></div>
+                <div><dt>Price after adjustment</dt><dd>{formatMinor(note.priceAfterAdjustmentMinor, note.currency)}</dd></div>
                 <div><dt>Decrease excl. GST</dt><dd>{formatMinor(note.decreaseSubtotalMinor, note.currency)}</dd></div>
                 <div><dt>GST decrease</dt><dd>{formatMinor(note.decreaseGstMinor, note.currency)}</dd></div>
                 <div className="sf-public-invoice__total"><dt>Total decrease incl. GST</dt><dd>{formatMinor(note.decreaseTotalMinor, note.currency)}</dd></div>
               </dl>
               <p className="sf-public-booking__contact-note">This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.</p>
               <div className="sf-public-invoice__actions">
+                <button type="button" className="sf-public-invoice__print-button" onClick={() => void downloadPdf(note.documentNumber, 'adjustment-note')} disabled={Boolean(downloadingDocumentNumber)} aria-busy={downloading || undefined}>
+                  {downloading ? 'Preparing PDF…' : 'Download PDF'}
+                </button>
                 <button type="button" className="sf-public-invoice__print-button" onClick={(event) => printInvoice(event.currentTarget)} disabled={Boolean(downloadingDocumentNumber)}>
                   Print or save copy
                 </button>
