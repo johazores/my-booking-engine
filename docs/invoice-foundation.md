@@ -2,59 +2,47 @@
 
 ## Status
 
-SF has a narrow production Australian hospitality tax-document lifecycle backed by immutable commercial evidence rather than mutable booking state. The implemented chain includes append-only accepted pricing evidence, versioned issuer/recipient preparation evidence, serializable Australian tax-invoice numbering/issuance, authenticated and booking-capability reads, deterministic PDFs for the current lossless-text contract, cancellation and cumulative decreasing commercial adjustment notes, first-increasing commercial adjustment-note persistence/writer/read-delivery authority, tenant accounting registers/CSV, reconciliation, and explicit retention boundaries.
+SF has a narrow production Australian hospitality tax-document lifecycle backed by immutable commercial evidence rather than mutable booking state. It includes append-only accepted pricing evidence, versioned issuer/recipient preparation evidence, serializable tax-invoice numbering/issuance, cancellation and cumulative decreasing commercial adjustment notes, first-increasing commercial adjustment-note issuance/read-delivery authority, tenant accounting registers/CSV, reconciliation, deterministic PDFs for the current lossless-text contract and explicit retention boundaries.
 
-The first-increasing dependency has advanced through the complete read/delivery boundary. Schema-version-4 `INCREASING / COMMERCIAL_AMENDMENT` evidence can now be independently verified and projected through staff/public reads, accounting, reconciliation, HTML/print and deterministic PDF. Its serializable writer remains intentionally outside the product route/action until direction-aware issuance orchestration is added.
+Schema-version-4 `INCREASING / COMMERCIAL_AMENDMENT` evidence is now product-reachable only through direction-aware server orchestration. The browser still cannot select legal direction or legal money.
 
 ## Immutable booking and invoice evidence
 
-`HospitalityBookingPricingEvidence` is append-only and tenant/booking scoped. It freezes accepted stay/scope/selections, exact currency and aggregate money, pricing fingerprint, and schema-versioned nightly/tax/fee/add-on breakdown. Confirmation and accepted commercial changes write authoritative pricing evidence inside protected transactions; SF does not reconstruct historical legal values from current mutable rate/tax configuration.
+`HospitalityBookingPricingEvidence` is append-only and tenant/booking scoped. It freezes accepted stay/scope/selections, exact currency and aggregate money, pricing fingerprint and schema-versioned nightly/tax/fee/add-on breakdown. Confirmation and accepted commercial changes write authoritative pricing evidence inside protected transactions; historical values are not reconstructed from mutable rate/tax configuration.
 
-`InvoiceIssuerProfile` and `HospitalityInvoicePreparation` freeze issuer, recipient, pricing, exact money and source fingerprints. Australian invoice readiness verifies AU/AUD, the supported standard-GST contract, ABN structure and recipient requirements. `issueHospitalityAustralianTaxInvoice` allocates the tenant/jurisdiction/document sequence in a serializable transaction. Browser input cannot select legal money, issuer, recipient, tax data, number, sequence, issue time or fingerprints.
+`InvoiceIssuerProfile` and `HospitalityInvoicePreparation` freeze issuer, recipient, pricing, exact money and source fingerprints. Australian invoice readiness verifies AU/AUD, the supported standard-GST contract, ABN structure and recipient requirements. `issueHospitalityAustralianTaxInvoice` allocates the tenant/jurisdiction/document sequence in a serializable transaction. Issued tax invoices remain immutable after later booking changes.
 
-Issued tax invoices remain immutable historical evidence after later booking changes.
+## Adjustment authority
 
-## Reachable decreasing adjustment authority
+- booking cancellation: schema version 1 / ordinal `1`;
+- first decreasing commercial amendment: schema version 2 / ordinal `1`;
+- repeated decreasing commercial amendment: schema version 3 / ordinal `2+` with immediate-predecessor authority; and
+- first increasing commercial amendment: schema version 4 / ordinal `1`, exact `ADDITIONAL_CHARGE` amendment + target pricing, zero decrease and exact positive increase columns.
 
-The adjustment workflows are documented in `docs/australian-adjustment-notes.md`.
+`loadVerifiedHospitalityCommercialAmendmentAdjustmentChain` verifies the complete decreasing source chain and repeated writes select its head under an advisory lock. `verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows` independently re-proves first-increasing source invoice, exact applied amendment, unique target pricing, full payment ledger, sole source-adjustment authority, source-baseline uniqueness, chronology, standard GST, material columns and fingerprints.
 
-- Booking cancellation uses schema version 1 / ordinal `1` and one attributed successful full refund.
-- The first decreasing commercial amendment uses schema version 2 / ordinal `1`.
-- Repeated decreasing commercial amendments use schema version 3 / ordinal `2+` and bind the immediate predecessor through immutable snapshot evidence plus PostgreSQL same-tenant/same-booking/same-source/same-reason/previous-ordinal/no-fork constraints.
+## Direction-aware issuance boundary
 
-`loadVerifiedHospitalityCommercialAmendmentAdjustmentChain` reloads the complete decreasing chain, source tax invoice, every applied amendment and exact target-pricing record, and verifies fingerprints, chronology, standard GST, price continuity and predecessor authority. Repeated writes use an advisory lock plus a serializable transaction.
+`hospitality-commercial-amendment-adjustment-product-service.ts` is the shared product boundary for commercial-amendment adjustment notes. It requires `payment:manage`, tenant- and booking-scopes source authority, derives direction from persisted amendments, preserves the existing decreasing chain, considers first-increasing authority only with no earlier adjustment chain, and rejects same-baseline ambiguity across refund/additional-charge candidates before exposing an action.
 
-`getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability` and `issueHospitalityNextCommercialAmendmentAdjustmentNote` expose only the server-derived next decreasing commercial adjustment; the browser cannot choose direction, ordinal, predecessor, amount, GST, provider truth or sequence.
+For decreasing writes it delegates to the existing complete chain orchestration. For a supported first increase it delegates to the serializable schema-version-4 writer, which independently rechecks same-source-baseline ambiguity before persistence. Exact increasing retries are re-proved through the post-issuance verifier before the idempotent writer is called.
 
-## First-increasing authority
-
-The increasing contract is documented in `docs/australian-commercial-amendment-increasing-adjustment-readiness.md`.
-
-`assessHospitalityCommercialAmendmentIncreasingAdjustmentReadiness` requires `payment:manage` and revalidates the exact tenant-owned source invoice, one applied `ADDITIONAL_CHARGE` amendment, exactly one immutable target-pricing record, complete provider-neutral settlement, exact AU/AUD standard GST and zero prior adjustment notes.
-
-Persistence makes `adjustmentType` material. Schema version 4 represents first-only `INCREASING / COMMERCIAL_AMENDMENT` evidence with no refund/predecessor authority, zero decrease columns and exact positive increase subtotal/GST/total columns. PostgreSQL binds the immutable JSON evidence to those material columns.
-
-`issueHospitalityCommercialAmendmentIncreasingAdjustmentNote` is the authoritative server-only writer. It requires `payment:manage`, performs the legal write in a serializable transaction, rejects competing applied amendments on the same source baseline, re-runs immutable source/target/payment readiness, allocates the shared tenant `AU / ADJUSTMENT_NOTE` sequence, derives all money and issue time server-side, writes schema-version-4 evidence, immediately reparses/revalidates the created row, remains idempotent by commercial-amendment authority, and records a tenant-scoped audit event.
-
-`verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows` is the actor-neutral post-issuance authority. It tenant-scopes every reload, accepts only bounded schema-version-4 first-increasing references, and independently re-proves source invoice, exact applied amendment, unique target pricing, full booking payment ledger, sole source-adjustment authority, source-baseline uniqueness, chronology, standard GST, material columns and fingerprints.
-
-The writer is still not imported by the product issuance route/action. This is now an orchestration boundary, not a read/delivery limitation.
+The route body contains only the source invoice number and the protected route supplies the amendment id. The UI receives direction only for display. Browser input cannot choose GST, amount, currency, provider truth, direction, ordinal, predecessor, sequence, issue time or fingerprints.
 
 ## Read, PDF, accounting, retention, and reconciliation projections
 
-Authenticated legal-document reads require `booking:read` plus `payment:read`. Public reads are limited to the encrypted booking capability and independently verify tenant slug, booking ownership, unexpired matching principal and tenant-owned booking before loading tax evidence.
+Authenticated legal-document reads require `booking:read` plus `payment:read`. Public reads verify tenant slug, encrypted booking capability, persisted booking ownership, an unexpired principal and the tenant-owned booking before loading tax evidence.
 
-Adjustment detail/register/accounting/reconciliation/public history/PDF projections now support cancellation, schema-version-2/3 decreasing commercial notes, and verified schema-version-4 first-increasing commercial notes. Decreasing rows are accepted only after complete chain verification. Increasing rows are accepted only after the independent post-issuance verifier succeeds. Customer projections exclude internal predecessor/amendment/target identifiers, provider/payment references, actors and fingerprints unless legally required.
+Adjustment detail/register/accounting/reconciliation/public history/PDF projections support cancellation, verified schema-version-2/3 decreasing commercial notes and verified schema-version-4 first-increasing notes. Customer projections exclude internal predecessor/amendment/target ids, provider/payment references, actors and fingerprints unless legally required.
 
-Tenant-wide tax-invoice and adjustment-note registers are paginated. Accounting CSV revalidates included legal evidence, emits exact decimal money with explicit direction and separate decrease/increase columns, and fails closed above 5,000 rows. `/invoices/reconciliation` applies the same tenant authorization and validated read boundaries with concurrent-register checks. Retention/disposal policy is documented in `docs/tax-document-retention-and-reconciliation.md`.
+Accounting CSV emits exact decimal money with explicit direction and separate decrease/increase columns. `/invoices/reconciliation` uses the same validated tenant-scoped read boundaries and concurrent-register checks. Retention/disposal policy is documented in `docs/tax-document-retention-and-reconciliation.md`.
 
-Authenticated and capability-owned public deterministic PDF routes consume the verified direction-aware adjustment document. The renderer validates mutually exclusive effects, before/after direction, exact GST-exclusive + GST = GST-inclusive effect, cancellation direction, chronology and current lossless text support before producing bytes.
+Authenticated and capability-owned deterministic PDF routes consume the verified direction-aware document and reject mixed/unreconciled effects or unsupported text.
 
 ## Remaining production boundaries
 
 Phase 12 remains open for:
 
-- direction-aware product issuance orchestration for the already-implemented first-increasing writer;
 - cumulative or mixed-direction increasing adjustments and cancellation-after-amendment semantics;
 - mixed-taxability and partial/non-standard-GST adjustment rules;
 - generic correction/void/reissue rules;
@@ -67,6 +55,4 @@ Phase 12 remains open for:
 
 ## Validation boundary
 
-Dependency-free suites cover issuer/recipient/preparation identities, Australian tax-invoice readiness, decreasing cumulative adjustment chains, first-increasing readiness, schema-version-4 immutable evidence and migration invariants, increasing post-issuance authority, protected staff/public direction-aware projections, accounting/PDF/reconciliation contracts, and the server-only increasing writer source boundary including authorization, serializable retry behavior, shared sequence allocation, ambiguity rejection, settlement revalidation, material increase persistence, idempotency and audit data.
-
-Disposable PostgreSQL execution remains required for tenant permissions, cross-tenant denial, migration constraints, sequence/issuance concurrency, idempotency, stale-state rejection and audit behavior. Full repository validation requires the supported Node 24 dependency checkout and an explicitly disposable PostgreSQL target. GitHub Actions are not used.
+Dependency-free suites cover the Australian tax-invoice foundation, decreasing cumulative chains, first-increasing readiness/persistence/writer/read authority, direction-aware product issuance source contracts, protected staff/public projections, accounting/PDF/reconciliation contracts and fail-closed boundaries. Disposable PostgreSQL execution remains required for live tenant permissions, constraints, sequence/concurrency, idempotency, stale-state rejection and audit behavior. GitHub Actions are not used.
