@@ -10,17 +10,22 @@ ALTER TABLE "hospitality_issued_adjustment_notes"
   DROP CONSTRAINT "hospitality_issued_adjustment_notes_source_invoice_fkey",
   DROP CONSTRAINT "hospitality_issued_adjustment_notes_refund_transaction_fkey";
 
+DROP INDEX "hospitality_issued_adjustment_notes_org_refund_key";
+
 CREATE UNIQUE INDEX "hospitality_issued_invoices_id_booking_org_key"
   ON "hospitality_issued_invoices"("id", "bookingId", "organizationId");
 
 CREATE UNIQUE INDEX "payment_transactions_id_booking_org_key"
   ON "payment_transactions"("id", "bookingId", "organizationId");
 
-CREATE UNIQUE INDEX "hospitality_adj_notes_org_commercial_amendment_key"
-  ON "hospitality_issued_adjustment_notes"("organizationId", "commercialAmendmentId");
+CREATE UNIQUE INDEX "hospitality_adj_notes_refund_transaction_key"
+  ON "hospitality_issued_adjustment_notes"("refundTransactionId");
 
-CREATE UNIQUE INDEX "hospitality_adj_notes_org_target_pricing_key"
-  ON "hospitality_issued_adjustment_notes"("organizationId", "targetPricingEvidenceId");
+CREATE UNIQUE INDEX "hospitality_adj_notes_commercial_amendment_key"
+  ON "hospitality_issued_adjustment_notes"("commercialAmendmentId");
+
+CREATE UNIQUE INDEX "hospitality_adj_notes_target_pricing_key"
+  ON "hospitality_issued_adjustment_notes"("targetPricingEvidenceId");
 
 CREATE UNIQUE INDEX "hospitality_adj_notes_org_source_ordinal_key"
   ON "hospitality_issued_adjustment_notes"("organizationId", "sourceInvoiceId", "sourceAdjustmentOrdinal");
