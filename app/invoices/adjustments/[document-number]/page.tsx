@@ -50,6 +50,11 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
   const sellerAddress = addressLines(document.seller);
   const buyerAddress = addressLines(document.buyer);
   const cancellationAdjustment = document.adjustmentReason === 'Booking cancellation';
+  const increasingAdjustment = document.adjustmentType === 'Increasing adjustment';
+  const effectLabel = increasingAdjustment ? 'increase' : 'decrease';
+  const effectSubtotalMinor = increasingAdjustment ? document.increaseSubtotalMinor : document.decreaseSubtotalMinor;
+  const effectGstMinor = increasingAdjustment ? document.increaseGstMinor : document.decreaseGstMinor;
+  const effectTotalMinor = increasingAdjustment ? document.increaseTotalMinor : document.decreaseTotalMinor;
   const pdfHref = `/api/invoices/hospitality/adjustments/${encodeURIComponent(document.documentNumber)}/pdf`;
   return <div className="sf-invoice-page">
     <div className="sf-invoice-toolbar">
@@ -88,13 +93,15 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
         <div><span>Price after adjustment</span><strong>{money(document.priceAfterAdjustmentMinor, document.currency)}</strong></div>
       </div>
       <div className="sf-invoice-totals">
-        <div><span>Decrease excl. GST</span><strong>{money(document.decreaseSubtotalMinor, document.currency)}</strong></div>
-        <div><span>GST decrease</span><strong>{money(document.decreaseGstMinor, document.currency)}</strong></div>
-        <div className="sf-invoice-totals__total"><span>Total decrease incl. GST</span><strong>{money(document.decreaseTotalMinor, document.currency)}</strong></div>
+        <div><span>{increasingAdjustment ? 'Increase' : 'Decrease'} excl. GST</span><strong>{money(effectSubtotalMinor, document.currency)}</strong></div>
+        <div><span>GST {effectLabel}</span><strong>{money(effectGstMinor, document.currency)}</strong></div>
+        <div className="sf-invoice-totals__total"><span>Total {effectLabel} incl. GST</span><strong>{money(effectTotalMinor, document.currency)}</strong></div>
       </div>
       <p className="sf-invoice-note">{cancellationAdjustment
         ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
-        : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'}</p>
+        : increasingAdjustment
+          ? 'This increasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
+          : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'}</p>
     </article>
   </div>;
 }

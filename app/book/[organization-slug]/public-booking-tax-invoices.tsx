@@ -42,13 +42,16 @@ type PublicAdjustmentNote = {
   seller: InvoiceParty;
   buyer: InvoiceParty;
   supplierAbn: string;
-  adjustmentType: 'Decreasing adjustment';
+  adjustmentType: 'Decreasing adjustment' | 'Increasing adjustment';
   adjustmentReason: 'Booking cancellation' | 'Commercial booking amendment';
   priceBeforeAdjustmentMinor: string;
   priceAfterAdjustmentMinor: string;
   decreaseSubtotalMinor: string;
   decreaseGstMinor: string;
   decreaseTotalMinor: string;
+  increaseSubtotalMinor: string;
+  increaseGstMinor: string;
+  increaseTotalMinor: string;
 };
 
 type InvoiceHistory = {
@@ -103,9 +106,12 @@ function downloadLabel(kind: DownloadDocumentKind) {
   return kind === 'tax-invoice' ? 'tax invoice' : 'adjustment note';
 }
 
-function adjustmentNoteStatement(reason: PublicAdjustmentNote['adjustmentReason']) {
-  return reason === 'Booking cancellation'
-    ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.'
+function adjustmentNoteStatement(note: PublicAdjustmentNote) {
+  if (note.adjustmentReason === 'Booking cancellation') {
+    return 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.';
+  }
+  return note.adjustmentType === 'Increasing adjustment'
+    ? 'This increasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.'
     : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.';
 }
 
@@ -266,11 +272,16 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         const issuedDate = new Date(note.issuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' });
         const sourceDate = new Date(note.sourceTaxInvoiceIssuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' });
         const downloading = downloadingDocumentNumber === note.documentNumber;
+        const increasing = note.adjustmentType === 'Increasing adjustment';
+        const effectSubtotalMinor = increasing ? note.increaseSubtotalMinor : note.decreaseSubtotalMinor;
+        const effectGstMinor = increasing ? note.increaseGstMinor : note.decreaseGstMinor;
+        const effectTotalMinor = increasing ? note.increaseTotalMinor : note.decreaseTotalMinor;
+        const effectLabel = increasing ? 'increase' : 'decrease';
         return (
           <details className="sf-public-invoice" key={note.documentNumber}>
             <summary className="sf-public-invoice__summary">
               <span><strong>{note.documentNumber}</strong><small>Adjustment note · issued {issuedDate}</small></span>
-              <strong>−{formatMinor(note.decreaseTotalMinor, note.currency)}</strong>
+              <strong>{increasing ? '+' : '−'}{formatMinor(effectTotalMinor, note.currency)}</strong>
             </summary>
             <div className="sf-public-invoice__body">
               <header className="sf-public-invoice__document-heading">
@@ -298,11 +309,11 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
                 <div><dt>Original invoice date</dt><dd>{sourceDate}</dd></div>
                 <div><dt>Price before adjustment</dt><dd>{formatMinor(note.priceBeforeAdjustmentMinor, note.currency)}</dd></div>
                 <div><dt>Price after adjustment</dt><dd>{formatMinor(note.priceAfterAdjustmentMinor, note.currency)}</dd></div>
-                <div><dt>Decrease excl. GST</dt><dd>{formatMinor(note.decreaseSubtotalMinor, note.currency)}</dd></div>
-                <div><dt>GST decrease</dt><dd>{formatMinor(note.decreaseGstMinor, note.currency)}</dd></div>
-                <div className="sf-public-invoice__total"><dt>Total decrease incl. GST</dt><dd>{formatMinor(note.decreaseTotalMinor, note.currency)}</dd></div>
+                <div><dt>{increasing ? 'Increase' : 'Decrease'} excl. GST</dt><dd>{formatMinor(effectSubtotalMinor, note.currency)}</dd></div>
+                <div><dt>GST {effectLabel}</dt><dd>{formatMinor(effectGstMinor, note.currency)}</dd></div>
+                <div className="sf-public-invoice__total"><dt>Total {effectLabel} incl. GST</dt><dd>{formatMinor(effectTotalMinor, note.currency)}</dd></div>
               </dl>
-              <p className="sf-public-booking__contact-note">{adjustmentNoteStatement(note.adjustmentReason)}</p>
+              <p className="sf-public-booking__contact-note">{adjustmentNoteStatement(note)}</p>
               <div className="sf-public-invoice__actions">
                 <button type="button" className="sf-public-invoice__print-button" onClick={() => void downloadPdf(note.documentNumber, 'adjustment-note')} disabled={Boolean(downloadingDocumentNumber)} aria-busy={downloading || undefined}>
                   {downloading ? 'Preparing PDF…' : 'Download PDF'}

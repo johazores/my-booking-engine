@@ -21,6 +21,16 @@ import {
   parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-adjustment-note-domain.ts';
 import {
+  HOSPITALITY_INCREASING_ADJUSTMENT_READ_BATCH_LIMIT,
+  HospitalityCommercialAmendmentIncreasingAdjustmentReadIntegrityError,
+  HospitalityCommercialAmendmentIncreasingAdjustmentReadLimitError,
+  verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows,
+} from './hospitality-commercial-amendment-increasing-adjustment-read-service.ts';
+import {
+  hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
+} from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
+import {
   createHospitalityIssuedAdjustmentNoteDocument,
   HospitalityIssuedAdjustmentNoteDocumentValidationError,
 } from './hospitality-issued-adjustment-note-document-domain.ts';
@@ -81,10 +91,14 @@ type PersistedAdjustmentNote = {
   sequenceValue: bigint;
   issuedAt: Date;
   currency: string;
+  adjustmentType: string;
   adjustmentReason: string;
   decreaseSubtotalMinor: bigint;
   decreaseTaxMinor: bigint;
   decreaseTotalMinor: bigint;
+  increaseSubtotalMinor: bigint;
+  increaseTaxMinor: bigint;
+  increaseTotalMinor: bigint;
   sourceInvoiceFingerprint: string;
   issuerFingerprint: string;
   recipientFingerprint: string;
@@ -125,14 +139,24 @@ type ValidatedCancellation = Readonly<{
   document: ReturnType<typeof createHospitalityIssuedAdjustmentNoteDocument>;
 }>;
 
-type ValidatedCommercialAmendment = Readonly<{
-  kind: 'COMMERCIAL_AMENDMENT';
+type ValidatedDecreasingCommercialAmendment = Readonly<{
+  kind: 'COMMERCIAL_AMENDMENT_DECREASING';
   row: PersistedAdjustmentNote;
   snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot>;
   document: ReturnType<typeof createHospitalityIssuedAdjustmentNoteDocument>;
 }>;
 
-type ValidatedAdjustmentNote = ValidatedCancellation | ValidatedCommercialAmendment;
+type ValidatedIncreasingCommercialAmendment = Readonly<{
+  kind: 'COMMERCIAL_AMENDMENT_INCREASING';
+  row: PersistedAdjustmentNote;
+  snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot>;
+  document: ReturnType<typeof createHospitalityIssuedAdjustmentNoteDocument>;
+}>;
+
+type ValidatedAdjustmentNote =
+  | ValidatedCancellation
+  | ValidatedDecreasingCommercialAmendment
+  | ValidatedIncreasingCommercialAmendment;
 
 async function requireAdjustmentNoteReadAccess(input: { organizationId: string; actorUserId: string }) {
   await requireOrganizationPermission({
@@ -147,12 +171,26 @@ async function requireAdjustmentNoteReadAccess(input: { organizationId: string; 
   });
 }
 
+function hasZeroIncrease(row: PersistedAdjustmentNote) {
+  return row.increaseSubtotalMinor === 0n
+    && row.increaseTaxMinor === 0n
+    && row.increaseTotalMinor === 0n;
+}
+
+function hasZeroDecrease(row: PersistedAdjustmentNote) {
+  return row.decreaseSubtotalMinor === 0n
+    && row.decreaseTaxMinor === 0n
+    && row.decreaseTotalMinor === 0n;
+}
+
 function validateCancellationRow(row: PersistedAdjustmentNote): ValidatedCancellation {
   const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(row.documentSnapshot);
   if (
     row.jurisdictionCode !== 'AU'
     || row.documentType !== 'ADJUSTMENT_NOTE'
+    || row.adjustmentType !== 'DECREASING'
     || row.adjustmentReason !== 'BOOKING_CANCELLATION'
+    || !hasZeroIncrease(row)
     || row.refundTransactionId === null
     || row.commercialAmendmentId !== null
     || row.targetPricingEvidenceId !== null
@@ -180,7 +218,7 @@ function validateCancellationRow(row: PersistedAdjustmentNote): ValidatedCancell
     );
   }
   const document = createHospitalityIssuedAdjustmentNoteDocument(snapshot);
-  if (document.documentFingerprint !== row.documentFingerprint) {
+  if (document.documentFingerprint !== row.documentFingerprint || document.adjustmentType !== 'Decreasing adjustment') {
     throw new HospitalityIssuedAdjustmentNotePersistenceError(
       'Cancellation adjustment-note document projection failed integrity validation.',
     );
@@ -188,7 +226,10 @@ function validateCancellationRow(row: PersistedAdjustmentNote): ValidatedCancell
   return Object.freeze({ kind: 'BOOKING_CANCELLATION', row, snapshot, document });
 }
 
-function commercialPredecessorMatches(row: PersistedAdjustmentNote, snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot>) {
+function commercialPredecessorMatches(
+  row: PersistedAdjustmentNote,
+  snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot>,
+) {
   if (snapshot.schemaVersion === 2) {
     return row.sourceAdjustmentOrdinal === 1
       && row.predecessorAdjustmentNoteId === null
@@ -199,12 +240,14 @@ function commercialPredecessorMatches(row: PersistedAdjustmentNote, snapshot: Re
     && row.predecessorSourceAdjustmentOrdinal === row.sourceAdjustmentOrdinal - 1;
 }
 
-function validateCommercialAmendmentRow(row: PersistedAdjustmentNote): ValidatedCommercialAmendment {
+function validateDecreasingCommercialAmendmentRow(row: PersistedAdjustmentNote): ValidatedDecreasingCommercialAmendment {
   const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
   if (
     row.jurisdictionCode !== 'AU'
     || row.documentType !== 'ADJUSTMENT_NOTE'
+    || row.adjustmentType !== 'DECREASING'
     || row.adjustmentReason !== 'COMMERCIAL_AMENDMENT'
+    || !hasZeroIncrease(row)
     || row.refundTransactionId !== null
     || row.commercialAmendmentId === null
     || row.targetPricingEvidenceId === null
@@ -228,23 +271,73 @@ function validateCommercialAmendmentRow(row: PersistedAdjustmentNote): Validated
     || hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
   ) {
     throw new HospitalityIssuedAdjustmentNotePersistenceError(
-      'Persisted commercial-amendment adjustment note failed integrity validation.',
+      'Persisted decreasing commercial-amendment adjustment note failed integrity validation.',
     );
   }
   const document = createHospitalityIssuedAdjustmentNoteDocument(snapshot);
-  if (document.documentFingerprint !== row.documentFingerprint) {
+  if (document.documentFingerprint !== row.documentFingerprint || document.adjustmentType !== 'Decreasing adjustment') {
     throw new HospitalityIssuedAdjustmentNotePersistenceError(
-      'Commercial-amendment adjustment-note document projection failed integrity validation.',
+      'Decreasing commercial-amendment adjustment-note document projection failed integrity validation.',
     );
   }
-  return Object.freeze({ kind: 'COMMERCIAL_AMENDMENT', row, snapshot, document });
+  return Object.freeze({ kind: 'COMMERCIAL_AMENDMENT_DECREASING', row, snapshot, document });
+}
+
+function validateIncreasingCommercialAmendmentRow(row: PersistedAdjustmentNote): ValidatedIncreasingCommercialAmendment {
+  const snapshot = parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot(row.documentSnapshot);
+  if (
+    row.jurisdictionCode !== 'AU'
+    || row.documentType !== 'ADJUSTMENT_NOTE'
+    || row.adjustmentType !== 'INCREASING'
+    || row.adjustmentReason !== 'COMMERCIAL_AMENDMENT'
+    || !hasZeroDecrease(row)
+    || row.refundTransactionId !== null
+    || row.commercialAmendmentId === null
+    || row.targetPricingEvidenceId === null
+    || row.predecessorAdjustmentNoteId !== null
+    || row.predecessorSourceAdjustmentOrdinal !== null
+    || row.sourceAdjustmentOrdinal !== 1
+    || snapshot.organizationId !== row.organizationId
+    || snapshot.bookingId !== row.bookingId
+    || snapshot.sourceInvoiceId !== row.sourceInvoiceId
+    || snapshot.commercialAmendmentId !== row.commercialAmendmentId
+    || snapshot.targetPricingEvidenceId !== row.targetPricingEvidenceId
+    || snapshot.sourceAdjustmentOrdinal !== '1'
+    || snapshot.documentNumber !== row.documentNumber
+    || BigInt(snapshot.sequenceValue) !== row.sequenceValue
+    || new Date(snapshot.issuedAt).getTime() !== row.issuedAt.getTime()
+    || snapshot.currency !== row.currency
+    || BigInt(snapshot.increaseSubtotalMinor) !== row.increaseSubtotalMinor
+    || BigInt(snapshot.increaseTaxMinor) !== row.increaseTaxMinor
+    || BigInt(snapshot.increaseTotalMinor) !== row.increaseTotalMinor
+    || snapshot.sourceInvoiceFingerprint !== row.sourceInvoiceFingerprint
+    || snapshot.issuerFingerprint !== row.issuerFingerprint
+    || snapshot.recipientFingerprint !== row.recipientFingerprint
+    || hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
+  ) {
+    throw new HospitalityIssuedAdjustmentNotePersistenceError(
+      'Persisted increasing commercial-amendment adjustment note failed integrity validation.',
+    );
+  }
+  const document = createHospitalityIssuedAdjustmentNoteDocument(snapshot);
+  if (document.documentFingerprint !== row.documentFingerprint || document.adjustmentType !== 'Increasing adjustment') {
+    throw new HospitalityIssuedAdjustmentNotePersistenceError(
+      'Increasing commercial-amendment adjustment-note document projection failed integrity validation.',
+    );
+  }
+  return Object.freeze({ kind: 'COMMERCIAL_AMENDMENT_INCREASING', row, snapshot, document });
 }
 
 function validatePersistedAdjustmentNote(row: PersistedAdjustmentNote): ValidatedAdjustmentNote {
   try {
     if (row.adjustmentReason === 'BOOKING_CANCELLATION') return validateCancellationRow(row);
-    if (row.adjustmentReason === 'COMMERCIAL_AMENDMENT') return validateCommercialAmendmentRow(row);
-    throw new HospitalityIssuedAdjustmentNotePersistenceError('Unsupported persisted adjustment-note reason.');
+    if (row.adjustmentReason === 'COMMERCIAL_AMENDMENT' && row.adjustmentType === 'DECREASING') {
+      return validateDecreasingCommercialAmendmentRow(row);
+    }
+    if (row.adjustmentReason === 'COMMERCIAL_AMENDMENT' && row.adjustmentType === 'INCREASING') {
+      return validateIncreasingCommercialAmendmentRow(row);
+    }
+    throw new HospitalityIssuedAdjustmentNotePersistenceError('Unsupported persisted adjustment-note authority.');
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNotePersistenceError) throw error;
     if (error instanceof HospitalityIssuedAdjustmentNoteDocumentValidationError || error instanceof Error) {
@@ -350,7 +443,10 @@ function validateCancellationAuthority(
   }
 }
 
-async function verifyCommercialAuthority(organizationId: string, items: readonly ValidatedCommercialAmendment[]) {
+async function verifyDecreasingCommercialAuthority(
+  organizationId: string,
+  items: readonly ValidatedDecreasingCommercialAmendment[],
+) {
   if (items.length === 0) return;
   try {
     await verifyHospitalityCommercialAmendmentAdjustmentRows({
@@ -371,8 +467,38 @@ async function verifyCommercialAuthority(organizationId: string, items: readonly
       throw new HospitalityIssuedAdjustmentNotePersistenceError(error.message);
     }
     throw new HospitalityIssuedAdjustmentNotePersistenceError(
-      'Commercial-amendment adjustment-note chain failed integrity validation.',
+      'Decreasing commercial-amendment adjustment-note chain failed integrity validation.',
     );
+  }
+}
+
+async function verifyIncreasingCommercialAuthority(
+  organizationId: string,
+  items: readonly ValidatedIncreasingCommercialAmendment[],
+) {
+  for (let offset = 0; offset < items.length; offset += HOSPITALITY_INCREASING_ADJUSTMENT_READ_BATCH_LIMIT) {
+    const batch = items.slice(offset, offset + HOSPITALITY_INCREASING_ADJUSTMENT_READ_BATCH_LIMIT);
+    try {
+      await verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows({
+        organizationId,
+        rows: batch.map((item) => ({
+          id: item.row.id,
+          bookingId: item.row.bookingId,
+          sourceInvoiceId: item.row.sourceInvoiceId,
+        })),
+      });
+    } catch (error) {
+      if (
+        error instanceof HospitalityCommercialAmendmentIncreasingAdjustmentReadIntegrityError
+        || error instanceof HospitalityCommercialAmendmentIncreasingAdjustmentReadLimitError
+        || error instanceof Error
+      ) {
+        throw new HospitalityIssuedAdjustmentNotePersistenceError(error.message);
+      }
+      throw new HospitalityIssuedAdjustmentNotePersistenceError(
+        'Increasing commercial-amendment adjustment-note authority failed integrity validation.',
+      );
+    }
   }
 }
 
@@ -382,8 +508,11 @@ async function validateRowsWithAuthorities(organizationId: string, rows: Persist
   const cancellationItems = validated.filter(
     (item): item is ValidatedCancellation => item.kind === 'BOOKING_CANCELLATION',
   );
-  const commercialItems = validated.filter(
-    (item): item is ValidatedCommercialAmendment => item.kind === 'COMMERCIAL_AMENDMENT',
+  const decreasingCommercialItems = validated.filter(
+    (item): item is ValidatedDecreasingCommercialAmendment => item.kind === 'COMMERCIAL_AMENDMENT_DECREASING',
+  );
+  const increasingCommercialItems = validated.filter(
+    (item): item is ValidatedIncreasingCommercialAmendment => item.kind === 'COMMERCIAL_AMENDMENT_INCREASING',
   );
   const refundIds = [...new Set(cancellationItems.map((item) => item.snapshot.refundTransactionId))];
 
@@ -449,7 +578,11 @@ async function validateRowsWithAuthorities(organizationId: string, rows: Persist
       validateCancellationAuthority(item, refundById.get(item.snapshot.refundTransactionId));
     }
   }
-  await verifyCommercialAuthority(organizationId, commercialItems);
+
+  await Promise.all([
+    verifyDecreasingCommercialAuthority(organizationId, decreasingCommercialItems),
+    verifyIncreasingCommercialAuthority(organizationId, increasingCommercialItems),
+  ]);
   return validated;
 }
 
@@ -460,8 +593,10 @@ function adjustmentSummary(item: Awaited<ReturnType<typeof validateRowsWithAutho
     sourceTaxInvoiceNumber: item.document.sourceTaxInvoiceNumber,
     issuedAt: new Date(item.document.issuedAt),
     currency: item.document.currency,
+    adjustmentType: item.document.adjustmentType,
     adjustmentReason: item.document.adjustmentReason,
     decreaseTotalMinor: BigInt(item.document.decreaseTotalMinor),
+    increaseTotalMinor: BigInt(item.document.increaseTotalMinor),
   });
 }
 
@@ -516,18 +651,39 @@ export async function createHospitalityIssuedAdjustmentNoteAccountingExport(inpu
   }
 
   const validated = await validateRowsWithAuthorities(input.organizationId, rows);
-  const accountingRows = validated.map(({ document }) => Object.freeze({
-    documentNumber: document.documentNumber,
-    issuedAt: new Date(document.issuedAt),
-    bookingId: document.bookingId,
-    sourceTaxInvoiceNumber: document.sourceTaxInvoiceNumber,
-    sourceTaxInvoiceIssuedAt: new Date(document.sourceTaxInvoiceIssuedAt),
-    currency: document.currency,
-    adjustmentReason: document.adjustmentReason,
-    decreaseSubtotalMinor: BigInt(document.decreaseSubtotalMinor),
-    decreaseGstMinor: BigInt(document.decreaseGstMinor),
-    decreaseTotalMinor: BigInt(document.decreaseTotalMinor),
-  }));
+  const accountingRows = validated.map(({ document }) => {
+    const common = {
+      documentNumber: document.documentNumber,
+      issuedAt: new Date(document.issuedAt),
+      bookingId: document.bookingId,
+      sourceTaxInvoiceNumber: document.sourceTaxInvoiceNumber,
+      sourceTaxInvoiceIssuedAt: new Date(document.sourceTaxInvoiceIssuedAt),
+      currency: document.currency,
+      adjustmentReason: document.adjustmentReason,
+    };
+    if (document.adjustmentType === 'Increasing adjustment') {
+      return Object.freeze({
+        ...common,
+        adjustmentType: 'Increasing adjustment' as const,
+        decreaseSubtotalMinor: 0n as const,
+        decreaseGstMinor: 0n as const,
+        decreaseTotalMinor: 0n as const,
+        increaseSubtotalMinor: BigInt(document.increaseSubtotalMinor),
+        increaseGstMinor: BigInt(document.increaseGstMinor),
+        increaseTotalMinor: BigInt(document.increaseTotalMinor),
+      });
+    }
+    return Object.freeze({
+      ...common,
+      adjustmentType: 'Decreasing adjustment' as const,
+      decreaseSubtotalMinor: BigInt(document.decreaseSubtotalMinor),
+      decreaseGstMinor: BigInt(document.decreaseGstMinor),
+      decreaseTotalMinor: BigInt(document.decreaseTotalMinor),
+      increaseSubtotalMinor: 0n as const,
+      increaseGstMinor: 0n as const,
+      increaseTotalMinor: 0n as const,
+    });
+  });
 
   return Object.freeze({
     adjustmentNoteCount: accountingRows.length,
