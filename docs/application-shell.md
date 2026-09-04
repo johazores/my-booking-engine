@@ -2,13 +2,13 @@
 
 ## Status
 
-The persistent authenticated workspace is implemented and now hosts `/dashboard`, `/customers`, `/branding`, and `/account` with one tenant identity, account control surface, responsive navigation model, branding boundary, active navigation behavior, and loading presentation.
+The persistent authenticated workspace hosts the implemented operational surfaces `/dashboard`, `/bookings`, `/invoices`, `/customers`, `/inventory`, `/pricing`, `/integrations`, `/branding`, and `/account` with one tenant identity, account control surface, responsive navigation model, branding boundary, and active navigation behavior.
 
 ## Security boundary
 
 The shell is presentation, not authorization. `src/components/authenticated-application-shell.tsx` resolves the authenticated server session, revalidates the active organization context, reads authorization, and resolves tenant branding before passing safe display context into the client shell.
 
-Protected pages still perform the server reads and permission checks required for their own data and mutations. Layout execution is not treated as a substitute for page/service authorization.
+Protected pages still perform the server reads and permission checks required for their own data and mutations. Layout execution and navigation visibility are never substitutes for page/service authorization.
 
 The active-organization cookie remains only a preference. Tenant access continues to be revalidated through the server tenant boundary.
 
@@ -17,13 +17,20 @@ The active-organization cookie remains only a preference. Tenant access continue
 Current navigation targets map only to implemented product surfaces:
 
 - Dashboard — `/dashboard`
+- Bookings — `/bookings`
+- Tax invoices — `/invoices`
 - Customers — `/customers`
+- Inventory — `/inventory`
+- Pricing — `/pricing`
+- Integrations — `/integrations`
 - Branding — `/branding`
 - Account and organization administration — `/account`
 
-Do not add placeholder navigation for bookings, payments, inventory, availability, pricing, or integrations until those workflows exist.
+The invoice destination is a real tenant-scoped issued-document register. Booking, invoice, customer, inventory, pricing, integration, branding, and account pages continue to enforce their own capability requirements server-side; a visible navigation item does not grant access.
 
-Desktop uses a persistent left sidebar plus sticky tenant/account header. Mobile uses a compact fixed four-destination navigation surface with touch-sized targets. Both derive active navigation state from the current pathname and expose `aria-current`.
+Desktop uses a persistent left sidebar plus tenant/account header. Mobile uses the same implemented destinations in the responsive mobile navigation surface. Both derive active navigation state from the current pathname and expose `aria-current`.
+
+Future modules must not be added to navigation until they have real persisted workflows and protected server boundaries.
 
 ## Shared authenticated boundary
 
@@ -53,15 +60,19 @@ The dashboard remains operationally honest. It renders only persisted or server-
 - active and total membership counts only when the current actor has `membership:read`
 - the current authenticated email and server-revalidated tenant/authorization status
 
-It must not invent booking volume, revenue, conversion, occupancy, integration health, or other analytics before those domains exist.
+It must not invent booking volume, revenue, conversion, occupancy, integration health, or other analytics that are not derived from implemented production data.
 
 ## Operational module integration
 
-The customer directory is the first operational module added to the shell. It uses the shared navigation/layout but independently enforces `customer:read` / `customer:manage` in its page and service boundaries.
+Operational modules reuse the same shell but retain independent authorization and persistence boundaries. Examples include:
 
-`/account` preserves its existing server-side authentication, tenant revalidation, permission checks, organization switching, settings, lifecycle, and membership-management behavior inside the shared workspace.
+- bookings and booking management with `booking:read` / `booking:manage`;
+- issued tax-invoice register/detail/accounting export with `booking:read` plus `payment:read`, while issuance remains `payment:manage`;
+- customer directory with `customer:read` / `customer:manage`;
+- inventory, pricing, and integration modules with their corresponding capability checks; and
+- account/branding administration with their existing tenant and management permissions.
 
-`/branding` uses the same shell, including no-tenant/read-only/error states, without becoming the source of authorization truth.
+`/account` preserves server-side authentication, tenant revalidation, permission checks, organization switching, settings, lifecycle, and membership-management behavior inside the shared workspace.
 
 ## Accessibility and responsive behavior
 
@@ -72,7 +83,7 @@ The workspace includes:
 - visible global focus states
 - `aria-current` for active navigation
 - responsive desktop/tablet/mobile layouts
-- touch-sized mobile navigation
+- touch-oriented mobile navigation
 - loading feedback while session, tenant context, and permissions resolve
 - reduced-motion handling for loading indicators
 - no nested `<main>` landmark when integrating pages that already provide their own main landmark
