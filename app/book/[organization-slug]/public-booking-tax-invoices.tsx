@@ -163,7 +163,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       {history?.items.map((invoice, index) => {
         const sellerAddress = addressLines(invoice.seller);
         const buyerAddress = addressLines(invoice.buyer);
-        const issuedDate = new Date(invoice.issuedAt).toLocaleDateString('en-AU');
+        const issuedDate = new Date(invoice.issuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' });
         const downloading = downloadingDocumentNumber === invoice.documentNumber;
         return (
           <details className="sf-public-invoice" key={invoice.documentNumber} open={index === 0 ? true : undefined}>

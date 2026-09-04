@@ -57,7 +57,7 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
       <PrintInvoiceAction />
     </div>
     <article className="sf-invoice-document" aria-labelledby="tax-invoice-title">
-      <header className="sf-invoice-document__header"><div><p className="sf-eyebrow">Australian GST document</p><h1 id="tax-invoice-title">Tax invoice</h1></div><div className="sf-invoice-document__number"><span>Invoice number</span><strong>{invoice.documentNumber}</strong><span>Issued {new Date(invoice.issuedAt).toLocaleDateString('en-AU')}</span></div></header>
+      <header className="sf-invoice-document__header"><div><p className="sf-eyebrow">Australian GST document</p><h1 id="tax-invoice-title">Tax invoice</h1></div><div className="sf-invoice-document__number"><span>Invoice number</span><strong>{invoice.documentNumber}</strong><span>Issued {new Date(invoice.issuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' })}</span></div></header>
       <div className="sf-invoice-parties">
         <section className="sf-invoice-party" aria-labelledby="invoice-seller-title"><h2 id="invoice-seller-title">Seller</h2><p><strong>{invoice.seller.legalName}</strong></p><p>ABN {invoice.supplierAbn}</p>{sellerAddress.map((line, index) => <p key={`seller:${index}`}>{line}</p>)}{invoice.seller.contactEmail ? <p>{invoice.seller.contactEmail}</p> : null}</section>
         <section className="sf-invoice-party" aria-labelledby="invoice-buyer-title"><h2 id="invoice-buyer-title">Buyer</h2><p><strong>{invoice.buyer.legalName}</strong></p>{invoice.buyerAbn ? <p>ABN {invoice.buyerAbn}</p> : null}{buyerAddress.map((line, index) => <p key={`buyer:${index}`}>{line}</p>)}{invoice.buyer.email ? <p>{invoice.buyer.email}</p> : null}</section>
