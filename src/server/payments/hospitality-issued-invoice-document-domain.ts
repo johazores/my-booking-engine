@@ -99,6 +99,7 @@ export function createHospitalityIssuedTaxInvoiceDocument(value: unknown) {
     }
 
     return Object.freeze({
+      documentTitle: 'Tax invoice' as const,
       documentFingerprint: hospitalityIssuedInvoiceFingerprint(snapshot),
       documentNumber: snapshot.documentNumber,
       issuedAt: snapshot.issuedAt,
