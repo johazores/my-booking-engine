@@ -81,6 +81,8 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
         <div><span>Reason</span><strong>{document.adjustmentReason}</strong></div>
         <div><span>Original tax invoice</span><strong><Link href={`/invoices/${encodeURIComponent(document.sourceTaxInvoiceNumber)}`}>{document.sourceTaxInvoiceNumber}</Link></strong></div>
         <div><span>Original invoice date</span><strong>{new Date(document.sourceTaxInvoiceIssuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' })}</strong></div>
+        <div><span>Price before adjustment</span><strong>{money(document.priceBeforeAdjustmentMinor, document.currency)}</strong></div>
+        <div><span>Price after adjustment</span><strong>{money(document.priceAfterAdjustmentMinor, document.currency)}</strong></div>
       </div>
       <div className="sf-invoice-totals">
         <div><span>Decrease excl. GST</span><strong>{money(document.decreaseSubtotalMinor, document.currency)}</strong></div>
