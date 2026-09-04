@@ -9,9 +9,9 @@ import {
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
+const AUSTRALIAN_ADJUSTMENT_NOTE_NUMBER_PATTERN = /^AU-ADJ-[0-9]{8,}$/;
 
-export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot = Readonly<{
-  schemaVersion: 2;
+type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotBase = Readonly<{
   kind: 'ADJUSTMENT_NOTE';
   jurisdictionCode: 'AU';
   adjustmentType: 'DECREASING';
@@ -24,7 +24,6 @@ export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot = Readonl
   commercialAmendmentId: string;
   commercialAmendmentAppliedAt: string;
   targetPricingEvidenceId: string;
-  sourceAdjustmentOrdinal: '1';
   documentNumber: string;
   sequenceValue: string;
   issuedAt: string;
@@ -49,6 +48,36 @@ export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot = Readonl
     adjustmentReasonLabel: 'Commercial booking amendment';
     sourceTaxInvoiceNumber: string;
   }>;
+}>;
+
+export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotV2 =
+  HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotBase & Readonly<{
+    schemaVersion: 2;
+    sourceAdjustmentOrdinal: '1';
+  }>;
+
+export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotV3 =
+  HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotBase & Readonly<{
+    schemaVersion: 3;
+    sourceAdjustmentOrdinal: string;
+    predecessorAdjustmentNoteId: string;
+    predecessorAdjustmentDocumentNumber: string;
+    predecessorAdjustmentIssuedAt: string;
+    predecessorAdjustmentDocumentFingerprint: string;
+    predecessorAfterPricingFingerprint: string;
+  }>;
+
+export type HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot =
+  | HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotV2
+  | HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshotV3;
+
+type PredecessorAdjustmentInput = Readonly<{
+  adjustmentNoteId: unknown;
+  sourceAdjustmentOrdinal: unknown;
+  documentNumber: unknown;
+  issuedAt: unknown;
+  documentFingerprint: unknown;
+  afterPricingFingerprint: unknown;
 }>;
 
 function requiredUuid(value: unknown, label: string) {
@@ -90,6 +119,13 @@ function requiredBigint(value: unknown, label: string) {
   return value;
 }
 
+function requiredPositiveSafeInteger(value: unknown, label: string) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(`${label} must be a positive safe integer.`);
+  }
+  return value;
+}
+
 function recordString(record: Record<string, unknown>, name: string) {
   const value = record[name];
   if (typeof value !== 'string') {
@@ -106,6 +142,28 @@ function recordBigint(record: Record<string, unknown>, name: string) {
   return BigInt(value);
 }
 
+function recordPositiveSafeInteger(record: Record<string, unknown>, name: string) {
+  const value = recordString(record, name);
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(`${name} is invalid.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(`${name} exceeds the supported safe-integer range.`);
+  }
+  return parsed;
+}
+
+function hasPredecessorSnapshotFields(record: Record<string, unknown>) {
+  return (
+    'predecessorAdjustmentNoteId' in record
+    || 'predecessorAdjustmentDocumentNumber' in record
+    || 'predecessorAdjustmentIssuedAt' in record
+    || 'predecessorAdjustmentDocumentFingerprint' in record
+    || 'predecessorAfterPricingFingerprint' in record
+  );
+}
+
 export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(input: {
   organizationId: unknown;
   bookingId: unknown;
@@ -116,6 +174,7 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
   commercialAmendmentAppliedAt: unknown;
   targetPricingEvidenceId: unknown;
   sourceAdjustmentOrdinal: unknown;
+  predecessorAdjustment?: PredecessorAdjustmentInput | null;
   documentNumber: unknown;
   sequenceValue: unknown;
   issuedAt: unknown;
@@ -133,16 +192,32 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
   recipient: unknown;
   supplierAbn: unknown;
 }): HospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot {
-  if (input.sourceAdjustmentOrdinal !== 1) {
+  const sourceAdjustmentOrdinal = requiredPositiveSafeInteger(
+    input.sourceAdjustmentOrdinal,
+    'sourceAdjustmentOrdinal',
+  );
+  const predecessor = input.predecessorAdjustment ?? null;
+
+  if (sourceAdjustmentOrdinal === 1 && predecessor) {
     throw new HospitalityIssuedAdjustmentNoteValidationError(
-      'The current commercial-amendment adjustment-note contract supports only the first legal adjustment against a source tax invoice.',
+      'The first commercial-amendment adjustment note cannot declare a predecessor adjustment note.',
     );
   }
+  if (sourceAdjustmentOrdinal !== 1 && !predecessor) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Repeated commercial-amendment adjustment notes require immutable predecessor authority.',
+    );
+  }
+
   if (typeof input.sequenceValue !== 'bigint' || input.sequenceValue <= 0n) {
     throw new HospitalityIssuedAdjustmentNoteValidationError('sequenceValue must be positive.');
   }
   const expectedDocumentNumber = formatAustralianAdjustmentNoteDocumentNumber(input.sequenceValue);
-  if (typeof input.documentNumber !== 'string' || input.documentNumber !== expectedDocumentNumber) {
+  if (
+    typeof input.documentNumber !== 'string'
+    || input.documentNumber !== expectedDocumentNumber
+    || !AUSTRALIAN_ADJUSTMENT_NOTE_NUMBER_PATTERN.test(input.documentNumber)
+  ) {
     throw new HospitalityIssuedAdjustmentNoteValidationError(
       'documentNumber does not match the allocated Australian adjustment-note sequence.',
     );
@@ -171,7 +246,7 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
   }
   if (typeof input.currency !== 'string' || input.currency.trim().toUpperCase() !== 'AUD') {
     throw new HospitalityIssuedAdjustmentNoteValidationError(
-      'The initial Australian commercial-amendment adjustment-note contract supports AUD only.',
+      'The Australian commercial-amendment adjustment-note contract supports AUD only.',
     );
   }
 
@@ -211,12 +286,15 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
     );
   }
 
-  return Object.freeze({
-    schemaVersion: 2,
-    kind: 'ADJUSTMENT_NOTE',
-    jurisdictionCode: 'AU',
-    adjustmentType: 'DECREASING',
-    adjustmentReason: 'COMMERCIAL_AMENDMENT',
+  const beforePricingFingerprint = requiredFingerprint(
+    input.beforePricingFingerprint,
+    'beforePricingFingerprint',
+  );
+  const common = Object.freeze({
+    kind: 'ADJUSTMENT_NOTE' as const,
+    jurisdictionCode: 'AU' as const,
+    adjustmentType: 'DECREASING' as const,
+    adjustmentReason: 'COMMERCIAL_AMENDMENT' as const,
     organizationId: requiredUuid(input.organizationId, 'organizationId'),
     bookingId: requiredUuid(input.bookingId, 'bookingId'),
     sourceInvoiceId: requiredUuid(input.sourceInvoiceId, 'sourceInvoiceId'),
@@ -225,11 +303,10 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
     commercialAmendmentId: requiredUuid(input.commercialAmendmentId, 'commercialAmendmentId'),
     commercialAmendmentAppliedAt: commercialAmendmentAppliedAt.toISOString(),
     targetPricingEvidenceId: requiredUuid(input.targetPricingEvidenceId, 'targetPricingEvidenceId'),
-    sourceAdjustmentOrdinal: '1',
     documentNumber: input.documentNumber,
     sequenceValue: input.sequenceValue.toString(),
     issuedAt: issuedAt.toISOString(),
-    currency: 'AUD',
+    currency: 'AUD' as const,
     beforeTaxMinor: beforeTaxMinor.toString(),
     beforeTotalMinor: beforeTotalMinor.toString(),
     afterTaxMinor: afterTaxMinor.toString(),
@@ -238,18 +315,96 @@ export function createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot
     decreaseTaxMinor: decreaseTaxMinor.toString(),
     decreaseTotalMinor: decreaseTotalMinor.toString(),
     sourceInvoiceFingerprint: requiredFingerprint(input.sourceInvoiceFingerprint, 'sourceInvoiceFingerprint'),
-    beforePricingFingerprint: requiredFingerprint(input.beforePricingFingerprint, 'beforePricingFingerprint'),
+    beforePricingFingerprint,
     afterPricingFingerprint: requiredFingerprint(input.afterPricingFingerprint, 'afterPricingFingerprint'),
     issuerFingerprint: requiredFingerprint(input.issuerFingerprint, 'issuerFingerprint'),
     recipientFingerprint: requiredFingerprint(input.recipientFingerprint, 'recipientFingerprint'),
     issuer: immutableObject(input.issuer, 'issuer'),
     recipient: immutableObject(input.recipient, 'recipient'),
     australianTax: Object.freeze({
-      documentLabel: 'Adjustment note',
+      documentLabel: 'Adjustment note' as const,
       supplierAbn: input.supplierAbn,
-      adjustmentReasonLabel: 'Commercial booking amendment',
+      adjustmentReasonLabel: 'Commercial booking amendment' as const,
       sourceTaxInvoiceNumber: input.sourceInvoiceDocumentNumber,
     }),
+  });
+
+  if (sourceAdjustmentOrdinal === 1) {
+    return Object.freeze({
+      schemaVersion: 2 as const,
+      ...common,
+      sourceAdjustmentOrdinal: '1' as const,
+    });
+  }
+  if (!predecessor) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Repeated commercial-amendment adjustment notes require immutable predecessor authority.',
+    );
+  }
+
+  const predecessorOrdinal = requiredPositiveSafeInteger(
+    predecessor.sourceAdjustmentOrdinal,
+    'predecessorAdjustment.sourceAdjustmentOrdinal',
+  );
+  if (predecessorOrdinal !== sourceAdjustmentOrdinal - 1) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Repeated commercial-amendment adjustment notes must continue the predecessor ordinal exactly.',
+    );
+  }
+  if (
+    typeof predecessor.documentNumber !== 'string'
+    || !AUSTRALIAN_ADJUSTMENT_NOTE_NUMBER_PATTERN.test(predecessor.documentNumber)
+  ) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'predecessorAdjustment.documentNumber must identify an Australian adjustment note.',
+    );
+  }
+  if (predecessor.documentNumber === input.documentNumber) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'A repeated adjustment note cannot identify itself as its predecessor.',
+    );
+  }
+
+  const predecessorIssuedAt = validDate(
+    predecessor.issuedAt,
+    'predecessorAdjustment.issuedAt',
+  );
+  if (predecessorIssuedAt.getTime() < sourceInvoiceIssuedAt.getTime()) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Predecessor adjustment note cannot predate the source tax invoice.',
+    );
+  }
+  if (commercialAmendmentAppliedAt.getTime() < predecessorIssuedAt.getTime()) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Commercial amendment cannot predate its predecessor adjustment note.',
+    );
+  }
+
+  const predecessorAfterPricingFingerprint = requiredFingerprint(
+    predecessor.afterPricingFingerprint,
+    'predecessorAdjustment.afterPricingFingerprint',
+  );
+  if (beforePricingFingerprint !== predecessorAfterPricingFingerprint) {
+    throw new HospitalityIssuedAdjustmentNoteValidationError(
+      'Repeated commercial-amendment before-price fingerprint must equal the predecessor after-price fingerprint.',
+    );
+  }
+
+  return Object.freeze({
+    schemaVersion: 3 as const,
+    ...common,
+    sourceAdjustmentOrdinal: sourceAdjustmentOrdinal.toString(),
+    predecessorAdjustmentNoteId: requiredUuid(
+      predecessor.adjustmentNoteId,
+      'predecessorAdjustment.adjustmentNoteId',
+    ),
+    predecessorAdjustmentDocumentNumber: predecessor.documentNumber,
+    predecessorAdjustmentIssuedAt: predecessorIssuedAt.toISOString(),
+    predecessorAdjustmentDocumentFingerprint: requiredFingerprint(
+      predecessor.documentFingerprint,
+      'predecessorAdjustment.documentFingerprint',
+    ),
+    predecessorAfterPricingFingerprint,
   });
 }
 
@@ -263,12 +418,10 @@ export function parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(
   }
   const record = value as Record<string, unknown>;
   if (
-    record.schemaVersion !== 2
-    || record.kind !== 'ADJUSTMENT_NOTE'
+    record.kind !== 'ADJUSTMENT_NOTE'
     || record.jurisdictionCode !== 'AU'
     || record.adjustmentType !== 'DECREASING'
     || record.adjustmentReason !== 'COMMERCIAL_AMENDMENT'
-    || record.sourceAdjustmentOrdinal !== '1'
   ) {
     throw new HospitalityIssuedAdjustmentNoteValidationError(
       'Unsupported commercial-amendment adjustment-note snapshot contract.',
@@ -279,6 +432,7 @@ export function parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(
       'Commercial-amendment adjustment authority cannot contain refundTransactionId.',
     );
   }
+
   const australianTax = immutableObject(record.australianTax, 'australianTax');
   if (
     australianTax.documentLabel !== 'Adjustment note'
@@ -289,33 +443,89 @@ export function parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(
       'Australian commercial-amendment adjustment-note legal labels are invalid.',
     );
   }
-  return createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot({
-    organizationId: record.organizationId,
-    bookingId: record.bookingId,
-    sourceInvoiceId: record.sourceInvoiceId,
-    sourceInvoiceDocumentNumber: record.sourceInvoiceDocumentNumber,
-    sourceInvoiceIssuedAt: new Date(recordString(record, 'sourceInvoiceIssuedAt')),
-    commercialAmendmentId: record.commercialAmendmentId,
-    commercialAmendmentAppliedAt: new Date(recordString(record, 'commercialAmendmentAppliedAt')),
-    targetPricingEvidenceId: record.targetPricingEvidenceId,
-    sourceAdjustmentOrdinal: 1,
-    documentNumber: record.documentNumber,
-    sequenceValue: recordBigint(record, 'sequenceValue'),
-    issuedAt: new Date(recordString(record, 'issuedAt')),
-    currency: record.currency,
-    beforeTaxMinor: recordBigint(record, 'beforeTaxMinor'),
-    beforeTotalMinor: recordBigint(record, 'beforeTotalMinor'),
-    afterTaxMinor: recordBigint(record, 'afterTaxMinor'),
-    afterTotalMinor: recordBigint(record, 'afterTotalMinor'),
-    sourceInvoiceFingerprint: record.sourceInvoiceFingerprint,
-    beforePricingFingerprint: record.beforePricingFingerprint,
-    afterPricingFingerprint: record.afterPricingFingerprint,
-    issuerFingerprint: record.issuerFingerprint,
-    recipientFingerprint: record.recipientFingerprint,
-    issuer: record.issuer,
-    recipient: record.recipient,
-    supplierAbn: australianTax.supplierAbn,
-  });
+
+  if (record.schemaVersion === 2) {
+    if (record.sourceAdjustmentOrdinal !== '1' || hasPredecessorSnapshotFields(record)) {
+      throw new HospitalityIssuedAdjustmentNoteValidationError(
+        'Schema-version-2 commercial-amendment adjustment-note authority must be the first source adjustment and cannot contain predecessor evidence.',
+      );
+    }
+    return createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot({
+      organizationId: record.organizationId,
+      bookingId: record.bookingId,
+      sourceInvoiceId: record.sourceInvoiceId,
+      sourceInvoiceDocumentNumber: record.sourceInvoiceDocumentNumber,
+      sourceInvoiceIssuedAt: new Date(recordString(record, 'sourceInvoiceIssuedAt')),
+      commercialAmendmentId: record.commercialAmendmentId,
+      commercialAmendmentAppliedAt: new Date(recordString(record, 'commercialAmendmentAppliedAt')),
+      targetPricingEvidenceId: record.targetPricingEvidenceId,
+      sourceAdjustmentOrdinal: 1,
+      documentNumber: record.documentNumber,
+      sequenceValue: recordBigint(record, 'sequenceValue'),
+      issuedAt: new Date(recordString(record, 'issuedAt')),
+      currency: record.currency,
+      beforeTaxMinor: recordBigint(record, 'beforeTaxMinor'),
+      beforeTotalMinor: recordBigint(record, 'beforeTotalMinor'),
+      afterTaxMinor: recordBigint(record, 'afterTaxMinor'),
+      afterTotalMinor: recordBigint(record, 'afterTotalMinor'),
+      sourceInvoiceFingerprint: record.sourceInvoiceFingerprint,
+      beforePricingFingerprint: record.beforePricingFingerprint,
+      afterPricingFingerprint: record.afterPricingFingerprint,
+      issuerFingerprint: record.issuerFingerprint,
+      recipientFingerprint: record.recipientFingerprint,
+      issuer: record.issuer,
+      recipient: record.recipient,
+      supplierAbn: australianTax.supplierAbn,
+    });
+  }
+
+  if (record.schemaVersion === 3) {
+    const sourceAdjustmentOrdinal = recordPositiveSafeInteger(record, 'sourceAdjustmentOrdinal');
+    if (sourceAdjustmentOrdinal < 2 || !hasPredecessorSnapshotFields(record)) {
+      throw new HospitalityIssuedAdjustmentNoteValidationError(
+        'Schema-version-3 commercial-amendment adjustment-note authority requires a repeated source ordinal and predecessor evidence.',
+      );
+    }
+    return createHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot({
+      organizationId: record.organizationId,
+      bookingId: record.bookingId,
+      sourceInvoiceId: record.sourceInvoiceId,
+      sourceInvoiceDocumentNumber: record.sourceInvoiceDocumentNumber,
+      sourceInvoiceIssuedAt: new Date(recordString(record, 'sourceInvoiceIssuedAt')),
+      commercialAmendmentId: record.commercialAmendmentId,
+      commercialAmendmentAppliedAt: new Date(recordString(record, 'commercialAmendmentAppliedAt')),
+      targetPricingEvidenceId: record.targetPricingEvidenceId,
+      sourceAdjustmentOrdinal,
+      predecessorAdjustment: {
+        adjustmentNoteId: record.predecessorAdjustmentNoteId,
+        sourceAdjustmentOrdinal: sourceAdjustmentOrdinal - 1,
+        documentNumber: record.predecessorAdjustmentDocumentNumber,
+        issuedAt: new Date(recordString(record, 'predecessorAdjustmentIssuedAt')),
+        documentFingerprint: record.predecessorAdjustmentDocumentFingerprint,
+        afterPricingFingerprint: record.predecessorAfterPricingFingerprint,
+      },
+      documentNumber: record.documentNumber,
+      sequenceValue: recordBigint(record, 'sequenceValue'),
+      issuedAt: new Date(recordString(record, 'issuedAt')),
+      currency: record.currency,
+      beforeTaxMinor: recordBigint(record, 'beforeTaxMinor'),
+      beforeTotalMinor: recordBigint(record, 'beforeTotalMinor'),
+      afterTaxMinor: recordBigint(record, 'afterTaxMinor'),
+      afterTotalMinor: recordBigint(record, 'afterTotalMinor'),
+      sourceInvoiceFingerprint: record.sourceInvoiceFingerprint,
+      beforePricingFingerprint: record.beforePricingFingerprint,
+      afterPricingFingerprint: record.afterPricingFingerprint,
+      issuerFingerprint: record.issuerFingerprint,
+      recipientFingerprint: record.recipientFingerprint,
+      issuer: record.issuer,
+      recipient: record.recipient,
+      supplierAbn: australianTax.supplierAbn,
+    });
+  }
+
+  throw new HospitalityIssuedAdjustmentNoteValidationError(
+    'Unsupported commercial-amendment adjustment-note snapshot contract.',
+  );
 }
 
 export function hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(

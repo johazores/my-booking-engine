@@ -14,7 +14,9 @@ export type AustralianCommercialAmendmentAdjustmentRequirementCode =
   | 'AMENDMENT_NOT_APPLIED'
   | 'AMENDMENT_DIRECTION_UNSUPPORTED'
   | 'AMENDMENT_PREDATES_INVOICE'
+  | 'AMENDMENT_PREDATES_PRIOR_ADJUSTMENT'
   | 'PRIOR_ADJUSTMENT_EXISTS'
+  | 'PRIOR_ADJUSTMENT_CHAIN_INVALID'
   | 'LEGAL_BASELINE_MISMATCH'
   | 'TARGET_EVIDENCE_MISMATCH'
   | 'DECREASE_INVALID'
@@ -34,6 +36,16 @@ export type AustralianCommercialAmendmentAdjustmentPrice = Readonly<{
   addonTotalMinor: bigint;
   totalMinor: bigint;
   pricingFingerprint: string;
+}>;
+
+export type AustralianCommercialAmendmentPriorAdjustment = Readonly<{
+  adjustmentNoteId: string;
+  sourceAdjustmentOrdinal: number;
+  issuedAt: Date;
+  documentNumber: string;
+  documentFingerprint: string;
+  before: AustralianCommercialAmendmentAdjustmentPrice;
+  after: AustralianCommercialAmendmentAdjustmentPrice;
 }>;
 
 type SourceInvoice = AustralianCommercialAmendmentAdjustmentPrice & Readonly<{
@@ -71,6 +83,10 @@ function validFingerprint(value: string) {
   return /^[a-f0-9]{64}$/.test(value.trim().toLowerCase());
 }
 
+function validIdentifier(value: string) {
+  return value.trim().length > 0;
+}
+
 function priceComponentsReconcile(price: AustralianCommercialAmendmentAdjustmentPrice) {
   return (
     price.accommodationSubtotalMinor >= 0n
@@ -83,6 +99,15 @@ function priceComponentsReconcile(price: AustralianCommercialAmendmentAdjustment
         + price.taxTotalMinor
         + price.feeTotalMinor
         + price.addonTotalMinor
+  );
+}
+
+function standardGstPrice(price: AustralianCommercialAmendmentAdjustmentPrice) {
+  return (
+    normalizedCurrency(price.currency) === 'AUD'
+    && priceComponentsReconcile(price)
+    && validFingerprint(price.pricingFingerprint)
+    && price.taxTotalMinor * 11n === price.totalMinor
   );
 }
 
@@ -101,11 +126,114 @@ function samePrice(
   );
 }
 
+function decreasingStandardGstEffect(
+  before: AustralianCommercialAmendmentAdjustmentPrice,
+  after: AustralianCommercialAmendmentAdjustmentPrice,
+) {
+  const decreaseTotalMinor = before.totalMinor - after.totalMinor;
+  const decreaseTaxMinor = before.taxTotalMinor - after.taxTotalMinor;
+  const decreaseSubtotalMinor = decreaseTotalMinor - decreaseTaxMinor;
+  return (
+    standardGstPrice(before)
+    && standardGstPrice(after)
+    && decreaseTotalMinor > 0n
+    && decreaseTaxMinor > 0n
+    && decreaseSubtotalMinor > 0n
+    && decreaseSubtotalMinor + decreaseTaxMinor === decreaseTotalMinor
+    && decreaseTaxMinor * 11n === decreaseTotalMinor
+  );
+}
+
+function resolveVerifiedPriorAdjustmentChain(input: {
+  sourceInvoice: SourceInvoice;
+  priorAdjustmentNoteCount: number;
+  priorAdjustments?: readonly AustralianCommercialAmendmentPriorAdjustment[];
+}) {
+  if (!Number.isSafeInteger(input.priorAdjustmentNoteCount) || input.priorAdjustmentNoteCount < 0) {
+    throw new RangeError('priorAdjustmentNoteCount must be a non-negative safe integer.');
+  }
+
+  if (input.priorAdjustmentNoteCount === 0) {
+    if (input.priorAdjustments && input.priorAdjustments.length !== 0) {
+      return Object.freeze({ valid: false as const, reason: 'COUNT_MISMATCH' as const });
+    }
+    return Object.freeze({
+      valid: true as const,
+      legalBaseline: input.sourceInvoice,
+      expectedSourceAdjustmentOrdinal: 1,
+      predecessorAdjustmentNoteId: null,
+      predecessorDocumentNumber: null,
+      predecessorDocumentFingerprint: null,
+      predecessorIssuedAt: null,
+    });
+  }
+
+  if (!input.priorAdjustments) {
+    return Object.freeze({ valid: false as const, reason: 'EVIDENCE_NOT_SUPPLIED' as const });
+  }
+
+  if (input.priorAdjustments.length !== input.priorAdjustmentNoteCount) {
+    return Object.freeze({ valid: false as const, reason: 'COUNT_MISMATCH' as const });
+  }
+
+  const ordered = [...input.priorAdjustments].sort(
+    (left, right) => left.sourceAdjustmentOrdinal - right.sourceAdjustmentOrdinal,
+  );
+  const adjustmentIds = new Set<string>();
+  const documentNumbers = new Set<string>();
+  const documentFingerprints = new Set<string>();
+  let expectedBefore: AustralianCommercialAmendmentAdjustmentPrice = input.sourceInvoice;
+  let earliestIssuedAt = input.sourceInvoice.issuedAt.getTime();
+
+  for (let index = 0; index < ordered.length; index += 1) {
+    const entry = ordered[index];
+    const expectedOrdinal = index + 1;
+    const adjustmentNoteId = entry.adjustmentNoteId.trim();
+    const documentNumber = entry.documentNumber.trim();
+    const documentFingerprint = entry.documentFingerprint.trim().toLowerCase();
+    const issuedAt = entry.issuedAt.getTime();
+
+    if (
+      entry.sourceAdjustmentOrdinal !== expectedOrdinal
+      || !validIdentifier(adjustmentNoteId)
+      || !validIdentifier(documentNumber)
+      || !validFingerprint(documentFingerprint)
+      || Number.isNaN(issuedAt)
+      || issuedAt < earliestIssuedAt
+      || adjustmentIds.has(adjustmentNoteId)
+      || documentNumbers.has(documentNumber)
+      || documentFingerprints.has(documentFingerprint)
+      || !samePrice(expectedBefore, entry.before)
+      || !decreasingStandardGstEffect(entry.before, entry.after)
+    ) {
+      return Object.freeze({ valid: false as const, reason: 'CHAIN_INVALID' as const });
+    }
+
+    adjustmentIds.add(adjustmentNoteId);
+    documentNumbers.add(documentNumber);
+    documentFingerprints.add(documentFingerprint);
+    expectedBefore = entry.after;
+    earliestIssuedAt = issuedAt;
+  }
+
+  const predecessor = ordered[ordered.length - 1];
+  return Object.freeze({
+    valid: true as const,
+    legalBaseline: predecessor.after,
+    expectedSourceAdjustmentOrdinal: predecessor.sourceAdjustmentOrdinal + 1,
+    predecessorAdjustmentNoteId: predecessor.adjustmentNoteId.trim(),
+    predecessorDocumentNumber: predecessor.documentNumber.trim(),
+    predecessorDocumentFingerprint: predecessor.documentFingerprint.trim().toLowerCase(),
+    predecessorIssuedAt: predecessor.issuedAt,
+  });
+}
+
 export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
   sourceInvoice: SourceInvoice;
   amendment: CommercialAmendment;
   targetPricingEvidence: AustralianCommercialAmendmentAdjustmentPrice;
   priorAdjustmentNoteCount: number;
+  priorAdjustments?: readonly AustralianCommercialAmendmentPriorAdjustment[];
   settlement: Settlement;
 }) {
   const requirements: AustralianCommercialAmendmentAdjustmentRequirement[] = [];
@@ -136,7 +264,7 @@ export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
   if (amendment.direction !== 'REFUND' || amendment.deltaMinor >= 0n) {
     requirements.push(requirement(
       'AMENDMENT_DIRECTION_UNSUPPORTED',
-      'The first commercial-amendment adjustment-note contract supports decreasing refund amendments only.',
+      'The supported commercial-amendment adjustment-note contract accepts decreasing refund amendments only.',
     ));
   }
 
@@ -152,24 +280,44 @@ export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
     ));
   }
 
-  if (!Number.isSafeInteger(input.priorAdjustmentNoteCount) || input.priorAdjustmentNoteCount < 0) {
-    throw new RangeError('priorAdjustmentNoteCount must be a non-negative safe integer.');
-  }
-  if (input.priorAdjustmentNoteCount !== 0) {
+  const priorChain = resolveVerifiedPriorAdjustmentChain({
+    sourceInvoice: source,
+    priorAdjustmentNoteCount: input.priorAdjustmentNoteCount,
+    priorAdjustments: input.priorAdjustments,
+  });
+
+  if (!priorChain.valid) {
     requirements.push(requirement(
-      'PRIOR_ADJUSTMENT_EXISTS',
-      'The first commercial-amendment contract requires the source tax invoice to have no earlier adjustment note.',
+      priorChain.reason === 'EVIDENCE_NOT_SUPPLIED' ? 'PRIOR_ADJUSTMENT_EXISTS' : 'PRIOR_ADJUSTMENT_CHAIN_INVALID',
+      priorChain.reason === 'EVIDENCE_NOT_SUPPLIED'
+        ? 'Earlier adjustment notes require a complete verified predecessor chain before another legal adjustment can be assessed.'
+        : 'The supplied predecessor adjustment-note chain is incomplete, non-contiguous, duplicated, chronologically invalid, or does not reconcile to the source invoice.',
+    ));
+  }
+
+  if (
+    priorChain.valid
+    && amendment.appliedAt
+    && priorChain.predecessorIssuedAt
+    && !Number.isNaN(amendment.appliedAt.getTime())
+    && amendment.appliedAt.getTime() < priorChain.predecessorIssuedAt.getTime()
+  ) {
+    requirements.push(requirement(
+      'AMENDMENT_PREDATES_PRIOR_ADJUSTMENT',
+      'The commercial amendment cannot predate the legal adjustment note whose after-price is its baseline.',
     ));
   }
 
   if (
     !priceComponentsReconcile(amendment.before)
     || !validFingerprint(amendment.before.pricingFingerprint)
-    || !samePrice(source, amendment.before)
+    || (priorChain.valid && !samePrice(priorChain.legalBaseline, amendment.before))
   ) {
     requirements.push(requirement(
       'LEGAL_BASELINE_MISMATCH',
-      'The commercial amendment before-price does not exactly match the immutable source tax invoice.',
+      priorChain.valid && priorChain.predecessorAdjustmentNoteId
+        ? 'The commercial amendment before-price does not exactly match the verified predecessor adjustment-note after-price.'
+        : 'The commercial amendment before-price does not exactly match the immutable source tax invoice.',
     ));
   }
 
@@ -215,7 +363,7 @@ export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
   ) {
     requirements.push(requirement(
       'STANDARD_GST_EVIDENCE_INCOMPLETE',
-      'The first commercial-amendment contract requires fully taxable standard-GST pricing before and after the adjustment.',
+      'The supported commercial-amendment contract requires fully taxable standard-GST pricing before and after each adjustment.',
     ));
   }
 
@@ -239,6 +387,10 @@ export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
     decreaseTotalMinor,
     beforeTotalMinor: amendment.before.totalMinor,
     afterTotalMinor: amendment.after.totalMinor,
+    expectedSourceAdjustmentOrdinal: priorChain.valid ? priorChain.expectedSourceAdjustmentOrdinal : null,
+    predecessorAdjustmentNoteId: priorChain.valid ? priorChain.predecessorAdjustmentNoteId : null,
+    predecessorDocumentNumber: priorChain.valid ? priorChain.predecessorDocumentNumber : null,
+    predecessorDocumentFingerprint: priorChain.valid ? priorChain.predecessorDocumentFingerprint : null,
     requirements: Object.freeze(requirements),
   });
 }
