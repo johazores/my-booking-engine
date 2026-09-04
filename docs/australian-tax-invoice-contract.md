@@ -11,12 +11,14 @@ Current server/document authorities are:
 3. concurrency-safe immutable tax-invoice numbering and issuance;
 4. authenticated and capability-owned customer rendering/history;
 5. deterministic server-side PDF projection for legal text that is losslessly representable by the current PDF font contract;
-6. tenant-wide paginated register plus bounded accounting CSV export; and
-7. tenant-scoped live legal-document integrity reconciliation with an explicit no-automatic-disposal retention rule.
+6. tenant-wide paginated register plus bounded accounting CSV export;
+7. tenant-scoped live legal-document integrity reconciliation with an explicit no-automatic-disposal retention rule;
+8. issued full-cancellation plus first/repeated decreasing commercial-amendment adjustment notes; and
+9. first-increasing commercial-amendment readiness plus schema-version-4 immutable persistence structure, with increasing issuance/delivery still intentionally closed.
 
-The generated customer document identifies itself as `Tax invoice` and derives issue date/number, seller/buyer, applicable ABNs, supply lines, GST, and total only from immutable issued evidence. The payment receipt remains separate settlement evidence.
+The generated customer tax invoice identifies itself as `Tax invoice` and derives issue date/number, seller/buyer, applicable ABNs, supply lines, GST, and total only from immutable issued evidence. The payment receipt remains separate settlement evidence.
 
-The Phase 12 jurisdiction lifecycle is not production-complete yet: broader partial/multiple/commercial-amendment adjustment/correction contracts, durable customer re-authentication and email/resend, universal Unicode-safe PDF font coverage, a reviewed disposal/de-identification lifecycle, live Node 24/PostgreSQL validation, and legal review remain open.
+The Phase 12 jurisdiction lifecycle is not production-complete yet: increasing adjustment-note issuance/read/delivery and mixed-direction rules, cancellation-after-amendment semantics, mixed/partial/non-standard-GST corrections, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF font coverage, a reviewed disposal/de-identification lifecycle, live Node 24/PostgreSQL validation, and legal review remain open.
 
 ## Official requirements used by the contract
 
@@ -26,7 +28,9 @@ The Australian rules were reviewed against Australian Taxation Office (ATO) tax-
 - ATO invoicing/records: https://www.ato.gov.au/businesses-and-organisations/preparing-lodging-and-paying/records-you-need-to-keep/invoices
 - ABR ABN format/checksum: https://abr.business.gov.au/Help/AbnFormat
 
-The contract requires explicit tax-invoice identity, seller and seller ABN, issue date, supplied items/quantity/price where applicable, GST payable, and taxable extent. At AUD 1,000 or more it additionally requires buyer identity or buyer ABN. ABN structural validation follows the published 11-digit modulus-89 algorithm. A structurally valid ABN is not proof of live registration or GST status.
+The increasing-adjustment readiness/persistence contract was additionally reviewed against ATO GSTR 2013/2 on 5 September 2026; see `docs/australian-commercial-amendment-increasing-adjustment-readiness.md`.
+
+The tax-invoice contract requires explicit tax-invoice identity, seller and seller ABN, issue date, supplied items/quantity/price where applicable, GST payable, and taxable extent. At AUD 1,000 or more it additionally requires buyer identity or buyer ABN. ABN structural validation follows the published 11-digit modulus-89 algorithm. A structurally valid ABN is not proof of live registration or GST status.
 
 ## Initial supported content shape
 
@@ -75,14 +79,16 @@ The renderer currently uses standard PDF Helvetica fonts with WinAnsi encoding. 
 
 `/invoices` is a tenant-wide paginated register. The accounting CSV is server-generated only after each row passes persisted snapshot/material-column/fingerprint validation, contains exact invoice-number/date/booking/currency/accommodation/fee/add-on/GST/total fields, excludes secrets/payment-provider data, and is capped at 5,000 rows so the synchronous route never returns an unbounded or partial export.
 
-`/invoices/reconciliation` performs a tenant-scoped point-in-time integrity review over the current AU invoice and adjustment-note registers. It reuses the same immutable evidence validators, revalidates adjustment-note source invoice linkage, rejects concurrent register changes, and fails closed above 5,000 combined documents. `docs/tax-document-retention-and-reconciliation.md` defines the current no-automatic-disposal rule and the separate future tax/privacy/legal authority required before disposal or de-identification.
+`/invoices/reconciliation` performs a tenant-scoped point-in-time integrity review over the current AU tax-invoice and reachable decreasing adjustment-note registers. It reuses immutable evidence validators, revalidates adjustment-note source invoice linkage, rejects concurrent register changes, and fails closed above 5,000 combined documents. Schema-version-4 increasing evidence is not yet included in these application projections because no increasing writer/read contract is reachable. `docs/tax-document-retention-and-reconciliation.md` defines the current no-automatic-disposal rule and the separate future tax/privacy/legal authority required before disposal or de-identification.
 
 ## Remaining production boundaries
 
 The master invoice/tax-document item remains open for:
 
-- mixed taxable/GST-free/input-taxed/exempt semantics when product scope requires them;
-- broader partial-refund, multiple-refund, commercial-amendment, credit/correction/void/reissue semantics without mutating issued evidence;
+- a reachable first-increasing adjustment-note writer and corresponding authenticated/public read, accounting/reconciliation, HTML and PDF delivery;
+- cumulative/mixed-direction adjustment semantics and cancellation-after-amendment semantics;
+- mixed taxable/GST-free/input-taxed/exempt, partial-refund and non-standard-GST semantics when product scope requires them;
+- generic credit/correction/void/reissue semantics without mutating issued evidence;
 - universal Unicode-safe deterministic PDF rendering;
 - durable re-authenticated customer history beyond the 24-hour recovery capability, plus email delivery/resend;
 - a reviewed customer-data disposal/de-identification lifecycle and any future accounting-provider integration;
@@ -91,6 +97,6 @@ The master invoice/tax-document item remains open for:
 
 ## Validation
 
-Dependency-free tests cover Australian ABN/readiness rules, issued-document identity/fingerprints, deterministic PDF behavior including pagination and fail-closed unsupported text, and the retention/reconciliation result contract. The disposable PostgreSQL suites cover authorization, cross-tenant denial, issuance idempotency/sequence uniqueness, stale-state rejection, persisted money, and audits when executed through the guarded database harness.
+Dependency-free tests cover Australian ABN/readiness rules, issued-document identity/fingerprints, decreasing adjustment chains, first-increasing readiness and schema-version-4 immutable evidence, deterministic PDF behavior including pagination and fail-closed unsupported text, and retention/reconciliation result contracts. Migration contract tests preserve legacy decreasing evidence while defining mutually exclusive increasing/decreasing material effects. Disposable PostgreSQL suites cover authorization, cross-tenant denial, issuance idempotency/sequence uniqueness, stale-state rejection, persisted money, constraints and audits when executed through the guarded database harness.
 
 GitHub Actions are not used.

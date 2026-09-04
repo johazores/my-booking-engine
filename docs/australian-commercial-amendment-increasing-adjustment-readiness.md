@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SF now has a fail-closed server readiness contract for the first Australian hospitality commercial amendment that increases consideration after an Australian tax invoice has already been issued. This is readiness only: it does not create or expose an increasing adjustment note yet.
+SF now has a fail-closed server readiness contract and immutable persistence foundation for the first Australian hospitality commercial amendment that increases consideration after an Australian tax invoice has already been issued. This is not reachable issuance yet: no API or UI can create or expose an increasing adjustment note.
 
 The contract remains deliberately narrow: AU/AUD, fully taxable standard GST, one applied `ADDITIONAL_CHARGE` amendment, one exact immutable `COMMERCIAL_AMENDMENT_TARGET` pricing-evidence record, complete provider-neutral settlement, and no earlier adjustment note against the source tax invoice.
 
@@ -30,7 +30,7 @@ Jurisdiction/legal review remains required before SF represents the broader life
 - provider-neutral settlement state `READY_TO_APPLY`, zero remaining adjustment, exact settled increase, and net settled money equal to the amended after-total; and
 - zero prior adjustment notes against the source invoice.
 
-The first-only rule is intentional. Existing persisted predecessor chains are decreasing-only. SF does not infer mixed-direction ordering, cancellation-after-amendment behavior, or cumulative increasing semantics from the current decrease-specific schema.
+The first-only rule is intentional. Existing predecessor-chain semantics are decreasing-only. SF does not infer mixed-direction ordering, cancellation-after-amendment behavior, or cumulative increasing semantics from the current decrease chain.
 
 ## Server boundary
 
@@ -45,16 +45,24 @@ The first-only rule is intentional. Existing persisted predecessor chains are de
 
 The caller cannot provide provider truth, amount, currency, source payment identity, GST, pricing fingerprints, settlement state, legal direction, document number, sequence, issue time, or prior-adjustment authority.
 
-## Persistence and product boundary
+## Immutable persistence foundation
 
-No increasing adjustment-note route, action, number, PDF, register row, accounting row, public document, or reconciliation claim is exposed by this readiness work.
+`HospitalityIssuedAdjustmentNote` now separates legal effect from reason with an explicit material `adjustmentType`. Existing rows default to `DECREASING`; new material `increaseSubtotalMinor`, `increaseTaxMinor`, and `increaseTotalMinor` columns default to zero so existing cancellation and decreasing-commercial writers remain compatible.
 
-`HospitalityIssuedAdjustmentNote` and its current PostgreSQL snapshot checks remain decrease-specific: material columns are named `decrease*`, current commercial snapshots identify `adjustmentType = DECREASING`, and the verified predecessor-chain domain requires every commercial step to be a standard-GST decrease. Reusing those fields for an increase would make persisted legal evidence misleading.
+The database money check requires exactly one supported effect: decreasing rows retain positive standard-GST decrease columns and zero increase columns; structurally supported increasing rows require zero decrease columns plus a positive exact standard-GST increase.
 
-The next dependency is a deliberate persistence evolution that represents adjustment direction and effect without mutating schema-version-1/2/3 evidence, followed by immutable increasing document evidence, serializable issuance, chain/mixed-direction rules, authenticated/public reads, accounting/reconciliation, HTML/PDF delivery, and only then a real product action.
+`HospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot` is schema version 4. It is first-adjustment-only, uses `adjustmentType = INCREASING`, freezes the exact source invoice, applied amendment, immutable target-pricing ids/fingerprints, before/after GST-inclusive evidence and derived increase, and deliberately contains no refund or predecessor authority. Its parser recomputes the canonical increase from before/after evidence and fails closed if persisted effect fields drift.
+
+PostgreSQL snapshot checks structurally admit schema version 4 only for `COMMERCIAL_AMENDMENT`, source ordinal `1`, no predecessor authority, no decrease snapshot fields, exact material increase columns, and exact standard-GST before/after arithmetic. Existing schema versions 1, 2 and 3 remain explicitly decreasing and unchanged in meaning.
+
+## Product boundary
+
+No increasing adjustment-note writer, API route, primary action, customer document, PDF, register/accounting row, public history item, or reconciliation claim is exposed by this foundation. Existing application read and delivery paths still accept only cancellation and decreasing commercial documents; an unexpected schema-version-4 row therefore remains fail closed.
+
+The next dependency is a serializable increasing writer that consumes the readiness result, allocates the shared tenant AU adjustment-note sequence, writes schema-version-4 evidence, revalidates the persisted document, and remains idempotent by commercial-amendment authority. Only after that should authenticated/public reads, accounting/reconciliation, HTML/PDF delivery and the real product action be broadened. Cumulative/mixed-direction increasing semantics remain a later separate contract.
 
 ## Validation boundary
 
-Focused dependency-free tests cover valid additional-charge readiness, unsupported refund direction, prior-adjustment rejection, source-baseline drift, target-evidence drift, non-standard GST, incomplete settlement, chronology/status, and delta mismatch.
+Focused dependency-free tests cover valid additional-charge readiness, unsupported refund direction, prior-adjustment rejection, source-baseline drift, target-evidence drift, non-standard GST, incomplete settlement, chronology/status, delta mismatch, immutable schema-version-4 snapshot round-trip/fingerprint behavior, hidden decreasing/predecessor authority rejection, and the migration contract preserving schema versions 1-3.
 
-Full Node 24 repository validation, Prisma schema/migration checks, PostgreSQL integration/concurrency execution, and legal review remain required before issuance is opened.
+Full Node 24 repository validation, Prisma schema/migration execution, PostgreSQL integration/concurrency execution, and legal review remain required before issuance is opened.

@@ -111,10 +111,14 @@ model HospitalityIssuedAdjustmentNote {
   issuedByUserId                     String   @db.Uuid
   issuedAt                           DateTime @db.Timestamptz(6)
   currency                           String   @db.Char(3)
+  adjustmentType                     String   @default("DECREASING") @db.VarChar(16)
   adjustmentReason                   String   @db.VarChar(32)
   decreaseSubtotalMinor              BigInt   @db.BigInt
   decreaseTaxMinor                   BigInt   @db.BigInt
   decreaseTotalMinor                 BigInt   @db.BigInt
+  increaseSubtotalMinor              BigInt   @default(0) @db.BigInt
+  increaseTaxMinor                   BigInt   @default(0) @db.BigInt
+  increaseTotalMinor                 BigInt   @default(0) @db.BigInt
   sourceInvoiceFingerprint           String   @db.Char(64)
   issuerFingerprint                  String   @db.Char(64)
   recipientFingerprint               String   @db.Char(64)
