@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { CancellationAdjustmentNoteAction } from '@/components/cancellation-adjustment-note-action.tsx';
 import { PrintInvoiceAction } from '@/components/print-invoice-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
+import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
+import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
+import { getHospitalityCancellationAdjustmentNoteAvailability } from '@/server/payments/hospitality-adjustment-note-service.ts';
 import {
   HospitalityIssuedInvoiceUnavailableError,
   getHospitalityIssuedTaxInvoiceDocument,
@@ -34,11 +38,12 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
   if (!session) throw new Error('Authenticated invoice guard returned without a session');
   const activeContext = await readActiveOrganizationContext(session.user.id);
   if (!activeContext.organization) redirect('/dashboard?error=tenant');
+  const organization = activeContext.organization;
 
   let invoice;
   try {
     invoice = await getHospitalityIssuedTaxInvoiceDocument({
-      organizationId: activeContext.organization.id,
+      organizationId: organization.id,
       actorUserId: session.user.id,
       documentNumber: decodeURIComponent((await params)['document-number']),
     });
@@ -46,6 +51,20 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
     if (error instanceof HospitalityIssuedInvoiceUnavailableError) notFound();
     throw error;
   }
+
+  const authorization = await readOrganizationAuthorization({ organizationId: organization.id, userId: session.user.id });
+  const canManagePayments = Boolean(authorization && (
+    authorization.platformAdmin
+    || (authorization.role && organizationRoleHasPermission(authorization.role, 'payment:manage'))
+  ));
+  const adjustmentAvailability = canManagePayments
+    ? await getHospitalityCancellationAdjustmentNoteAvailability({
+        organizationId: organization.id,
+        actorUserId: session.user.id,
+        bookingId: invoice.bookingId,
+        sourceInvoiceDocumentNumber: invoice.documentNumber,
+      })
+    : null;
 
   const sellerAddress = addressLines(invoice.seller);
   const buyerAddress = addressLines(invoice.buyer);
@@ -55,6 +74,14 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
       <Link className="sf-button sf-button--secondary" href={`/bookings/${invoice.bookingId}`}>Back to booking</Link>
       <a className="sf-button sf-button--secondary" href={pdfHref} download={`${invoice.documentNumber}.pdf`}>Download PDF</a>
       <PrintInvoiceAction />
+      {adjustmentAvailability?.available ? <CancellationAdjustmentNoteAction
+        bookingId={invoice.bookingId}
+        sourceInvoiceDocumentNumber={invoice.documentNumber}
+        refundTransactionId={adjustmentAvailability.refundTransactionId}
+      /> : null}
+      {adjustmentAvailability && !adjustmentAvailability.available && 'documentNumber' in adjustmentAvailability && adjustmentAvailability.documentNumber
+        ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(adjustmentAvailability.documentNumber)}`}>View adjustment note</Link>
+        : null}
     </div>
     <article className="sf-invoice-document" aria-labelledby="tax-invoice-title">
       <header className="sf-invoice-document__header"><div><p className="sf-eyebrow">Australian GST document</p><h1 id="tax-invoice-title">Tax invoice</h1></div><div className="sf-invoice-document__number"><span>Invoice number</span><strong>{invoice.documentNumber}</strong><span>Issued {new Date(invoice.issuedAt).toLocaleDateString('en-AU', { timeZone: 'UTC' })}</span></div></header>
