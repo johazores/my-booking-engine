@@ -4,11 +4,13 @@ import {
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
 import {
+  issueHospitalityNextCommercialAmendmentAdjustmentNote,
+} from '@/server/payments/hospitality-commercial-amendment-adjustment-orchestration-service.ts';
+import {
   HospitalityCommercialAmendmentAdjustmentNoteConflictError,
   HospitalityCommercialAmendmentAdjustmentNotePersistenceError,
   HospitalityCommercialAmendmentAdjustmentNoteUnavailableError,
   HospitalityCommercialAmendmentAdjustmentNoteWriteConflictError,
-  issueHospitalityCommercialAmendmentAdjustmentNote,
 } from '@/server/payments/hospitality-commercial-amendment-adjustment-note-service.ts';
 
 function adjustmentNoteError(error: unknown) {
@@ -46,7 +48,7 @@ export async function POST(
       throw new TypeError('sourceInvoiceDocumentNumber is required.');
     }
 
-    const issued = await issueHospitalityCommercialAmendmentAdjustmentNote({
+    const issued = await issueHospitalityNextCommercialAmendmentAdjustmentNote({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
       bookingId: routeParams['booking-id'],
@@ -58,6 +60,7 @@ export async function POST(
       issuedAt: issued.issuedAt,
       currency: issued.currency,
       decreaseTotalMinor: issued.decreaseTotalMinor,
+      sourceAdjustmentOrdinal: issued.sourceAdjustmentOrdinal,
     });
   } catch (error) {
     return adjustmentNoteError(error);

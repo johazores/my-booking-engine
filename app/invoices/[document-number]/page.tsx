@@ -8,7 +8,9 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { getHospitalityCancellationAdjustmentNoteAvailability } from '@/server/payments/hospitality-adjustment-note-service.ts';
-import { getHospitalityCommercialAmendmentAdjustmentNoteAvailability } from '@/server/payments/hospitality-commercial-amendment-adjustment-note-service.ts';
+import {
+  getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability,
+} from '@/server/payments/hospitality-commercial-amendment-adjustment-orchestration-service.ts';
 import {
   HospitalityIssuedInvoiceUnavailableError,
   getHospitalityIssuedTaxInvoiceDocument,
@@ -67,17 +69,27 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
         sourceInvoiceDocumentNumber: invoice.documentNumber,
       })
     : null;
-  const commercialAdjustmentAvailability = canManagePayments && !cancellationAdjustmentAvailability?.available
-    ? await getHospitalityCommercialAmendmentAdjustmentNoteAvailability({
+  const existingCancellationDocumentNumber = cancellationAdjustmentAvailability
+    && !cancellationAdjustmentAvailability.available
+    && 'documentNumber' in cancellationAdjustmentAvailability
+    ? cancellationAdjustmentAvailability.documentNumber
+    : null;
+  const commercialAdjustmentAvailability = canManagePayments
+    && !cancellationAdjustmentAvailability?.available
+    && !existingCancellationDocumentNumber
+    ? await getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability({
         organizationId: organization.id,
         actorUserId: session.user.id,
         bookingId: invoice.bookingId,
         sourceInvoiceDocumentNumber: invoice.documentNumber,
       })
     : null;
-  const existingAdjustmentDocumentNumber = [cancellationAdjustmentAvailability, commercialAdjustmentAvailability]
-    .find((availability) => availability && !availability.available && 'documentNumber' in availability && availability.documentNumber)
-    ?.documentNumber;
+  const latestCommercialAdjustmentDocumentNumber = commercialAdjustmentAvailability
+    && 'latestDocumentNumber' in commercialAdjustmentAvailability
+    ? commercialAdjustmentAvailability.latestDocumentNumber
+    : null;
+  const existingAdjustmentDocumentNumber = existingCancellationDocumentNumber
+    ?? latestCommercialAdjustmentDocumentNumber;
 
   const sellerAddress = addressLines(invoice.seller);
   const buyerAddress = addressLines(invoice.buyer);
@@ -96,9 +108,10 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
         bookingId={invoice.bookingId}
         commercialAmendmentId={commercialAdjustmentAvailability.commercialAmendmentId}
         sourceInvoiceDocumentNumber={invoice.documentNumber}
+        sourceAdjustmentOrdinal={commercialAdjustmentAvailability.sourceAdjustmentOrdinal}
       /> : null}
       {existingAdjustmentDocumentNumber
-        ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(existingAdjustmentDocumentNumber)}`}>View adjustment note</Link>
+        ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(existingAdjustmentDocumentNumber)}`}>View latest adjustment note</Link>
         : null}
     </div>
     <article className="sf-invoice-document" aria-labelledby="tax-invoice-title">

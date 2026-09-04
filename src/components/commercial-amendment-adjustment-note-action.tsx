@@ -7,15 +7,18 @@ export function CommercialAmendmentAdjustmentNoteAction({
   bookingId,
   commercialAmendmentId,
   sourceInvoiceDocumentNumber,
+  sourceAdjustmentOrdinal,
 }: {
   bookingId: string;
   commercialAmendmentId: string;
   sourceInvoiceDocumentNumber: string;
+  sourceAdjustmentOrdinal: number;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const repeated = sourceAdjustmentOrdinal > 1;
 
   async function issueAdjustmentNote() {
     setSubmitting(true);
@@ -44,7 +47,7 @@ export function CommercialAmendmentAdjustmentNoteAction({
 
   if (!confirming) {
     return <button className="sf-button" type="button" onClick={() => setConfirming(true)}>
-      Issue amendment adjustment note
+      {repeated ? 'Issue next amendment adjustment note' : 'Issue amendment adjustment note'}
     </button>;
   }
 
@@ -54,6 +57,9 @@ export function CommercialAmendmentAdjustmentNoteAction({
       This permanently binds the applied price decrease and its immutable pricing evidence to this tax invoice,
       then allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.
     </p>
+    {repeated ? <p>
+      This will become adjustment {sourceAdjustmentOrdinal} in the verified legal-document chain for the source tax invoice.
+    </p> : null}
     {error ? <p className="sf-booking-modification-form__error" role="alert">{error}</p> : null}
     <div className="sf-actions">
       <button className="sf-button" type="button" disabled={submitting} onClick={issueAdjustmentNote}>

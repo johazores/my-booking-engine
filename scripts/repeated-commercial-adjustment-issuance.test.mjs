@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const service = readFileSync('src/server/payments/hospitality-repeated-commercial-amendment-adjustment-note-service.ts', 'utf8');
+const orchestration = readFileSync('src/server/payments/hospitality-commercial-amendment-adjustment-orchestration-service.ts', 'utf8');
 const route = readFileSync('app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/adjustment-note/route.ts', 'utf8');
 
 test('repeated issuance requires payment management and a serializable locked verified chain', () => {
@@ -38,8 +39,13 @@ test('a repeated write must become the verified chain head before audit and comm
   assert.match(service, /reloadedChain\.expectedSourceAdjustmentOrdinal !== sourceAdjustmentOrdinal \+ 1/);
 });
 
-test('repeated issuance stays unreachable from the existing API until downstream readers are chain-aware', () => {
-  assert.match(service, /export async function issueHospitalityRepeatedCommercialAmendmentAdjustmentNote/);
-  assert.doesNotMatch(route, /hospitality-repeated-commercial-amendment-adjustment-note-service/);
+test('the existing amendment API exposes first or repeated issuance only through server-derived orchestration', () => {
+  assert.match(orchestration, /export async function issueHospitalityNextCommercialAmendmentAdjustmentNote/);
+  assert.match(orchestration, /getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability/);
+  assert.match(orchestration, /availability\.commercialAmendmentId !== input\.commercialAmendmentId/);
+  assert.match(orchestration, /availability\.sourceAdjustmentOrdinal === 1/);
+  assert.match(orchestration, /issueHospitalityCommercialAmendmentAdjustmentNote/);
+  assert.match(orchestration, /issueHospitalityRepeatedCommercialAmendmentAdjustmentNote/);
+  assert.match(route, /issueHospitalityNextCommercialAmendmentAdjustmentNote/);
   assert.doesNotMatch(route, /issueHospitalityRepeatedCommercialAmendmentAdjustmentNote/);
 });
