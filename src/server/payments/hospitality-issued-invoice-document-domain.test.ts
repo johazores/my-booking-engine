@@ -79,7 +79,9 @@ function issuedSnapshot() {
 
 test('builds customer-safe Australian tax invoice supply lines from immutable evidence', () => {
   const document = createHospitalityIssuedTaxInvoiceDocument(issuedSnapshot());
+  assert.equal(document.documentTitle, 'Tax invoice');
   assert.equal(document.documentNumber, 'AU-TAX-00000001');
+  assert.equal(document.issuedAt, '2026-09-04T00:00:00.000Z');
   assert.equal(document.lines.length, 3);
   assert.deepEqual(document.lines.map((line) => line.amountMinor), ['45000', '45000', '10000']);
   assert.equal(document.subtotalBeforeGstMinor, '100000');
