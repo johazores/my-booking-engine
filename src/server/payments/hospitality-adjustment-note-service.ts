@@ -201,7 +201,13 @@ async function findSourceInvoice(transaction: Prisma.TransactionClient, input: {
   return { row, snapshot: validateSourceInvoice(row) };
 }
 
-function eligibleRefundWhere(input: { organizationId: string; bookingId: string; currency: string; totalMinor: bigint }) {
+function eligibleRefundWhere(input: {
+  organizationId: string;
+  bookingId: string;
+  currency: string;
+  totalMinor: bigint;
+  sourceInvoiceIssuedAt: Date;
+}) {
   return {
     organizationId: input.organizationId,
     bookingId: input.bookingId,
@@ -211,6 +217,7 @@ function eligibleRefundWhere(input: { organizationId: string; bookingId: string;
     currency: input.currency,
     amountMinor: input.totalMinor,
     sourceProviderReference: { not: null },
+    createdAt: { gte: input.sourceInvoiceIssuedAt },
   };
 }
 
@@ -246,14 +253,20 @@ export async function getHospitalityCancellationAdjustmentNoteAvailability(input
     }
 
     const refunds = await transaction.paymentTransaction.findMany({
-      where: eligibleRefundWhere({ organizationId: input.organizationId, bookingId: input.bookingId, currency: sourceInvoice.currency, totalMinor: sourceInvoice.totalMinor }),
+      where: eligibleRefundWhere({
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        currency: sourceInvoice.currency,
+        totalMinor: sourceInvoice.totalMinor,
+        sourceInvoiceIssuedAt: sourceInvoice.issuedAt,
+      }),
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 2,
       select: { id: true },
     });
     if (refunds.length !== 1) {
       return Object.freeze({ available: false as const, reason: refunds.length === 0
-        ? 'A single attributed successful full-refund transaction matching the tax invoice is required.'
+        ? 'A single attributed successful full refund after tax-invoice issuance is required.'
         : 'Multiple matching full refunds make adjustment-note authority ambiguous.' });
     }
     return Object.freeze({ available: true as const, refundTransactionId: refunds[0]!.id });
@@ -306,11 +319,20 @@ export async function issueHospitalityCancellationAdjustmentNote(input: {
         }
 
         const refund = await transaction.paymentTransaction.findFirst({
-          where: { id: input.refundTransactionId, ...eligibleRefundWhere({ organizationId: input.organizationId, bookingId: input.bookingId, currency: sourceInvoice.currency, totalMinor: sourceInvoice.totalMinor }) },
+          where: {
+            id: input.refundTransactionId,
+            ...eligibleRefundWhere({
+              organizationId: input.organizationId,
+              bookingId: input.bookingId,
+              currency: sourceInvoice.currency,
+              totalMinor: sourceInvoice.totalMinor,
+              sourceInvoiceIssuedAt: sourceInvoice.issuedAt,
+            }),
+          },
           select: { id: true },
         });
         if (!refund) {
-          throw new HospitalityAdjustmentNoteConflictError('The selected transaction is not an attributed successful full refund for this tax invoice.');
+          throw new HospitalityAdjustmentNoteConflictError('The selected transaction is not an attributed successful full refund issued after this tax invoice.');
         }
 
         const sequence = await transaction.hospitalityInvoiceNumberSequence.upsert({
