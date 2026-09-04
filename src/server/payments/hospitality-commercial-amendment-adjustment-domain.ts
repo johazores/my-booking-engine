@@ -286,7 +286,7 @@ export function assessAustralianCommercialAmendmentAdjustmentReadiness(input: {
     priorAdjustments: input.priorAdjustments,
   });
 
-  if (!priorChain.valid) {
+  if (priorChain.valid === false) {
     requirements.push(requirement(
       priorChain.reason === 'EVIDENCE_NOT_SUPPLIED' ? 'PRIOR_ADJUSTMENT_EXISTS' : 'PRIOR_ADJUSTMENT_CHAIN_INVALID',
       priorChain.reason === 'EVIDENCE_NOT_SUPPLIED'
