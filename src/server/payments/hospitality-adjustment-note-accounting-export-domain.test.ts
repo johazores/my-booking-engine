@@ -19,13 +19,44 @@ const row = {
   decreaseTotalMinor: 11_000n,
 };
 
-test('exports exact adjustment-note accounting values without internal payment references', () => {
+const increasing = {
+  ...row,
+  documentNumber: 'AU-ADJ-00000008',
+  adjustmentReason: 'Commercial booking amendment',
+  adjustmentType: 'Increasing adjustment' as const,
+  decreaseSubtotalMinor: 0n as const,
+  decreaseGstMinor: 0n as const,
+  decreaseTotalMinor: 0n as const,
+  increaseSubtotalMinor: 2_000n,
+  increaseGstMinor: 200n,
+  increaseTotalMinor: 2_200n,
+};
+
+test('exports exact decreasing adjustment-note accounting values without internal payment references', () => {
   const csv = createHospitalityAdjustmentNoteAccountingCsv([row]);
   assert.match(csv, /"AU-ADJ-00000007"/);
   assert.match(csv, /"AU-TAX-00000042"/);
-  assert.match(csv, /"100\.00","10\.00","110\.00"/);
+  assert.match(csv, /"Decreasing adjustment","100\.00","10\.00","110\.00","0\.00","0\.00","0\.00"/);
   assert.doesNotMatch(csv, /refund_transaction/i);
   assert.doesNotMatch(csv, /provider/i);
+});
+
+test('exports increasing adjustment columns without reusing decreasing columns', () => {
+  const csv = createHospitalityAdjustmentNoteAccountingCsv([increasing]);
+  assert.match(csv, /"Increasing adjustment","0\.00","0\.00","0\.00","20\.00","2\.00","22\.00"/);
+  assert.match(csv, /"adjustment_type"/);
+  assert.match(csv, /"total_increase_inc_gst"/);
+});
+
+test('rejects mixed or unreconciled directional effects', () => {
+  assert.throws(() => createHospitalityAdjustmentNoteAccountingCsv([{
+    ...increasing,
+    decreaseTotalMinor: 1n as never,
+  }]), TypeError);
+  assert.throws(() => createHospitalityAdjustmentNoteAccountingCsv([{
+    ...increasing,
+    increaseGstMinor: 100n,
+  }]), TypeError);
 });
 
 test('escapes text and uses stable UTC timestamps', () => {

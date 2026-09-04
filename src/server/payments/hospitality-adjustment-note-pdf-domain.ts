@@ -46,16 +46,26 @@ export type HospitalityAdjustmentNotePdfDocument = Readonly<{
   seller: PdfParty;
   buyer: PdfParty;
   supplierAbn: string;
-  adjustmentType: 'Decreasing adjustment';
+  adjustmentType: 'Decreasing adjustment' | 'Increasing adjustment';
   adjustmentReason: 'Booking cancellation' | 'Commercial booking amendment';
   priceBeforeAdjustmentMinor: string;
   priceAfterAdjustmentMinor: string;
   decreaseSubtotalMinor: string;
   decreaseGstMinor: string;
   decreaseTotalMinor: string;
+  increaseSubtotalMinor?: string;
+  increaseGstMinor?: string;
+  increaseTotalMinor?: string;
 }>;
 
 type PdfLine = Readonly<{ text: string; x: number; y: number; size: number; bold?: boolean }>;
+
+type AdjustmentEffect = Readonly<{
+  directionLabel: 'Decrease' | 'Increase';
+  subtotalMinor: string;
+  gstMinor: string;
+  totalMinor: string;
+}>;
 
 function encodeWindows1252(value: string, label = 'PDF text') {
   const bytes: number[] = [];
@@ -102,6 +112,11 @@ function nonNegativeMinor(value: unknown, label: string) {
     throw new HospitalityAdjustmentNotePdfValidationError(`${label} must be a non-negative integer minor-unit string.`);
   }
   return BigInt(value);
+}
+
+function optionalMinor(value: unknown, label: string) {
+  if (value === undefined) return 0n;
+  return nonNegativeMinor(value, label);
 }
 
 function pdfHexText(value: string) {
@@ -161,7 +176,10 @@ function wrapText(value: string, maxCharacters: number) {
   return lines;
 }
 
-function validateDocument(document: HospitalityAdjustmentNotePdfDocument) {
+function validateDocument(document: HospitalityAdjustmentNotePdfDocument): Readonly<{
+  documentNumber: string;
+  effect: AdjustmentEffect;
+}> {
   if (!document || typeof document !== 'object') throw new HospitalityAdjustmentNotePdfValidationError('Adjustment note document is required.');
   if (document.documentTitle !== 'Adjustment note') throw new HospitalityAdjustmentNotePdfValidationError('Only Australian adjustment notes can be rendered.');
   const documentNumber = assertText(document.documentNumber, 'documentNumber', 64);
@@ -169,9 +187,14 @@ function validateDocument(document: HospitalityAdjustmentNotePdfDocument) {
   if (!/^AU-TAX-[0-9]{8,}$/.test(document.sourceTaxInvoiceNumber)) throw new HospitalityAdjustmentNotePdfValidationError('sourceTaxInvoiceNumber is invalid.');
   if (document.currency !== 'AUD') throw new HospitalityAdjustmentNotePdfValidationError('Deterministic adjustment-note PDF currently supports AUD only.');
   if (!/^\d{11}$/.test(document.supplierAbn)) throw new HospitalityAdjustmentNotePdfValidationError('supplierAbn is invalid.');
-  if (document.adjustmentType !== 'Decreasing adjustment') throw new HospitalityAdjustmentNotePdfValidationError('adjustmentType is invalid.');
+  if (document.adjustmentType !== 'Decreasing adjustment' && document.adjustmentType !== 'Increasing adjustment') {
+    throw new HospitalityAdjustmentNotePdfValidationError('adjustmentType is invalid.');
+  }
   if (document.adjustmentReason !== 'Booking cancellation' && document.adjustmentReason !== 'Commercial booking amendment') {
     throw new HospitalityAdjustmentNotePdfValidationError('adjustmentReason is invalid.');
+  }
+  if (document.adjustmentType === 'Increasing adjustment' && document.adjustmentReason === 'Booking cancellation') {
+    throw new HospitalityAdjustmentNotePdfValidationError('Booking cancellation cannot be rendered as an increasing adjustment.');
   }
 
   assertText(document.seller.legalName, 'seller legalName', 200);
@@ -196,20 +219,55 @@ function validateDocument(document: HospitalityAdjustmentNotePdfDocument) {
   const decreaseSubtotal = nonNegativeMinor(document.decreaseSubtotalMinor, 'decreaseSubtotalMinor');
   const decreaseGst = nonNegativeMinor(document.decreaseGstMinor, 'decreaseGstMinor');
   const decreaseTotal = nonNegativeMinor(document.decreaseTotalMinor, 'decreaseTotalMinor');
+  const increaseSubtotal = optionalMinor(document.increaseSubtotalMinor, 'increaseSubtotalMinor');
+  const increaseGst = optionalMinor(document.increaseGstMinor, 'increaseGstMinor');
+  const increaseTotal = optionalMinor(document.increaseTotalMinor, 'increaseTotalMinor');
   const priceBefore = nonNegativeMinor(document.priceBeforeAdjustmentMinor, 'priceBeforeAdjustmentMinor');
   const priceAfter = nonNegativeMinor(document.priceAfterAdjustmentMinor, 'priceAfterAdjustmentMinor');
-  if (decreaseTotal <= 0n) throw new HospitalityAdjustmentNotePdfValidationError('Adjustment-note decrease must be positive.');
-  if (decreaseSubtotal + decreaseGst !== decreaseTotal) {
-    throw new HospitalityAdjustmentNotePdfValidationError('Adjustment-note totals do not reconcile.');
-  }
-  if (document.adjustmentReason === 'Booking cancellation') {
-    if (priceBefore !== decreaseTotal || priceAfter !== 0n) {
-      throw new HospitalityAdjustmentNotePdfValidationError('Cancellation adjustment price effect is inconsistent.');
+
+  if (document.adjustmentType === 'Decreasing adjustment') {
+    if (decreaseTotal <= 0n || decreaseSubtotal + decreaseGst !== decreaseTotal) {
+      throw new HospitalityAdjustmentNotePdfValidationError('Adjustment-note decrease totals do not reconcile.');
     }
-  } else if (priceBefore <= priceAfter || priceBefore - priceAfter !== decreaseTotal) {
-    throw new HospitalityAdjustmentNotePdfValidationError('Commercial-amendment adjustment price effect is inconsistent.');
+    if (increaseSubtotal !== 0n || increaseGst !== 0n || increaseTotal !== 0n) {
+      throw new HospitalityAdjustmentNotePdfValidationError('Decreasing adjustment cannot contain an increasing effect.');
+    }
+    if (document.adjustmentReason === 'Booking cancellation') {
+      if (priceBefore !== decreaseTotal || priceAfter !== 0n) {
+        throw new HospitalityAdjustmentNotePdfValidationError('Cancellation adjustment price effect is inconsistent.');
+      }
+    } else if (priceBefore <= priceAfter || priceBefore - priceAfter !== decreaseTotal) {
+      throw new HospitalityAdjustmentNotePdfValidationError('Commercial-amendment decreasing price effect is inconsistent.');
+    }
+    return Object.freeze({
+      documentNumber,
+      effect: Object.freeze({
+        directionLabel: 'Decrease' as const,
+        subtotalMinor: document.decreaseSubtotalMinor,
+        gstMinor: document.decreaseGstMinor,
+        totalMinor: document.decreaseTotalMinor,
+      }),
+    });
   }
-  return documentNumber;
+
+  if (increaseTotal <= 0n || increaseSubtotal + increaseGst !== increaseTotal) {
+    throw new HospitalityAdjustmentNotePdfValidationError('Adjustment-note increase totals do not reconcile.');
+  }
+  if (decreaseSubtotal !== 0n || decreaseGst !== 0n || decreaseTotal !== 0n) {
+    throw new HospitalityAdjustmentNotePdfValidationError('Increasing adjustment cannot contain a decreasing effect.');
+  }
+  if (priceAfter <= priceBefore || priceAfter - priceBefore !== increaseTotal) {
+    throw new HospitalityAdjustmentNotePdfValidationError('Commercial-amendment increasing price effect is inconsistent.');
+  }
+  return Object.freeze({
+    documentNumber,
+    effect: Object.freeze({
+      directionLabel: 'Increase' as const,
+      subtotalMinor: document.increaseSubtotalMinor ?? '0',
+      gstMinor: document.increaseGstMinor ?? '0',
+      totalMinor: document.increaseTotalMinor ?? '0',
+    }),
+  });
 }
 
 function textInstruction(line: PdfLine) {
@@ -217,12 +275,12 @@ function textInstruction(line: PdfLine) {
   return `BT /${font} ${line.size} Tf ${line.x} ${line.y} Td ${pdfHexText(line.text)} Tj ET\n`;
 }
 
-function pageHeader(documentNumber: string, page: number) {
+function pageHeader(documentNumber: string, page: number): PdfLine[] {
   return [
     { text: 'Adjustment note', x: PDF_MARGIN, y: 790, size: PDF_TITLE_FONT_SIZE, bold: true },
     { text: documentNumber, x: 380, y: 794, size: 10, bold: true },
     { text: `Page ${page}`, x: 485, y: 778, size: PDF_SMALL_FONT_SIZE },
-  ] satisfies PdfLine[];
+  ];
 }
 
 function createPageComposer(documentNumber: string) {
@@ -264,8 +322,8 @@ function createPageComposer(documentNumber: string) {
 }
 
 function createContentPages(document: HospitalityAdjustmentNotePdfDocument) {
-  const documentNumber = validateDocument(document);
-  const composer = createPageComposer(documentNumber);
+  const validated = validateDocument(document);
+  const composer = createPageComposer(validated.documentNumber);
   composer.add('Australian GST document', { size: PDF_SMALL_FONT_SIZE, gapAfter: 2 });
   composer.add(`Issued ${dateAu(document.issuedAt, 'issuedAt')}`, { gapAfter: 10 });
 
@@ -290,13 +348,15 @@ function createContentPages(document: HospitalityAdjustmentNotePdfDocument) {
 
   composer.add(`Price before adjustment: ${formatAudMinor(document.priceBeforeAdjustmentMinor)}`);
   composer.add(`Price after adjustment: ${formatAudMinor(document.priceAfterAdjustmentMinor)}`, { gapAfter: 6 });
-  composer.add(`Decrease excl. GST: ${formatAudMinor(document.decreaseSubtotalMinor)}`, { bold: true });
-  composer.add(`GST decrease: ${formatAudMinor(document.decreaseGstMinor)}`, { bold: true });
-  composer.add(`Total decrease incl. GST: ${formatAudMinor(document.decreaseTotalMinor)}`, { bold: true, gapAfter: 8 });
+  composer.add(`${validated.effect.directionLabel} excl. GST: ${formatAudMinor(validated.effect.subtotalMinor)}`, { bold: true });
+  composer.add(`GST ${validated.effect.directionLabel.toLowerCase()}: ${formatAudMinor(validated.effect.gstMinor)}`, { bold: true });
+  composer.add(`Total ${validated.effect.directionLabel.toLowerCase()} incl. GST: ${formatAudMinor(validated.effect.totalMinor)}`, { bold: true, gapAfter: 8 });
   composer.addWrapped(
     document.adjustmentReason === 'Booking cancellation'
       ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
-      : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.',
+      : document.adjustmentType === 'Increasing adjustment'
+        ? 'This increasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
+        : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.',
     82,
     { size: PDF_SMALL_FONT_SIZE },
   );

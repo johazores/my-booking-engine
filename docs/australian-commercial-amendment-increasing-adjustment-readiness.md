@@ -2,7 +2,9 @@
 
 ## Purpose
 
-SF has a fail-closed server readiness contract, immutable persistence foundation, and serializable server writer for the first Australian hospitality commercial amendment that increases consideration after an Australian tax invoice has been issued. Increasing issuance is still not product-reachable: authenticated/public reads, accounting/reconciliation, HTML/PDF delivery, the API route, and the primary action intentionally continue to reject or avoid schema-version-4 evidence until they share the same verified authority boundary.
+SF has a fail-closed server readiness contract, immutable persistence foundation, serializable server writer, bounded post-issuance read-authority verifier, and direction-aware legal-document/PDF/accounting projection contracts for the first Australian hospitality commercial amendment that increases consideration after an Australian tax invoice has been issued.
+
+Increasing issuance is still not product-reachable. The current authenticated/public adjustment-note read services, reconciliation traversal, API route, register/detail UI and primary action intentionally do not admit schema-version-4 evidence yet. This prevents the writer from creating a legal document before every reachable read path consumes the same independent authority proof.
 
 The contract remains deliberately narrow: AU/AUD, fully taxable standard GST, one applied `ADDITIONAL_CHARGE` amendment, one exact immutable `COMMERCIAL_AMENDMENT_TARGET` pricing-evidence record, complete provider-neutral settlement, and no earlier adjustment note against the source tax invoice. Cumulative or mixed-direction increasing semantics are not inferred from the existing decreasing chain.
 
@@ -42,14 +44,32 @@ Before allocating a document number it independently reloads and verifies the im
 
 The writer allocates the shared tenant `AU / ADJUSTMENT_NOTE` sequence server-side, derives issue time and all GST/money from persisted evidence, writes schema-version-4 `INCREASING` evidence with zero decrease material columns, immediately reparses/revalidates the created record, and records a tenant-scoped audit event. Exact retries are idempotent by the tenant-owned commercial-amendment authority and revalidate the persisted snapshot before returning it.
 
+## Post-issuance read authority
+
+`verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows` is the reusable post-issuance authority verifier. It is intentionally actor-neutral so authenticated staff reads and public capability-owned reads can call it only after their own authorization boundaries have succeeded.
+
+The verifier accepts at most 100 references per batch and re-queries the requested rows under the supplied `organizationId`. It only admits `AU / ADJUSTMENT_NOTE / INCREASING / COMMERCIAL_AMENDMENT` schema-version-4 rows and revalidates zero decrease material columns, exact positive increase material columns, immutable document fingerprint, ordinal `1`, and absence of refund/predecessor authority.
+
+It then independently reloads and revalidates the source tax invoice, exact applied commercial amendment, exact target pricing record, complete tenant+booking payment ledger, and all adjustment rows for the source invoice. Authority fails closed unless the increasing note is the sole adjustment against that source invoice. The same readiness contract is recomputed from persisted evidence with the pre-issuance prior-adjustment count fixed at zero, while the persisted snapshot must exactly match amendment application time, before/after GST and totals, pricing fingerprints, source invoice number/time/fingerprint, party fingerprints, target id, and issue chronology.
+
+The verifier returns only legal-resource references and fingerprints needed by server callers; it does not project customer data, provider references, payment references, credentials or secrets.
+
+## Direction-aware immutable projections
+
+`createHospitalityIssuedAdjustmentNoteDocument` now has a schema-version-aware increasing commercial-amendment projection in addition to existing cancellation and decreasing commercial projections. The projection always carries mutually exclusive decrease and increase effects so downstream UI/delivery code cannot accidentally label an increase as a decrease.
+
+`createHospitalityAdjustmentNotePdf` now validates and renders either a decreasing or increasing commercial adjustment. It rejects mixed directional effects, requires the chosen effect to reconcile GST-exclusive + GST = GST-inclusive total, validates the before/after price direction, keeps booking cancellation decreasing-only, and renders direction-correct labels and legal explanation text. The existing deterministic Windows-1252 limitation remains fail closed.
+
+The adjustment accounting CSV contract now has an explicit `adjustment_type` plus separate decrease and increase columns. Existing decreasing callers remain source-compatible while increasing rows must provide zero decrease values and a positive reconciled increase. Mixed-direction rows are rejected. Provider/payment references remain absent from the export contract.
+
 ## Product boundary
 
-The writer is deliberately not imported by the current adjustment-note API route. No increasing primary action, customer document, register/accounting row, reconciliation claim, HTML rendering, or PDF is exposed yet. This prevents a schema-version-4 legal record from becoming product-reachable before every read and delivery surface can independently re-prove its source invoice, amendment, target pricing, settlement, material columns, and document fingerprint.
+The writer and the new read/projection foundations remain deliberately disconnected from the current product route. The authenticated/public adjustment-note read services still need to classify schema-version-4 rows, invoke `verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows`, and feed the direction-aware document/accounting/PDF projections. Reconciliation will inherit the authority once those register reads are integrated and continue to fail closed on unsupported evidence in the meantime.
 
-The next dependency is to broaden the shared authenticated/public adjustment-note read authority for first-increasing rows, then extend accounting/reconciliation and deterministic HTML/PDF projection. Only after those projections fail closed correctly should the existing commercial-amendment route and tax-invoice action use server-derived direction-aware availability. Cumulative/mixed-direction increasing semantics remain a later separate contract.
+Only after those reachable reads are coherent should the existing commercial-amendment API and tax-invoice action use server-derived direction-aware availability and call the increasing writer. Cumulative/mixed-direction increasing semantics remain a later separate contract.
 
 ## Validation boundary
 
-Dependency-free tests cover increasing readiness, schema-version-4 snapshot round-trip/fingerprint behavior, migration invariants, and the new writer source contract: tenant permission, serializable write/retry behavior, shared sequence allocation, zero-decrease/positive-increase persistence, post-write immutable validation, same-baseline ambiguity rejection, provider-neutral settlement revalidation, idempotency, safe audit data, and the intentional absence of current route reachability.
+Dependency-free source-contract tests cover the new bounded tenant-scoped read authority, immutable source/target/settlement re-verification, sole-adjustment requirement, customer/provider-data exclusion, and direction-aware projection invariants. Focused PDF and accounting domain tests add increasing success cases plus mixed/unreconciled effect rejection while preserving existing decreasing behavior.
 
-Full Node 24 repository validation, Prisma schema/migration execution, PostgreSQL integration/concurrency execution, and legal review remain required before increasing product issuance is opened.
+Full Node 24 repository validation, Prisma schema/migration execution, PostgreSQL integration/concurrency execution, product read-path integration, and legal review remain required before increasing product issuance is opened.

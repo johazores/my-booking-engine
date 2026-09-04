@@ -3,6 +3,10 @@ import {
   parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-adjustment-note-domain.ts';
 import {
+  hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
+} from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
+import {
   hospitalityIssuedAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAdjustmentNoteSnapshot,
 } from './hospitality-issued-adjustment-note-domain.ts';
@@ -41,14 +45,21 @@ function validateParties(snapshot: {
   return { issuer, recipient };
 }
 
-function cancellationDocument(value: unknown) {
-  const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(value);
-  const { issuer, recipient } = validateParties(snapshot);
+function validateSourceIdentity(snapshot: {
+  australianTax: Readonly<Record<string, unknown>>;
+  sourceInvoiceDocumentNumber: string;
+}) {
   if (snapshot.australianTax.sourceTaxInvoiceNumber !== snapshot.sourceInvoiceDocumentNumber) {
     throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
       'Adjustment note source tax-invoice identity is invalid.',
     );
   }
+}
+
+function cancellationDocument(value: unknown) {
+  const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(value);
+  const { issuer, recipient } = validateParties(snapshot);
+  validateSourceIdentity(snapshot);
   return Object.freeze({
     documentTitle: 'Adjustment note' as const,
     documentFingerprint: hospitalityIssuedAdjustmentNoteFingerprint(snapshot),
@@ -68,17 +79,16 @@ function cancellationDocument(value: unknown) {
     decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
     decreaseGstMinor: snapshot.decreaseTaxMinor,
     decreaseTotalMinor: snapshot.decreaseTotalMinor,
+    increaseSubtotalMinor: '0',
+    increaseGstMinor: '0',
+    increaseTotalMinor: '0',
   });
 }
 
-function commercialAmendmentDocument(value: unknown) {
+function decreasingCommercialAmendmentDocument(value: unknown) {
   const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(value);
   const { issuer, recipient } = validateParties(snapshot);
-  if (snapshot.australianTax.sourceTaxInvoiceNumber !== snapshot.sourceInvoiceDocumentNumber) {
-    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
-      'Adjustment note source tax-invoice identity is invalid.',
-    );
-  }
+  validateSourceIdentity(snapshot);
   return Object.freeze({
     documentTitle: 'Adjustment note' as const,
     documentFingerprint: hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot),
@@ -98,6 +108,38 @@ function commercialAmendmentDocument(value: unknown) {
     decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
     decreaseGstMinor: snapshot.decreaseTaxMinor,
     decreaseTotalMinor: snapshot.decreaseTotalMinor,
+    increaseSubtotalMinor: '0',
+    increaseGstMinor: '0',
+    increaseTotalMinor: '0',
+  });
+}
+
+function increasingCommercialAmendmentDocument(value: unknown) {
+  const snapshot = parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot(value);
+  const { issuer, recipient } = validateParties(snapshot);
+  validateSourceIdentity(snapshot);
+  return Object.freeze({
+    documentTitle: 'Adjustment note' as const,
+    documentFingerprint: hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint(snapshot),
+    documentNumber: snapshot.documentNumber,
+    issuedAt: snapshot.issuedAt,
+    bookingId: snapshot.bookingId,
+    sourceTaxInvoiceNumber: snapshot.sourceInvoiceDocumentNumber,
+    sourceTaxInvoiceIssuedAt: snapshot.sourceInvoiceIssuedAt,
+    currency: snapshot.currency,
+    seller: issuer,
+    buyer: recipient,
+    supplierAbn: snapshot.australianTax.supplierAbn,
+    adjustmentType: 'Increasing adjustment' as const,
+    adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
+    priceBeforeAdjustmentMinor: snapshot.beforeTotalMinor,
+    priceAfterAdjustmentMinor: snapshot.afterTotalMinor,
+    decreaseSubtotalMinor: '0',
+    decreaseGstMinor: '0',
+    decreaseTotalMinor: '0',
+    increaseSubtotalMinor: snapshot.increaseSubtotalMinor,
+    increaseGstMinor: snapshot.increaseTaxMinor,
+    increaseTotalMinor: snapshot.increaseTotalMinor,
   });
 }
 
@@ -105,7 +147,12 @@ export function createHospitalityIssuedAdjustmentNoteDocument(value: unknown) {
   try {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const record = value as Record<string, unknown>;
-      if (record.adjustmentReason === 'COMMERCIAL_AMENDMENT') return commercialAmendmentDocument(value);
+      if (record.adjustmentReason === 'COMMERCIAL_AMENDMENT' && record.adjustmentType === 'INCREASING') {
+        return increasingCommercialAmendmentDocument(value);
+      }
+      if (record.adjustmentReason === 'COMMERCIAL_AMENDMENT' && record.adjustmentType === 'DECREASING') {
+        return decreasingCommercialAmendmentDocument(value);
+      }
       if (record.adjustmentReason === 'BOOKING_CANCELLATION') return cancellationDocument(value);
     }
     throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
