@@ -91,3 +91,37 @@ model HospitalityIssuedInvoice {
   @@index([organizationId, issuerProfileId, issuedAt])
   @@map("hospitality_issued_invoices")
 }
+
+model HospitalityIssuedAdjustmentNote {
+  id                       String   @id @default(uuid()) @db.Uuid
+  organizationId           String   @db.Uuid
+  bookingId                String   @db.Uuid
+  sourceInvoiceId          String   @db.Uuid
+  refundTransactionId      String   @db.Uuid
+  jurisdictionCode         String   @db.VarChar(16)
+  documentType             String   @db.VarChar(32)
+  documentNumber           String   @db.VarChar(64)
+  sequenceValue            BigInt   @db.BigInt
+  issuedByUserId           String   @db.Uuid
+  issuedAt                 DateTime @db.Timestamptz(6)
+  currency                 String   @db.Char(3)
+  adjustmentReason         String   @db.VarChar(32)
+  decreaseSubtotalMinor    BigInt   @db.BigInt
+  decreaseTaxMinor         BigInt   @db.BigInt
+  decreaseTotalMinor       BigInt   @db.BigInt
+  sourceInvoiceFingerprint String   @db.Char(64)
+  issuerFingerprint        String   @db.Char(64)
+  recipientFingerprint     String   @db.Char(64)
+  documentFingerprint      String   @db.Char(64)
+  documentSnapshot         Json
+  createdAt                DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, refundTransactionId])
+  @@unique([organizationId, jurisdictionCode, documentNumber])
+  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
+  @@unique([organizationId, documentFingerprint])
+  @@index([organizationId, bookingId, issuedAt])
+  @@index([organizationId, sourceInvoiceId, issuedAt])
+  @@map("hospitality_issued_adjustment_notes")
+}
