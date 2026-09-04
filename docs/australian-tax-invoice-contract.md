@@ -4,13 +4,18 @@
 
 Australia is the first explicit jurisdiction contract for SF's regulated hospitality invoice workflow. The contract remains deliberately narrow and fail-closed.
 
-SF now has three separate server-side authorities:
+SF now has four separate server-side/document authorities:
 
 1. immutable invoice preparation, including a frozen individual or business recipient snapshot;
-2. Australian content/readiness assessment over immutable issuer, recipient, and accepted pricing evidence; and
-3. concurrency-safe allocation of an immutable issued tax-invoice identity/evidence record.
+2. Australian content/readiness assessment over immutable issuer, recipient, and accepted pricing evidence;
+3. concurrency-safe allocation of an immutable issued tax-invoice identity/evidence record; and
+4. customer-safe rendering of immutable issued tax invoices through the existing capability-owned public booking document surface.
 
-This does **not** mean SF has completed customer-deliverable Australian tax invoices. PDF/rendering, customer access/delivery/history, correction documents, retention/accounting behavior, and production legal review remain open. The existing customer payment receipt is still only a settlement receipt and must not be relabeled as a tax invoice.
+The public document renders the explicit `Tax invoice` identity, immutable issue date and document number, seller and buyer identities, applicable ABNs, frozen supply lines, GST, and total. A customer holding the existing valid booking document capability can view recent issued invoices and use the browser's Print/Save function to keep a copy.
+
+That public access remains intentionally bounded by the existing public-booking recovery principal/capability, currently 24 hours from public booking confirmation. It is not a durable customer account, permanent invoice link, or email-delivery channel. Browser printing is also a customer convenience over the immutable issued record; it is not an SF-generated deterministic PDF artifact.
+
+This does **not** mean SF has completed production-compliant Australian tax-invoice delivery. Correction/adjustment documents, durable customer access and resend, deterministic PDF generation, email delivery, retention/accounting behavior, production database/toolchain validation, and jurisdiction/legal review remain open. The existing customer payment receipt is still only a settlement receipt and must not be relabeled as a tax invoice.
 
 ## Official requirements used by the contract
 
@@ -79,14 +84,22 @@ Sequence allocation is transactional. If issuance fails or a serializable/unique
 
 Once an issued record exists, retries return that immutable historical record even if the booking later changes. New commercial terms require new preparation/issuance or a future correction-document lifecycle; existing issued evidence is never silently rewritten.
 
+## Customer document boundary
+
+`listPublicBookingIssuedTaxInvoices` resolves the public organization by slug, verifies the encrypted booking capability against that organization, and independently verifies persisted booking ownership, the matching unexpired public principal, and the tenant-owned booking before returning issued documents. Queries remain scoped by organization, booking, jurisdiction, and document type.
+
+Each persisted invoice is reparsed and checked against its immutable material columns and document fingerprint before a customer-safe document is derived. The public response excludes internal invoice IDs, preparation IDs, pricing-evidence IDs, issuer-profile IDs, sequence counters, user IDs, internal fingerprints, provider references, payment identifiers, and credentials.
+
+The rendered customer document explicitly identifies itself as a `Tax invoice`, shows the issue date and stable document number, and derives seller, buyer, supply, GST, and total information only from the immutable issued snapshot. The browser Print/Save action prints only the selected invoice and does not create or mutate invoice authority.
+
 ## Remaining production boundaries
 
 The Phase 12 invoice/tax-document checklist must remain open until the remaining production work is complete:
 
 - richer persisted taxability semantics for mixed taxable, GST-free, input-taxed, exempt, and other legally distinct supplies where product scope requires them;
-- credit-note/correction/void/reissue semantics tied to refunds and commercial amendments without mutating an issued invoice;
-- deterministic customer document rendering/PDF from the immutable issued snapshot;
-- authenticated/public-safe customer access, email/delivery/resend/history, and accessibility behavior;
+- credit-note/adjustment/correction/void/reissue semantics tied to refunds and commercial amendments without mutating an issued invoice;
+- deterministic customer PDF artifact generation from the immutable issued snapshot; browser Print/Save is not that artifact authority;
+- durable re-authenticated customer access beyond the current 24-hour recovery capability, including email delivery/resend and long-term document history;
 - retention, accounting/export, and reconciliation requirements;
 - production validation against the repository-required Node 24 toolchain and an explicitly disposable PostgreSQL target; and
 - jurisdiction/legal review before SF represents the generated customer document as production-compliant.
@@ -95,7 +108,7 @@ The Phase 12 invoice/tax-document checklist must remain open until the remaining
 
 Dependency-free Australian contract tests cover the ABN checksum, normalization, invalid ABNs, buyer threshold behavior, GST declaration matching, currency restrictions, mixed-tax rejection, GST money reconciliation, and the narrow standard-GST invariant.
 
-Issued-document domain tests cover number formatting, sequence/money serialization, number/sequence mismatch rejection, money reconciliation, required buyer identity, canonical fingerprint stability, evidence-change detection, and persisted snapshot reparsing.
+Issued-document domain tests cover explicit tax-invoice identity and issue date, number formatting, sequence/money serialization, number/sequence mismatch rejection, money reconciliation, required buyer identity, canonical fingerprint stability, evidence-change detection, and persisted snapshot reparsing.
 
 The disposable PostgreSQL issuance suite covers authorization, cross-tenant denial, concurrent idempotent issuance, sequence uniqueness, stale commercial-state rejection without consuming a number, exact persisted money, and issuance audits. It must be executed only through the guarded database-test harness.
 
