@@ -26,13 +26,15 @@ The caller cannot submit legal/tax money, invoice number, sequence, issuer, reci
 
 A retry first looks for the already-issued `(organizationId, preparationId)` record and validates its immutable snapshot/fingerprint. This preserves idempotency even after later booking changes. A not-yet-issued stale preparation is rejected before sequence allocation.
 
-## Read, rendering, PDF, accounting export, and delivery
+## Read, rendering, PDF, accounting export, retention, reconciliation, and delivery
 
 Authenticated staff tax-document reads require both `booking:read` and `payment:read`. Issuance remains a separate `payment:manage` operation. Invoice and adjustment-note register/history reads independently verify tenant/resource scope before returning documents.
 
 The booking workspace shows recent documents and links to dedicated document history. `/invoices` provides the tenant-wide paginated tax-invoice register, while `/invoices/adjustments` provides the tenant-wide paginated adjustment-note register.
 
 Tax-invoice and adjustment-note accounting CSV exports are server-generated only after every included immutable document passes snapshot/material-column/fingerprint validation; adjustment rows additionally revalidate their linked source tax invoice. Both exports use exact currency strings and exclude mutable customer display data, credentials, provider/card references, idempotency keys, and internal payment/refund references. Each synchronous export is capped at 5,000 rows and fails closed rather than returning a partial dataset.
+
+`/invoices/reconciliation` provides a read-only tenant-scoped integrity check over the complete current AU legal-document register. It requires `booking:read` plus `payment:read`, reuses the same document validation boundaries, validates adjustment-note source links, is capped at 5,000 combined documents, and fails closed if the register changes while the paginated scan is in progress. The retention/disposal boundary is documented in `docs/tax-document-retention-and-reconciliation.md`: issued legal documents are never automatically deleted or rewritten, and any future disposal/de-identification workflow requires separate tax, review-period, privacy, and legal authority.
 
 Authenticated and capability-owned public tax-document surfaces render only after immutable snapshot/material-column/fingerprint validation. Customer projections exclude internal IDs, counters, fingerprints, actors, refund/provider references, and credentials.
 
@@ -54,4 +56,4 @@ Authenticated reads require `booking:read` + `payment:read`; issuance requires `
 
 Partial refunds, multiple-refund aggregation, commercial-amendment price corrections/compensation, mixed taxability, generic reissue/void workflows, and other adjustment reasons remain unsupported and must receive separate immutable contracts rather than mutating existing issued documents.
 
-Durable re-authenticated customer history beyond the current recovery capability, email delivery/resend, broader taxability, explicit retention/reconciliation policy, universal Unicode-safe deterministic PDF rendering, full production-toolchain validation, automated statutory delivery-deadline enforcement, and legal review remain separate production work.
+Durable re-authenticated customer history beyond the current recovery capability, email delivery/resend, broader taxability, a reviewed customer-data disposal/de-identification lifecycle, universal Unicode-safe deterministic PDF rendering, full production-toolchain validation, automated statutory delivery-deadline enforcement, and legal review remain separate production work.
