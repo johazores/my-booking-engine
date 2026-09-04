@@ -25,7 +25,7 @@ The first supported tuple is `AU / TAX_INVOICE`. Allocation happens in the same 
 - issuing actor and issue timestamp;
 - exact integer minor-unit money and currency;
 - preparation, pricing, issuer, recipient, and document fingerprints; and
-- the complete immutable document snapshot used by future renderers.
+- the complete immutable document snapshot used by renderers.
 
 PostgreSQL composite foreign keys independently prevent cross-tenant or cross-booking references. Unique constraints prevent two issued documents for one preparation and prevent duplicate tenant/jurisdiction numbers or sequence values.
 
@@ -39,9 +39,13 @@ The caller cannot submit legal/tax money, invoice number, sequence, issuer, reci
 
 A retry first looks for the already-issued `(organizationId, preparationId)` record and validates its immutable snapshot/fingerprint. This preserves idempotency even after later booking changes. A not-yet-issued stale preparation is rejected before sequence allocation.
 
-## Rendering and delivery boundary
+## Read, rendering, and delivery boundary
 
-`HospitalityIssuedInvoice.documentSnapshot` is the future renderer input. No PDF, email, download route, or customer-facing `Tax invoice` action should be added until it renders from this immutable snapshot and its access/delivery requirements are implemented end to end.
+Authenticated staff invoice reads require both `booking:read` and `payment:read`. Issuance remains a separate `payment:manage` operation. This keeps read-only staff able to inspect already-issued tenant documents without granting authority to create new legal documents or mutate commercial/payment state.
+
+Both the authenticated invoice page and the capability-owned public booking document surface render from the immutable `HospitalityIssuedInvoice.documentSnapshot` after its material columns and SHA-256 document fingerprint are revalidated. The booking workspace loads read-only invoice history independently from amendment/recovery management permissions, so lacking write authority no longer hides documents the actor is allowed to read.
+
+Browser Print/Save is a convenience over the verified immutable issued record. It is not a deterministic SF-generated PDF artifact and must not be represented as one. The public customer surface is still bounded by the existing 24-hour booking recovery capability; durable re-authenticated customer access, email delivery/resend, and long-term history remain open production work.
 
 The existing payment receipt remains separate settlement evidence. It must not be transformed into a tax invoice by UI wording alone.
 

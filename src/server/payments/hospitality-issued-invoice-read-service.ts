@@ -52,6 +52,19 @@ type PersistedIssuedInvoice = {
   documentSnapshot: Prisma.JsonValue;
 };
 
+async function requireIssuedInvoiceReadAccess(input: { organizationId: string; actorUserId: string }) {
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'booking:read',
+  });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'payment:read',
+  });
+}
+
 function validatePersistedInvoice(row: PersistedIssuedInvoice) {
   try {
     const snapshot = parseHospitalityIssuedTaxInvoiceSnapshot(row.documentSnapshot);
@@ -108,7 +121,7 @@ export async function listHospitalityIssuedTaxInvoices(input: {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
+  await requireIssuedInvoiceReadAccess(input);
 
   const page = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 20, 'pageSize', 100);
@@ -138,7 +151,7 @@ export async function getHospitalityIssuedTaxInvoiceDocument(input: {
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   const documentNumber = input.documentNumber.trim().toUpperCase();
   if (!AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN.test(documentNumber)) throw new HospitalityIssuedInvoiceUnavailableError();
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
+  await requireIssuedInvoiceReadAccess(input);
 
   const row = await db.hospitalityIssuedInvoice.findFirst({
     where: { organizationId: input.organizationId, documentNumber, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' },
