@@ -45,8 +45,14 @@ All staff and public commercial-adjustment projections accept schema version 2 a
 
 Customer-safe projections intentionally exclude predecessor ids, internal fingerprints, commercial-amendment ids, target-pricing-evidence ids, provider/payment references, actors, credentials, and secrets unless a value is legally required on the document itself.
 
+## Increasing adjustment readiness boundary
+
+SF now has a server-only readiness contract for the first AU/AUD fully taxable standard-GST `ADDITIONAL_CHARGE` commercial amendment after an issued tax invoice. It requires `payment:manage`, immutable source and target pricing evidence, exact positive GST-inclusive/GST-exclusive effect, complete provider-neutral settlement, and no earlier adjustment note against the source invoice.
+
+This does not broaden issued authority. Current adjustment-note persistence, snapshots, predecessor-chain verification, reads, PDFs, accounting, reconciliation, API, and UI remain decreasing-only. See `docs/australian-commercial-amendment-increasing-adjustment-readiness.md` for the exact fail-closed boundary and the persistence dependency.
+
 ## Remaining boundary
 
-The repeated decreasing commercial-amendment path does not make arbitrary corrections legal. Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustment rules, generic correction/void/reissue, and other jurisdictions remain separate contracts and must fail closed.
+Cumulative or mixed-direction increasing adjustments, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustment rules, generic correction/void/reissue, and other jurisdictions remain separate contracts and must fail closed.
 
 Durable customer re-authentication and email delivery/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review also remain required before the broader legal-document lifecycle is considered complete.
