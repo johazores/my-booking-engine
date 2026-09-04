@@ -8,15 +8,17 @@ This is an operational fail-safe, not a recommendation to retain customer person
 
 ## Reconciliation boundary
 
-`/invoices/reconciliation` performs a real tenant-scoped point-in-time integrity review. Access requires both `booking:read` and `payment:read` on the active organization.
+`/invoices/reconciliation` exposes an explicit operator-triggered tenant-scoped point-in-time integrity review. Opening or refreshing the page does **not** run the potentially expensive register scan. Starting a reconciliation is a same-origin authenticated POST and requires both `booking:read` and `payment:read` on the active organization.
 
 The verifier walks the complete Australian tax-invoice and adjustment-note registers through their existing validated read boundaries. Tax invoices must pass immutable snapshot, material-column, party/pricing evidence, and document-fingerprint validation. Adjustment notes must also pass their immutable snapshot/material-column/fingerprint checks and the persisted source-tax-invoice linkage check.
 
 The synchronous verifier is capped at 5,000 combined legal documents. Above that limit SF fails closed and requires an offline/batched operational review rather than reporting a partial register as verified.
 
-Because reconciliation is a live application read rather than a database snapshot held across every paginated query, the verifier compares register counts before, during, and after the scan. If legal-document issuance changes the register during verification, the result is `FAILED` with a concurrent-change reason and the operator must rerun it. Issued documents have no product mutation/delete workflow, so a stable count plus the immutable per-document checks gives the current application boundary a deterministic reconciliation result without blocking normal invoice issuance for the duration of the scan.
+Because reconciliation is a point-in-time application read rather than a database snapshot held across every paginated query, the verifier compares register counts before, during, and after the scan. If legal-document issuance changes the register during verification, the result is `FAILED` with a concurrent-change reason and the operator must rerun it. Issued documents have no product mutation/delete workflow, so a stable count plus the immutable per-document checks gives the current application boundary a deterministic reconciliation result without blocking normal invoice issuance for the duration of the scan.
 
-Reconciliation does not mutate documents, payment state, booking state, or accounting evidence. It does not call payment providers and does not expose customer PII, provider references, credentials, or raw persisted snapshots in its result.
+A completed reconciliation writes one tenant-scoped `AuditEvent` summary using `payment.tax-document-reconciliation.completed`. The audit stores only jurisdiction, status, UTC check time, exact document counts, and normalized failure codes. It deliberately excludes document numbers involved in failures, customer PII, provider/payment references, credentials, raw snapshots, and fingerprints. `/invoices/reconciliation` reads that history through the same `booking:read` + `payment:read` authorization boundary with pagination and fails closed if persisted audit payloads do not match the versioned summary contract.
+
+Reconciliation never mutates issued documents, payment state, booking state, provider state, or accounting evidence. The only write is the safe operator audit record after a bounded scan completes.
 
 ## Australian record-retention and privacy references
 
@@ -30,4 +32,4 @@ Run reconciliation after material tax-document migrations, before accounting exp
 
 ## Remaining legal-document work
 
-This closes the product's explicit retention/reconciliation-policy gap for the current AU hospitality document scope by defining a fail-closed retention rule and a real integrity-reconciliation surface. It does not close broader partial/multiple/commercial-amendment adjustment contracts, a reviewed customer-data disposal/de-identification lifecycle, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/PostgreSQL validation, or legal review.
+This closes the product's explicit retention/reconciliation-policy gap for the current AU hospitality document scope by defining a fail-closed retention rule, a real operator-triggered integrity-reconciliation surface, and auditable result history. It does not close broader partial/multiple/commercial-amendment adjustment contracts, a reviewed customer-data disposal/de-identification lifecycle, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/PostgreSQL validation, or legal review.

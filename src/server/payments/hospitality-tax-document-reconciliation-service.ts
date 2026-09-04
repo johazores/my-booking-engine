@@ -10,8 +10,13 @@ import {
   listHospitalityIssuedTaxInvoicesForOrganization,
 } from './hospitality-issued-invoice-read-service.ts';
 import {
+  HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION,
   HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT,
+  HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
+  HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
+  createHospitalityTaxDocumentReconciliationAuditData,
   createHospitalityTaxDocumentReconciliationResult,
+  parseHospitalityTaxDocumentReconciliationAuditData,
   type HospitalityTaxDocumentReconciliationFailure,
 } from './hospitality-tax-document-reconciliation-domain.ts';
 
@@ -24,9 +29,24 @@ export class HospitalityTaxDocumentReconciliationLimitError extends Error {
   }
 }
 
+export class HospitalityTaxDocumentReconciliationHistoryError extends Error {
+  constructor(message = 'Stored tax-document reconciliation history is invalid.') {
+    super(message);
+    this.name = 'HospitalityTaxDocumentReconciliationHistoryError';
+  }
+}
+
 async function requireReconciliationAccess(input: { organizationId: string; actorUserId: string }) {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:read' });
+}
+
+function pageNumber(value: number | undefined, fallback: number, label: string, maximum: number) {
+  const normalized = value ?? fallback;
+  if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > maximum) {
+    throw new RangeError(`${label} must be between 1 and ${maximum}.`);
+  }
+  return normalized;
 }
 
 async function currentCounts(organizationId: string) {
@@ -87,5 +107,54 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
     failures.push({ documentType: 'REGISTER', documentNumber: null, code: 'CONCURRENT_CHANGE' });
   }
 
-  return createHospitalityTaxDocumentReconciliationResult({ checkedAt: new Date(), taxInvoiceCount: before.taxInvoiceCount, adjustmentNoteCount: before.adjustmentNoteCount, failures });
+  const report = createHospitalityTaxDocumentReconciliationResult({ checkedAt: new Date(), taxInvoiceCount: before.taxInvoiceCount, adjustmentNoteCount: before.adjustmentNoteCount, failures });
+  const auditData = createHospitalityTaxDocumentReconciliationAuditData(report);
+  await db.auditEvent.create({
+    data: {
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      action: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION,
+      resourceType: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
+      resourceId: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
+      afterData: { ...auditData, failureCodes: [...auditData.failureCodes] },
+    },
+  });
+  return report;
+}
+
+export async function listHospitalityTaxDocumentReconciliationHistory(input: {
+  organizationId: string;
+  actorUserId: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await requireReconciliationAccess(input);
+
+  const requestedPage = pageNumber(input.page, 1, 'page', 100_000);
+  const pageSize = pageNumber(input.pageSize, 20, 'pageSize', 100);
+  const where = {
+    organizationId: input.organizationId,
+    action: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION,
+    resourceType: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
+    resourceId: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
+  } as const;
+  const total = await db.auditEvent.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const events = await db.auditEvent.findMany({
+    where,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    select: { id: true, createdAt: true, afterData: true },
+  });
+
+  const items = events.map((event) => {
+    const report = parseHospitalityTaxDocumentReconciliationAuditData(event.afterData);
+    if (!report) throw new HospitalityTaxDocumentReconciliationHistoryError();
+    return Object.freeze({ id: event.id, recordedAt: event.createdAt, report });
+  });
+  return Object.freeze({ page, pageSize, total, totalPages, items: Object.freeze(items) });
 }
