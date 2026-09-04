@@ -277,7 +277,6 @@ export async function verifyHospitalityCommercialAmendmentIncreasingAdjustmentRo
 
     const sourceInvoiceIds = [...new Set(validatedRows.map((item) => item.row.sourceInvoiceId))];
     const amendmentIds = [...new Set(validatedRows.map((item) => item.row.commercialAmendmentId!))];
-    const targetIds = [...new Set(validatedRows.map((item) => item.row.targetPricingEvidenceId!))];
     const bookingIds = [...new Set(validatedRows.map((item) => item.row.bookingId))];
 
     const [sourceInvoices, amendments, targets, transactions, sourceAdjustmentRows] = await Promise.all([
@@ -290,10 +289,19 @@ export async function verifyHospitalityCommercialAmendmentIncreasingAdjustmentRo
         },
       }),
       db.hospitalityBookingCommercialAmendment.findMany({
-        where: { id: { in: amendmentIds }, organizationId: input.organizationId },
+        where: {
+          organizationId: input.organizationId,
+          bookingId: { in: bookingIds },
+          status: 'APPLIED',
+          direction: { in: ['REFUND', 'ADDITIONAL_CHARGE'] },
+        },
       }),
       db.hospitalityBookingPricingEvidence.findMany({
-        where: { id: { in: targetIds }, organizationId: input.organizationId },
+        where: {
+          organizationId: input.organizationId,
+          commercialAmendmentId: { in: amendmentIds },
+          source: 'COMMERCIAL_AMENDMENT_TARGET',
+        },
       }),
       db.paymentTransaction.findMany({
         where: { organizationId: input.organizationId, bookingId: { in: bookingIds } },
@@ -318,7 +326,13 @@ export async function verifyHospitalityCommercialAmendmentIncreasingAdjustmentRo
 
     const sourceById = new Map(sourceInvoices.map((row) => [row.id, validateSourceInvoice(row)]));
     const amendmentById = new Map(amendments.map((row) => [row.id, row]));
-    const targetById = new Map(targets.map((row) => [row.id, row]));
+    const targetsByAmendment = new Map<string, typeof targets>();
+    for (const target of targets) {
+      if (!target.commercialAmendmentId) continue;
+      const list = targetsByAmendment.get(target.commercialAmendmentId) ?? [];
+      list.push(target);
+      targetsByAmendment.set(target.commercialAmendmentId, list);
+    }
     const transactionsByBooking = new Map<string, typeof transactions>();
     for (const transaction of transactions) {
       const list = transactionsByBooking.get(transaction.bookingId) ?? [];
@@ -335,17 +349,30 @@ export async function verifyHospitalityCommercialAmendmentIncreasingAdjustmentRo
     for (const item of validatedRows) {
       const source = sourceById.get(item.row.sourceInvoiceId);
       const amendment = amendmentById.get(item.row.commercialAmendmentId!);
-      const target = targetById.get(item.row.targetPricingEvidenceId!);
+      const targetRows = targetsByAmendment.get(item.row.commercialAmendmentId!) ?? [];
+      const target = targetRows.length === 1 ? targetRows[0] : undefined;
       const sourceAdjustmentIds = sourceAdjustments.get(item.row.sourceInvoiceId) ?? [];
+      const baselineCompetitors = amendments.filter((candidate) => (
+        candidate.bookingId === item.row.bookingId
+        && candidate.currency === source?.row.currency
+        && candidate.beforeTotalMinor === source?.row.totalMinor
+        && candidate.beforePricingFingerprint === source?.row.pricingFingerprint
+        && candidate.appliedAt !== null
+        && source !== undefined
+        && candidate.appliedAt.getTime() >= source.row.issuedAt.getTime()
+      ));
       if (
         !source
         || !amendment
         || !target
+        || target.id !== item.row.targetPricingEvidenceId
         || source.row.bookingId !== item.row.bookingId
         || amendment.bookingId !== item.row.bookingId
         || target.bookingId !== item.row.bookingId
         || sourceAdjustmentIds.length !== 1
         || sourceAdjustmentIds[0] !== item.row.id
+        || baselineCompetitors.length !== 1
+        || baselineCompetitors[0]?.id !== amendment.id
       ) {
         throw new HospitalityCommercialAmendmentIncreasingAdjustmentReadIntegrityError(
           'Increasing adjustment-note source authority is incomplete or ambiguous.',

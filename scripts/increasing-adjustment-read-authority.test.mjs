@@ -16,13 +16,16 @@ test('increasing read authority reloads only tenant-owned first-increasing legal
   assert.match(readService, /hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint/);
 });
 
-test('read authority independently re-proves source invoice, target pricing, settlement and sole adjustment authority', () => {
+test('read authority independently re-proves source invoice, unique target pricing, settlement and sole source authority', () => {
   assert.match(readService, /parseHospitalityIssuedTaxInvoiceSnapshot/);
   assert.match(readService, /parseHospitalityBookingPricingEvidenceBreakdown/);
   assert.match(readService, /deriveHospitalityCommercialAmendmentSettlementState/);
   assert.match(readService, /assessAustralianCommercialAmendmentIncreasingAdjustmentReadiness/);
   assert.match(readService, /sourceAdjustmentIds\.length !== 1/);
   assert.match(readService, /sourceAdjustmentIds\[0\] !== item\.row\.id/);
+  assert.match(readService, /commercialAmendmentId: \{ in: amendmentIds \}/);
+  assert.match(readService, /targetRows\.length === 1/);
+  assert.match(readService, /baselineCompetitors\.length !== 1/);
 });
 
 test('read authority is bounded and returns no payment/provider/customer projection data', () => {
