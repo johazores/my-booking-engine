@@ -1,31 +1,45 @@
 # Australian adjustment-note authority
 
-SF treats an issued Australian adjustment note as immutable legal evidence. The persisted authority model is versioned so the original booking-cancellation implementation remains readable while the platform can support additional decreasing-adjustment authorities without pretending that one payment refund row represents the whole legal event.
+SF treats an issued Australian adjustment note as immutable legal evidence. The current persistence model supports two decreasing-adjustment authorities while deliberately keeping the single-adjustment-per-source-invoice boundary explicit.
 
 ## Current authority model
 
-Schema version 2 records the adjustment reason and authority independently and requires them to agree. `BOOKING_CANCELLATION` is authorized by exactly one successful full-booking refund transaction. `COMMERCIAL_AMENDMENT` is authorized by the exact applied commercial amendment and deliberately does not require or persist one synthetic refund transaction as legal authority.
+`HospitalityIssuedAdjustmentNote` supports:
 
-Each new v2 document also records an adjustment ordinal, an optional predecessor adjustment-note id, the price before the adjustment and the resulting price after it. The decrease must equal before minus after, the supported standard-GST contract must reconcile exactly, and the first adjustment begins from the immutable source tax-invoice total. Later adjustments must form an ordered predecessor chain against the same source invoice and tenant.
+- `BOOKING_CANCELLATION`, authorized by exactly one attributed successful full-booking refund transaction; and
+- `COMMERCIAL_AMENDMENT`, authorized by the exact applied commercial amendment plus its exact immutable `COMMERCIAL_AMENDMENT_TARGET` pricing-evidence record. It does not persist one synthetic refund transaction as legal authority because amendment settlement can span multiple payment sources.
 
-The PostgreSQL migration adds composite tenant/resource foreign keys for source invoices, refund transactions, commercial amendments and predecessor adjustment notes. Authority/reason exclusivity, ordering, before/after money reconciliation and supported GST invariants are enforced with database checks in addition to service validation.
+The row carries `sourceAdjustmentOrdinal`, but the current PostgreSQL contract fixes it to `1`. The unique `(organizationId, sourceInvoiceId, sourceAdjustmentOrdinal)` constraint therefore preserves one legal adjustment against a source tax invoice until cumulative/multiple-adjustment semantics are designed and reviewed.
 
-## Legacy documents
+There is no predecessor-adjustment column and there are no separate persisted before/after money columns. Commercial before/after standard-GST totals and pricing fingerprints live inside the schema-version-2 immutable document snapshot and are reconciled to the material decrease columns by database checks and server validation.
 
-Existing schema-v1 cancellation snapshots are not rewritten. Their original JSON and document fingerprints remain authoritative and continue to parse through the compatibility contract. Material columns are backfilled only with facts already implied by the old cancellation contract: cancellation-refund authority, ordinal 1, baseline equal to the original full decrease and resulting total zero.
+Composite foreign keys keep the source invoice, refund transaction where applicable, commercial amendment, and target pricing evidence inside the same booking and tenant. Database checks also enforce the supported reason/authority exclusivity, AUD/AU document contract, snapshot/material-column agreement, ordinal `1`, and schema-version-specific legal evidence shape.
+
+## Snapshot compatibility
+
+Existing cancellation documents remain schema version 1 and are not rewritten. Their `refundTransactionId`, immutable JSON, and document fingerprints remain authoritative.
+
+Commercial-amendment documents use schema version 2. They freeze source-invoice identity and chronology, commercial-amendment identity and applied timestamp, target pricing-evidence identity, ordinal `1`, exact before/after GST and total amounts, exact decrease, source/pricing/party fingerprints, seller and buyer evidence, supplier ABN, and Australian legal labels. They contain no `refundTransactionId`.
+
+## Issuance
+
+Booking-cancellation issuance remains available under its existing `payment:manage`, serializable transaction, full-refund attribution, source-invoice integrity, idempotency, sequence, and audit requirements.
+
+Commercial-amendment issuance is also server-authoritative. It requires `payment:manage`, re-runs the complete commercial-amendment readiness contract in a serializable transaction, requires exactly one immutable target pricing-evidence record, proves provider-neutral settlement from the complete tenant-scoped booking payment ledger, allocates the shared `AU / ADJUSTMENT_NOTE` sequence atomically, creates the schema-version-2 snapshot and fingerprint, persists amendment/target authority without a synthetic refund id, writes a safe audit event, and is idempotent by commercial-amendment authority.
+
+The supported commercial contract is intentionally narrow: one applied `REFUND` amendment against the original immutable tax-invoice baseline, standard GST before and after, one legal adjustment only, and fully reconciled settlement. Partial, repeated, cumulative, increasing, mixed-taxability, and predecessor-chain semantics remain unsupported.
 
 ## Read integrity
 
-Authenticated register, detail, PDF, accounting and reconciliation reads validate the immutable row/snapshot/fingerprint and then validate linked authority server-side. Source invoices, refunds, commercial amendments and predecessor notes are always loaded within the active organization and, where a booking is known, the same booking scope. A malformed, cross-tenant, broken-chain or stale authority fails closed.
+Authenticated adjustment-note detail, register, accounting export, and reconciliation reads require both `booking:read` and `payment:read`. They validate the row/snapshot/document fingerprint, revalidate the complete immutable source tax invoice, and then validate the authority specific to the adjustment reason:
 
-Public booking document reads remain capability/ownership/principal/booking authorized before document evidence is exposed. Commercial-amendment issuance is still closed, so no public workflow presents an unissued commercial adjustment as real.
+- cancellation reads revalidate the attributed successful full refund; and
+- commercial-amendment reads revalidate the applied amendment plus exact target pricing-evidence row and parsed pricing breakdown against the immutable source baseline and schema-version-2 snapshot.
 
-## Issuance boundary
+Unknown reasons, cross-tenant links, material-column drift, source-invoice drift, stale amendment evidence, malformed target pricing evidence, or broken authority fail closed.
 
-The existing booking-cancellation issuance workflow remains the only live adjustment-note writer. It now emits schema-v2 cancellation evidence while preserving the previous `payment:manage`, serializable transaction, source-invoice, full-refund and audit requirements.
-
-Commercial-amendment readiness is not commercial-amendment issuance. The persistence prerequisite is now available, but SF must still implement and validate an idempotent serializable commercial-amendment issuance workflow that binds the exact applied amendment, derives cumulative before/after authority correctly, proves settlement where required, and survives concurrency/retry tests against PostgreSQL before any issuance CTA or API is enabled.
+The authenticated HTML renderer and accounting/reconciliation projections support both current authority forms. The deterministic adjustment-note PDF and public booking-capability document projection remain cancellation-only until their commercial-amendment validation/rendering paths are completed; the UI does not present those unavailable outputs as working.
 
 ## Validation status
 
-Dependency-free domain and deterministic-PDF tests cover both schema-v2 authority forms, legacy-v1 compatibility, exact GST/decrease calculations, chronology, numbering, invalid dual authority and broken ordering. Full repository Node 24, Prisma migration and PostgreSQL concurrency/integration validation remains required in an environment that provides the repository toolchain and an explicitly disposable database target.
+The commercial snapshot domain and shared legal-document projection have dependency-free tests, and changed TypeScript/TSX surfaces are syntax-checked where the current environment permits. Full Node 24 repository validation, Prisma migration verification, PostgreSQL concurrency/integration tests, and jurisdiction/legal review remain required before production enablement is treated as complete.

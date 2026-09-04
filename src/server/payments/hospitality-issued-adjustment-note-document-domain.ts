@@ -1,4 +1,8 @@
 import {
+  hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
+} from './hospitality-commercial-amendment-adjustment-note-domain.ts';
+import {
   hospitalityIssuedAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAdjustmentNoteSnapshot,
 } from './hospitality-issued-adjustment-note-domain.ts';
@@ -18,46 +22,109 @@ export class HospitalityIssuedAdjustmentNoteDocumentValidationError extends Erro
   }
 }
 
-export function createHospitalityIssuedCancellationAdjustmentNoteDocument(value: unknown) {
+function validateParties(snapshot: {
+  issuer: unknown;
+  recipient: unknown;
+  issuerFingerprint: string;
+  recipientFingerprint: string;
+}) {
+  const issuer = parseInvoiceIssuerProfileSnapshot(snapshot.issuer);
+  const recipient = parseHospitalityInvoiceRecipientSnapshot(snapshot.recipient);
+  if (
+    invoiceIssuerProfileFingerprint(issuer) !== snapshot.issuerFingerprint
+    || hospitalityInvoiceRecipientFingerprint(recipient) !== snapshot.recipientFingerprint
+  ) {
+    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
+      'Adjustment-note party evidence does not match its immutable document snapshot.',
+    );
+  }
+  return { issuer, recipient };
+}
+
+function cancellationDocument(value: unknown) {
+  const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(value);
+  const { issuer, recipient } = validateParties(snapshot);
+  if (snapshot.australianTax.sourceTaxInvoiceNumber !== snapshot.sourceInvoiceDocumentNumber) {
+    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
+      'Adjustment note source tax-invoice identity is invalid.',
+    );
+  }
+  return Object.freeze({
+    documentTitle: 'Adjustment note' as const,
+    documentFingerprint: hospitalityIssuedAdjustmentNoteFingerprint(snapshot),
+    documentNumber: snapshot.documentNumber,
+    issuedAt: snapshot.issuedAt,
+    bookingId: snapshot.bookingId,
+    sourceTaxInvoiceNumber: snapshot.sourceInvoiceDocumentNumber,
+    sourceTaxInvoiceIssuedAt: snapshot.sourceInvoiceIssuedAt,
+    currency: snapshot.currency,
+    seller: issuer,
+    buyer: recipient,
+    supplierAbn: snapshot.australianTax.supplierAbn,
+    adjustmentType: 'Decreasing adjustment' as const,
+    adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
+    priceBeforeAdjustmentMinor: snapshot.decreaseTotalMinor,
+    priceAfterAdjustmentMinor: '0',
+    decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
+    decreaseGstMinor: snapshot.decreaseTaxMinor,
+    decreaseTotalMinor: snapshot.decreaseTotalMinor,
+  });
+}
+
+function commercialAmendmentDocument(value: unknown) {
+  const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(value);
+  const { issuer, recipient } = validateParties(snapshot);
+  if (snapshot.australianTax.sourceTaxInvoiceNumber !== snapshot.sourceInvoiceDocumentNumber) {
+    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
+      'Adjustment note source tax-invoice identity is invalid.',
+    );
+  }
+  return Object.freeze({
+    documentTitle: 'Adjustment note' as const,
+    documentFingerprint: hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot),
+    documentNumber: snapshot.documentNumber,
+    issuedAt: snapshot.issuedAt,
+    bookingId: snapshot.bookingId,
+    sourceTaxInvoiceNumber: snapshot.sourceInvoiceDocumentNumber,
+    sourceTaxInvoiceIssuedAt: snapshot.sourceInvoiceIssuedAt,
+    currency: snapshot.currency,
+    seller: issuer,
+    buyer: recipient,
+    supplierAbn: snapshot.australianTax.supplierAbn,
+    adjustmentType: 'Decreasing adjustment' as const,
+    adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
+    priceBeforeAdjustmentMinor: snapshot.beforeTotalMinor,
+    priceAfterAdjustmentMinor: snapshot.afterTotalMinor,
+    decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
+    decreaseGstMinor: snapshot.decreaseTaxMinor,
+    decreaseTotalMinor: snapshot.decreaseTotalMinor,
+  });
+}
+
+export function createHospitalityIssuedAdjustmentNoteDocument(value: unknown) {
   try {
-    const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(value);
-    const issuer = parseInvoiceIssuerProfileSnapshot(snapshot.issuer);
-    const recipient = parseHospitalityInvoiceRecipientSnapshot(snapshot.recipient);
-    if (
-      invoiceIssuerProfileFingerprint(issuer) !== snapshot.issuerFingerprint
-      || hospitalityInvoiceRecipientFingerprint(recipient) !== snapshot.recipientFingerprint
-    ) {
-      throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
-        'Adjustment-note party evidence does not match its immutable document snapshot.',
-      );
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      if (record.adjustmentReason === 'COMMERCIAL_AMENDMENT') return commercialAmendmentDocument(value);
+      if (record.adjustmentReason === 'BOOKING_CANCELLATION') return cancellationDocument(value);
     }
-    if (snapshot.australianTax.sourceTaxInvoiceNumber !== snapshot.sourceInvoiceDocumentNumber) {
-      throw new HospitalityIssuedAdjustmentNoteDocumentValidationError('Adjustment note source tax-invoice identity is invalid.');
-    }
-    return Object.freeze({
-      documentTitle: 'Adjustment note' as const,
-      documentFingerprint: hospitalityIssuedAdjustmentNoteFingerprint(snapshot),
-      documentNumber: snapshot.documentNumber,
-      issuedAt: snapshot.issuedAt,
-      bookingId: snapshot.bookingId,
-      sourceTaxInvoiceNumber: snapshot.sourceInvoiceDocumentNumber,
-      sourceTaxInvoiceIssuedAt: snapshot.sourceInvoiceIssuedAt,
-      currency: snapshot.currency,
-      seller: issuer,
-      buyer: recipient,
-      supplierAbn: snapshot.australianTax.supplierAbn,
-      adjustmentType: 'Decreasing adjustment' as const,
-      adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
-      priceBeforeAdjustmentMinor: snapshot.decreaseTotalMinor,
-      priceAfterAdjustmentMinor: '0',
-      decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
-      decreaseGstMinor: snapshot.decreaseTaxMinor,
-      decreaseTotalMinor: snapshot.decreaseTotalMinor,
-    });
+    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
+      'Unsupported issued adjustment-note evidence.',
+    );
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNoteDocumentValidationError) throw error;
     throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
       error instanceof Error ? error.message : 'Issued adjustment-note evidence is invalid.',
     );
   }
+}
+
+export function createHospitalityIssuedCancellationAdjustmentNoteDocument(value: unknown) {
+  const document = createHospitalityIssuedAdjustmentNoteDocument(value);
+  if (document.adjustmentReason !== 'Booking cancellation') {
+    throw new HospitalityIssuedAdjustmentNoteDocumentValidationError(
+      'Issued adjustment note is not a booking-cancellation document.',
+    );
+  }
+  return document;
 }

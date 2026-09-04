@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { PrintInvoiceAction } from '@/components/print-invoice-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import {
-  getHospitalityIssuedCancellationAdjustmentNoteDocument,
+  getHospitalityIssuedAdjustmentNoteDocument,
   HospitalityIssuedAdjustmentNoteUnavailableError,
 } from '@/server/payments/hospitality-issued-adjustment-note-read-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
@@ -37,7 +37,7 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
 
   let document;
   try {
-    document = await getHospitalityIssuedCancellationAdjustmentNoteDocument({
+    document = await getHospitalityIssuedAdjustmentNoteDocument({
       organizationId: activeContext.organization.id,
       actorUserId: session.user.id,
       documentNumber: decodeURIComponent((await params)['document-number']),
@@ -49,12 +49,13 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
 
   const sellerAddress = addressLines(document.seller);
   const buyerAddress = addressLines(document.buyer);
+  const cancellationAdjustment = document.adjustmentReason === 'Booking cancellation';
   const pdfHref = `/api/invoices/hospitality/adjustments/${encodeURIComponent(document.documentNumber)}/pdf`;
   return <div className="sf-invoice-page">
     <div className="sf-invoice-toolbar">
       <Link className="sf-button sf-button--secondary" href={`/invoices/${encodeURIComponent(document.sourceTaxInvoiceNumber)}`}>Back to tax invoice</Link>
       <Link className="sf-button sf-button--secondary" href={`/bookings/${document.bookingId}`}>View booking</Link>
-      <a className="sf-button sf-button--secondary" href={pdfHref} download={`${document.documentNumber}.pdf`}>Download PDF</a>
+      {cancellationAdjustment ? <a className="sf-button sf-button--secondary" href={pdfHref} download={`${document.documentNumber}.pdf`}>Download PDF</a> : null}
       <PrintInvoiceAction />
     </div>
     <article className="sf-invoice-document" aria-labelledby="adjustment-note-title">
@@ -91,7 +92,9 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
         <div><span>GST decrease</span><strong>{money(document.decreaseGstMinor, document.currency)}</strong></div>
         <div className="sf-invoice-totals__total"><span>Total decrease incl. GST</span><strong>{money(document.decreaseTotalMinor, document.currency)}</strong></div>
       </div>
-      <p className="sf-invoice-note">This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.</p>
+      <p className="sf-invoice-note">{cancellationAdjustment
+        ? 'This decreasing adjustment records the full cancellation and refund of the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'
+        : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains immutable.'}</p>
     </article>
   </div>;
 }

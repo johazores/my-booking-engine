@@ -2,11 +2,13 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { CancellationAdjustmentNoteAction } from '@/components/cancellation-adjustment-note-action.tsx';
+import { CommercialAmendmentAdjustmentNoteAction } from '@/components/commercial-amendment-adjustment-note-action.tsx';
 import { PrintInvoiceAction } from '@/components/print-invoice-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { getHospitalityCancellationAdjustmentNoteAvailability } from '@/server/payments/hospitality-adjustment-note-service.ts';
+import { getHospitalityCommercialAmendmentAdjustmentNoteAvailability } from '@/server/payments/hospitality-commercial-amendment-adjustment-note-service.ts';
 import {
   HospitalityIssuedInvoiceUnavailableError,
   getHospitalityIssuedTaxInvoiceDocument,
@@ -57,7 +59,7 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
     authorization.platformAdmin
     || (authorization.role && organizationRoleHasPermission(authorization.role, 'payment:manage'))
   ));
-  const adjustmentAvailability = canManagePayments
+  const cancellationAdjustmentAvailability = canManagePayments
     ? await getHospitalityCancellationAdjustmentNoteAvailability({
         organizationId: organization.id,
         actorUserId: session.user.id,
@@ -65,6 +67,17 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
         sourceInvoiceDocumentNumber: invoice.documentNumber,
       })
     : null;
+  const commercialAdjustmentAvailability = canManagePayments && !cancellationAdjustmentAvailability?.available
+    ? await getHospitalityCommercialAmendmentAdjustmentNoteAvailability({
+        organizationId: organization.id,
+        actorUserId: session.user.id,
+        bookingId: invoice.bookingId,
+        sourceInvoiceDocumentNumber: invoice.documentNumber,
+      })
+    : null;
+  const existingAdjustmentDocumentNumber = [cancellationAdjustmentAvailability, commercialAdjustmentAvailability]
+    .find((availability) => availability && !availability.available && 'documentNumber' in availability && availability.documentNumber)
+    ?.documentNumber;
 
   const sellerAddress = addressLines(invoice.seller);
   const buyerAddress = addressLines(invoice.buyer);
@@ -74,13 +87,18 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
       <Link className="sf-button sf-button--secondary" href={`/bookings/${invoice.bookingId}`}>Back to booking</Link>
       <a className="sf-button sf-button--secondary" href={pdfHref} download={`${invoice.documentNumber}.pdf`}>Download PDF</a>
       <PrintInvoiceAction />
-      {adjustmentAvailability?.available ? <CancellationAdjustmentNoteAction
+      {cancellationAdjustmentAvailability?.available ? <CancellationAdjustmentNoteAction
         bookingId={invoice.bookingId}
         sourceInvoiceDocumentNumber={invoice.documentNumber}
-        refundTransactionId={adjustmentAvailability.refundTransactionId}
+        refundTransactionId={cancellationAdjustmentAvailability.refundTransactionId}
       /> : null}
-      {adjustmentAvailability && !adjustmentAvailability.available && 'documentNumber' in adjustmentAvailability && adjustmentAvailability.documentNumber
-        ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(adjustmentAvailability.documentNumber)}`}>View adjustment note</Link>
+      {!cancellationAdjustmentAvailability?.available && commercialAdjustmentAvailability?.available ? <CommercialAmendmentAdjustmentNoteAction
+        bookingId={invoice.bookingId}
+        commercialAmendmentId={commercialAdjustmentAvailability.commercialAmendmentId}
+        sourceInvoiceDocumentNumber={invoice.documentNumber}
+      /> : null}
+      {existingAdjustmentDocumentNumber
+        ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments/${encodeURIComponent(existingAdjustmentDocumentNumber)}`}>View adjustment note</Link>
         : null}
     </div>
     <article className="sf-invoice-document" aria-labelledby="tax-invoice-title">

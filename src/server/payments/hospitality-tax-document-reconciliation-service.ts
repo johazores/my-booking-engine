@@ -3,7 +3,7 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   HospitalityIssuedAdjustmentNotePersistenceError,
-  listHospitalityIssuedCancellationAdjustmentNotesForOrganization,
+  listHospitalityIssuedAdjustmentNotesForOrganization,
 } from './hospitality-issued-adjustment-note-read-service.ts';
 import {
   HospitalityIssuedInvoicePersistenceError,
@@ -69,7 +69,7 @@ async function validateTaxInvoiceRegister(input: { organizationId: string; actor
 async function validateAdjustmentNoteRegister(input: { organizationId: string; actorUserId: string; expectedTotal: number }) {
   const totalPages = Math.max(1, Math.ceil(input.expectedTotal / RECONCILIATION_PAGE_SIZE));
   for (let page = 1; page <= totalPages; page += 1) {
-    const result = await listHospitalityIssuedCancellationAdjustmentNotesForOrganization({ organizationId: input.organizationId, actorUserId: input.actorUserId, page, pageSize: RECONCILIATION_PAGE_SIZE });
+    const result = await listHospitalityIssuedAdjustmentNotesForOrganization({ organizationId: input.organizationId, actorUserId: input.actorUserId, page, pageSize: RECONCILIATION_PAGE_SIZE });
     if (result.total !== input.expectedTotal) return false;
   }
   return true;

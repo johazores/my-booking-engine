@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
-import { listHospitalityIssuedCancellationAdjustmentNotesForOrganization } from '@/server/payments/hospitality-issued-adjustment-note-read-service.ts';
+import { listHospitalityIssuedAdjustmentNotesForOrganization } from '@/server/payments/hospitality-issued-adjustment-note-read-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
@@ -33,7 +33,7 @@ export default async function AdjustmentNoteRegisterPage({ searchParams }: {
 
   let notes;
   try {
-    notes = await listHospitalityIssuedCancellationAdjustmentNotesForOrganization({
+    notes = await listHospitalityIssuedAdjustmentNotesForOrganization({
       organizationId: activeContext.organization.id,
       actorUserId: session.user.id,
       page,
@@ -58,7 +58,7 @@ export default async function AdjustmentNoteRegisterPage({ searchParams }: {
 
     <section className="sf-invoice-history-card" aria-labelledby="adjustment-register-title">
       <div className="sf-invoice-history-card__heading"><div><p className="sf-eyebrow">Issued history</p><h2 id="adjustment-register-title">{notes.total} adjustment note{notes.total === 1 ? '' : 's'}</h2></div><span>Page {notes.page} of {notes.totalPages}</span></div>
-      {notes.items.length === 0 ? <div className="sf-invoice-history-empty"><h3>No adjustment notes issued</h3><p>Verified Australian cancellation adjustment notes will appear here after an issued tax invoice receives the supported full-refund adjustment.</p></div> : <div className="sf-invoice-history-table-wrap"><table className="sf-invoice-history-table sf-invoice-register-table"><thead><tr><th scope="col">Adjustment note</th><th scope="col">Source invoice</th><th scope="col">Booking</th><th scope="col">Issued</th><th scope="col">Decrease</th><th scope="col">Document</th></tr></thead><tbody>{notes.items.map((note) => <tr key={note.documentNumber}><th scope="row">{note.documentNumber}</th><td><Link href={`/invoices/${encodeURIComponent(note.sourceTaxInvoiceNumber)}`}>{note.sourceTaxInvoiceNumber}</Link></td><td><Link href={`/bookings/${encodeURIComponent(note.bookingId)}`}>View booking</Link></td><td>{note.issuedAt.toLocaleDateString('en-AU', { timeZone: 'UTC' })}</td><td>{money(note.decreaseTotalMinor, note.currency)}</td><td><Link href={`/invoices/adjustments/${encodeURIComponent(note.documentNumber)}`}>View adjustment note</Link></td></tr>)}</tbody></table></div>}
+      {notes.items.length === 0 ? <div className="sf-invoice-history-empty"><h3>No adjustment notes issued</h3><p>Verified Australian decreasing adjustment notes will appear here after a supported cancellation or commercial amendment is issued against a tax invoice.</p></div> : <div className="sf-invoice-history-table-wrap"><table className="sf-invoice-history-table sf-invoice-register-table"><thead><tr><th scope="col">Adjustment note</th><th scope="col">Reason</th><th scope="col">Source invoice</th><th scope="col">Booking</th><th scope="col">Issued</th><th scope="col">Decrease</th><th scope="col">Document</th></tr></thead><tbody>{notes.items.map((note) => <tr key={note.documentNumber}><th scope="row">{note.documentNumber}</th><td>{note.adjustmentReason}</td><td><Link href={`/invoices/${encodeURIComponent(note.sourceTaxInvoiceNumber)}`}>{note.sourceTaxInvoiceNumber}</Link></td><td><Link href={`/bookings/${encodeURIComponent(note.bookingId)}`}>View booking</Link></td><td>{note.issuedAt.toLocaleDateString('en-AU', { timeZone: 'UTC' })}</td><td>{money(note.decreaseTotalMinor, note.currency)}</td><td><Link href={`/invoices/adjustments/${encodeURIComponent(note.documentNumber)}`}>View adjustment note</Link></td></tr>)}</tbody></table></div>}
       {notes.totalPages > 1 ? <nav className="sf-invoice-history-pagination" aria-label="Adjustment note register pages">{notes.page > 1 ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments?page=${notes.page - 1}`}>Previous notes</Link> : <span />}{notes.page < notes.totalPages ? <Link className="sf-button sf-button--secondary" href={`/invoices/adjustments?page=${notes.page + 1}`}>Next notes</Link> : null}</nav> : null}
     </section>
   </div>;
