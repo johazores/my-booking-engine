@@ -73,8 +73,7 @@ function entry(input: {
   const decreaseTaxMinor = input.before.taxTotalMinor - input.after.taxTotalMinor;
   const decreaseSubtotalMinor = decreaseTotalMinor - decreaseTaxMinor;
   const predecessor = input.predecessor;
-  const snapshot = Object.freeze({
-    schemaVersion: (input.ordinal === 1 ? 2 : 3) as 2 | 3,
+  const snapshotBase = {
     organizationId: ORGANIZATION_ID,
     bookingId: BOOKING_ID,
     sourceInvoiceId: SOURCE_ID,
@@ -100,16 +99,18 @@ function entry(input: {
     afterPricingFingerprint: input.after.pricingFingerprint,
     issuerFingerprint: ISSUER_FINGERPRINT,
     recipientFingerprint: RECIPIENT_FINGERPRINT,
-    ...(predecessor
-      ? {
-          predecessorAdjustmentNoteId: predecessor.id,
-          predecessorAdjustmentDocumentNumber: predecessor.documentNumber,
-          predecessorAdjustmentIssuedAt: predecessor.issuedAt.toISOString(),
-          predecessorAdjustmentDocumentFingerprint: predecessor.documentFingerprint,
-          predecessorAfterPricingFingerprint: predecessor.amendment.after.pricingFingerprint,
-        }
-      : {}),
-  });
+  } as const;
+  const snapshot = predecessor
+    ? Object.freeze({
+        schemaVersion: 3 as const,
+        ...snapshotBase,
+        predecessorAdjustmentNoteId: predecessor.id,
+        predecessorAdjustmentDocumentNumber: predecessor.documentNumber,
+        predecessorAdjustmentIssuedAt: predecessor.issuedAt.toISOString(),
+        predecessorAdjustmentDocumentFingerprint: predecessor.documentFingerprint,
+        predecessorAfterPricingFingerprint: predecessor.amendment.after.pricingFingerprint,
+      })
+    : Object.freeze({ schemaVersion: 2 as const, ...snapshotBase });
 
   return Object.freeze({
     id: input.id,
