@@ -51,6 +51,7 @@ export default async function InvoiceRegisterPage({ searchParams }: {
       <div><p className="sf-eyebrow">Legal documents</p><h1>Tax invoice register</h1><p>Tenant-scoped immutable Australian tax invoices issued from accepted booking evidence.</p></div>
       <div className="sf-invoice-toolbar">
         <Link className="sf-button sf-button--secondary" href="/invoices/adjustments">Adjustment notes</Link>
+        <Link className="sf-button sf-button--secondary" href="/invoices/reconciliation">Reconcile documents</Link>
         <a className="sf-button sf-button--secondary" href="/api/invoices/hospitality/accounting">Download accounting CSV</a>
       </div>
     </header>
