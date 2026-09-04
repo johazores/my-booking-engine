@@ -102,6 +102,7 @@ function validatePersistedInvoice(row: PersistedInvoice) {
 
 function customerDocument(document: ReturnType<typeof createHospitalityIssuedTaxInvoiceDocument>) {
   return Object.freeze({
+    documentTitle: document.documentTitle,
     documentNumber: document.documentNumber,
     issuedAt: document.issuedAt,
     currency: document.currency,
