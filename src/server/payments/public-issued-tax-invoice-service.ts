@@ -75,7 +75,7 @@ type PersistedAdjustmentNote = {
   organizationId: string;
   bookingId: string;
   sourceInvoiceId: string;
-  refundTransactionId: string;
+  refundTransactionId: string | null;
   jurisdictionCode: string;
   documentType: string;
   documentNumber: string;
@@ -138,6 +138,7 @@ function validatePersistedAdjustmentNote(row: PersistedAdjustmentNote) {
       row.jurisdictionCode !== 'AU'
       || row.documentType !== 'ADJUSTMENT_NOTE'
       || row.adjustmentReason !== 'BOOKING_CANCELLATION'
+      || row.refundTransactionId === null
       || snapshot.organizationId !== row.organizationId
       || snapshot.bookingId !== row.bookingId
       || snapshot.sourceInvoiceId !== row.sourceInvoiceId
@@ -269,6 +270,7 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
     bookingId: capability.bookingId,
     jurisdictionCode: 'AU',
     documentType: 'ADJUSTMENT_NOTE',
+    adjustmentReason: 'BOOKING_CANCELLATION',
   } as const;
 
   const [ownership, principal, booking, total, rows, adjustmentTotal, adjustmentRows] = await Promise.all([

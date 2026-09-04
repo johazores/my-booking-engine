@@ -16,7 +16,11 @@ import {
 } from './hospitality-issued-adjustment-note-domain.ts';
 
 const AUSTRALIAN_ADJUSTMENT_NOTE_NUMBER_PATTERN = /^AU-ADJ-[0-9]{8,}$/;
-const AUSTRALIAN_ADJUSTMENT_NOTE_WHERE = Object.freeze({ jurisdictionCode: 'AU', documentType: 'ADJUSTMENT_NOTE' } as const);
+const AUSTRALIAN_CANCELLATION_ADJUSTMENT_NOTE_WHERE = Object.freeze({
+  jurisdictionCode: 'AU',
+  documentType: 'ADJUSTMENT_NOTE',
+  adjustmentReason: 'BOOKING_CANCELLATION',
+} as const);
 
 export class HospitalityIssuedAdjustmentNoteUnavailableError extends Error {
   constructor(message = 'Issued adjustment note is not available.') {
@@ -44,7 +48,7 @@ type PersistedAdjustmentNote = {
   organizationId: string;
   bookingId: string;
   sourceInvoiceId: string;
-  refundTransactionId: string;
+  refundTransactionId: string | null;
   jurisdictionCode: string;
   documentType: string;
   documentNumber: string;
@@ -82,6 +86,7 @@ function validatePersistedAdjustmentNote(row: PersistedAdjustmentNote) {
       row.jurisdictionCode !== 'AU'
       || row.documentType !== 'ADJUSTMENT_NOTE'
       || row.adjustmentReason !== 'BOOKING_CANCELLATION'
+      || row.refundTransactionId === null
       || snapshot.organizationId !== row.organizationId
       || snapshot.bookingId !== row.bookingId
       || snapshot.sourceInvoiceId !== row.sourceInvoiceId
@@ -178,7 +183,7 @@ export async function listHospitalityIssuedCancellationAdjustmentNotesForOrganiz
 
   const page = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 25, 'pageSize', 100);
-  const where = { organizationId: input.organizationId, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE } as const;
+  const where = { organizationId: input.organizationId, ...AUSTRALIAN_CANCELLATION_ADJUSTMENT_NOTE_WHERE } as const;
   const [total, rows] = await Promise.all([
     db.hospitalityIssuedAdjustmentNote.count({ where }),
     db.hospitalityIssuedAdjustmentNote.findMany({
@@ -202,7 +207,7 @@ export async function createHospitalityIssuedAdjustmentNoteAccountingExport(inpu
   await requireAdjustmentNoteReadAccess(input);
 
   const rows = await db.hospitalityIssuedAdjustmentNote.findMany({
-    where: { organizationId: input.organizationId, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE },
+    where: { organizationId: input.organizationId, ...AUSTRALIAN_CANCELLATION_ADJUSTMENT_NOTE_WHERE },
     orderBy: [{ issuedAt: 'asc' }, { sequenceValue: 'asc' }, { id: 'asc' }],
     take: HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT + 1,
   });
@@ -242,7 +247,7 @@ export async function getHospitalityIssuedCancellationAdjustmentNoteDocument(inp
   await requireAdjustmentNoteReadAccess(input);
 
   const row = await db.hospitalityIssuedAdjustmentNote.findFirst({
-    where: { organizationId: input.organizationId, documentNumber, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE },
+    where: { organizationId: input.organizationId, documentNumber, ...AUSTRALIAN_CANCELLATION_ADJUSTMENT_NOTE_WHERE },
   });
   if (!row) throw new HospitalityIssuedAdjustmentNoteUnavailableError();
   const validated = validatePersistedAdjustmentNote(row);

@@ -127,7 +127,7 @@ function validatePersistedAdjustmentNote(row: {
   organizationId: string;
   bookingId: string;
   sourceInvoiceId: string;
-  refundTransactionId: string;
+  refundTransactionId: string | null;
   jurisdictionCode: string;
   documentType: string;
   documentNumber: string;
@@ -150,6 +150,7 @@ function validatePersistedAdjustmentNote(row: {
       row.jurisdictionCode !== 'AU'
       || row.documentType !== 'ADJUSTMENT_NOTE'
       || row.adjustmentReason !== 'BOOKING_CANCELLATION'
+      || row.refundTransactionId === null
       || snapshot.organizationId !== row.organizationId
       || snapshot.bookingId !== row.bookingId
       || snapshot.sourceInvoiceId !== row.sourceInvoiceId
@@ -240,8 +241,18 @@ export async function getHospitalityCancellationAdjustmentNoteAvailability(input
       orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
     });
     if (existing) {
-      validatePersistedAdjustmentNote(existing);
-      return Object.freeze({ available: false as const, reason: 'A cancellation adjustment note has already been issued for this tax invoice.', documentNumber: existing.documentNumber });
+      if (existing.adjustmentReason === 'BOOKING_CANCELLATION') {
+        validatePersistedAdjustmentNote(existing);
+        return Object.freeze({
+          available: false as const,
+          reason: 'A cancellation adjustment note has already been issued for this tax invoice.',
+          documentNumber: existing.documentNumber,
+        });
+      }
+      return Object.freeze({
+        available: false as const,
+        reason: 'A different legal adjustment already exists for this tax invoice.',
+      });
     }
 
     const booking = await transaction.hospitalityBooking.findFirst({
@@ -306,8 +317,8 @@ export async function issueHospitalityCancellationAdjustmentNote(input: {
           where: { organizationId: input.organizationId, sourceInvoiceId: sourceInvoice.id },
         });
         if (previous) {
-          validatePersistedAdjustmentNote(previous);
-          throw new HospitalityAdjustmentNoteConflictError('A cancellation adjustment note has already been issued for this tax invoice.');
+          if (previous.adjustmentReason === 'BOOKING_CANCELLATION') validatePersistedAdjustmentNote(previous);
+          throw new HospitalityAdjustmentNoteConflictError('An adjustment note has already been issued for this tax invoice.');
         }
 
         const booking = await transaction.hospitalityBooking.findFirst({
@@ -376,6 +387,9 @@ export async function issueHospitalityCancellationAdjustmentNote(input: {
             bookingId: input.bookingId,
             sourceInvoiceId: sourceInvoice.id,
             refundTransactionId: refund.id,
+            commercialAmendmentId: null,
+            targetPricingEvidenceId: null,
+            sourceAdjustmentOrdinal: 1,
             jurisdictionCode: 'AU',
             documentType: 'ADJUSTMENT_NOTE',
             documentNumber,

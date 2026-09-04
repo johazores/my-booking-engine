@@ -32,6 +32,7 @@ model PaymentTransaction {
   booking      HospitalityBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId])
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, providerCode, providerReference])
   @@index([organizationId, providerCode, sourceProviderReference])

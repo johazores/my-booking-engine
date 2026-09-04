@@ -83,6 +83,7 @@ model HospitalityIssuedInvoice {
   createdAt                  DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId])
   @@unique([organizationId, preparationId])
   @@unique([organizationId, jurisdictionCode, documentNumber])
   @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
@@ -97,7 +98,10 @@ model HospitalityIssuedAdjustmentNote {
   organizationId           String   @db.Uuid
   bookingId                String   @db.Uuid
   sourceInvoiceId          String   @db.Uuid
-  refundTransactionId      String   @db.Uuid
+  refundTransactionId      String?  @db.Uuid
+  commercialAmendmentId    String?  @db.Uuid
+  targetPricingEvidenceId  String?  @db.Uuid
+  sourceAdjustmentOrdinal  Int      @default(1)
   jurisdictionCode         String   @db.VarChar(16)
   documentType             String   @db.VarChar(32)
   documentNumber           String   @db.VarChar(64)
@@ -118,10 +122,14 @@ model HospitalityIssuedAdjustmentNote {
 
   @@unique([id, organizationId])
   @@unique([organizationId, refundTransactionId])
+  @@unique([organizationId, commercialAmendmentId])
+  @@unique([organizationId, targetPricingEvidenceId])
+  @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal])
   @@unique([organizationId, jurisdictionCode, documentNumber])
   @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
   @@unique([organizationId, documentFingerprint])
   @@index([organizationId, bookingId, issuedAt])
   @@index([organizationId, sourceInvoiceId, issuedAt])
+  @@index([organizationId, commercialAmendmentId, issuedAt])
   @@map("hospitality_issued_adjustment_notes")
 }
