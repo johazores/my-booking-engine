@@ -48,6 +48,8 @@ export function createHospitalityIssuedCancellationAdjustmentNoteDocument(value:
       supplierAbn: snapshot.australianTax.supplierAbn,
       adjustmentType: 'Decreasing adjustment' as const,
       adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
+      priceBeforeAdjustmentMinor: snapshot.decreaseTotalMinor,
+      priceAfterAdjustmentMinor: '0',
       decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
       decreaseGstMinor: snapshot.decreaseTaxMinor,
       decreaseTotalMinor: snapshot.decreaseTotalMinor,
