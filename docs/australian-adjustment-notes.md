@@ -6,11 +6,11 @@ SF has a deliberately narrow Australian decreasing-adjustment workflow for a pre
 
 This is production evidence infrastructure, not a generic credit-note button. The original tax invoice remains immutable and the adjustment note is a separate numbered legal-document record linked to the exact source invoice and refund transaction.
 
-The current contract is intentionally limited to the same AU/AUD, fully taxable standard-GST shape supported by `docs/australian-tax-invoice-contract.md`.
+The current issued-document contract is intentionally limited to the same AU/AUD, fully taxable standard-GST shape supported by `docs/australian-tax-invoice-contract.md`.
 
-## Supported event
+## Supported issued event
 
-The only supported adjustment reason is `BOOKING_CANCELLATION`.
+The only currently persisted adjustment reason is `BOOKING_CANCELLATION`.
 
 Issuance is available only when all of the following are true:
 
@@ -20,7 +20,9 @@ Issuance is available only when all of the following are true:
 - the refund has a persisted settlement-source reference rather than ambiguous legacy attribution; and
 - the full GST-inclusive decrease can preserve the current exact standard-GST evidence contract, where the GST decrease is exactly one-eleventh of the total decrease.
 
-Partial refunds, multiple-refund aggregation, commercial-amendment settlement/compensation refunds, GST-free or input-taxed supplies, mixed taxability, non-AUD documents, and arbitrary staff-entered adjustment reasons fail closed.
+Partial refunds, multiple-refund aggregation, GST-free or input-taxed supplies, mixed taxability, non-AUD documents, and arbitrary staff-entered adjustment reasons still fail closed.
+
+Commercial-amendment adjustment **issuance** also remains closed. SF now has a separate internal readiness contract for the first applied price-decreasing commercial amendment, documented in `docs/australian-commercial-amendment-adjustment-readiness.md`. That service proves tenant scope, immutable source-invoice baseline, before/after pricing evidence, standard GST, exact amendment settlement, and chronology, but it deliberately exposes no issuance action while the persisted adjustment-note authority model still requires one cancellation refund transaction.
 
 ## Immutable authority
 
@@ -47,9 +49,11 @@ Authenticated document reads, PDF downloads, tenant register reads, accounting e
 
 The existing public booking capability can also read and download the customer-safe adjustment document during its valid recovery window. The capability remains out of URLs, ownership/principal/tenant scope is rechecked, and source-invoice linkage is revalidated. Public output does not expose refund IDs, provider references, actors, internal fingerprints, idempotency keys, or credentials.
 
+The commercial-amendment readiness service is internal and requires `payment:manage`. It reads only the requested tenant + booking + invoice + amendment scope and uses the complete tenant-owned booking payment ledger for provider-neutral settlement reconciliation. It does not expose seller/customer evidence or payment references to a browser.
+
 ## Customer document and deterministic PDF
 
-The verified document identifies itself as `Adjustment note` and shows:
+The verified cancellation document identifies itself as `Adjustment note` and shows:
 
 - adjustment-note number and issue date;
 - seller legal identity and ABN;
@@ -75,10 +79,12 @@ The PDF font boundary deliberately matches the tax-invoice renderer: standard He
 
 ## Legal and operational boundary
 
-Australian Taxation Office guidance treats cancellation or a change in consideration as an adjustment event and sets requirements for adjustment-note content and timing. GSTR 2013/2 is the legal-validation reference for the current implementation.
+Australian Taxation Office guidance treats cancellation or a change in consideration as an adjustment event and sets requirements for adjustment-note content and timing. GSTR 2013/2 is the legal-validation reference for the current issued cancellation implementation. GSTR 2000/19 also provides adjustment-event examples for agreed changes in consideration and quantity; it informs the new commercial-amendment readiness boundary.
 
 SF does **not** yet automate the statutory delivery deadline, email/resend, durable re-authenticated customer document history beyond the existing public recovery capability, or legal review/approval. Operators must not treat the current implementation as a substitute for jurisdiction-specific tax/legal advice.
 
 ## Remaining expansion
 
-Future work must use separate explicit contracts for partial refunds, price corrections, commercial-amendment adjustments, multiple source/refund relationships, broader taxability, durable customer delivery, a reviewed disposal/de-identification lifecycle, universal Unicode-safe PDFs, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
+The first commercial-amendment decreasing-adjustment readiness contract is implemented, but persistent issuance for that reason is not. The next schema evolution must bind legal adjustment authority to the exact commercial amendment without pretending one refund row represents a source-split settlement, preserve existing cancellation documents, and define cumulative/multiple-adjustment ordering before read/PDF/accounting/reconciliation surfaces are expanded.
+
+Further work remains for partial refunds, price corrections, multiple source/refund relationships, broader taxability, durable customer delivery, a reviewed disposal/de-identification lifecycle, universal Unicode-safe PDFs, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
