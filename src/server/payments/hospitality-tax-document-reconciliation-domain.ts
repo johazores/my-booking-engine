@@ -3,9 +3,10 @@ export const HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT = 5_000;
 export const AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY = Object.freeze({
   jurisdictionCode: 'AU' as const,
   automaticDeletion: false as const,
-  mode: 'INDEFINITE' as const,
+  mode: 'NO_AUTOMATIC_DELETION' as const,
   minimumRecordYears: 5 as const,
-  rationale: 'Issued tax invoices and adjustment notes are retained indefinitely until a future reviewed disposal policy can prove the applicable statutory and review-period requirements have expired.',
+  disposalRequiresLegalReview: true as const,
+  rationale: 'SF does not infer disposal authority from document age. A future disposal workflow must confirm the applicable tax record period, assessment/review periods, and privacy obligations before removing or de-identifying legal-document personal information.',
 });
 
 export type HospitalityTaxDocumentReconciliationFailure = Readonly<{

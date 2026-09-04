@@ -55,8 +55,8 @@ export default async function TaxDocumentReconciliationPage() {
 
     <section className="sf-invoice-history-card" aria-labelledby="retention-policy-title">
       <div className="sf-invoice-history-card__heading"><div><p className="sf-eyebrow">Retention</p><h2 id="retention-policy-title">No automatic deletion</h2></div><span>AU</span></div>
-      <p>SF retains issued Australian tax invoices and adjustment notes indefinitely. There is no product workflow that automatically deletes or rewrites issued legal documents.</p>
-      <p>A future disposal workflow must be separately reviewed against the applicable statutory record period and any longer assessment or review-period requirement before it can remove evidence.</p>
+      <p>SF does not automatically delete or rewrite issued Australian tax invoices or adjustment notes, and it does not infer disposal authority from document age alone.</p>
+      <p>A future disposal workflow must be separately reviewed against the applicable tax record period, assessment or review periods, and privacy obligations before legal-document personal information can be removed or de-identified.</p>
     </section>
   </div>;
 }

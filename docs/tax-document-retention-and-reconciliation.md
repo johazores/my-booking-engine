@@ -2,9 +2,9 @@
 
 ## Scope
 
-SF retains issued Australian hospitality tax invoices and adjustment notes as immutable legal evidence. The current product policy is deliberately conservative: **automatic deletion is disabled and issued legal documents are retained indefinitely**. SF does not currently expose a delete, void-in-place, or rewrite workflow for an issued tax invoice or adjustment note.
+SF retains issued Australian hospitality tax invoices and adjustment notes as immutable legal evidence while they are required for the tenant's lawful tax, accounting, dispute, and record-keeping purposes. **Automatic deletion is disabled.** SF does not expose a delete, void-in-place, or rewrite workflow for an issued tax invoice or adjustment note, and it does not infer disposal authority from document age alone.
 
-This policy avoids encoding a fixed deletion date that could be wrong when an Australian record must be kept beyond the ordinary minimum period because an assessment, amendment, objection, review, or other statutory requirement remains open. A future disposal feature requires a separate legal and product contract; it must never infer deletion authority from document age alone.
+This is an operational fail-safe, not a recommendation to retain customer personal information forever. A future disposal or de-identification workflow requires a separate legal and product contract that considers both the applicable tax record period and privacy obligations before changing retained legal-document evidence.
 
 ## Reconciliation boundary
 
@@ -18,14 +18,16 @@ Because reconciliation is a live application read rather than a database snapsho
 
 Reconciliation does not mutate documents, payment state, booking state, or accounting evidence. It does not call payment providers and does not expose customer PII, provider references, credentials, or raw persisted snapshots in its result.
 
-## Australian record-retention reference
+## Australian record-retention and privacy references
 
-Australian tax law generally requires relevant GST records to be retained for at least five years, with longer retention possible where review periods or later amendments extend the requirement. SF therefore treats five years as a minimum reference only, not as automated deletion authority. The current indefinite-retention policy is intentionally safer until a jurisdiction-reviewed disposal lifecycle is implemented.
+ATO GST guidance in GSTR 2006/3 describes a record-retention period that can extend beyond five years when an assessment period of review or a refreshed review period remains relevant. SF therefore treats five years as a minimum record-keeping reference only, not as automatic disposal authority.
+
+Australian Privacy Principle 11 separately requires covered entities to consider whether they are still permitted to retain personal information and, subject to legal-retention exceptions, to take reasonable steps to destroy or de-identify personal information that is no longer needed. SF's current no-automatic-deletion rule must therefore be paired with tenant legal/privacy review until a product disposal lifecycle is implemented.
 
 ## Operational use
 
-Run reconciliation after material tax-document migrations, before accounting exports used for period close, and whenever document-integrity concerns are investigated. A `VERIFIED` result means the current tenant register passed the implemented evidence contracts at that point in time. It is not legal advice and does not replace external accounting reconciliation, statutory filing, or jurisdiction-specific review.
+Run reconciliation after material tax-document migrations, before accounting exports used for period close, and whenever document-integrity concerns are investigated. A `VERIFIED` result means the current tenant register passed the implemented evidence contracts at that point in time. It is not legal advice and does not replace external accounting reconciliation, statutory filing, privacy review, or jurisdiction-specific legal approval.
 
 ## Remaining legal-document work
 
-This closes the product's explicit retention/reconciliation-policy gap for the current AU hospitality document scope. It does not close broader partial/multiple/commercial-amendment adjustment contracts, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/PostgreSQL validation, or legal review.
+This closes the product's explicit retention/reconciliation-policy gap for the current AU hospitality document scope by defining a fail-closed retention rule and a real integrity-reconciliation surface. It does not close broader partial/multiple/commercial-amendment adjustment contracts, a reviewed customer-data disposal/de-identification lifecycle, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/PostgreSQL validation, or legal review.

@@ -7,11 +7,12 @@ import {
   createHospitalityTaxDocumentReconciliationResult,
 } from './hospitality-tax-document-reconciliation-domain.ts';
 
-test('retention policy never enables automatic legal-document deletion', () => {
+test('retention policy never infers legal-document disposal authority from age alone', () => {
   assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.jurisdictionCode, 'AU');
   assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.automaticDeletion, false);
-  assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.mode, 'INDEFINITE');
+  assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.mode, 'NO_AUTOMATIC_DELETION');
   assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.minimumRecordYears, 5);
+  assert.equal(AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY.disposalRequiresLegalReview, true);
 });
 
 test('successful reconciliation reports exact document counts', () => {
