@@ -51,6 +51,7 @@ export default async function AdjustmentNoteRegisterPage({ searchParams }: {
       <div><p className="sf-eyebrow">Legal documents</p><h1>Adjustment note register</h1><p>Tenant-scoped immutable Australian decreasing adjustments linked to verified source tax invoices.</p></div>
       <div className="sf-invoice-toolbar">
         <Link className="sf-button sf-button--secondary" href="/invoices">Tax invoices</Link>
+        <Link className="sf-button sf-button--secondary" href="/invoices/reconciliation">Reconcile documents</Link>
         <a className="sf-button sf-button--secondary" href="/api/invoices/hospitality/adjustments/accounting">Download accounting CSV</a>
       </div>
     </header>
