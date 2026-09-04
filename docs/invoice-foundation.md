@@ -12,8 +12,9 @@ SF has a real narrow Australian hospitality tax-document lifecycle rather than o
 6. authenticated and capability-owned tax-invoice rendering/history;
 7. deterministic tax-invoice PDF projection for losslessly supported legal text;
 8. a narrow full-cancellation decreasing-adjustment lifecycle with separately numbered immutable `HospitalityIssuedAdjustmentNote` evidence;
-9. authenticated and capability-owned adjustment-note rendering plus deterministic PDF projection; and
-10. tenant registers plus bounded exact-money accounting CSV exports for both tax invoices and adjustment notes.
+9. authenticated and capability-owned adjustment-note rendering plus deterministic PDF projection;
+10. tenant registers plus bounded exact-money accounting CSV exports for both tax invoices and adjustment notes; and
+11. tenant-scoped live integrity reconciliation plus an explicit no-automatic-disposal retention rule for issued legal documents.
 
 The customer-safe payment receipt remains separate settlement evidence and must never be relabeled as a regulated invoice or adjustment document.
 
@@ -39,13 +40,15 @@ Issued records remain historical evidence even after later booking changes. They
 
 The first adjustment contract is documented in `docs/australian-adjustment-notes.md`. It supports only a verified source tax invoice followed by full booking cancellation and one attributed successful full refund. SF creates a separate `AU / ADJUSTMENT_NOTE` number and immutable document rather than rewriting the original invoice. Partial/multiple refunds, commercial-amendment adjustments, and mixed taxability remain unsupported and fail closed.
 
-## Read, PDF, and accounting projections
+## Read, PDF, accounting, retention, and reconciliation projections
 
 Authenticated issued-document reads require `booking:read` plus `payment:read`. Public reads are limited to the existing encrypted booking capability and independently verify booking ownership and an unexpired matching public principal. Adjustment-note reads additionally revalidate their source tax invoice.
 
 Renderers revalidate immutable material columns and fingerprints before deriving customer-safe output. Deterministic server-side PDF generation uses only verified customer projections, exact integer money, fixed A4 layout/object ordering, and no current-time/random/runtime metadata. It fails closed when legal text cannot be represented losslessly by the current WinAnsi standard-font contract; broader Unicode-safe embedded-font support remains open. See `docs/invoice-pdf.md`.
 
 The tenant-wide tax-invoice and adjustment-note registers are independently paginated. Accounting CSV generation revalidates every included legal document, adjustment exports also revalidate source tax invoices, exact decimal money strings are used, mutable/secret/provider/refund-reference data is excluded, and synchronous exports larger than 5,000 rows fail closed rather than returning partial data.
+
+`/invoices/reconciliation` applies the same tenant authorization and validated read boundaries across the complete current AU register, with a 5,000-document synchronous bound and before/during/after count checks so concurrent issuance cannot be reported as a stable verification. The retention/disposal boundary is documented in `docs/tax-document-retention-and-reconciliation.md`: SF performs no automatic deletion or in-place rewrite of issued legal documents, but this is not a permanent-retention legal claim. Any future disposal/de-identification workflow must establish tax, assessment/review-period, privacy, and jurisdictional authority first.
 
 ## Remaining production boundaries
 
@@ -55,13 +58,13 @@ The Phase 12 legal-document item remains open for:
 - partial-refund, multiple-refund, commercial-amendment, credit/correction/void/reissue rules beyond the currently supported full-cancellation decreasing adjustment;
 - universal Unicode-safe deterministic PDF rendering;
 - durable re-authenticated customer history, email delivery, and resend beyond the current public recovery capability;
-- explicit retention/reconciliation policy and any future accounting-provider integration;
+- a reviewed customer-data disposal/de-identification lifecycle and any future accounting-provider integration;
 - live issuer-registration verification if legal/product requirements demand it;
 - complete Node 24/Prisma/PostgreSQL production validation; and
 - jurisdiction/legal review.
 
 ## Validation boundary
 
-Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, tax-invoice and adjustment-note accounting CSV behavior, and deterministic PDF generation. Disposable PostgreSQL suites cover tenant permissions, cross-tenant denial, issuer/preparation persistence, issuance concurrency/idempotency, stale-state rejection, and audit behavior when the guarded database harness can be executed.
+Dependency-free suites cover issuer/recipient/preparation identities, Australian ABN/GST/readiness rules, issued-document integrity, tax-invoice and adjustment-note accounting CSV behavior, deterministic PDF generation, and the retention/reconciliation result contract. Disposable PostgreSQL suites cover tenant permissions, cross-tenant denial, issuer/preparation persistence, issuance concurrency/idempotency, stale-state rejection, and audit behavior when the guarded database harness can be executed.
 
 Full repository and live-database validation require the supported Node 24 dependency checkout and an explicitly disposable PostgreSQL target. GitHub Actions are not used.
