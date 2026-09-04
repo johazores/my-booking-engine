@@ -49,8 +49,13 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
 
   const sellerAddress = addressLines(invoice.seller);
   const buyerAddress = addressLines(invoice.buyer);
+  const pdfHref = `/api/invoices/hospitality/${encodeURIComponent(invoice.documentNumber)}/pdf`;
   return <div className="sf-invoice-page">
-    <div className="sf-invoice-toolbar"><Link className="sf-button sf-button--secondary" href={`/bookings/${invoice.bookingId}`}>Back to booking</Link><PrintInvoiceAction /></div>
+    <div className="sf-invoice-toolbar">
+      <Link className="sf-button sf-button--secondary" href={`/bookings/${invoice.bookingId}`}>Back to booking</Link>
+      <a className="sf-button sf-button--secondary" href={pdfHref} download={`${invoice.documentNumber}.pdf`}>Download PDF</a>
+      <PrintInvoiceAction />
+    </div>
     <article className="sf-invoice-document" aria-labelledby="tax-invoice-title">
       <header className="sf-invoice-document__header"><div><p className="sf-eyebrow">Australian GST document</p><h1 id="tax-invoice-title">Tax invoice</h1></div><div className="sf-invoice-document__number"><span>Invoice number</span><strong>{invoice.documentNumber}</strong><span>Issued {new Date(invoice.issuedAt).toLocaleDateString('en-AU')}</span></div></header>
       <div className="sf-invoice-parties">

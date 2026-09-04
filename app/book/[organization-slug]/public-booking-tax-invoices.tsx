@@ -72,6 +72,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
   const [history, setHistory] = useState<InvoiceHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [downloadingDocumentNumber, setDownloadingDocumentNumber] = useState<string | null>(null);
 
   const loadInvoices = useCallback(async () => {
     const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
@@ -102,6 +103,44 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
     }
   }, [organizationSlug]);
 
+  const downloadPdf = useCallback(async (documentNumber: string) => {
+    const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
+    if (!bookingCapability || downloadingDocumentNumber) return;
+
+    setDownloadingDocumentNumber(documentNumber);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/tax-invoices/${encodeURIComponent(documentNumber)}/pdf`,
+        {
+          method: 'POST',
+          headers: { 'accept': 'application/pdf', 'content-type': 'application/json' },
+          body: JSON.stringify({ bookingCapability }),
+        },
+      );
+      if (!response.ok) {
+        setError(response.status === 422
+          ? 'This tax invoice contains text that cannot be represented losslessly in the current PDF format. You can still print the verified document.'
+          : 'The PDF copy could not be prepared right now.');
+        return;
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${documentNumber}.pdf`;
+      anchor.style.display = 'none';
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setError('The PDF copy could not be downloaded right now.');
+    } finally {
+      setDownloadingDocumentNumber(null);
+    }
+  }, [downloadingDocumentNumber, organizationSlug]);
+
   useEffect(() => {
     void loadInvoices();
   }, [loadInvoices]);
@@ -125,6 +164,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         const sellerAddress = addressLines(invoice.seller);
         const buyerAddress = addressLines(invoice.buyer);
         const issuedDate = new Date(invoice.issuedAt).toLocaleDateString('en-AU');
+        const downloading = downloadingDocumentNumber === invoice.documentNumber;
         return (
           <details className="sf-public-invoice" key={invoice.documentNumber} open={index === 0 ? true : undefined}>
             <summary className="sf-public-invoice__summary">
@@ -180,7 +220,17 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
                 <button
                   type="button"
                   className="sf-public-invoice__print-button"
+                  onClick={() => void downloadPdf(invoice.documentNumber)}
+                  disabled={Boolean(downloadingDocumentNumber)}
+                  aria-busy={downloading || undefined}
+                >
+                  {downloading ? 'Preparing PDF…' : 'Download PDF'}
+                </button>
+                <button
+                  type="button"
+                  className="sf-public-invoice__print-button"
                   onClick={(event) => printInvoice(event.currentTarget)}
+                  disabled={Boolean(downloadingDocumentNumber)}
                 >
                   Print or save copy
                 </button>
@@ -191,7 +241,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       })}
 
       {history?.items.length ? (
-        <button type="button" className="sf-public-booking__contact" onClick={loadInvoices} disabled={busy}>
+        <button type="button" className="sf-public-booking__contact" onClick={loadInvoices} disabled={busy || Boolean(downloadingDocumentNumber)}>
           {busy ? 'Refreshing…' : 'Refresh tax invoices'}
         </button>
       ) : null}
