@@ -2,27 +2,21 @@
 
 ## Purpose
 
-SF has server-side readiness, issuance, read, PDF, accounting, reconciliation, and public-delivery contracts for the first Australian hospitality commercial-amendment decreasing adjustment. The cumulative foundation now also includes schema-version-3 immutable predecessor evidence, PostgreSQL predecessor-chain constraints, complete server-side chain verification, locked chain-head selection, and an internal repeated-write service.
-
-Repeated issuance is still deliberately unreachable from the existing API/UI until all downstream reads and delivery projections validate the same complete chain.
+SF has server-side readiness, issuance, read, PDF, accounting, reconciliation, and public-delivery contracts for first and repeated Australian hospitality commercial-amendment decreasing adjustments. Repeated documents use the same immutable source invoice and a verified linear predecessor chain; no browser or provider response can invent the legal baseline.
 
 ## Authority
 
 Readiness and issuance require `payment:manage`. Authenticated legal-document reads require `booking:read` plus `payment:read`.
 
-All legal authority is derived from persisted tenant-scoped evidence. Browser input never supplies GST, amounts, currency, provider truth, settlement source, amendment direction, pricing fingerprints, sequence numbers, issue time, or predecessor authority.
+All legal authority is derived from persisted tenant-scoped evidence. Browser input never supplies GST, amounts, currency, provider truth, settlement source, amendment direction, pricing fingerprints, sequence numbers, issue time, source ordinal, or predecessor authority.
 
-## First decreasing adjustment
+## Readiness contract
 
-The reachable first adjustment succeeds only when the AU/AUD source tax invoice reconciles, the amendment is an applied `REFUND`, its before-price equals the immutable source invoice, its after-price equals exactly one immutable `COMMERCIAL_AMENDMENT_TARGET` record, no earlier legal adjustment exists, standard GST reconciles before/after/decrease, and provider-neutral settlement is complete at the after-total.
+`assessAustralianCommercialAmendmentAdjustmentReadiness` accepts only AU/AUD fully taxable standard-GST decreasing `REFUND` amendments that are already `APPLIED` and whose provider-neutral settlement reconciles exactly to the applied after-total.
 
-`issueHospitalityCommercialAmendmentAdjustmentNote` persists schema version 2 / ordinal `1` evidence and remains the only commercial-adjustment service wired to the current API/UI.
+For the first adjustment, the amendment before-price must exactly equal the immutable source tax invoice and its after-price must equal exactly one immutable `COMMERCIAL_AMENDMENT_TARGET` pricing-evidence record.
 
-## Cumulative readiness
-
-For a second or later commercial decrease, `assessAustralianCommercialAmendmentAdjustmentReadiness` requires the complete verified predecessor set. It rejects missing evidence, count or ordinal gaps, duplicate identities/fingerprints, chronology regressions, non-standard-GST decreases, source-to-chain price drift, predecessor-to-predecessor price drift, next-amendment baseline drift, and an amendment applied before the immediate predecessor document.
-
-A valid result contains the exact next `sourceAdjustmentOrdinal` and immediate predecessor identity required for schema-version-3 evidence.
+For a second or later adjustment, the caller must supply the complete verified predecessor set. The chain must be contiguous from ordinal `1`, unique by adjustment/document identity and fingerprint, chronologically monotonic, standard-GST decreasing at every step, price-continuous from the source invoice through every predecessor, and end exactly at the new amendment before-price. A valid result returns the exact next `sourceAdjustmentOrdinal` and immediate predecessor identity.
 
 ## Persisted and verified chain
 
@@ -32,20 +26,26 @@ A valid result contains the exact next `sourceAdjustmentOrdinal` and immediate p
 
 For writes, `selectVerifiedHospitalityCommercialAmendmentAdjustmentChainHeadForWrite` acquires a PostgreSQL transaction advisory lock keyed by tenant + booking + source invoice before reloading the verified chain head.
 
-## Internal repeated issuance
+## Chain-aware availability
 
-`issueHospitalityRepeatedCommercialAmendmentAdjustmentNote` now consumes that locked verified chain inside a serializable transaction. It is a real persistence boundary, not a simulated workflow.
+`getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability` is the product-facing readiness adapter. It derives the legal baseline from the complete verified chain, searches only tenant-owned applied `REFUND` amendments beginning at that baseline, and refuses zero or multiple matching candidates. It then revalidates the single immutable target-pricing record, derives settlement from the complete booking payment ledger, and calls the pure readiness contract with the full verified predecessor set.
 
-The service requires at least one verified predecessor, rejects a different legal-adjustment reason, reloads the exact tenant-scoped amendment and single immutable target-pricing record, derives provider-neutral settlement from the complete booking payment ledger, and reruns cumulative readiness with `chain.priorAdjustments`.
+The returned source ordinal is server-derived. For repeated availability, readiness predecessor id/document/fingerprint must match the current verified head exactly. The UI can display the next ordinal and latest document number, but neither value is accepted back as authority.
 
-Before allocating a number, the readiness result must agree exactly with the locked chain on next ordinal, predecessor id, predecessor document number, and predecessor document fingerprint. The service then allocates the shared Australian adjustment-note sequence, creates schema-version-3 immutable evidence with the exact predecessor head, persists predecessor id/ordinal material columns, and reloads the full chain. The write is accepted only if the new row becomes the verified head and the next expected ordinal advances by one.
+## Reachable issuance
 
-The service is idempotent by commercial-amendment authority and writes the same safe adjustment-note issuance audit family used by the first adjustment.
+`issueHospitalityCommercialAmendmentAdjustmentNote` persists schema version 2 / ordinal `1`. `issueHospitalityRepeatedCommercialAmendmentAdjustmentNote` persists schema version 3 / ordinal `2+` after locking and revalidating the complete source chain.
 
-## Reachability and next dependency
+`issueHospitalityNextCommercialAmendmentAdjustmentNote` is the reachable orchestration boundary used by the existing amendment adjustment-note API. Before a new write it requires the request amendment id to equal the unique chain-derived availability candidate. For exact retries, it first proves the existing issued document belongs to the verified source chain and routes back to the correct idempotent first/repeated writer. The browser never selects which writer or ordinal is used.
 
-The current API route still imports `issueHospitalityCommercialAmendmentAdjustmentNote`; it does not expose the repeated service. Current tax-invoice availability also remains first-adjustment-only.
+The repeated writer rechecks the locked chain, complete provider-neutral settlement and cumulative readiness, allocates the shared Australian adjustment-note sequence, creates schema-version-3 immutable predecessor evidence, persists relational predecessor authority, and reloads the complete chain before commit. The new row must be the verified head and advance the expected ordinal exactly once.
 
-Staff/public adjustment reads, accounting/reconciliation, HTML, and PDF delivery continue to reject schema-version-3 rows. The next production slice is to make those downstream surfaces use complete chain verification. Once that is validated, availability and the API/UI can safely expose the repeated write service.
+## Read and delivery convergence
 
-Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, durable customer re-authentication/email delivery, Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/PostgreSQL execution, and jurisdiction/legal review remain separate boundaries.
+Staff detail/register/accounting/reconciliation reads and public booking-capability history now accept schema version 3 only through complete chain verification. Public capability ownership is verified before chain loading, and customer-safe projections omit internal predecessor ids/fingerprints and amendment/target ids.
+
+Authenticated/public HTML and deterministic PDF routes reuse those read boundaries. Repeated legal documents therefore cannot be issued through the reachable product without also being independently verifiable and deliverable afterward.
+
+## Remaining boundaries
+
+Increasing adjustments, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication/email delivery, Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate contracts.
