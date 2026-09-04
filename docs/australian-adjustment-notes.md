@@ -43,7 +43,7 @@ The sequence is allocated in the same serializable transaction as issuance. A re
 
 Issuance requires `payment:manage` server-side. The browser supplies only the source tax-invoice number and selected refund-transaction identifier; it cannot supply seller identity, ABN, buyer identity, reason, currency, tax money, totals, sequence, document number, or fingerprints as authority.
 
-Authenticated document reads, PDF downloads, tenant register reads, and accounting exports require both `booking:read` and `payment:read`, then revalidate the active organization, immutable adjustment snapshot, material columns, document fingerprint, and linked source tax invoice.
+Authenticated document reads, PDF downloads, tenant register reads, accounting exports, and live reconciliation require both `booking:read` and `payment:read`, then revalidate the active organization, immutable adjustment snapshot, material columns, document fingerprint, and linked source tax invoice.
 
 The existing public booking capability can also read and download the customer-safe adjustment document during its valid recovery window. The capability remains out of URLs, ownership/principal/tenant scope is rechecked, and source-invoice linkage is revalidated. Public output does not expose refund IDs, provider references, actors, internal fingerprints, idempotency keys, or credentials.
 
@@ -65,11 +65,13 @@ Authenticated and capability-owned public views support both browser Print/Save 
 
 The PDF font boundary deliberately matches the tax-invoice renderer: standard Helvetica/Helvetica Bold with WinAnsi-compatible legal text only. Unsupported scripts fail closed rather than being transliterated or corrupted. Universal Unicode-safe embedded-font rendering remains open.
 
-## Tenant register and accounting export
+## Tenant register, accounting export, and reconciliation
 
 `/invoices/adjustments` is a tenant-scoped paginated register of verified issued adjustment notes. Each listed row is revalidated together with its source tax invoice before display.
 
 `GET /api/invoices/hospitality/adjustments/accounting` provides a bounded accounting CSV. It revalidates every included adjustment note and source tax invoice, uses exact money strings, and includes only legal/accounting-safe fields: adjustment-note identity/date, booking, source tax-invoice identity/date, currency, reason, decrease excluding GST, GST decrease, and total decrease. Refund transaction IDs, payment-provider references, actors, credentials, secrets, and mutable customer data are excluded. The synchronous export fails closed above 5,000 adjustment notes rather than returning a partial dataset.
+
+`/invoices/reconciliation` includes every current AU adjustment note in the tenant-wide legal-document integrity scan. It reuses the adjustment-note snapshot/material-column/fingerprint validator and independently revalidates each source tax invoice link. A concurrent register change or an oversized combined register fails closed instead of producing a false complete result. The no-automatic-disposal rule and future tax/privacy/legal disposal boundary are documented in `docs/tax-document-retention-and-reconciliation.md`.
 
 ## Legal and operational boundary
 
@@ -79,4 +81,4 @@ SF does **not** yet automate the statutory delivery deadline, email/resend, dura
 
 ## Remaining expansion
 
-Future work must use separate explicit contracts for partial refunds, price corrections, commercial-amendment adjustments, multiple source/refund relationships, broader taxability, durable customer delivery, explicit retention/reconciliation policy, universal Unicode-safe PDFs, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
+Future work must use separate explicit contracts for partial refunds, price corrections, commercial-amendment adjustments, multiple source/refund relationships, broader taxability, durable customer delivery, a reviewed disposal/de-identification lifecycle, universal Unicode-safe PDFs, and any other jurisdiction. Existing issued tax invoices and adjustment notes must never be rewritten to simulate those future workflows.
