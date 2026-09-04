@@ -39,11 +39,15 @@ The caller cannot submit legal/tax money, invoice number, sequence, issuer, reci
 
 A retry first looks for the already-issued `(organizationId, preparationId)` record and validates its immutable snapshot/fingerprint. This preserves idempotency even after later booking changes. A not-yet-issued stale preparation is rejected before sequence allocation.
 
-## Read, rendering, and delivery boundary
+## Read, rendering, accounting export, and delivery boundary
 
 Authenticated staff invoice reads require both `booking:read` and `payment:read`. Issuance remains a separate `payment:manage` operation. This keeps read-only staff able to inspect already-issued tenant documents without granting authority to create new legal documents or mutate commercial/payment state.
 
 Invoice-history reads independently verify that the requested booking exists inside the active organization before counting or returning issued documents. The booking workspace shows the latest ten documents and links to a dedicated paginated history for larger collections. Authenticated invoice detail and history routes still re-enter the server authorization and tenant/resource boundaries; route visibility is not authority.
+
+`/invoices` now provides the same permission-checked immutable evidence as a tenant-wide paginated Australian tax-invoice register. Its accounting CSV export is generated server-side only after every exported `HospitalityIssuedInvoice` passes the same material-column, frozen-snapshot, and document-fingerprint integrity checks used by the renderer. The export contains document number, issue timestamp, booking identifier, currency, accommodation, fee, add-on, GST, and invoice totals using exact currency decimal strings. It never exports mutable customer/booking display data, credentials, provider references, card data, idempotency keys, or internal payment references.
+
+The accounting export is deliberately bounded to 5,000 invoices and fails without returning a partial file when the tenant exceeds that limit. This prevents an unbounded authenticated read from becoming a resource-exhaustion path; future larger exports should use explicit date/range selection or an asynchronous export architecture only when there is a concrete operational requirement. The CSV is an accounting/interchange aid, not a legal tax-invoice artifact and not a substitute for deterministic PDF delivery.
 
 Both the authenticated invoice page and the capability-owned public booking document surface render from the immutable `HospitalityIssuedInvoice.documentSnapshot` after its material columns and SHA-256 document fingerprint are revalidated. The booking workspace loads read-only invoice history independently from amendment/recovery management permissions, so lacking write authority no longer hides documents the actor is allowed to read.
 

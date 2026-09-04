@@ -3,6 +3,10 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT,
+  createHospitalityInvoiceAccountingCsv,
+} from './hospitality-invoice-accounting-export-domain.ts';
+import {
   HospitalityIssuedInvoiceDocumentValidationError,
   createHospitalityIssuedTaxInvoiceDocument,
 } from './hospitality-issued-invoice-document-domain.ts';
@@ -12,6 +16,7 @@ import {
 } from './hospitality-issued-invoice-domain.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
+const AUSTRALIAN_TAX_INVOICE_WHERE = Object.freeze({ jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' } as const);
 
 export class HospitalityIssuedInvoiceUnavailableError extends Error {
   constructor(message = 'Issued tax invoice is not available.') {
@@ -24,6 +29,13 @@ export class HospitalityIssuedInvoicePersistenceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'HospitalityIssuedInvoicePersistenceError';
+  }
+}
+
+export class HospitalityIssuedInvoiceExportLimitError extends Error {
+  constructor() {
+    super(`Accounting export cannot exceed ${HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT} tax invoices.`);
+    this.name = 'HospitalityIssuedInvoiceExportLimitError';
   }
 }
 
@@ -111,6 +123,17 @@ function pageNumber(value: number | undefined, fallback: number, label: string, 
   return normalized;
 }
 
+function invoiceSummary(row: PersistedIssuedInvoice) {
+  const document = validatePersistedInvoice(row);
+  return Object.freeze({
+    documentNumber: document.documentNumber,
+    bookingId: document.bookingId,
+    issuedAt: new Date(document.issuedAt),
+    currency: document.currency,
+    totalMinor: BigInt(document.totalMinor),
+  });
+}
+
 export async function listHospitalityIssuedTaxInvoices(input: {
   organizationId: string;
   actorUserId: string;
@@ -131,21 +154,70 @@ export async function listHospitalityIssuedTaxInvoices(input: {
 
   const page = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 20, 'pageSize', 100);
-  const where = { organizationId: input.organizationId, bookingId: input.bookingId, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' } as const;
+  const where = { organizationId: input.organizationId, bookingId: input.bookingId, ...AUSTRALIAN_TAX_INVOICE_WHERE } as const;
   const [total, rows] = await Promise.all([
     db.hospitalityIssuedInvoice.count({ where }),
     db.hospitalityIssuedInvoice.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
   ]);
-  const items = rows.map((row) => {
+  const items = rows.map(invoiceSummary);
+  return Object.freeze({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), items: Object.freeze(items) });
+}
+
+export async function listHospitalityIssuedTaxInvoicesForOrganization(input: {
+  organizationId: string;
+  actorUserId: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await requireIssuedInvoiceReadAccess(input);
+
+  const page = pageNumber(input.page, 1, 'page', 100_000);
+  const pageSize = pageNumber(input.pageSize, 25, 'pageSize', 100);
+  const where = { organizationId: input.organizationId, ...AUSTRALIAN_TAX_INVOICE_WHERE } as const;
+  const [total, rows] = await Promise.all([
+    db.hospitalityIssuedInvoice.count({ where }),
+    db.hospitalityIssuedInvoice.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
+  ]);
+  const items = rows.map(invoiceSummary);
+  return Object.freeze({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), items: Object.freeze(items) });
+}
+
+export async function createHospitalityIssuedTaxInvoiceAccountingExport(input: {
+  organizationId: string;
+  actorUserId: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await requireIssuedInvoiceReadAccess(input);
+
+  const rows = await db.hospitalityIssuedInvoice.findMany({
+    where: { organizationId: input.organizationId, ...AUSTRALIAN_TAX_INVOICE_WHERE },
+    orderBy: [{ issuedAt: 'asc' }, { sequenceValue: 'asc' }, { id: 'asc' }],
+    take: HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT + 1,
+  });
+  if (rows.length > HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT) throw new HospitalityIssuedInvoiceExportLimitError();
+
+  const accountingRows = rows.map((row) => {
     const document = validatePersistedInvoice(row);
     return Object.freeze({
       documentNumber: document.documentNumber,
       issuedAt: new Date(document.issuedAt),
+      bookingId: document.bookingId,
       currency: document.currency,
+      accommodationSubtotalMinor: BigInt(document.accommodationSubtotalMinor),
+      feeTotalMinor: BigInt(document.feeTotalMinor),
+      addonTotalMinor: BigInt(document.addonTotalMinor),
+      taxTotalMinor: BigInt(document.gstMinor),
       totalMinor: BigInt(document.totalMinor),
     });
   });
-  return Object.freeze({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), items: Object.freeze(items) });
+
+  return Object.freeze({
+    invoiceCount: accountingRows.length,
+    csv: createHospitalityInvoiceAccountingCsv(accountingRows),
+  });
 }
 
 export async function getHospitalityIssuedTaxInvoiceDocument(input: {
@@ -160,7 +232,7 @@ export async function getHospitalityIssuedTaxInvoiceDocument(input: {
   await requireIssuedInvoiceReadAccess(input);
 
   const row = await db.hospitalityIssuedInvoice.findFirst({
-    where: { organizationId: input.organizationId, documentNumber, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' },
+    where: { organizationId: input.organizationId, documentNumber, ...AUSTRALIAN_TAX_INVOICE_WHERE },
   });
   if (!row) throw new HospitalityIssuedInvoiceUnavailableError();
   return validatePersistedInvoice(row);
