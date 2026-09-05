@@ -4,7 +4,7 @@
 
 SF implements a deliberately narrow Australian adjustment lifecycle for previously issued hospitality tax invoices. The original tax invoice remains immutable. An adjustment note is separately numbered immutable legal evidence; SF does not provide a generic staff-entered credit-note workflow.
 
-Reachable issuance is AU/AUD under the current fully taxable standard-GST contract. It supports full booking-cancellation decreases, first/repeated commercial-amendment decreases, and one first-only commercial-amendment increase.
+Reachable issuance is AU/AUD under the current fully taxable standard-GST contract. It supports full booking-cancellation decreases, first/repeated commercial-amendment decreases, and one first increasing commercial-amendment adjustment.
 
 ## Supported reachable events
 
@@ -20,30 +20,30 @@ The first decrease requires the source tax invoice to equal the frozen amendment
 
 Repeated decreases use schema version 3 / ordinal `2+`. Each before-price must equal the verified predecessor after-price. Immutable evidence binds predecessor id/ordinal/document number/time/fingerprint and pricing continuity. PostgreSQL plus complete server-chain verification prevent gaps, forks, cross-tenant/source links and predecessor drift.
 
-### First increasing commercial amendment
+### Increasing commercial amendments
 
-The supported increase requires the immutable source tax invoice to equal the amendment before-price, exactly one applied `ADDITIONAL_CHARGE` amendment, exactly one immutable target-pricing record matching the after-price, exact positive standard-GST effect, complete provider-neutral settlement, valid chronology and zero earlier adjustment notes. It uses schema version 4 / ordinal `1`, zero decrease columns and exact positive increase columns.
+Reachable increasing issuance is currently the first increase only. It requires the immutable source tax invoice to equal the amendment before-price, exactly one applied `ADDITIONAL_CHARGE` amendment, exactly one immutable target-pricing record matching the after-price, exact positive standard-GST effect, complete provider-neutral settlement, valid chronology and zero earlier adjustment notes. It uses schema version 4 / ordinal `1`.
 
-`issueHospitalityCommercialAmendmentIncreasingAdjustmentNote` is the serializable idempotent writer and independently revalidates source, amendment, target pricing, settlement, zero prior documents and same-source-baseline ambiguity before number allocation.
+The cumulative readiness foundation now accepts a future ordinal `2+` increase only when a complete verified prior price chain is supplied and the candidate before-price equals the predecessor after-price. The prior price chain may contain supported increases or decreases. Schema version 5 freezes repeated-increasing predecessor identity, prior ordinal, document number/time/fingerprint, after-pricing fingerprint, and exact positive increase effect.
 
-## Shared product issuance orchestration
+PostgreSQL admits schema version 5 only with commercial-amendment predecessor continuity. No production writer currently emits schema version 5.
 
-`getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability` and `issueHospitalityNextCommercialAmendmentAdjustmentNote` from `hospitality-commercial-amendment-adjustment-product-service.ts` are the product-facing commercial-adjustment boundary.
+## Product issuance boundary
 
-Availability is tenant-scoped, requires `payment:manage`, and derives direction from persisted authority. It preserves the existing verified decreasing chain and only considers first-increasing issuance when no existing legal adjustment chain is present. It rejects ambiguous applied commercial amendments sharing the selected baseline across refund and additional-charge directions.
+`getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability` and `issueHospitalityNextCommercialAmendmentAdjustmentNote` remain the product-facing boundary. They require `payment:manage`, tenant- and booking-scope source authority, derive direction from persisted amendments, preserve cancellation priority, and reject ambiguous candidates.
 
-For a new write, the route amendment id must equal the unique server-derived candidate. `DECREASING` delegates to the existing first/repeated decreasing orchestration; `INCREASING` delegates to the schema-version-4 writer. Exact increasing retries first pass the independent post-issuance verifier. The browser never selects legal direction, GST, money, ordinal, predecessor, provider truth, sequence or issue time.
+The reachable product path still delegates decreasing issuance to the existing verified first/repeated orchestration and first increasing issuance to the schema-version-4 writer. An existing increasing document remains terminal until the shared verified chain, repeated-increasing writer, read surfaces, accounting/reconciliation, and document delivery all understand the new predecessor authority.
 
-The API request body remains only `sourceInvoiceDocumentNumber`. The tax-invoice action uses returned direction solely to label and explain the confirmation action.
+The API request body remains only `sourceInvoiceDocumentNumber`. The browser never selects legal direction, GST, money, ordinal, predecessor, provider truth, sequence or issue time.
 
 ## Read, accounting, reconciliation, HTML, and PDF delivery
 
 Authenticated adjustment-note reads require `booking:read` plus `payment:read` and are tenant-scoped server-side. Public booking-capability history authorizes tenant slug, encrypted capability, persisted booking ownership, unexpired principal and tenant-owned booking before any legal document is returned.
 
-Cancellation, decreasing-commercial and first-increasing rows are verified independently. Decreasing rows use complete predecessor-chain verification. First-increasing rows use `verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows`, which re-proves source invoice, exact amendment, unique target pricing, complete settlement, sole-adjustment authority, material columns, source-baseline uniqueness, chronology and fingerprints.
-
-Register/detail/public UI is direction-aware. Accounting CSV uses explicit direction with separate decrease/increase GST-exclusive, GST and GST-inclusive columns. Reconciliation consumes the verified tenant-scoped register. Authenticated and public PDFs reuse the verified direction-aware document and reject mixed or unreconciled effects.
+Reachable cancellation, decreasing-commercial and first-increasing rows continue through their existing independent verification paths. Schema-version-5 evidence is not reachable, so no customer/staff/accounting/PDF surface can accidentally present it before the read authority is extended.
 
 ## Remaining production boundaries
 
-Cumulative increasing adjustments, mixed-direction chains, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST rules, arbitrary staff-entered reasons, generic reissue/void/correction, non-AUD documents, other jurisdictions, durable customer authentication/history, email/resend, universal Unicode-safe PDF support, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL validation, and jurisdiction/legal review remain separate production work.
+The immediate next dependency is a direction-aware verified commercial adjustment chain and post-issuance authority that can validate schema versions 2 through 5, followed by the repeated-increasing serializable writer and product reachability.
+
+Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST rules, arbitrary staff-entered reasons, generic reissue/void/correction, non-AUD documents, other jurisdictions, durable customer authentication/history, email/resend, universal Unicode-safe PDF support, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL validation, and jurisdiction/legal review remain separate production work.
