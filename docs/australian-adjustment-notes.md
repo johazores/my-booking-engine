@@ -44,9 +44,11 @@ Historical reads can tolerate exactly one structurally terminal cancellation aft
 
 Commercial issuance uses `getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability` and `issueHospitalityNextCommercialAmendmentAdjustmentNote`. They require `payment:manage`, tenant/booking/source authority, derive direction from persisted amendments, verify the complete current commercial chain, and reject current-baseline ambiguity.
 
-Terminal cancellation availability uses `getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability`. The service proves the current legal chain head, source-scoped settlement, exact successful refund set, and zero issue-time settlement. `issueHospitalityCancellationAfterAmendmentAdjustmentNote` repeats that authority under the source-chain advisory lock and a serializable transaction, derives the next ordinal/predecessor/legal money/refund set/numbering/issue time, persists schema-version-6 evidence, immediately re-verifies it, and audits issuance.
+Cancellation issuance now converges through `hospitality-cancellation-adjustment-product-service.ts`. The product boundary requires `payment:manage`, tenant/booking/AU source authority, inspects persisted legal evidence server-side, and selects either the schema-version-1 unadjusted cancellation contract or the schema-version-6 terminal-after-amendment contract. Existing cancellation links are exposed only after the verifier matching their evidence schema succeeds.
 
-The existing cancellation API remains backward compatible with schema version 1. For schema version 6 the request contains only the source invoice number. The browser never selects refund IDs, direction, GST, money, ordinal, predecessor, provider truth, sequence, fingerprint, or issue time.
+For an unadjusted cancellation, the product boundary obtains the unique eligible full-refund ID from the protected legacy availability service and passes it only to the lower server writer, which revalidates it inside its serializable transaction. For a terminal cancellation, the server re-derives the complete commercial head and refund-authority set. The HTTP request for both contracts contains only the source invoice number.
+
+The browser never selects or receives cancellation refund IDs as write authority, and never selects direction, GST, money, ordinal, predecessor, provider truth, sequence, fingerprint, or issue time.
 
 ## Read, accounting, reconciliation, HTML, and PDF delivery
 

@@ -4,15 +4,16 @@ import {
   HospitalityAdjustmentNotePersistenceError,
   HospitalityAdjustmentNoteUnavailableError,
   HospitalityAdjustmentNoteWriteConflictError,
-  issueHospitalityCancellationAdjustmentNote,
 } from '@/server/payments/hospitality-adjustment-note-service.ts';
 import {
   HospitalityCancellationAfterAmendmentAdjustmentNoteConflictError,
   HospitalityCancellationAfterAmendmentAdjustmentNotePersistenceError,
   HospitalityCancellationAfterAmendmentAdjustmentNoteUnavailableError,
   HospitalityCancellationAfterAmendmentAdjustmentNoteWriteConflictError,
-  issueHospitalityCancellationAfterAmendmentAdjustmentNote,
 } from '@/server/payments/hospitality-cancellation-after-amendment-adjustment-note-service.ts';
+import {
+  issueHospitalityCancellationAdjustmentNoteForSource,
+} from '@/server/payments/hospitality-cancellation-adjustment-product-service.ts';
 
 function adjustmentNoteError(error: unknown) {
   if (
@@ -43,29 +44,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return context.response;
     const bookingId = (await params)['booking-id'];
-    const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown; refundTransactionId?: unknown };
+    const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown };
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Adjustment-note request must be an object.');
     if (typeof body.sourceInvoiceDocumentNumber !== 'string') {
       throw new TypeError('sourceInvoiceDocumentNumber is required.');
     }
-    if (body.refundTransactionId !== undefined && typeof body.refundTransactionId !== 'string') {
-      throw new TypeError('refundTransactionId must be a string when provided.');
-    }
 
-    const issued = typeof body.refundTransactionId === 'string'
-      ? await issueHospitalityCancellationAdjustmentNote({
-          organizationId: context.organizationId,
-          actorUserId: context.actorUserId,
-          bookingId,
-          sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
-          refundTransactionId: body.refundTransactionId,
-        })
-      : await issueHospitalityCancellationAfterAmendmentAdjustmentNote({
-          organizationId: context.organizationId,
-          actorUserId: context.actorUserId,
-          bookingId,
-          sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
-        });
+    const issued = await issueHospitalityCancellationAdjustmentNoteForSource({
+      organizationId: context.organizationId,
+      actorUserId: context.actorUserId,
+      bookingId,
+      sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
+    });
     return hospitalityBookingJson({
       documentNumber: issued.documentNumber,
       issuedAt: issued.issuedAt,

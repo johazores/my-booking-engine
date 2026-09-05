@@ -25,9 +25,9 @@ PostgreSQL constrains material direction/effect, ordinal shape, and predecessor 
 
 `issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, then derives sequence, number, issue time, legal snapshot, and fingerprint server-side.
 
-`issueHospitalityCancellationAdjustmentNote` handles the schema-version-1 unadjusted cancellation case. It verifies the source invoice, cancelled/refunded booking state, one attributed successful full refund, and immutable money, and refuses any existing legal adjustment for the source invoice.
+`issueHospitalityCancellationAdjustmentNote` is the lower schema-version-1 writer. It verifies the source invoice, cancelled/refunded booking state, one attributed successful full refund, and immutable money, and refuses any existing legal adjustment for the source invoice.
 
-`issueHospitalityCancellationAfterAmendmentAdjustmentNote` handles the schema-version-6 terminal case. It requires `payment:manage`, selects the complete verified commercial chain under the existing source-chain advisory lock, re-derives the exact refund set and zero settlement, allocates the shared tenant AU adjustment-note sequence, persists canonical predecessor-bound evidence, immediately re-verifies the created row, retries supported write races, and writes an issuance audit without embedding individual refund IDs.
+`issueHospitalityCancellationAfterAmendmentAdjustmentNote` is the lower schema-version-6 terminal writer. It requires `payment:manage`, selects the complete verified commercial chain under the existing source-chain advisory lock, re-derives the exact refund set and zero settlement, allocates the shared tenant AU adjustment-note sequence, persists canonical predecessor-bound evidence, immediately re-verifies the created row, retries supported write races, and writes an issuance audit without embedding individual refund IDs.
 
 ## Commercial-amendment product orchestration
 
@@ -37,13 +37,15 @@ Decreasing readiness is evaluated against the current verified legal baseline wh
 
 Same-baseline ambiguity checks are anchored to the current verified chain-head issue time so stale historical amendments from an earlier identical price point cannot become current authority.
 
-## Terminal-cancellation product orchestration
+## Cancellation product orchestration
 
-`getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability` is evaluated before any new commercial-adjustment action on the tax-invoice page. It requires `payment:manage`, tenant + booking + source scope, complete commercial-chain verification, current cancelled/refunded state, and exact provider-neutral refund settlement.
+`hospitality-cancellation-adjustment-product-service.ts` is the route/UI authority for both supported cancellation contracts. It validates identifiers, requires `payment:manage`, tenant-scopes the AU source invoice, and derives the legal path from persisted adjustment evidence rather than request shape.
 
-The existing cancellation API supports both contracts without accepting terminal legal authority from the browser. Schema-version-1 requests contain the source invoice number plus the already server-derived single refund ID. Schema-version-6 requests contain only the source invoice number; the writer derives refund IDs, legal direction, GST, money, ordinal, predecessor, numbering, fingerprints, and issue time inside the protected server transaction.
+For a source invoice with no commercial adjustment, product availability calls the schema-version-1 readiness boundary and hides its internally derived refund ID from UI/HTTP callers. Product issuance obtains that unique refund ID server-side and passes it to the lower writer, which independently revalidates it in the serializable write transaction.
 
-The UI receives a schema-version-6 source ordinal only for confirmation display.
+For a source invoice with a verified commercial history, the product boundary dispatches to schema-version-6 terminal availability/writing. Existing schema-version-1 and schema-version-6 cancellation links are routed through the verifier that matches the stored snapshot schema before the document number is exposed.
+
+The cancellation HTTP request contains only `sourceInvoiceDocumentNumber` for both contracts. The browser cannot choose the cancellation branch, refund IDs, legal direction, GST, money, ordinal, predecessor, provider truth, numbering, fingerprints, or issue time. The UI receives only the server-derived source ordinal needed to explain the permanent chain position before confirmation.
 
 ## Read and delivery convergence
 

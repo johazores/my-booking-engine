@@ -39,9 +39,11 @@ Schema version 6 binds the terminal cancellation to the exact commercial chain h
 
 `hospitality-commercial-amendment-adjustment-product-service.ts` remains the route/UI authority for commercial-amendment adjustment notes. It requires `payment:manage`, tenant- and booking-scopes source authority, derives direction from persisted amendments, verifies existing commercial history, and rejects same-baseline ambiguity.
 
-`getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability` is the terminal cancellation availability boundary. It requires `payment:manage`, proves the complete current commercial chain, re-derives the refund set and zero settlement, and independently verifies any already-issued schema-version-6 document before exposing it.
+`hospitality-cancellation-adjustment-product-service.ts` is the route/UI authority for cancellation adjustment notes. It requires `payment:manage`, tenant/booking/AU source scope, classifies the source from persisted legal evidence, and server-selects either the schema-version-1 unadjusted cancellation path or the schema-version-6 terminal-after-amendment path.
 
-The tax-invoice UI gives a supported terminal cancellation priority over a new commercial adjustment. For schema version 6, the browser request contains only the source invoice number. Refund IDs, legal direction, GST, money, ordinal, predecessor, provider truth, sequence, fingerprint, and issue time are server authority.
+For schema version 1, the unique eligible refund ID is selected by the protected server availability boundary and passed only between server modules; the lower writer revalidates it inside the serializable transaction. For schema version 6, the terminal service re-derives the verified commercial chain and complete refund-authority set. Existing cancellation links are only returned after dispatch through the verifier matching schema version 1 or 6.
+
+The tax-invoice UI gives a supported cancellation priority over a new commercial adjustment. For both cancellation contracts, the browser request contains only the source invoice number. Refund IDs, legal direction, GST, money, ordinal, predecessor, provider truth, sequence, fingerprint, and issue time are server authority.
 
 ## Read, accounting, reconciliation, and delivery safety
 
