@@ -7,24 +7,30 @@ export function CancellationAdjustmentNoteAction({
   bookingId,
   sourceInvoiceDocumentNumber,
   refundTransactionId,
+  sourceAdjustmentOrdinal,
 }: {
   bookingId: string;
   sourceInvoiceDocumentNumber: string;
-  refundTransactionId: string;
+  refundTransactionId?: string;
+  sourceAdjustmentOrdinal?: number;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const followsCommercialAdjustments = refundTransactionId === undefined;
 
   async function issueAdjustmentNote() {
     setSubmitting(true);
     setError(null);
     try {
+      const requestBody = refundTransactionId
+        ? { sourceInvoiceDocumentNumber, refundTransactionId }
+        : { sourceInvoiceDocumentNumber };
       const response = await fetch(`/api/bookings/hospitality/${encodeURIComponent(bookingId)}/adjustment-notes`, {
         method: 'POST',
         headers: { accept: 'application/json', 'content-type': 'application/json' },
-        body: JSON.stringify({ sourceInvoiceDocumentNumber, refundTransactionId }),
+        body: JSON.stringify(requestBody),
       });
       const payload = await response.json().catch(() => null) as { documentNumber?: string; message?: string } | null;
       if (!response.ok || !payload?.documentNumber) {
@@ -47,7 +53,10 @@ export function CancellationAdjustmentNoteAction({
 
   return <div className="sf-empty-state" role="group" aria-labelledby="issue-adjustment-note-title">
     <h3 id="issue-adjustment-note-title">Confirm adjustment-note issuance</h3>
-    <p>This permanently links the full booking refund to this tax invoice and allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.</p>
+    <p>{followsCommercialAdjustments
+      ? 'This permanently records the full cancellation against the verified current legal price after prior adjustment notes. The server re-verifies the complete refund set and the original tax invoice is never rewritten.'
+      : 'This permanently links the full booking refund to this tax invoice and allocates the next tenant adjustment-note number. The original tax invoice is never rewritten.'}</p>
+    {followsCommercialAdjustments && sourceAdjustmentOrdinal ? <p>Legal chain position: adjustment {sourceAdjustmentOrdinal}.</p> : null}
     {error ? <p className="sf-booking-modification-form__error" role="alert">{error}</p> : null}
     <div className="sf-actions">
       <button className="sf-button" type="button" disabled={submitting} onClick={issueAdjustmentNote}>

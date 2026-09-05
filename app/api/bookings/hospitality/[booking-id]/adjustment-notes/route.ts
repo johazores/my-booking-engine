@@ -6,15 +6,33 @@ import {
   HospitalityAdjustmentNoteWriteConflictError,
   issueHospitalityCancellationAdjustmentNote,
 } from '@/server/payments/hospitality-adjustment-note-service.ts';
+import {
+  HospitalityCancellationAfterAmendmentAdjustmentNoteConflictError,
+  HospitalityCancellationAfterAmendmentAdjustmentNotePersistenceError,
+  HospitalityCancellationAfterAmendmentAdjustmentNoteUnavailableError,
+  HospitalityCancellationAfterAmendmentAdjustmentNoteWriteConflictError,
+  issueHospitalityCancellationAfterAmendmentAdjustmentNote,
+} from '@/server/payments/hospitality-cancellation-after-amendment-adjustment-note-service.ts';
 
 function adjustmentNoteError(error: unknown) {
-  if (error instanceof HospitalityAdjustmentNoteConflictError || error instanceof HospitalityAdjustmentNoteWriteConflictError) {
+  if (
+    error instanceof HospitalityAdjustmentNoteConflictError
+    || error instanceof HospitalityAdjustmentNoteWriteConflictError
+    || error instanceof HospitalityCancellationAfterAmendmentAdjustmentNoteConflictError
+    || error instanceof HospitalityCancellationAfterAmendmentAdjustmentNoteWriteConflictError
+  ) {
     return hospitalityBookingJson({ error: 'adjustment-note-conflict', message: error.message }, 409);
   }
-  if (error instanceof HospitalityAdjustmentNoteUnavailableError) {
+  if (
+    error instanceof HospitalityAdjustmentNoteUnavailableError
+    || error instanceof HospitalityCancellationAfterAmendmentAdjustmentNoteUnavailableError
+  ) {
     return hospitalityBookingJson({ error: 'adjustment-note-unavailable', message: error.message }, 409);
   }
-  if (error instanceof HospitalityAdjustmentNotePersistenceError) {
+  if (
+    error instanceof HospitalityAdjustmentNotePersistenceError
+    || error instanceof HospitalityCancellationAfterAmendmentAdjustmentNotePersistenceError
+  ) {
     return hospitalityBookingJson({ error: 'adjustment-note-evidence-invalid', message: 'Stored adjustment-note evidence failed integrity validation.' }, 500);
   }
   return hospitalityBookingApiError(error);
@@ -27,17 +45,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
     const bookingId = (await params)['booking-id'];
     const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown; refundTransactionId?: unknown };
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Adjustment-note request must be an object.');
-    if (typeof body.sourceInvoiceDocumentNumber !== 'string' || typeof body.refundTransactionId !== 'string') {
-      throw new TypeError('sourceInvoiceDocumentNumber and refundTransactionId are required.');
+    if (typeof body.sourceInvoiceDocumentNumber !== 'string') {
+      throw new TypeError('sourceInvoiceDocumentNumber is required.');
+    }
+    if (body.refundTransactionId !== undefined && typeof body.refundTransactionId !== 'string') {
+      throw new TypeError('refundTransactionId must be a string when provided.');
     }
 
-    const issued = await issueHospitalityCancellationAdjustmentNote({
-      organizationId: context.organizationId,
-      actorUserId: context.actorUserId,
-      bookingId,
-      sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
-      refundTransactionId: body.refundTransactionId,
-    });
+    const issued = typeof body.refundTransactionId === 'string'
+      ? await issueHospitalityCancellationAdjustmentNote({
+          organizationId: context.organizationId,
+          actorUserId: context.actorUserId,
+          bookingId,
+          sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
+          refundTransactionId: body.refundTransactionId,
+        })
+      : await issueHospitalityCancellationAfterAmendmentAdjustmentNote({
+          organizationId: context.organizationId,
+          actorUserId: context.actorUserId,
+          bookingId,
+          sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
+        });
     return hospitalityBookingJson({
       documentNumber: issued.documentNumber,
       issuedAt: issued.issuedAt,

@@ -248,6 +248,21 @@ async function verifyRow(input: {
   verifyFrozenRefundAuthorities({ expected: readiness.refundAuthorities, frozen: snapshot.refundAuthorities });
 }
 
+export async function verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction(input: {
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  row: HospitalityCancellationAfterAmendmentAdjustmentAuthorityRow;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.row.id, 'adjustmentNoteId');
+  assertUuidIdentifier(input.row.bookingId, 'bookingId');
+  assertUuidIdentifier(input.row.sourceInvoiceId, 'sourceInvoiceId');
+  if (input.row.organizationId !== input.organizationId) {
+    fail('Cancellation-after-amendment row is outside the requested tenant scope.');
+  }
+  await verifyRow(input);
+}
+
 export async function verifyHospitalityCancellationAfterAmendmentAdjustmentRows(input: {
   organizationId: string;
   rows: readonly HospitalityCancellationAfterAmendmentAdjustmentAuthorityRow[];
@@ -257,10 +272,7 @@ export async function verifyHospitalityCancellationAfterAmendmentAdjustmentRows(
     assertUuidIdentifier(row.id, 'adjustmentNoteId');
     assertUuidIdentifier(row.bookingId, 'bookingId');
     assertUuidIdentifier(row.sourceInvoiceId, 'sourceInvoiceId');
-    if (row.organizationId !== input.organizationId) {
-      fail('Cancellation-after-amendment row is outside the requested tenant scope.');
-    }
-    await db.$transaction((transaction) => verifyRow({
+    await db.$transaction((transaction) => verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction({
       transaction,
       organizationId: input.organizationId,
       row,

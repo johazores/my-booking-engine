@@ -9,6 +9,9 @@ import { organizationRoleHasPermission } from '@/server/authorization/authorizat
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { getHospitalityCancellationAdjustmentNoteAvailability } from '@/server/payments/hospitality-adjustment-note-service.ts';
 import {
+  getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability,
+} from '@/server/payments/hospitality-cancellation-after-amendment-adjustment-service.ts';
+import {
   getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability,
 } from '@/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts';
 import {
@@ -61,7 +64,24 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
     authorization.platformAdmin
     || (authorization.role && organizationRoleHasPermission(authorization.role, 'payment:manage'))
   ));
-  const cancellationAdjustmentAvailability = canManagePayments
+
+  const cancellationAfterAmendmentAvailability = canManagePayments
+    ? await getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability({
+        organizationId: organization.id,
+        actorUserId: session.user.id,
+        bookingId: invoice.bookingId,
+        sourceInvoiceDocumentNumber: invoice.documentNumber,
+      })
+    : null;
+  const existingTerminalCancellationDocumentNumber = cancellationAfterAmendmentAvailability
+    && !cancellationAfterAmendmentAvailability.available
+    && 'documentNumber' in cancellationAfterAmendmentAvailability
+    ? cancellationAfterAmendmentAvailability.documentNumber
+    : null;
+
+  const legacyCancellationAvailability = canManagePayments
+    && !cancellationAfterAmendmentAvailability?.available
+    && !existingTerminalCancellationDocumentNumber
     ? await getHospitalityCancellationAdjustmentNoteAvailability({
         organizationId: organization.id,
         actorUserId: session.user.id,
@@ -69,13 +89,19 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
         sourceInvoiceDocumentNumber: invoice.documentNumber,
       })
     : null;
-  const existingCancellationDocumentNumber = cancellationAdjustmentAvailability
-    && !cancellationAdjustmentAvailability.available
-    && 'documentNumber' in cancellationAdjustmentAvailability
-    ? cancellationAdjustmentAvailability.documentNumber
+  const existingLegacyCancellationDocumentNumber = legacyCancellationAvailability
+    && !legacyCancellationAvailability.available
+    && 'documentNumber' in legacyCancellationAvailability
+    ? legacyCancellationAvailability.documentNumber
     : null;
+  const existingCancellationDocumentNumber = existingTerminalCancellationDocumentNumber
+    ?? existingLegacyCancellationDocumentNumber;
+
+  const cancellationAvailable = Boolean(
+    cancellationAfterAmendmentAvailability?.available || legacyCancellationAvailability?.available,
+  );
   const commercialAdjustmentAvailability = canManagePayments
-    && !cancellationAdjustmentAvailability?.available
+    && !cancellationAvailable
     && !existingCancellationDocumentNumber
     ? await getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability({
         organizationId: organization.id,
@@ -99,12 +125,16 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
       <Link className="sf-button sf-button--secondary" href={`/bookings/${invoice.bookingId}`}>Back to booking</Link>
       <a className="sf-button sf-button--secondary" href={pdfHref} download={`${invoice.documentNumber}.pdf`}>Download PDF</a>
       <PrintInvoiceAction />
-      {cancellationAdjustmentAvailability?.available ? <CancellationAdjustmentNoteAction
+      {cancellationAfterAmendmentAvailability?.available ? <CancellationAdjustmentNoteAction
         bookingId={invoice.bookingId}
         sourceInvoiceDocumentNumber={invoice.documentNumber}
-        refundTransactionId={cancellationAdjustmentAvailability.refundTransactionId}
+        sourceAdjustmentOrdinal={cancellationAfterAmendmentAvailability.sourceAdjustmentOrdinal}
+      /> : legacyCancellationAvailability?.available ? <CancellationAdjustmentNoteAction
+        bookingId={invoice.bookingId}
+        sourceInvoiceDocumentNumber={invoice.documentNumber}
+        refundTransactionId={legacyCancellationAvailability.refundTransactionId}
       /> : null}
-      {!cancellationAdjustmentAvailability?.available && commercialAdjustmentAvailability?.available ? <CommercialAmendmentAdjustmentNoteAction
+      {!cancellationAvailable && commercialAdjustmentAvailability?.available ? <CommercialAmendmentAdjustmentNoteAction
         bookingId={invoice.bookingId}
         commercialAmendmentId={commercialAdjustmentAvailability.commercialAmendmentId}
         sourceInvoiceDocumentNumber={invoice.documentNumber}

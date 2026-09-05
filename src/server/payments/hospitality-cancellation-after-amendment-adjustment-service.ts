@@ -6,6 +6,9 @@ import {
   deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness,
 } from './hospitality-cancellation-after-amendment-adjustment-domain.ts';
 import {
+  verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction,
+} from './hospitality-cancellation-after-amendment-adjustment-authority-service.ts';
+import {
   HospitalityCommercialAmendmentAdjustmentChainIntegrityError,
 } from './hospitality-commercial-amendment-adjustment-chain-domain.ts';
 import {
@@ -49,6 +52,12 @@ function mapChainError(error: unknown): never {
   throw error;
 }
 
+function schemaVersion(value: Prisma.JsonValue) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>).schemaVersion
+    : undefined;
+}
+
 async function loadVerifiedReadiness(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
@@ -75,9 +84,21 @@ async function loadVerifiedReadiness(input: {
       adjustmentReason: 'BOOKING_CANCELLATION',
     },
     orderBy: [{ sourceAdjustmentOrdinal: 'desc' }, { issuedAt: 'desc' }, { id: 'desc' }],
-    select: { documentNumber: true },
   });
   if (existingCancellation) {
+    if (schemaVersion(existingCancellation.documentSnapshot) === 6) {
+      try {
+        await verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction({
+          transaction: input.transaction,
+          organizationId: input.organizationId,
+          row: existingCancellation,
+        });
+      } catch (error) {
+        throw new HospitalityCancellationAfterAmendmentAdjustmentPersistenceError(
+          error instanceof Error ? error.message : 'Existing cancellation-after-amendment evidence is invalid.',
+        );
+      }
+    }
     return Object.freeze({
       available: false as const,
       reason: 'A cancellation adjustment note has already been issued for this tax invoice.',
