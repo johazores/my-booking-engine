@@ -27,7 +27,7 @@ Repeated writes continue selecting the verified chain head under the existing te
 
 Schema version 5 freezes a repeated increasing document's immediate predecessor id, previous ordinal, document number, issue time, document fingerprint, predecessor after-pricing fingerprint, and exact positive increase effect. PostgreSQL accepts that immutable shape only for an ordinal `2+` `INCREASING / COMMERCIAL_AMENDMENT` row whose material predecessor ordinal is exactly one less.
 
-The shared chain verifier can now prove schema-version-5 evidence, including decrease-to-increase and increase-to-increase predecessor continuity. This is still verification authority, not a reachable repeated-increasing writer.
+The shared chain verifier can prove schema-version-5 evidence, including decrease-to-increase and increase-to-increase predecessor continuity. `issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote` now provides a serializable server-only writer: it requires `payment:manage`, selects the verified chain head under the existing advisory lock, rejects cross-direction same-baseline ambiguity, re-runs cumulative readiness and settlement, allocates the shared AU adjustment-note sequence, persists exact schema-version-5 predecessor-bound evidence, reloads the complete chain, and audits the issuance. It is intentionally not imported by product orchestration yet.
 
 ## Direction-aware product boundary
 
@@ -47,8 +47,8 @@ The shared actor-neutral commercial chain read boundary can now prove referenced
 
 ## Next dependency
 
-Add the serializable repeated-increasing writer on top of the locked direction-aware chain head, then move authenticated/public reads, accounting, reconciliation, HTML/PDF delivery, and product orchestration onto the same schema-version-2-through-5 chain authority before exposing a second increasing action.
+The serializable repeated-increasing writer now exists on top of the locked direction-aware chain head. The next dependency is to move authenticated/public reads, accounting, reconciliation, HTML/PDF delivery, and product orchestration onto the same schema-version-2-through-5 chain authority before exposing a second increasing action.
 
 ## Remaining boundary
 
-Repeated-increasing product issuance, broader product-visible mixed-direction chains, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, other jurisdictions, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production execution, and jurisdiction/legal review remain separate production work and fail closed until implemented.
+Repeated-increasing product reachability, broader product-visible mixed-direction chains, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, other jurisdictions, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production execution, and jurisdiction/legal review remain separate production work and fail closed until implemented.

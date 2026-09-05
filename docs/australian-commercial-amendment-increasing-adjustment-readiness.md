@@ -45,7 +45,7 @@ Existing schema-version-1 cancellation, schema-version-2/3 decreasing-commercial
 
 Repeated increasing issuance is intentionally not product-reachable yet.
 
-The shared chain/read authority can now prove a schema-version-5 row, but the current product orchestration still treats an existing increasing document as terminal, the current first-increasing writer still emits ordinal `1`, and current authenticated/public/accounting/reconciliation/PDF call sites have not yet been migrated to project schema-version-5 evidence. This prevents exposing a legal write before all downstream product surfaces share the same authority.
+The shared chain/read authority can prove a schema-version-5 row, and a serializable server-only repeated-increasing writer now creates that evidence from the locked verified chain head. The writer requires `payment:manage`, rejects cross-direction same-baseline ambiguity, re-proves cumulative readiness and settlement, freezes exact predecessor authority, reloads the chain after insert, and audits the issuance. It is intentionally not imported by the product boundary. Current authenticated/public/accounting/reconciliation/PDF call sites have not yet been migrated to project schema-version-5 evidence, so no customer/staff action can create or present a repeated increase yet.
 
 ## Validation boundary
 
@@ -55,6 +55,6 @@ Full repository validation still requires the supported Node 24 dependency check
 
 ## Remaining production boundary
 
-The next dependency is the serializable repeated-increasing writer using the locked verified chain head, followed by coherent migration of authenticated/public reads, accounting, reconciliation, HTML/PDF delivery, and product issuance onto the shared schema-version-2-through-5 authority.
+The next dependency is coherent migration of authenticated/public reads, accounting, reconciliation, HTML/PDF delivery, and product issuance onto the shared schema-version-2-through-5 authority. Only after those surfaces verify the same schema-version-5 chain should product orchestration expose the repeated-increasing writer.
 
 Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, full Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate production work.

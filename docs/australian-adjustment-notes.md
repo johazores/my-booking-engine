@@ -24,7 +24,7 @@ Repeated decreases use schema version 3 / ordinal `2+`. Each before-price must e
 
 Reachable increasing issuance is currently the first increase only. It requires the immutable source tax invoice to equal the amendment before-price, exactly one applied `ADDITIONAL_CHARGE` amendment, exactly one immutable target-pricing record matching the after-price, exact positive standard-GST effect, complete provider-neutral settlement, valid chronology and zero earlier adjustment notes. It uses schema version 4 / ordinal `1`.
 
-Schema version 5 defines a repeated increasing commercial adjustment at ordinal `2+` and freezes predecessor identity, ordinal, document number/time/fingerprint, predecessor after-pricing fingerprint, and exact positive increase effect. PostgreSQL admits that shape with exact predecessor continuity, but no production writer emits it yet.
+Schema version 5 defines a repeated increasing commercial adjustment at ordinal `2+` and freezes predecessor identity, ordinal, document number/time/fingerprint, predecessor after-pricing fingerprint, and exact positive increase effect. PostgreSQL admits that shape with exact predecessor continuity. A serializable server-only writer now emits it from the locked verified chain head, but product orchestration does not import that writer yet.
 
 ## Shared commercial legal-chain verification
 
@@ -50,6 +50,6 @@ The shared actor-neutral chain read boundary can now prove referenced schema-ver
 
 ## Remaining production boundaries
 
-The immediate next dependency is the serializable repeated-increasing writer against the locked verified chain head, followed by authenticated/public read, accounting, reconciliation, HTML/PDF, and product-orchestration integration on the same direction-aware authority.
+The immediate next dependency is authenticated/public read, accounting, reconciliation, HTML/PDF, and product-orchestration integration on the same direction-aware authority. Product reachability for the repeated-increasing writer stays closed until those downstream surfaces are coherent.
 
 Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST rules, arbitrary staff-entered reasons, generic reissue/void/correction, non-AUD documents, other jurisdictions, durable customer authentication/history, email/resend, universal Unicode-safe PDF support, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL validation, and jurisdiction/legal review remain separate production work.
