@@ -2,34 +2,33 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+const authority = readFileSync('src/server/payments/hospitality-issued-adjustment-note-authority-service.ts', 'utf8');
 const readService = readFileSync('src/server/payments/hospitality-issued-adjustment-note-read-service.ts', 'utf8');
 const chainReadService = readFileSync('src/server/payments/hospitality-commercial-amendment-adjustment-chain-read-service.ts', 'utf8');
 
-test('commercial adjustment row projection accepts schema v3 only with matching predecessor material authority', () => {
-  assert.match(readService, /snapshot\.schemaVersion === 2/);
-  assert.match(readService, /row\.sourceAdjustmentOrdinal >= 2/);
-  assert.match(readService, /row\.predecessorAdjustmentNoteId === snapshot\.predecessorAdjustmentNoteId/);
-  assert.match(readService, /row\.predecessorSourceAdjustmentOrdinal === row\.sourceAdjustmentOrdinal - 1/);
-  assert.match(readService, /snapshot\.sourceAdjustmentOrdinal !== String\(row\.sourceAdjustmentOrdinal\)/);
-});
-
-test('staff commercial reads verify every selected row through the complete persisted source chain', () => {
-  assert.match(readService, /verifyHospitalityCommercialAmendmentAdjustmentRows/);
-  assert.match(readService, /await verifyCommercialAuthority\(organizationId, commercialItems\)/);
+test('commercial adjustment reads use one direction-aware chain authority for schema v2-v5 evidence', () => {
+  assert.match(authority, /verifyHospitalityCommercialAmendmentAdjustmentRows/);
+  assert.doesNotMatch(authority, /verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows/);
+  assert.match(authority, /row\.adjustmentType === 'DECREASING'/);
+  assert.match(authority, /row\.adjustmentType === 'INCREASING'/);
+  assert.match(authority, /createHospitalityIssuedAdjustmentNoteDocument\(row\.documentSnapshot\)/);
   assert.match(chainReadService, /loadVerifiedHospitalityCommercialAmendmentAdjustmentChain/);
   assert.match(chainReadService, /verified\.priorAdjustments\.map\(\(entry\) => entry\.adjustmentNoteId\)/);
-  assert.match(chainReadService, /if \(!verifiedIds\.has\(row\.id\)\)/);
 });
 
-test('tenant-scoped staff list, accounting export, and detail all pass through shared authority validation', () => {
+test('staff list, accounting export, and detail all pass through the shared tenant-scoped authority', () => {
   const uses = [...readService.matchAll(/validateRowsWithAuthorities\(input\.organizationId, (?:rows|\[row\])\)/g)];
   assert.equal(uses.length, 3);
   assert.match(readService, /permission:\s*'booking:read'/);
   assert.match(readService, /permission:\s*'payment:read'/);
+  assert.match(authority, /row\.organizationId !== input\.organizationId/);
 });
 
-test('cancellation authority stays ordinal one and predecessor-free', () => {
-  assert.match(readService, /row\.predecessorAdjustmentNoteId !== null/);
-  assert.match(readService, /row\.predecessorSourceAdjustmentOrdinal !== null/);
-  assert.match(readService, /row\.sourceAdjustmentOrdinal !== 1/);
+test('cancellation remains predecessor-free and independently binds its source invoice and successful refund', () => {
+  assert.match(authority, /row\.predecessorAdjustmentNoteId !== null/);
+  assert.match(authority, /row\.predecessorSourceAdjustmentOrdinal !== null/);
+  assert.match(authority, /row\.sourceAdjustmentOrdinal !== 1/);
+  assert.match(authority, /refund\.kind !== 'REFUND'/);
+  assert.match(authority, /refund\.status !== 'SUCCEEDED'/);
+  assert.match(authority, /hospitalityIssuedInvoiceFingerprint\(sourceSnapshot\)/);
 });
