@@ -31,6 +31,11 @@ export type HospitalitySupplierSearchInput = Readonly<{
   radiusKm?: number;
 }>;
 
+export type HospitalitySupplierSearchPageInput = Readonly<{
+  pageToken: string;
+  pageNumber: number;
+}>;
+
 export type HospitalitySupplierProperty = Readonly<{
   supplierPropertyReference: string;
   name: string;
@@ -50,4 +55,5 @@ export type HospitalitySupplierSearchResult = Readonly<{
 export interface HospitalitySupplierProvider {
   readonly code: string;
   searchProperties(input: HospitalitySupplierSearchInput): Promise<HospitalitySupplierSearchResult>;
+  searchPropertiesPage(input: HospitalitySupplierSearchPageInput): Promise<HospitalitySupplierSearchResult>;
 }

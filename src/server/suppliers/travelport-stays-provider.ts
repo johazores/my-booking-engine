@@ -5,6 +5,7 @@ import {
   type HospitalitySupplierProperty,
   type HospitalitySupplierProvider,
   type HospitalitySupplierSearchInput,
+  type HospitalitySupplierSearchPageInput,
   type HospitalitySupplierSearchResult,
 } from './hospitality-supplier-provider.ts';
 
@@ -42,7 +43,9 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DOCUMENTED_TOKEN_SECONDS = 86_400;
 const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const MAX_TOKEN_LENGTH = 16_384;
+const MAX_PAGE_TOKEN_LENGTH = 4_096;
 const MAX_PAGE_SIZE = 100;
+const MAX_PAGE_NUMBER = 5;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -242,6 +245,16 @@ function normalizeSearchInput(input: HospitalitySupplierSearchInput) {
   return Object.freeze({ cityIataCode, checkInDateLocal, checkOutDateLocal, rooms: input.rooms, adults: input.adults, childAges, radiusKm });
 }
 
+function normalizeSearchPageInput(input: HospitalitySupplierSearchPageInput) {
+  if (typeof input.pageToken !== 'string' || !input.pageToken || input.pageToken.length > MAX_PAGE_TOKEN_LENGTH || /[\r\n]/.test(input.pageToken)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Search page token is invalid.');
+  }
+  if (!Number.isInteger(input.pageNumber) || input.pageNumber < 2 || input.pageNumber > MAX_PAGE_NUMBER) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Search page number is invalid.');
+  }
+  return Object.freeze({ pageToken: input.pageToken, pageNumber: input.pageNumber });
+}
+
 function propertyReference(propertyCode: string): string {
   return Buffer.from(JSON.stringify({ propertyCode }), 'utf8').toString('base64url');
 }
@@ -264,10 +277,7 @@ function normalizeProperty(value: unknown): HospitalitySupplierProperty | null {
 
 function normalizeSearchResponse(value: unknown): HospitalitySupplierSearchResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-  const payload = value as {
-    pagination?: unknown;
-    hotelsResponse?: unknown;
-  };
+  const payload = value as { pagination?: unknown; hotelsResponse?: unknown };
   const pagination = payload.pagination;
   const hotelsResponse = payload.hotelsResponse;
   if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
@@ -280,8 +290,14 @@ function normalizeSearchResponse(value: unknown): HospitalitySupplierSearchResul
   for (const key of ['page', 'pageSize', 'totalPages', 'totalItems'] as const) {
     if (!Number.isInteger(pageData[key]) || (pageData[key] as number) < 0) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
   }
-  if ((pageData.pageSize as number) > MAX_PAGE_SIZE) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-  if (pageData.paginationToken !== undefined && (typeof pageData.paginationToken !== 'string' || pageData.paginationToken.length > 4096)) {
+  if ((pageData.pageSize as number) > MAX_PAGE_SIZE || propertyItems.length > (pageData.pageSize as number)) {
+    throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
+  }
+  if (pageData.paginationToken !== undefined && (
+    typeof pageData.paginationToken !== 'string'
+    || pageData.paginationToken.length > MAX_PAGE_TOKEN_LENGTH
+    || /[\r\n]/.test(pageData.paginationToken)
+  )) {
     throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
   }
 
@@ -319,17 +335,54 @@ export class TravelportStaysProvider implements HospitalitySupplierProvider {
     this.#timeoutMs = normalizeTimeout(input.timeoutMs);
   }
 
-  async searchProperties(input: HospitalitySupplierSearchInput): Promise<HospitalitySupplierSearchResult> {
-    const search = normalizeSearchInput(input);
-    const accessToken = await loadCachedAccessToken({
+  async #accessToken(): Promise<string> {
+    return loadCachedAccessToken({
       cacheKey: this.#cacheKey,
       credentials: this.#credentials,
       fetchImpl: this.#fetchImpl,
       timeoutMs: this.#timeoutMs,
       nowMs: Date.now(),
     });
+  }
+
+  #requestHeaders(accessToken: string) {
+    return {
+      'Accept-Encoding': 'gzip, deflate',
+      'Cache-Control': 'no-cache',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
+      E2ETrackingID: `sf-${randomUUID()}`,
+      username: this.#credentials.username,
+      password: this.#credentials.password,
+      client_id: this.#credentials.clientId,
+      client_secret: this.#credentials.clientSecret,
+    };
+  }
+
+  async #searchRequest(url: string, init: Pick<RequestInit, 'method' | 'body'>): Promise<HospitalitySupplierSearchResult> {
+    const response = await fetchWithTimeout({
+      fetchImpl: this.#fetchImpl,
+      url,
+      timeoutMs: this.#timeoutMs,
+      init: {
+        ...init,
+        headers: this.#requestHeaders(await this.#accessToken()),
+        cache: 'no-store',
+      },
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+      throw providerFailureForStatus(response.status);
+    }
+    const payload = await response.json().catch(() => null);
+    return normalizeSearchResponse(payload);
+  }
+
+  async searchProperties(input: HospitalitySupplierSearchInput): Promise<HospitalitySupplierSearchResult> {
+    const search = normalizeSearchInput(input);
     const endpoints = ENDPOINTS[this.#credentials.environment];
-    const traceId = `sf-${randomUUID()}`;
     const children = search.childAges.map((age) => ({ age }));
     const body = {
       stayDetails: {
@@ -351,35 +404,21 @@ export class TravelportStaysProvider implements HospitalitySupplierProvider {
       },
     };
 
-    const response = await fetchWithTimeout({
-      fetchImpl: this.#fetchImpl,
-      url: `${endpoints.staysV12}search/searchcomplete`,
-      timeoutMs: this.#timeoutMs,
-      init: {
-        method: 'POST',
-        headers: {
-          'Accept-Encoding': 'gzip, deflate',
-          'Cache-Control': 'no-cache',
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-          E2ETrackingID: traceId,
-          username: this.#credentials.username,
-          password: this.#credentials.password,
-          client_id: this.#credentials.clientId,
-          client_secret: this.#credentials.clientSecret,
-        },
-        body: JSON.stringify(body),
-        cache: 'no-store',
-      },
+    return this.#searchRequest(`${endpoints.staysV12}search/searchcomplete`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
-      throw providerFailureForStatus(response.status);
-    }
-    const payload = await response.json().catch(() => null);
-    return normalizeSearchResponse(payload);
+  }
+
+  async searchPropertiesPage(input: HospitalitySupplierSearchPageInput): Promise<HospitalitySupplierSearchResult> {
+    const page = normalizeSearchPageInput(input);
+    const endpoints = ENDPOINTS[this.#credentials.environment];
+    const result = await this.#searchRequest(
+      `${endpoints.staysV12}search/searchcomplete/${encodeURIComponent(page.pageToken)}?pageNumber=${page.pageNumber}`,
+      { method: 'GET' },
+    );
+    if (result.page !== page.pageNumber) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
+    return result;
   }
 }
 
