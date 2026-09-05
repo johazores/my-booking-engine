@@ -1,23 +1,53 @@
 import { NextResponse } from 'next/server';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { createHospitalityBaseRate } from '@/server/pricing/hospitality-pricing-service.ts';
 import { pricingErrorCode, pricingFormField } from '@/server/pricing/pricing-http.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request) {
-  if (!isSameOriginAuthRequest(request)) return new Response('Forbidden', { status: 403 });
-  if (!isSupportedAuthFormRequest(request)) return new Response('Unsupported Media Type', { status: 415 });
-  const session = await readAuthSession();
-  if (!session) return NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303);
-  const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return NextResponse.redirect(new URL('/pricing?error=tenant', request.url), 303);
+  const observation = createRequestObservation(request, { operation: 'pricing.base-rate.create' });
+  let organizationId: string | undefined;
+  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
+    response,
+    { organizationId },
+    failureOutcome ? { failureOutcome } : undefined,
+  );
+
+  if (!isSameOriginAuthRequest(request)) return finish(new Response('Forbidden', { status: 403 }));
+  if (!isSupportedAuthFormRequest(request)) return finish(new Response('Unsupported Media Type', { status: 415 }));
+
+  let session: Awaited<ReturnType<typeof readAuthSession>>;
+  try {
+    session = await readAuthSession();
+  } catch {
+    return finish(new Response('Internal Server Error', { status: 500 }));
+  }
+  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+
+  let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
+  try {
+    activeContext = await readActiveOrganizationContext(session.user.id);
+  } catch {
+    return finish(new Response('Internal Server Error', { status: 500 }));
+  }
+  if (!activeContext.organization) {
+    return finish(NextResponse.redirect(new URL('/pricing?error=tenant', request.url), 303), 'rejected');
+  }
+  organizationId = activeContext.organization.id;
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return finish(NextResponse.redirect(new URL('/pricing?error=validation', request.url), 303), 'rejected');
+  }
 
   let propertyId = '';
   let roomTypeId = '';
   let ratePlanId = '';
   try {
-    const formData = await request.formData();
     propertyId = pricingFormField(formData, 'propertyId');
     roomTypeId = pricingFormField(formData, 'roomTypeId');
     ratePlanId = pricingFormField(formData, 'ratePlanId');
@@ -33,12 +63,16 @@ export async function POST(request: Request) {
         amount: pricingFormField(formData, 'amount'),
       },
     });
-    return NextResponse.redirect(new URL(`/pricing/${propertyId}?ratePlan=${ratePlanId}&roomType=${roomTypeId}&status=base-rate-created`, request.url), 303);
+    return finish(NextResponse.redirect(new URL(`/pricing/${propertyId}?ratePlan=${ratePlanId}&roomType=${roomTypeId}&status=base-rate-created`, request.url), 303));
   } catch (error) {
     const target = propertyId ? `/pricing/${propertyId}` : '/pricing';
-    const params = new URLSearchParams({ error: pricingErrorCode(error) });
+    const code = pricingErrorCode(error);
+    const params = new URLSearchParams({ error: code });
     if (ratePlanId) params.set('ratePlan', ratePlanId);
     if (roomTypeId) params.set('roomType', roomTypeId);
-    return NextResponse.redirect(new URL(`${target}?${params.toString()}`, request.url), 303);
+    return finish(
+      NextResponse.redirect(new URL(`${target}?${params.toString()}`, request.url), 303),
+      code === 'server' ? 'failed' : 'rejected',
+    );
   }
 }
