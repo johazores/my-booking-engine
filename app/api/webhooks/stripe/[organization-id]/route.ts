@@ -2,6 +2,7 @@ import { finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook } from '@/serv
 import { finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-checkout-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
 
@@ -9,6 +10,13 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ 'organization-id': string }> },
 ) {
+  const observation = createRequestObservation(request, { operation: 'payment.stripe-webhook.ingest' });
+  let verifiedOrganizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, {
+    organizationId: verifiedOrganizationId,
+    provider: 'stripe',
+  });
+
   try {
     const routeParams = await params;
     const organizationId = routeParams['organization-id'];
@@ -18,6 +26,7 @@ export async function POST(
       signature: request.headers.get('stripe-signature'),
       payload,
     });
+    verifiedOrganizationId = organizationId;
     const checkoutFinalization = await finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook({
       organizationId,
       verifiedWebhookEventId: verifiedEvent.id,
@@ -44,16 +53,16 @@ export async function POST(
         }
       }
     }
-    return Response.json({ received: true });
+    return finish(Response.json({ received: true }));
   } catch (error) {
     if (error instanceof StripeWebhookRequestError) {
-      if (error.code === 'CONFIGURATION') return Response.json({ error: 'webhook-unavailable' }, { status: 503 });
-      return Response.json({ error: 'invalid-webhook' }, { status: 400 });
+      if (error.code === 'CONFIGURATION') return finish(Response.json({ error: 'webhook-unavailable' }, { status: 503 }));
+      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
     }
-    if (error instanceof PaymentConflictError) return Response.json({ error: 'webhook-conflict' }, { status: 409 });
+    if (error instanceof PaymentConflictError) return finish(Response.json({ error: 'webhook-conflict' }, { status: 409 }));
     if (error instanceof Error && /organizationId|UUID/i.test(error.message)) {
-      return Response.json({ error: 'invalid-webhook' }, { status: 400 });
+      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
     }
-    return Response.json({ error: 'internal-error' }, { status: 500 });
+    return finish(Response.json({ error: 'internal-error' }, { status: 500 }));
   }
 }

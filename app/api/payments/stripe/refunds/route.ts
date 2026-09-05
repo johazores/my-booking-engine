@@ -1,10 +1,16 @@
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { paymentApiError, paymentJson, requirePaymentApiContext } from '@/server/payments/payment-http.ts';
 import { refundStripeBookingPayment } from '@/server/payments/stripe-refund-service.ts';
 
 export async function POST(request: Request) {
+  const observation = createRequestObservation(request, { operation: 'payment.stripe-refund.create' });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId, provider: 'stripe' });
+
   try {
     const context = await requirePaymentApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return finish(context.response);
+    organizationId = context.organizationId;
     const body = await request.json();
     const refund = await refundStripeBookingPayment({
       organizationId: context.organizationId,
@@ -13,8 +19,8 @@ export async function POST(request: Request) {
       idempotencyKey: body?.idempotencyKey,
       amountMinor: body?.amountMinor,
     });
-    return paymentJson(refund);
+    return finish(paymentJson(refund));
   } catch (error) {
-    return paymentApiError(error);
+    return finish(paymentApiError(error));
   }
 }

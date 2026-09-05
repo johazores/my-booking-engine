@@ -1,6 +1,7 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentUnavailableError } from '@/server/payments/payment-service.ts';
 import { getPublicStripePaymentStatus } from '@/server/payments/public-stripe-payment-status-service.ts';
 import { PublicStripeCheckoutAuthorizationError } from '@/server/payments/public-stripe-checkout-service.ts';
@@ -23,26 +24,29 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-payment.stripe-checkout.status' });
+  const finish = (response: Response) => observation.finish(response, { provider: 'stripe' });
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown };
     if (typeof input.bookingCapability !== 'string') {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const result = await getPublicStripePaymentStatus({
       organizationSlug,
       bookingCapability: input.bookingCapability,
     });
-    return Response.json(result, { status: 200, headers: noStoreHeaders });
+    return finish(Response.json(result, { status: 200, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }

@@ -1,12 +1,18 @@
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { createOrResumeStripeHospitalityBookingCommercialAmendmentRecoveryCheckout } from '@/server/bookings/hospitality-booking-commercial-amendment-recovery-transport-service.ts';
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 
 type RouteContext = { params: Promise<{ 'booking-id': string; 'amendment-id': string }> };
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'payment.commercial-amendment.stripe-recovery-checkout.create' });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId, provider: 'stripe' });
+
   try {
     const auth = await requireHospitalityBookingApiContext(request, { write: true });
-    if (auth.response) return auth.response;
+    if (auth.response) return finish(auth.response);
+    organizationId = auth.organizationId;
     const params = await context.params;
     const bookingId = params['booking-id'];
     const amendmentId = params['amendment-id'];
@@ -25,8 +31,8 @@ export async function POST(request: Request, context: RouteContext) {
       successUrl: successUrl.toString(),
       cancelUrl: cancelUrl.toString(),
     });
-    return hospitalityBookingJson(result, 'checkoutUrl' in result && result.checkoutUrl ? 201 : 200);
+    return finish(hospitalityBookingJson(result, 'checkoutUrl' in result && result.checkoutUrl ? 201 : 200));
   } catch (error) {
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }

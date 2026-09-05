@@ -1,6 +1,7 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentConflictError, PaymentUnavailableError } from '@/server/payments/payment-service.ts';
 import { PaymentProviderError } from '@/server/payments/payment-provider.ts';
 import {
@@ -41,19 +42,22 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-payment.stripe-checkout.create' });
+  const finish = (response: Response) => observation.finish(response, { provider: 'stripe' });
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown; requestKey?: unknown };
     if (typeof input.bookingCapability !== 'string' || typeof input.requestKey !== 'string') {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const returnUrl = new URL(`/book/${encodeURIComponent(organizationSlug)}`, request.url);
@@ -70,11 +74,11 @@ export async function POST(request: Request, context: RouteContext) {
       cancelUrl: cancelUrl.toString(),
     });
 
-    return Response.json(result, {
+    return finish(Response.json(result, {
       status: result.state === 'CHECKOUT_REQUIRED' ? 201 : 200,
       headers: noStoreHeaders,
-    });
+    }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }
