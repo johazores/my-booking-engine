@@ -93,7 +93,21 @@ export async function readCustomerWithActivity(input: {
       customerId: input.customerId,
     }),
   ]);
-  return { customer, activity, deidentification };
+
+  const bookingReferenceCount = customer.status === 'ARCHIVED' && !deidentification
+    ? await db.hospitalityBooking.count({
+        where: { organizationId: input.organizationId, customerId: input.customerId },
+      })
+    : 0;
+  const deidentificationEligibility = deidentification
+    ? { allowed: false, reason: 'ALREADY_DEIDENTIFIED' as const }
+    : customer.status !== 'ARCHIVED'
+      ? { allowed: false, reason: 'NOT_ARCHIVED' as const }
+      : bookingReferenceCount > 0
+        ? { allowed: false, reason: 'BOOKING_REFERENCES' as const }
+        : { allowed: true, reason: null };
+
+  return { customer, activity, deidentification, deidentificationEligibility };
 }
 
 export async function createCustomer(input: {
