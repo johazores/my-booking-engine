@@ -15,6 +15,15 @@ test('profile de-identification is tenant-scoped, authorized, archived-only, and
   assert.match(service, /if \(bookingReferenceCount > 0\) throw new CustomerDeidentificationBlockedError\(\)/);
 });
 
+test('customer detail derives tenant-scoped de-identification eligibility without replacing write-time authority', () => {
+  assert.match(service, /const bookingReferenceCount = customer\.status === 'ARCHIVED' && !deidentification/);
+  assert.match(service, /where: \{ organizationId: input\.organizationId, customerId: input\.customerId \}/);
+  assert.match(service, /reason: 'BOOKING_REFERENCES'/);
+  assert.match(service, /allowed: true, reason: null/);
+  assert.match(service, /return \{ customer, activity, deidentification, deidentificationEligibility \}/);
+  assert.match(service, /return db\.\$transaction\(async \(transaction\) => \{[\s\S]*?transaction\.hospitalityBooking\.count/s);
+});
+
 test('profile de-identification clears direct mutable identifiers and records PII-free audit evidence', () => {
   assert.match(service, /firstName: DEIDENTIFIED_CUSTOMER_FIRST_NAME/);
   assert.match(service, /lastName: DEIDENTIFIED_CUSTOMER_LAST_NAME/);
@@ -42,11 +51,20 @@ test('product route is correlated and keeps identifiers out of structured log sc
   assert.match(route, /deidentify-linked-bookings/);
 });
 
+test('operator UI only offers the destructive action when the server-derived eligibility allows it', () => {
+  assert.match(page, /const deidentificationEligibility = detail\.deidentificationEligibility/);
+  assert.match(page, /canManage && deidentificationEligibility\.allowed/);
+  assert.match(page, /deidentificationEligibility\.reason === 'BOOKING_REFERENCES'/);
+  assert.match(page, /De-identification unavailable/);
+  assert.match(page, /the server will check the complete eligibility rules again when you submit/);
+  assert.match(page, /aria-describedby="deidentify-customer-description"/);
+});
+
 test('operator UI and lifecycle contract state the narrow irreversible boundary without claiming linked evidence disposal', () => {
-  assert.match(page, /It is blocked when any booking references this customer/);
   assert.match(page, /It does not delete booking, guest, payment, or issued legal-document evidence/);
   assert.match(page, /DEIDENTIFY/);
   assert.match(docs, /zero hospitality booking references/i);
   assert.match(docs, /does not mutate or delete booking guest snapshots/i);
   assert.match(docs, /does not infer disposal authority from age/i);
+  assert.match(docs, /write-time authority/i);
 });

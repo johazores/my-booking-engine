@@ -103,11 +103,15 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, de-identi
     assert.equal(detail?.customer.phone, '+63 917 555 0101');
     assert.ok(detail?.activity.some((event) => event.action === 'customer.created'));
     assert.ok(detail?.activity.some((event) => event.action === 'customer.updated'));
+    assert.equal(detail?.deidentificationEligibility.allowed, false);
+    assert.equal(detail?.deidentificationEligibility.reason, 'NOT_ARCHIVED');
 
     await customers.archiveCustomer({ organizationId: organizationA.id, actorUserId: adminA.id, customerId: customerA.id, confirmation: 'ARCHIVE' });
-    const archived = await customers.readCustomer({ organizationId: organizationA.id, actorUserId: adminA.id, customerId: customerA.id });
-    assert.equal(archived?.status, 'ARCHIVED');
-    assert.ok(archived?.archivedAt);
+    const archived = await customers.readCustomerWithActivity({ organizationId: organizationA.id, actorUserId: adminA.id, customerId: customerA.id });
+    assert.equal(archived?.customer.status, 'ARCHIVED');
+    assert.ok(archived?.customer.archivedAt);
+    assert.equal(archived?.deidentificationEligibility.allowed, true);
+    assert.equal(archived?.deidentificationEligibility.reason, null);
     await assert.rejects(
       customers.updateCustomer({
         organizationId: organizationA.id,
@@ -145,6 +149,8 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, de-identi
     assert.equal(deidentified?.customer.notes, null);
     assert.ok(deidentified?.deidentification?.createdAt);
     assert.ok(deidentified?.activity.some((event) => event.action === 'customer.deidentified'));
+    assert.equal(deidentified?.deidentificationEligibility.allowed, false);
+    assert.equal(deidentified?.deidentificationEligibility.reason, 'ALREADY_DEIDENTIFIED');
     await assert.rejects(
       customers.deidentifyCustomerProfile({
         organizationId: organizationA.id,

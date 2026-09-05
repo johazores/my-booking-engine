@@ -77,6 +77,7 @@ export default async function CustomerDetailPage({
   const query = await searchParams;
   const customer = detail.customer;
   const isDeidentified = Boolean(detail.deidentification);
+  const deidentificationEligibility = detail.deidentificationEligibility;
 
   return (
     <div className="sf-customer-detail">
@@ -164,19 +165,26 @@ export default async function CustomerDetailPage({
           <section className="sf-customers-card">
             <p className="sf-eyebrow">Archived</p>
             <h2>Read-only historical record</h2>
-            <p>Editing is disabled after archival. If this customer has no booking history and your organization has confirmed that the profile is no longer needed, the direct profile identifiers can be de-identified below.</p>
+            <p>Editing is disabled after archival. Profile de-identification is offered only when SF can confirm that no hospitality booking currently references this customer.</p>
           </section>
-          {canManage ? (
-            <section className="sf-customer-danger" aria-labelledby="deidentify-customer-title">
+          {canManage && deidentificationEligibility.allowed ? (
+            <section className="sf-customer-danger" aria-labelledby="deidentify-customer-title" aria-describedby="deidentify-customer-description">
               <div>
                 <p className="sf-eyebrow">Privacy lifecycle</p>
                 <h2 id="deidentify-customer-title">De-identify customer profile</h2>
-                <p>This irreversible action replaces the profile name with a generic label and clears email, phone, and internal notes. It is blocked when any booking references this customer. It does not delete booking, guest, payment, or issued legal-document evidence. Use it only after your organization has confirmed its applicable retention obligations. Type <strong>DEIDENTIFY</strong> to confirm.</p>
+                <p id="deidentify-customer-description">This irreversible action replaces the profile name with a generic label and clears email, phone, and internal notes. SF found no booking references when this page loaded, and the server will check the complete eligibility rules again when you submit. It does not delete booking, guest, payment, or issued legal-document evidence. Use it only after your organization has confirmed its applicable retention obligations. Type <strong>DEIDENTIFY</strong> to confirm.</p>
               </div>
               <form className="sf-customer-danger__form" action={`/api/customers/${customer.id}/deidentify`} method="post">
-                <label className="sf-field">Confirmation<input name="confirmation" pattern="[Dd][Ee][Ii][Dd][Ee][Nn][Tt][Ii][Ff][Yy]" required autoComplete="off" /></label>
+                <label className="sf-field">Confirmation<input name="confirmation" pattern="[Dd][Ee][Ii][Dd][Ee][Nn][Tt][Ii][Ff][Yy]" required autoComplete="off" aria-describedby="deidentify-customer-description" /></label>
                 <button className="sf-button sf-button--danger" type="submit">De-identify profile</button>
               </form>
+            </section>
+          ) : null}
+          {canManage && deidentificationEligibility.reason === 'BOOKING_REFERENCES' ? (
+            <section className="sf-customers-card" aria-labelledby="deidentify-customer-unavailable-title">
+              <p className="sf-eyebrow">Privacy lifecycle</p>
+              <h2 id="deidentify-customer-unavailable-title">De-identification unavailable</h2>
+              <p>A booking references this customer, so SF does not offer profile de-identification here. Booking-linked data can include guest snapshots, payment and recovery records, provider records, and legal-document evidence with separate retention obligations.</p>
             </section>
           ) : null}
         </>

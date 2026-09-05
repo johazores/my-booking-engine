@@ -38,6 +38,10 @@ This product boundary is an engineering control, not legal advice. Tenants remai
 
 The customer detail page clearly distinguishes archival from profile de-identification. A successful operation leaves a non-identifying customer stub so historical internal audit references remain resolvable, but the mutable customer directory no longer contains the prior direct profile identifiers.
 
+For an archived profile that has not already been de-identified, the tenant-scoped customer detail read derives a best-effort eligibility state from the current booking references. The destructive form is shown only when that read finds no hospitality booking reference. If a booking reference exists, SF renders an explicit unavailable state instead of presenting an action that is guaranteed to fail.
+
+This read-time eligibility is **not write-time authority**. The de-identification mutation independently re-checks the tenant-owned archived customer, prior de-identification evidence, and current booking-reference count inside its serializable transaction before clearing any field. A booking created after the page was rendered therefore still blocks the mutation safely.
+
 Request correlation uses the existing `customer.deidentify` operation. Structured request logs include the tenant organization only after active-organization authority succeeds and do not include the customer ID, form body, confirmation phrase, removed identifiers, or request URL.
 
 ## Remaining lifecycle work
