@@ -220,7 +220,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
               <h2 id="travelport-stays-integration-title">Travelport Stays</h2>
               <span className={`sf-integration-status sf-integration-status--${travelportStays?.status === 'ACTIVE' ? 'active' : 'inactive'}`}>{travelportStays?.status ?? 'Not configured'}</span>
             </div>
-            <p>First external hospitality supplier adapter. SF currently exposes only normalized hotel search; supplier pricing, reservation, modification and cancellation are not advertised until those adapter contracts are implemented.</p>
+            <p>External hospitality supplier adapter. SF supports normalized hotel search, exact offer pricing and revalidation, plus server-side booking-rule and selected-offer authority review. Reservation, modification and cancellation remain unavailable until their provider write contracts are validated.</p>
           </div>
           {travelportStays ? <span className="sf-integration-card__version">Credential version {travelportStays.credentialVersion}</span> : null}
         </div>
