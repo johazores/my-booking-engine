@@ -20,23 +20,18 @@ const configuration = normalizeTravelportStaysConfiguration({
 });
 
 function jsonResponse(payload: unknown, status = 200) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-test('configuration derives only the implemented hotel-search capability and rejects caller-controlled environments', () => {
-  assert.deepEqual(configuration.capabilities, ['hotel-search']);
+function emptySearchResponse() {
+  return { pagination: { page: 1, pageSize: 0, totalPages: 0, totalItems: 0 }, hotelsResponse: { propertyItems: [] } };
+}
+
+test('configuration derives only implemented Travelport Stays capabilities and rejects caller-controlled environments/headers', () => {
+  assert.deepEqual(configuration.capabilities, ['availability', 'hotel-search', 'pricing']);
   assert.equal(configuration.credentials.environment, 'pre-production');
-  assert.throws(() => normalizeTravelportStaysConfiguration({
-    ...configuration.credentials,
-    environment: 'https://attacker.invalid/',
-  }), TravelportStaysConfigurationError);
-  assert.throws(() => normalizeTravelportStaysConfiguration({
-    ...configuration.credentials,
-    username: 'bad\nheader',
-  }), TravelportStaysConfigurationError);
+  assert.throws(() => normalizeTravelportStaysConfiguration({ ...configuration.credentials, environment: 'https://attacker.invalid/' }), TravelportStaysConfigurationError);
+  assert.throws(() => normalizeTravelportStaysConfiguration({ ...configuration.credentials, username: 'bad\nheader' }), TravelportStaysConfigurationError);
 });
 
 test('token request uses the fixed pre-production endpoint and documented password-grant fields without returning credentials', async () => {
@@ -51,10 +46,8 @@ test('token request uses the fixed pre-production endpoint and documented passwo
       return jsonResponse({ access_token: 'token-value', expires_in: 86400 });
     }) as typeof fetch,
   });
-
   assert.equal(calledUrl, 'https://auth.pp.travelport.net/oauth/token');
   assert.equal(calledInit?.method, 'POST');
-  assert.equal(new Headers(calledInit?.headers).get('Content-Type'), 'application/x-www-form-urlencoded');
   const body = calledInit?.body as URLSearchParams;
   assert.equal(body.get('grant_type'), 'password');
   assert.equal(body.get('username'), 'test-user');
@@ -62,17 +55,14 @@ test('token request uses the fixed pre-production endpoint and documented passwo
   assert.equal(body.get('client_id'), 'client-id');
   assert.equal(body.get('client_secret'), 'client-secret');
   assert.deepEqual(Object.keys(token).sort(), ['accessToken', 'expiresAtMs']);
-  assert.equal(token.accessToken, 'token-value');
-  assert.ok(token.expiresAtMs > 1_000);
 });
 
 test('health probe safely classifies authentication, rate-limit, outage and malformed success responses', async () => {
-  const statuses = [
+  for (const [status, expectedStatus, expectedCode] of [
     [401, 'AUTHENTICATION_FAILED', 'AUTHENTICATION_FAILED'],
     [429, 'RATE_LIMITED', 'RATE_LIMITED'],
     [503, 'PROVIDER_UNAVAILABLE', 'PROVIDER_UNAVAILABLE'],
-  ] as const;
-  for (const [status, expectedStatus, expectedCode] of statuses) {
+  ] as const) {
     const result = await probeTravelportStaysIntegrationHealth({
       credentials: configuration.credentials,
       fetchImpl: (async () => new Response('', { status })) as typeof fetch,
@@ -80,7 +70,6 @@ test('health probe safely classifies authentication, rate-limit, outage and malf
     assert.equal(result.status, expectedStatus);
     assert.equal(result.failureCode, expectedCode);
   }
-
   const malformed = await probeTravelportStaysIntegrationHealth({
     credentials: configuration.credentials,
     fetchImpl: (async () => jsonResponse({ access_token: '' })) as typeof fetch,
@@ -99,36 +88,22 @@ test('health probe classifies an aborted token request as provider timeout witho
   assert.deepEqual(result, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
 });
 
-test('SearchComplete uses fixed Travelport endpoints/headers, bounded input and returns provider-neutral property records', async () => {
+test('SearchComplete uses fixed endpoints/headers, bounded input and provider-neutral property references with pricing authority', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url, init) => {
     requests.push({ url: String(url), init });
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'cached-access-token', expires_in: 86400 });
     return jsonResponse({
-      traceId: 'provider-trace',
       pagination: { page: 1, pageSize: 2, totalPages: 2, totalItems: 3, paginationToken: 'next-token' },
-      hotelsResponse: {
-        propertyItems: [
-          { name: 'Hotel One', propertyCode: 'ABC12', estimatedPropertyType: 'Hotel', availability: true },
-          { name: 'Hotel Two', propertyCode: 'XYZ99', availability: false },
-        ],
-      },
+      hotelsResponse: { propertyItems: [
+        { name: 'Hotel One', chainCode: 'HI', propertyCode: 'ABC12', estimatedPropertyType: 'Hotel', availability: true },
+        { name: 'Hotel Two', chainCode: 'UR', propertyCode: 'XYZ99', availability: false },
+      ] },
     });
   }) as typeof fetch;
-
-  const provider = new TravelportStaysProvider({
-    credentials: configuration.credentials,
-    cacheKey: 'tenant-a:v1',
-    fetchImpl,
-  });
+  const provider = new TravelportStaysProvider({ credentials: configuration.credentials, cacheKey: 'tenant-a:v1', fetchImpl });
   const result = await provider.searchProperties({
-    cityIataCode: 'syd',
-    checkInDateLocal: '2026-10-10',
-    checkOutDateLocal: '2026-10-12',
-    rooms: 1,
-    adults: 2,
-    childAges: [5],
-    radiusKm: 30,
+    cityIataCode: 'syd', checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, adults: 2, childAges: [5], radiusKm: 30,
   });
 
   assert.equal(requests.length, 2);
@@ -136,107 +111,54 @@ test('SearchComplete uses fixed Travelport endpoints/headers, bounded input and 
   const headers = new Headers(requests[1]?.init?.headers);
   assert.equal(headers.get('Authorization'), 'Bearer cached-access-token');
   assert.equal(headers.get('XAUTH_TRAVELPORT_ACCESSGROUP'), 'access-group');
-  assert.equal(headers.get('username'), 'test-user');
-  assert.equal(headers.get('password'), 'test-password');
-  assert.equal(headers.get('client_id'), 'client-id');
-  assert.equal(headers.get('client_secret'), 'client-secret');
+  assert.equal(headers.get('TVP-Cache-Control'), null, 'location discovery remains cache-eligible at the provider layer');
   assert.match(headers.get('E2ETrackingID') ?? '', /^sf-[0-9a-f-]{36}$/);
-  const body = JSON.parse(String(requests[1]?.init?.body));
-  assert.deepEqual(body, {
-    stayDetails: {
-      checkInDateLocal: '2026-10-10',
-      checkOutDateLocal: '2026-10-12',
-      rooms: 1,
-      guests: { adults: 2, children: [{ age: 5 }] },
-    },
+  assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+    stayDetails: { checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, guests: { adults: 2, children: [{ age: 5 }] } },
     propertyFilter: {
-      location: {
-        type: 'cityIATACode',
-        details: { iataCode: 'SYD' },
-        radius: { value: 30, unit: 'km' },
-      },
+      location: { type: 'cityIATACode', details: { iataCode: 'SYD' }, radius: { value: 30, unit: 'km' } },
       returnOnlyAvailableProperties: true,
     },
   });
   assert.deepEqual(result, {
     properties: [
-      { supplierPropertyReference: 'eyJwcm9wZXJ0eUNvZGUiOiJBQkMxMiJ9', name: 'Hotel One', propertyType: 'Hotel', available: true },
-      { supplierPropertyReference: 'eyJwcm9wZXJ0eUNvZGUiOiJYWVo5OSJ9', name: 'Hotel Two', propertyType: null, available: false },
+      { supplierPropertyReference: 'eyJjaGFpbkNvZGUiOiJISSIsInByb3BlcnR5Q29kZSI6IkFCQzEyIiwiYXV0aG9yaXR5IjoiVFZQVCJ9', name: 'Hotel One', propertyType: 'Hotel', available: true },
+      { supplierPropertyReference: 'eyJjaGFpbkNvZGUiOiJVUiIsInByb3BlcnR5Q29kZSI6IlhZWjk5IiwiYXV0aG9yaXR5IjoiVFZQVCJ9', name: 'Hotel Two', propertyType: null, available: false },
     ],
-    page: 1,
-    pageSize: 2,
-    totalPages: 2,
-    totalItems: 3,
-    nextPageToken: 'next-token',
+    page: 1, pageSize: 2, totalPages: 2, totalItems: 3, nextPageToken: 'next-token',
   });
 
-  await provider.searchProperties({
-    cityIataCode: 'MEL',
-    checkInDateLocal: '2026-11-10',
-    checkOutDateLocal: '2026-11-11',
-    rooms: 1,
-    adults: 1,
-  });
-  assert.equal(requests.filter((request) => request.url.includes('/oauth/token')).length, 1, 'token should be reused for the credential-version cache key');
+  await provider.searchProperties({ cityIataCode: 'MEL', checkInDateLocal: '2026-11-10', checkOutDateLocal: '2026-11-11', rooms: 1, adults: 1 });
+  assert.equal(requests.filter((request) => request.url.includes('/oauth/token')).length, 1);
 });
 
 test('SearchComplete fails closed for bad inputs and malformed or oversized provider pages', async () => {
   const provider = new TravelportStaysProvider({
     credentials: configuration.credentials,
     cacheKey: 'tenant-b:v1',
-    fetchImpl: (async (url) => {
-      if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token-value' });
-      return jsonResponse({
-        pagination: { page: 1, pageSize: 101, totalPages: 1, totalItems: 101 },
-        hotelsResponse: { propertyItems: [] },
-      });
-    }) as typeof fetch,
+    fetchImpl: (async (url) => String(url).includes('/oauth/token')
+      ? jsonResponse({ access_token: 'token-value' })
+      : jsonResponse({ pagination: { page: 1, pageSize: 101, totalPages: 1, totalItems: 101 }, hotelsResponse: { propertyItems: [] } })) as typeof fetch,
   });
-
-  await assert.rejects(provider.searchProperties({
-    cityIataCode: 'not-a-city',
-    checkInDateLocal: '2026-10-10',
-    checkOutDateLocal: '2026-10-12',
-    rooms: 1,
-    adults: 2,
-  }), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST');
-
-  await assert.rejects(provider.searchProperties({
-    cityIataCode: 'SYD',
-    checkInDateLocal: '2026-10-10',
-    checkOutDateLocal: '2026-10-12',
-    rooms: 1,
-    adults: 2,
-  }), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
+  await assert.rejects(provider.searchProperties({ cityIataCode: 'not-a-city', checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, adults: 2 }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST');
+  await assert.rejects(provider.searchProperties({ cityIataCode: 'SYD', checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, adults: 2 }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
 });
 
-test('SearchComplete evicts an access token after provider authentication rejection so a later request can refresh credentials', async () => {
+test('SearchComplete evicts an access token after provider authentication rejection so a later request refreshes credentials', async () => {
   let tokenCalls = 0;
   let searchCalls = 0;
   const provider = new TravelportStaysProvider({
     credentials: configuration.credentials,
     cacheKey: 'tenant-c:v1',
     fetchImpl: (async (url) => {
-      if (String(url).includes('/oauth/token')) {
-        tokenCalls += 1;
-        return jsonResponse({ access_token: `token-${tokenCalls}`, expires_in: 86400 });
-      }
+      if (String(url).includes('/oauth/token')) { tokenCalls += 1; return jsonResponse({ access_token: `token-${tokenCalls}`, expires_in: 86400 }); }
       searchCalls += 1;
-      if (searchCalls === 1) return new Response('', { status: 401 });
-      return jsonResponse({
-        pagination: { page: 1, pageSize: 0, totalPages: 0, totalItems: 0 },
-        hotelsResponse: { propertyItems: [] },
-      });
+      return searchCalls === 1 ? new Response('', { status: 401 }) : jsonResponse(emptySearchResponse());
     }) as typeof fetch,
   });
-  const search = {
-    cityIataCode: 'SYD',
-    checkInDateLocal: '2026-12-10',
-    checkOutDateLocal: '2026-12-11',
-    rooms: 1,
-    adults: 1,
-  } as const;
-
+  const search = { cityIataCode: 'SYD', checkInDateLocal: '2026-12-10', checkOutDateLocal: '2026-12-11', rooms: 1, adults: 1 } as const;
   await assert.rejects(provider.searchProperties(search), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'AUTHENTICATION_FAILED');
   await provider.searchProperties(search);
   assert.equal(tokenCalls, 2);

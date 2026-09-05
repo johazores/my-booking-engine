@@ -2,52 +2,43 @@
 
 ## Status
 
-Travelport TripServices Stays is the selected first external hospitality supplier for SF. The repository contains a real Travelport Stays adapter, tenant-owned encrypted configuration, authenticated connection testing, complete normalized SearchComplete pagination, and a tenant-authorized server-side hotel-search service. No customer-facing external-supplier booking workflow is exposed yet, and no unsupported Travelport pricing/reservation/modification/cancellation capability is presented as implemented.
+Travelport TripServices Stays is SF's selected first external hospitality supplier. The repository now contains tenant-owned encrypted Travelport configuration, explicit connection testing, complete bounded SearchComplete property pagination, a tenant-authorized property search service, exact-money provider offer normalization, and mandatory no-cache offer revalidation. No external-supplier reservation write or customer-facing booking workflow is exposed yet.
 
-## Why Travelport Stays is first
-
-Travelport is a strong match for SF's existing hospitality inventory and booking domain, and its current public TripServices Stays documentation provides a concrete hotel workflow plus obtainable trial/customer provisioning. The current API contract is REST/JSON and exposes SearchComplete, availability/rules, reservation creation, retrieval, modification, and cancellation as separate provider capabilities, which allows SF to add each capability only when its adapter contract is production-ready.
-
-Provider selection was reviewed against current public documentation on 2026-09-06. The initial SF adapter deliberately starts with hotel search rather than importing Travelport's complete object model into core booking code.
-
-## Verified Travelport contract
-
-- OAuth 2.0 authentication endpoint: pre-production `https://auth.pp.travelport.net/oauth/token`, production `https://auth.travelport.net/oauth/token`.
-- The documented token request uses `grant_type=password`, `username`, `password`, `client_id`, and `client_secret`. Travelport documents a 24-hour token lifetime and requires token caching/reuse rather than requesting a token for every API call.
-- Stays v12 SearchComplete endpoint: `POST search/searchcomplete` under pre-production `https://api.pp.travelport.net/12/hotel/` or production `https://api.travelport.net/12/hotel/`.
-- SearchComplete returns up to 100 properties on page 1. Additional pages use `GET search/searchcomplete/{SearchIdentifier}?pageNumber={x}`, where the identifier is the opaque SearchComplete pagination token. Travelport documents page numbers 2 through 5, no request payload, and a 30-minute paging-identifier lifetime.
-- Common Stays headers include the bearer token, `XAUTH_TRAVELPORT_ACCESSGROUP`, and the provisioned username/password/client credentials. SF therefore treats the complete Travelport credential set and access group as server-only integration credentials.
-- SearchComplete can proceed to the v11 booking workflow, but SF does not advertise or call reservation capability until pricing/offer authority and reservation lifecycle are separately implemented and validated.
+Provider selection and the currently implemented Travelport contract were reviewed against public Travelport documentation on 2026-09-06.
 
 ## Current SF boundary
 
-The provider-neutral contract lives under `src/server/suppliers/`. The Travelport adapter and supplier-search service:
+Provider-specific behavior remains under `src/server/suppliers/` and `src/server/integrations/`. The normalized boundary currently supports:
 
-- accept a bounded city-IATA/date/room/guest search input;
-- choose fixed Travelport URLs from a validated `pre-production` or `production` enum, so callers cannot supply arbitrary provider URLs;
-- cache access tokens by tenant integration + credential version with duplicate refresh suppression;
-- send an SF-generated Travelport tracking ID for provider-side correlation;
-- map provider transport/authentication/rate-limit failures to bounded provider-neutral failure codes;
-- reject malformed/oversized provider responses instead of passing provider JSON through the application;
-- retrieve the complete documented SearchComplete result set through at most five bounded pages and never expose the opaque provider page token to product callers;
-- reject page-number mismatches, total-count drift, duplicate supplier property references, missing pagination authority, and result sets outside the documented page boundary;
-- return only normalized property reference, name, property type, availability, total result count, and page-count evidence;
-- require `availability:read` before active tenant credentials are loaded for operational supplier search;
-- advertise only `hotel-search` in the Integration capability set.
+- bounded city/date/occupancy property discovery;
+- SearchComplete continuation pages 2-5 with the opaque provider page token kept server-side;
+- opaque SF supplier property references carrying the provider chain/property identity needed for exact-property follow-up;
+- exact-property SearchComplete pricing using requested currency and Travelport's provider-specific `TVP-Cache-Control: no-cache` mode;
+- exact integer-minor money for base/tax/total/fees and bounded normalized rate terms/inclusions;
+- deterministic normalized offer fingerprints so same-price commercial changes are detectable;
+- explicit revalidation results: unchanged, price changed, other commercial change, or unavailable;
+- no trusted offer TTL (`validUntil: null`) and mandatory revalidation before any future reservation action;
+- an explicit `rulesRequiredBeforeReservation` boundary because provider Rules evidence is not yet implemented;
+- `availability:read` before property discovery and `availability:read` + `pricing:read` before offer pricing/revalidation, all before encrypted credentials are loaded;
+- normalized provider failures with no raw provider payload/error leakage.
 
-Tenant administrators can configure, rotate, test, disable, and archive Travelport Stays through the existing `/integrations` authority boundary. Credentials are encrypted using the existing integration envelope, never read back into the browser, and permanently purged on archive. Connection-test audit/log records contain normalized status/version/provider context only, not credentials, token values, request bodies, provider payloads, pagination tokens, or Travelport property data.
+Travelport integrations now advertise only `availability`, `hotel-search`, and `pricing`. A checked-in data migration aligns current active/disabled Travelport records while preserving archived capability history.
 
-## Remaining Phase 15 work
+## Why reservation remains closed
 
-The next dependency is normalized exact-money/rate/offer authority and expiry/revalidation semantics. Only after that contract exists should SF expose a customer/staff product search surface that presents provider pricing or allow a reserve action. External reservation writes must add exact tenant-scoped idempotency, retry/ambiguity recovery, durable supplier references, and provider-truth retrieval before they can be production-authoritative.
+Travelport documents that SearchComplete can continue into the v11 booking workflow and that v11 Rules may be used to retrieve rules for a rate. Travelport also documents `TVP-Cache-Control: no-cache` for real-time pricing and explicitly recommends a final price check before booking. SF therefore treats SearchComplete offers as observed commercial data, never as a durable promise.
 
-Live integration validation still requires a specifically provisioned Travelport non-production account. No provider credentials belong in source control or automated repository workflows.
+The next dependency is a normalized v11 Rules contract tied to the selected property/rate identity. After that, reservation writes still require tenant-scoped durable idempotency, persisted supplier references, ambiguous-outcome recovery, retry rules, and provider-truth retrieval before SF can expose a reserve action.
 
-Do not add a generic supplier UI, fake hotel inventory, placeholder booking route, or mock Travelport success path while those dependencies remain incomplete.
+## Validation boundary
 
-## Current source references
+Dependency-free supplier tests cover property discovery/pagination, token behavior, exact offer normalization, cache-control behavior, money precision/currency failures, commercial fingerprinting, and revalidation outcomes. Source-contract coverage checks authorization-before-credential-load ordering and ensures reservation code has not been introduced through this read-side slice.
 
-- Travelport TripServices authentication: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/GeneralProject/Oauth.htm
-- Travelport Common Stays API Headers: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/CommonHotelAPIHeaders.htm
-- Travelport SearchComplete API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete.htm
-- Travelport SearchComplete Pagination API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete_pagination.htm
+Live Travelport validation remains blocked until a provisioned non-production account is available. Full Prisma migration/drift and PostgreSQL integration checks require the explicitly disposable database target. No credentials belong in source control or repository automation.
+
+## References
+
+- https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete.htm
+- https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete_pagination.htm
+- https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelFAQ.htm
+- https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/HotelAPIReferences.htm
