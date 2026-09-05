@@ -34,3 +34,16 @@ test('Travelport recovery source contains no reservation persistence, audit, or 
   const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   assert.doesNotMatch(adapter, /db\.|prisma|auditEvent|logger|console\.|afterData|beforeData/);
 });
+
+test('supplier source-of-truth docs keep known-locator recovery separate from unverified create authority', () => {
+  const integrationDoc = source('docs/travelport-stays-integration.md');
+  const ledgerDoc = source('docs/supplier-reservation-operations.md');
+  const roadmap = source('docs/product-roadmap.md');
+  for (const document of [integrationDoc, ledgerDoc, roadmap]) {
+    assert.match(document, /known-locator|known locator/i);
+    assert.match(document, /lowestPublicAvailableRate\/rateKey\/value/);
+    assert.match(document, /reservation.*(unadvertised|not advertised|remains closed|create.*closed)/is);
+  }
+  assert.match(integrationDoc, /no Travelport `POST book\/reservations\/build` call/);
+  assert.match(ledgerDoc, /must not pass an arbitrary selected room-rate key as `CatalogOfferingIdentifier`/);
+});
