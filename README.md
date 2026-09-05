@@ -21,12 +21,13 @@ The current repository includes real persisted production boundaries for:
 - first-party email/password authentication, opaque sessions, organization membership, roles, permissions, and audited tenant administration;
 - a persistent responsive SF application shell with tenant switching, account controls, and real tenant data;
 - tenant branding and white-label settings applied to both the authenticated workspace and public hospitality booking route;
-- tenant-owned customers and immutable booking-specific guest snapshots;
+- tenant-owned customers, immutable booking-specific guest snapshots, and a narrow irreversible de-identification workflow for archived customer profiles with no hospitality booking references;
 - hospitality properties, room types, rooms, amenities, images, rate plans, restrictions, availability windows, holds, allocation locking, pricing, taxes/fees, and add-ons;
 - exact-money hospitality quoting, price fingerprints, atomic hold-to-booking confirmation, idempotency, permanent booking allocations, and booking audit history;
 - authenticated booking detail, cancellation, same-price date rescheduling, traveler snapshot editing, provider-aware refunds, receipts, audit history, and room/rate/quantity/add-on commercial modification;
 - an explicit versioned commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
 - a normalized payment contract plus manual/offline payments and a real Stripe adapter for authorization/capture, hosted Checkout, verified webhooks, reconciliation, refunds, public payment recovery, and commercial-amendment settlement;
+- Australian hospitality legal-document infrastructure with immutable issuer/recipient/pricing evidence, serializable tax-invoice numbering and issuance, direction-aware commercial adjustment-note chains, supported cancellation adjustments, deterministic PDFs for the current lossless-text contract, tenant registers/accounting exports, retention boundaries, and reconciliation;
 - encrypted tenant integration credentials, provider capabilities, lifecycle management, connection health, rotation, disable/enable/archive/reconnect behavior, and secret-safe auditing; and
 - a real tenant-branded public hospitality journey from live discovery through hold, current-price review, customer/guest capture, booking confirmation, Stripe Checkout, signed payment completion, abandonment handling, and recovery.
 
@@ -37,7 +38,7 @@ Provider-specific behavior remains behind adapters. Browser redirects are never 
 The repository does not pretend unfinished product areas are complete. Notable remaining work includes:
 
 - price-changing date reschedules beyond the current same-price reschedule contract, if that product capability is prioritized;
-- jurisdiction-specific invoice/tax-document issuance, immutable legal tax evidence, fiscal numbering, PDF/email delivery, and accounting integrations;
+- remaining Australian legal-document boundaries such as mixed-taxability or partial/non-standard-GST adjustments, generic correction/void/reissue, durable re-authenticated customer history and email/resend delivery, universal Unicode-safe PDF rendering, broader booking-linked customer-data disposal, production database/toolchain validation, and jurisdiction/legal review;
 - the first external supplier/GDS adapter and later provider-specific supplier integrations;
 - additional payment/email/SMS providers only when there is a real product requirement; and
 - tours, appointments, rentals, marketplace capabilities, and other advanced business modules after the shared booking foundation is proven.
@@ -83,6 +84,8 @@ Start with:
 - `docs/booking-management.md`
 - `docs/booking-commercial-adjustments.md`
 - `docs/commercial-amendment-orchestration.md`
+- `docs/invoice-foundation.md`
+- `docs/customer-data-lifecycle.md`
 - `docs/integration-architecture.md`
 - `docs/development-guide.md`
 
