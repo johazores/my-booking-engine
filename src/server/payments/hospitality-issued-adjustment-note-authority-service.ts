@@ -233,6 +233,26 @@ async function verifyCancellationAuthorities(
       if (
         sourceInvoice.organizationId !== item.row.organizationId
         || sourceInvoice.bookingId !== item.row.bookingId
+        || sourceInvoice.jurisdictionCode !== 'AU'
+        || sourceInvoice.documentType !== 'TAX_INVOICE'
+        || sourceSnapshot.organizationId !== sourceInvoice.organizationId
+        || sourceSnapshot.bookingId !== sourceInvoice.bookingId
+        || sourceSnapshot.preparationId !== sourceInvoice.preparationId
+        || sourceSnapshot.pricingEvidenceId !== sourceInvoice.pricingEvidenceId
+        || sourceSnapshot.issuerProfileId !== sourceInvoice.issuerProfileId
+        || sourceSnapshot.documentNumber !== sourceInvoice.documentNumber
+        || BigInt(sourceSnapshot.sequenceValue) !== sourceInvoice.sequenceValue
+        || new Date(sourceSnapshot.issuedAt).getTime() !== sourceInvoice.issuedAt.getTime()
+        || sourceSnapshot.currency !== sourceInvoice.currency
+        || BigInt(sourceSnapshot.accommodationSubtotalMinor) !== sourceInvoice.accommodationSubtotalMinor
+        || BigInt(sourceSnapshot.taxTotalMinor) !== sourceInvoice.taxTotalMinor
+        || BigInt(sourceSnapshot.feeTotalMinor) !== sourceInvoice.feeTotalMinor
+        || BigInt(sourceSnapshot.addonTotalMinor) !== sourceInvoice.addonTotalMinor
+        || BigInt(sourceSnapshot.totalMinor) !== sourceInvoice.totalMinor
+        || sourceSnapshot.preparationFingerprint !== sourceInvoice.preparationFingerprint
+        || sourceSnapshot.pricingFingerprint !== sourceInvoice.pricingFingerprint
+        || sourceSnapshot.issuerFingerprint !== sourceInvoice.issuerFingerprint
+        || sourceSnapshot.recipientFingerprint !== sourceInvoice.recipientFingerprint
         || hospitalityIssuedInvoiceFingerprint(sourceSnapshot) !== sourceInvoice.documentFingerprint
         || sourceDocument.documentFingerprint !== sourceInvoice.documentFingerprint
         || sourceInvoice.documentFingerprint !== item.row.sourceInvoiceFingerprint
