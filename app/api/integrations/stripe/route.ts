@@ -4,6 +4,7 @@ import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { saveIntegration } from '@/server/integrations/integration-service.ts';
 import { normalizeStripeIntegrationConfiguration, StripeIntegrationConfigurationError } from '@/server/integrations/stripe-integration.ts';
+import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 function field(formData: FormData, name: string) {
@@ -12,13 +13,22 @@ function field(formData: FormData, name: string) {
 }
 
 export async function POST(request: Request) {
-  if (!isSameOriginAuthRequest(request)) return new Response('Forbidden', { status: 403 });
-  if (!isSupportedAuthFormRequest(request)) return new Response('Unsupported Media Type', { status: 415 });
+  const observation = createRequestObservation(request, { operation: 'integration.stripe.configure' });
+  let organizationId: string | undefined;
+  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
+    response,
+    { organizationId, provider: 'stripe' },
+    failureOutcome ? { failureOutcome } : undefined,
+  );
+
+  if (!isSameOriginAuthRequest(request)) return finish(new Response('Forbidden', { status: 403 }));
+  if (!isSupportedAuthFormRequest(request)) return finish(new Response('Unsupported Media Type', { status: 415 }));
 
   const session = await readAuthSession();
-  if (!session) return NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303);
+  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return NextResponse.redirect(new URL('/integrations?error=tenant', request.url), 303);
+  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/integrations?error=tenant', request.url), 303), 'rejected');
+  organizationId = activeContext.organization.id;
 
   try {
     const formData = await request.formData();
@@ -34,13 +44,16 @@ export async function POST(request: Request) {
       capabilities: configuration.capabilities,
       credentials: configuration.credentials,
     });
-    return NextResponse.redirect(new URL('/integrations?status=saved', request.url), 303);
+    return finish(NextResponse.redirect(new URL('/integrations?status=saved', request.url), 303));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
       : error instanceof StripeIntegrationConfigurationError
         ? 'validation'
         : 'server';
-    return NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303);
+    return finish(
+      NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303),
+      code === 'server' ? 'failed' : 'rejected',
+    );
   }
 }

@@ -4,6 +4,7 @@ import { REQUEST_ID_HEADER, isSafeRequestId } from '../../lib/request-correlatio
 
 export type RequestLogDocumentType = 'tax-invoice' | 'adjustment-note';
 export type RequestLogOutcome = 'succeeded' | 'rejected' | 'failed';
+export type RequestLogFailureOutcome = Exclude<RequestLogOutcome, 'succeeded'>;
 export type RequestLogLevel = 'info' | 'warn' | 'error';
 
 export interface RequestObservationScope {
@@ -32,6 +33,10 @@ interface RequestObservationOptions {
   documentType?: RequestLogDocumentType;
 }
 
+interface RequestCompletionOptions {
+  failureOutcome?: RequestLogFailureOutcome;
+}
+
 const SAFE_LOG_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
 
 function safeLogIdentifier(value: string | undefined) {
@@ -43,9 +48,13 @@ export function resolveRequestId(request: Request) {
   return isSafeRequestId(requestId) ? requestId : randomUUID();
 }
 
-function classifyStatus(statusCode: number): { level: RequestLogLevel; outcome: RequestLogOutcome } {
+function classifyStatus(
+  statusCode: number,
+  failureOutcome?: RequestLogFailureOutcome,
+): { level: RequestLogLevel; outcome: RequestLogOutcome } {
   if (statusCode >= 500) return { level: 'error', outcome: 'failed' };
-  if (statusCode >= 400) return { level: 'warn', outcome: 'rejected' };
+  if (failureOutcome === 'failed') return { level: 'error', outcome: 'failed' };
+  if (statusCode >= 400 || failureOutcome === 'rejected') return { level: 'warn', outcome: 'rejected' };
   return { level: 'info', outcome: 'succeeded' };
 }
 
@@ -56,8 +65,9 @@ export function buildStructuredRequestLogRecord(input: {
   durationMs: number;
   documentType?: RequestLogDocumentType;
   scope?: RequestObservationScope;
+  failureOutcome?: RequestLogFailureOutcome;
 }): StructuredRequestLogRecord {
-  const classification = classifyStatus(input.statusCode);
+  const classification = classifyStatus(input.statusCode, input.failureOutcome);
   const record: StructuredRequestLogRecord = {
     timestamp: new Date().toISOString(),
     level: classification.level,
@@ -98,7 +108,11 @@ export function createRequestObservation(request: Request, options: RequestObser
 
   return {
     requestId,
-    finish(response: Response, scope?: RequestObservationScope) {
+    finish(
+      response: Response,
+      scope?: RequestObservationScope,
+      completion?: RequestCompletionOptions,
+    ) {
       response.headers.set(REQUEST_ID_HEADER, requestId);
       writeStructuredRequestLog(buildStructuredRequestLogRecord({
         requestId,
@@ -107,6 +121,7 @@ export function createRequestObservation(request: Request, options: RequestObser
         durationMs: Date.now() - startedAt,
         documentType: options.documentType,
         scope,
+        failureOutcome: completion?.failureOutcome,
       }));
       return response;
     },

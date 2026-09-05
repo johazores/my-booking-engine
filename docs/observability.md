@@ -1,6 +1,6 @@
 # Request correlation and structured logging
 
-SF uses bounded request correlation on production workflows where operators need to connect an HTTP outcome to one privacy-safe server completion record. Current coverage includes core authenticated hospitality booking writes, capability-owned public hold/quote/confirmation transitions, immutable legal-document issuance, authenticated payment reads and mutations, commercial-amendment settlement/provider transport, public Stripe Checkout creation/status polling, and Stripe webhook ingestion.
+SF uses bounded request correlation on production workflows where operators need to connect an HTTP outcome to one privacy-safe server completion record. Current coverage includes core authenticated hospitality booking writes, capability-owned public hold/quote/confirmation transitions, immutable legal-document issuance, authenticated payment reads and mutations, commercial-amendment settlement/provider transport, public Stripe Checkout creation/status polling, Stripe webhook ingestion, and authenticated integration configuration/lifecycle/connection-test management.
 
 ## Request ID contract
 
@@ -20,6 +20,8 @@ The staff legal-document issuance actions append a validated response request ID
 - legal document type for the current issuance routes.
 
 HTTP 2xx/3xx outcomes log at `info`, 4xx rejections at `warn`, and 5xx failures at `error`. Optional identifier fields fail closed when they do not match the bounded log-safe identifier format.
+
+Redirect-based form handlers may additionally provide the shared logger a typed `rejected` or `failed` logical failure outcome after the server has already classified the operation result. This is only for cases where the browser must receive a 303 redirect even though the underlying management operation was rejected or failed. An HTTP 5xx can never be downgraded by that override, and callers cannot override an HTTP failure to `succeeded`.
 
 Current authenticated hospitality booking operations are:
 
@@ -60,6 +62,12 @@ Current commercial-amendment payment operations are:
 - `payment.commercial-amendment.stripe-recovery-checkout.create`;
 - `payment.commercial-amendment.stripe-recovery-checkout.reconcile`.
 
+Current integration-management operations are:
+
+- `integration.stripe.configure`;
+- `integration.stripe.connection-test`;
+- `integration.lifecycle.update`.
+
 Current public/provider operations are:
 
 - `public-booking.hospitality-hold.create`;
@@ -76,6 +84,8 @@ For authenticated payment routes, the organization log field is attached only af
 
 For commercial-amendment payment routes, the organization field is attached only after `requireHospitalityBookingApiContext` has established the authenticated active-tenant write context. Booking IDs, amendment IDs, idempotency keys, manual external references, generated return URLs, and provider references remain operational inputs to the existing transport services and are not copied into request logs. Provider scope uses only the static reviewed `manual` or `stripe` label.
 
+For authenticated integration management, organization scope is attached only after the active organization has been resolved for the authenticated user. Stripe configuration and connection-test routes may include only the static reviewed provider label `stripe`; secret keys, webhook secrets, provider responses, account metadata, integration IDs, form actions, request URLs, and raw errors are excluded. The generic lifecycle route does not copy its route integration ID or submitted lifecycle action into request-log scope. Existing integration services continue to enforce `integration:manage`, tenant ownership, encrypted credential handling, archive preconditions, and provider-adapter boundaries.
+
 For capability-owned public booking hold, release, quote, and confirmation routes, the logger records no tenant or booking identifier. It does not log the organization slug, hold/booking capability, request key, reviewed pricing fingerprint, add-on selections, customer/contact details, guest data, request body, or URL. These operations continue to rely on same-origin ingress plus the existing persisted capability/ownership boundaries for authority.
 
 For public Stripe Checkout routes, the logger records the static provider label only. It does not log the organization slug, booking capability, checkout request key, return URL, request body, or any booking selector. These routes continue to rely on the existing public capability and same-origin boundaries for authority.
@@ -84,7 +94,7 @@ For Stripe webhooks, the route parameter is not trusted as log context on arriva
 
 ## Data that must never enter these logs
 
-Do not add raw URLs or query strings, request/response bodies, arbitrary request headers, cookies, authorization headers, passwords, bearer/capability tokens, customer names/emails/addresses, guest details, card data, API/webhook secrets, provider payloads, legal-document snapshots, or raw caught error objects/messages to this logger. Booking/amendment identifiers, pricing or request fingerprints, idempotency keys, and payment/refund/provider transaction references also require a separate reviewed operational need before they can become structured log fields.
+Do not add raw URLs or query strings, request/response bodies, arbitrary request headers, cookies, authorization headers, passwords, bearer/capability tokens, customer names/emails/addresses, guest details, card data, API/webhook secrets, provider payloads, legal-document snapshots, or raw caught error objects/messages to this logger. Booking/amendment/integration identifiers, pricing or request fingerprints, idempotency keys, lifecycle form actions, and payment/refund/provider transaction references also require a separate reviewed operational need before they can become structured log fields.
 
 The logger deliberately accepts a typed whitelist rather than arbitrary metadata objects. New fields must preserve that model.
 
@@ -94,7 +104,7 @@ The JSON line is currently written through the application runtime console so co
 
 Use the response `x-request-id` as the primary correlation key when investigating an instrumented failure. Organization ID and operation can narrow authenticated or verified-provider searches when that context was safely established.
 
-This logging layer does not replace booking/payment audit history. Audits remain durable business evidence; request logs are operational diagnostics and may follow a separate retention policy.
+This logging layer does not replace booking/payment/integration audit history. Audits remain durable business evidence; request logs are operational diagnostics and may follow a separate retention policy.
 
 Coverage should continue only through reviewed production boundaries. Do not mechanically instrument a route by copying request data into log scope. Other public/provider surfaces still require their own data-authority and privacy review before additional structured fields or operations are added.
 
@@ -105,5 +115,7 @@ Coverage should continue only through reviewed production boundaries. Do not mec
 `scripts/payment-request-observability.test.mjs` verifies that authenticated payment and commercial-amendment payment routes attach tenant log context only after their server-side authorization boundaries, public Stripe Checkout routes do not expose capability or route selectors, Stripe webhook tenant context appears only after verified webhook ingestion, and all covered payment responses pass through the shared observation boundary.
 
 `scripts/booking-request-observability.test.mjs` verifies that authenticated booking writes attach tenant log scope only after the hospitality write boundary, public hold/quote/confirmation routes never copy capability, tenant-selector, pricing, or customer data into log scope, and public validation/origin failures still return through the correlation boundary.
+
+`scripts/integration-request-observability.test.mjs` verifies redirect-aware logical failure classification, tenant-scope ordering across Stripe configuration/test and generic integration lifecycle routes, static-only Stripe provider scope, and exclusion of integration IDs/form actions from the shared request-log scope.
 
 Full repository validation still requires the repository Node 24 toolchain. This observability slice does not change the Prisma schema or database persistence contract.

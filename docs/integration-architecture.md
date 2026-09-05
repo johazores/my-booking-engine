@@ -55,6 +55,8 @@ The authenticated `/integrations` management surface provides a Stripe-specific 
 
 Read-only managers can inspect safe provider metadata, status, credential version, update/archive time, capabilities, and the last connection-test result that still belongs to the current credential version. They cannot submit credential, lifecycle, archive, or provider-test mutations. Staff/customer roles without `integration:read` receive no provider records. Other provider records, if present, are rendered without fake configuration controls until a real adapter-specific contract exists.
 
+Integration configuration, lifecycle changes, and explicit Stripe connection tests use the shared bounded request-correlation boundary. The tenant organization is attached to the structured completion record only after authenticated active-organization resolution. Stripe configuration/test routes use only the static provider label `stripe`; credential values, provider responses, integration IDs, lifecycle form actions, request URLs, and raw errors are not copied into request logs. Redirect-based management failures are classified as logical rejections/failures even though the browser transport remains a 303 redirect. Durable integration audit events remain the business evidence; request logs are operational correlation only.
+
 ### Stripe connection testing
 
 Organization administrators can explicitly test an active Stripe configuration from `/integrations`. The server revalidates `integration:manage`, resolves the active tenant-owned Stripe record, decrypts the secret key only after authorization, and performs Stripe's documented read-only `GET /v1/balance` request using that stored key. The response body is used only to verify that a successful response is a Stripe `balance` object; SF never returns or displays account balances, currencies, livemode metadata, provider error bodies, or credentials from this operation.
@@ -78,6 +80,8 @@ The guarded disposable-PostgreSQL suite includes integration persistence coverag
 The schema relation, foreign-key migration, archive migration, and integration test are checked in, but live database validation must not be claimed until `npm run test:database` runs against the explicitly confirmed disposable PostgreSQL target. That command performs Prisma validation, migration deployment/status/drift checks, and then executes the integration suite with the other persistence tests. GitHub Actions are intentionally not part of this process.
 
 The Stripe connection probe has focused dependency-level coverage for its exact read-only request, successful response normalization, authentication failure, rate limiting, provider outage, malformed success payload, and network failure. Integration-domain coverage verifies that displayed health is accepted only for recognized normalized results on the current credential version and is suppressed after archive/version changes. The authenticated application-service/audit path still depends on the repository's database-backed integration suite for end-to-end persistence verification.
+
+Request-correlation source-contract coverage additionally verifies that configuration/test/lifecycle responses pass through the shared observation boundary, tenant log scope is attached only after active-tenant resolution, Stripe provider scope remains a static label, redirect-form failures retain a rejected/failed logical outcome, and integration IDs/form actions do not enter request-log scope.
 
 ## Remaining management surface
 
