@@ -36,6 +36,7 @@ export async function verifyHospitalityCommercialAmendmentAdjustmentRows(input: 
         organizationId: input.organizationId,
         bookingId: first.bookingId,
         sourceInvoiceId: first.sourceInvoiceId,
+        allowTerminalCancellation: true,
       }));
     const verifiedIds = new Set(verified.priorAdjustments.map((entry) => entry.adjustmentNoteId));
     for (const row of rows) {

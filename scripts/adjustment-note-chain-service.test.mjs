@@ -43,8 +43,10 @@ test('write-head selection serializes one tenant booking source-invoice chain be
   assert.match(service, /return loadVerifiedHospitalityCommercialAmendmentAdjustmentChain\(input\);/);
 });
 
-test('chain loading is bounded and fails closed on mixed legal adjustment reasons', () => {
+test('chain loading is bounded, strict by default, and permits only one terminal cancellation for historical reads', () => {
   assert.match(service, /HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT = 5_000/);
-  assert.match(service, /take: HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT \+ 1/);
-  assert.match(service, /rows\.some\(\(row\) => row\.adjustmentReason !== 'COMMERCIAL_AMENDMENT'\)/);
+  assert.match(service, /take: HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT \+ \(input\.allowTerminalCancellation \? 2 : 1\)/);
+  assert.match(service, /if \(!input\.allowTerminalCancellation\)[\s\S]*A non-commercial legal adjustment already exists/);
+  assert.match(service, /nonCommercial\.length !== 1 \|\| nonCommercial\[0\]!\.adjustmentReason !== 'BOOKING_CANCELLATION'/);
+  assert.match(service, /terminal\.predecessorAdjustmentNoteId !== predecessor\.id/);
 });

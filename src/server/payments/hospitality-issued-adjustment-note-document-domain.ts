@@ -1,4 +1,8 @@
 import {
+  hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
+} from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
+import {
   hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-adjustment-note-domain.ts';
@@ -85,6 +89,35 @@ function cancellationDocument(value: unknown) {
   });
 }
 
+function cancellationAfterAmendmentDocument(value: unknown) {
+  const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(value);
+  const { issuer, recipient } = validateParties(snapshot);
+  validateSourceIdentity(snapshot);
+  return Object.freeze({
+    documentTitle: 'Adjustment note' as const,
+    documentFingerprint: hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint(snapshot),
+    documentNumber: snapshot.documentNumber,
+    issuedAt: snapshot.issuedAt,
+    bookingId: snapshot.bookingId,
+    sourceTaxInvoiceNumber: snapshot.sourceInvoiceDocumentNumber,
+    sourceTaxInvoiceIssuedAt: snapshot.sourceInvoiceIssuedAt,
+    currency: snapshot.currency,
+    seller: issuer,
+    buyer: recipient,
+    supplierAbn: snapshot.australianTax.supplierAbn,
+    adjustmentType: 'Decreasing adjustment' as const,
+    adjustmentReason: snapshot.australianTax.adjustmentReasonLabel,
+    priceBeforeAdjustmentMinor: snapshot.beforeTotalMinor,
+    priceAfterAdjustmentMinor: snapshot.afterTotalMinor,
+    decreaseSubtotalMinor: snapshot.decreaseSubtotalMinor,
+    decreaseGstMinor: snapshot.decreaseTaxMinor,
+    decreaseTotalMinor: snapshot.decreaseTotalMinor,
+    increaseSubtotalMinor: '0',
+    increaseGstMinor: '0',
+    increaseTotalMinor: '0',
+  });
+}
+
 function decreasingCommercialAmendmentDocument(value: unknown) {
   const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(value);
   const { issuer, recipient } = validateParties(snapshot);
@@ -152,6 +185,9 @@ export function createHospitalityIssuedAdjustmentNoteDocument(value: unknown) {
       }
       if (record.adjustmentReason === 'COMMERCIAL_AMENDMENT' && record.adjustmentType === 'DECREASING') {
         return decreasingCommercialAmendmentDocument(value);
+      }
+      if (record.adjustmentReason === 'BOOKING_CANCELLATION' && record.schemaVersion === 6) {
+        return cancellationAfterAmendmentDocument(value);
       }
       if (record.adjustmentReason === 'BOOKING_CANCELLATION') return cancellationDocument(value);
     }

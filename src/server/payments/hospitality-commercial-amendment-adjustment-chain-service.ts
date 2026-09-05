@@ -214,11 +214,64 @@ function settlementAuthority(
   });
 }
 
+function selectCommercialRows<T extends {
+  id: string;
+  adjustmentReason: string;
+  adjustmentType: string;
+  refundTransactionId: string | null;
+  commercialAmendmentId: string | null;
+  targetPricingEvidenceId: string | null;
+  sourceAdjustmentOrdinal: number;
+  predecessorAdjustmentNoteId: string | null;
+  predecessorSourceAdjustmentOrdinal: number | null;
+  issuedAt: Date;
+}>(input: {
+  rows: readonly T[];
+  allowTerminalCancellation: boolean;
+}): readonly T[] {
+  const nonCommercial = input.rows.filter((row) => row.adjustmentReason !== 'COMMERCIAL_AMENDMENT');
+  if (!input.allowTerminalCancellation) {
+    if (nonCommercial.length > 0) {
+      throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+        'A non-commercial legal adjustment already exists for the source tax invoice.',
+      );
+    }
+    return input.rows;
+  }
+  if (nonCommercial.length === 0) return input.rows;
+  if (nonCommercial.length !== 1 || nonCommercial[0]!.adjustmentReason !== 'BOOKING_CANCELLATION') {
+    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+      'Historical commercial adjustment reads tolerate only one terminal booking cancellation.',
+    );
+  }
+
+  const commercial = input.rows.filter((row) => row.adjustmentReason === 'COMMERCIAL_AMENDMENT');
+  const terminal = nonCommercial[0]!;
+  const predecessor = commercial[commercial.length - 1];
+  if (
+    !predecessor
+    || terminal.adjustmentType !== 'DECREASING'
+    || terminal.refundTransactionId !== null
+    || terminal.commercialAmendmentId !== null
+    || terminal.targetPricingEvidenceId !== null
+    || terminal.sourceAdjustmentOrdinal !== predecessor.sourceAdjustmentOrdinal + 1
+    || terminal.predecessorAdjustmentNoteId !== predecessor.id
+    || terminal.predecessorSourceAdjustmentOrdinal !== predecessor.sourceAdjustmentOrdinal
+    || terminal.issuedAt.getTime() < predecessor.issuedAt.getTime()
+  ) {
+    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+      'Terminal cancellation does not structurally follow the verified commercial adjustment chain.',
+    );
+  }
+  return commercial;
+}
+
 export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
   bookingId: string;
   sourceInvoiceId: string;
+  allowTerminalCancellation?: boolean;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
@@ -243,20 +296,19 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
       sourceInvoiceId: input.sourceInvoiceId,
     },
     orderBy: [{ sourceAdjustmentOrdinal: 'asc' }, { issuedAt: 'asc' }, { id: 'asc' }],
-    take: HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT + 1,
+    take: HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT + (input.allowTerminalCancellation ? 2 : 1),
   });
-  if (rows.length > HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT) {
+  const commercialRows = selectCommercialRows({
+    rows,
+    allowTerminalCancellation: input.allowTerminalCancellation === true,
+  });
+  if (commercialRows.length > HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT) {
     throw new HospitalityCommercialAmendmentAdjustmentChainLimitError();
   }
-  if (rows.some((row) => row.adjustmentReason !== 'COMMERCIAL_AMENDMENT')) {
-    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
-      'A non-commercial legal adjustment already exists for the source tax invoice.',
-    );
-  }
 
-  const amendmentIds = rows.map((row) => row.commercialAmendmentId).filter((value): value is string => value !== null);
-  const targetEvidenceIds = rows.map((row) => row.targetPricingEvidenceId).filter((value): value is string => value !== null);
-  if (amendmentIds.length !== rows.length || targetEvidenceIds.length !== rows.length) {
+  const amendmentIds = commercialRows.map((row) => row.commercialAmendmentId).filter((value): value is string => value !== null);
+  const targetEvidenceIds = commercialRows.map((row) => row.targetPricingEvidenceId).filter((value): value is string => value !== null);
+  if (amendmentIds.length !== commercialRows.length || targetEvidenceIds.length !== commercialRows.length) {
     throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
       'Commercial adjustment-note authority is incomplete.',
     );
@@ -316,7 +368,7 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
     settlementTransactionsByAmendment.set(transaction.commercialAmendmentId, current);
   }
 
-  const entries: HospitalityCommercialAmendmentAdjustmentChainEntry[] = rows.map((row) => {
+  const entries: HospitalityCommercialAmendmentAdjustmentChainEntry[] = commercialRows.map((row) => {
     if (!row.commercialAmendmentId || !row.targetPricingEvidenceId) {
       throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
         'Commercial adjustment-note authority is incomplete.',

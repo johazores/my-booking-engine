@@ -2,6 +2,13 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  verifyHospitalityCancellationAfterAmendmentAdjustmentRows,
+} from './hospitality-cancellation-after-amendment-adjustment-authority-service.ts';
+import {
+  hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
+} from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
+import {
   verifyHospitalityCommercialAmendmentAdjustmentRows,
 } from './hospitality-commercial-amendment-adjustment-chain-read-service.ts';
 import {
@@ -95,7 +102,55 @@ function validateCommonDocumentMaterial(row: HospitalityIssuedAdjustmentNoteRead
   }
 }
 
+function validateCancellationAfterAmendment(row: HospitalityIssuedAdjustmentNoteReadRow): ValidatedAdjustmentNote {
+  try {
+    const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
+    const document = createHospitalityIssuedAdjustmentNoteDocument(snapshot);
+    validateCommonDocumentMaterial(row, document);
+    if (
+      row.adjustmentType !== 'DECREASING'
+      || row.adjustmentReason !== 'BOOKING_CANCELLATION'
+      || row.refundTransactionId !== null
+      || row.commercialAmendmentId !== null
+      || row.targetPricingEvidenceId !== null
+      || row.predecessorAdjustmentNoteId === null
+      || row.predecessorSourceAdjustmentOrdinal === null
+      || row.sourceAdjustmentOrdinal < 2
+      || row.predecessorSourceAdjustmentOrdinal !== row.sourceAdjustmentOrdinal - 1
+      || !zeroIncrease(row)
+      || snapshot.organizationId !== row.organizationId
+      || snapshot.bookingId !== row.bookingId
+      || snapshot.sourceInvoiceId !== row.sourceInvoiceId
+      || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
+      || snapshot.predecessorAdjustmentNoteId !== row.predecessorAdjustmentNoteId
+      || BigInt(snapshot.sequenceValue) !== row.sequenceValue
+      || BigInt(snapshot.decreaseSubtotalMinor) !== row.decreaseSubtotalMinor
+      || BigInt(snapshot.decreaseTaxMinor) !== row.decreaseTaxMinor
+      || BigInt(snapshot.decreaseTotalMinor) !== row.decreaseTotalMinor
+      || snapshot.sourceInvoiceFingerprint !== row.sourceInvoiceFingerprint
+      || snapshot.issuerFingerprint !== row.issuerFingerprint
+      || snapshot.recipientFingerprint !== row.recipientFingerprint
+      || hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
+      || document.adjustmentType !== 'Decreasing adjustment'
+      || document.adjustmentReason !== 'Booking cancellation'
+      || BigInt(document.priceBeforeAdjustmentMinor) !== row.decreaseTotalMinor
+      || BigInt(document.priceAfterAdjustmentMinor) !== 0n
+    ) {
+      fail('Persisted cancellation-after-amendment adjustment note failed integrity validation.');
+    }
+    return Object.freeze({ kind: 'BOOKING_CANCELLATION', row, document });
+  } catch (error) {
+    if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError) throw error;
+    fail(error instanceof Error ? error.message : 'Persisted cancellation-after-amendment adjustment note is invalid.');
+  }
+}
+
 function validateCancellation(row: HospitalityIssuedAdjustmentNoteReadRow): ValidatedAdjustmentNote {
+  const snapshotVersion = row.documentSnapshot && typeof row.documentSnapshot === 'object' && !Array.isArray(row.documentSnapshot)
+    ? (row.documentSnapshot as Record<string, unknown>).schemaVersion
+    : undefined;
+  if (snapshotVersion === 6) return validateCancellationAfterAmendment(row);
+
   try {
     const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(row.documentSnapshot);
     const document = createHospitalityIssuedAdjustmentNoteDocument(snapshot);
@@ -192,7 +247,9 @@ async function verifyCancellationAuthorities(
   organizationId: string,
   items: readonly ValidatedAdjustmentNote[],
 ) {
-  const cancellations = items.filter((item) => item.kind === 'BOOKING_CANCELLATION');
+  const cancellations = items.filter(
+    (item) => item.kind === 'BOOKING_CANCELLATION' && item.row.refundTransactionId !== null,
+  );
   if (cancellations.length === 0) return;
   const sourceInvoiceIds = [...new Set(cancellations.map((item) => item.row.sourceInvoiceId))];
   const refundIds = [...new Set(cancellations.map((item) => item.row.refundTransactionId!))];
@@ -279,6 +336,24 @@ async function verifyCancellationAuthorities(
   }
 }
 
+async function verifyCancellationAfterAmendmentAuthorities(
+  organizationId: string,
+  items: readonly ValidatedAdjustmentNote[],
+) {
+  const cancellations = items.filter(
+    (item) => item.kind === 'BOOKING_CANCELLATION' && item.row.refundTransactionId === null,
+  );
+  if (cancellations.length === 0) return;
+  try {
+    await verifyHospitalityCancellationAfterAmendmentAdjustmentRows({
+      organizationId,
+      rows: cancellations.map((item) => item.row),
+    });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : 'Cancellation-after-amendment authority verification failed.');
+  }
+}
+
 async function verifyCommercialAuthorities(
   organizationId: string,
   items: readonly ValidatedAdjustmentNote[],
@@ -309,6 +384,7 @@ export async function validateHospitalityIssuedAdjustmentNoteRows(input: {
   try {
     await Promise.all([
       verifyCancellationAuthorities(input.organizationId, validated),
+      verifyCancellationAfterAmendmentAuthorities(input.organizationId, validated),
       verifyCommercialAuthorities(input.organizationId, validated),
     ]);
   } catch (error) {
