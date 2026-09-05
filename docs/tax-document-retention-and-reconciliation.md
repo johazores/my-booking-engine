@@ -2,23 +2,27 @@
 
 ## Scope
 
-SF retains issued Australian hospitality tax invoices and adjustment notes as immutable legal evidence while they are required for the tenant's lawful tax, accounting, dispute, and record-keeping purposes. **Automatic deletion is disabled.** SF does not expose a delete, void-in-place, or rewrite workflow for an issued tax invoice or adjustment note, and it does not infer disposal authority from document age alone.
+SF retains issued Australian hospitality tax invoices and adjustment notes as immutable legal evidence while required for lawful tax, accounting, dispute, and record-keeping purposes. **Automatic deletion is disabled.** SF does not expose delete, void-in-place, or rewrite workflows for issued tax documents and does not infer disposal authority from document age alone.
 
-This is an operational fail-safe, not a recommendation to retain customer personal information forever. A future disposal or de-identification workflow requires a separate legal and product contract that considers both the applicable tax record period and privacy obligations before changing retained legal-document evidence.
+This is an operational fail-safe, not a recommendation to retain customer personal information forever. A future disposal or de-identification workflow requires a separate legal/product contract that considers applicable tax-record and privacy obligations.
 
 ## Reconciliation boundary
 
-`/invoices/reconciliation` exposes an explicit operator-triggered tenant-scoped point-in-time integrity review. Opening or refreshing the page does **not** run the potentially expensive register scan. Starting a reconciliation is a same-origin authenticated POST and requires both `booking:read` and `payment:read` on the active organization.
+`/invoices/reconciliation` exposes an operator-triggered tenant-scoped point-in-time integrity review. Starting reconciliation is a same-origin authenticated POST and requires both `booking:read` and `payment:read` on the active organization.
 
-The verifier walks the complete Australian tax-invoice and adjustment-note registers through their existing validated read boundaries. Tax invoices must pass immutable snapshot, material-column, party/pricing evidence, and document-fingerprint validation. Adjustment notes must also pass their immutable snapshot/material-column/fingerprint checks and persisted source-tax-invoice linkage. Commercial schema-version-2/3 adjustments are accepted only after the selected rows are proven members of the complete verified source chain, including predecessor, amendment, target-pricing, chronology, and standard-GST authority.
+The verifier walks the Australian tax-invoice and adjustment-note registers through their validated read boundaries. Tax invoices must pass immutable snapshot/material/party/pricing/fingerprint validation. Adjustment notes must also pass their schema-specific legal authority:
+
+- schema 1: immutable source invoice plus attributed full refund;
+- schemas 2 through 5: complete commercial source-chain, amendment, target-pricing, predecessor, chronology, effect, and issue-time settlement verification; and
+- schema 6: complete commercial predecessor chain plus terminal predecessor continuity, issue-time zero settlement, and exact frozen ordered refund-authority verification.
 
 The synchronous verifier is capped at 5,000 combined legal documents. Above that limit SF fails closed and requires an offline/batched operational review rather than reporting a partial register as verified.
 
-Because reconciliation is a point-in-time application read rather than a database snapshot held across every paginated query, the verifier compares register counts before, during, and after the scan. If legal-document issuance changes the register during verification, the result is `FAILED` with a concurrent-change reason and the operator must rerun it. Issued documents have no product mutation/delete workflow, so a stable count plus the immutable per-document checks gives the current application boundary a deterministic reconciliation result without blocking normal invoice issuance for the duration of the scan.
+Because reconciliation is a point-in-time application read rather than a database snapshot held across every paginated query, the verifier compares register counts before, during, and after the scan. Concurrent legal-document issuance causes a `FAILED` result and the operator must rerun it.
 
-A completed reconciliation writes one tenant-scoped `AuditEvent` summary using `payment.tax-document-reconciliation.completed`. The audit stores only jurisdiction, status, UTC check time, exact document counts, and normalized failure codes. It deliberately excludes document numbers involved in failures, customer PII, provider/payment references, credentials, raw snapshots, and fingerprints. `/invoices/reconciliation` reads that history through the same `booking:read` + `payment:read` authorization boundary with pagination and fails closed if persisted audit payloads do not match the versioned summary contract.
+A completed reconciliation writes one tenant-scoped `AuditEvent` summary using `payment.tax-document-reconciliation.completed`. The audit stores only jurisdiction, status, UTC check time, exact document counts, and normalized failure codes. It excludes customer PII, provider/payment references, credentials, raw snapshots, and fingerprints.
 
-Reconciliation never mutates issued documents, payment state, booking state, provider state, or accounting evidence. The only write is the safe operator audit record after a bounded scan completes.
+Reconciliation never mutates issued documents, payment state, booking state, provider state, or accounting evidence.
 
 ## Australian record-retention and privacy references
 
@@ -32,4 +36,4 @@ Run reconciliation after material tax-document migrations, before accounting exp
 
 ## Remaining legal-document work
 
-This closes the product's explicit retention/reconciliation-policy gap for the current AU hospitality document scope by defining a fail-closed retention rule, a real operator-triggered integrity-reconciliation surface, and auditable result history. It does not close increasing or cancellation-after-amendment semantics, partial/non-standard-GST and mixed-taxability adjustment rules, generic correction/void/reissue, a reviewed customer-data disposal/de-identification lifecycle, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, or legal review.
+The current reconciliation boundary now includes increasing/decreasing mixed-direction commercial adjustments and terminal cancellation after commercial amendments. Remaining work includes mixed/partial/non-standard-GST adjustment rules, generic correction/void/reissue, a reviewed customer-data disposal/de-identification lifecycle, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, and legal review.

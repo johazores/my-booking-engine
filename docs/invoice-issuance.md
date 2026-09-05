@@ -2,66 +2,57 @@
 
 ## Purpose
 
-SF separates invoice preparation, jurisdiction readiness, immutable issuance, rendering, PDF projection, adjustment documents, accounting export and delivery so browser input or mutable booking/customer data never becomes legal-document authority by accident.
+SF separates invoice preparation, jurisdiction readiness, immutable issuance, rendering, PDF projection, adjustment documents, accounting export, and delivery so browser input or mutable booking/customer data never becomes legal-document authority by accident.
 
-The Australian foundation supports tax invoices, full-cancellation decreasing adjustment notes, and direction-aware first/repeated commercial-amendment adjustments under the narrow AU/AUD fully taxable standard-GST contract.
+The Australian foundation supports tax invoices, full-cancellation decreasing adjustment notes, direction-aware cumulative commercial-amendment adjustments, and one terminal cancellation after a verified commercial chain under the narrow AU/AUD fully taxable standard-GST contract.
 
 ## Persistence
 
-`HospitalityInvoicePreparation` freezes accepted pricing evidence, issuer fingerprint, recipient snapshot/fingerprint, exact money and preparation fingerprint. `HospitalityInvoiceNumberSequence` owns the next integer sequence by tenant, jurisdiction and document type. `HospitalityIssuedInvoice` stores immutable tax-invoice identity/evidence.
+`HospitalityInvoicePreparation` freezes accepted pricing evidence, issuer fingerprint, recipient snapshot/fingerprint, exact money, and preparation fingerprint. `HospitalityInvoiceNumberSequence` owns the next integer sequence by tenant, jurisdiction, and document type. `HospitalityIssuedInvoice` stores immutable tax-invoice identity/evidence.
 
-`HospitalityIssuedAdjustmentNote` is direction-, reason- and schema-specific:
+`HospitalityIssuedAdjustmentNote` is direction-, reason-, ordinal-, and schema-specific:
 
-- schema version 1 / `DECREASING / BOOKING_CANCELLATION`: one exact refund authority, ordinal `1`;
-- schema version 2 / first `DECREASING / COMMERCIAL_AMENDMENT`: exact amendment + target-pricing authority, ordinal `1`;
-- schema version 3 / repeated `DECREASING / COMMERCIAL_AMENDMENT`: exact amendment + target pricing + immediate predecessor, ordinal `2+`, including an increasing predecessor;
-- schema version 4 / first `INCREASING / COMMERCIAL_AMENDMENT`: exact applied additional-charge amendment + target pricing, zero decrease and exact positive increase columns, no predecessor/refund authority, ordinal `1`; and
-- schema version 5 / repeated `INCREASING / COMMERCIAL_AMENDMENT`: exact positive increase plus immutable immediate-predecessor authority, ordinal `2+`.
+- schema 1 / `DECREASING / BOOKING_CANCELLATION`, ordinal `1`: one exact full-refund authority for an unadjusted invoice;
+- schema 2 / first `DECREASING / COMMERCIAL_AMENDMENT`, ordinal `1`;
+- schema 3 / repeated `DECREASING / COMMERCIAL_AMENDMENT`, ordinal `2+`, including an increasing predecessor;
+- schema 4 / first `INCREASING / COMMERCIAL_AMENDMENT`, ordinal `1`;
+- schema 5 / repeated `INCREASING / COMMERCIAL_AMENDMENT`, ordinal `2+`; and
+- schema 6 / terminal `DECREASING / BOOKING_CANCELLATION`, ordinal `2+`, bound to the immediate commercial predecessor and an ordered exact refund-authority set.
 
-PostgreSQL constrains material direction/effect and predecessor integrity independently of application checks. The latest snapshot constraint preserves schema versions 1 through 4 and admits schema version 5 only when the repeated-increasing predecessor ordinal and snapshot/material authority reconcile.
+PostgreSQL constrains material direction/effect, ordinal shape, and predecessor integrity independently of application checks.
 
 ## Tax-invoice and cancellation issuance
 
-`issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, then derives sequence, number, issue time, legal snapshot and fingerprint server-side.
+`issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, then derives sequence, number, issue time, legal snapshot, and fingerprint server-side.
 
-`issueHospitalityCancellationAdjustmentNote` requires `payment:manage`, verifies source invoice, cancellation/refund state, one exact attributed successful full refund and immutable money. It refuses issuance when another legal adjustment already exists for the source invoice.
+`issueHospitalityCancellationAdjustmentNote` handles the schema-version-1 unadjusted cancellation case. It verifies the source invoice, cancelled/refunded booking state, one attributed successful full refund, and immutable money, and refuses any existing legal adjustment for the source invoice.
+
+`issueHospitalityCancellationAfterAmendmentAdjustmentNote` handles the schema-version-6 terminal case. It requires `payment:manage`, selects the complete verified commercial chain under the existing source-chain advisory lock, re-derives the exact refund set and zero settlement, allocates the shared tenant AU adjustment-note sequence, persists canonical predecessor-bound evidence, immediately re-verifies the created row, retries supported write races, and writes an issuance audit without embedding individual refund IDs.
 
 ## Commercial-amendment product orchestration
 
-`hospitality-commercial-amendment-adjustment-product-service.ts` is the product-facing direction-aware boundary. It validates tenant/user/booking/source identifiers, requires `payment:manage`, verifies existing commercial history through the complete tenant/source legal chain, and derives legal direction only from persisted commercial-amendment evidence.
+`hospitality-commercial-amendment-adjustment-product-service.ts` is the product-facing direction-aware commercial boundary. It validates tenant/user/booking/source identifiers, requires `payment:manage`, verifies existing commercial history through the complete tenant/source legal chain, derives legal direction only from persisted amendment evidence, and rejects current-baseline ambiguity.
 
-The boundary preserves cancellation priority. It evaluates the complete decreasing-chain readiness against the current legal baseline whether the verified commercial head is decreasing or increasing. If exactly one supported `REFUND` is ready, the product boundary confirms there is no competing current-baseline refund/additional-charge amendment before exposing it. For an empty chain it can instead use first-increasing readiness when no decrease is ready. For an existing verified commercial chain with no supported next decrease, it uses `getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability` to select exactly one `ADDITIONAL_CHARGE` against the chain-head after-price.
+Decreasing readiness is evaluated against the current verified legal baseline whether the head is decreasing or increasing. If no supported decrease exists, repeated-increasing availability can select exactly one eligible `ADDITIONAL_CHARGE` from the same verified head. The product service dispatches decreasing ordinal `1`/`2+` to schemas 2/3 and increasing ordinal `1`/`2+` to schemas 4/5.
 
-Same-baseline ambiguity checks are anchored to the current verified chain-head issue time. Historical amendments applied before the current legal baseline cannot compete merely because a later mixed-direction chain returns to the same amount/fingerprint.
+Same-baseline ambiguity checks are anchored to the current verified chain-head issue time so stale historical amendments from an earlier identical price point cannot become current authority.
 
-The protected route supplies organization/user context and route amendment id. Its request body contains only `sourceInvoiceDocumentNumber`. The browser cannot send adjustment direction, GST, money, currency, provider truth, settlement state, parties, ABN, ordinal, predecessor, sequence, issue time or fingerprints.
+## Terminal-cancellation product orchestration
 
-The tax-invoice action receives `adjustmentType` and `sourceAdjustmentOrdinal` from the server solely for direction-correct labeling and chain-position confirmation; it does not send either value back as authority.
+`getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability` is evaluated before any new commercial-adjustment action on the tax-invoice page. It requires `payment:manage`, tenant + booking + source scope, complete commercial-chain verification, current cancelled/refunded state, and exact provider-neutral refund settlement.
 
-## Decreasing commercial-amendment issuance
+The existing cancellation API supports both contracts without accepting terminal legal authority from the browser. Schema-version-1 requests contain the source invoice number plus the already server-derived single refund ID. Schema-version-6 requests contain only the source invoice number; the writer derives refund IDs, legal direction, GST, money, ordinal, predecessor, numbering, fingerprints, and issue time inside the protected server transaction.
 
-The decreasing chain adapter derives the current legal baseline from the complete verified predecessor set. It requires one unambiguous applied `REFUND` amendment, exact target pricing, standard-GST reconciliation, chronology and complete settlement. First writes use schema version 2. Repeated writes use schema version 3 after selecting the verified chain head under an advisory lock and serializable transaction.
+The UI receives a schema-version-6 source ordinal only for confirmation display.
 
-A repeated decrease may follow a decreasing or increasing predecessor. The readiness domain treats prior verified steps direction-neutrally for standard-GST price continuity, while the shared chain verifier independently proves each predecessor's persisted direction/schema, immutable target evidence, chronology and settlement. The current candidate itself remains strictly decreasing.
+## Read and delivery convergence
 
-Exact decreasing retries prove the persisted document belongs to the verified source chain before returning.
+Authenticated staff tax-document reads require `booking:read` plus `payment:read`; issuance requires `payment:manage`. Public reads first prove tenant slug, capability, ownership, unexpired principal, and the tenant-owned booking.
 
-## Increasing commercial-amendment issuance
+`hospitality-issued-adjustment-note-authority-service.ts` dispatches each legal shape to the appropriate verifier: legacy cancellation source/refund authority, terminal schema-version-6 commercial-chain/refund-set authority, or complete schema-version-2-through-5 commercial-chain authority.
 
-First-increasing readiness requires one tenant-owned source invoice, one exact applied `ADDITIONAL_CHARGE` amendment, one immutable target-pricing record, positive standard-GST effect, complete provider-neutral settlement, chronology, source-baseline uniqueness and zero existing adjustment notes.
-
-`issueHospitalityCommercialAmendmentIncreasingAdjustmentNote` is the serializable schema-version-4 writer. It rechecks the immutable legal/commercial authority, rejects competing refund/additional-charge amendments on the same source baseline, allocates the shared adjustment-note sequence, derives all legal money and issue time server-side, revalidates persisted snapshot/material evidence, remains idempotent by commercial-amendment authority and records the audit.
-
-Repeated-increasing readiness requires a complete verified predecessor price chain, exact current legal baseline, predecessor chronology, immutable target evidence, positive standard-GST effect and fully reconciled additional-charge settlement. Schema version 5 freezes the immediate predecessor identity/fingerprint and pricing continuity. `issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote` uses the locked verified chain head, repeats ambiguity/readiness/settlement checks in its serializable transaction, reloads the chain after persistence, and remains fail closed on competing baseline authority.
-
-The product service dispatches decreasing ordinal `1`/`2+` to schema versions 2/3 and increasing ordinal `1`/`2+` to schema versions 4/5. It does not accept direction, ordinal or predecessor from the caller.
-
-## Authenticated and customer projections
-
-Authenticated staff tax-document reads require `booking:read` plus `payment:read`; issuance requires `payment:manage`. Public reads first prove tenant slug, capability, ownership, unexpired principal and tenant-owned booking.
-
-`hospitality-issued-adjustment-note-authority-service.ts` verifies cancellation authority and sends every commercial row — schema versions 2 through 5, decreasing or increasing — through the complete source-chain verifier. Adjustment detail/register, accounting CSV, reconciliation, authenticated/public HTML and deterministic PDF delivery all inherit this shared boundary. Public customer-safe outputs exclude internal predecessor/amendment/target ids, fingerprints, actors and provider/payment/refund references unless legally required.
+Adjustment detail/register, accounting CSV, reconciliation, authenticated/public HTML, and deterministic PDF delivery inherit this shared boundary. Public customer-safe outputs exclude internal predecessor/amendment/target IDs, fingerprints, actors, and provider/payment/refund references unless legally required.
 
 ## Remaining production boundary
 
-Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustment rules, generic reissue/void/correction, durable re-authenticated customer history, email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production validation and jurisdiction/legal review remain separate work.
+Mixed taxability, partial/non-standard-GST adjustment rules, generic reissue/void/correction, durable re-authenticated customer history, email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production validation, and jurisdiction/legal review remain separate work.
