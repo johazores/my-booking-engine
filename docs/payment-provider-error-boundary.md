@@ -16,7 +16,7 @@ Provider-specific classification still belongs inside adapters. The shared clien
 
 The shared authenticated payment JSON and error helpers return `cache-control: no-store`, including authentication/active-organization precondition responses. This keeps tenant payment history, receipts, provider references, and failure responses from becoming cacheable product API artifacts.
 
-Hospitality booking JSON responses already use `no-store`; the provider-error sanitization change preserves that existing behavior.
+The shared hospitality booking JSON/error helpers and their authentication/active-organization precondition responses also use `no-store`, so booking/payment API behavior cannot leave stale authorization or financial responses in caches.
 
 ## Validation
 

@@ -10,6 +10,8 @@ import { HospitalityTransactionalPricingUnavailableError } from '../pricing/hosp
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
 import { HospitalityBookingConflictError, HospitalityBookingPriceChangedError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
 
+const HOSPITALITY_BOOKING_NO_STORE_HEADERS = Object.freeze({ 'cache-control': 'no-store' });
+
 export class BookingApiRequestError extends Error {
   constructor(message: string) {
     super(message);
@@ -22,9 +24,13 @@ export async function requireHospitalityBookingApiContext(request: Request, opti
     throw new BookingApiRequestError('Request origin is not allowed.');
   }
   const session = await readAuthSession();
-  if (!session) return { response: Response.json({ error: 'authentication-required' }, { status: 401 }) } as const;
+  if (!session) {
+    return { response: Response.json({ error: 'authentication-required' }, { status: 401, headers: HOSPITALITY_BOOKING_NO_STORE_HEADERS }) } as const;
+  }
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return { response: Response.json({ error: 'organization-required' }, { status: 409 }) } as const;
+  if (!activeContext.organization) {
+    return { response: Response.json({ error: 'organization-required' }, { status: 409, headers: HOSPITALITY_BOOKING_NO_STORE_HEADERS }) } as const;
+  }
   return { response: null, organizationId: activeContext.organization.id, actorUserId: session.user.id } as const;
 }
 
@@ -35,12 +41,12 @@ export function hospitalityBookingJson(value: unknown, status = 200) {
     return item;
   }), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: { 'content-type': 'application/json; charset=utf-8', ...HOSPITALITY_BOOKING_NO_STORE_HEADERS },
   });
 }
 
 function bookingApiErrorJson(body: Record<string, unknown>, status: number) {
-  return Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
+  return Response.json(body, { status, headers: HOSPITALITY_BOOKING_NO_STORE_HEADERS });
 }
 
 export function hospitalityBookingApiError(error: unknown) {

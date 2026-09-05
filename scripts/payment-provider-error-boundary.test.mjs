@@ -28,3 +28,12 @@ test('payment HTTP responses disable caching at the shared boundary', async () =
   assert.match(source, /authentication-required[\s\S]{0,160}PAYMENT_NO_STORE_HEADERS/);
   assert.match(source, /organization-required[\s\S]{0,160}PAYMENT_NO_STORE_HEADERS/);
 });
+
+test('hospitality booking shared responses disable caching before and after tenant resolution', async () => {
+  const source = await read(BOOKING_HTTP);
+  assert.match(source, /HOSPITALITY_BOOKING_NO_STORE_HEADERS/);
+  assert.match(source, /authentication-required[\s\S]{0,180}HOSPITALITY_BOOKING_NO_STORE_HEADERS/);
+  assert.match(source, /organization-required[\s\S]{0,180}HOSPITALITY_BOOKING_NO_STORE_HEADERS/);
+  assert.match(source, /headers:\s*\{ 'content-type': 'application\/json; charset=utf-8', \.\.\.HOSPITALITY_BOOKING_NO_STORE_HEADERS \}/);
+  assert.match(source, /Response\.json\(body, \{ status, headers: HOSPITALITY_BOOKING_NO_STORE_HEADERS \}\)/);
+});
