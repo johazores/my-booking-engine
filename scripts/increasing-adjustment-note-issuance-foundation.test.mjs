@@ -45,11 +45,14 @@ test('writer remains idempotent by tenant-owned commercial amendment and records
   assert.doesNotMatch(writer, /providerReference[^\n]*afterData/);
 });
 
-test('increasing writer is reachable only through server-derived product orchestration', () => {
+test('increasing writers are reachable only through server-derived product orchestration', () => {
   assert.match(productOrchestration, /issueHospitalityCommercialAmendmentIncreasingAdjustmentNote/);
+  assert.match(productOrchestration, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
   assert.match(productOrchestration, /availability\.adjustmentType === 'INCREASING'/);
-  assert.match(productOrchestration, /verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows/);
+  assert.match(productOrchestration, /availability\.sourceAdjustmentOrdinal > 1/);
+  assert.match(productOrchestration, /loadProductVerifiedChain/);
   assert.match(route, /hospitality-commercial-amendment-adjustment-product-service/);
   assert.match(route, /issueHospitalityNextCommercialAmendmentAdjustmentNote/);
   assert.doesNotMatch(route, /issueHospitalityCommercialAmendmentIncreasingAdjustmentNote/);
+  assert.doesNotMatch(route, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
 });

@@ -2,9 +2,13 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  HospitalityCommercialAmendmentIncreasingAdjustmentReadIntegrityError,
-  verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows,
-} from './hospitality-commercial-amendment-increasing-adjustment-read-service.ts';
+  HospitalityCommercialAmendmentAdjustmentChainIntegrityError,
+} from './hospitality-commercial-amendment-adjustment-chain-domain.ts';
+import {
+  HospitalityCommercialAmendmentAdjustmentChainLimitError,
+  HospitalityCommercialAmendmentAdjustmentChainUnavailableError,
+  loadVerifiedHospitalityCommercialAmendmentAdjustmentChain,
+} from './hospitality-commercial-amendment-adjustment-chain-service.ts';
 import {
   HospitalityCommercialAmendmentIncreasingAdjustmentNoteConflictError,
   HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError,
@@ -23,6 +27,12 @@ import {
   getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability as getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability,
   issueHospitalityNextCommercialAmendmentAdjustmentNote as issueHospitalityNextDecreasingCommercialAmendmentAdjustmentNote,
 } from './hospitality-commercial-amendment-adjustment-orchestration-service.ts';
+import {
+  getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability,
+} from './hospitality-repeated-commercial-amendment-increasing-adjustment-availability-service.ts';
+import {
+  issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote,
+} from './hospitality-repeated-commercial-amendment-increasing-adjustment-note-service.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -53,6 +63,29 @@ async function requireAdjustmentManageAccess(input: { organizationId: string; ac
   });
 }
 
+function mapChainError(error: unknown): never {
+  if (error instanceof HospitalityCommercialAmendmentAdjustmentChainLimitError) {
+    throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError(error.message);
+  }
+  if (
+    error instanceof HospitalityCommercialAmendmentAdjustmentChainUnavailableError
+    || error instanceof HospitalityCommercialAmendmentAdjustmentChainIntegrityError
+  ) {
+    throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(error.message);
+  }
+  throw error;
+}
+
+async function loadProductVerifiedChain(
+  input: Parameters<typeof loadVerifiedHospitalityCommercialAmendmentAdjustmentChain>[0],
+) {
+  try {
+    return await loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(input);
+  } catch (error) {
+    mapChainError(error);
+  }
+}
+
 async function inspectSourceAdjustmentState(input: AvailabilityInput, sourceInvoiceDocumentNumber: string) {
   return db.$transaction(async (transaction) => {
     const sourceInvoice = await transaction.hospitalityIssuedInvoice.findFirst({
@@ -67,54 +100,16 @@ async function inspectSourceAdjustmentState(input: AvailabilityInput, sourceInvo
     });
     if (!sourceInvoice) throw new HospitalityCommercialAmendmentAdjustmentNoteUnavailableError();
 
-    const [increasing, nonCommercial] = await Promise.all([
-      transaction.hospitalityIssuedAdjustmentNote.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          bookingId: input.bookingId,
-          sourceInvoiceId: sourceInvoice.id,
-          adjustmentType: 'INCREASING',
-        },
-        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          bookingId: true,
-          sourceInvoiceId: true,
-          adjustmentReason: true,
-          documentNumber: true,
-        },
-      }),
-      transaction.hospitalityIssuedAdjustmentNote.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          bookingId: input.bookingId,
-          sourceInvoiceId: sourceInvoice.id,
-          adjustmentReason: { not: 'COMMERCIAL_AMENDMENT' },
-        },
-        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
-        select: { documentNumber: true },
-      }),
-    ]);
-
-    if (increasing) {
-      const adjustmentCount = await transaction.hospitalityIssuedAdjustmentNote.count({
-        where: {
-          organizationId: input.organizationId,
-          bookingId: input.bookingId,
-          sourceInvoiceId: sourceInvoice.id,
-        },
-      });
-      if (adjustmentCount !== 1 || increasing.adjustmentReason !== 'COMMERCIAL_AMENDMENT') {
-        throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
-          'Unsupported mixed-direction adjustment-note history exists for this tax invoice.',
-        );
-      }
-      return Object.freeze({
-        kind: 'INCREASING_EXISTS' as const,
-        row: increasing,
-      });
-    }
-
+    const nonCommercial = await transaction.hospitalityIssuedAdjustmentNote.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        sourceInvoiceId: sourceInvoice.id,
+        adjustmentReason: { not: 'COMMERCIAL_AMENDMENT' },
+      },
+      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+      select: { documentNumber: true },
+    });
     if (nonCommercial) {
       return Object.freeze({
         kind: 'OTHER_LEGAL_ADJUSTMENT' as const,
@@ -122,7 +117,44 @@ async function inspectSourceAdjustmentState(input: AvailabilityInput, sourceInvo
       });
     }
 
-    return Object.freeze({ kind: 'DECREASING_OR_EMPTY' as const });
+    const commercialCount = await transaction.hospitalityIssuedAdjustmentNote.count({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        sourceInvoiceId: sourceInvoice.id,
+        adjustmentReason: 'COMMERCIAL_AMENDMENT',
+      },
+    });
+    if (commercialCount === 0) return Object.freeze({ kind: 'EMPTY' as const });
+
+    const chain = await loadProductVerifiedChain({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      sourceInvoiceId: sourceInvoice.id,
+    });
+    if (!chain.head || chain.priorAdjustmentNoteCount !== commercialCount) {
+      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+        'Commercial adjustment-note history does not match the verified legal chain.',
+      );
+    }
+
+    const increasingCount = await transaction.hospitalityIssuedAdjustmentNote.count({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        sourceInvoiceId: sourceInvoice.id,
+        adjustmentReason: 'COMMERCIAL_AMENDMENT',
+        adjustmentType: 'INCREASING',
+      },
+    });
+
+    return Object.freeze({
+      kind: 'COMMERCIAL_CHAIN' as const,
+      latestDocumentNumber: chain.head.documentNumber,
+      headAdjustmentType: chain.head.adjustmentType,
+      containsIncreasing: increasingCount > 0,
+    });
   }, { isolationLevel: 'Serializable' });
 }
 
@@ -186,25 +218,7 @@ async function inspectUniqueAppliedBaselineCandidate(
   }, { isolationLevel: 'Serializable' });
 }
 
-async function verifyExistingIncreasingAdjustment(input: AvailabilityInput, row: {
-  id: string;
-  bookingId: string;
-  sourceInvoiceId: string;
-}) {
-  try {
-    return await verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows({
-      organizationId: input.organizationId,
-      rows: [row],
-    });
-  } catch (error) {
-    if (error instanceof HospitalityCommercialAmendmentIncreasingAdjustmentReadIntegrityError) {
-      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(error.message);
-    }
-    throw error;
-  }
-}
-
-async function increasingAvailability(input: AvailabilityInput, sourceInvoiceDocumentNumber: string) {
+async function firstIncreasingAvailability(input: AvailabilityInput, sourceInvoiceDocumentNumber: string) {
   try {
     return await getHospitalityCommercialAmendmentIncreasingAdjustmentNoteAvailability({
       ...input,
@@ -224,12 +238,21 @@ async function increasingAvailability(input: AvailabilityInput, sourceInvoiceDoc
   }
 }
 
-async function issueIncreasingAdjustment(input: IssueInput, sourceInvoiceDocumentNumber: string) {
+async function issueIncreasingAdjustment(
+  input: IssueInput,
+  sourceInvoiceDocumentNumber: string,
+  repeated: boolean,
+) {
   try {
-    return await issueHospitalityCommercialAmendmentIncreasingAdjustmentNote({
-      ...input,
-      sourceInvoiceDocumentNumber,
-    });
+    return repeated
+      ? await issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote({
+          ...input,
+          sourceInvoiceDocumentNumber,
+        })
+      : await issueHospitalityCommercialAmendmentIncreasingAdjustmentNote({
+          ...input,
+          sourceInvoiceDocumentNumber,
+        });
   } catch (error) {
     if (error instanceof HospitalityCommercialAmendmentIncreasingAdjustmentNoteConflictError) {
       throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError(error.message);
@@ -262,51 +285,66 @@ export async function getHospitalityNextCommercialAmendmentAdjustmentNoteAvailab
       latestDocumentNumber: sourceState.documentNumber,
     });
   }
-  if (sourceState.kind === 'INCREASING_EXISTS') {
-    await verifyExistingIncreasingAdjustment(input, sourceState.row);
-    return Object.freeze({
-      available: false as const,
-      reason: 'An increasing commercial-amendment adjustment note has already been issued for this tax invoice.',
-      latestDocumentNumber: sourceState.row.documentNumber,
+
+  const canEvaluateDecreasing = sourceState.kind === 'EMPTY'
+    || (sourceState.kind === 'COMMERCIAL_CHAIN' && !sourceState.containsIncreasing);
+  let decreasing: Awaited<ReturnType<typeof getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability>>
+    | null = null;
+  if (canEvaluateDecreasing) {
+    decreasing = await getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability({
+      ...input,
+      sourceInvoiceDocumentNumber,
     });
+    if (decreasing.available) {
+      const candidate = await inspectUniqueAppliedBaselineCandidate(
+        input,
+        sourceInvoiceDocumentNumber,
+        decreasing.commercialAmendmentId,
+      );
+      if (!candidate || candidate.direction !== 'REFUND') {
+        throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+          'Decreasing adjustment availability no longer matches persisted commercial-amendment authority.',
+        );
+      }
+      if (!candidate.unique) {
+        return Object.freeze({
+          available: false as const,
+          reason: 'Multiple applied commercial amendments compete for the current legal price baseline.',
+          latestDocumentNumber: decreasing.latestDocumentNumber,
+        });
+      }
+      return Object.freeze({ ...decreasing, adjustmentType: 'DECREASING' as const });
+    }
   }
 
-  const decreasing = await getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability({
-    ...input,
-    sourceInvoiceDocumentNumber,
-  });
-  if (decreasing.available) {
-    const candidate = await inspectUniqueAppliedBaselineCandidate(
-      input,
-      sourceInvoiceDocumentNumber,
-      decreasing.commercialAmendmentId,
-    );
-    if (!candidate || candidate.direction !== 'REFUND') {
-      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
-        'Decreasing adjustment availability no longer matches persisted commercial-amendment authority.',
-      );
-    }
-    if (!candidate.unique) {
+  if (sourceState.kind === 'COMMERCIAL_CHAIN') {
+    if (sourceState.containsIncreasing && sourceState.headAdjustmentType === 'DECREASING') {
       return Object.freeze({
         available: false as const,
-        reason: 'Multiple applied commercial amendments compete for the current legal price baseline.',
-        latestDocumentNumber: decreasing.latestDocumentNumber,
+        reason: 'Decrease-after-increase commercial adjustment lifecycle is not supported yet.',
+        latestDocumentNumber: sourceState.latestDocumentNumber,
       });
     }
+
+    const repeatedIncreasing = await getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability({
+      ...input,
+      sourceInvoiceDocumentNumber,
+    });
+    if (repeatedIncreasing.available) {
+      return Object.freeze({
+        ...repeatedIncreasing,
+        adjustmentType: 'INCREASING' as const,
+      });
+    }
+
     return Object.freeze({
-      ...decreasing,
-      adjustmentType: 'DECREASING' as const,
+      available: false as const,
+      reason: decreasing && !decreasing.available ? decreasing.reason : repeatedIncreasing.reason,
+      latestDocumentNumber: sourceState.latestDocumentNumber,
     });
   }
 
-  const latestDecreasingDocumentNumber = 'latestDocumentNumber' in decreasing
-    ? decreasing.latestDocumentNumber
-    : null;
-  if (latestDecreasingDocumentNumber) {
-    return decreasing;
-  }
-
-  const increasing = await increasingAvailability(input, sourceInvoiceDocumentNumber);
+  const increasing = await firstIncreasingAvailability(input, sourceInvoiceDocumentNumber);
   if (!increasing.available) {
     const latestDocumentNumber = 'documentNumber' in increasing ? increasing.documentNumber : null;
     return Object.freeze({
@@ -362,22 +400,34 @@ async function existingIssuedAmendment(input: IssueInput, sourceInvoiceDocumentN
         organizationId: input.organizationId,
         commercialAmendmentId: input.commercialAmendmentId,
       },
-      select: {
-        id: true,
-        bookingId: true,
-        sourceInvoiceId: true,
-        adjustmentType: true,
-        adjustmentReason: true,
-      },
     });
     if (!existing) return null;
     if (
       existing.bookingId !== input.bookingId
       || existing.sourceInvoiceId !== sourceInvoice.id
       || existing.adjustmentReason !== 'COMMERCIAL_AMENDMENT'
+      || (existing.adjustmentType !== 'DECREASING' && existing.adjustmentType !== 'INCREASING')
     ) {
       throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError(
         'Commercial amendment is already bound to a different adjustment note.',
+      );
+    }
+
+    const chain = await loadProductVerifiedChain({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      sourceInvoiceId: sourceInvoice.id,
+    });
+    const verifiedExisting = chain.priorAdjustments.find(
+      (entry) => entry.adjustmentNoteId === existing.id,
+    );
+    if (
+      !verifiedExisting
+      || verifiedExisting.sourceAdjustmentOrdinal !== existing.sourceAdjustmentOrdinal
+    ) {
+      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+        'Issued commercial-amendment adjustment note no longer belongs to its verified legal chain.',
       );
     }
     return existing;
@@ -393,26 +443,7 @@ export async function issueHospitalityNextCommercialAmendmentAdjustmentNote(inpu
   await requireAdjustmentManageAccess(input);
 
   const existing = await existingIssuedAmendment(input, sourceInvoiceDocumentNumber);
-  if (existing?.adjustmentType === 'INCREASING') {
-    const verified = await verifyExistingIncreasingAdjustment(input, existing);
-    if (verified.length !== 1 || verified[0]!.commercialAmendmentId !== input.commercialAmendmentId) {
-      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
-        'Issued increasing adjustment note no longer matches its commercial-amendment authority.',
-      );
-    }
-    return issueIncreasingAdjustment(input, sourceInvoiceDocumentNumber);
-  }
-  if (existing) {
-    if (existing.adjustmentType !== 'DECREASING') {
-      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
-        'Issued commercial-amendment adjustment note has an unsupported direction.',
-      );
-    }
-    return issueHospitalityNextDecreasingCommercialAmendmentAdjustmentNote({
-      ...input,
-      sourceInvoiceDocumentNumber,
-    });
-  }
+  if (existing) return existing;
 
   const availability = await getHospitalityNextCommercialAmendmentAdjustmentNoteAvailability({
     organizationId: input.organizationId,
@@ -430,7 +461,11 @@ export async function issueHospitalityNextCommercialAmendmentAdjustmentNote(inpu
   }
 
   if (availability.adjustmentType === 'INCREASING') {
-    return issueIncreasingAdjustment(input, sourceInvoiceDocumentNumber);
+    return issueIncreasingAdjustment(
+      input,
+      sourceInvoiceDocumentNumber,
+      availability.sourceAdjustmentOrdinal > 1,
+    );
   }
   return issueHospitalityNextDecreasingCommercialAmendmentAdjustmentNote({
     ...input,

@@ -69,6 +69,11 @@ test('repeated increasing writer immediately re-verifies the created row through
   assert.match(writer, /increaseTotalMinor: snapshot\.increaseTotalMinor/);
 });
 
-test('repeated increasing writer remains product-unreachable until downstream reads and delivery are upgraded', () => {
-  assert.doesNotMatch(product, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
+test('repeated increasing writer is product-reachable only through server-derived cumulative orchestration', () => {
+  assert.match(product, /getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability/);
+  assert.match(product, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
+  assert.match(product, /availability\.sourceAdjustmentOrdinal > 1/);
+  assert.doesNotMatch(product, /input\.adjustmentType/);
+  assert.doesNotMatch(product, /input\.sourceAdjustmentOrdinal/);
+  assert.doesNotMatch(product, /input\.predecessorAdjustmentNoteId/);
 });

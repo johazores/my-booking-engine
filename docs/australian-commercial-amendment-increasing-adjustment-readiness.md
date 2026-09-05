@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SF supports a deliberately narrow Australian hospitality increasing-adjustment contract after an Australian tax invoice has been issued. Reachable production issuance remains the already-implemented first `ADDITIONAL_CHARGE` adjustment. The repository also defines immutable schema-version-5 evidence for a later increasing adjustment without making that later write product-reachable.
+SF supports a deliberately narrow Australian hospitality increasing-adjustment contract after an Australian tax invoice has been issued. Reachable production issuance now covers the first `ADDITIONAL_CHARGE` adjustment and a later supported increasing adjustment whose legal baseline is the complete verified commercial adjustment-note chain head.
 
 The contract remains AU/AUD and fully taxable standard GST. Browser/provider input cannot supply GST, legal money, pricing fingerprints, settlement truth, numbering, sequence, issue time, legal direction, ordinal, or predecessor authority.
 
@@ -22,7 +22,7 @@ If prior documents exist but their verified chain evidence is not supplied, read
 
 ## Shared post-issuance chain verification
 
-The shared tenant-scoped commercial adjustment chain now parses and verifies both decreasing and increasing immutable documents:
+The shared tenant-scoped commercial adjustment chain parses and verifies both decreasing and increasing immutable documents:
 
 - schema version 2: first decreasing commercial adjustment;
 - schema version 3: repeated decreasing commercial adjustment;
@@ -37,24 +37,28 @@ Settlement verification is progressive. For each historical ordinal SF derives p
 
 Schema version 4 remains the first-increasing immutable document contract at source ordinal `1`.
 
-Schema version 5 is defined for a repeated increasing commercial adjustment at ordinal `2+`. It freezes the immediate predecessor adjustment-note id, prior ordinal, document number, issue time, document fingerprint, and predecessor after-pricing fingerprint. PostgreSQL admits schema version 5 only for `INCREASING / COMMERCIAL_AMENDMENT` rows with exact predecessor-ordinal continuity, zero decrease evidence, positive increase evidence, and before-pricing continuity.
+Schema version 5 defines a repeated increasing commercial adjustment at ordinal `2+`. It freezes the immediate predecessor adjustment-note id, prior ordinal, document number, issue time, document fingerprint, and predecessor after-pricing fingerprint. PostgreSQL admits schema version 5 only for `INCREASING / COMMERCIAL_AMENDMENT` rows with exact predecessor-ordinal continuity, zero decrease evidence, positive increase evidence, and before-pricing continuity.
 
 Existing schema-version-1 cancellation, schema-version-2/3 decreasing-commercial, and schema-version-4 first-increasing evidence remain accepted by the database contract.
 
-## Reachability boundary
+## Product reachability
 
-Repeated increasing issuance is intentionally not product-reachable yet.
+Repeated increasing issuance is product-reachable only through server-derived chain-head readiness.
 
-The shared chain/read authority can prove a schema-version-5 row, and a serializable server-only repeated-increasing writer now creates that evidence from the locked verified chain head. The writer requires `payment:manage`, rejects cross-direction same-baseline ambiguity, re-proves cumulative readiness and settlement, freezes exact predecessor authority, reloads the chain after insert, and audits the issuance. It is intentionally not imported by the product boundary. Current authenticated/public/accounting/reconciliation/PDF call sites have not yet been migrated to project schema-version-5 evidence, so no customer/staff action can create or present a repeated increase yet.
+`getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability` requires `payment:manage`, reloads the tenant-owned source invoice and complete commercial legal chain, then derives the current price baseline from the verified predecessor. It searches applied amendments across both `REFUND` and `ADDITIONAL_CHARGE` directions on that exact baseline and exposes an action only when exactly one candidate exists and it is `ADDITIONAL_CHARGE`.
+
+Before returning the action, the service re-parses the immutable target-pricing breakdown, derives provider-neutral settlement, re-runs cumulative increasing readiness with the complete predecessor set, and requires the returned ordinal, predecessor id, document number and document fingerprint to equal the verified chain head. The schema-version-5 writer repeats authority checks under its serializable transaction and advisory chain lock before persistence.
+
+A decreasing chain can therefore transition to one supported increasing step, and an increasing head can receive another increasing step. Decrease-after-increase and cancellation-after-amendment remain deliberately closed.
+
+Authenticated/public detail and history, accounting, reconciliation, HTML and deterministic PDF surfaces already consume the shared schema-version-2-through-5 authority, so a schema-version-5 row is not exposed unless the complete legal chain independently verifies.
 
 ## Validation boundary
 
-Dependency-free domain coverage now includes first increasing, decrease-to-increase, increase-to-increase, and increase-to-decrease chain verification, direction/schema mismatches, predecessor fingerprint drift, duplicate immutable authority, target-evidence drift, mutually exclusive effect columns, chronology, and settlement failure. Source-contract coverage verifies tenant-scoped payment loading, both direction-specific snapshot parsers/fingerprints, bounded chain loading, and stepwise settlement derivation.
+Dependency-free domain/source-contract coverage includes first increasing, decrease-to-increase, increase-to-increase, direction/schema mismatches, predecessor fingerprint drift, duplicate immutable authority, target-evidence drift, mutually exclusive effect columns, chronology, settlement failure, server-only candidate selection, browser-authority exclusion, and repeated-increasing product dispatch.
 
 Full repository validation still requires the supported Node 24 dependency checkout and an explicitly disposable PostgreSQL target. GitHub Actions are not used.
 
 ## Remaining production boundary
 
-The next dependency is coherent migration of authenticated/public reads, accounting, reconciliation, HTML/PDF delivery, and product issuance onto the shared schema-version-2-through-5 authority. Only after those surfaces verify the same schema-version-5 chain should product orchestration expose the repeated-increasing writer.
-
-Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, full Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate production work.
+Decrease-after-increase semantics, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, full Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate production work.

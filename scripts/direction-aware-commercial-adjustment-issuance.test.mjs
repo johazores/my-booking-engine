@@ -14,7 +14,8 @@ test('product orchestration enforces tenant payment-manage authority before dire
   assert.match(product, /documentNumber:\s*sourceInvoiceDocumentNumber/);
   assert.match(product, /isolationLevel:\s*'Serializable'/);
   assert.match(product, /hospitalityIssuedAdjustmentNote\.findFirst/);
-  assert.match(product, /const adjustmentCount = await transaction\.hospitalityIssuedAdjustmentNote\.count/);
+  assert.match(product, /const commercialCount = await transaction\.hospitalityIssuedAdjustmentNote\.count/);
+  assert.match(product, /loadProductVerifiedChain/);
 });
 
 test('product availability derives direction from persisted amendments and rejects same-baseline ambiguity', () => {
@@ -25,13 +26,17 @@ test('product availability derives direction from persisted amendments and rejec
   assert.match(product, /adjustmentType:\s*'DECREASING'/);
   assert.match(product, /adjustmentType:\s*'INCREASING'/);
   assert.match(product, /Multiple applied commercial amendments compete/);
+  assert.match(product, /getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability/);
 });
 
-test('increasing exact retries re-prove post-issuance authority before invoking the idempotent writer', () => {
-  assert.match(product, /existing\?\.adjustmentType === 'INCREASING'/);
-  assert.match(product, /verifyHospitalityCommercialAmendmentIncreasingAdjustmentRows/);
-  assert.match(product, /verified\[0\]!\.commercialAmendmentId !== input\.commercialAmendmentId/);
-  assert.match(product, /issueIncreasingAdjustment\(input, sourceInvoiceDocumentNumber\)/);
+test('exact retries prove complete tenant-source chain membership before returning existing legal evidence', () => {
+  assert.match(product, /commercialAmendmentId:\s*input\.commercialAmendmentId/);
+  assert.match(product, /existing\.bookingId !== input\.bookingId/);
+  assert.match(product, /existing\.sourceInvoiceId !== sourceInvoice\.id/);
+  assert.match(product, /const chain = await loadProductVerifiedChain/);
+  assert.match(product, /chain\.priorAdjustments\.find/);
+  assert.match(product, /entry\.adjustmentNoteId === existing\.id/);
+  assert.match(product, /if \(existing\) return existing/);
 });
 
 test('route accepts no browser-selected legal direction and returns both directional effects', () => {
@@ -43,12 +48,15 @@ test('route accepts no browser-selected legal direction and returns both directi
   assert.match(route, /increaseTotalMinor:\s*issued\.increaseTotalMinor/);
 });
 
-test('tax-invoice action displays server-derived direction but does not send it back as authority', () => {
+test('tax-invoice action displays server-derived direction and ordinal but sends only source invoice authority', () => {
   assert.match(page, /adjustmentType=\{commercialAdjustmentAvailability\.adjustmentType\}/);
+  assert.match(page, /sourceAdjustmentOrdinal=\{commercialAdjustmentAvailability\.sourceAdjustmentOrdinal\}/);
   assert.match(action, /adjustmentType: 'DECREASING' \| 'INCREASING'/);
   assert.match(action, /adjustmentType === 'INCREASING'/);
-  assert.match(action, /Issue increase adjustment note/);
+  assert.match(action, /const repeated = sourceAdjustmentOrdinal > 1/);
+  assert.match(action, /Issue next increase adjustment note/);
   assert.match(action, /applied price increase/);
   assert.match(action, /body: JSON\.stringify\(\{ sourceInvoiceDocumentNumber \}\)/);
   assert.doesNotMatch(action, /JSON\.stringify\(\{[^}]*adjustmentType/);
+  assert.doesNotMatch(action, /JSON\.stringify\(\{[^}]*sourceAdjustmentOrdinal/);
 });

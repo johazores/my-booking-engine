@@ -21,7 +21,7 @@ export function CommercialAmendmentAdjustmentNoteAction({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const increasing = adjustmentType === 'INCREASING';
-  const repeated = adjustmentType === 'DECREASING' && sourceAdjustmentOrdinal > 1;
+  const repeated = sourceAdjustmentOrdinal > 1;
 
   async function issueAdjustmentNote() {
     setSubmitting(true);
@@ -51,7 +51,9 @@ export function CommercialAmendmentAdjustmentNoteAction({
   if (!confirming) {
     return <button className="sf-button" type="button" onClick={() => setConfirming(true)}>
       {increasing
-        ? 'Issue increase adjustment note'
+        ? repeated
+          ? 'Issue next increase adjustment note'
+          : 'Issue increase adjustment note'
         : repeated
           ? 'Issue next amendment adjustment note'
           : 'Issue amendment adjustment note'}

@@ -18,6 +18,10 @@ const product = readFileSync(
   'src/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts',
   'utf8',
 );
+const repeatedAvailability = readFileSync(
+  'src/server/payments/hospitality-repeated-commercial-amendment-increasing-adjustment-availability-service.ts',
+  'utf8',
+);
 
 test('cumulative increasing readiness requires a complete verified predecessor chain and derives the legal baseline', () => {
   assert.match(readiness, /priorAdjustments\?: readonly AustralianCommercialAmendmentPriorAdjustment\[\]/);
@@ -58,8 +62,12 @@ test('existing v1-v4 snapshot authorities remain in the replacement database che
   assert.match(migration, /"adjustmentReason" = 'COMMERCIAL_AMENDMENT'/);
 });
 
-test('product orchestration still keeps repeated increasing writes unreachable until chain/read verification is extended', () => {
-  assert.match(product, /sourceState\.kind === 'INCREASING_EXISTS'/);
-  assert.match(product, /An increasing commercial-amendment adjustment note has already been issued for this tax invoice\./);
-  assert.doesNotMatch(product, /schemaVersion:\s*5/);
+test('product orchestration exposes schema-version-5 writes only after server-side verified chain-head readiness', () => {
+  assert.match(repeatedAvailability, /loadVerifiedHospitalityCommercialAmendmentAdjustmentChain/);
+  assert.match(repeatedAvailability, /priorAdjustmentNoteCount: chain\.priorAdjustmentNoteCount/);
+  assert.match(repeatedAvailability, /priorAdjustments: chain\.priorAdjustments/);
+  assert.match(repeatedAvailability, /readiness\.predecessorAdjustmentNoteId !== chain\.head\.adjustmentNoteId/);
+  assert.match(product, /getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability/);
+  assert.match(product, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
+  assert.match(product, /availability\.sourceAdjustmentOrdinal > 1/);
 });
