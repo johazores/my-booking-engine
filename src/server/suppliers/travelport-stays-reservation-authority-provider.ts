@@ -110,7 +110,7 @@ function normalizeInput(input: HospitalitySupplierReservationAuthorityInput) {
   }
   let currency: string;
   try { currency = normalizeCurrency(input.currency); } catch { throw new HospitalitySupplierProviderError('INVALID_REQUEST'); }
-  if (typeof input.expectedTotalMinor !== 'bigint' || input.expectedTotalMinor <= 0n || !FINGERPRINT.test(input.expectedOfferFingerprint) || !FINGERPRINT.test(input.expectedTermsFingerprint)) {
+  if (typeof input.expectedTotalMinor !== 'bigint' || input.expectedTotalMinor < 0n || !FINGERPRINT.test(input.expectedOfferFingerprint) || !FINGERPRINT.test(input.expectedTermsFingerprint)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST');
   }
   return Object.freeze({ property, offer, checkInDateLocal, checkOutDateLocal, adults: input.adults, childAges: Object.freeze(childAges), currency, expectedTotalMinor: input.expectedTotalMinor, expectedOfferFingerprint: input.expectedOfferFingerprint, expectedTermsFingerprint: input.expectedTermsFingerprint });
@@ -140,6 +140,7 @@ function selectedRate(value: unknown, input: ReturnType<typeof normalizeInput>):
   const rate = matches[0]!;
   const price = record(rate.price);
   let responseCurrency: string;
+  if (typeof price.currencyCode !== 'string') throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
   try { responseCurrency = normalizeCurrency(price.currencyCode); } catch { throw new HospitalitySupplierProviderError('INVALID_RESPONSE'); }
   if (responseCurrency !== input.currency || moneyMinor(record(price.totalPrice).amount, responseCurrency) !== input.expectedTotalMinor) {
     throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport selected offer changed while reservation authority was being prepared.');
@@ -286,8 +287,11 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
   async verifyReservationAuthority(input: HospitalitySupplierReservationAuthorityInput): Promise<HospitalitySupplierReservationAuthorityResult> {
     const normalized = normalizeInput(input);
     const reviewed = await this.#bookingTermsProvider.retrieveBookingTerms(input);
-    if (reviewed.status !== 'READY' || !reviewed.offer || !reviewed.bookingTerms) {
+    if (reviewed.status !== 'READY') {
       return Object.freeze({ status: reviewed.status, offer: reviewed.offer, bookingTerms: null, authorityFingerprint: null, observedAt: reviewed.observedAt, revalidationRequired: true });
+    }
+    if (!reviewed.offer || !reviewed.bookingTerms) {
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned incomplete reservation authority evidence.');
     }
     if (reviewed.offer.offerFingerprint !== normalized.expectedOfferFingerprint || reviewed.bookingTerms.supplierPropertyReference !== input.supplierPropertyReference || reviewed.bookingTerms.supplierOfferReference !== input.supplierOfferReference || reviewed.bookingTerms.price.currency !== normalized.currency || reviewed.bookingTerms.price.totalMinor !== normalized.expectedTotalMinor) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned inconsistent reservation authority evidence.');
@@ -309,7 +313,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
     const guestCounts = [{ '@type': 'GuestCount', count: normalized.adults, ageQualifyingCode: '10' }, ...normalized.childAges.map((age) => ({ '@type': 'GuestCount', count: 1, ageQualifyingCode: '8', age }))];
     const availabilityPayload = await this.#request({
       url: `${endpoints.v11}availability/catalogofferingshospitality`, method: 'POST',
-      body: { CatalogOfferingsQueryRequest: { CatalogOfferingsRequest: [{ '@type': 'CatalogOfferingsRequestHospitality', verboseResponseInd: true, StayDates: { start: normalized.checkInDateLocal, end: normalized.checkOutDateLocal }, HotelSearchCriterion: { '@type': 'HotelSearchCriterion', numberOfRooms: 1, AggregatorList: [normalized.offer.rateAuthority], ...(rate && (rate.rateCode || rate.rateCategory) ? { RateCandidates: { '@type': 'RateCandidates', RateCandidate: [{ '@type': 'RateCandidate', ...(rate.rateCode ? { rateCode: rate.rateCode, chainCode: rate.chainCode, propertyCode: rate.propertyCode } : {}), ...(rate.rateID ? { rateID: rate.rateID } : {}), ...(rate.rateCategory ? { rateCategory: rate.rateCategory } : {}) }] } } : {}), PropertyRequest: [{ '@type': 'PropertyRequest', PropertyKey: { '@type': 'PropertyKey', chainCode: normalized.property.chainCode, propertyCode: normalized.property.propertyCode } }], RoomStayCandidates: { '@type': 'RoomStayCandidates', RoomStayCandidate: [{ '@type': 'RoomStayCandidate', GuestCounts: { '@type': 'GuestCounts', GuestCount: guestCounts } }] } } }] } },
+      body: { CatalogOfferingsQueryRequest: { CatalogOfferingsRequest: [{ '@type': 'CatalogOfferingsRequestHospitality', verboseResponseInd: true, StayDates: { start: normalized.checkInDateLocal, end: normalized.checkOutDateLocal }, HotelSearchCriterion: { '@type': 'HotelSearchCriterion', numberOfRooms: 1, AggregatorList: [normalized.offer.rateAuthority], ...(rate && (rate.rateCode || rate.rateID || rate.rateCategory) ? { RateCandidates: { '@type': 'RateCandidates', RateCandidate: [{ '@type': 'RateCandidate', ...(rate.rateCode ? { rateCode: rate.rateCode, chainCode: rate.chainCode, propertyCode: rate.propertyCode } : {}), ...(rate.rateID ? { rateID: rate.rateID } : {}), ...(rate.rateCategory ? { rateCategory: rate.rateCategory } : {}) }] } } : {}), PropertyRequest: [{ '@type': 'PropertyRequest', PropertyKey: { '@type': 'PropertyKey', chainCode: normalized.property.chainCode, propertyCode: normalized.property.propertyCode } }], RoomStayCandidates: { '@type': 'RoomStayCandidates', RoomStayCandidate: [{ '@type': 'RoomStayCandidate', GuestCounts: { '@type': 'GuestCounts', GuestCount: guestCounts } }] } } }] } },
     });
 
     const first = availabilityPage(availabilityPayload, normalized, selected, true);
