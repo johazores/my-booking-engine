@@ -25,6 +25,7 @@ function failureLabel(code: HospitalityTaxDocumentReconciliationFailureCode) {
 const errorMessages: Record<string, string> = {
   limit: 'The tenant register exceeds the bounded synchronous reconciliation limit. No partial result was recorded as complete.',
   request: 'The reconciliation request was rejected. Refresh this page and try again from the current SF session.',
+  internal: 'The reconciliation run could not complete because of a server error. No verification result was recorded. Try again after the service recovers.',
 };
 
 export default async function TaxDocumentReconciliationPage({ searchParams }: {

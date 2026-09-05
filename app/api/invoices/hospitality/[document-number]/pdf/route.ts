@@ -1,4 +1,5 @@
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityIssuedInvoicePersistenceError,
   HospitalityIssuedInvoiceUnavailableError,
@@ -12,9 +13,17 @@ import {
 type RouteContext = { params: Promise<{ 'document-number': string }> };
 
 export async function GET(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, {
+    operation: 'hospitality-tax-invoice.pdf.download',
+    documentType: 'tax-invoice',
+  });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId });
+
   try {
     const apiContext = await requireHospitalityBookingApiContext(request);
-    if (apiContext.response) return apiContext.response;
+    if (apiContext.response) return finish(apiContext.response);
+    organizationId = apiContext.organizationId;
 
     const { 'document-number': rawDocumentNumber } = await context.params;
     const invoice = await getHospitalityIssuedTaxInvoiceDocument({
@@ -23,7 +32,7 @@ export async function GET(request: Request, context: RouteContext) {
       documentNumber: decodeURIComponent(rawDocumentNumber),
     });
     const pdf = createHospitalityTaxInvoicePdf(invoice);
-    return new Response(new Uint8Array(pdf), {
+    return finish(new Response(new Uint8Array(pdf), {
       status: 200,
       headers: {
         'content-type': 'application/pdf',
@@ -32,17 +41,17 @@ export async function GET(request: Request, context: RouteContext) {
         'x-content-type-options': 'nosniff',
         'content-length': pdf.byteLength.toString(),
       },
-    });
+    }));
   } catch (error) {
     if (error instanceof HospitalityIssuedInvoiceUnavailableError) {
-      return hospitalityBookingJson({ error: 'invoice-unavailable' }, 404);
+      return finish(hospitalityBookingJson({ error: 'invoice-unavailable' }, 404));
     }
     if (error instanceof HospitalityIssuedInvoicePersistenceError) {
-      return hospitalityBookingJson({ error: 'invoice-evidence-invalid', message: 'Stored invoice evidence failed integrity validation.' }, 500);
+      return finish(hospitalityBookingJson({ error: 'invoice-evidence-invalid', message: 'Stored invoice evidence failed integrity validation.' }, 500));
     }
     if (error instanceof HospitalityTaxInvoicePdfValidationError) {
-      return hospitalityBookingJson({ error: 'invoice-pdf-unavailable', message: 'This invoice cannot be represented losslessly by the current PDF renderer.' }, 422);
+      return finish(hospitalityBookingJson({ error: 'invoice-pdf-unavailable', message: 'This invoice cannot be represented losslessly by the current PDF renderer.' }, 422));
     }
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }

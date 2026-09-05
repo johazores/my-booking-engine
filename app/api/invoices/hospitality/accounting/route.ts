@@ -1,4 +1,5 @@
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityIssuedInvoiceExportLimitError,
   HospitalityIssuedInvoicePersistenceError,
@@ -6,15 +7,23 @@ import {
 } from '@/server/payments/hospitality-issued-invoice-read-service.ts';
 
 export async function GET(request: Request) {
+  const observation = createRequestObservation(request, {
+    operation: 'hospitality-tax-invoice.accounting-export',
+    documentType: 'tax-invoice',
+  });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId });
+
   try {
     const context = await requireHospitalityBookingApiContext(request);
-    if (context.response) return context.response;
+    if (context.response) return finish(context.response);
+    organizationId = context.organizationId;
 
     const exportResult = await createHospitalityIssuedTaxInvoiceAccountingExport({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
     });
-    return new Response(exportResult.csv, {
+    return finish(new Response(exportResult.csv, {
       status: 200,
       headers: {
         'content-type': 'text/csv; charset=utf-8',
@@ -22,14 +31,14 @@ export async function GET(request: Request) {
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
       },
-    });
+    }));
   } catch (error) {
     if (error instanceof HospitalityIssuedInvoiceExportLimitError) {
-      return hospitalityBookingJson({ error: 'invoice-export-too-large', message: error.message }, 409);
+      return finish(hospitalityBookingJson({ error: 'invoice-export-too-large', message: error.message }, 409));
     }
     if (error instanceof HospitalityIssuedInvoicePersistenceError) {
-      return hospitalityBookingJson({ error: 'invoice-evidence-invalid', message: 'Stored invoice evidence failed integrity validation.' }, 500);
+      return finish(hospitalityBookingJson({ error: 'invoice-evidence-invalid', message: 'Stored invoice evidence failed integrity validation.' }, 500));
     }
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }

@@ -1,6 +1,8 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
+import { readPublicTaxDocumentBookingCapability } from '@/server/payments/public-tax-document-http.ts';
 import {
   listPublicBookingIssuedTaxInvoices,
   PublicIssuedTaxInvoiceAuthorizationError,
@@ -24,27 +26,26 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-booking.tax-document-history.read' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
-    }
-    const input = body as { bookingCapability?: unknown };
-    if (typeof input.bookingCapability !== 'string') {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+    const bookingCapability = await readPublicTaxDocumentBookingCapability(request);
+    if (bookingCapability === null) {
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const invoices = await listPublicBookingIssuedTaxInvoices({
       organizationSlug,
-      bookingCapability: input.bookingCapability,
+      bookingCapability,
     });
-    return Response.json(invoices, { status: 200, headers: noStoreHeaders });
+    return finish(Response.json(invoices, { status: 200, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }
