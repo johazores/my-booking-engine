@@ -1,28 +1,32 @@
 import { NextResponse } from 'next/server';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
-import { formField, inventoryErrorCode } from '@/server/inventory/inventory-http.ts';
+import {
+  formField,
+  inventoryErrorCode,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
 import { createHospitalityRestriction } from '@/server/inventory/hospitality-restriction-service.ts';
-import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request) {
-  if (!isSameOriginAuthRequest(request)) return new Response('Forbidden', { status: 403 });
-  if (!isSupportedAuthFormRequest(request)) return new Response('Unsupported Media Type', { status: 415 });
-  const session = await readAuthSession();
-  if (!session) return NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303);
-  const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return NextResponse.redirect(new URL('/inventory?error=tenant', request.url), 303);
+  const mutation = await prepareInventoryMutationRequest(request, 'inventory.restriction.create');
+  if (!mutation.ok) return mutation.response;
+  const { finish, organization, session } = mutation;
+
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+  }
 
   let propertyId = '';
   let ratePlanId = '';
   let roomTypeId = '';
   try {
-    const formData = await request.formData();
     propertyId = formField(formData, 'propertyId');
     ratePlanId = formField(formData, 'ratePlanId');
     roomTypeId = formField(formData, 'roomTypeId');
     await createHospitalityRestriction({
-      organizationId: activeContext.organization.id,
+      organizationId: organization.id,
       actorUserId: session.user.id,
       restriction: {
         propertyId,
@@ -38,12 +42,17 @@ export async function POST(request: Request) {
     });
     const params = new URLSearchParams({ ratePlan: ratePlanId, status: 'restriction-created' });
     if (roomTypeId) params.set('roomType', roomTypeId);
-    return NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303);
+    return finish(NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303));
   } catch (error) {
-    if (!propertyId) return NextResponse.redirect(new URL(`/inventory?error=${inventoryErrorCode(error)}`, request.url), 303);
-    const params = new URLSearchParams({ error: inventoryErrorCode(error) });
-    if (ratePlanId) params.set('ratePlan', ratePlanId);
-    if (roomTypeId) params.set('roomType', roomTypeId);
-    return NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303);
+    const code = inventoryErrorCode(error);
+    const response = !propertyId
+      ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
+      : (() => {
+        const params = new URLSearchParams({ error: code });
+        if (ratePlanId) params.set('ratePlan', ratePlanId);
+        if (roomTypeId) params.set('roomType', roomTypeId);
+        return NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303);
+      })();
+    return finish(response, code === 'server' ? 'failed' : 'rejected');
   }
 }

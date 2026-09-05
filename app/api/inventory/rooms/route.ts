@@ -1,27 +1,48 @@
 import { NextResponse } from 'next/server';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
-import { formField, inventoryErrorCode } from '@/server/inventory/inventory-http.ts';
+import {
+  formField,
+  inventoryErrorCode,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
 import { createHospitalityRoom } from '@/server/inventory/hospitality-service.ts';
-import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request) {
-  if (!isSameOriginAuthRequest(request)) return new Response('Forbidden', { status: 403 });
-  if (!isSupportedAuthFormRequest(request)) return new Response('Unsupported Media Type', { status: 415 });
-  const session = await readAuthSession();
-  if (!session) return NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303);
-  const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return NextResponse.redirect(new URL('/inventory?error=tenant', request.url), 303);
+  const mutation = await prepareInventoryMutationRequest(request, 'inventory.room.create');
+  if (!mutation.ok) return mutation.response;
+  const { finish, organization, session } = mutation;
+
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+  }
+
   let propertyId = '';
   let roomTypeId = '';
   try {
-    const formData = await request.formData();
     propertyId = formField(formData, 'propertyId');
     roomTypeId = formField(formData, 'roomTypeId');
-    await createHospitalityRoom({ organizationId: activeContext.organization.id, actorUserId: session.user.id, room: { propertyId, roomTypeId, code: formField(formData, 'code'), floor: formField(formData, 'floor') } });
-    return NextResponse.redirect(new URL(`/inventory/${propertyId}?roomType=${roomTypeId}&status=room-created`, request.url), 303);
+    await createHospitalityRoom({
+      organizationId: organization.id,
+      actorUserId: session.user.id,
+      room: {
+        propertyId,
+        roomTypeId,
+        code: formField(formData, 'code'),
+        floor: formField(formData, 'floor'),
+      },
+    });
+    return finish(NextResponse.redirect(
+      new URL(`/inventory/${propertyId}?roomType=${roomTypeId}&status=room-created`, request.url),
+      303,
+    ));
   } catch (error) {
     const target = propertyId ? `/inventory/${propertyId}${roomTypeId ? `?roomType=${roomTypeId}&` : '?'}` : '/inventory?';
-    return NextResponse.redirect(new URL(`${target}error=${inventoryErrorCode(error)}`, request.url), 303);
+    const code = inventoryErrorCode(error);
+    return finish(
+      NextResponse.redirect(new URL(`${target}error=${code}`, request.url), 303),
+      code === 'server' ? 'failed' : 'rejected',
+    );
   }
 }

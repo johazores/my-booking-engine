@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
-import { formField, inventoryErrorCode } from '@/server/inventory/inventory-http.ts';
-import { createHospitalityImage, removeHospitalityImage, setPrimaryHospitalityImage } from '@/server/inventory/hospitality-image-service.ts';
-import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import {
+  formField,
+  inventoryErrorCode,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
+import {
+  createHospitalityImage,
+  removeHospitalityImage,
+  setPrimaryHospitalityImage,
+} from '@/server/inventory/hospitality-image-service.ts';
 
 function target(propertyId: string, roomTypeId: string, suffix: string) {
   const query = new URLSearchParams();
@@ -17,23 +24,23 @@ function target(propertyId: string, roomTypeId: string, suffix: string) {
 }
 
 export async function POST(request: Request) {
-  if (!isSameOriginAuthRequest(request)) return new Response('Forbidden', { status: 403 });
-  if (!isSupportedAuthFormRequest(request)) return new Response('Unsupported Media Type', { status: 415 });
+  const mutation = await prepareInventoryMutationRequest(request, 'inventory.image.mutate');
+  if (!mutation.ok) return mutation.response;
+  const { finish, organization, session } = mutation;
 
-  const session = await readAuthSession();
-  if (!session) return NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303);
-  const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return NextResponse.redirect(new URL('/inventory?error=tenant', request.url), 303);
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+  }
 
   let propertyId = '';
   let roomTypeId = '';
   try {
-    const formData = await request.formData();
     propertyId = formField(formData, 'propertyId');
     roomTypeId = formField(formData, 'roomTypeId');
     const action = formField(formData, 'action') || 'create';
     const scope = {
-      organizationId: activeContext.organization.id,
+      organizationId: organization.id,
       actorUserId: session.user.id,
       propertyId,
       ...(roomTypeId ? { roomTypeId } : {}),
@@ -41,13 +48,13 @@ export async function POST(request: Request) {
 
     if (action === 'set-primary') {
       await setPrimaryHospitalityImage({ ...scope, imageId: formField(formData, 'imageId') });
-      return NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-primary'), request.url), 303);
+      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-primary'), request.url), 303));
     }
     if (action === 'remove') {
       await removeHospitalityImage({ ...scope, imageId: formField(formData, 'imageId') });
-      return NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-removed'), request.url), 303);
+      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-removed'), request.url), 303));
     }
-    if (action !== 'create') return new Response('Bad Request', { status: 400 });
+    if (action !== 'create') return finish(new Response('Bad Request', { status: 400 }));
 
     await createHospitalityImage({
       ...scope,
@@ -58,9 +65,12 @@ export async function POST(request: Request) {
         isPrimary: formField(formData, 'isPrimary'),
       },
     });
-    return NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-created'), request.url), 303);
+    return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-created'), request.url), 303));
   } catch (error) {
-    if (!propertyId) return NextResponse.redirect(new URL(`/inventory?error=${inventoryErrorCode(error)}`, request.url), 303);
-    return NextResponse.redirect(new URL(target(propertyId, roomTypeId, `error=${inventoryErrorCode(error)}`), request.url), 303);
+    const code = inventoryErrorCode(error);
+    const response = !propertyId
+      ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
+      : NextResponse.redirect(new URL(target(propertyId, roomTypeId, `error=${code}`), request.url), 303);
+    return finish(response, code === 'server' ? 'failed' : 'rejected');
   }
 }
