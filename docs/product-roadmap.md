@@ -150,9 +150,11 @@ Additional provider-specific management must only be added alongside a real adap
 
 ## 16. First external supplier/GDS integration — in progress
 
-Travelport TripServices Stays is selected and implemented behind the normalized supplier boundary for tenant-owned encrypted configuration, authentication/token reuse, health testing, bounded complete SearchComplete property discovery, exact-property offer pricing, exact integer-minor money, and mandatory no-cache offer revalidation. Supplier pricing is server-side only; no external supplier booking action is exposed.
+Travelport TripServices Stays is selected and implemented behind the normalized supplier boundary for tenant-owned encrypted configuration, authentication/token reuse, health testing, bounded complete SearchComplete property discovery, exact-property offer pricing, exact integer-minor money, mandatory no-cache offer revalidation, and normalized v11 full-payload Rules evidence. Supplier discovery, pricing, revalidation, and Rules review are server-side only; no external supplier booking action is exposed.
 
-Every Travelport offer remains an observation with no trusted TTL (`validUntil: null`), deterministic normalized commercial fingerprinting, and required pre-reservation revalidation. SearchComplete terms are not treated as final rate-rule authority. The next dependency is the Travelport v11 Rules contract, followed by durable tenant-scoped reservation idempotency, ambiguous-write recovery, supplier-reference persistence, provider-truth retrieval, and only then a customer/staff reserve surface and supported reservation lifecycle.
+Every Travelport offer remains an observation with no trusted TTL (`validUntil: null`), deterministic normalized commercial fingerprinting, and required revalidation. The Rules adapter now performs a fresh adapter-internal SearchComplete bridge for the selected rate, normalizes exact rule evidence, and discards that evidence unless a final no-cache offer revalidation is still unchanged. The first Rules boundary is deliberately limited to one room and one to nine guests rather than inventing unsupported provider semantics.
+
+The next dependency is durable tenant-scoped supplier reservation persistence with exact external-write idempotency, ambiguous-outcome recovery, supplier-reference persistence, retry/reconciliation rules, and provider-truth retrieval. Only after that is complete should SF implement the first real reservation write and expose a staff/customer reserve surface. Multi-room and retrieve/modify/cancel capability must be verified independently rather than inferred from the single-room Rules boundary.
 
 ## 17. Additional providers — later
 
