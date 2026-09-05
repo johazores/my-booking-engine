@@ -127,6 +127,7 @@ model HospitalityIssuedAdjustmentNote {
   createdAt                          DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([id, organizationId])
+  @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_adj_notes_chain_reference_any_reason_key")
   @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal, adjustmentReason], map: "hospitality_adj_notes_chain_reference_key")
   @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal])
   @@unique([organizationId, jurisdictionCode, documentNumber])
