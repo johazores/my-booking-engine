@@ -3,6 +3,7 @@ import {
   hospitalityBookingJson,
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   issueHospitalityNextCommercialAmendmentAdjustmentNote,
 } from '@/server/payments/hospitality-commercial-amendment-adjustment-product-service.ts';
@@ -36,9 +37,16 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ 'booking-id': string; 'amendment-id': string }> },
 ) {
+  const observation = createRequestObservation(request, {
+    operation: 'hospitality-commercial-adjustment-note.issue',
+    documentType: 'adjustment-note',
+  });
+  let organizationId: string | undefined;
+
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return observation.finish(context.response);
+    organizationId = context.organizationId;
     const routeParams = await params;
     const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown };
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -55,7 +63,7 @@ export async function POST(
       commercialAmendmentId: routeParams['amendment-id'],
       sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
     });
-    return hospitalityBookingJson({
+    return observation.finish(hospitalityBookingJson({
       documentNumber: issued.documentNumber,
       issuedAt: issued.issuedAt,
       currency: issued.currency,
@@ -63,8 +71,8 @@ export async function POST(
       decreaseTotalMinor: issued.decreaseTotalMinor,
       increaseTotalMinor: issued.increaseTotalMinor,
       sourceAdjustmentOrdinal: issued.sourceAdjustmentOrdinal,
-    });
+    }), { organizationId });
   } catch (error) {
-    return adjustmentNoteError(error);
+    return observation.finish(adjustmentNoteError(error), { organizationId });
   }
 }

@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { appendRequestReference } from '@/lib/request-correlation.ts';
+
 export function CancellationAdjustmentNoteAction({
   bookingId,
   sourceInvoiceDocumentNumber,
@@ -29,7 +31,7 @@ export function CancellationAdjustmentNoteAction({
       });
       const payload = await response.json().catch(() => null) as { documentNumber?: string; message?: string } | null;
       if (!response.ok || !payload?.documentNumber) {
-        throw new Error(payload?.message ?? 'Cancellation adjustment-note issuance failed.');
+        throw new Error(appendRequestReference(payload?.message ?? 'Cancellation adjustment-note issuance failed.', response));
       }
       router.push(`/invoices/adjustments/${encodeURIComponent(payload.documentNumber)}`);
       router.refresh();

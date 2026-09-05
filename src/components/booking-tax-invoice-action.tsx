@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { appendRequestReference } from '@/lib/request-correlation.ts';
+
 export function BookingTaxInvoiceAction({ bookingId }: { bookingId: string }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -29,7 +31,9 @@ export function BookingTaxInvoiceAction({ bookingId }: { bookingId: string }) {
         body: JSON.stringify(recipient ? { recipient } : {}),
       });
       const payload = await response.json().catch(() => null) as { documentNumber?: string; message?: string } | null;
-      if (!response.ok || !payload?.documentNumber) throw new Error(payload?.message ?? 'Tax invoice issuance failed.');
+      if (!response.ok || !payload?.documentNumber) {
+        throw new Error(appendRequestReference(payload?.message ?? 'Tax invoice issuance failed.', response));
+      }
       router.push(`/invoices/${encodeURIComponent(payload.documentNumber)}`);
       router.refresh();
     } catch (caught) {

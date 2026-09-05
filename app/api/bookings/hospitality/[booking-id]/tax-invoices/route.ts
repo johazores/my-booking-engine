@@ -1,4 +1,5 @@
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityInvoicePreparationConflictError,
   HospitalityInvoicePreparationPersistenceError,
@@ -34,9 +35,16 @@ function invoiceError(error: unknown) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ 'booking-id': string }> }) {
+  const observation = createRequestObservation(request, {
+    operation: 'hospitality-tax-invoice.issue',
+    documentType: 'tax-invoice',
+  });
+  let organizationId: string | undefined;
+
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return observation.finish(context.response);
+    organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
     const body = await request.json() as { recipient?: HospitalityInvoiceRecipientInput };
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Invoice request must be an object.');
@@ -53,8 +61,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
       bookingId,
       preparationId: preparation.id,
     });
-    return hospitalityBookingJson({ documentNumber: issued.documentNumber, issuedAt: issued.issuedAt, currency: issued.currency, totalMinor: issued.totalMinor });
+    return observation.finish(
+      hospitalityBookingJson({ documentNumber: issued.documentNumber, issuedAt: issued.issuedAt, currency: issued.currency, totalMinor: issued.totalMinor }),
+      { organizationId },
+    );
   } catch (error) {
-    return invoiceError(error);
+    return observation.finish(invoiceError(error), { organizationId });
   }
 }

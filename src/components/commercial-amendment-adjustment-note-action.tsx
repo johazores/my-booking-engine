@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { appendRequestReference } from '@/lib/request-correlation.ts';
+
 export function CommercialAmendmentAdjustmentNoteAction({
   bookingId,
   commercialAmendmentId,
@@ -37,7 +39,7 @@ export function CommercialAmendmentAdjustmentNoteAction({
       );
       const payload = await response.json().catch(() => null) as { documentNumber?: string; message?: string } | null;
       if (!response.ok || !payload?.documentNumber) {
-        throw new Error(payload?.message ?? 'Commercial-amendment adjustment-note issuance failed.');
+        throw new Error(appendRequestReference(payload?.message ?? 'Commercial-amendment adjustment-note issuance failed.', response));
       }
       router.push(`/invoices/adjustments/${encodeURIComponent(payload.documentNumber)}`);
       router.refresh();

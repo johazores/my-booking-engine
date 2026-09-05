@@ -1,4 +1,5 @@
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityAdjustmentNoteConflictError,
   HospitalityAdjustmentNotePersistenceError,
@@ -40,9 +41,16 @@ function adjustmentNoteError(error: unknown) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ 'booking-id': string }> }) {
+  const observation = createRequestObservation(request, {
+    operation: 'hospitality-cancellation-adjustment-note.issue',
+    documentType: 'adjustment-note',
+  });
+  let organizationId: string | undefined;
+
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return observation.finish(context.response);
+    organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
     const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown };
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Adjustment-note request must be an object.');
@@ -56,13 +64,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
       bookingId,
       sourceInvoiceDocumentNumber: body.sourceInvoiceDocumentNumber,
     });
-    return hospitalityBookingJson({
+    return observation.finish(hospitalityBookingJson({
       documentNumber: issued.documentNumber,
       issuedAt: issued.issuedAt,
       currency: issued.currency,
       decreaseTotalMinor: issued.decreaseTotalMinor,
-    });
+    }), { organizationId });
   } catch (error) {
-    return adjustmentNoteError(error);
+    return observation.finish(adjustmentNoteError(error), { organizationId });
   }
 }
