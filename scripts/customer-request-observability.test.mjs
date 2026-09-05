@@ -6,6 +6,7 @@ const CUSTOMER_ROUTES = [
   ['app/api/customers/route.ts', 'customer.create'],
   ['app/api/customers/[customer-id]/route.ts', 'customer.update'],
   ['app/api/customers/[customer-id]/archive/route.ts', 'customer.archive'],
+  ['app/api/customers/[customer-id]/deidentify/route.ts', 'customer.deidentify'],
 ];
 
 function source(path) {
@@ -60,10 +61,12 @@ test('customer redirect failures preserve rejected-versus-failed outcomes', () =
 test('customer request logging never promotes route or form customer data into structured scope', () => {
   for (const [path] of CUSTOMER_ROUTES) {
     const routeSource = source(path);
-    const finishDefinition = routeSource.match(/const finish = [\s\S]*?;\n\n/);
-    assert.ok(finishDefinition, `${path} must define the shared completion wrapper`);
-    assert.equal(finishDefinition[0].includes('customerId'), false);
-    assert.equal(finishDefinition[0].includes('formData'), false);
-    assert.equal(finishDefinition[0].includes('request.url'), false);
+    const finishStart = routeSource.indexOf('const finish = ');
+    const ingressStart = routeSource.indexOf('if (!isSameOriginAuthRequest(request))', finishStart);
+    assert.ok(finishStart >= 0 && ingressStart > finishStart, `${path} must define the shared completion wrapper`);
+    const finishDefinition = routeSource.slice(finishStart, ingressStart);
+    assert.equal(finishDefinition.includes('customerId'), false);
+    assert.equal(finishDefinition.includes('formData'), false);
+    assert.equal(finishDefinition.includes('request.url'), false);
   }
 });

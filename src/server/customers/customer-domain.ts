@@ -20,6 +20,8 @@ export class CustomerValidationError extends Error {
 
 export const CUSTOMER_PAGE_SIZE_DEFAULT = 20;
 export const CUSTOMER_PAGE_SIZE_MAX = 50;
+export const DEIDENTIFIED_CUSTOMER_FIRST_NAME = 'De-identified';
+export const DEIDENTIFIED_CUSTOMER_LAST_NAME = 'Customer';
 
 function requiredName(value: string, label: string) {
   const normalized = value.trim().replace(/\s+/g, ' ');
@@ -92,5 +94,11 @@ export function parseCustomerPageSize(value: string | undefined) {
 export function assertCustomerArchiveConfirmation(value: string) {
   if (value.trim().toUpperCase() !== 'ARCHIVE') {
     throw new CustomerValidationError('Type ARCHIVE to confirm customer archival.');
+  }
+}
+
+export function assertCustomerDeidentificationConfirmation(value: string) {
+  if (value.trim().toUpperCase() !== 'DEIDENTIFY') {
+    throw new CustomerValidationError('Type DEIDENTIFY to confirm customer profile de-identification.');
   }
 }

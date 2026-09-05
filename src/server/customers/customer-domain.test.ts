@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import {
   CustomerValidationError,
+  DEIDENTIFIED_CUSTOMER_FIRST_NAME,
+  DEIDENTIFIED_CUSTOMER_LAST_NAME,
   assertCustomerArchiveConfirmation,
+  assertCustomerDeidentificationConfirmation,
   normalizeCustomerInput,
   normalizeCustomerSearch,
   parseCustomerPage,
@@ -36,12 +39,21 @@ test('allows optional customer contact fields to remain empty', () => {
   assert.equal(result.notes, null);
 });
 
-test('rejects invalid customer fields and archive confirmation', () => {
+test('rejects invalid customer fields and lifecycle confirmations', () => {
   assert.throws(() => normalizeCustomerInput({ firstName: '', lastName: 'Santos', email: '', phone: '', notes: '' }), CustomerValidationError);
   assert.throws(() => normalizeCustomerInput({ firstName: 'Ana', lastName: 'Santos', email: 'bad-email', phone: '', notes: '' }), CustomerValidationError);
   assert.throws(() => normalizeCustomerInput({ firstName: 'Ana', lastName: 'Santos', email: '', phone: 'x', notes: '' }), CustomerValidationError);
   assert.throws(() => assertCustomerArchiveConfirmation('delete'), CustomerValidationError);
+  assert.throws(() => assertCustomerDeidentificationConfirmation('archive'), CustomerValidationError);
   assert.doesNotThrow(() => assertCustomerArchiveConfirmation(' archive '));
+  assert.doesNotThrow(() => assertCustomerDeidentificationConfirmation(' deidentify '));
+});
+
+test('uses non-identifying bounded customer profile replacements', () => {
+  assert.equal(DEIDENTIFIED_CUSTOMER_FIRST_NAME, 'De-identified');
+  assert.equal(DEIDENTIFIED_CUSTOMER_LAST_NAME, 'Customer');
+  assert.ok(DEIDENTIFIED_CUSTOMER_FIRST_NAME.length <= 80);
+  assert.ok(DEIDENTIFIED_CUSTOMER_LAST_NAME.length <= 80);
 });
 
 test('parses bounded list query values defensively', () => {

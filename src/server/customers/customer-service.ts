@@ -2,13 +2,17 @@ import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  DEIDENTIFIED_CUSTOMER_FIRST_NAME,
+  DEIDENTIFIED_CUSTOMER_LAST_NAME,
   assertCustomerArchiveConfirmation,
+  assertCustomerDeidentificationConfirmation,
   normalizeCustomerInput,
   type CustomerInput,
 } from './customer-domain.ts';
 import {
   listCustomerActivityForOrganization,
   listCustomersForOrganization,
+  readCustomerDeidentificationForOrganization,
   readCustomerForOrganization,
 } from './customer-repository.ts';
 
@@ -23,6 +27,13 @@ export class CustomerUnavailableError extends Error {
   constructor() {
     super('Customer is not available in this organization.');
     this.name = 'CustomerUnavailableError';
+  }
+}
+
+export class CustomerDeidentificationBlockedError extends Error {
+  constructor() {
+    super('Customer profile de-identification is unavailable while booking records reference this customer.');
+    this.name = 'CustomerDeidentificationBlockedError';
   }
 }
 
@@ -72,11 +83,17 @@ export async function readCustomerWithActivity(input: {
   });
   const customer = await readCustomerForOrganization({ organizationId: input.organizationId, customerId: input.customerId });
   if (!customer) return null;
-  const activity = await listCustomerActivityForOrganization({
-    organizationId: input.organizationId,
-    customerId: input.customerId,
-  });
-  return { customer, activity };
+  const [activity, deidentification] = await Promise.all([
+    listCustomerActivityForOrganization({
+      organizationId: input.organizationId,
+      customerId: input.customerId,
+    }),
+    readCustomerDeidentificationForOrganization({
+      organizationId: input.organizationId,
+      customerId: input.customerId,
+    }),
+  ]);
+  return { customer, activity, deidentification };
 }
 
 export async function createCustomer(input: {
@@ -202,6 +219,73 @@ export async function archiveCustomer(input: {
         resourceId: current.id,
         beforeData: { status: current.status },
         afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() },
+      },
+    });
+    return updated;
+  }, { isolationLevel: 'Serializable' });
+}
+
+export async function deidentifyCustomerProfile(input: {
+  organizationId: string;
+  actorUserId: string;
+  customerId: string;
+  confirmation: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.customerId, 'customerId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'customer:manage',
+  });
+  assertCustomerDeidentificationConfirmation(input.confirmation);
+
+  return db.$transaction(async (transaction) => {
+    const current = await transaction.customer.findFirst({
+      where: { id: input.customerId, organizationId: input.organizationId, status: 'ARCHIVED' },
+      select: { id: true, status: true },
+    });
+    if (!current) throw new CustomerUnavailableError();
+
+    const existingEvidence = await transaction.auditEvent.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        resourceType: 'customer',
+        resourceId: current.id,
+        action: 'customer.deidentified',
+      },
+      select: { id: true },
+    });
+    if (existingEvidence) throw new CustomerUnavailableError();
+
+    const bookingReferenceCount = await transaction.hospitalityBooking.count({
+      where: { organizationId: input.organizationId, customerId: current.id },
+    });
+    if (bookingReferenceCount > 0) throw new CustomerDeidentificationBlockedError();
+
+    const updated = await transaction.customer.update({
+      where: { id: current.id },
+      data: {
+        firstName: DEIDENTIFIED_CUSTOMER_FIRST_NAME,
+        lastName: DEIDENTIFIED_CUSTOMER_LAST_NAME,
+        email: null,
+        phone: null,
+        notes: null,
+      },
+    });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'customer.deidentified',
+        resourceType: 'customer',
+        resourceId: current.id,
+        beforeData: { status: current.status },
+        afterData: {
+          status: current.status,
+          clearedFields: ['firstName', 'lastName', 'email', 'phone', 'notes'],
+        },
       },
     });
     return updated;

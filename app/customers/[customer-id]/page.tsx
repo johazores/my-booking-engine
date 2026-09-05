@@ -14,18 +14,22 @@ const errors: Record<string, string> = {
   validation: 'Check the customer details and try again.',
   unavailable: 'This customer is no longer available for that operation.',
   'archive-confirmation': 'Type ARCHIVE exactly to confirm customer archival.',
+  'deidentify-confirmation': 'Type DEIDENTIFY exactly to confirm customer profile de-identification.',
+  'deidentify-linked-bookings': 'This profile cannot be de-identified because booking records still reference this customer. Preserve the profile until the broader booking-data lifecycle is reviewed.',
   server: 'The customer operation could not be completed. Try again.',
 };
 
 const statuses: Record<string, string> = {
   created: 'Customer created successfully.',
   updated: 'Customer details updated and audited.',
+  deidentified: 'Customer profile de-identified. Direct profile identifiers were removed and the action was audited.',
 };
 
 const activityLabels: Record<string, string> = {
   'customer.created': 'Customer created',
   'customer.updated': 'Customer details updated',
   'customer.archived': 'Customer archived',
+  'customer.deidentified': 'Customer profile de-identified',
 };
 
 export default async function CustomerDetailPage({
@@ -72,6 +76,7 @@ export default async function CustomerDetailPage({
   if (!detail) notFound();
   const query = await searchParams;
   const customer = detail.customer;
+  const isDeidentified = Boolean(detail.deidentification);
 
   return (
     <div className="sf-customer-detail">
@@ -80,9 +85,11 @@ export default async function CustomerDetailPage({
         <div>
           <p className="sf-eyebrow">Customer record</p>
           <h1>{customer.firstName} {customer.lastName}</h1>
-          <p>{customer.email ?? customer.phone ?? 'No contact details saved'}</p>
+          <p>{isDeidentified ? 'Direct profile identifiers removed' : customer.email ?? customer.phone ?? 'No contact details saved'}</p>
         </div>
-        <span className={`sf-status-badge${customer.status === 'ARCHIVED' ? ' sf-status-badge--muted' : ''}`}>{customer.status.toLowerCase()}</span>
+        <span className={`sf-status-badge${customer.status === 'ARCHIVED' ? ' sf-status-badge--muted' : ''}`}>
+          {isDeidentified ? 'de-identified' : customer.status.toLowerCase()}
+        </span>
       </header>
 
       {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
@@ -152,8 +159,36 @@ export default async function CustomerDetailPage({
         </section>
       ) : null}
 
-      {customer.status === 'ARCHIVED' ? (
-        <section className="sf-customers-card"><p className="sf-eyebrow">Archived</p><h2>Read-only historical record</h2><p>This customer remains available for history and future booking references, but editing is disabled after archival.</p></section>
+      {customer.status === 'ARCHIVED' && !isDeidentified ? (
+        <>
+          <section className="sf-customers-card">
+            <p className="sf-eyebrow">Archived</p>
+            <h2>Read-only historical record</h2>
+            <p>Editing is disabled after archival. If this customer has no booking history and your organization has confirmed that the profile is no longer needed, the direct profile identifiers can be de-identified below.</p>
+          </section>
+          {canManage ? (
+            <section className="sf-customer-danger" aria-labelledby="deidentify-customer-title">
+              <div>
+                <p className="sf-eyebrow">Privacy lifecycle</p>
+                <h2 id="deidentify-customer-title">De-identify customer profile</h2>
+                <p>This irreversible action replaces the profile name with a generic label and clears email, phone, and internal notes. It is blocked when any booking references this customer. It does not delete booking, guest, payment, or issued legal-document evidence. Use it only after your organization has confirmed its applicable retention obligations. Type <strong>DEIDENTIFY</strong> to confirm.</p>
+              </div>
+              <form className="sf-customer-danger__form" action={`/api/customers/${customer.id}/deidentify`} method="post">
+                <label className="sf-field">Confirmation<input name="confirmation" pattern="[Dd][Ee][Ii][Dd][Ee][Nn][Tt][Ii][Ff][Yy]" required autoComplete="off" /></label>
+                <button className="sf-button sf-button--danger" type="submit">De-identify profile</button>
+              </form>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+
+      {isDeidentified ? (
+        <section className="sf-customers-card">
+          <p className="sf-eyebrow">Privacy lifecycle</p>
+          <h2>De-identified customer profile</h2>
+          <p>Direct identifiers in the mutable customer profile were removed. The non-identifying audit record remains so operators can see that de-identification occurred.</p>
+          <p>Booking-linked customers are not eligible for this workflow; booking, guest, payment, and legal-document evidence require separate retention and disposal authority.</p>
+        </section>
       ) : null}
     </div>
   );

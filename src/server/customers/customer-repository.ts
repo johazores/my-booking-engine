@@ -86,3 +86,21 @@ export async function listCustomerActivityForOrganization(input: {
     },
   });
 }
+
+export async function readCustomerDeidentificationForOrganization(input: {
+  organizationId: string;
+  customerId: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.customerId, 'customerId');
+  return db.auditEvent.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      resourceType: 'customer',
+      resourceId: input.customerId,
+      action: 'customer.deidentified',
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { createdAt: true },
+  });
+}

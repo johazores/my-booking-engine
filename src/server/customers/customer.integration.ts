@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Customer integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('customer workflow enforces tenant scope, permissions, lifecycle, pagination, and audit history', async () => {
+test('customer workflow enforces tenant scope, permissions, lifecycle, de-identification, pagination, and audit history', async () => {
   const [{ db }, customers] = await Promise.all([
     import('../database.ts'),
     import('./customer-service.ts'),
@@ -83,6 +83,15 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, paginatio
       }),
       /not available/i,
     );
+    await assert.rejects(
+      customers.deidentifyCustomerProfile({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        customerId: customerB.id,
+        confirmation: 'DEIDENTIFY',
+      }),
+      /not available/i,
+    );
 
     await customers.updateCustomer({
       organizationId: organizationA.id,
@@ -105,6 +114,43 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, paginatio
         actorUserId: adminA.id,
         customerId: customerA.id,
         customer: { firstName: 'Archived', lastName: 'Edit', email: '', phone: '', notes: '' },
+      }),
+      /not available/i,
+    );
+    await assert.rejects(
+      customers.deidentifyCustomerProfile({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        customerId: customerA.id,
+        confirmation: 'ARCHIVE',
+      }),
+      /DEIDENTIFY/i,
+    );
+
+    await customers.deidentifyCustomerProfile({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      customerId: customerA.id,
+      confirmation: 'DEIDENTIFY',
+    });
+    const deidentified = await customers.readCustomerWithActivity({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      customerId: customerA.id,
+    });
+    assert.equal(deidentified?.customer.firstName, 'De-identified');
+    assert.equal(deidentified?.customer.lastName, 'Customer');
+    assert.equal(deidentified?.customer.email, null);
+    assert.equal(deidentified?.customer.phone, null);
+    assert.equal(deidentified?.customer.notes, null);
+    assert.ok(deidentified?.deidentification?.createdAt);
+    assert.ok(deidentified?.activity.some((event) => event.action === 'customer.deidentified'));
+    await assert.rejects(
+      customers.deidentifyCustomerProfile({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        customerId: customerA.id,
+        confirmation: 'DEIDENTIFY',
       }),
       /not available/i,
     );
