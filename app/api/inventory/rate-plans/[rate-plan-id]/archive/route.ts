@@ -18,20 +18,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ra
     return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
   }
 
-  const routeParams = await params;
   let propertyId = '';
+  let ratePlanId = '';
   try {
+    const routeParams = await params;
+    ratePlanId = routeParams['rate-plan-id'];
     propertyId = formField(formData, 'propertyId');
     await archiveHospitalityRatePlan({
       organizationId: organization.id,
       actorUserId: session.user.id,
       propertyId,
-      ratePlanId: routeParams['rate-plan-id'],
+      ratePlanId,
       confirmation: formField(formData, 'confirmation'),
     });
     return finish(NextResponse.redirect(new URL(`/inventory/${propertyId}/rate-plans?status=rate-plan-archived`, request.url), 303));
   } catch (error) {
-    const target = propertyId ? `/inventory/${propertyId}/rate-plans?ratePlan=${routeParams['rate-plan-id']}` : '/inventory';
+    const target = propertyId
+      ? `/inventory/${propertyId}/rate-plans${ratePlanId ? `?ratePlan=${ratePlanId}` : ''}`
+      : '/inventory';
     const separator = target.includes('?') ? '&' : '?';
     const code = inventoryErrorCode(error);
     return finish(

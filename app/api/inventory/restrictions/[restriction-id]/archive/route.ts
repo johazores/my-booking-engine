@@ -18,11 +18,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ 're
     return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
   }
 
-  const routeParams = await params;
   let propertyId = '';
   let ratePlanId = '';
   let roomTypeId = '';
+  let restrictionId = '';
   try {
+    const routeParams = await params;
+    restrictionId = routeParams['restriction-id'];
     propertyId = formField(formData, 'propertyId');
     ratePlanId = formField(formData, 'ratePlanId');
     roomTypeId = formField(formData, 'roomTypeId');
@@ -31,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 're
       actorUserId: session.user.id,
       propertyId,
       ratePlanId,
-      restrictionId: routeParams['restriction-id'],
+      restrictionId,
       confirmation: formField(formData, 'confirmation'),
     });
     const query = new URLSearchParams({ ratePlan: ratePlanId, status: 'restriction-archived' });
