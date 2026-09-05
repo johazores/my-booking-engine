@@ -46,6 +46,8 @@ Custom-domain persistence does not claim DNS ownership verification or custom-ho
 
 Tenant-owned customer/contact records, lifecycle management, search/filter/sort/pagination, audits, and permissions are implemented. Hospitality bookings persist immutable ordered guest snapshots, and confirmed-booking traveler snapshots can be edited through the tenant-safe booking-management boundary with occupancy and idempotency enforcement.
 
+Archived bookingless customer profiles also support an irreversible tenant-scoped de-identification action that clears mutable direct identifiers only after `customer:manage`, explicit confirmation, and a write-time re-check that no hospitality booking references the profile. Booking-linked customer copies, provider-held data, backups/exports, and legally retained evidence remain separate reviewed lifecycle work.
+
 ## 9. Internal inventory — hospitality foundation implemented
 
 Implemented hospitality capabilities include properties, room types, physical rooms, amenities, image records, rate plans, assignments, restrictions, lifecycle guards, permissions, management UI, and tenant-safe database relationships.
@@ -93,13 +95,19 @@ Implemented:
 - read-only payment receipt foundation with exact captured/refunded/net settlement data
 - commercial-amendment manual/Stripe settlement, reconciliation, and compensation recovery
 - strict rule that browser redirects never establish payment truth
+- Australian hospitality legal-document infrastructure with immutable issuer/recipient/pricing evidence, serializable tax-invoice numbering/issuance, direction-aware cumulative commercial adjustment notes, supported full-cancellation adjustments before and after commercial amendment chains, deterministic PDFs for the current lossless-text contract, tenant registers/accounting CSV, reconciliation, and explicit retention boundaries
 
 Still separate/not claimed complete:
 
 - PayPal or additional payment providers until prioritized by real product need
-- jurisdiction-specific tax invoice issuance: legal issuer/tax-registration/jurisdiction/billing authority, fiscal numbering and document lifecycle, required legal fields/wording, rendering/PDF/email/history, retention, and accounting integrations
+- mixed-taxability and partial/non-standard-GST adjustment rules
+- generic legal-document correction/void/reissue rules
+- universal Unicode-safe deterministic PDF rendering
+- durable re-authenticated customer legal-document history plus email delivery/resend
+- broader booking-linked customer-data disposal/de-identification, provider-held copy handling, and future accounting-provider integration
+- complete Node 24/Prisma/PostgreSQL production execution plus jurisdiction/legal review
 
-The immutable booking pricing-evidence prerequisite for future legal documents now exists for new accepted commercial states; that does not itself constitute invoice issuance. See `docs/invoice-foundation.md`.
+The legal-document browser cannot select direction, ordinal, predecessor, refund authority, legal money, or numbering. Customer/staff/accounting projections consume shared verified immutable evidence rather than reconstructing historical legal documents from current mutable booking or pricing state. See `docs/invoice-foundation.md` and `docs/customer-data-lifecycle.md`.
 
 ## 14. Booking management — current commercial-amendment scope implemented
 
