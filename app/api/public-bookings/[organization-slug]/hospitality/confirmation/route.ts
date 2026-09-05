@@ -10,6 +10,7 @@ import {
 } from '@/server/bookings/public-hospitality-confirmation-service.ts';
 import { PublicHospitalityHoldAuthorizationError } from '@/server/bookings/public-hospitality-hold-service.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
 type RouteContext = { params: Promise<{ 'organization-slug': string }> };
@@ -50,15 +51,18 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-booking.hospitality-confirmation.create' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const input = body as {
@@ -79,7 +83,7 @@ export async function POST(request: Request, context: RouteContext) {
       || !Array.isArray(input.guests)
       || (input.addonSelections !== undefined && !Array.isArray(input.addonSelections))
     ) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const result = await confirmPublicHospitalityBookingFromHold({
@@ -92,8 +96,8 @@ export async function POST(request: Request, context: RouteContext) {
       addonSelections: input.addonSelections as Parameters<typeof confirmPublicHospitalityBookingFromHold>[0]['addonSelections'],
     });
 
-    return Response.json(result, { status: 201, headers: noStoreHeaders });
+    return finish(Response.json(result, { status: 201, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }

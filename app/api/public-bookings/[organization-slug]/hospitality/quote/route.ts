@@ -6,6 +6,7 @@ import {
   quotePublicHospitalityHold,
 } from '@/server/bookings/public-hospitality-quote-service.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 function errorResponse(error: unknown) {
   if (error instanceof PublicHospitalityBookingUnavailableError || error instanceof PublicHospitalityHoldAuthorizationError) {
@@ -30,23 +31,26 @@ function errorResponse(error: unknown) {
 type RouteContext = { params: Promise<{ 'organization-slug': string }> };
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-booking.hospitality-quote.read' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: { 'cache-control': 'no-store' } }));
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
     }
 
     const input = body as { capability?: unknown; addonSelections?: unknown };
     if (typeof input.capability !== 'string') {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
     }
     if (input.addonSelections !== undefined && !Array.isArray(input.addonSelections)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
     }
 
     const quote = await quotePublicHospitalityHold({
@@ -54,8 +58,8 @@ export async function POST(request: Request, context: RouteContext) {
       capability: input.capability,
       addonSelections: input.addonSelections as Parameters<typeof quotePublicHospitalityHold>[0]['addonSelections'],
     });
-    return Response.json({ quote }, { status: 200, headers: { 'cache-control': 'no-store' } });
+    return finish(Response.json({ quote }, { status: 200, headers: { 'cache-control': 'no-store' } }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }

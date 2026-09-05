@@ -10,6 +10,7 @@ import {
   releasePublicHospitalityAvailabilityHold,
 } from '@/server/bookings/public-hospitality-hold-service.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
 
@@ -42,19 +43,22 @@ function errorResponse(error: unknown) {
 type RouteContext = { params: Promise<{ 'organization-slug': string }> };
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-booking.hospitality-hold.create' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const input = body as { requestKey?: unknown; request?: unknown };
     if (typeof input.requestKey !== 'string' || !input.request || typeof input.request !== 'object' || Array.isArray(input.request)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const result = await createPublicHospitalityAvailabilityHold({
@@ -62,31 +66,34 @@ export async function POST(request: Request, context: RouteContext) {
       requestKey: input.requestKey,
       request: input.request as Parameters<typeof createPublicHospitalityAvailabilityHold>[0]['request'],
     });
-    return Response.json(result, { status: 201, headers: noStoreHeaders });
+    return finish(Response.json(result, { status: 201, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-booking.hospitality-hold.release' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const input = body as { capability?: unknown };
     if (typeof input.capability !== 'string') {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const result = await releasePublicHospitalityAvailabilityHold({ organizationSlug, capability: input.capability });
-    return Response.json(result, { status: 200, headers: noStoreHeaders });
+    return finish(Response.json(result, { status: 200, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }

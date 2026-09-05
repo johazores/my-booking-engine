@@ -7,6 +7,7 @@ import {
   hospitalityBookingJson,
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 export async function GET(
   request: Request,
@@ -31,9 +32,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ 'booking-id': string }> },
 ) {
+  const observation = createRequestObservation(request, { operation: 'booking.hospitality-commercial-modification.apply' });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId });
+
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return finish(context.response);
+    organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
     const change = await request.json();
     const booking = await modifyHospitalityBookingCommercialTerms({
@@ -42,8 +48,8 @@ export async function POST(
       bookingId,
       change,
     });
-    return hospitalityBookingJson(booking);
+    return finish(hospitalityBookingJson(booking));
   } catch (error) {
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }

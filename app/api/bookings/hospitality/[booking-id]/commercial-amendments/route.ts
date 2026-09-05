@@ -8,6 +8,7 @@ import {
   hospitalityBookingJson,
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 export async function GET(
   request: Request,
@@ -32,9 +33,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ 'booking-id': string }> },
 ) {
+  const observation = createRequestObservation(request, { operation: 'booking.hospitality-commercial-amendment.prepare' });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId });
+
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
-    if (context.response) return context.response;
+    if (context.response) return finish(context.response);
+    organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
     const body = await request.json().catch(() => { throw new Error('Commercial amendment request must be valid JSON.'); });
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Commercial amendment request must be an object.');
@@ -46,8 +52,8 @@ export async function POST(
       change: payload.change as HospitalityBookingCommercialModificationInput,
       adjustmentFingerprint: payload.adjustmentFingerprint,
     });
-    return hospitalityBookingJson(amendment, 201);
+    return finish(hospitalityBookingJson(amendment, 201));
   } catch (error) {
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }
