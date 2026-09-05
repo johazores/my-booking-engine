@@ -1,6 +1,6 @@
 # Request correlation and structured logging
 
-SF uses bounded request correlation on production workflows where operators need to connect an HTTP outcome to one privacy-safe server completion record. Current coverage includes core authenticated hospitality booking writes, capability-owned public hold/quote/confirmation transitions, immutable legal-document issuance, authenticated payment reads and mutations, commercial-amendment settlement/provider transport, public Stripe Checkout creation/status polling, Stripe webhook ingestion, and authenticated integration configuration/lifecycle/connection-test management.
+SF uses bounded request correlation on production workflows where operators need to connect an HTTP outcome to one privacy-safe server completion record. Current coverage includes authentication mutations, tenant creation/selection/administration, core authenticated hospitality booking writes, capability-owned public hold/quote/confirmation transitions, immutable legal-document issuance, authenticated payment reads and mutations, commercial-amendment settlement/provider transport, public Stripe Checkout creation/status polling, Stripe webhook ingestion, and authenticated integration configuration/lifecycle/connection-test management.
 
 ## Request ID contract
 
@@ -8,7 +8,7 @@ Instrumented routes accept `x-request-id` only when its normalized header value 
 
 A request ID is correlation metadata only. It grants no authentication, tenant, booking, payment, provider, or legal-document authority and is never used as an idempotency key.
 
-The staff legal-document issuance actions append a validated response request ID to visible failure text as a support reference. Successful issuance UX is unchanged. Booking and payment clients do not need to echo or display a request ID for the server to create a correlated completion record.
+The staff legal-document issuance actions append a validated response request ID to visible failure text as a support reference. Successful issuance UX is unchanged. Booking, identity, tenant-administration, and payment clients do not need to echo or display a request ID for the server to create a correlated completion record.
 
 ## Structured completion record
 
@@ -22,6 +22,22 @@ The staff legal-document issuance actions append a validated response request ID
 HTTP 2xx/3xx outcomes log at `info`, 4xx rejections at `warn`, and 5xx failures at `error`. Optional identifier fields fail closed when they do not match the bounded log-safe identifier format.
 
 Redirect-based form handlers may additionally provide the shared logger a typed `rejected` or `failed` logical failure outcome after the server has already classified the operation result. This is only for cases where the browser must receive a 303 redirect even though the underlying management operation was rejected or failed. An HTTP 5xx can never be downgraded by that override, and callers cannot override an HTTP failure to `succeeded`.
+
+Current authentication operations are:
+
+- `auth.sign-in`;
+- `auth.sign-up`;
+- `auth.sign-out`.
+
+Current tenant-administration operations are:
+
+- `organization.create`;
+- `organization.select`;
+- `organization.settings.update`;
+- `organization.branding.update`;
+- `organization.archive`;
+- `organization.membership.role.update`;
+- `organization.membership.status.update`.
 
 Current authenticated hospitality booking operations are:
 
@@ -78,6 +94,10 @@ Current public/provider operations are:
 - `public-payment.stripe-checkout.status`;
 - `payment.stripe-webhook.ingest`.
 
+Authentication request logs intentionally have no organization, user, email, or session scope. The logger never receives submitted email, password, display name, session cookie/token, session digest, redirect URL, or raw authentication error. Expected sign-in/sign-up form failures are explicitly classified as `rejected` despite their browser 303 response; unexpected authentication-service failures are classified as `failed`. Sign-out revocation failure returns an observed HTTP 500 and leaves the browser session cookie intact rather than presenting a local sign-out after durable session revocation failed.
+
+For organization creation, organization scope is attached only after `createOrganizationForUser` successfully creates the tenant and initial membership. For organization selection, the requested organization ID is not copied into logs and scope is attached only after `findOrganizationForUser` proves membership; repository/infrastructure failure is an observed HTTP 500 rather than being misreported as a forbidden selection. For settings, branding, archive, and membership role/status mutations, organization scope is attached only after `readActiveOrganizationContext` resolves the authenticated user's active tenant. Authentication/session and active-tenant lookup failures are returned as generic observed HTTP 500 responses without copying raw errors. Submitted names/slugs/branding/contact data, membership IDs, roles/statuses, actor user IDs, form bodies, request URLs, and raw errors are excluded. Existing organization and membership services remain responsible for permission checks, last-admin protection, lifecycle constraints, tenant ownership, and audit evidence.
+
 For authenticated hospitality booking writes, the organization log field is attached only after `requireHospitalityBookingApiContext` has established the active tenant and write context. Route booking IDs, amendment IDs, hold payloads, commercial changes, traveler data, dates, pricing fingerprints, idempotency keys, and request bodies are not copied into request logs. The existing service layer remains responsible for `booking:manage`, `payment:manage` where required, tenant/resource ownership, concurrency, and commercial authority.
 
 For authenticated payment routes, the organization log field is attached only after `requirePaymentApiContext` has returned an authorized active-tenant context. Request-body booking IDs, transaction IDs, idempotency keys, manual references, and query-string selectors are not copied into the request log.
@@ -94,7 +114,7 @@ For Stripe webhooks, the route parameter is not trusted as log context on arriva
 
 ## Data that must never enter these logs
 
-Do not add raw URLs or query strings, request/response bodies, arbitrary request headers, cookies, authorization headers, passwords, bearer/capability tokens, customer names/emails/addresses, guest details, card data, API/webhook secrets, provider payloads, legal-document snapshots, or raw caught error objects/messages to this logger. Booking/amendment/integration identifiers, pricing or request fingerprints, idempotency keys, lifecycle form actions, and payment/refund/provider transaction references also require a separate reviewed operational need before they can become structured log fields.
+Do not add raw URLs or query strings, request/response bodies, arbitrary request headers, cookies, authorization headers, passwords, bearer/capability tokens, session tokens/digests, customer names/emails/addresses, authentication identities, guest details, card data, API/webhook secrets, provider payloads, legal-document snapshots, or raw caught error objects/messages to this logger. Booking/amendment/integration/membership identifiers, pricing or request fingerprints, idempotency keys, lifecycle form actions, and payment/refund/provider transaction references also require a separate reviewed operational need before they can become structured log fields.
 
 The logger deliberately accepts a typed whitelist rather than arbitrary metadata objects. New fields must preserve that model.
 
@@ -104,7 +124,7 @@ The JSON line is currently written through the application runtime console so co
 
 Use the response `x-request-id` as the primary correlation key when investigating an instrumented failure. Organization ID and operation can narrow authenticated or verified-provider searches when that context was safely established.
 
-This logging layer does not replace booking/payment/integration audit history. Audits remain durable business evidence; request logs are operational diagnostics and may follow a separate retention policy.
+This logging layer does not replace booking/payment/integration/tenant audit history. Audits remain durable business evidence; request logs are operational diagnostics and may follow a separate retention policy.
 
 Coverage should continue only through reviewed production boundaries. Do not mechanically instrument a route by copying request data into log scope. Other public/provider surfaces still require their own data-authority and privacy review before additional structured fields or operations are added.
 
@@ -117,5 +137,7 @@ Coverage should continue only through reviewed production boundaries. Do not mec
 `scripts/booking-request-observability.test.mjs` verifies that authenticated booking writes attach tenant log scope only after the hospitality write boundary, public hold/quote/confirmation routes never copy capability, tenant-selector, pricing, or customer data into log scope, and public validation/origin failures still return through the correlation boundary.
 
 `scripts/integration-request-observability.test.mjs` verifies redirect-aware logical failure classification, tenant-scope ordering across Stripe configuration/test and generic integration lifecycle routes, static-only Stripe provider scope, and exclusion of integration IDs/form actions from the shared request-log scope.
+
+`scripts/identity-tenant-request-observability.test.mjs` verifies correlation coverage for sign-in/sign-up/sign-out and tenant administration, explicit redirect failure classification, fail-closed sign-out revocation, post-authority organization-scope attachment, and exclusion of identity/membership/form values from request-log scope.
 
 Full repository validation still requires the repository Node 24 toolchain. This observability slice does not change the Prisma schema or database persistence contract.

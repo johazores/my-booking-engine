@@ -11,6 +11,7 @@ import {
   InvalidCredentialsError,
   signInWithPassword,
 } from '@/server/auth/auth-service.ts';
+import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 
 function field(formData: FormData, name: string) {
   const value = formData.get(name);
@@ -18,19 +19,26 @@ function field(formData: FormData, name: string) {
 }
 
 export async function POST(request: Request) {
+  const observation = createRequestObservation(request, { operation: 'auth.sign-in' });
+  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
+    response,
+    undefined,
+    failureOutcome ? { failureOutcome } : undefined,
+  );
+
   if (!isSameOriginAuthRequest(request)) {
-    return new Response('Forbidden', { status: 403 });
+    return finish(new Response('Forbidden', { status: 403 }));
   }
 
   if (!isSupportedAuthFormRequest(request)) {
-    return new Response('Unsupported Media Type', { status: 415 });
+    return finish(new Response('Unsupported Media Type', { status: 415 }));
   }
 
   let formData: FormData;
   try {
     formData = await request.formData();
   } catch {
-    return NextResponse.redirect(new URL('/sign-in?error=validation', request.url), 303);
+    return finish(NextResponse.redirect(new URL('/sign-in?error=validation', request.url), 303), 'rejected');
   }
 
   try {
@@ -43,7 +51,7 @@ export async function POST(request: Request) {
       ...authSessionCookieOptions,
       expires: result.expiresAt,
     });
-    return response;
+    return finish(response);
   } catch (error) {
     const code =
       error instanceof InvalidCredentialsError
@@ -51,6 +59,9 @@ export async function POST(request: Request) {
         : error instanceof AuthValidationError
           ? 'validation'
           : 'server';
-    return NextResponse.redirect(new URL(`/sign-in?error=${code}`, request.url), 303);
+    return finish(
+      NextResponse.redirect(new URL(`/sign-in?error=${code}`, request.url), 303),
+      code === 'server' ? 'failed' : 'rejected',
+    );
   }
 }
