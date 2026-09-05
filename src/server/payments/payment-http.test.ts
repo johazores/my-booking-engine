@@ -12,6 +12,7 @@ test('paymentJson never exposes internal provider-call claim references', async 
     providerReference: `sf_claim_${'a'.repeat(64)}`,
     amountMinor: 1200n,
   });
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), {
     providerCode: 'stripe',
     providerReference: null,
@@ -19,29 +20,40 @@ test('paymentJson never exposes internal provider-call claim references', async 
   });
 });
 
-test('paymentJson preserves real provider references', async () => {
+test('paymentJson preserves real provider references for authorized staff without allowing response caching', async () => {
   const response = paymentJson({ providerCode: 'stripe', providerReference: 'pi_real123' });
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), { providerCode: 'stripe', providerReference: 'pi_real123' });
 });
 
-test('paymentApiError exposes normalized retryability for recoverable provider failures', async () => {
-  const response = paymentApiError(new PaymentProviderError('PROVIDER_UNAVAILABLE', 'Provider could not be reached.', true));
+test('paymentApiError exposes normalized retryability without forwarding raw provider messages', async () => {
+  const response = paymentApiError(new PaymentProviderError(
+    'PROVIDER_UNAVAILABLE',
+    'Stripe upstream said request req_secret_provider_reference could not be reached.',
+    true,
+  ));
   assert.equal(response.status, 503);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), {
     error: 'provider-error',
     code: 'PROVIDER_UNAVAILABLE',
     retryable: true,
-    message: 'Provider could not be reached.',
+    message: 'Payment provider is temporarily unavailable. Try again.',
   });
 });
 
-test('paymentApiError marks definitive provider failures as non-retryable with the same request identity', async () => {
-  const response = paymentApiError(new PaymentProviderError('DECLINED', 'Provider rejected the operation.', false));
+test('paymentApiError keeps definitive provider failure identity while sanitizing presentation', async () => {
+  const response = paymentApiError(new PaymentProviderError(
+    'DECLINED',
+    'Provider raw decline detail with pi_sensitive_reference.',
+    false,
+  ));
   assert.equal(response.status, 502);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), {
     error: 'provider-error',
     code: 'DECLINED',
     retryable: false,
-    message: 'Provider rejected the operation.',
+    message: 'Payment provider declined the operation.',
   });
 });

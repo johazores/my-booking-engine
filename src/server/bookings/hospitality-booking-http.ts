@@ -2,6 +2,7 @@ import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '../availability/hospitality-availability-hold-service.ts';
 import { AvailabilityUnavailableError } from '../availability/hospitality-availability-service.ts';
+import { paymentProviderClientError } from '../payments/payment-provider-client-error.ts';
 import { PaymentProviderError } from '../payments/payment-provider.ts';
 import { PaymentConflictError, PaymentUnavailableError } from '../payments/payment-service.ts';
 import { HospitalityPricingUnavailableError } from '../pricing/hospitality-pricing-service.ts';
@@ -51,7 +52,10 @@ export function hospitalityBookingApiError(error: unknown) {
   }
   if (error instanceof PaymentUnavailableError) return bookingApiErrorJson({ error: 'payment-unavailable', message: error.message }, 404);
   if (error instanceof PaymentProviderError) {
-    return bookingApiErrorJson({ error: 'provider-error', code: error.code, retryable: error.retryable, message: error.message }, error.retryable ? 503 : 502);
+    return bookingApiErrorJson({
+      error: 'provider-error',
+      ...paymentProviderClientError(error),
+    }, error.retryable ? 503 : 502);
   }
   if (
     error instanceof HospitalityBookingUnavailableError
