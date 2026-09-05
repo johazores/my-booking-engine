@@ -30,6 +30,7 @@ import {
 import {
   createHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
   hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
 import {
   canonicalHospitalityIssuedAdjustmentNoteJson,
@@ -289,10 +290,54 @@ export async function issueHospitalityRepeatedCommercialAmendmentIncreasingAdjus
           if (
             existing.bookingId !== input.bookingId
             || existing.sourceInvoiceId !== sourceInvoice.id
+            || existing.adjustmentType !== 'INCREASING'
+            || existing.adjustmentReason !== 'COMMERCIAL_AMENDMENT'
+            || existing.predecessorAdjustmentNoteId === null
+            || existing.predecessorSourceAdjustmentOrdinal === null
+            || existing.sourceAdjustmentOrdinal < 2
+            || existing.decreaseSubtotalMinor !== 0n
+            || existing.decreaseTaxMinor !== 0n
+            || existing.decreaseTotalMinor !== 0n
             || !chain.priorAdjustments.some((entry) => entry.adjustmentNoteId === existing.id)
           ) {
             throw new HospitalityCommercialAmendmentIncreasingAdjustmentNoteConflictError(
               'Commercial amendment is already bound to a different adjustment note.',
+            );
+          }
+          try {
+            const existingSnapshot = parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot(
+              existing.documentSnapshot,
+            );
+            if (
+              existingSnapshot.schemaVersion !== 5
+              || existingSnapshot.organizationId !== existing.organizationId
+              || existingSnapshot.bookingId !== existing.bookingId
+              || existingSnapshot.sourceInvoiceId !== existing.sourceInvoiceId
+              || existingSnapshot.commercialAmendmentId !== existing.commercialAmendmentId
+              || existingSnapshot.targetPricingEvidenceId !== existing.targetPricingEvidenceId
+              || existingSnapshot.predecessorAdjustmentNoteId !== existing.predecessorAdjustmentNoteId
+              || existingSnapshot.sourceAdjustmentOrdinal !== String(existing.sourceAdjustmentOrdinal)
+              || existingSnapshot.documentNumber !== existing.documentNumber
+              || BigInt(existingSnapshot.sequenceValue) !== existing.sequenceValue
+              || new Date(existingSnapshot.issuedAt).getTime() !== existing.issuedAt.getTime()
+              || existingSnapshot.currency !== existing.currency
+              || BigInt(existingSnapshot.increaseSubtotalMinor) !== existing.increaseSubtotalMinor
+              || BigInt(existingSnapshot.increaseTaxMinor) !== existing.increaseTaxMinor
+              || BigInt(existingSnapshot.increaseTotalMinor) !== existing.increaseTotalMinor
+              || existingSnapshot.sourceInvoiceFingerprint !== existing.sourceInvoiceFingerprint
+              || existingSnapshot.issuerFingerprint !== existing.issuerFingerprint
+              || existingSnapshot.recipientFingerprint !== existing.recipientFingerprint
+              || hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint(existingSnapshot)
+                !== existing.documentFingerprint
+            ) {
+              throw new HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError(
+                'Existing repeated increasing adjustment note failed immutable evidence validation.',
+              );
+            }
+          } catch (error) {
+            if (error instanceof HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError) throw error;
+            throw new HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError(
+              error instanceof Error ? error.message : 'Existing repeated increasing adjustment note is invalid.',
             );
           }
           return existing;

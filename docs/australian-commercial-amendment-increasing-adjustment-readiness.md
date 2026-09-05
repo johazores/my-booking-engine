@@ -31,7 +31,7 @@ The shared tenant-scoped commercial adjustment chain now parses and verifies bot
 
 The chain verifier independently proves source invoice identity/fingerprint, exact ordinal and predecessor continuity, direction/schema compatibility, immutable amendment and target-pricing evidence, exact standard-GST directional effect, unique document/amendment/target authority, chronology, issuer/recipient continuity, and settlement.
 
-Settlement verification is progressive. For each historical ordinal SF derives provider-neutral settlement from the booking's base payment ledger plus only commercial-amendment transactions in the verified legal chain through that ordinal. Later chain transactions do not mutate the historical settlement baseline of an earlier legal document, while unresolved/conflicting payment truth at the relevant step still fails closed.
+Settlement verification is progressive. For each historical ordinal SF derives provider-neutral settlement from payment transactions created no later than that document's issue time: the booking's base payment ledger plus only commercial-amendment transactions in the verified legal chain through that ordinal. Later chain transactions do not mutate the historical settlement baseline of an earlier legal document, while unresolved/conflicting payment truth at the relevant step still fails closed.
 
 ## Immutable evidence
 

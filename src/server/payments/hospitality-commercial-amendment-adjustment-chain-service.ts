@@ -297,15 +297,17 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
         currency: true,
         amountMinor: true,
         commercialAmendmentId: true,
+        createdAt: true,
       },
     }),
   ]);
   const amendmentById = new Map(amendments.map((row) => [row.id, row]));
   const targetById = new Map(targetRows.map((row) => [row.id, row]));
   const chainAmendmentIds = new Set(amendmentIds);
-  const progressiveSettlementTransactions = paymentTransactions.filter(
+  const baseSettlementTransactions = paymentTransactions.filter(
     (transaction) => transaction.commercialAmendmentId === null,
   );
+  const progressiveCommercialAmendmentTransactions: typeof paymentTransactions = [];
   const settlementTransactionsByAmendment = new Map<string, typeof paymentTransactions>();
   for (const transaction of paymentTransactions) {
     if (!transaction.commercialAmendmentId || !chainAmendmentIds.has(transaction.commercialAmendmentId)) continue;
@@ -329,9 +331,15 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
     }
 
     const snapshot = parseCommercialAdjustmentSnapshot(row);
-    progressiveSettlementTransactions.push(
+    progressiveCommercialAmendmentTransactions.push(
       ...(settlementTransactionsByAmendment.get(amendment.id) ?? []),
     );
+    const settlementTransactionsAtIssue = [
+      ...baseSettlementTransactions.filter((transaction) => transaction.createdAt.getTime() <= row.issuedAt.getTime()),
+      ...progressiveCommercialAmendmentTransactions.filter(
+        (transaction) => transaction.createdAt.getTime() <= row.issuedAt.getTime(),
+      ),
+    ];
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
       direction: amendment.direction,
@@ -340,7 +348,7 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
       beforeTotalMinor: amendment.beforeTotalMinor,
       afterTotalMinor: amendment.afterTotalMinor,
       deltaMinor: amendment.deltaMinor,
-      transactions: progressiveSettlementTransactions,
+      transactions: settlementTransactionsAtIssue,
     });
 
     return Object.freeze({

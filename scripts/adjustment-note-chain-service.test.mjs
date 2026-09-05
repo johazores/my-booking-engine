@@ -28,10 +28,13 @@ test('chain loader parses and fingerprints both supported commercial adjustment 
 test('chain settlement is re-proved stepwise from base payment truth plus issued chain amendments', () => {
   assert.match(service, /deriveHospitalityCommercialAmendmentSettlementState/);
   assert.match(service, /chainAmendmentIds = new Set\(amendmentIds\)/);
-  assert.match(service, /progressiveSettlementTransactions = paymentTransactions\.filter\([\s\S]*commercialAmendmentId === null/);
+  assert.match(service, /createdAt: true/);
+  assert.match(service, /baseSettlementTransactions = paymentTransactions\.filter\([\s\S]*commercialAmendmentId === null/);
+  assert.match(service, /progressiveCommercialAmendmentTransactions/);
   assert.match(service, /settlementTransactionsByAmendment/);
-  assert.match(service, /progressiveSettlementTransactions\.push\([\s\S]*settlementTransactionsByAmendment\.get\(amendment\.id\)/);
-  assert.match(service, /transactions: progressiveSettlementTransactions/);
+  assert.match(service, /progressiveCommercialAmendmentTransactions\.push\([\s\S]*settlementTransactionsByAmendment\.get\(amendment\.id\)/);
+  assert.match(service, /transaction\.createdAt\.getTime\(\) <= row\.issuedAt\.getTime\(\)/);
+  assert.match(service, /transactions: settlementTransactionsAtIssue/);
 });
 
 test('write-head selection serializes one tenant booking source-invoice chain before verification', () => {

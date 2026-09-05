@@ -22,6 +22,16 @@ test('repeated increasing writer requires tenant payment management and serializ
   assert.match(writer, /code === 'P2002' \|\| code === 'P2034'/);
 });
 
+
+test('repeated increasing idempotency accepts only exact schema-version-5 increasing evidence', () => {
+  assert.match(writer, /existing\.adjustmentType !== 'INCREASING'/);
+  assert.match(writer, /existing\.predecessorAdjustmentNoteId === null/);
+  assert.match(writer, /existing\.sourceAdjustmentOrdinal < 2/);
+  assert.match(writer, /parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot/);
+  assert.match(writer, /existingSnapshot\.schemaVersion !== 5/);
+  assert.match(writer, /hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint\(existingSnapshot\)/);
+});
+
 test('repeated increasing writer re-proves cumulative readiness and cross-direction baseline uniqueness', () => {
   assert.match(writer, /assessAustralianCommercialAmendmentIncreasingAdjustmentReadiness/);
   assert.match(writer, /priorAdjustmentNoteCount: chain\.priorAdjustmentNoteCount/);

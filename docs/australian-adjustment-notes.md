@@ -30,7 +30,7 @@ Schema version 5 defines a repeated increasing commercial adjustment at ordinal 
 
 The bounded tenant-scoped commercial adjustment chain verifier now supports schema versions 2 through 5 and both increasing and decreasing directions. It rejects mixed non-commercial reasons, gaps, forks, duplicate authority, unsupported direction/schema combinations, baseline or target-pricing drift, chronology regressions, issuer/recipient changes, invalid standard-GST effects, and settlement that does not reconcile.
 
-Each row's payment authority is independently re-proved from a progressive provider-neutral ledger: base booking payment truth plus only commercial-amendment transactions belonging to the verified legal chain through that ordinal. This preserves historical settlement proof for earlier documents after later adjustments are added and prevents a future/unissued amendment from changing an earlier legal step's settlement baseline.
+Each row's payment authority is independently re-proved from a progressive provider-neutral ledger restricted to transactions created no later than that document's issue time: base booking payment truth plus only commercial-amendment transactions belonging to the verified legal chain through that ordinal. This preserves historical settlement proof for earlier documents after later adjustments are added and prevents a future/unissued amendment from changing an earlier legal step's settlement baseline.
 
 The existing write-head selector still serializes one tenant/booking/source-invoice chain with a PostgreSQL transaction advisory lock before returning the verified head.
 
