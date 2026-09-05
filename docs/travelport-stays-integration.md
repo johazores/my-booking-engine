@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines SF's first production external hospitality supplier boundary. The implemented read-side boundary covers complete normalized hotel discovery, exact-money SearchComplete offer pricing, mandatory fresh offer revalidation, normalized Travelport v11 Rules evidence, credential authentication, and connection health verification. SF also has a provider-neutral durable reservation-operation ledger and a server-only Travelport known-locator reservation recovery adapter. No Travelport reservation create call, modification/cancellation call, or customer/staff reserve action is exposed yet.
+This document defines SF's first production external hospitality supplier boundary. The implemented read-side boundary covers complete normalized hotel discovery, exact-money SearchComplete offer pricing, mandatory fresh offer revalidation, normalized Travelport v11 Rules evidence, a read-only Availability authority bridge for the exact selected offer, credential authentication, and connection health verification. SF also has a provider-neutral durable reservation-operation ledger and a server-only Travelport known-locator reservation recovery adapter. No Travelport reservation create call, modification/cancellation call, or customer/staff reserve action is exposed yet.
 
 ## Provider identity and tenant ownership
 
@@ -10,9 +10,9 @@ SF uses provider code `travelport-stays`. Each configured record is owned by exa
 
 The server currently derives the implemented Travelport capability list as `availability`, `hotel-search`, and `pricing`. `reservation`, `modification`, `cancellation`, `refund`, `ticketing`, and flight capabilities are not advertised.
 
-Operational supplier reads use product permissions rather than integration-administration permissions. Property discovery requires tenant-scoped `availability:read`. Offer pricing, revalidation, and booking-rule review require both `availability:read` and `pricing:read`. All permission checks complete before the active encrypted Travelport integration is loaded, so credential access never substitutes for product authorization.
+Operational supplier reads use product permissions rather than integration-administration permissions. Property discovery requires tenant-scoped `availability:read`. Offer pricing, revalidation, and booking-rule review require both `availability:read` and `pricing:read`. The reservation-authority review additionally requires `booking:manage`. All permission checks complete before the active encrypted Travelport integration is loaded, so credential access never substitutes for product authorization.
 
-The provider-neutral reservation-operation persistence service requires server-side `booking:manage`, but its create/reconciliation claims additionally require the selected integration to advertise `reservation`. Current Travelport configuration intentionally does not advertise that capability, so the ledger cannot accidentally become an unimplemented provider write path.
+The provider-neutral reservation-operation persistence service requires server-side `booking:manage`, but its create/reconciliation claims additionally require the selected integration to advertise `reservation`. Current Travelport configuration intentionally does not advertise that capability, so neither the operation ledger nor the new read-only authority review can accidentally become an unimplemented provider write path.
 
 ## Credentials and token lifecycle
 
@@ -42,6 +42,18 @@ The current Rules boundary supports one room and one to nine guests. Rules respo
 
 Successful Rules evidence is discarded unless a final no-cache offer revalidation remains `UNCHANGED`. Rules evidence does not authorize or create a reservation, and SF never silently accepts a provider price or guarantee change.
 
+## Availability authority bridge
+
+`HospitalitySupplierReservationAuthorityProvider` is a provider-neutral, read-only proof boundary for the selected external offer. The Travelport adapter first repeats the existing Rules/final-revalidation flow and requires the caller's accepted `offerFingerprint` and `termsFingerprint` to remain current and complete. It then performs another no-cache exact-property SearchComplete bridge to recover the selected rate's `bookingCode` and optional rate-code evidence.
+
+The adapter sends a v11 Availability request for the exact property, dates, one-room occupancy, selected aggregator, and available rate-code filters. `verboseResponseInd: true` keeps property/date identity beside each product so SF can verify it directly. The adapter consumes every documented Availability continuation page 2 through 5, caps the result at five pages / 500 offers, requires stable totals, rejects duplicate offer identifiers, and fails closed unless exactly one Availability offer maps to the selected aggregator + `bookingCode` + property + dates, with any returned rate-code evidence consistent with the SearchComplete bridge.
+
+Travelport documents that `requestedCurrency` on Availability does not convert response amounts. SF therefore does not reinterpret Availability money as the accepted commercial total. Exact money remains governed by the fresh SearchComplete + Rules evidence that was already verified before Availability authority is accepted.
+
+A successful result returns a deterministic SHA-256 `authorityFingerprint` over the provider, property, selected SearchComplete rate identity, Availability booking identity, stay/occupancy, exact accepted money, and accepted offer/terms fingerprints. The expiring Availability pagination/offer identifiers remain adapter-owned and are not exposed as durable product authority. Any future create executor must repeat this authority bridge immediately before the write rather than treating a previous review as a timeless sell token.
+
+This bridge establishes a safe route for arbitrary selected SF room/rate offers without assuming the SearchComplete `lowestPublicAvailableRate` reference-booking rule applies to every normalized rate. It still does not create a reservation and does not advertise `reservation`.
+
 ## Durable external-write operation ledger
 
 `HospitalitySupplierReservationOperation` and `HospitalitySupplierReservationAttempt` provide the provider-neutral persistence/recovery substrate required before any supplier create call is allowed. An operation is tenant-owned, integration/credential-version bound, organization-idempotent, and fingerprinted over the accepted provider/property/offer authority, accepted offer/Rules evidence, exact money/stay/occupancy, and a required reservation-payload fingerprint. Raw traveler PII, card data, CVV, provider tokens, or future request bodies do not belong in this ledger.
@@ -58,11 +70,11 @@ The adapter accepts only a bounded single-line known Travelport aggregator locat
 
 This recovery adapter is deliberately read-only. It does not persist reservation state, audit raw provider data, log provider payloads, advertise `reservation`, or create a provider booking. `loadTravelportStaysIntegration` makes it available server-side for a future ledger coordinator without making any browser or product write path live.
 
-## Create-path safety finding
+## Create-path payment and PCI boundary
 
-Travelport's current public Create Reservation reference-payload documentation says a SearchComplete reference booking uses `propertyItems/lowestPublicAvailableRate/rateKey/value` as `CatalogOfferingIdentifier`. SF's current pricing product deliberately supports selecting normalized room/rate offers rather than only the property's lowest public rate. Therefore SF must **not** assume that an arbitrary selected SearchComplete room-rate `rateKey` is valid reservation authority.
+The current public Travelport v11 Create Reservation full and reference payload contracts require traveler details plus `FormOfPayment` and `Payment`. The documented card form includes `PaymentCard/CardNumber/PlainText`; `SeriesCode/PlainText` is required for certain suppliers and Booking.com requires CVV.
 
-The checked-in reservation boundary consequently contains no Travelport `POST book/reservations/build` call. The next create implementation must either establish a documented provider authority that maps the exact selected SF offer into a valid create payload (for example, a separately verified Availability/full-payload bridge) or prove the required SearchComplete reference semantics against provisioned Travelport non-production credentials. Source code must not guess this mapping.
+SF's existing online-payment security contract intentionally never accepts raw card data. The Travelport create path therefore remains closed until SF has a reviewed PCI-safe form-of-payment/guarantee strategy that is supported by the provisioned Travelport account and does not casually route PAN/CVV through normal SF application surfaces, logs, persistence, or audits. The repository must not weaken its existing card boundary merely to make the supplier reservation POST reachable.
 
 Travelport also documents that price/guarantee changes stop the initial create and must only be accepted by a second request with explicit `acceptPriceChangeInd` / `acceptGuaranteeChangeInd`. SF will not send either flag on an initial create or silently opt into those changes.
 
@@ -72,28 +84,31 @@ Travelport Hotel Retrieve starts from an aggregator locator returned at booking.
 
 ## Failure and privacy contract
 
-Provider read failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Malformed provider data, unsafe identifiers, authority mismatches, mixed currency, unsupported Rules shapes, and oversized/duplicate structures fail closed.
+Provider read failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Malformed provider data, unsafe identifiers, authority mismatches, mixed currency, unsupported Rules shapes, oversized/duplicate structures, incomplete pagination, and ambiguous Availability mappings fail closed.
 
-Raw Travelport errors, credentials, tokens, access groups, request headers/bodies, response bodies, pagination tokens, rate keys, booking codes, property keys, traveler/customer data, payment/card material, and supplier commercial payloads are not copied into audits or structured request logs.
+Raw Travelport errors, credentials, tokens, access groups, request headers/bodies, response bodies, pagination tokens, rate keys, booking codes, Availability offer identifiers, property keys, traveler/customer data, payment/card material, and supplier commercial payloads are not copied into audits or structured request logs.
 
 ## Validation boundary
 
-The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete discovery/pagination, exact-money pricing, no-cache revalidation, Rules request/normalization/race handling, supplier reservation operation state/idempotency/privacy, and known-locator Travelport reservation recovery. A guarded PostgreSQL scenario remains checked in for tenant isolation, exact retry, ambiguity reconciliation, attempt ordering, confirmation, and credential-version invalidation.
+The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete discovery/pagination, exact-money pricing, no-cache revalidation, Rules request/normalization/race handling, selected-offer Availability authority mapping/pagination, supplier reservation operation state/idempotency/privacy, and known-locator Travelport reservation recovery. A guarded PostgreSQL scenario remains checked in for tenant isolation, exact retry, ambiguity reconciliation, attempt ordering, confirmation, and credential-version invalidation.
 
 Live provider validation still requires a provisioned Travelport non-production account. Full Prisma migration/drift/database execution requires an explicitly disposable PostgreSQL target. Neither is claimed by source-only validation.
 
 ## Remaining work before supplier reservation is live
 
-1. Establish the exact documented/verified create authority for the selected SF room-rate offer; do not use arbitrary SearchComplete rate keys as reference-booking authority without proof.
-2. Implement the real single-room Travelport create adapter and a secure execution coordinator that reconstructs authorized traveler/guarantee/payment material, proves the persisted reservation-payload fingerprint, claims the durable operation, and settles every write outcome through the ledger.
-3. Validate create/retrieve identifiers, price/guarantee-change errors, card/guarantee requirements, locator-less ambiguous-write recovery, and correlation semantics against provisioned Travelport non-production credentials.
-4. Advertise `reservation` only after the real write/recovery contract is validated. Only then expose a staff/customer reserve surface with complete loading, empty, error, accessibility, and responsive states.
-5. Expand independently to verified multi-room and provider-supported modify/cancel semantics.
+1. Validate the SearchComplete-to-Availability selected-rate bridge, Availability create identifiers, and exact request/response shapes against provisioned Travelport non-production credentials.
+2. Establish a reviewed PCI-safe form-of-payment/guarantee strategy for Travelport reservation creation without weakening SF's rule that normal product flows never accept raw card data.
+3. Implement the real single-room Travelport create adapter and secure execution coordinator. It must repeat fresh Rules/offer/Availability authority, bind the accepted authority to the persisted request, reconstruct only authorized traveler/guarantee/payment material, claim the durable operation, and settle every write outcome through the ledger.
+4. Validate price/guarantee-change errors, locator-less ambiguous-write recovery, and correlation semantics against Travelport non-production/provider support.
+5. Advertise `reservation` only after the real write/recovery contract is validated. Only then expose a staff/customer reserve surface with complete loading, empty, error, accessibility, and responsive states.
+6. Expand independently to verified multi-room and provider-supported modify/cancel semantics.
 
 ## Current Travelport references
 
 - SearchComplete v12: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete.htm
 - SearchComplete pagination: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_SearchComplete_pagination.htm
+- Hotel Availability: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Availability.htm
+- Hotel Availability pagination: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_AvailPagination.htm
 - Hotel Rules full payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_RulesFullPayload.htm
 - Create Reservation reference payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
 - Create Reservation full payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationFullPayload.htm

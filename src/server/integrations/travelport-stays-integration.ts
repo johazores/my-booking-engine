@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
+import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
 import {
   probeTravelportStaysIntegrationHealth,
@@ -70,6 +71,7 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   integration: Awaited<ReturnType<typeof loadActiveIntegrationCredentials>>['integration'];
   provider: TravelportStaysProvider;
   bookingTermsProvider: TravelportStaysBookingTermsProvider;
+  reservationAuthorityProvider: TravelportStaysReservationAuthorityProvider;
   reservationRecoveryProvider: TravelportStaysReservationRecoveryProvider;
 }>> {
   assertUuidIdentifier(organizationId, 'organizationId');
@@ -83,13 +85,19 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
     credentials: normalizedCredentials,
     cacheKey,
   });
+  const bookingTermsProvider = new TravelportStaysBookingTermsProvider({
+    credentials: normalizedCredentials,
+    cacheKey,
+    pricingProvider: provider,
+  });
   return Object.freeze({
     integration,
     provider,
-    bookingTermsProvider: new TravelportStaysBookingTermsProvider({
+    bookingTermsProvider,
+    reservationAuthorityProvider: new TravelportStaysReservationAuthorityProvider({
       credentials: normalizedCredentials,
       cacheKey,
-      pricingProvider: provider,
+      bookingTermsProvider,
     }),
     reservationRecoveryProvider: new TravelportStaysReservationRecoveryProvider({
       credentials: normalizedCredentials,
