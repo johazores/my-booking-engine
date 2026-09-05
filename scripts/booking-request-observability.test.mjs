@@ -17,6 +17,13 @@ const authenticatedBookingWrites = [
   ['app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/cancel/route.ts', 'booking.hospitality-commercial-amendment.cancel'],
 ];
 
+const authenticatedBookingReads = [
+  ['app/api/bookings/hospitality/route.ts', 'booking.hospitality.list'],
+  ['app/api/bookings/hospitality/[booking-id]/modify/route.ts', 'booking.hospitality-commercial-modification.options.read'],
+  ['app/api/bookings/hospitality/[booking-id]/commercial-amendments/route.ts', 'booking.hospitality-commercial-amendment.current.read'],
+  ['app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/route.ts', 'booking.hospitality-commercial-amendment.read'],
+];
+
 const publicBookingRoutes = [
   ['app/api/public-bookings/[organization-slug]/hospitality/holds/route.ts', ['public-booking.hospitality-hold.create', 'public-booking.hospitality-hold.release']],
   ['app/api/public-bookings/[organization-slug]/hospitality/quote/route.ts', ['public-booking.hospitality-quote.read']],
@@ -41,6 +48,23 @@ test('authenticated hospitality booking writes attach tenant log scope only afte
     assert.match(sourceAfterOperation, /if \(context\.response\) return finish\(context\.response\);/);
     assert.match(sourceAfterOperation, /catch \(error\) \{\n\s+return finish\(hospitalityBookingApiError\(error\)\);/);
     assert.doesNotMatch(sourceAfterOperation, /observation\.finish\([^\n]+(?:bookingId|amendmentId|idempotencyKey|change|request\.url)/);
+    assert.doesNotMatch(sourceAfterOperation, /bookingReference:/);
+  }
+});
+
+test('authenticated hospitality booking reads correlate after tenant authorization without logging selectors', () => {
+  for (const [path, operation] of authenticatedBookingReads) {
+    const source = route(path);
+    assertOperation(source, operation);
+    const operationIndex = source.indexOf(`operation: '${operation}'`);
+    const sourceAfterOperation = source.slice(operationIndex);
+    const contextIndex = sourceAfterOperation.indexOf('await requireHospitalityBookingApiContext(request)');
+    const tenantScopeIndex = sourceAfterOperation.indexOf('organizationId = context.organizationId;');
+    assert.ok(contextIndex >= 0, `${path} must require the hospitality read context`);
+    assert.ok(tenantScopeIndex > contextIndex, `${path} must not attach tenant log scope before authorization`);
+    assert.match(sourceAfterOperation, /if \(context\.response\) return finish\(context\.response\);/);
+    assert.match(sourceAfterOperation, /catch \(error\) \{\n\s+return finish\(hospitalityBookingApiError\(error\)\);/);
+    assert.doesNotMatch(sourceAfterOperation, /observation\.finish\([^\n]+(?:bookingId|amendmentId|page|pageSize|request\.url)/);
     assert.doesNotMatch(sourceAfterOperation, /bookingReference:/);
   }
 });

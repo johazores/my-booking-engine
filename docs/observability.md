@@ -2,7 +2,7 @@
 
 SF uses bounded request correlation on production workflows where operators need to connect an HTTP outcome to one privacy-safe server completion record. Coverage is added only after the route's authority and privacy boundary has been reviewed; request logging is not a reason to copy application payloads into logs.
 
-Current reviewed coverage includes authentication, tenant administration, customer lifecycle mutations, hospitality inventory management, pricing management, core authenticated/public hospitality booking flows, legal-document issuance, payments and commercial-amendment payment transport, Stripe Checkout/webhook ingress, and integration management.
+Current reviewed coverage includes authentication, tenant administration, customer lifecycle mutations, hospitality inventory management, pricing management, authenticated/public hospitality booking flows, legal-document issuance/delivery/reconciliation, payments and commercial-amendment payment transport, Stripe Checkout/webhook ingress, and integration management.
 
 ## Request ID contract
 
@@ -19,7 +19,7 @@ Staff legal-document issuance actions may append a validated response request ID
 - timestamp, level, event, request ID, operation, outcome, HTTP status, and elapsed milliseconds;
 - organization ID only after authenticated tenant authority has been established, or after a Stripe webhook has crossed its configured integration and signature-verification boundary;
 - optional booking reference/provider code only for server-owned callers with a separately reviewed safe value;
-- legal document type for the current issuance routes.
+- legal document type for reviewed tax-invoice/adjustment-note operations.
 
 HTTP 2xx/3xx outcomes log at `info`, 4xx rejections at `warn`, and 5xx failures at `error`. Optional identifiers fail closed when they do not match the bounded log-safe format.
 
@@ -78,7 +78,14 @@ Pricing management:
 - `pricing.charge.create`
 - `pricing.charge.archive`
 
-Authenticated hospitality booking:
+Authenticated hospitality booking reads:
+
+- `booking.hospitality.list`
+- `booking.hospitality-commercial-modification.options.read`
+- `booking.hospitality-commercial-amendment.current.read`
+- `booking.hospitality-commercial-amendment.read`
+
+Authenticated hospitality booking writes:
 
 - `booking.hospitality-hold.create`
 - `booking.hospitality-confirmation.create`
@@ -96,6 +103,11 @@ Legal documents:
 - `hospitality-tax-invoice.issue`
 - `hospitality-cancellation-adjustment-note.issue`
 - `hospitality-commercial-adjustment-note.issue`
+- `hospitality-tax-invoice.pdf.download`
+- `hospitality-adjustment-note.pdf.download`
+- `hospitality-tax-invoice.accounting-export`
+- `hospitality-adjustment-note.accounting-export`
+- `hospitality-tax-document.reconciliation.run`
 
 Authenticated payments:
 
@@ -129,6 +141,9 @@ Public/provider ingress:
 - `public-booking.hospitality-hold.release`
 - `public-booking.hospitality-quote.read`
 - `public-booking.hospitality-confirmation.create`
+- `public-booking.tax-document-history.read`
+- `public-booking.tax-invoice.pdf.download`
+- `public-booking.adjustment-note.pdf.download`
 - `public-payment.stripe-checkout.create`
 - `public-payment.stripe-checkout.status`
 - `payment.stripe-webhook.ingest`
@@ -145,9 +160,11 @@ Hospitality inventory mutation routes share `prepareInventoryMutationRequest`, w
 
 Pricing management logs add organization scope only after authenticated active-tenant resolution. Property/room-type/rate-plan/add-on/base-rate/charge identifiers, monetary amounts, percentages, dates, scope selections, form bodies, URLs, and raw errors are excluded. Malformed form payloads are validation rejections. Existing pricing services retain `pricing:manage`, commercial-scope validation, advisory locking, serializable persistence, and audit authority.
 
-Authenticated hospitality booking logs attach organization scope only after `requireHospitalityBookingApiContext` establishes the active-tenant write context. Booking/amendment IDs, hold payloads, commercial changes, traveler data, dates, pricing fingerprints, idempotency keys, and request bodies are excluded. Booking/payment services retain `booking:manage`, `payment:manage` where required, tenant ownership, concurrency, and commercial authority.
+Authenticated hospitality booking logs attach organization scope only after `requireHospitalityBookingApiContext` establishes the active-tenant context. Writes use the write context; list, commercial-option, and commercial-amendment reads use the authenticated read context. Booking/amendment IDs, booking references, pagination/query selectors, hold payloads, commercial changes, traveler data, dates, pricing fingerprints, idempotency keys, request URLs, and request bodies are excluded. Booking/payment services retain `booking:read`, `booking:manage`, `payment:manage` where required, tenant ownership, concurrency, and commercial authority.
 
 Authenticated payment routes attach organization scope only after `requirePaymentApiContext`. Commercial-amendment payment routes attach it only after the hospitality booking write context. Request-body booking/transaction/amendment IDs, idempotency keys, manual references, return URLs, provider references, and query selectors are excluded. Provider scope uses only reviewed static labels such as `manual` or `stripe`.
+
+Authenticated legal-document delivery/accounting routes attach organization scope only after their existing tenant permission boundary succeeds. Document numbers, customer/recipient facts, legal snapshots, accounting rows, query selectors, and PDF contents are never request-log scope. Public tax-document history/PDF routes remain tenant-free and capability-free in logs, and reconciliation adds tenant scope only after its authenticated context succeeds. Legal-document services remain the source of truth for document authority and immutable evidence.
 
 Integration-management logs attach organization scope only after active-tenant resolution. Stripe configuration/test routes may include only the static provider label `stripe`; credentials, webhook secrets, provider responses/account metadata, integration IDs, lifecycle actions, URLs, and raw errors are excluded. Integration services retain `integration:manage`, tenant ownership, encrypted credential handling, lifecycle preconditions, and provider-adapter boundaries.
 
@@ -175,9 +192,10 @@ Coverage should continue only through individually reviewed production boundarie
 
 ## Validation
 
-- `scripts/request-observability.test.mjs` covers correlation-ID validation/echo, status/level classification, safe optional fields, forbidden-data leakage, legal-document integrations, and staff failure references.
+- `scripts/request-observability.test.mjs` covers correlation-ID validation/echo, status/level classification, safe optional fields, forbidden-data leakage, legal-document write integrations, and staff failure references.
 - `scripts/payment-request-observability.test.mjs` covers authenticated/commercial-amendment payment tenant ordering, public Stripe privacy, webhook authority ordering, and completion routing.
-- `scripts/booking-request-observability.test.mjs` covers authenticated booking tenant ordering plus public booking capability/tenant/pricing/customer-data exclusion.
+- `scripts/booking-request-observability.test.mjs` covers authenticated booking read/write tenant ordering plus public booking capability/tenant/pricing/customer-data exclusion.
+- `scripts/legal-document-delivery-request-observability.test.mjs` covers authenticated legal-document PDF/accounting delivery, public tax-document history/PDF delivery, reconciliation outcomes, and capability/document-data exclusion.
 - `scripts/integration-request-observability.test.mjs` covers redirect-aware logical outcomes, tenant ordering, static Stripe provider scope, and integration action/ID exclusion.
 - `scripts/identity-tenant-request-observability.test.mjs` covers authentication and tenant administration, redirect outcome classification, fail-closed sign-out revocation, post-authority tenant scope, and identity/membership/form-data exclusion.
 - `scripts/customer-request-observability.test.mjs` covers all current customer lifecycle mutations, post-authority tenant scope, infrastructure failure handling, redirect classification, and PII/resource-ID exclusion.

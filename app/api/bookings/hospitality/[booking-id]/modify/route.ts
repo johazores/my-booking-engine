@@ -13,18 +13,23 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ 'booking-id': string }> },
 ) {
+  const observation = createRequestObservation(request, { operation: 'booking.hospitality-commercial-modification.options.read' });
+  let organizationId: string | undefined;
+  const finish = (response: Response) => observation.finish(response, { organizationId });
+
   try {
     const context = await requireHospitalityBookingApiContext(request);
-    if (context.response) return context.response;
+    if (context.response) return finish(context.response);
+    organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
     const options = await getHospitalityBookingCommercialModificationOptions({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
       bookingId,
     });
-    return hospitalityBookingJson(options);
+    return finish(hospitalityBookingJson(options));
   } catch (error) {
-    return hospitalityBookingApiError(error);
+    return finish(hospitalityBookingApiError(error));
   }
 }
 
