@@ -24,9 +24,10 @@ test('supplier read operations authorize the active tenant before loading encryp
     service.indexOf('revalidateHospitalitySupplierPropertyOffer'),
     service.indexOf('retrieveHospitalitySupplierBookingTerms'),
   ];
-  for (const operationIndex of operationIndexes) {
+  for (const [index, operationIndex] of operationIndexes.entries()) {
     assert.ok(operationIndex >= 0);
-    const operation = service.slice(operationIndex, service.indexOf('\n}', operationIndex) + 2);
+    const nextOperationIndex = operationIndexes[index + 1] ?? service.length;
+    const operation = service.slice(operationIndex, nextOperationIndex);
     const permissionIndex = operation.indexOf('await requireSupplierReadAuthority');
     const loadIndex = operation.indexOf('await loadTravelportStaysIntegration');
     assert.ok(permissionIndex >= 0 && loadIndex > permissionIndex);
