@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
+import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
 import {
   probeTravelportStaysIntegrationHealth,
   readTravelportStaysCredentials,
@@ -69,6 +70,7 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   integration: Awaited<ReturnType<typeof loadActiveIntegrationCredentials>>['integration'];
   provider: TravelportStaysProvider;
   bookingTermsProvider: TravelportStaysBookingTermsProvider;
+  reservationRecoveryProvider: TravelportStaysReservationRecoveryProvider;
 }>> {
   assertUuidIdentifier(organizationId, 'organizationId');
   const { integration, credentials } = await loadActiveIntegrationCredentials({
@@ -88,6 +90,10 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
       credentials: normalizedCredentials,
       cacheKey,
       pricingProvider: provider,
+    }),
+    reservationRecoveryProvider: new TravelportStaysReservationRecoveryProvider({
+      credentials: normalizedCredentials,
+      cacheKey,
     }),
   });
 }
