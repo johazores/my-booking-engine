@@ -1,5 +1,8 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import {
+  deriveHospitalityCommercialAmendmentSettlementState,
+} from '../bookings/booking-commercial-amendment-settlement-domain.ts';
+import {
   parseHospitalityBookingPricingEvidenceBreakdown,
 } from '../bookings/booking-pricing-evidence-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -13,6 +16,10 @@ import {
   hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-adjustment-note-domain.ts';
+import {
+  hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
+} from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
 import { createHospitalityIssuedTaxInvoiceDocument } from './hospitality-issued-invoice-document-domain.ts';
 import {
   hospitalityIssuedInvoiceFingerprint,
@@ -160,6 +167,53 @@ function chainLockKey(input: { organizationId: string; bookingId: string; source
   return `hospitality-adjustment-chain:${input.organizationId}:${input.bookingId}:${input.sourceInvoiceId}`;
 }
 
+function parseCommercialAdjustmentSnapshot(row: {
+  adjustmentType: string;
+  documentSnapshot: Prisma.JsonValue;
+  documentFingerprint: string;
+}) {
+  try {
+    if (row.adjustmentType === 'DECREASING') {
+      const snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
+      if (hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint) {
+        throw new Error('Decreasing commercial adjustment-note fingerprint does not match immutable evidence.');
+      }
+      return snapshot;
+    }
+    if (row.adjustmentType === 'INCREASING') {
+      const snapshot = parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot(row.documentSnapshot);
+      if (hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint) {
+        throw new Error('Increasing commercial adjustment-note fingerprint does not match immutable evidence.');
+      }
+      return snapshot;
+    }
+    throw new Error('Commercial adjustment-note direction is unsupported.');
+  } catch (error) {
+    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+      error instanceof Error ? error.message : 'Commercial adjustment-note snapshot is invalid.',
+    );
+  }
+}
+
+function settlementAuthority(
+  settlement: ReturnType<typeof deriveHospitalityCommercialAmendmentSettlementState>,
+) {
+  if (settlement.state === 'CONFLICT') {
+    return Object.freeze({
+      state: settlement.state,
+      settledAdjustmentMinor: 0n,
+      remainingAdjustmentMinor: 0n,
+      netSettledMinor: 0n,
+    });
+  }
+  return Object.freeze({
+    state: settlement.state,
+    settledAdjustmentMinor: settlement.settledAdjustmentMinor,
+    remainingAdjustmentMinor: settlement.remainingAdjustmentMinor,
+    netSettledMinor: settlement.netSettledMinor,
+  });
+}
+
 export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
@@ -208,7 +262,7 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
     );
   }
 
-  const [amendments, targetRows] = await Promise.all([
+  const [amendments, targetRows, paymentTransactions] = await Promise.all([
     amendmentIds.length
       ? input.transaction.hospitalityBookingCommercialAmendment.findMany({
           where: {
@@ -228,9 +282,37 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
           },
         })
       : [],
+    input.transaction.paymentTransaction.findMany({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        kind: true,
+        status: true,
+        providerCode: true,
+        providerReference: true,
+        sourceProviderReference: true,
+        currency: true,
+        amountMinor: true,
+        commercialAmendmentId: true,
+      },
+    }),
   ]);
   const amendmentById = new Map(amendments.map((row) => [row.id, row]));
   const targetById = new Map(targetRows.map((row) => [row.id, row]));
+  const chainAmendmentIds = new Set(amendmentIds);
+  const progressiveSettlementTransactions = paymentTransactions.filter(
+    (transaction) => transaction.commercialAmendmentId === null,
+  );
+  const settlementTransactionsByAmendment = new Map<string, typeof paymentTransactions>();
+  for (const transaction of paymentTransactions) {
+    if (!transaction.commercialAmendmentId || !chainAmendmentIds.has(transaction.commercialAmendmentId)) continue;
+    const current = settlementTransactionsByAmendment.get(transaction.commercialAmendmentId) ?? [];
+    current.push(transaction);
+    settlementTransactionsByAmendment.set(transaction.commercialAmendmentId, current);
+  }
 
   const entries: HospitalityCommercialAmendmentAdjustmentChainEntry[] = rows.map((row) => {
     if (!row.commercialAmendmentId || !row.targetPricingEvidenceId) {
@@ -245,17 +327,21 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
         'Commercial adjustment-note authority could not be reloaded inside tenant scope.',
       );
     }
-    let snapshot: ReturnType<typeof parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot>;
-    try {
-      snapshot = parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
-      if (hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint) {
-        throw new Error('Commercial adjustment-note document fingerprint does not match immutable evidence.');
-      }
-    } catch (error) {
-      throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
-        error instanceof Error ? error.message : 'Commercial adjustment-note snapshot is invalid.',
-      );
-    }
+
+    const snapshot = parseCommercialAdjustmentSnapshot(row);
+    progressiveSettlementTransactions.push(
+      ...(settlementTransactionsByAmendment.get(amendment.id) ?? []),
+    );
+    const settlement = deriveHospitalityCommercialAmendmentSettlementState({
+      amendmentId: amendment.id,
+      direction: amendment.direction,
+      paymentProviderCode: amendment.paymentProviderCode,
+      currency: amendment.currency,
+      beforeTotalMinor: amendment.beforeTotalMinor,
+      afterTotalMinor: amendment.afterTotalMinor,
+      deltaMinor: amendment.deltaMinor,
+      transactions: progressiveSettlementTransactions,
+    });
 
     return Object.freeze({
       ...row,
@@ -296,6 +382,7 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
         price: price(target),
         parsedPrice: parsedTargetPrice(target),
       }),
+      settlement: settlementAuthority(settlement),
     });
   });
 

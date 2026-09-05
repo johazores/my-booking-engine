@@ -12,7 +12,26 @@ test('chain loader keeps every persistence lookup tenant, booking, and source sc
   assert.match(service, /hospitalityIssuedAdjustmentNote\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId[\s\S]*sourceInvoiceId: input\.sourceInvoiceId/);
   assert.match(service, /hospitalityBookingCommercialAmendment\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
   assert.match(service, /hospitalityBookingPricingEvidence\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId[\s\S]*source: 'COMMERCIAL_AMENDMENT_TARGET'/);
+  assert.match(service, /paymentTransaction\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
   assert.doesNotMatch(service, /\bdb\./);
+});
+
+test('chain loader parses and fingerprints both supported commercial adjustment directions', () => {
+  assert.match(service, /row\.adjustmentType === 'DECREASING'/);
+  assert.match(service, /parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot/);
+  assert.match(service, /hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint/);
+  assert.match(service, /row\.adjustmentType === 'INCREASING'/);
+  assert.match(service, /parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot/);
+  assert.match(service, /hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint/);
+});
+
+test('chain settlement is re-proved stepwise from base payment truth plus issued chain amendments', () => {
+  assert.match(service, /deriveHospitalityCommercialAmendmentSettlementState/);
+  assert.match(service, /chainAmendmentIds = new Set\(amendmentIds\)/);
+  assert.match(service, /progressiveSettlementTransactions = paymentTransactions\.filter\([\s\S]*commercialAmendmentId === null/);
+  assert.match(service, /settlementTransactionsByAmendment/);
+  assert.match(service, /progressiveSettlementTransactions\.push\([\s\S]*settlementTransactionsByAmendment\.get\(amendment\.id\)/);
+  assert.match(service, /transactions: progressiveSettlementTransactions/);
 });
 
 test('write-head selection serializes one tenant booking source-invoice chain before verification', () => {
