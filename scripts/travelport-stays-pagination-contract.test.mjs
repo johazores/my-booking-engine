@@ -18,9 +18,19 @@ test('Travelport pagination follows the bounded provider contract and keeps opaq
 
 test('supplier read operations authorize the active tenant before loading encrypted provider configuration', () => {
   const service = source('src/server/suppliers/hospitality-supplier-search-service.ts');
-  const permissionIndex = service.indexOf('await requireSupplierReadAuthority');
-  const loadIndex = service.indexOf('await loadTravelportStaysIntegration');
-  assert.ok(permissionIndex >= 0 && loadIndex > permissionIndex);
+  const operationIndexes = [
+    service.indexOf('searchHospitalitySupplierProperties'),
+    service.indexOf('searchHospitalitySupplierPropertyOffers'),
+    service.indexOf('revalidateHospitalitySupplierPropertyOffer'),
+    service.indexOf('retrieveHospitalitySupplierBookingTerms'),
+  ];
+  for (const operationIndex of operationIndexes) {
+    assert.ok(operationIndex >= 0);
+    const operation = service.slice(operationIndex, service.indexOf('\n}', operationIndex) + 2);
+    const permissionIndex = operation.indexOf('await requireSupplierReadAuthority');
+    const loadIndex = operation.indexOf('await loadTravelportStaysIntegration');
+    assert.ok(permissionIndex >= 0 && loadIndex > permissionIndex);
+  }
   assert.match(service, /permission: 'availability:read'/);
   assert.match(service, /permission: 'pricing:read'/);
   assert.doesNotMatch(service, /integration:read|integration:manage/);
@@ -58,6 +68,33 @@ test('complete supplier search consumes at most five pages and does not return t
   assert.match(returnBlock, /providerCode: provider\.code/);
   assert.match(returnBlock, /pagesFetched: totalPages/);
   assert.doesNotMatch(returnBlock, /pageToken|nextPageToken/);
+});
+
+test('Travelport Rules adapter retrieves full rate-rule evidence but never opens a reservation write boundary', () => {
+  const contract = source('src/server/suppliers/hospitality-supplier-booking-terms.ts');
+  const adapter = source('src/server/suppliers/travelport-stays-booking-terms-provider.ts');
+  assert.match(contract, /HospitalitySupplierBookingTermsProvider/);
+  assert.match(contract, /completeForReservationReview: boolean/);
+  assert.match(contract, /termsFingerprint: string/);
+  assert.match(contract, /revalidationRequired: true/);
+  assert.match(adapter, /11\/hotel\//);
+  assert.match(adapter, /rules\/offershospitality\/buildfromrequest/);
+  assert.match(adapter, /bookingCode: bridge\.bookingCode/);
+  assert.match(adapter, /storedAmount: moneyMinorToMajorString/);
+  assert.match(adapter, /RoomStayCandidates/);
+  assert.match(adapter, /await this\.#pricingProvider\.revalidatePropertyOffer\(input\)/);
+  assert.match(adapter, /'TVP-Cache-Control': 'no-cache'/);
+  assert.doesNotMatch(adapter, /book\/reservations|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+});
+
+test('Rules authority remains provider-specific and is wired through the existing tenant-authorized integration loader', () => {
+  const integration = source('src/server/integrations/travelport-stays-integration.ts');
+  const service = source('src/server/suppliers/hospitality-supplier-search-service.ts');
+  assert.match(integration, /TravelportStaysBookingTermsProvider/);
+  assert.match(integration, /pricingProvider: provider/);
+  assert.match(service, /retrieveHospitalitySupplierBookingTerms/);
+  assert.match(service, /bookingTermsProvider\.retrieveBookingTerms/);
+  assert.doesNotMatch(service, /TravelportStaysBookingTermsProvider/);
 });
 
 test('supplier tests are included in the default local test command', () => {

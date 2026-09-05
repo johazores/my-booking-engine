@@ -1,5 +1,6 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
 import {
   probeTravelportStaysIntegrationHealth,
   readTravelportStaysCredentials,
@@ -67,6 +68,7 @@ export async function testTravelportStaysIntegrationConnection(input: {
 export async function loadTravelportStaysIntegration(organizationId: string): Promise<Readonly<{
   integration: Awaited<ReturnType<typeof loadActiveIntegrationCredentials>>['integration'];
   provider: TravelportStaysProvider;
+  bookingTermsProvider: TravelportStaysBookingTermsProvider;
 }>> {
   assertUuidIdentifier(organizationId, 'organizationId');
   const { integration, credentials } = await loadActiveIntegrationCredentials({
@@ -74,11 +76,18 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
     providerCode: 'travelport-stays',
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
+  const cacheKey = `${integration.id}:${integration.credentialVersion}`;
+  const provider = new TravelportStaysProvider({
+    credentials: normalizedCredentials,
+    cacheKey,
+  });
   return Object.freeze({
     integration,
-    provider: new TravelportStaysProvider({
+    provider,
+    bookingTermsProvider: new TravelportStaysBookingTermsProvider({
       credentials: normalizedCredentials,
-      cacheKey: `${integration.id}:${integration.credentialVersion}`,
+      cacheKey,
+      pricingProvider: provider,
     }),
   });
 }

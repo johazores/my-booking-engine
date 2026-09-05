@@ -59,3 +59,13 @@ export async function revalidateHospitalitySupplierPropertyOffer(input: {
   const { provider } = await loadTravelportStaysIntegration(input.organizationId);
   return provider.revalidatePropertyOffer(input.search);
 }
+
+export async function retrieveHospitalitySupplierBookingTerms(input: {
+  organizationId: string;
+  actorUserId: string;
+  search: HospitalitySupplierOfferRevalidationInput;
+}) {
+  await requireSupplierReadAuthority({ ...input, pricing: true });
+  const { bookingTermsProvider } = await loadTravelportStaysIntegration(input.organizationId);
+  return bookingTermsProvider.retrieveBookingTerms(input.search);
+}
