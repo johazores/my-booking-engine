@@ -2,15 +2,17 @@
 
 ## Purpose
 
-This document defines SF's first production external hospitality supplier boundary. The implemented read-side boundary covers complete normalized hotel discovery, exact-money SearchComplete offer pricing, mandatory fresh offer revalidation, normalized Travelport v11 Rules evidence, credential authentication, and connection health verification. Customer-facing supplier reservation, modification, and cancellation remain closed until their provider-specific write contracts are implemented end to end.
+This document defines SF's first production external hospitality supplier boundary. The implemented read-side boundary covers complete normalized hotel discovery, exact-money SearchComplete offer pricing, mandatory fresh offer revalidation, normalized Travelport v11 Rules evidence, credential authentication, and connection health verification. SF also has a provider-neutral durable reservation-operation ledger for future external writes, but no Travelport reservation create call, modification/cancellation call, or customer/staff reserve action is exposed yet.
 
 ## Provider identity and tenant ownership
 
 SF uses provider code `travelport-stays`. Each configured record is owned by exactly one organization through the existing `Integration` model and is managed through `integration:manage`. The browser cannot submit an organization ID or capability list.
 
-The server derives the implemented capability list as `availability`, `hotel-search`, and `pricing`. Migration `20260906033000_travelport-stays-pricing-capabilities` upgrades active/disabled Travelport records to that capability set while deliberately leaving archived capability history unchanged. Reservation, modification, cancellation, refund, ticketing, and flight capabilities are not advertised.
+The server currently derives the implemented Travelport capability list as `availability`, `hotel-search`, and `pricing`. Migration `20260906033000_travelport-stays-pricing-capabilities` upgrades active/disabled Travelport records to that capability set while deliberately leaving archived capability history unchanged. `reservation`, `modification`, `cancellation`, `refund`, `ticketing`, and flight capabilities are not advertised.
 
 Operational supplier reads use product permissions rather than integration-administration permissions. Property discovery requires tenant-scoped `availability:read`. Offer pricing, revalidation, and booking-rule review require both `availability:read` and `pricing:read`. All permission checks complete before the active encrypted Travelport integration is loaded, so credential access never substitutes for product authorization.
+
+The provider-neutral reservation-operation persistence service requires server-side `booking:manage`, but its claim/reconciliation boundary additionally requires the selected integration to advertise `reservation`. Because current Travelport configuration intentionally does not advertise that capability, the ledger cannot accidentally become an unimplemented provider write path.
 
 ## Credentials and token lifecycle
 
@@ -50,46 +52,51 @@ The current SearchComplete offer reference intentionally contains only the opaqu
 
 The full Rules request sends the selected property, dates, one-room occupancy, exact stored amount/currency, Travelport/Booking aggregator authority, and documented guest-count structure. Travelport Rules allows one to nine guests for this request. SF deliberately rejects multi-room Rules review today rather than inventing undocumented room-candidate semantics for the v12-to-v11 bridge; multi-room supplier booking remains a future independently verified provider capability.
 
-Rules responses are normalized into bounded SF-owned evidence:
+Rules responses are normalized into bounded SF-owned evidence: exact integer-minor base/tax/fee/total money; payment timing and recognized guarantee types; loyalty/check-in qualification requirements; structured cancellation deadlines/penalties; deposits; accepted payment-card codes; check-in/check-out times; bounded rule text; a deterministic `termsFingerprint`; `completeForReservationReview`; and `revalidationRequired: true`.
 
-- exact integer-minor base/tax/fee/total money;
-- payment timing and recognized guarantee types;
-- loyalty/check-in qualification requirements;
-- structured cancellation deadlines and amount/percent/night penalties;
-- deposit due dates and exact money;
-- accepted payment-card codes, check-in/check-out times, and bounded rule text;
-- a deterministic `termsFingerprint` over the normalized evidence;
-- `completeForReservationReview` and `revalidationRequired: true`.
+Unknown guarantee semantics never become booking authority. Unsupported cancellation-penalty structures fail closed. Successful Rules evidence is discarded unless a final no-cache `revalidatePropertyOffer` still returns `UNCHANGED` after the Rules call, closing the obvious race where the selected provider offer changes while full rules are fetched.
 
-Unknown guarantee semantics never become booking authority: they normalize to `UNKNOWN` and keep `completeForReservationReview` false. Unsupported cancellation-penalty structures fail closed. A successful Rules response is also discarded unless a final no-cache `revalidatePropertyOffer` still returns `UNCHANGED` after the Rules call. This closes the obvious race where the provider offer changes while full rules are being fetched.
+Rules evidence does not authorize or create a reservation. SF does not silently send Travelport price- or guarantee-change acceptance flags without a separately reviewed user/commercial decision.
 
-Rules evidence still does **not** authorize or create a reservation. A future reservation write must persist durable tenant-owned idempotency/recovery state, re-check provider truth, and handle provider price/guarantee changes explicitly. SF must never silently send Travelport `acceptPriceChangeInd=true` or `acceptGuaranteeChangeInd=true` without a separately reviewed user/commercial decision.
+## Durable external-write operation ledger
+
+`HospitalitySupplierReservationOperation` and `HospitalitySupplierReservationAttempt` provide the provider-neutral persistence/recovery substrate required before any Travelport create call is allowed.
+
+A prepared operation is organization-owned and bound to the selected Integration ID plus credential version. Its organization-scoped idempotency key maps to a SHA-256 request fingerprint covering the provider/property/offer authority, accepted offer fingerprint, accepted Rules fingerprint, exact money/stay/occupancy, and a required `reservationPayloadFingerprint`. The ledger stores that payload fingerprint rather than raw traveler PII, guarantee credentials, card data, provider tokens, or the future provider request body.
+
+Create/reconciliation claims use server-side `booking:manage`, tenant-scoped integration ownership, serializable transactions, advisory locks, and a fresh check that provider code, credential version, active status, and `reservation` capability still match the reviewed request. Credential/configuration changes therefore fail closed and require the commercial flow to be reviewed again.
+
+Operation states are `PREPARED`, `SUBMITTING`, `CONFIRMED`, `AMBIGUOUS`, `RECONCILING`, and `FAILED`. A known retryable failure may be claimed again. An ambiguous create may **not** be retried; it must enter reconciliation. Reconciliation can only prove `FOUND` (confirm with provider reservation reference), `NOT_FOUND` (return to prepared/safe-to-create), or `UNKNOWN` (stay ambiguous). This prevents timeout/disconnect uncertainty from creating duplicate supplier reservations.
+
+The database enforces tenant-safe integration/attempt relationships, exact-idempotency uniqueness, fingerprint/money/date/occupancy bounds, confirmed provider-reference requirements, normalized failure evidence, single-line provider metadata, and unique provider reservation references within the tenant/integration.
+
+This ledger is intentionally separate from first-party `HospitalityBooking`; external supplier inventory does not fabricate local property/room/rate/hold/allocation identifiers. See `docs/supplier-reservation-operations.md`.
 
 ## Failure and privacy contract
 
-Provider failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Only rate-limit, provider-unavailable, and timeout are retryable. Malformed provider data, forged opaque references, unsupported authority, unsafe page tokens, mixed currencies, invalid money precision, ownership mismatches, unsupported Rules shapes, and oversized/duplicate result structures fail closed.
+Provider read failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Only rate-limit, provider-unavailable, and timeout are retryable. Malformed provider data, forged opaque references, unsupported authority, unsafe page tokens, mixed currencies, invalid money precision, ownership mismatches, unsupported Rules shapes, and oversized/duplicate result structures fail closed.
 
-Raw Travelport errors, credentials, tokens, access groups, request headers/bodies, provider response bodies, pagination tokens, rate keys, booking codes, property keys, and supplier commercial data are not copied into product errors or structured request logs.
+The reservation ledger persists only normalized failure codes/retryability plus bounded provider reference/correlation evidence needed for recovery. Raw Travelport errors, credentials, tokens, access groups, request headers/bodies, provider response bodies, pagination tokens, rate keys, booking codes, property keys, traveler/customer data, guarantee/payment material, and supplier commercial payloads are not copied into audits or structured request logs.
 
 ## Management and observability
 
 `POST /api/integrations/travelport-stays` configures or rotates the tenant-owned integration. `POST /api/integrations/travelport-stays/test` performs the explicit administrator health check and records only normalized current-credential health evidence. Existing integration enable/disable/archive/reconnection semantics remain provider-neutral.
 
-Supplier discovery, pricing, revalidation, and Rules review are server services only. There is still no customer-facing external-supplier booking route, fake reservation action, or mock Travelport success path.
+Supplier discovery, pricing, revalidation, and Rules review are server services. Reservation persistence is also server-only infrastructure. There is still no customer-facing external-supplier booking route, fake reservation action, or mock Travelport success path.
 
 ## Validation boundary
 
-The supplier suite covers configuration and fixed endpoints, token request/caching/eviction, health failure normalization, SearchComplete discovery, bounded pagination, opaque identity, exact-money offer normalization, no-cache pricing, commercial fingerprints, revalidation, and Rules request/normalization/race handling. Dependency-free source contracts check permission-before-credential-load ordering, provider isolation, the Rules endpoint, final offer revalidation, and the continued absence of reservation/automatic price-or-guarantee acceptance code.
+The supplier suite covers configuration/fixed endpoints, token request/caching/eviction, health failure normalization, SearchComplete discovery/pagination/opaque identity, exact-money pricing, no-cache revalidation, commercial fingerprints, Rules request/normalization/race handling, and the new supplier reservation operation state/idempotency/privacy contract. A guarded PostgreSQL scenario is checked in for tenant isolation, exact retry, ambiguity reconciliation, durable attempt ordering, confirmation, and credential-version invalidation.
 
-Live provider validation still requires a specifically provisioned Travelport non-production account. Full migration/drift/database execution still requires the repository's explicitly disposable PostgreSQL target. Neither is claimed by source-only validation.
+Live provider validation still requires a specifically provisioned Travelport non-production account. Full Prisma migration/drift/database execution still requires the repository's explicitly disposable PostgreSQL target. Neither is claimed by source-only validation.
 
-## Remaining work before supplier reservation
+## Remaining work before supplier reservation is live
 
-1. Design durable supplier reservation persistence with tenant-owned supplier references, exact idempotency, ambiguous-outcome recovery, retry semantics, and provider-truth retrieval.
-2. Define the first supported Travelport reservation write for the already-proven single-room Rules boundary; keep provider price/guarantee change acceptance explicit and fail-closed.
-3. Only then expose a real staff/customer supplier search/selection/reserve surface with complete loading, empty, error, accessibility, and responsive states.
-4. Expand independently to verified multi-room and provider-supported retrieve/modify/cancel semantics rather than assuming they match the first reservation path.
-5. Execute live non-production provider integration tests with provisioned credentials outside source control.
+1. Implement the real Travelport single-room reservation create adapter and the provider-truth retrieval/reconciliation path, wiring every provider write outcome through the durable operation ledger.
+2. Verify the exact Travelport identifiers, correlation/recovery semantics, guarantee/payment request boundary, and explicit price/guarantee-change handling against a provisioned non-production Stays account.
+3. Advertise `reservation` only after that real provider write/retrieve contract is implemented and validated; until then current Travelport configuration stays read/pricing-only.
+4. Only then expose a real staff/customer supplier search/selection/reserve surface with complete loading, empty, error, accessibility, and responsive states.
+5. Expand independently to verified multi-room and provider-supported retrieve/modify/cancel semantics rather than assuming they match the first reservation path.
 
 ## Current Travelport references
 
@@ -98,3 +105,4 @@ Live provider validation still requires a specifically provisioned Travelport no
 - Hotel Rules full payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_RulesFullPayload.htm
 - Hotel Rules response/reference payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_RulesRefPayload.htm
 - Create Reservation full payload/change checks: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationFullPayload.htm
+- Reservation Retrieve (multi-content): https://support.travelport.com/webhelp/JSONAPIs/Airv11/Content/Air11/Book/APIRef_ReservationRetrieve.htm
