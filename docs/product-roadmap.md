@@ -148,9 +148,11 @@ Implemented:
 
 Additional provider-specific management must only be added alongside a real adapter; unsupported providers must not receive fake controls.
 
-## 16. First external supplier/GDS integration — not started
+## 16. First external supplier/GDS integration — in progress
 
-Before implementation, research the current provider architecture/API, select one provider based on product value and obtainable access, and implement only its real capabilities behind the normalized supplier contract. Required work includes authentication/token handling, normalized search/availability/pricing, reservation lifecycle where supported, rate-limit/timeout/auth/unavailable handling, correlation/idempotency, and integration coverage.
+Travelport TripServices Stays is selected and implemented behind the normalized supplier boundary for tenant-owned encrypted configuration, authentication/token reuse, health testing, bounded complete SearchComplete property discovery, exact-property offer pricing, exact integer-minor money, and mandatory no-cache offer revalidation. Supplier pricing is server-side only; no external supplier booking action is exposed.
+
+Every Travelport offer remains an observation with no trusted TTL (`validUntil: null`), deterministic normalized commercial fingerprinting, and required pre-reservation revalidation. SearchComplete terms are not treated as final rate-rule authority. The next dependency is the Travelport v11 Rules contract, followed by durable tenant-scoped reservation idempotency, ambiguous-write recovery, supplier-reference persistence, provider-truth retrieval, and only then a customer/staff reserve surface and supported reservation lifecycle.
 
 ## 17. Additional providers — later
 
