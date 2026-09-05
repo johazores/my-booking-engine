@@ -10,6 +10,7 @@ const authenticatedBookingWrites = [
   ['app/api/bookings/hospitality/[booking-id]/cancel/route.ts', 'booking.hospitality-cancellation.apply'],
   ['app/api/bookings/hospitality/[booking-id]/guests/route.ts', 'booking.hospitality-guests.update'],
   ['app/api/bookings/hospitality/[booking-id]/modify/route.ts', 'booking.hospitality-commercial-modification.apply'],
+  ['app/api/bookings/hospitality/[booking-id]/modify/preview/route.ts', 'booking.hospitality-commercial-modification.preview'],
   ['app/api/bookings/hospitality/[booking-id]/reschedule/route.ts', 'booking.hospitality-reschedule.apply'],
   ['app/api/bookings/hospitality/[booking-id]/commercial-amendments/route.ts', 'booking.hospitality-commercial-amendment.prepare'],
   ['app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/apply/route.ts', 'booking.hospitality-commercial-amendment.apply'],

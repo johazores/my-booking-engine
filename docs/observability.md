@@ -28,6 +28,7 @@ Current authenticated hospitality booking operations are:
 - `booking.hospitality-cancellation.apply`;
 - `booking.hospitality-guests.update`;
 - `booking.hospitality-commercial-modification.apply`;
+- `booking.hospitality-commercial-modification.preview`;
 - `booking.hospitality-reschedule.apply`;
 - `booking.hospitality-commercial-amendment.prepare`;
 - `booking.hospitality-commercial-amendment.apply`;
