@@ -6,6 +6,7 @@ const operations = [
   'customer.create',
   'customer.update',
   'customer.archive',
+  'customer.deidentify',
   'pricing.addon.create',
   'pricing.addon.archive',
   'pricing.base-rate.create',

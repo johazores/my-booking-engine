@@ -48,6 +48,7 @@ Customer lifecycle:
 - `customer.create`
 - `customer.update`
 - `customer.archive`
+- `customer.deidentify`
 
 Hospitality inventory management:
 

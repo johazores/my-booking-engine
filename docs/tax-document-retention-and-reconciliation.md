@@ -26,7 +26,7 @@ Reconciliation never mutates issued documents, payment state, booking state, pro
 
 ## Australian record-retention and privacy references
 
-ATO GST guidance describes record-retention periods that can extend beyond five years when an assessment period of review or a refreshed review period remains relevant. SF therefore treats five years as a minimum record-keeping reference only, not as automatic disposal authority.
+ATO GST guidance in GSTR 2006/3 describes a record-retention period that can extend beyond five years when an assessment period of review or a refreshed review period remains relevant. SF therefore treats five years as a minimum record-keeping reference only, not as automatic disposal authority.
 
 Australian Privacy Principle 11 separately requires covered entities to consider whether they are still permitted to retain personal information and, subject to legal-retention exceptions, to take reasonable steps to destroy or de-identify personal information that is no longer needed. SF's current bookingless customer-profile workflow is only one narrow lifecycle boundary; booking-linked copies and legally retained records remain subject to tenant legal/privacy review.
 
@@ -36,4 +36,4 @@ Run reconciliation after material tax-document migrations, before accounting exp
 
 ## Remaining legal-document work
 
-The current reconciliation boundary includes increasing/decreasing mixed-direction commercial adjustments and terminal cancellation after commercial amendments. Remaining work includes mixed/partial/non-standard-GST adjustment rules, generic correction/void/reissue, broader booking-linked customer-data disposal/de-identification beyond the safe bookingless customer-profile boundary, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, and legal review.
+The current reconciliation boundary now includes increasing/decreasing mixed-direction commercial adjustments and terminal cancellation after commercial amendments. Remaining work includes mixed/partial/non-standard-GST adjustment rules, generic correction/void/reissue, broader booking-linked customer-data disposal/de-identification beyond the safe bookingless customer-profile boundary, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, and legal review.
