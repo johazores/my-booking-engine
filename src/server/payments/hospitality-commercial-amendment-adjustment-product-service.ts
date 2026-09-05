@@ -139,21 +139,9 @@ async function inspectSourceAdjustmentState(input: AvailabilityInput, sourceInvo
       );
     }
 
-    const increasingCount = await transaction.hospitalityIssuedAdjustmentNote.count({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-        sourceInvoiceId: sourceInvoice.id,
-        adjustmentReason: 'COMMERCIAL_AMENDMENT',
-        adjustmentType: 'INCREASING',
-      },
-    });
-
     return Object.freeze({
       kind: 'COMMERCIAL_CHAIN' as const,
       latestDocumentNumber: chain.head.documentNumber,
-      headAdjustmentType: chain.head.adjustmentType,
-      containsIncreasing: increasingCount > 0,
     });
   }, { isolationLevel: 'Serializable' });
 }
@@ -172,9 +160,17 @@ async function inspectUniqueAppliedBaselineCandidate(
         documentType: 'TAX_INVOICE',
         documentNumber: sourceInvoiceDocumentNumber,
       },
-      select: { issuedAt: true },
+      select: { id: true, issuedAt: true },
     });
     if (!sourceInvoice) throw new HospitalityCommercialAmendmentAdjustmentNoteUnavailableError();
+
+    const chain = await loadProductVerifiedChain({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      sourceInvoiceId: sourceInvoice.id,
+    });
+    const legalBaselineIssuedAt = chain.head?.issuedAt ?? sourceInvoice.issuedAt;
 
     const amendment = await transaction.hospitalityBookingCommercialAmendment.findFirst({
       where: {
@@ -193,7 +189,7 @@ async function inspectUniqueAppliedBaselineCandidate(
         appliedAt: true,
       },
     });
-    if (!amendment?.appliedAt || amendment.appliedAt.getTime() < sourceInvoice.issuedAt.getTime()) {
+    if (!amendment?.appliedAt || amendment.appliedAt.getTime() < legalBaselineIssuedAt.getTime()) {
       return null;
     }
 
@@ -207,7 +203,7 @@ async function inspectUniqueAppliedBaselineCandidate(
         currency: amendment.currency,
         beforeTotalMinor: amendment.beforeTotalMinor,
         beforePricingFingerprint: amendment.beforePricingFingerprint,
-        appliedAt: { gte: sourceInvoice.issuedAt },
+        appliedAt: { gte: legalBaselineIssuedAt },
       },
     });
 
@@ -286,46 +282,32 @@ export async function getHospitalityNextCommercialAmendmentAdjustmentNoteAvailab
     });
   }
 
-  const canEvaluateDecreasing = sourceState.kind === 'EMPTY'
-    || (sourceState.kind === 'COMMERCIAL_CHAIN' && !sourceState.containsIncreasing);
-  let decreasing: Awaited<ReturnType<typeof getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability>>
-    | null = null;
-  if (canEvaluateDecreasing) {
-    decreasing = await getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability({
-      ...input,
+  const decreasing = await getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability({
+    ...input,
+    sourceInvoiceDocumentNumber,
+  });
+  if (decreasing.available) {
+    const candidate = await inspectUniqueAppliedBaselineCandidate(
+      input,
       sourceInvoiceDocumentNumber,
-    });
-    if (decreasing.available) {
-      const candidate = await inspectUniqueAppliedBaselineCandidate(
-        input,
-        sourceInvoiceDocumentNumber,
-        decreasing.commercialAmendmentId,
+      decreasing.commercialAmendmentId,
+    );
+    if (!candidate || candidate.direction !== 'REFUND') {
+      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+        'Decreasing adjustment availability no longer matches persisted commercial-amendment authority.',
       );
-      if (!candidate || candidate.direction !== 'REFUND') {
-        throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
-          'Decreasing adjustment availability no longer matches persisted commercial-amendment authority.',
-        );
-      }
-      if (!candidate.unique) {
-        return Object.freeze({
-          available: false as const,
-          reason: 'Multiple applied commercial amendments compete for the current legal price baseline.',
-          latestDocumentNumber: decreasing.latestDocumentNumber,
-        });
-      }
-      return Object.freeze({ ...decreasing, adjustmentType: 'DECREASING' as const });
     }
+    if (!candidate.unique) {
+      return Object.freeze({
+        available: false as const,
+        reason: 'Multiple applied commercial amendments compete for the current legal price baseline.',
+        latestDocumentNumber: decreasing.latestDocumentNumber,
+      });
+    }
+    return Object.freeze({ ...decreasing, adjustmentType: 'DECREASING' as const });
   }
 
   if (sourceState.kind === 'COMMERCIAL_CHAIN') {
-    if (sourceState.containsIncreasing && sourceState.headAdjustmentType === 'DECREASING') {
-      return Object.freeze({
-        available: false as const,
-        reason: 'Decrease-after-increase commercial adjustment lifecycle is not supported yet.',
-        latestDocumentNumber: sourceState.latestDocumentNumber,
-      });
-    }
-
     const repeatedIncreasing = await getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability({
       ...input,
       sourceInvoiceDocumentNumber,
@@ -339,7 +321,7 @@ export async function getHospitalityNextCommercialAmendmentAdjustmentNoteAvailab
 
     return Object.freeze({
       available: false as const,
-      reason: decreasing && !decreasing.available ? decreasing.reason : repeatedIncreasing.reason,
+      reason: decreasing.reason,
       latestDocumentNumber: sourceState.latestDocumentNumber,
     });
   }

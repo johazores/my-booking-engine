@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SF supports a deliberately narrow Australian hospitality increasing-adjustment contract after an Australian tax invoice has been issued. Reachable production issuance now covers the first `ADDITIONAL_CHARGE` adjustment and a later supported increasing adjustment whose legal baseline is the complete verified commercial adjustment-note chain head.
+SF supports a deliberately narrow Australian hospitality increasing-adjustment contract after an Australian tax invoice has been issued. Reachable production issuance covers the first `ADDITIONAL_CHARGE` adjustment and later supported increasing adjustments whose legal baseline is the complete verified commercial adjustment-note chain head.
 
 The contract remains AU/AUD and fully taxable standard GST. Browser/provider input cannot supply GST, legal money, pricing fingerprints, settlement truth, numbering, sequence, issue time, legal direction, ordinal, or predecessor authority.
 
@@ -25,7 +25,7 @@ If prior documents exist but their verified chain evidence is not supplied, read
 The shared tenant-scoped commercial adjustment chain parses and verifies both decreasing and increasing immutable documents:
 
 - schema version 2: first decreasing commercial adjustment;
-- schema version 3: repeated decreasing commercial adjustment;
+- schema version 3: repeated decreasing commercial adjustment, including a decrease after an increasing predecessor;
 - schema version 4: first increasing commercial adjustment;
 - schema version 5: repeated increasing commercial adjustment.
 
@@ -39,7 +39,7 @@ Schema version 4 remains the first-increasing immutable document contract at sou
 
 Schema version 5 defines a repeated increasing commercial adjustment at ordinal `2+`. It freezes the immediate predecessor adjustment-note id, prior ordinal, document number, issue time, document fingerprint, and predecessor after-pricing fingerprint. PostgreSQL admits schema version 5 only for `INCREASING / COMMERCIAL_AMENDMENT` rows with exact predecessor-ordinal continuity, zero decrease evidence, positive increase evidence, and before-pricing continuity.
 
-Existing schema-version-1 cancellation, schema-version-2/3 decreasing-commercial, and schema-version-4 first-increasing evidence remain accepted by the database contract.
+Existing schema-version-1 cancellation, schema-version-2/3 decreasing-commercial, and schema-version-4 first-increasing evidence remain accepted by the database contract. A schema-version-3 decreasing row can follow an increasing predecessor because predecessor direction is proved by the shared chain authority rather than hard-coded into the repeated-decrease persistence shape.
 
 ## Product reachability
 
@@ -49,16 +49,16 @@ Repeated increasing issuance is product-reachable only through server-derived ch
 
 Before returning the action, the service re-parses the immutable target-pricing breakdown, derives provider-neutral settlement, re-runs cumulative increasing readiness with the complete predecessor set, and requires the returned ordinal, predecessor id, document number and document fingerprint to equal the verified chain head. The schema-version-5 writer repeats authority checks under its serializable transaction and advisory chain lock before persistence.
 
-A decreasing chain can therefore transition to one supported increasing step, and an increasing head can receive another increasing step. Decrease-after-increase and cancellation-after-amendment remain deliberately closed.
+The shared product boundary now evaluates decreasing readiness against any verified commercial chain before falling back to repeated increasing readiness. This means an increasing head can receive a later supported `REFUND` through the schema-version-3 repeated-decrease writer, while a chain with no supported decrease can continue increasing through schema version 5. Current-baseline cross-direction ambiguity still fails closed.
 
-Authenticated/public detail and history, accounting, reconciliation, HTML and deterministic PDF surfaces already consume the shared schema-version-2-through-5 authority, so a schema-version-5 row is not exposed unless the complete legal chain independently verifies.
+Authenticated/public detail and history, accounting, reconciliation, HTML and deterministic PDF surfaces consume the shared schema-version-2-through-5 authority, so no mixed-direction row is exposed unless the complete legal chain independently verifies.
 
 ## Validation boundary
 
-Dependency-free domain/source-contract coverage includes first increasing, decrease-to-increase, increase-to-increase, direction/schema mismatches, predecessor fingerprint drift, duplicate immutable authority, target-evidence drift, mutually exclusive effect columns, chronology, settlement failure, server-only candidate selection, browser-authority exclusion, and repeated-increasing product dispatch.
+Dependency-free domain/source-contract coverage includes first increasing, decrease-to-increase, increase-to-increase, increase-to-decrease readiness, mixed-direction predecessor continuity, direction/schema mismatches, predecessor fingerprint drift, duplicate immutable authority, target-evidence drift, mutually exclusive effect columns, chronology, settlement failure, server-only candidate selection, browser-authority exclusion, and repeated-increasing product dispatch.
 
 Full repository validation still requires the supported Node 24 dependency checkout and an explicitly disposable PostgreSQL target. GitHub Actions are not used.
 
 ## Remaining production boundary
 
-Decrease-after-increase semantics, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, full Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate production work.
+Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, full Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review remain separate production work.

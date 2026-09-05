@@ -126,21 +126,25 @@ function samePrice(
   );
 }
 
-function decreasingStandardGstEffect(
+function absoluteMinor(value: bigint) {
+  return value < 0n ? -value : value;
+}
+
+function standardGstAdjustmentEffect(
   before: AustralianCommercialAmendmentAdjustmentPrice,
   after: AustralianCommercialAmendmentAdjustmentPrice,
 ) {
-  const decreaseTotalMinor = before.totalMinor - after.totalMinor;
-  const decreaseTaxMinor = before.taxTotalMinor - after.taxTotalMinor;
-  const decreaseSubtotalMinor = decreaseTotalMinor - decreaseTaxMinor;
+  const adjustmentTotalMinor = absoluteMinor(before.totalMinor - after.totalMinor);
+  const adjustmentTaxMinor = absoluteMinor(before.taxTotalMinor - after.taxTotalMinor);
+  const adjustmentSubtotalMinor = adjustmentTotalMinor - adjustmentTaxMinor;
   return (
     standardGstPrice(before)
     && standardGstPrice(after)
-    && decreaseTotalMinor > 0n
-    && decreaseTaxMinor > 0n
-    && decreaseSubtotalMinor > 0n
-    && decreaseSubtotalMinor + decreaseTaxMinor === decreaseTotalMinor
-    && decreaseTaxMinor * 11n === decreaseTotalMinor
+    && adjustmentTotalMinor > 0n
+    && adjustmentTaxMinor > 0n
+    && adjustmentSubtotalMinor > 0n
+    && adjustmentSubtotalMinor + adjustmentTaxMinor === adjustmentTotalMinor
+    && adjustmentTaxMinor * 11n === adjustmentTotalMinor
   );
 }
 
@@ -204,7 +208,7 @@ function resolveVerifiedPriorAdjustmentChain(input: {
       || documentNumbers.has(documentNumber)
       || documentFingerprints.has(documentFingerprint)
       || !samePrice(expectedBefore, entry.before)
-      || !decreasingStandardGstEffect(entry.before, entry.after)
+      || !standardGstAdjustmentEffect(entry.before, entry.after)
     ) {
       return Object.freeze({ valid: false as const, reason: 'CHAIN_INVALID' as const });
     }

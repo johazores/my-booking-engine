@@ -4,7 +4,7 @@
 
 SF has server-side readiness, issuance, read, PDF, accounting, reconciliation and public-delivery contracts for first and repeated Australian hospitality commercial-amendment decreasing adjustments. Repeated documents use the same immutable source invoice and a verified linear predecessor chain; no browser/provider response can invent the legal baseline.
 
-The product shares a direction-aware commercial-adjustment boundary with supported increasing adjustments while the decreasing readiness/chain contract remains independently fail closed.
+The product shares a direction-aware commercial-adjustment boundary with supported increasing adjustments. A supported commercial chain may now alternate between decreasing and increasing steps when every predecessor and current step independently satisfies the narrow AU/AUD fully taxable standard-GST authority contract.
 
 ## Authority
 
@@ -16,9 +16,9 @@ Readiness and issuance require `payment:manage`. Authenticated legal-document re
 
 For the first adjustment, the amendment before-price must exactly equal the immutable source tax invoice and the after-price must equal exactly one immutable `COMMERCIAL_AMENDMENT_TARGET` pricing-evidence record.
 
-For a later decreasing adjustment, the complete verified predecessor set must be contiguous, unique, chronologically monotonic, standard-GST decreasing and price-continuous from the source invoice through the new amendment before-price. A valid result returns the exact next source ordinal and immediate predecessor identity.
+For a later decreasing adjustment, the complete verified predecessor set must be contiguous, unique, chronologically monotonic, standard-GST and price-continuous from the source invoice through the new amendment before-price. A predecessor step may be decreasing or increasing; its direction/schema authority is proved by the shared legal-chain verifier before readiness receives the chain. A valid result returns the exact next source ordinal and immediate predecessor identity.
 
-A later decrease is intentionally not offered once an increasing commercial adjustment exists. Decrease-after-increase semantics require a separate reviewed lifecycle contract.
+The current candidate itself remains strictly decreasing: it must be one exact applied `REFUND`, have a negative delta that equals the before-to-after reduction, preserve standard GST and reconcile fully to the provider-neutral settlement position.
 
 ## Persisted and verified chain
 
@@ -28,13 +28,13 @@ A later decrease is intentionally not offered once an increasing commercial adju
 
 ## Product availability and issuance
 
-The decreasing orchestration derives the current legal baseline, searches only applied `REFUND` amendments beginning at that baseline, requires one exact target-pricing row, derives settlement from the complete booking ledger and re-runs cumulative readiness. Returned ordinal/predecessor authority is server-derived.
+The decreasing orchestration derives the current legal baseline from the complete verified chain head, searches only applied `REFUND` amendments beginning at that baseline, requires one exact target-pricing row, derives settlement from the complete booking ledger and re-runs cumulative readiness. Returned ordinal/predecessor authority is server-derived.
 
-The shared `hospitality-commercial-amendment-adjustment-product-service.ts` wraps that decreasing orchestration without weakening it. While no increasing history exists, decreasing availability keeps priority. When decreasing availability succeeds, the product boundary verifies the selected persisted candidate still has `REFUND` direction and checks for another applied refund/additional-charge amendment sharing that baseline before exposing the action. It returns `adjustmentType = DECREASING` only as server-derived display/orchestration data.
+The shared `hospitality-commercial-amendment-adjustment-product-service.ts` wraps that decreasing orchestration without weakening it. Decreasing availability is evaluated against an empty source or any verified commercial chain, including a chain whose current head is increasing. When decreasing availability succeeds, the product boundary verifies the selected persisted candidate still has `REFUND` direction and checks for another applied refund/additional-charge amendment sharing the current legal baseline before exposing the action. The ambiguity sweep is bounded by the verified chain-head issue time rather than the original invoice issue time, so historical amendments from an earlier identical price point cannot become current authority.
 
-If a verified commercial chain has no supported next decrease, the same product boundary can select a repeated increasing `ADDITIONAL_CHARGE` against the verified chain head through the increasing readiness contract. This supports decrease-to-increase without making decrease-after-increase reachable.
+If no supported decrease is available for an existing verified commercial chain, the same product boundary can select a repeated increasing `ADDITIONAL_CHARGE` against the verified chain head through the increasing readiness contract. This permits supported alternating commercial directions while continuing to reject same-baseline competing authority.
 
-`issueHospitalityNextCommercialAmendmentAdjustmentNote` requires the requested route amendment id to equal the unique server-derived candidate. Decreasing writes delegate to the existing first/repeated writer selection; exact retries prove the existing document belongs to the complete source chain.
+`issueHospitalityNextCommercialAmendmentAdjustmentNote` requires the requested route amendment id to equal the unique server-derived candidate. Decreasing writes delegate to the existing first/repeated writer selection; ordinal `2+` decreases use schema version 3 and bind the immediate verified predecessor regardless of whether that predecessor was decreasing or increasing. Exact retries prove the existing document belongs to the complete source chain.
 
 The route request body contains only `sourceInvoiceDocumentNumber`. Browser input cannot select writer, direction, ordinal or predecessor.
 
@@ -46,4 +46,4 @@ Authenticated/public HTML and deterministic PDF routes reuse those verified read
 
 ## Remaining boundaries
 
-Increasing issuance is documented separately in `docs/australian-commercial-amendment-increasing-adjustment-readiness.md`. Decrease-after-increase, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication/email delivery, Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/Prisma/PostgreSQL execution and jurisdiction/legal review remain separate contracts.
+Increasing issuance is documented separately in `docs/australian-commercial-amendment-increasing-adjustment-readiness.md`. Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, durable customer re-authentication/email delivery, Unicode-safe PDF rendering, reviewed disposal/de-identification, production Node 24/Prisma/PostgreSQL execution and jurisdiction/legal review remain separate contracts.

@@ -1,6 +1,6 @@
 # Australian adjustment-note authority
 
-SF treats an issued Australian adjustment note as immutable legal evidence. Reachable issuance supports full booking-cancellation decreases, cumulative strictly decreasing commercial amendments, and supported cumulative increasing commercial amendments under the narrow AU/AUD fully taxable standard-GST contract.
+SF treats an issued Australian adjustment note as immutable legal evidence. Reachable issuance supports full booking-cancellation decreases and direction-aware cumulative commercial amendments under the narrow AU/AUD fully taxable standard-GST contract.
 
 ## Reachable authority
 
@@ -10,7 +10,7 @@ SF treats an issued Australian adjustment note as immutable legal evidence. Reac
 - first `INCREASING / COMMERCIAL_AMENDMENT`: exact applied `ADDITIONAL_CHARGE` amendment plus immutable target pricing and complete settlement, no prior adjustment note, schema version 4 / ordinal `1`.
 - repeated `INCREASING / COMMERCIAL_AMENDMENT`: one unique applied `ADDITIONAL_CHARGE` whose before-price is the verified current legal chain head, plus immutable target pricing, complete settlement, and immediate-predecessor authority, schema version 5 / ordinal `2+`.
 
-A decreasing commercial chain may be followed by an increasing adjustment, and an increasing chain head may be followed by another increasing adjustment. Once an increasing adjustment exists, a later decrease remains fail closed. Cancellation cannot follow a commercial-amendment chain. The original tax invoice is never rewritten.
+Supported commercial-amendment chains may move decrease-to-increase, increase-to-increase, increase-to-decrease, or continue decreasing as long as every new step begins at the verified current legal chain head and independently satisfies its directional authority. Cancellation still cannot follow a commercial-amendment chain. The original tax invoice is never rewritten.
 
 ## Direction-aware commercial chain authority
 
@@ -24,17 +24,23 @@ Rows fail closed on mixed legal reasons, unsupported directions/schema versions,
 
 Repeated writes select the verified chain head under the existing tenant/booking/source PostgreSQL transaction advisory lock.
 
-## Repeated-increasing authority
+## Direction-aware repeated authority
+
+Schema version 3 freezes a repeated decreasing document's immediate predecessor authority at ordinal `2+`; the predecessor may itself be decreasing or increasing because the complete shared chain verifier proves its direction/schema and exact after-price before the new `REFUND` can use that price as its legal baseline.
 
 Schema version 5 freezes a repeated increasing document's immediate predecessor id, previous ordinal, document number, issue time, document fingerprint, predecessor after-pricing fingerprint, and exact positive increase effect. PostgreSQL accepts that immutable shape only for an ordinal `2+` `INCREASING / COMMERCIAL_AMENDMENT` row whose material predecessor ordinal is exactly one less.
 
 `issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote` requires `payment:manage`, selects the verified chain head under the advisory lock, rejects cross-direction same-baseline ambiguity, re-runs cumulative readiness and settlement, allocates the shared AU adjustment-note sequence, persists exact schema-version-5 predecessor-bound evidence, reloads the complete chain, and audits the issuance. Idempotent retries accept only an exact predecessor-bound schema-version-5 increasing row whose immutable snapshot and fingerprint still reconcile.
 
+The repeated decreasing writer follows the same chain-head authority pattern for schema version 3 and now accepts a verified increasing predecessor when the new applied `REFUND`, immutable target pricing, standard-GST decrease, chronology, and provider-neutral settlement all reconcile to that head.
+
 ## Direction-aware product boundary
 
 `hospitality-commercial-amendment-adjustment-product-service.ts` is the route/UI authority for commercial-amendment adjustment notes. It requires `payment:manage`, tenant- and booking-scopes the source invoice, preserves cancellation priority, derives direction only from persisted commercial amendments, verifies any existing commercial history through the complete legal chain, and rejects same-baseline ambiguity across `REFUND` and `ADDITIONAL_CHARGE` before offering an action.
 
-When no increasing adjustment exists, supported decreasing issuance keeps priority. If a verified commercial chain has no supported next decrease, `getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability` selects exactly one applied `ADDITIONAL_CHARGE` against the verified chain-head after-price, re-parses its immutable target pricing, derives provider-neutral settlement, re-runs cumulative increasing readiness, and requires the server-derived ordinal and predecessor identity to match the verified head. The product service dispatches ordinal `1` to the schema-version-4 writer and ordinal `2+` to the schema-version-5 writer.
+The product boundary evaluates decreasing readiness against the current verified legal baseline even when earlier increasing documents exist. If no supported decrease is available for an existing commercial chain, `getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability` selects exactly one applied `ADDITIONAL_CHARGE` against the verified chain-head after-price, re-parses its immutable target pricing, derives provider-neutral settlement, re-runs cumulative increasing readiness, and requires the server-derived ordinal and predecessor identity to match the verified head. The product service dispatches first/repeated decreasing writes to schema versions 2/3 and increasing ordinal `1`/`2+` to schema versions 4/5.
+
+Same-baseline ambiguity is checked only against amendments applied on or after the current verified legal baseline issue time. This prevents a stale historical amendment from an earlier identical price point from competing with the current legal step while preserving fail-closed current-baseline competition.
 
 Existing issuance retries return only after the referenced commercial-amendment document is proven to belong to the complete tenant/source legal chain. A customer or browser cannot select a different legal step by replaying an amendment id.
 
@@ -50,4 +56,4 @@ Authenticated detail/register/accounting reads and public capability history use
 
 ## Remaining boundary
 
-Decrease-after-increase and broader unsupported direction transitions, cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, other jurisdictions, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production execution, and jurisdiction/legal review remain separate production work and fail closed until implemented.
+Cancellation-after-amendment semantics, mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, other jurisdictions, durable customer re-authentication and email/resend, universal Unicode-safe PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL production execution, and jurisdiction/legal review remain separate production work and fail closed until implemented.

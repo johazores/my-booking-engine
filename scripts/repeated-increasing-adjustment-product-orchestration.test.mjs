@@ -22,7 +22,8 @@ test('product availability verifies existing commercial history before deriving 
   assert.match(product, /adjustmentReason: \{ not: 'COMMERCIAL_AMENDMENT' \}/);
   assert.match(product, /commercialCount === 0/);
   assert.match(product, /chain\.priorAdjustmentNoteCount !== commercialCount/);
-  assert.match(product, /containsIncreasing: increasingCount > 0/);
+  assert.match(product, /latestDocumentNumber: chain\.head\.documentNumber/);
+  assert.doesNotMatch(product, /containsIncreasing/);
 });
 
 test('repeated increasing availability selects exactly one applied amendment on the verified chain-head baseline', () => {
@@ -49,16 +50,26 @@ test('repeated increasing availability re-proves immutable target pricing, settl
   assert.match(repeatedAvailability, /isolationLevel: 'Serializable'/);
 });
 
-test('product orchestration preserves decreasing priority but exposes repeated increasing through server-derived ordinal only', () => {
+test('product orchestration evaluates decreasing readiness for any verified commercial chain before increasing fallback', () => {
   assert.match(product, /getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability/);
   assert.match(product, /getHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNoteAvailability/);
-  assert.match(product, /sourceState\.containsIncreasing && sourceState\.headAdjustmentType === 'DECREASING'/);
+  const decreasingIndex = product.indexOf('const decreasing = await getHospitalityNextDecreasingCommercialAmendmentAdjustmentNoteAvailability');
+  const commercialFallbackIndex = product.indexOf("if (sourceState.kind === 'COMMERCIAL_CHAIN')");
+  assert.ok(decreasingIndex >= 0 && commercialFallbackIndex > decreasingIndex);
+  assert.doesNotMatch(product, /Decrease-after-increase commercial adjustment lifecycle is not supported yet/);
+  assert.doesNotMatch(product, /sourceState\.containsIncreasing/);
   assert.match(product, /adjustmentType: 'INCREASING' as const/);
   assert.match(product, /availability\.sourceAdjustmentOrdinal > 1/);
   assert.match(product, /issueHospitalityRepeatedCommercialAmendmentIncreasingAdjustmentNote/);
   assert.doesNotMatch(product, /input\.adjustmentType/);
   assert.doesNotMatch(product, /input\.sourceAdjustmentOrdinal/);
   assert.doesNotMatch(product, /input\.predecessorAdjustmentNoteId/);
+});
+
+test('same-baseline ambiguity is scoped to the verified current legal baseline instead of the original invoice date', () => {
+  assert.match(product, /const legalBaselineIssuedAt = chain\.head\?\.issuedAt \?\? sourceInvoice\.issuedAt/);
+  assert.match(product, /amendment\.appliedAt\.getTime\(\) < legalBaselineIssuedAt\.getTime\(\)/);
+  assert.match(product, /appliedAt: \{ gte: legalBaselineIssuedAt \}/);
 });
 
 test('exact issuance retry returns only an adjustment already proven inside the complete tenant/source legal chain', () => {
@@ -70,7 +81,6 @@ test('exact issuance retry returns only an adjustment already proven inside the 
   assert.match(product, /verifiedExisting\.sourceAdjustmentOrdinal !== existing\.sourceAdjustmentOrdinal/);
   assert.match(product, /if \(existing\) return existing;/);
 });
-
 
 test('tax-invoice action treats repeated increasing ordinal as display state and keeps legal authority out of the request body', () => {
   assert.match(action, /const repeated = sourceAdjustmentOrdinal > 1/);
