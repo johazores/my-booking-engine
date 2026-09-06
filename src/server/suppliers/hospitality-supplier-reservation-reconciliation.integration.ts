@@ -175,43 +175,50 @@ test('supplier reconciliation preserves known locator authority and durable supp
     assert.equal(safeToRetry.providerReservationReference, null);
     assert.equal(safeToRetry.supplierConfirmationReference, null);
 
-    const mismatchOperation = await prepare('supplier:reconcile:mismatch');
-    await makeAmbiguous(mismatchOperation.id, 'TVPT-EXPECTED-001');
-    await assert.rejects(
-      reconciliation.reconcileHospitalitySupplierReservationWithProvider({
-        organizationId: tenantA.id,
-        actorUserId: tenantAAdmin.id,
-        reservationId: mismatchOperation.id,
-        provider: {
-          code: 'travelport-stays',
-          async retrieveReservation() {
-            return {
-              status: 'FOUND' as const,
-              providerReservationReference: 'TVPT-DIFFERENT-001',
-              supplierConfirmationReference: 'SUPPLIER-DIFFERENT-001',
-              providerCorrelationId: 'trace-mismatch',
-            };
-          },
-        },
-      }),
-      /does not match the known provider reservation reference/i,
-    );
-    const mismatchCurrent = await db.hospitalitySupplierReservationOperation.findUniqueOrThrow({ where: { id: mismatchOperation.id } });
-    assert.equal(mismatchCurrent.status, 'RECONCILING');
-    const mismatchAttempt = await db.hospitalitySupplierReservationAttempt.findFirstOrThrow({
-      where: { reservationId: mismatchOperation.id, organizationId: tenantA.id, status: 'STARTED', kind: 'RECONCILE' },
-    });
-    await reservations.settleHospitalitySupplierReservationReconciliation({
+    const mismatchFoundOperation = await prepare('supplier:reconcile:mismatch-found');
+    await makeAmbiguous(mismatchFoundOperation.id, 'TVPT-EXPECTED-FOUND-001');
+    const mismatchedFound = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
-      reservationId: mismatchOperation.id,
-      attemptId: mismatchAttempt.id,
-      outcome: {
-        status: 'FOUND',
-        providerReservationReference: 'TVPT-EXPECTED-001',
-        supplierConfirmationReference: 'SUPPLIER-EXPECTED-001',
+      reservationId: mismatchFoundOperation.id,
+      provider: {
+        code: 'travelport-stays',
+        async retrieveReservation() {
+          return {
+            status: 'FOUND' as const,
+            providerReservationReference: 'TVPT-DIFFERENT-FOUND-001',
+            supplierConfirmationReference: 'SUPPLIER-DIFFERENT-001',
+            providerCorrelationId: 'trace-mismatch-found',
+          };
+        },
       },
     });
+    assert.equal(mismatchedFound.status, 'AMBIGUOUS');
+    assert.equal(mismatchedFound.providerReservationReference, 'TVPT-EXPECTED-FOUND-001');
+    assert.equal(mismatchedFound.supplierConfirmationReference, null);
+    assert.equal(mismatchedFound.lastFailureCode, 'INVALID_RESPONSE');
+
+    const mismatchNotFoundOperation = await prepare('supplier:reconcile:mismatch-not-found');
+    await makeAmbiguous(mismatchNotFoundOperation.id, 'TVPT-EXPECTED-NOT-FOUND-001');
+    const mismatchedNotFound = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: mismatchNotFoundOperation.id,
+      provider: {
+        code: 'travelport-stays',
+        async retrieveReservation() {
+          return {
+            status: 'NOT_FOUND' as const,
+            providerReservationReference: 'TVPT-DIFFERENT-NOT-FOUND-001',
+            providerCorrelationId: 'trace-mismatch-not-found',
+          };
+        },
+      },
+    });
+    assert.equal(mismatchedNotFound.status, 'AMBIGUOUS');
+    assert.equal(mismatchedNotFound.providerReservationReference, 'TVPT-EXPECTED-NOT-FOUND-001');
+    assert.equal(mismatchedNotFound.supplierConfirmationReference, null);
+    assert.equal(mismatchedNotFound.lastFailureCode, 'INVALID_RESPONSE');
 
     const tenantOperation = await prepare('supplier:reconcile:tenant-order');
     await makeAmbiguous(tenantOperation.id, 'TVPT-TENANT-001');
