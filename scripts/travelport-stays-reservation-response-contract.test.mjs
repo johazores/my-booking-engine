@@ -22,16 +22,18 @@ test('Travelport retrieve and future create share one privacy-minimal reservatio
   assert.doesNotMatch(parser, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
 });
 
-test('the response evidence slice cannot make Travelport reservation creation reachable', async () => {
+test('response evidence durability cannot make Travelport reservation creation reachable', async () => {
   const parser = await source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const recovery = await source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   const docs = await source('docs/travelport-reservation-response-evidence.md');
+  const schema = await source('prisma/hospitality-supplier-reservations.prisma');
 
   for (const value of [parser, recovery]) {
     assert.doesNotMatch(value, /book\/reservations\/build/);
     assert.doesNotMatch(value, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
   }
-  assert.match(docs, /not a reservation-create capability/i);
-  assert.match(docs, /does not yet persist the supplier confirmation reference/i);
+  assert.match(schema, /supplierConfirmationReference\s+String\?/);
+  assert.match(docs, /supplier reservation ledger now persists the optional supplier confirmation reference/i);
+  assert.match(docs, /no Travelport reservation POST/i);
   assert.match(docs, /PCI-safe form-of-payment\/guarantee strategy/i);
 });

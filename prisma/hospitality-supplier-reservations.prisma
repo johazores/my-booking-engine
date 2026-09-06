@@ -21,38 +21,39 @@ enum HospitalitySupplierReservationAttemptStatus {
 }
 
 model HospitalitySupplierReservationOperation {
-  id                           String                                         @id @default(uuid()) @db.Uuid
-  organizationId               String                                         @db.Uuid
-  integrationId                String                                         @db.Uuid
-  integrationCredentialVersion Int
-  idempotencyKey               String                                         @db.VarChar(120)
-  requestFingerprint           String                                         @db.Char(64)
-  requestFingerprintVersion    Int?                                           @default(2)
-  providerCode                 String                                         @db.VarChar(64)
-  supplierPropertyReference    String                                         @db.VarChar(4096)
-  supplierOfferReference       String                                         @db.VarChar(4096)
-  offerFingerprint             String                                         @db.Char(64)
-  termsFingerprint             String                                         @db.Char(64)
-  reservationPayloadFingerprint String                                        @db.Char(64)
-  currency                     String                                         @db.Char(3)
-  expectedTotalMinor           BigInt                                         @db.BigInt
-  arrivalDate                  DateTime                                       @db.Date
-  departureDate                DateTime                                       @db.Date
-  rooms                        Int
-  adults                       Int
-  childAges                    Int[]
-  status                       HospitalitySupplierReservationOperationStatus  @default(PREPARED)
-  providerReservationReference String?                                        @db.VarChar(512)
-  lastProviderCorrelationId    String?                                        @db.VarChar(512)
-  lastFailureCode              String?                                        @db.VarChar(64)
-  lastFailureRetryable         Boolean?
-  attemptCount                 Int                                            @default(0)
-  lastAttemptAt                DateTime?                                      @db.Timestamptz(6)
-  reconciledAt                 DateTime?                                      @db.Timestamptz(6)
-  createdAt                    DateTime                                       @default(now()) @db.Timestamptz(6)
-  updatedAt                    DateTime                                       @updatedAt @db.Timestamptz(6)
-  integration                  Integration                                    @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  attempts                     HospitalitySupplierReservationAttempt[]
+  id                            String                                         @id @default(uuid()) @db.Uuid
+  organizationId                String                                         @db.Uuid
+  integrationId                 String                                         @db.Uuid
+  integrationCredentialVersion  Int
+  idempotencyKey                String                                         @db.VarChar(120)
+  requestFingerprint            String                                         @db.Char(64)
+  requestFingerprintVersion     Int?                                           @default(2)
+  providerCode                  String                                         @db.VarChar(64)
+  supplierPropertyReference     String                                         @db.VarChar(4096)
+  supplierOfferReference        String                                         @db.VarChar(4096)
+  offerFingerprint              String                                         @db.Char(64)
+  termsFingerprint              String                                         @db.Char(64)
+  reservationPayloadFingerprint String                                         @db.Char(64)
+  currency                      String                                         @db.Char(3)
+  expectedTotalMinor            BigInt                                         @db.BigInt
+  arrivalDate                   DateTime                                       @db.Date
+  departureDate                 DateTime                                       @db.Date
+  rooms                         Int
+  adults                        Int
+  childAges                     Int[]
+  status                        HospitalitySupplierReservationOperationStatus  @default(PREPARED)
+  providerReservationReference  String?                                        @db.VarChar(512)
+  supplierConfirmationReference String?                                        @db.VarChar(512)
+  lastProviderCorrelationId     String?                                        @db.VarChar(512)
+  lastFailureCode               String?                                        @db.VarChar(64)
+  lastFailureRetryable          Boolean?
+  attemptCount                  Int                                            @default(0)
+  lastAttemptAt                 DateTime?                                      @db.Timestamptz(6)
+  reconciledAt                  DateTime?                                      @db.Timestamptz(6)
+  createdAt                     DateTime                                       @default(now()) @db.Timestamptz(6)
+  updatedAt                     DateTime                                       @updatedAt @db.Timestamptz(6)
+  integration                   Integration                                    @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  attempts                      HospitalitySupplierReservationAttempt[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, idempotencyKey])
@@ -63,18 +64,18 @@ model HospitalitySupplierReservationOperation {
 }
 
 model HospitalitySupplierReservationAttempt {
-  id                      String                                      @id @default(uuid()) @db.Uuid
-  organizationId          String                                      @db.Uuid
-  reservationId           String                                      @db.Uuid
-  sequence                Int
-  kind                    HospitalitySupplierReservationAttemptKind
-  status                  HospitalitySupplierReservationAttemptStatus @default(STARTED)
-  providerCorrelationId   String?                                     @db.VarChar(512)
-  normalizedFailureCode   String?                                     @db.VarChar(64)
-  startedAt               DateTime                                    @default(now()) @db.Timestamptz(6)
-  leaseStartedAt          DateTime?                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
-  completedAt             DateTime?                                   @db.Timestamptz(6)
-  reservation             HospitalitySupplierReservationOperation     @relation(fields: [reservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  id                    String                                      @id @default(uuid()) @db.Uuid
+  organizationId        String                                      @db.Uuid
+  reservationId         String                                      @db.Uuid
+  sequence              Int
+  kind                  HospitalitySupplierReservationAttemptKind
+  status                HospitalitySupplierReservationAttemptStatus @default(STARTED)
+  providerCorrelationId String?                                     @db.VarChar(512)
+  normalizedFailureCode String?                                     @db.VarChar(64)
+  startedAt             DateTime                                    @default(now()) @db.Timestamptz(6)
+  leaseStartedAt        DateTime?                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  completedAt           DateTime?                                   @db.Timestamptz(6)
+  reservation           HospitalitySupplierReservationOperation     @relation(fields: [reservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, reservationId, sequence])
   @@index([organizationId, reservationId, startedAt])

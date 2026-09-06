@@ -163,11 +163,13 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       outcome: {
         status: 'AMBIGUOUS',
         failureCode: 'TIMEOUT',
+        providerReservationReference: 'TVPT-AMBIGUOUS-001',
         providerCorrelationId: 'travelport-correlation-1',
       },
     });
     assert.equal(ambiguous.status, 'AMBIGUOUS');
     assert.equal(ambiguous.lastFailureCode, 'TIMEOUT');
+    assert.equal(ambiguous.providerReservationReference, 'TVPT-AMBIGUOUS-001');
 
     await assert.rejects(
       reservations.claimHospitalitySupplierReservationSubmission({
@@ -197,6 +199,8 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       },
     });
     assert.equal(safeToRetry.status, 'PREPARED');
+    assert.equal(safeToRetry.providerReservationReference, null);
+    assert.equal(safeToRetry.supplierConfirmationReference, null);
 
     const retryClaim = await reservations.claimHospitalitySupplierReservationSubmission({
       organizationId: tenantA.id,
@@ -211,11 +215,13 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       outcome: {
         status: 'CONFIRMED',
         providerReservationReference: 'TVPT-RESERVATION-001',
+        supplierConfirmationReference: 'SUPPLIER-RESERVATION-001',
         providerCorrelationId: 'travelport-correlation-2',
       },
     });
     assert.equal(confirmed.status, 'CONFIRMED');
     assert.equal(confirmed.providerReservationReference, 'TVPT-RESERVATION-001');
+    assert.equal(confirmed.supplierConfirmationReference, 'SUPPLIER-RESERVATION-001');
 
     const attempts = await db.hospitalitySupplierReservationAttempt.findMany({
       where: { organizationId: tenantA.id, reservationId: prepared.id },

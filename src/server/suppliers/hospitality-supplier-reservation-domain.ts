@@ -106,6 +106,16 @@ function normalizeCount(value: unknown, label: string, min: number, max: number)
   return value as number;
 }
 
+function normalizeOptionalOperationalReference(value: unknown, label: string) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError(`${label} is invalid.`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > MAX_CORRELATION_LENGTH || /[\r\n]/.test(normalized)) {
+    throw new HospitalitySupplierReservationValidationError(`${label} is invalid.`);
+  }
+  return normalized;
+}
+
 export function normalizeHospitalitySupplierReservationIdempotencyKey(value: unknown) {
   if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError('Reservation idempotency key is required.');
   const normalized = value.trim();
@@ -256,14 +266,12 @@ export function normalizeHospitalitySupplierReservationProviderReference(value: 
   return normalized;
 }
 
+export function normalizeHospitalitySupplierReservationSupplierConfirmationReference(value: unknown) {
+  return normalizeOptionalOperationalReference(value, 'Supplier confirmation reference');
+}
+
 export function normalizeHospitalitySupplierReservationCorrelationId(value: unknown) {
-  if (value === null || value === undefined || value === '') return null;
-  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError('Provider correlation ID is invalid.');
-  const normalized = value.trim();
-  if (!normalized || normalized.length > MAX_CORRELATION_LENGTH || /[\r\n]/.test(normalized)) {
-    throw new HospitalitySupplierReservationValidationError('Provider correlation ID is invalid.');
-  }
-  return normalized;
+  return normalizeOptionalOperationalReference(value, 'Provider correlation ID');
 }
 
 export function normalizeHospitalitySupplierReservationFailureCode(value: unknown) {

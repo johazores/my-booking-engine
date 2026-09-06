@@ -13,6 +13,7 @@ import {
   normalizeHospitalitySupplierReservationIdempotencyKey,
   normalizeHospitalitySupplierReservationProviderReference,
   normalizeHospitalitySupplierReservationSelection,
+  normalizeHospitalitySupplierReservationSupplierConfirmationReference,
 } from './hospitality-supplier-reservation-domain.ts';
 
 const selectionInput = {
@@ -86,10 +87,13 @@ test('create submission requires reviewed reservation authority while ambiguity 
 
 test('provider operational metadata is bounded and normalized without accepting raw multiline values', () => {
   assert.equal(normalizeHospitalitySupplierReservationProviderReference(' ABC-123 '), 'ABC-123');
+  assert.equal(normalizeHospitalitySupplierReservationSupplierConfirmationReference(' supplier-1 '), 'supplier-1');
+  assert.equal(normalizeHospitalitySupplierReservationSupplierConfirmationReference(null), null);
   assert.equal(normalizeHospitalitySupplierReservationCorrelationId(' trace-1 '), 'trace-1');
   assert.equal(normalizeHospitalitySupplierReservationCorrelationId(null), null);
   assert.equal(normalizeHospitalitySupplierReservationFailureCode(' provider_unavailable '), 'PROVIDER_UNAVAILABLE');
   assert.throws(() => normalizeHospitalitySupplierReservationProviderReference('bad\nvalue'), HospitalitySupplierReservationValidationError);
+  assert.throws(() => normalizeHospitalitySupplierReservationSupplierConfirmationReference('bad\rvalue'), HospitalitySupplierReservationValidationError);
   assert.throws(() => normalizeHospitalitySupplierReservationFailureCode('raw provider error with spaces'), HospitalitySupplierReservationValidationError);
 });
 

@@ -10,10 +10,12 @@ test('supplier reservation persistence is tenant-scoped and exact-idempotency co
   const schema = source('prisma/hospitality-supplier-reservations.prisma');
   const migration = source('prisma/migrations/20260906053500_hospitality-supplier-reservation-operations/migration.sql');
   const authorityMigration = source('prisma/migrations/20260906075200_supplier-reservation-authority-binding/migration.sql');
+  const confirmationMigration = source('prisma/migrations/20260906112500_supplier-reservation-confirmation-evidence/migration.sql');
   assert.match(schema, /@@unique\(\[organizationId, idempotencyKey\]\)/);
   assert.match(schema, /requestFingerprint\s+String\s+@db\.Char\(64\)/);
   assert.match(schema, /requestFingerprintVersion\s+Int\?\s+@default\(2\)/);
   assert.match(schema, /reservationPayloadFingerprint\s+String\s+@db\.Char\(64\)/);
+  assert.match(schema, /supplierConfirmationReference\s+String\?\s+@db\.VarChar\(512\)/);
   assert.match(schema, /integration\s+Integration\s+@relation\(fields: \[integrationId, organizationId\], references: \[id, organizationId\]/);
   assert.match(migration, /FOREIGN KEY \("integrationId", "organizationId"\)/);
   assert.match(migration, /REFERENCES "integrations"\("id", "organizationId"\)/);
@@ -27,6 +29,11 @@ test('supplier reservation persistence is tenant-scoped and exact-idempotency co
   assert.match(authorityMigration, /ALTER COLUMN "requestFingerprintVersion" SET DEFAULT 2/);
   assert.match(authorityMigration, /requestFingerprintVersion" IS NULL/);
   assert.match(authorityMigration, /requestFingerprintVersion" = 2/);
+  assert.match(confirmationMigration, /ADD COLUMN "supplierConfirmationReference" VARCHAR\(512\)/);
+  assert.match(confirmationMigration, /DROP CONSTRAINT "hospitality_supplier_reservation_operations_confirmed_reference_check"/);
+  assert.match(confirmationMigration, /provider_reference_state_check/);
+  assert.match(confirmationMigration, /provider_reference_format_check/);
+  assert.match(confirmationMigration, /supplier_confirmation_reference_check/);
 });
 
 test('supplier reservation service authorizes before tenant-scoped persistence and domain binds reviewed authority', () => {
@@ -43,14 +50,16 @@ test('supplier reservation service authorizes before tenant-scoped persistence a
   assert.doesNotMatch(service, /encryptedCredentials|loadActiveIntegrationCredentials|readTravelportStaysCredentials/);
 });
 
-test('ambiguous supplier create outcomes cannot be converted into blind retries or blocked from legacy reconciliation', () => {
+test('ambiguous supplier creates require known-locator provider truth before another create attempt', () => {
   const domain = source('src/server/suppliers/hospitality-supplier-reservation-domain.ts');
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
   assert.match(domain, /must be reconciled before another create attempt/);
   assert.match(domain, /status !== 'AMBIGUOUS'/);
   assert.match(service, /status: 'RECONCILING'/);
+  assert.match(service, /cannot be reconciled automatically without a provider reservation reference/);
   assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'/);
   assert.match(service, /input\.outcome\.status === 'FOUND'[\s\S]*?\? 'CONFIRMED'/);
+  assert.match(service, /recovery returned a different provider reservation reference/);
   const reconcileStart = service.indexOf('export async function claimHospitalitySupplierReservationReconciliation');
   const reconcileEnd = service.indexOf('export type HospitalitySupplierReservationReconciliationOutcome');
   const reconciliationClaim = service.slice(reconcileStart, reconcileEnd);
@@ -60,6 +69,6 @@ test('ambiguous supplier create outcomes cannot be converted into blind retries 
 test('supplier operation audits exclude opaque supplier references and request payload data', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
   const auditBlocks = [...service.matchAll(/afterData: \{([\s\S]*?)\n        \},/g)].map((match) => match[1]).join('\n');
-  assert.doesNotMatch(auditBlocks, /supplierPropertyReference|supplierOfferReference|providerReservationReference|lastProviderCorrelationId|reservationPayloadFingerprint/);
+  assert.doesNotMatch(auditBlocks, /supplierPropertyReference|supplierOfferReference|providerReservationReference|supplierConfirmationReference|lastProviderCorrelationId|reservationPayloadFingerprint/);
   assert.doesNotMatch(service, /rawError|requestPayload|credentials|accessToken|bearer/i);
 });

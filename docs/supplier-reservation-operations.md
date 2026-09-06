@@ -2,86 +2,102 @@
 
 ## Purpose
 
-SF treats an external supplier reservation as a commercial write whose outcome can become uncertain after network or provider failures. The supplier reservation operation ledger is the provider-neutral persistence and recovery boundary that must exist before any real supplier create call is exposed.
+SF treats an external supplier reservation as a commercial write whose outcome can become uncertain after network or provider failures. The supplier reservation operation ledger is the provider-neutral persistence and recovery boundary required before any real supplier create call is exposed.
 
-The ledger itself does not call Travelport, expose a browser route, or advertise reservation capability. Server-only Travelport read adapters now cover known-locator recovery and exact selected-offer Availability authority review without making a provider write reachable. Reservation creation remains closed.
+The ledger itself does not call Travelport, expose a browser route, or advertise reservation capability. Travelport read adapters cover exact selected-offer Availability authority and known-locator Hotel Retrieve. A provider-neutral reconciliation coordinator now connects the recovery adapter to the durable ledger, but it remains unreachable for Travelport until the integration deliberately advertises `reservation` after the real create/recovery contract is validated.
 
 ## Data model and exact idempotency
 
-`HospitalitySupplierReservationOperation` is tenant-owned and records one logical external reservation request. It stores organization/integration ownership and credential version, an organization-scoped idempotency key, opaque supplier property/offer references, accepted offer and Rules fingerprints, a versioned SHA-256 request fingerprint that binds selected-offer reservation authority, a required reservation-payload fingerprint, exact currency/total/stay/occupancy, state, attempt count, normalized failure evidence, provider correlation evidence, and the confirmed provider reservation reference when one exists.
+`HospitalitySupplierReservationOperation` is tenant-owned and records one logical external reservation request. It stores organization/integration ownership and credential version, an organization-scoped idempotency key, opaque supplier property/offer references, accepted offer and Rules fingerprints, request fingerprint v2 bound to selected-offer reservation authority, a reservation-payload fingerprint, exact currency/total/stay/occupancy, state, normalized failure evidence, bounded provider correlation evidence, the Travelport/aggregator reservation reference when known, and an optional supplier confirmation reference after confirmation.
 
-`HospitalitySupplierReservationAttempt` is append-only attempt history for create and reconciliation attempts. Database relationships enforce tenant-safe composite ownership.
+`HospitalitySupplierReservationAttempt` is append-only history for create and reconciliation attempts. Composite relationships keep attempt ownership inside the same organization.
 
-An exact idempotency retry is accepted only when the persisted request fingerprint still matches the complete normalized commercial request. Request fingerprint v2 includes the reviewed reservation-authority fingerprint as well as the accepted offer/Rules and reservation-payload fingerprints, so a caller cannot reuse an idempotency key after changing the selected-offer create authority. The ledger persists the versioned digest rather than raw authority identifiers, traveler PII, card data, CVV, provider tokens, guarantee credentials, or raw provider request/response bodies.
+An exact idempotency retry is accepted only when the persisted request fingerprint matches the complete normalized commercial request. Request fingerprint v2 includes the reviewed reservation-authority fingerprint, accepted offer/Rules evidence, and reservation-payload fingerprint. Raw authority identifiers, traveler PII, card data, CVV, credentials, provider tokens, guarantee material, and raw provider request/response bodies are not persisted in this ledger.
 
-The supplier operation remains separate from first-party `HospitalityBooking`; external supplier inventory does not fabricate local property, room type, rate plan, hold, or allocation identifiers.
+The supplier operation remains separate from first-party `HospitalityBooking`; external inventory does not fabricate local property, room type, rate plan, hold, or allocation identifiers.
 
 ## State and recovery contract
 
 Operations use `PREPARED`, `SUBMITTING`, `CONFIRMED`, `AMBIGUOUS`, `RECONCILING`, and `FAILED`.
 
-A create claim uses a serializable transaction plus a tenant/operation advisory lock and rechecks the active integration, provider code, exact credential version, and `reservation` capability. A create claim is allowed only for request fingerprint v2, proving the durable request was prepared with selected-offer reservation authority bound into the digest. An ambiguous create cannot return directly to `PREPARED`; reconciliation must run first. Provider truth normalizes to:
+A create claim runs in a serializable transaction under a tenant/operation advisory lock and rechecks the active integration, provider code, exact credential version, and `reservation` capability. A create claim is allowed only for request fingerprint v2. An ambiguous create can optionally retain a known provider reservation locator when the provider write produced that durable evidence even though the overall outcome was not safe to call confirmed.
 
-- `FOUND` -> `CONFIRMED` with a persisted provider reservation reference;
-- `NOT_FOUND` -> `PREPARED`, proving a later create attempt is safe;
-- `UNKNOWN` -> `AMBIGUOUS`, keeping writes closed.
+Automatic reconciliation is permitted only for `AMBIGUOUS` operations that already have a known provider reservation locator. Locator-less ambiguity stays `AMBIGUOUS`; SF must not invent `NOT_FOUND` or retry the external create blindly. Known-locator provider truth normalizes to:
 
-This prevents timeout/disconnect uncertainty from becoming a duplicate supplier reservation.
+- `FOUND` -> `CONFIRMED`, but only when the returned provider locator exactly matches the stored known locator. Any normalized supplier confirmation reference is persisted atomically with confirmation.
+- `NOT_FOUND` -> `PREPARED`; provider and supplier confirmation references are cleared because provider truth established that the known locator does not resolve to a reservation.
+- `UNKNOWN` -> `AMBIGUOUS`; the known provider locator is preserved so a transient provider failure cannot destroy the authority required for another recovery attempt.
 
-`requestFingerprintVersion` is nullable only as a migration-safety boundary for rows created before selected-offer Availability authority was included in the digest. The migration adds the nullable column first and sets the default for future inserts afterward, so legacy rows remain distinguishable without fabricated backfill evidence. A legacy `PREPARED` or retryable `FAILED` operation fails closed at create claim and must be reviewed/prepared again before another external write. A legacy `AMBIGUOUS` operation remains reconcilable because blocking provider-truth recovery for an already uncertain write would be less safe.
+This prevents timeout/disconnect uncertainty from becoming a duplicate supplier reservation and fixes the prior unsafe behavior where an `UNKNOWN` reconciliation could erase the only known provider locator.
+
+`requestFingerprintVersion` remains nullable only as migration evidence for rows created before selected-offer Availability authority was included in the digest. A legacy `PREPARED` or retryable `FAILED` operation fails closed at create claim and must be reviewed/prepared again. A legacy `AMBIGUOUS` operation can still be reconciled when it has an authoritative provider locator.
+
+## Provider-neutral reconciliation coordinator
+
+`reconcileHospitalitySupplierReservationWithProvider` is the server-only coordinator between the ledger and `HospitalitySupplierReservationRecoveryProvider`. The ledger claim runs first, so server-side `booking:manage`, tenant scope, current operation state, integration ownership, credential version, and `reservation` capability are verified before any provider I/O.
+
+The coordinator rejects provider-code mismatch without calling the provider, invokes only the provider-neutral `retrieveReservation` contract, and settles every normalized result through the ledger. `HospitalitySupplierProviderError` codes are persisted only as normalized failure codes; unexpected adapter failures become `PROVIDER_UNAVAILABLE`. Error messages, raw payloads, credentials, tokens, and transport details are not copied to ledger or audit data.
+
+This coordinator does not load credentials itself and does not create a reservation. Provider-specific transport remains behind integration/provider adapters.
 
 ## Authorization and tenant isolation
 
-Every operation validates organization/user UUIDs and requires server-side `booking:manage`. Tenant authority is established before reservation persistence. All reads are scoped by both operation ID and organization ID, and integration ownership is rechecked inside the same tenant.
+Every operation validates organization/user UUIDs and requires server-side `booking:manage`. Tenant authority is established before persistence or provider recovery. Operation reads are scoped by both operation ID and organization ID, and integration ownership is rechecked inside the same tenant.
 
-The persistence coordinator never loads encrypted provider credentials or performs provider I/O. Provider transport stays behind integration/provider adapters.
+The guarded database scenario also verifies that a different tenant cannot cause the coordinator to call the recovery provider for another organization's operation.
 
-Current Travelport configuration intentionally advertises only `availability`, `hotel-search`, and `pricing`. Because operation claims require `reservation`, the write state machine is not accidentally reachable by the current Travelport configuration.
+Current Travelport configuration intentionally advertises only `availability`, `hotel-search`, and `pricing`. Because create and reconciliation claims require `reservation`, the commercial write/recovery state machine is not accidentally reachable by the current Travelport configuration.
 
 ## Selected-offer Travelport authority review
 
-`HospitalitySupplierReservationAuthorityProvider` defines a provider-neutral read-only review result. The Travelport implementation reuses current Rules/final offer revalidation, requires the accepted offer and terms fingerprints to remain current, then maps the exact selected SearchComplete rate to v11 Availability using the rate's `bookingCode`, optional rate-code filters, aggregator, property, dates, and occupancy.
+`HospitalitySupplierReservationAuthorityProvider` defines a provider-neutral read-only review result. The Travelport implementation reuses current Rules/final offer revalidation, requires the accepted offer and terms fingerprints to remain current, then maps the exact selected SearchComplete rate to v11 Availability using provider-owned booking/rate evidence.
 
-All documented Availability continuation pages are consumed with a five-page / 500-offer bound. Stable totals and unique offer identifiers are required, and authority is accepted only when exactly one Availability offer maps to the selected rate. Because Travelport's `requestedCurrency` on Availability does not convert response amounts, the bridge does not reinterpret Availability money; exact commercial authority remains the already-verified SearchComplete + Rules evidence.
+All documented Availability continuation pages are consumed with a five-page / 500-offer bound. Stable totals and unique offer identifiers are required, and authority is accepted only when exactly one Availability offer maps to the selected rate. Because Travelport's `requestedCurrency` on Availability does not convert response amounts, exact commercial authority remains the verified SearchComplete + Rules evidence.
 
-The result exposes only a deterministic SHA-256 `authorityFingerprint`. Expiring Availability identifiers and provider booking fields remain adapter-owned. Preparing a supplier reservation now requires that fingerprint and includes it in request fingerprint v2. The operation persists only the resulting digest plus its fingerprint version, binding reviewed selected-offer authority to the durable commercial request without persisting Travelport booking identifiers or the authority fingerprint itself.
+The result exposes only a deterministic SHA-256 `authorityFingerprint`. Expiring Availability identifiers remain adapter-owned. Preparing a supplier reservation includes that fingerprint in request fingerprint v2 without persisting Travelport booking identifiers or the authority fingerprint itself.
 
-The fingerprint is still review evidence, not a timeless sell token. A future create executor must repeat the authority bridge immediately before the external write and recompute request fingerprint v2 with the fresh authority and require it to match the durable operation before using adapter-owned create identifiers.
-
-This closes the unsafe assumption that an arbitrary selected SearchComplete room-rate key can be used as the documented lowest-public-rate reference identifier. It does not open reservation capability.
+The fingerprint is review evidence, not a timeless sell token. A future create executor must repeat the authority bridge immediately before the external write and require the freshly recomputed request fingerprint v2 to match the durable operation.
 
 ## Known-locator Travelport recovery
 
-`HospitalitySupplierReservationRecoveryProvider` defines a provider-neutral read-only recovery contract. The Travelport implementation uses the documented Hotel Retrieve endpoint with a known aggregator locator. A result is `FOUND` only when Travelport returns exactly one authoritative `sourceContext=Travelport` locator matching the requested value. An explicit known-locator HTTP 404 maps to `NOT_FOUND`; provider failures and malformed/mismatched responses fail closed.
+`HospitalitySupplierReservationRecoveryProvider` is provider-neutral. `TravelportStaysReservationRecoveryProvider` uses Hotel Retrieve with a known aggregator locator. `FOUND` requires exactly one authoritative `sourceContext=Travelport` locator matching the requested locator; an optional single supplier confirmation can accompany it. Explicit HTTP 404 maps to `NOT_FOUND`; authentication, rate-limit, timeout, provider-unavailable, malformed, duplicated, or mismatched responses fail closed.
 
-The recovery adapter is loaded server-side with the active Travelport integration but does not persist state itself. A future reservation execution/reconciliation coordinator must decide when it is authorized to invoke provider recovery and must settle the result through the ledger under the existing tenant/idempotency locks.
+The provider-specific adapter never persists state itself. The coordinator claims and settles the ledger around the adapter call, preserving tenant authorization and durable state semantics.
 
-Hotel Retrieve requires an aggregator locator. If a future create request becomes uncertain before SF receives that locator, this adapter cannot prove non-existence. Such an operation must remain `AMBIGUOUS` until a provisioned Travelport environment confirms a reliable provider-assisted lookup or other correlation mechanism. No source-only fallback is allowed to guess `NOT_FOUND`.
+Hotel Retrieve still requires an aggregator locator. If a future create becomes uncertain before SF receives one, the current public Retrieve contract cannot prove provider truth. The operation must remain `AMBIGUOUS` until provisioned Travelport validation/provider support establishes a reliable correlation-assisted lookup or another authoritative mechanism.
+
+## Supplier confirmation evidence
+
+Travelport reservation responses can contain a supplier confirmation locator in addition to the Travelport aggregator locator. SF now stores that optional supplier confirmation only on a `CONFIRMED` operation and only after the same single-line bounded normalization used for operational provider references.
+
+The field is lifecycle evidence for future provider operations; it does not by itself authorize cancellation. Cancellation still requires a separately verified provider contract, server-side authorization, write idempotency/recovery, and live non-production validation before any capability or UI is exposed.
 
 ## Create-path payment boundary remains unresolved
 
-Travelport's current public v11 Create Reservation full and reference payload contracts require traveler details plus form-of-payment and payment data. The documented card form sends `PaymentCard/CardNumber/PlainText`; security code is `SeriesCode/PlainText` for suppliers that require it, and Booking.com requires CVV.
+Travelport's public v11 Create Reservation full/reference payload contracts require traveler details plus form-of-payment/payment data. The documented card form includes PAN and may require security code for some suppliers.
 
-SF's established online-payment contract never accepts raw card data. The supplier write path must not weaken that rule. Before a Travelport create adapter can be made reachable, SF needs a reviewed PCI-safe form-of-payment/guarantee strategy supported by the provisioned Travelport account, together with explicit handling for prepay/deposit/guarantee semantics.
+SF's established online-payment contract never accepts raw card data. The supplier write path must not weaken that rule. Before a Travelport create adapter can be made reachable, SF needs a reviewed PCI-safe form-of-payment/guarantee strategy supported by the provisioned Travelport account and explicit handling for prepay/deposit/guarantee semantics.
 
-Travelport also documents `acceptPriceChangeInd` and `acceptGuaranteeChangeInd` as second-request decisions only after the initial request is stopped by a change. Those flags must never be included silently on the first create.
+Travelport documents `acceptPriceChangeInd` and `acceptGuaranteeChangeInd` as explicit follow-up decisions after an initial request is stopped by a change. SF must never silently include those flags on the first create.
 
 ## Database, audit, and privacy guarantees
 
-Database checks cover organization idempotency, SHA-256 request/offer/terms/payload fingerprints, migration-safe request-fingerprint versioning, provider/currency/date/exact-money/occupancy bounds, tenant-safe integration and attempt ownership, confirmed-state provider-reference requirements, failed-state normalized evidence, bounded provider metadata, and unique provider reservation references within tenant/integration.
+Database checks cover organization idempotency, request/offer/terms/payload fingerprints, migration-safe request-fingerprint versioning, exact-money/date/occupancy bounds, tenant-safe integration and attempt ownership, provider-reference state rules, bounded provider/supplier confirmation reference formatting, confirmed-state provider-reference requirements, failed-state normalized evidence, and unique provider reservation references within tenant/integration.
 
-Audits record only operational facts needed to explain state transitions. Opaque offer/property references, provider locators/correlation values, offer/terms/payload fingerprints, traveler/customer data, card/payment material, credentials, tokens, and raw provider bodies are excluded from audit payloads and structured request logs.
+Audits record only operational transition facts. Opaque property/offer references, provider/supplier locators, provider correlation values, offer/terms/payload fingerprints, traveler/customer data, card/payment material, credentials, tokens, and raw provider bodies are excluded from audit payloads and structured request logs.
 
 ## Validation
 
-Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, reconciliation transitions, migration-safe legacy behavior, and audit privacy. A guarded PostgreSQL scenario covers exact retry, cross-tenant denial, request fingerprint v2 defaulting, legacy-unbound create rejection, ambiguous recovery, attempt ordering, confirmation, and credential-version invalidation when a disposable target is available.
+Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, migration-safe legacy behavior, audit privacy, known-locator preservation, exact-locator matching, supplier-confirmation persistence, coordinator provider-code checks, and normalized provider-failure settlement.
 
-The Travelport read-side suites additionally cover bounded selected-offer Availability authority mapping/pagination and known-locator recovery. Source contracts prove the authority/recovery adapters are read-only while `reservation` remains unadvertised.
+A guarded PostgreSQL scenario covers locator-less reconciliation denial, known-locator `FOUND`, durable supplier confirmation, transient `UNKNOWN` preservation and retry, `NOT_FOUND` clearing, mismatched-locator rejection, and cross-tenant provider-I/O suppression. It is only executed through the disposable-database harness.
+
+Live provider validation still requires a provisioned Travelport non-production account. Full Prisma migration/drift/database execution requires an explicitly disposable PostgreSQL target. Neither is claimed by source-only validation.
 
 ## Next dependency
 
-The next reservation dependency is not a guessed POST. The selected-offer Availability bridge must first be validated against Travelport non-production, and SF must establish a PCI-safe form-of-payment/guarantee strategy for the provisioned account. Only then can a real single-room create adapter and execution coordinator be connected to this ledger.
+The next reservation dependency remains the real create boundary, not a guessed POST. The SearchComplete-to-Availability bridge must be validated against Travelport non-production and SF must establish the PCI-safe form-of-payment/guarantee strategy for the provisioned account.
 
-That coordinator must repeat fresh offer/Rules/Availability authority immediately before create, recompute request fingerprint v2 and require it to match the durable operation, reconstruct only authorized traveler/payment/guarantee material, classify every provider write outcome, and use known-locator recovery only when an authoritative locator exists. Locator-less ambiguity, explicit price/guarantee-change decisions, and provider correlation semantics still require live provider validation before `reservation` is advertised.
+Only then should a single-room create adapter/execution coordinator be connected to this ledger. It must repeat fresh offer/Rules/Availability authority immediately before create, recompute request fingerprint v2, reconstruct only authorized traveler/payment/guarantee material, classify every provider write outcome, retain any known provider locator on ambiguity, and use the recovery coordinator only when that locator exists.
 
-Multi-room, modify, and cancel semantics remain separately verified capabilities rather than assumptions.
+Locator-less ambiguity, explicit price/guarantee-change decisions, provider correlation semantics, cancellation, modification, and multi-room behavior remain separate live-validated capabilities rather than assumptions.
