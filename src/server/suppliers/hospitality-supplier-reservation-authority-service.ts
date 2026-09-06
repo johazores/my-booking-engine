@@ -47,7 +47,9 @@ export async function reviewHospitalitySupplierReservationAuthority(input: {
 }) {
   await requireSupplierReservationReviewAuthority(input);
   const { reservationAuthorityProvider } = await loadTravelportStaysIntegration(input.organizationId);
-  return reservationAuthorityProvider.verifyReservationAuthority(input.selection);
+  const review = await reservationAuthorityProvider.verifyReservationAuthority(input.selection);
+  const { providerSubmissionReference: _providerSubmissionReference, ...publicReview } = review;
+  return Object.freeze(publicReview);
 }
 
 export async function reviewAndClaimHospitalitySupplierReservationSubmission(input: {
@@ -90,11 +92,11 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
   }
 
   const review = await reservationAuthorityProvider.verifyReservationAuthority(authorityInput);
-  assertHospitalitySupplierReservationSubmissionAuthority(reservation, review);
-
-  return claimHospitalitySupplierReservationSubmission({
+  const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority(reservation, review);
+  const claim = await claimHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,
     reservationId: input.reservationId,
   });
+  return Object.freeze({ claim, submissionAuthority });
 }

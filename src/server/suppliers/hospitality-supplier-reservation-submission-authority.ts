@@ -5,6 +5,7 @@ import {
 } from './hospitality-supplier-reservation-domain.ts';
 
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
+const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
 
 export type HospitalitySupplierReservationSubmissionAuthorityOperation = Readonly<{
   requestFingerprint: string;
@@ -27,6 +28,7 @@ export type HospitalitySupplierReservationSubmissionAuthorityOperation = Readonl
 export type HospitalitySupplierReservationSubmissionAuthorityReview = Readonly<{
   status: 'READY' | 'PRICE_CHANGED' | 'OFFER_CHANGED' | 'TERMS_CHANGED' | 'TERMS_INCOMPLETE' | 'UNAVAILABLE';
   authorityFingerprint: string | null;
+  providerSubmissionReference: string | null;
   observedAt: string;
   revalidationRequired: true;
   offer: Readonly<{
@@ -56,6 +58,15 @@ function operationDate(value: Date, label: string) {
     throw new HospitalitySupplierReservationConflictError(`${label} is unavailable for supplier reservation authority review.`);
   }
   return value.toISOString().slice(0, 10);
+}
+
+function providerSubmissionReference(value: unknown) {
+  if (typeof value !== 'string') throw authorityConflict();
+  const normalized = value.trim();
+  if (!normalized || normalized.length > MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH || /[\r\n]/.test(normalized)) {
+    throw authorityConflict();
+  }
+  return normalized;
 }
 
 export function hospitalitySupplierReservationAuthorityInputFromOperation(
@@ -105,6 +116,7 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
   ) {
     throw authorityConflict();
   }
+  const submissionReference = providerSubmissionReference(review.providerSubmissionReference);
 
   if (
     review.offer.supplierPropertyReference !== operation.supplierPropertyReference
@@ -144,6 +156,7 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
 
   return Object.freeze({
     authorityFingerprint: review.authorityFingerprint,
+    providerSubmissionReference: submissionReference,
     observedAt: review.observedAt,
   });
 }

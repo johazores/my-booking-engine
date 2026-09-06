@@ -50,6 +50,7 @@ function readyReview(fingerprint = authorityFingerprint) {
   return Object.freeze({
     status: 'READY' as const,
     authorityFingerprint: fingerprint,
+    providerSubmissionReference: 'availability-offer-current',
     observedAt: '2026-09-06T13:30:00.000Z',
     revalidationRequired: true as const,
     offer: Object.freeze({
@@ -88,6 +89,7 @@ test('rebuilds authority review input only from durable prepared operation evide
 test('accepts only READY authority that rebinds to the exact prepared request fingerprint', () => {
   const result = assertHospitalitySupplierReservationSubmissionAuthority(operation, readyReview());
   assert.equal(result.authorityFingerprint, authorityFingerprint);
+  assert.equal(result.providerSubmissionReference, 'availability-offer-current');
 });
 
 test('rejects a fresh authority fingerprint that differs from the prepared request', () => {
@@ -95,6 +97,18 @@ test('rejects a fresh authority fingerprint that differs from the prepared reque
     () => assertHospitalitySupplierReservationSubmissionAuthority(operation, readyReview('e'.repeat(64))),
     /authority changed/i,
   );
+});
+
+test('rejects missing or unsafe ephemeral provider submission authority', () => {
+  for (const providerSubmissionReference of [null, 'bad\nreference', 'x'.repeat(4_097)]) {
+    assert.throws(
+      () => assertHospitalitySupplierReservationSubmissionAuthority(operation, {
+        ...readyReview(),
+        providerSubmissionReference,
+      }),
+      /authority changed/i,
+    );
+  }
 });
 
 test('rejects mismatched offer, terms, money and incomplete review evidence', () => {
@@ -124,6 +138,7 @@ test('rejects mismatched offer, terms, money and incomplete review evidence', ()
       ...readyReview(),
       status: 'TERMS_INCOMPLETE',
       authorityFingerprint: null,
+      providerSubmissionReference: null,
     }),
     /authority changed/i,
   );

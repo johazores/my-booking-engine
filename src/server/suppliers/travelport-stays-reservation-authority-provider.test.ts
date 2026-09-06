@@ -66,6 +66,7 @@ test('maps the selected SearchComplete rate through complete bounded Availabilit
   const result = await provider(fetchImpl).verifyReservationAuthority(selection);
   assert.equal(result.status, 'READY');
   assert.match(result.authorityFingerprint ?? '', /^[0-9a-f]{64}$/);
+  assert.equal(result.providerSubmissionReference, 'match');
   const availability = requests.find((item) => item.url.endsWith('/11/hotel/availability/catalogofferingshospitality'))!;
   const body = JSON.parse(String(availability.init?.body));
   const request = body.CatalogOfferingsQueryRequest.CatalogOfferingsRequest[0];
@@ -79,6 +80,17 @@ test('maps the selected SearchComplete rate through complete bounded Availabilit
 test('accepts an exact filtered booking-code match when Availability omits rate-code echo', async () => {
   const result = await provider(baseFetch(() => response(page([offering('match-no-rate', 'KHATHR', false)], 1)))).verifyReservationAuthority(selection);
   assert.equal(result.status, 'READY');
+  assert.equal(result.providerSubmissionReference, 'match-no-rate');
+});
+
+test('keeps ephemeral Availability sell reference out of the stable authority fingerprint', async () => {
+  const first = await provider(baseFetch(() => response(page([offering('sell-ref-one', 'KHATHR')], 1))), termsProvider(), 'authority-sell-ref-one').verifyReservationAuthority(selection);
+  const second = await provider(baseFetch(() => response(page([offering('sell-ref-two', 'KHATHR')], 1))), termsProvider(), 'authority-sell-ref-two').verifyReservationAuthority(selection);
+  assert.equal(first.status, 'READY');
+  assert.equal(second.status, 'READY');
+  assert.equal(first.providerSubmissionReference, 'sell-ref-one');
+  assert.equal(second.providerSubmissionReference, 'sell-ref-two');
+  assert.equal(first.authorityFingerprint, second.authorityFingerprint);
 });
 
 test('changed or incomplete Rules evidence stops before Travelport calls', async () => {
@@ -87,6 +99,7 @@ test('changed or incomplete Rules evidence stops before Travelport calls', async
     const fetchImpl = (async () => { calls += 1; throw new Error('unexpected provider call'); }) as typeof fetch;
     const result = await provider(fetchImpl, terms).verifyReservationAuthority(selection);
     assert.equal(result.status, expected);
+    assert.equal(result.providerSubmissionReference, null);
     assert.equal(calls, 0);
   }
 });
@@ -94,6 +107,7 @@ test('changed or incomplete Rules evidence stops before Travelport calls', async
 test('missing match is unavailable while ambiguous or incomplete pagination fails closed', async () => {
   const missing = await provider(baseFetch(() => response(page([offering('other', 'OTHER')], 1)))).verifyReservationAuthority(selection);
   assert.equal(missing.status, 'UNAVAILABLE');
+  assert.equal(missing.providerSubmissionReference, null);
   await assert.rejects(() => provider(baseFetch(() => response(page([offering('a', 'KHATHR'), offering('b', 'KHATHR')], 2)))).verifyReservationAuthority(selection), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
   await assert.rejects(() => provider(baseFetch(() => response(page([offering('a', 'OTHER')], 2, 2)))).verifyReservationAuthority(selection), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
 });

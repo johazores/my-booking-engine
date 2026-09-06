@@ -13,12 +13,27 @@ test('submission authority service authorizes and tenant-scopes before provider 
   const stateIndex = service.indexOf('assertHospitalitySupplierReservationCanSubmit(reservation)', readIndex);
   const integrationIndex = service.indexOf('integration.id !== reservation.integrationId', stateIndex);
   const providerIndex = service.indexOf('reservationAuthorityProvider.verifyReservationAuthority', integrationIndex);
-  const claimIndex = service.indexOf('claimHospitalitySupplierReservationSubmission({', providerIndex);
-  assert.ok(authIndex >= 0 && readIndex > authIndex && stateIndex > readIndex && integrationIndex > stateIndex && providerIndex > integrationIndex && claimIndex > providerIndex);
+  const bindingIndex = service.indexOf('const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority', providerIndex);
+  const claimIndex = service.indexOf('const claim = await claimHospitalitySupplierReservationSubmission({', bindingIndex);
+  assert.ok(authIndex >= 0 && readIndex > authIndex && stateIndex > readIndex && integrationIndex > stateIndex && providerIndex > integrationIndex && bindingIndex > providerIndex && claimIndex > bindingIndex);
   assert.match(service, /where:\s*\{\s*id: input\.reservationId,\s*organizationId: input\.organizationId/);
   assert.match(service, /integration\.id !== reservation\.integrationId/);
   assert.match(service, /integration\.credentialVersion !== reservation\.integrationCredentialVersion/);
   assert.match(service, /!integration\.capabilities\.includes\('reservation'\)/);
+  assert.match(service, /return Object\.freeze\(\{ claim, submissionAuthority \}\)/);
+});
+
+test('fresh authority carries exact ephemeral provider sell reference only through submission path', () => {
+  const provider = source('src/server/suppliers/travelport-stays-reservation-authority-provider.ts');
+  const binding = source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts');
+  const service = source('src/server/suppliers/hospitality-supplier-reservation-authority-service.ts');
+  assert.match(provider, /providerSubmissionReference: identifierValue/);
+  assert.match(provider, /providerSubmissionReference: matches\[0\]!\.providerSubmissionReference/);
+  assert.match(binding, /providerSubmissionReference: string \| null/);
+  assert.match(binding, /providerSubmissionReference\(review\.providerSubmissionReference\)/);
+  assert.match(binding, /providerSubmissionReference: submissionReference/);
+  assert.match(service, /providerSubmissionReference: _providerSubmissionReference/);
+  assert.match(service, /const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority\(reservation, review\)/);
 });
 
 test('fresh authority is rebuilt from durable evidence and rebound to request fingerprint v2', () => {
@@ -51,4 +66,7 @@ test('Travelport reservation remains unavailable until the write adapter and PCI
   const doc = source('docs/supplier-reservation-submission-authority.md');
   assert.match(doc, /does not enable Travelport `reservation` capability/);
   assert.match(doc, /PCI-safe form-of-payment\/guarantee strategy/);
+  assert.match(doc, /ephemeral/i);
+  assert.match(doc, /not persisted/i);
+  assert.match(doc, /strips `providerSubmissionReference`/);
 });
