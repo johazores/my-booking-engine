@@ -35,8 +35,12 @@ function boundedText(value: unknown, label: string, maxLength: number) {
   if (typeof value !== 'string') {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is required.`);
   }
-  const normalized = value.trim().replace(/\s+/g, ' ');
-  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/.test(normalized)) {
+  const trimmed = value.trim();
+  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is invalid.`);
+  }
+  const normalized = trimmed.replace(/ {2,}/g, ' ');
+  if (normalized.length > maxLength) {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is invalid.`);
   }
   return normalized;
@@ -60,6 +64,9 @@ function phonePart(value: unknown, label: string, minLength: number, maxLength: 
 export function normalizeHospitalitySupplierReservationTravelerPayload(
   input: HospitalitySupplierReservationTravelerPayloadInput,
 ): NormalizedHospitalitySupplierReservationTravelerPayload {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new HospitalitySupplierReservationTravelerAuthorityError('Primary traveler details are required.');
+  }
   const firstName = boundedText(input.firstName, 'Primary traveler first name', MAX_NAME_LENGTH);
   const lastName = boundedText(input.lastName, 'Primary traveler last name', MAX_NAME_LENGTH);
 

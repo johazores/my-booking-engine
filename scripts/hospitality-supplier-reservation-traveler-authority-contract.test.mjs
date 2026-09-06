@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -20,20 +20,30 @@ test('production preparation derives the durable reservation payload fingerprint
   assert.doesNotMatch(preparation, /input\.selection\.reservationPayloadFingerprint/);
 });
 
-test('no production supplier module bypasses traveler-authorized preparation', () => {
-  const suppliers = join(root, 'src/server/suppliers');
+test('no production server module bypasses traveler-authorized preparation', () => {
+  const serverRoot = join(root, 'src/server');
   const allowed = new Set([
-    'hospitality-supplier-reservation-authority-service.ts',
-    'hospitality-supplier-reservation-service.ts',
+    'src/server/suppliers/hospitality-supplier-reservation-authority-service.ts',
+    'src/server/suppliers/hospitality-supplier-reservation-service.ts',
   ]);
   const bypasses = [];
 
-  for (const name of readdirSync(suppliers)) {
-    if (!name.endsWith('.ts') || name.endsWith('.test.ts') || name.endsWith('.integration.ts') || allowed.has(name)) continue;
-    const contents = readFileSync(join(suppliers, name), 'utf8');
-    if (/prepareHospitalitySupplierReservation\(/.test(contents)) bypasses.push(name);
-  }
+  const visit = (directory) => {
+    for (const name of readdirSync(directory)) {
+      const absolutePath = join(directory, name);
+      if (statSync(absolutePath).isDirectory()) {
+        visit(absolutePath);
+        continue;
+      }
+      if (!name.endsWith('.ts') || name.endsWith('.test.ts') || name.endsWith('.integration.ts')) continue;
+      const relativePath = absolutePath.slice(root.length + 1).replaceAll('\\', '/');
+      if (allowed.has(relativePath)) continue;
+      const contents = readFileSync(absolutePath, 'utf8');
+      if (/prepareHospitalitySupplierReservation\(/.test(contents)) bypasses.push(relativePath);
+    }
+  };
 
+  visit(serverRoot);
   assert.deepEqual(bypasses, []);
 });
 

@@ -74,7 +74,10 @@ test('traveler authority rejects changed contact or identity evidence', () => {
 
 test('rejects malformed identity, email and telephone components', () => {
   for (const invalidTraveler of [
+    null,
+    [],
     { ...traveler, firstName: '' },
+    { ...traveler, firstName: 'Ada\nInjected' },
     { ...traveler, lastName: 'x'.repeat(81) },
     { ...traveler, email: 'invalid' },
     { ...traveler, telephone: null },
@@ -83,7 +86,9 @@ test('rejects malformed identity, email and telephone components', () => {
     { ...traveler, telephone: { ...traveler.telephone, subscriberNumber: '12' } },
   ]) {
     assert.throws(
-      () => normalizeHospitalitySupplierReservationTravelerPayload(invalidTraveler),
+      () => normalizeHospitalitySupplierReservationTravelerPayload(
+        invalidTraveler as typeof traveler,
+      ),
       /traveler|telephone/i,
     );
   }
