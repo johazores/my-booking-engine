@@ -5,6 +5,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   HospitalitySupplierReservationConflictError,
   assertHospitalitySupplierReservationCanSubmit,
+  type HospitalitySupplierReservationSelectionInput,
 } from './hospitality-supplier-reservation-domain.ts';
 import type { HospitalitySupplierReservationAuthorityInput } from './hospitality-supplier-reservation-authority.ts';
 import {
@@ -14,7 +15,14 @@ import {
 import {
   claimHospitalitySupplierReservationSubmission,
   HospitalitySupplierReservationUnavailableError,
+  prepareHospitalitySupplierReservation,
 } from './hospitality-supplier-reservation-service.ts';
+import {
+  assertHospitalitySupplierReservationTravelerPayloadAuthority,
+  hospitalitySupplierReservationTravelerPayloadFingerprint,
+  normalizeHospitalitySupplierReservationTravelerPayload,
+  type HospitalitySupplierReservationTravelerPayloadInput,
+} from './hospitality-supplier-reservation-traveler-authority.ts';
 
 async function requireSupplierReservationReviewAuthority(input: {
   organizationId: string;
@@ -58,10 +66,35 @@ export async function reviewHospitalitySupplierReservationAuthority(input: {
   });
 }
 
+export async function prepareHospitalitySupplierReservationWithTravelerAuthority(input: {
+  organizationId: string;
+  actorUserId: string;
+  integrationId: string;
+  idempotencyKey: unknown;
+  selection: Omit<HospitalitySupplierReservationSelectionInput, 'reservationPayloadFingerprint'>;
+  traveler: HospitalitySupplierReservationTravelerPayloadInput;
+}) {
+  await requireSupplierReservationReviewAuthority(input);
+  const traveler = normalizeHospitalitySupplierReservationTravelerPayload(input.traveler);
+  const reservationPayloadFingerprint = hospitalitySupplierReservationTravelerPayloadFingerprint(traveler);
+
+  return prepareHospitalitySupplierReservation({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    integrationId: input.integrationId,
+    idempotencyKey: input.idempotencyKey,
+    selection: {
+      ...input.selection,
+      reservationPayloadFingerprint,
+    },
+  });
+}
+
 export async function reviewAndClaimHospitalitySupplierReservationSubmission(input: {
   organizationId: string;
   actorUserId: string;
   reservationId: string;
+  traveler: HospitalitySupplierReservationTravelerPayloadInput;
 }) {
   await requireSupplierReservationReviewAuthority(input);
   assertUuidIdentifier(input.reservationId, 'reservationId');
@@ -81,6 +114,23 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
   if (reservation.providerCode !== 'travelport-stays') {
     throw new HospitalitySupplierReservationConflictError(
       'Supplier reservation provider does not support the current submission authority workflow.',
+    );
+  }
+  if (reservation.rooms !== 1) {
+    throw new HospitalitySupplierReservationConflictError(
+      'The current supplier reservation submission workflow supports exactly one room.',
+    );
+  }
+
+  let travelerAuthority;
+  try {
+    travelerAuthority = assertHospitalitySupplierReservationTravelerPayloadAuthority({
+      expectedFingerprint: reservation.reservationPayloadFingerprint,
+      traveler: input.traveler,
+    });
+  } catch {
+    throw new HospitalitySupplierReservationConflictError(
+      'Primary traveler details changed after the supplier reservation request was prepared. Review the traveler details again.',
     );
   }
 
@@ -104,5 +154,5 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
     actorUserId: input.actorUserId,
     reservationId: input.reservationId,
   });
-  return Object.freeze({ claim, submissionAuthority });
+  return Object.freeze({ claim, submissionAuthority, travelerAuthority });
 }
