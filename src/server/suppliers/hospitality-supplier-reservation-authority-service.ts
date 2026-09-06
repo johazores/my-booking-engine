@@ -8,6 +8,7 @@ import {
   type HospitalitySupplierReservationSelectionInput,
 } from './hospitality-supplier-reservation-domain.ts';
 import type { HospitalitySupplierReservationAuthorityInput } from './hospitality-supplier-reservation-authority.ts';
+import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
   assertHospitalitySupplierReservationSubmissionAuthority,
   hospitalitySupplierReservationAuthorityInputFromOperation,
@@ -23,6 +24,7 @@ import {
   normalizeHospitalitySupplierReservationTravelerPayload,
   type HospitalitySupplierReservationTravelerPayloadInput,
 } from './hospitality-supplier-reservation-traveler-authority.ts';
+import { buildTravelportStaysReservationCreateRequestMaterial } from './travelport-stays-reservation-create-request-material.ts';
 
 async function requireSupplierReservationReviewAuthority(input: {
   organizationId: string;
@@ -149,10 +151,24 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
 
   const review = await reservationAuthorityProvider.verifyReservationAuthority(authorityInput);
   const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority(reservation, review);
+  let createRequestMaterial;
+  try {
+    createRequestMaterial = buildTravelportStaysReservationCreateRequestMaterial({
+      providerSubmissionReference: submissionAuthority.providerSubmissionReference,
+      traveler: travelerAuthority,
+      paymentAuthority: submissionAuthority.paymentAuthority,
+    });
+  } catch (error) {
+    if (!(error instanceof HospitalitySupplierProviderError)) throw error;
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier reservation traveler or payment authority cannot be submitted to Travelport. Review the traveler and supplier terms again.',
+    );
+  }
+
   const claim = await claimHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,
     reservationId: input.reservationId,
   });
-  return Object.freeze({ claim, submissionAuthority, travelerAuthority });
+  return Object.freeze({ claim, submissionAuthority, travelerAuthority, createRequestMaterial });
 }
