@@ -21,6 +21,8 @@ test('known-locator ambiguity remains durable until provider truth is resolved',
 
   assert.match(service, /status: 'AMBIGUOUS'[\s\S]*?providerReservationReference\?: unknown/);
   assert.match(service, /cannot be reconciled automatically without a provider reservation reference/i);
+  assert.match(service, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: unknown/);
+  assert.match(service, /input\.outcome\.status === 'FOUND' \|\| input\.outcome\.status === 'NOT_FOUND'[\s\S]*?reservation\.providerReservationReference !== providerReservationReference/);
   assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.providerReservationReference/);
   assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.supplierConfirmationReference/);
   assert.match(service, /recovery returned a different provider reservation reference/i);
@@ -62,7 +64,7 @@ test('provider-neutral coordinator authorizes and claims before provider I/O and
   assert.match(coordinator, /input\.provider\.code !== claim\.reservation\.providerCode/);
   assert.match(coordinator, /error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE'/);
   assert.match(coordinator, /status: 'FOUND'/);
-  assert.match(coordinator, /status: 'NOT_FOUND'/);
+  assert.match(coordinator, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: result\.providerReservationReference/);
   assert.match(coordinator, /status: 'UNKNOWN'/);
   assert.doesNotMatch(coordinator, /error\.message|responseBody|requestPayload|encryptedCredentials|accessToken|cardNumber|cvv/i);
   assert.match(runner, /hospitality-supplier-reservation-reconciliation\.integration\.ts/);

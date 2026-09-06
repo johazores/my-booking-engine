@@ -62,6 +62,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       attemptId: claim.attempt.id,
       outcome: {
         status: 'NOT_FOUND',
+        providerReservationReference: result.providerReservationReference,
         providerCorrelationId: result.providerCorrelationId,
       },
     });

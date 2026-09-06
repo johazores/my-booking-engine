@@ -188,6 +188,26 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
     assert.equal(reconciliation.reservation.status, 'RECONCILING');
     assert.equal(reconciliation.attempt.kind, 'RECONCILE');
 
+    await assert.rejects(
+      reservations.settleHospitalitySupplierReservationReconciliation({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: prepared.id,
+        attemptId: reconciliation.attempt.id,
+        outcome: {
+          status: 'NOT_FOUND',
+          providerReservationReference: 'TVPT-UNRELATED-001',
+          providerCorrelationId: 'travelport-reconcile-wrong',
+        },
+      }),
+      /different provider reservation reference/i,
+    );
+    const stillReconciling = await db.hospitalitySupplierReservationOperation.findUniqueOrThrow({
+      where: { id: prepared.id },
+    });
+    assert.equal(stillReconciling.status, 'RECONCILING');
+    assert.equal(stillReconciling.providerReservationReference, 'TVPT-AMBIGUOUS-001');
+
     const safeToRetry = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
@@ -195,6 +215,7 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       attemptId: reconciliation.attempt.id,
       outcome: {
         status: 'NOT_FOUND',
+        providerReservationReference: 'TVPT-AMBIGUOUS-001',
         providerCorrelationId: 'travelport-reconcile-1',
       },
     });

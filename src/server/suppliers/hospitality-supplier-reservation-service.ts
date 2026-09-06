@@ -441,6 +441,7 @@ export type HospitalitySupplierReservationReconciliationOutcome =
     }>
   | Readonly<{
       status: 'NOT_FOUND';
+      providerReservationReference: unknown;
       providerCorrelationId?: unknown;
     }>
   | Readonly<{
@@ -460,7 +461,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
   assertUuidIdentifier(input.reservationId, 'reservationId');
   assertUuidIdentifier(input.attemptId, 'attemptId');
   const providerCorrelationId = normalizeHospitalitySupplierReservationCorrelationId(input.outcome.providerCorrelationId);
-  const providerReservationReference = input.outcome.status === 'FOUND'
+  const providerReservationReference = input.outcome.status === 'FOUND' || input.outcome.status === 'NOT_FOUND'
     ? normalizeHospitalitySupplierReservationProviderReference(input.outcome.providerReservationReference)
     : null;
   const supplierConfirmationReference = input.outcome.status === 'FOUND'
@@ -501,7 +502,10 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
         'Supplier reservation reconciliation attempt is no longer current.',
       );
     }
-    if (input.outcome.status === 'FOUND' && reservation.providerReservationReference !== providerReservationReference) {
+    if (
+      (input.outcome.status === 'FOUND' || input.outcome.status === 'NOT_FOUND')
+      && reservation.providerReservationReference !== providerReservationReference
+    ) {
       throw new HospitalitySupplierReservationConflictError(
         'Supplier reservation recovery returned a different provider reservation reference.',
       );

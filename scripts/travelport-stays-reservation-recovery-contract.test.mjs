@@ -63,9 +63,13 @@ test('supplier source-of-truth docs describe selected-offer authority without cl
 
 test('provider reconciliation never accepts provider truth for a different locator', () => {
   const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
+  const ledger = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
   assert.match(coordinator, /result\.providerReservationReference !== providerReservationReference/);
   assert.match(coordinator, /status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE'/);
   const identityCheck = coordinator.indexOf('result.providerReservationReference !== providerReservationReference');
   const notFoundSettlement = coordinator.indexOf("status: 'NOT_FOUND'", identityCheck);
   assert.ok(identityCheck >= 0 && notFoundSettlement > identityCheck, 'locator identity must be verified before NOT_FOUND settlement');
+  assert.match(coordinator, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: result\.providerReservationReference/);
+  assert.match(ledger, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: unknown/);
+  assert.match(ledger, /input\.outcome\.status === 'FOUND' \|\| input\.outcome\.status === 'NOT_FOUND'[\s\S]*?reservation\.providerReservationReference !== providerReservationReference/);
 });
