@@ -25,8 +25,10 @@ A create claim runs in a serializable transaction under a tenant/operation advis
 Automatic reconciliation is permitted only for `AMBIGUOUS` operations that already have a known provider reservation locator. Locator-less ambiguity stays `AMBIGUOUS`; SF must not invent `NOT_FOUND` or retry the external create blindly. Known-locator provider truth normalizes to:
 
 - `FOUND` -> `CONFIRMED`, but only when the returned provider locator exactly matches the stored known locator. Any normalized supplier confirmation reference is persisted atomically with confirmation.
-- `NOT_FOUND` -> `PREPARED`; provider and supplier confirmation references are cleared because provider truth established that the known locator does not resolve to a reservation.
+- `NOT_FOUND` -> `PREPARED`, but only when the recovery result explicitly identifies the exact locator that SF queried; provider and supplier confirmation references are then cleared because provider truth established that this known locator does not resolve to a reservation.
 - `UNKNOWN` -> `AMBIGUOUS`; the known provider locator is preserved so a transient provider failure cannot destroy the authority required for another recovery attempt.
+
+Both `FOUND` and `NOT_FOUND` are therefore identity-bound to the durable queried locator before either result can change retry safety. A recovery adapter that returns provider truth for a different locator is normalized to `UNKNOWN` with `INVALID_RESPONSE`; the operation returns to `AMBIGUOUS` and keeps the original locator. A mismatched `NOT_FOUND` can never make another supplier create retryable.
 
 This prevents timeout/disconnect uncertainty from becoming a duplicate supplier reservation and fixes the prior unsafe behavior where an `UNKNOWN` reconciliation could erase the only known provider locator.
 
@@ -36,7 +38,7 @@ This prevents timeout/disconnect uncertainty from becoming a duplicate supplier 
 
 `reconcileHospitalitySupplierReservationWithProvider` is the server-only coordinator between the ledger and `HospitalitySupplierReservationRecoveryProvider`. The ledger claim runs first, so server-side `booking:manage`, tenant scope, current operation state, integration ownership, credential version, and `reservation` capability are verified before any provider I/O.
 
-The coordinator rejects provider-code mismatch without calling the provider, invokes only the provider-neutral `retrieveReservation` contract, and settles every normalized result through the ledger. `HospitalitySupplierProviderError` codes are persisted only as normalized failure codes; unexpected adapter failures become `PROVIDER_UNAVAILABLE`. Error messages, raw payloads, credentials, tokens, and transport details are not copied to ledger or audit data.
+The coordinator rejects provider-code mismatch without calling the provider, invokes only the provider-neutral `retrieveReservation` contract, requires every returned `FOUND` or `NOT_FOUND` result to identify the exact locator that was queried, and settles every normalized result through the ledger. Locator mismatches settle as `UNKNOWN` / `INVALID_RESPONSE` rather than leaving a reconciliation claim stuck or allowing an unrelated `NOT_FOUND` result to reopen create. `HospitalitySupplierProviderError` codes are persisted only as normalized failure codes; unexpected adapter failures become `PROVIDER_UNAVAILABLE`. Error messages, raw payloads, credentials, tokens, and transport details are not copied to ledger or audit data.
 
 This coordinator does not load credentials itself and does not create a reservation. Provider-specific transport remains behind integration/provider adapters.
 
@@ -60,7 +62,7 @@ The fingerprint is review evidence, not a timeless sell token. A future create e
 
 ## Known-locator Travelport recovery
 
-`HospitalitySupplierReservationRecoveryProvider` is provider-neutral. `TravelportStaysReservationRecoveryProvider` uses Hotel Retrieve with a known aggregator locator. `FOUND` requires exactly one authoritative `sourceContext=Travelport` locator matching the requested locator; an optional single supplier confirmation can accompany it. Explicit HTTP 404 maps to `NOT_FOUND`; authentication, rate-limit, timeout, provider-unavailable, malformed, duplicated, or mismatched responses fail closed.
+`HospitalitySupplierReservationRecoveryProvider` is provider-neutral. `TravelportStaysReservationRecoveryProvider` uses Hotel Retrieve with a known aggregator locator. `FOUND` requires exactly one authoritative `sourceContext=Travelport` locator matching the requested locator; an optional single supplier confirmation can accompany it. Explicit HTTP 404 maps to `NOT_FOUND` for the exact requested locator; authentication, rate-limit, timeout, provider-unavailable, malformed, duplicated, or mismatched responses fail closed.
 
 The provider-specific adapter never persists state itself. The coordinator claims and settles the ledger around the adapter call, preserving tenant authorization and durable state semantics.
 
@@ -88,9 +90,9 @@ Audits record only operational transition facts. Opaque property/offer reference
 
 ## Validation
 
-Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, migration-safe legacy behavior, audit privacy, known-locator preservation, exact-locator matching, supplier-confirmation persistence, coordinator provider-code checks, and normalized provider-failure settlement.
+Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, migration-safe legacy behavior, audit privacy, known-locator preservation, exact-locator matching for both `FOUND` and `NOT_FOUND`, supplier-confirmation persistence, coordinator provider-code checks, and normalized provider-failure settlement.
 
-A guarded PostgreSQL scenario covers locator-less reconciliation denial, known-locator `FOUND`, durable supplier confirmation, transient `UNKNOWN` preservation and retry, `NOT_FOUND` clearing, mismatched-locator rejection, and cross-tenant provider-I/O suppression. It is only executed through the disposable-database harness.
+A guarded PostgreSQL scenario covers locator-less reconciliation denial, known-locator `FOUND`, durable supplier confirmation, transient `UNKNOWN` preservation and retry, authoritative `NOT_FOUND` clearing, mismatched `FOUND`/`NOT_FOUND` identity remaining ambiguous, and cross-tenant provider-I/O suppression. It is only executed through the disposable-database harness.
 
 Live provider validation still requires a provisioned Travelport non-production account. Full Prisma migration/drift/database execution requires an explicitly disposable PostgreSQL target. Neither is claimed by source-only validation.
 
