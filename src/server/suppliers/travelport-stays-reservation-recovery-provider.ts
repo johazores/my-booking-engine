@@ -5,6 +5,7 @@ import type {
   HospitalitySupplierReservationRecoveryProvider,
   HospitalitySupplierReservationRecoveryResult,
 } from './hospitality-supplier-reservation-recovery-provider.ts';
+import { parseTravelportStaysReservationResponse } from './travelport-stays-reservation-response.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -17,7 +18,6 @@ const ENDPOINTS = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_REFERENCE_LENGTH = 512;
-const MAX_CORRELATION_LENGTH = 512;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -35,13 +35,6 @@ function boundedSingleLine(value: unknown, label: string, max: number) {
   if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
   }
-  return normalized;
-}
-
-function boundedProviderValue(value: unknown, max: number) {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) return null;
   return normalized;
 }
 
@@ -67,46 +60,6 @@ async function fetchWithTimeout(input: {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function parseReservationResponse(value: unknown, expectedReference: string) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-  const root = (value as { ReservationResponse?: unknown }).ReservationResponse;
-  if (!root || typeof root !== 'object' || Array.isArray(root)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-  const response = root as { Reservation?: unknown; traceId?: unknown; traceID?: unknown };
-  const reservation = response.Reservation;
-  if (!reservation || typeof reservation !== 'object' || Array.isArray(reservation)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-  const receipts = (reservation as { Receipt?: unknown }).Receipt;
-  if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > 32) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-
-  const travelportLocators: string[] = [];
-  const supplierLocators: string[] = [];
-  for (const receipt of receipts) {
-    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) continue;
-    const confirmation = (receipt as { Confirmation?: unknown }).Confirmation;
-    if (!confirmation || typeof confirmation !== 'object' || Array.isArray(confirmation)) continue;
-    const locator = (confirmation as { Locator?: unknown }).Locator;
-    if (!locator || typeof locator !== 'object' || Array.isArray(locator)) continue;
-    const locatorValue = boundedProviderValue((locator as { value?: unknown }).value, MAX_REFERENCE_LENGTH);
-    const sourceContext = boundedProviderValue((locator as { sourceContext?: unknown }).sourceContext, 64);
-    if (!locatorValue || !sourceContext) continue;
-    if (sourceContext === 'Travelport') travelportLocators.push(locatorValue);
-    if (sourceContext === 'Supplier') supplierLocators.push(locatorValue);
-  }
-
-  const uniqueTravelport = [...new Set(travelportLocators)];
-  if (uniqueTravelport.length !== 1 || uniqueTravelport[0] !== expectedReference) {
-    throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport retrieve response did not match the requested reservation locator.');
-  }
-  const uniqueSupplier = [...new Set(supplierLocators)];
-  if (uniqueSupplier.length > 1) {
-    throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport returned multiple supplier confirmation references for a single-room reservation.');
-  }
-
-  return Object.freeze({
-    supplierConfirmationReference: uniqueSupplier[0] ?? null,
-    providerCorrelationId: boundedProviderValue(response.traceId ?? response.traceID, MAX_CORRELATION_LENGTH),
-  });
 }
 
 export class TravelportStaysReservationRecoveryProvider implements HospitalitySupplierReservationRecoveryProvider {
@@ -189,10 +142,12 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     }
 
     const payload = await response.json().catch(() => null);
-    const parsed = parseReservationResponse(payload, reference);
+    const parsed = parseTravelportStaysReservationResponse(payload, {
+      expectedProviderReservationReference: reference,
+    });
     return Object.freeze({
       status: 'FOUND',
-      providerReservationReference: reference,
+      providerReservationReference: parsed.providerReservationReference,
       supplierConfirmationReference: parsed.supplierConfirmationReference,
       providerCorrelationId: parsed.providerCorrelationId,
     });
