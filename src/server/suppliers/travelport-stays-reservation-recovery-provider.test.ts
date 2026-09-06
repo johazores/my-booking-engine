@@ -65,17 +65,16 @@ test('Travelport recovery retrieves a known aggregator locator with durable outb
   assert.equal(headers.get('TraceId'), REQUEST_CORRELATION_ID);
 });
 
-test('Travelport recovery treats an explicit known-locator 404 as NOT_FOUND', async () => {
+test('Travelport recovery does not treat an undocumented generic HTTP 404 as authoritative NOT_FOUND evidence', async () => {
   const fetchImpl = (async (url) => {
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token', expires_in: 86400 });
     return jsonResponse({}, 404);
   }) as typeof fetch;
   const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: 'recover-missing', fetchImpl });
-  assert.deepEqual(await provider.retrieveReservation(recoveryRequest()), {
-    status: 'NOT_FOUND',
-    providerReservationReference: 'D6VBHL',
-    providerCorrelationId: null,
-  });
+  await assert.rejects(
+    provider.retrieveReservation(recoveryRequest()),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
 });
 
 test('Travelport recovery fails closed when provider truth returns another Travelport locator', async () => {

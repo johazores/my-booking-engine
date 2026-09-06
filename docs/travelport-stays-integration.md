@@ -64,9 +64,11 @@ See `docs/supplier-reservation-operations.md` for state, idempotency, recovery, 
 
 `HospitalitySupplierReservationRecoveryProvider` is the provider-neutral read contract. `TravelportStaysReservationRecoveryProvider` implements Hotel Retrieve `GET book/reservations/{AggregatorLocatorCode}` using the same tenant-owned decrypted credential authority as the loaded Travelport integration.
 
-The adapter accepts only a bounded single-line known aggregator locator. `FOUND` requires exactly one `sourceContext=Travelport` locator matching the requested value. An optional single supplier confirmation can be returned as normalized evidence. Explicit HTTP 404 becomes `NOT_FOUND`; authentication, rate-limit, timeout, provider-unavailable, and malformed/mismatched responses remain normalized failures.
+The adapter accepts only a bounded single-line known aggregator locator. `FOUND` requires exactly one `sourceContext=Travelport` locator matching the requested value. An optional single supplier confirmation can be returned as normalized evidence. Authentication, rate-limit, timeout, provider-unavailable, malformed, and mismatched responses remain normalized failures.
 
-`reconcileHospitalitySupplierReservationWithProvider` now connects that provider-neutral adapter to the durable ledger. The tenant-authorized reconciliation claim runs before provider I/O. Provider-code mismatch fails without invoking the adapter. `FOUND` confirms only when the returned locator exactly matches the durable known locator; `NOT_FOUND` returns the operation to `PREPARED` and clears locator evidence; transient/unknown failure returns to `AMBIGUOUS` while preserving the known locator for a later recovery attempt.
+Travelport's current public Retrieve reference documents the endpoint and successful response shape but does not define a generic HTTP 404 as authoritative reservation non-existence. A generic HTTP 404 is therefore not authoritative negative evidence in SF: the adapter maps it to `INVALID_RESPONSE`, and the reconciliation coordinator returns the operation to `AMBIGUOUS` while retaining the known locator. The provider-neutral `NOT_FOUND` outcome remains reserved for a future adapter/lookup path whose negative semantics are verified against provider documentation, non-production behavior, or provider support.
+
+`reconcileHospitalitySupplierReservationWithProvider` connects the provider-neutral adapter to the durable ledger. The tenant-authorized reconciliation claim runs before provider I/O. Provider-code mismatch fails without invoking the adapter. `FOUND` confirms only when the returned locator exactly matches the durable known locator; provider-neutral `NOT_FOUND` can return the operation to `PREPARED` only when an adapter supplies verified exact-locator negative evidence; transient/unknown failure returns to `AMBIGUOUS` while preserving the known locator for a later recovery attempt. The current Travelport Retrieve adapter does not infer `NOT_FOUND` from HTTP status alone.
 
 Locator-less ambiguity cannot enter this automatic recovery path. Hotel Retrieve starts from an aggregator locator, so a create that disconnects before SF receives one must remain `AMBIGUOUS` until live Travelport/provider-support validation establishes another authoritative lookup or correlation mechanism.
 
@@ -88,15 +90,15 @@ Travelport also documents price/guarantee changes as explicit follow-up decision
 
 ## Failure and privacy contract
 
-Provider failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Unsafe identifiers, authority mismatch, malformed/mixed money, unsupported Rules shapes, duplicate/oversized structures, incomplete pagination, mismatched reservation locators, and ambiguous selected-offer mapping fail closed.
+Provider failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Unsafe identifiers, authority mismatch, malformed/mixed money, unsupported Rules shapes, duplicate/oversized structures, incomplete pagination, mismatched reservation locators, undocumented generic negative HTTP statuses, and ambiguous selected-offer mapping fail closed.
 
 Raw Travelport errors, credentials, tokens, access groups, headers/bodies, pagination tokens, booking codes, traveler/customer data, payment/card material, provider locators, supplier confirmations, and supplier commercial payloads are not copied into audit payloads or structured request logs.
 
 ## Validation boundary
 
-The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete pagination, exact-money pricing/revalidation, Rules normalization/race handling, selected-offer Availability authority, supplier reservation state/idempotency/privacy, reservation response evidence, known-locator recovery, locator-preserving reconciliation, and supplier-confirmation persistence.
+The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete pagination, exact-money pricing/revalidation, Rules normalization/race handling, selected-offer Availability authority, supplier reservation state/idempotency/privacy, reservation response evidence, known-locator recovery, generic 404 fail-closed behavior, locator-preserving reconciliation, and supplier-confirmation persistence.
 
-A guarded PostgreSQL scenario is registered for cross-tenant provider-I/O suppression, locator-less recovery denial, known-locator `FOUND`, transient `UNKNOWN` preservation, `NOT_FOUND` clearing, mismatch rejection, and durable supplier confirmation. It requires the repository's explicitly disposable PostgreSQL harness.
+A guarded PostgreSQL scenario is registered for cross-tenant provider-I/O suppression, locator-less recovery denial, known-locator `FOUND`, transient `UNKNOWN` preservation, provider-neutral `NOT_FOUND` clearing, mismatch rejection, and durable supplier confirmation. Its `NOT_FOUND` branch uses a provider-neutral stub and does not claim Travelport HTTP 404 semantics. It requires the repository's explicitly disposable PostgreSQL harness.
 
 Live provider validation still requires provisioned Travelport non-production credentials. Full Prisma migration/drift/database execution requires an explicitly disposable PostgreSQL target. Source-only validation does not claim either gate passed.
 
@@ -105,7 +107,7 @@ Live provider validation still requires provisioned Travelport non-production cr
 1. Validate SearchComplete-to-Availability selected-rate mapping and exact request/response behavior with provisioned Travelport non-production credentials.
 2. Establish a reviewed PCI-safe form-of-payment/guarantee strategy for the provisioned Travelport account.
 3. Implement the real single-room Travelport create adapter and execution coordinator. It must repeat fresh Rules/offer/Availability authority, bind the accepted authority to the durable request, reconstruct only authorized traveler/guarantee/payment material, and settle every provider outcome through the ledger.
-4. Validate price/guarantee-change handling, locator-less ambiguous-write recovery, correlation semantics, and create response receipts against Travelport non-production/provider support.
+4. Validate price/guarantee-change handling, authoritative negative lookup semantics, locator-less ambiguous-write recovery, correlation semantics, and create response receipts against Travelport non-production/provider support.
 5. Advertise `reservation` only after the real write/recovery contract is validated, then expose staff/customer reserve UX with complete loading/error/accessibility/responsive states.
 6. Verify cancellation, modification, multi-room, and other provider lifecycle capabilities independently rather than assuming they follow from create support.
 

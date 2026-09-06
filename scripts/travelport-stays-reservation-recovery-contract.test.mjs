@@ -28,11 +28,12 @@ test('Travelport recovery maps durable request correlation into supportable prov
   assert.ok(correlationValidation >= 0 && accessTokenRequest > correlationValidation, 'correlation must be validated before provider I/O');
 });
 
-test('Travelport recovery adapter is read-only and cannot create or silently accept a reservation change', () => {
+test('Travelport recovery adapter is read-only and generic HTTP 404 cannot authorize another create', () => {
   const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   assert.doesNotMatch(adapter, /book\/reservations\/build|method:\s*'POST'|acceptPriceChangeInd|acceptGuaranteeChangeInd|createReservation/);
   assert.match(adapter, /method:\s*'GET'/);
-  assert.match(adapter, /response\.status === 404/);
+  assert.doesNotMatch(adapter, /if\s*\(response\.status === 404\)[\s\S]*?status:\s*'NOT_FOUND'/);
+  assert.match(adapter, /return 'INVALID_RESPONSE'/);
 });
 
 test('Travelport reservation capability remains closed while known-locator recovery is available server-side', () => {
@@ -70,6 +71,9 @@ test('supplier source-of-truth docs describe selected-offer authority without cl
   assert.match(integrationDoc, /PCI-safe form-of-payment\/guarantee strategy/i);
   assert.match(ledgerDoc, /SearchComplete-to-Availability bridge must be validated/i);
   assert.match(roadmap, /selected-offer.*Availability.*authority/is);
+  assert.match(integrationDoc, /generic HTTP 404[\s\S]*not authoritative/i);
+  assert.match(ledgerDoc, /generic HTTP 404[\s\S]*not authoritative/i);
+  assert.match(gdsDoc, /generic HTTP 404[\s\S]*not authoritative/i);
   assert.doesNotMatch(roadmap, /next dependency is therefore to establish the exact documented\/verified create authority/i);
 });
 

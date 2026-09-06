@@ -144,9 +144,6 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
         headers: this.#headers(await this.#accessToken(), requestCorrelationId),
       },
     });
-    if (response.status === 404) {
-      return Object.freeze({ status: 'NOT_FOUND', providerReservationReference: reference, providerCorrelationId: null });
-    }
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
       throw new HospitalitySupplierProviderError(failureCodeForStatus(response.status));
