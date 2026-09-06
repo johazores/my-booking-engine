@@ -58,11 +58,14 @@ test('ambiguous supplier creates require exact known-locator provider truth befo
   assert.match(domain, /status !== 'AMBIGUOUS'/);
   assert.match(service, /status: 'RECONCILING'/);
   assert.match(service, /cannot be reconciled automatically without a provider reservation reference/);
+  assert.match(service, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: unknown/);
   assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'/);
   assert.match(service, /input\.outcome\.status === 'FOUND'[\s\S]*?\? 'CONFIRMED'/);
+  assert.match(service, /input\.outcome\.status === 'FOUND' \|\| input\.outcome\.status === 'NOT_FOUND'[\s\S]*?reservation\.providerReservationReference !== providerReservationReference/);
   assert.match(service, /recovery returned a different provider reservation reference/);
   assert.match(reconciliation, /result\.providerReservationReference !== providerReservationReference/);
   assert.match(reconciliation, /status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE'/);
+  assert.match(reconciliation, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: result\.providerReservationReference/);
   const identityCheck = reconciliation.indexOf('result.providerReservationReference !== providerReservationReference');
   const notFoundSettlement = reconciliation.indexOf("status: 'NOT_FOUND'", identityCheck);
   assert.ok(identityCheck >= 0 && notFoundSettlement > identityCheck, 'locator identity must be checked before NOT_FOUND can make a create retryable');
