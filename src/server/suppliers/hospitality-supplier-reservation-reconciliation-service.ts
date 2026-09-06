@@ -30,6 +30,16 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
 
   try {
     const result = await input.provider.retrieveReservation(providerReservationReference);
+    if (result.providerReservationReference !== providerReservationReference) {
+      return settleHospitalitySupplierReservationReconciliation({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        reservationId: input.reservationId,
+        attemptId: claim.attempt.id,
+        outcome: { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' },
+      });
+    }
+
     if (result.status === 'FOUND') {
       return settleHospitalitySupplierReservationReconciliation({
         organizationId: input.organizationId,
