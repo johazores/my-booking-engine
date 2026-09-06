@@ -62,6 +62,7 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
     supplierOfferReference: 'test-offer-reference',
     offerFingerprint: 'a'.repeat(64),
     termsFingerprint: 'b'.repeat(64),
+    reservationAuthorityFingerprint: 'd'.repeat(64),
     reservationPayloadFingerprint: 'c'.repeat(64),
     currency: 'USD',
     expectedTotalMinor: 125_500n,
@@ -94,6 +95,7 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
     assert.equal(prepared.organizationId, tenantA.id);
     assert.equal(prepared.status, 'PREPARED');
     assert.equal(prepared.integrationCredentialVersion, 3);
+    assert.equal(prepared.requestFingerprintVersion, 2);
 
     const exactRetry = await reservations.prepareHospitalitySupplierReservation({
       organizationId: tenantA.id,
@@ -110,9 +112,29 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
         actorUserId: tenantAAdmin.id,
         integrationId: integrationA.id,
         idempotencyKey: 'supplier:test:exact-retry',
-        selection: { ...selection, reservationPayloadFingerprint: 'd'.repeat(64) },
+        selection: { ...selection, reservationAuthorityFingerprint: 'e'.repeat(64) },
       }),
       /different supplier reservation request/i,
+    );
+
+    const legacyUnbound = await reservations.prepareHospitalitySupplierReservation({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      integrationId: integrationA.id,
+      idempotencyKey: 'supplier:test:legacy-unbound',
+      selection: { ...selection, reservationPayloadFingerprint: 'e'.repeat(64) },
+    });
+    await db.hospitalitySupplierReservationOperation.update({
+      where: { id: legacyUnbound.id },
+      data: { requestFingerprintVersion: null },
+    });
+    await assert.rejects(
+      reservations.claimHospitalitySupplierReservationSubmission({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: legacyUnbound.id,
+      }),
+      /authority must be reviewed again/i,
     );
 
     const firstClaim = await reservations.claimHospitalitySupplierReservationSubmission({
@@ -213,7 +235,7 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       actorUserId: tenantAAdmin.id,
       integrationId: integrationA.id,
       idempotencyKey: 'supplier:test:credential-version',
-      selection: { ...selection, reservationPayloadFingerprint: 'e'.repeat(64) },
+      selection: { ...selection, reservationPayloadFingerprint: 'f'.repeat(64) },
     });
     await db.integration.update({
       where: { id: integrationA.id },

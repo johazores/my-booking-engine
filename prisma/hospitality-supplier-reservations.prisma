@@ -27,6 +27,7 @@ model HospitalitySupplierReservationOperation {
   integrationCredentialVersion Int
   idempotencyKey               String                                         @db.VarChar(120)
   requestFingerprint           String                                         @db.Char(64)
+  requestFingerprintVersion    Int?                                           @default(2)
   providerCode                 String                                         @db.VarChar(64)
   supplierPropertyReference    String                                         @db.VarChar(4096)
   supplierOfferReference       String                                         @db.VarChar(4096)

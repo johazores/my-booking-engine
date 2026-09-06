@@ -21,6 +21,7 @@ const selectionInput = {
   supplierOfferReference: 'offer_ref',
   offerFingerprint: 'a'.repeat(64),
   termsFingerprint: 'b'.repeat(64),
+  reservationAuthorityFingerprint: 'd'.repeat(64),
   reservationPayloadFingerprint: 'c'.repeat(64),
   currency: 'usd',
   expectedTotalMinor: 125_500n,
@@ -35,6 +36,7 @@ test('normalizes a bounded supplier reservation selection and produces a stable 
   const normalized = normalizeHospitalitySupplierReservationSelection(selectionInput);
   assert.equal(normalized.providerCode, 'travelport-stays');
   assert.equal(normalized.currency, 'USD');
+  assert.equal(normalized.reservationAuthorityFingerprint, 'd'.repeat(64));
   assert.deepEqual(normalized.childAges, [7]);
 
   const fingerprint = hospitalitySupplierReservationRequestFingerprint(normalized);
@@ -43,10 +45,15 @@ test('normalizes a bounded supplier reservation selection and produces a stable 
     normalizeHospitalitySupplierReservationSelection({ ...selectionInput }),
   ));
 
-  const changed = hospitalitySupplierReservationRequestFingerprint(
-    normalizeHospitalitySupplierReservationSelection({ ...selectionInput, reservationPayloadFingerprint: 'd'.repeat(64) }),
+  const payloadChanged = hospitalitySupplierReservationRequestFingerprint(
+    normalizeHospitalitySupplierReservationSelection({ ...selectionInput, reservationPayloadFingerprint: 'e'.repeat(64) }),
   );
-  assert.notEqual(changed, fingerprint);
+  assert.notEqual(payloadChanged, fingerprint);
+
+  const authorityChanged = hospitalitySupplierReservationRequestFingerprint(
+    normalizeHospitalitySupplierReservationSelection({ ...selectionInput, reservationAuthorityFingerprint: 'f'.repeat(64) }),
+  );
+  assert.notEqual(authorityChanged, fingerprint);
 });
 
 test('idempotency exact retries require the same complete request fingerprint', () => {
@@ -62,11 +69,15 @@ test('idempotency exact retries require the same complete request fingerprint', 
   assert.throws(() => normalizeHospitalitySupplierReservationIdempotencyKey('short'), HospitalitySupplierReservationValidationError);
 });
 
-test('ambiguous outcomes fail closed until explicit reconciliation', () => {
-  assert.doesNotThrow(() => assertHospitalitySupplierReservationCanSubmit({ status: 'PREPARED', lastFailureRetryable: null }));
-  assert.doesNotThrow(() => assertHospitalitySupplierReservationCanSubmit({ status: 'FAILED', lastFailureRetryable: true }));
+test('create submission requires reviewed reservation authority while ambiguity still reconciles', () => {
+  assert.doesNotThrow(() => assertHospitalitySupplierReservationCanSubmit({ status: 'PREPARED', lastFailureRetryable: null, requestFingerprintVersion: 2 }));
+  assert.doesNotThrow(() => assertHospitalitySupplierReservationCanSubmit({ status: 'FAILED', lastFailureRetryable: true, requestFingerprintVersion: 2 }));
   assert.throws(
-    () => assertHospitalitySupplierReservationCanSubmit({ status: 'AMBIGUOUS', lastFailureRetryable: null }),
+    () => assertHospitalitySupplierReservationCanSubmit({ status: 'PREPARED', lastFailureRetryable: null, requestFingerprintVersion: null }),
+    /authority must be reviewed again/,
+  );
+  assert.throws(
+    () => assertHospitalitySupplierReservationCanSubmit({ status: 'AMBIGUOUS', lastFailureRetryable: null, requestFingerprintVersion: null }),
     /must be reconciled/,
   );
   assert.doesNotThrow(() => assertHospitalitySupplierReservationCanReconcile('AMBIGUOUS'));
@@ -82,7 +93,11 @@ test('provider operational metadata is bounded and normalized without accepting 
   assert.throws(() => normalizeHospitalitySupplierReservationFailureCode('raw provider error with spaces'), HospitalitySupplierReservationValidationError);
 });
 
-test('selection rejects malformed dates, money and occupancy before persistence', () => {
+test('selection rejects malformed authority, dates, money and occupancy before persistence', () => {
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, reservationAuthorityFingerprint: 'not-a-fingerprint' }),
+    HospitalitySupplierReservationValidationError,
+  );
   assert.throws(
     () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, departureDateLocal: '2026-10-10' }),
     HospitalitySupplierReservationValidationError,

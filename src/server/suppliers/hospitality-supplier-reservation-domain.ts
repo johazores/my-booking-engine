@@ -44,6 +44,7 @@ export type HospitalitySupplierReservationSelectionInput = Readonly<{
   supplierOfferReference: unknown;
   offerFingerprint: unknown;
   termsFingerprint: unknown;
+  reservationAuthorityFingerprint: unknown;
   reservationPayloadFingerprint: unknown;
   currency: unknown;
   expectedTotalMinor: unknown;
@@ -60,6 +61,7 @@ export type NormalizedHospitalitySupplierReservationSelection = Readonly<{
   supplierOfferReference: string;
   offerFingerprint: string;
   termsFingerprint: string;
+  reservationAuthorityFingerprint: string;
   reservationPayloadFingerprint: string;
   currency: string;
   expectedTotalMinor: bigint;
@@ -133,6 +135,10 @@ export function normalizeHospitalitySupplierReservationSelection(
   const supplierOfferReference = normalizeOpaqueReference(input.supplierOfferReference, 'Supplier offer reference');
   const offerFingerprint = normalizeFingerprint(input.offerFingerprint, 'Supplier offer fingerprint');
   const termsFingerprint = normalizeFingerprint(input.termsFingerprint, 'Supplier terms fingerprint');
+  const reservationAuthorityFingerprint = normalizeFingerprint(
+    input.reservationAuthorityFingerprint,
+    'Supplier reservation authority fingerprint',
+  );
   const reservationPayloadFingerprint = normalizeFingerprint(input.reservationPayloadFingerprint, 'Supplier reservation payload fingerprint');
   const arrivalDateLocal = normalizeLocalDate(input.arrivalDateLocal, 'Arrival date');
   const departureDateLocal = normalizeLocalDate(input.departureDateLocal, 'Departure date');
@@ -160,6 +166,7 @@ export function normalizeHospitalitySupplierReservationSelection(
     supplierOfferReference,
     offerFingerprint,
     termsFingerprint,
+    reservationAuthorityFingerprint,
     reservationPayloadFingerprint,
     currency,
     expectedTotalMinor: input.expectedTotalMinor,
@@ -180,6 +187,7 @@ export function hospitalitySupplierReservationRequestFingerprint(
     selection.supplierOfferReference,
     selection.offerFingerprint,
     selection.termsFingerprint,
+    selection.reservationAuthorityFingerprint,
     selection.reservationPayloadFingerprint,
     selection.currency,
     selection.expectedTotalMinor.toString(),
@@ -203,10 +211,20 @@ export function assertHospitalitySupplierReservationExactRetry(
 }
 
 export function assertHospitalitySupplierReservationCanSubmit(
-  input: Readonly<{ status: HospitalitySupplierReservationStatus; lastFailureRetryable: boolean | null }>,
+  input: Readonly<{
+    status: HospitalitySupplierReservationStatus;
+    lastFailureRetryable: boolean | null;
+    requestFingerprintVersion?: number | null;
+  }>,
 ) {
-  if (input.status === 'PREPARED') return;
-  if (input.status === 'FAILED' && input.lastFailureRetryable === true) return;
+  if (input.status === 'PREPARED' || (input.status === 'FAILED' && input.lastFailureRetryable === true)) {
+    if (input.requestFingerprintVersion !== 2) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation authority must be reviewed again before submission.',
+      );
+    }
+    return;
+  }
   if (input.status === 'AMBIGUOUS' || input.status === 'RECONCILING') {
     throw new HospitalitySupplierReservationConflictError(
       'Supplier reservation outcome is unresolved and must be reconciled before another create attempt.',
