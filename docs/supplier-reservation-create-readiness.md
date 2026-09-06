@@ -1,6 +1,6 @@
 # Supplier Reservation Create Readiness
 
-SF keeps the Travelport reservation capability closed until a real single-room Create Reservation executor and a reviewed PCI-safe form-of-payment strategy are available. The current submission-authority boundary is intentionally stricter than general read-only Rules display because it decides whether an external commercial write may be claimed.
+SF keeps the Travelport reservation capability closed until a real single-room Create Reservation coordinator and a reviewed PCI-safe form-of-payment strategy are available. The current submission-authority boundary is intentionally stricter than general read-only Rules display because it decides whether an external commercial write may be claimed.
 
 ## Fresh commercial consistency
 
@@ -22,7 +22,7 @@ SF does not yet bind an authorized traveler loyalty identifier into the durable 
 
 ## Provider-specific non-secret request material
 
-After fresh submission authority and traveler re-binding succeed, SF now builds the provider-specific non-secret portion of the Travelport v11 Create Reservation request **before** claiming the durable external write. The material contains only:
+After fresh submission authority and traveler re-binding succeed, SF builds the provider-specific non-secret portion of the Travelport v11 Create Reservation request **before** claiming the durable external write. The material contains only:
 
 - the freshly revalidated Availability `CatalogOfferingIdentifier`;
 - one canonical primary `Traveler` with Travelport name, telephone, and email fields; and
@@ -32,17 +32,27 @@ Travelport+ documents a 22-character combined limit for traveler `Given` plus `S
 
 The request material is ephemeral server-only data. It must not be persisted or audited and it is not a complete Create Reservation request. In particular, it does not include `FormOfPayment`, `PaymentCard`, card number, CVV/security code, cardholder, billing-card data, provider credentials, or access tokens.
 
+## Server-only Travelport Create executor
+
+The provider adapter now has a real fixed-endpoint v11 Create Reservation executor for the documented reference-payload workflow. It composes `ReservationQueryBuild` from the freshly built non-secret request material plus one sensitive payment-card value supplied only to the server adapter. It validates the card type, card code, expiry, PAN shape, cardholder, and security-code shape and requires the card code to be present in the fresh accepted-card authority before OAuth or provider I/O.
+
+This executor is intentionally **not** a card-collection strategy. No route, browser form, public action, persistence model, audit payload, or log sink accepts the sensitive payment-card input. The executor does not make raw PAN/CVV storage acceptable and does not make the application PCI-ready. The remaining product decision is where the sensitive form of payment comes from under the reviewed PCI scope for the actually provisioned Travelport commercial account.
+
+The execution ordering is fail-closed around the durable write ledger. Request composition and OAuth finish first. A future coordinator must then mark the existing durable reservation attempt as provider-request-started through the supplied callback immediately before the POST. Only after that marker succeeds does the executor send `POST /11/hotel/book/reservations/build`. A token/authentication failure or card-authority failure therefore happens before provider-write ambiguity is established; network uncertainty after the marker is returned as `AMBIGUOUS` and must not cause a blind re-sell.
+
+The initial sell never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`. Existing response classification still owns confirmed, review-required, Booking.com Sync-required, and unknown/malformed outcomes. The integration loader constructs the executor behind the existing encrypted credential boundary and shared trace transport, but the provider still does not advertise the `reservation` capability.
+
 ## Secrets and provider ownership
 
 Fresh payment authority contains only commercial instruction metadata: kind, collection timing, currency, amount, and bounded accepted-card codes. It must not contain PAN, CVV/security code, billing-card plaintext, access tokens, provider credentials, or raw provider payloads.
 
 The fresh Travelport provider submission reference remains ephemeral and adapter-owned. It is carried only from the freshly revalidated Availability authority into the future write coordinator and is not persisted, audited, logged, or accepted from the browser.
 
-Travelport's documented reference Create Reservation request still requires `FormOfPayment` with payment-card data. Public Travelport Stays documentation includes plaintext card-number fields and makes CVV mandatory for certain suppliers, including Booking.com. SF therefore does not claim a PCI-safe implementation by merely constructing or storing those fields. The final form-of-payment boundary must be reviewed for the actually provisioned commercial account before the executor is enabled.
+Travelport's documented reference Create Reservation request requires `FormOfPayment` with payment-card data. Public Travelport Stays documentation includes plaintext card-number fields and makes CVV mandatory for certain suppliers, including Booking.com. SF therefore does not claim a PCI-safe implementation merely because the provider adapter can now compose and send that sensitive payload. The source/collection/handling boundary for form of payment must be reviewed for the actually provisioned commercial account before any caller can supply it to the executor.
 
 ## Capability gate
 
-Travelport `reservation` capability remains disabled. These checks and the non-secret request mapping harden pre-create authority but do not make the integration write-ready by themselves. Enabling reservation still requires the reviewed PCI-safe form-of-payment approach, the actual provider create executor/coordinator, explicit price/guarantee-change decisions, safe ambiguity recovery, and live non-production validation.
+Travelport `reservation` capability remains disabled. The fresh-authority checks, non-secret request mapping, and server-only HTTP executor remove the raw Travelport POST/composition dependency but do not make the integration write-ready by themselves. Enabling reservation still requires the reviewed PCI-safe form-of-payment source/handling approach, an authorized coordinator that connects the executor to the existing durable marker and settlement ledger, explicit price/guarantee-change decisions, safe ambiguity recovery, and live non-production validation.
 
 References:
 

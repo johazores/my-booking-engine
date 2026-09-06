@@ -2,6 +2,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
 import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
+import { TravelportStaysReservationCreateExecutor } from '../suppliers/travelport-stays-reservation-create-executor.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
@@ -73,6 +74,7 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   provider: TravelportStaysProvider;
   bookingTermsProvider: TravelportStaysBookingTermsProvider;
   reservationAuthorityProvider: TravelportStaysReservationAuthorityProvider;
+  reservationCreateExecutor: TravelportStaysReservationCreateExecutor;
   reservationRecoveryProvider: TravelportStaysReservationRecoveryProvider;
 }>> {
   assertUuidIdentifier(organizationId, 'organizationId');
@@ -102,6 +104,11 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
       credentials: normalizedCredentials,
       cacheKey,
       bookingTermsProvider,
+      fetchImpl,
+    }),
+    reservationCreateExecutor: new TravelportStaysReservationCreateExecutor({
+      credentials: normalizedCredentials,
+      cacheKey,
       fetchImpl,
     }),
     reservationRecoveryProvider: new TravelportStaysReservationRecoveryProvider({
