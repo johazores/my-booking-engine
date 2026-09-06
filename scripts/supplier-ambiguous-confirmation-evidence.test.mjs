@@ -41,6 +41,7 @@ test('known-locator reconciliation preserves valid prior supplier evidence unles
 test('documentation keeps supplier confirmation as recovery evidence and Travelport reservation disabled', () => {
   const operations = source('docs/supplier-reservation-operations.md');
   const responseEvidence = source('docs/travelport-reservation-response-evidence.md');
+  const integration = source('docs/travelport-stays-integration.md');
 
   assert.match(operations, /supplier confirmation.*AMBIGUOUS/i);
   assert.match(operations, /does not.*authorize another create/i);
@@ -48,4 +49,7 @@ test('documentation keeps supplier confirmation as recovery evidence and Travelp
   assert.match(responseEvidence, /ambiguous.*supplier confirmation/i);
   assert.match(responseEvidence, /does not.*prove.*Travelport PNR/i);
   assert.match(responseEvidence, /`reservation` capability.*disabled/i);
+  assert.match(integration, /supplier confirmation.*`AMBIGUOUS`.*`RECONCILING`.*`CONFIRMED`/i);
+  assert.match(integration, /supplier confirmation by itself does not prove.*Travelport PNR/i);
+  assert.match(integration, /Booking\.com Sync recovery/i);
 });
