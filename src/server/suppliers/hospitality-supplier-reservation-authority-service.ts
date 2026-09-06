@@ -48,8 +48,14 @@ export async function reviewHospitalitySupplierReservationAuthority(input: {
   await requireSupplierReservationReviewAuthority(input);
   const { reservationAuthorityProvider } = await loadTravelportStaysIntegration(input.organizationId);
   const review = await reservationAuthorityProvider.verifyReservationAuthority(input.selection);
-  const { providerSubmissionReference: _providerSubmissionReference, ...publicReview } = review;
-  return Object.freeze(publicReview);
+  return Object.freeze({
+    status: review.status,
+    offer: review.offer,
+    bookingTerms: review.bookingTerms,
+    authorityFingerprint: review.authorityFingerprint,
+    observedAt: review.observedAt,
+    revalidationRequired: review.revalidationRequired,
+  });
 }
 
 export async function reviewAndClaimHospitalitySupplierReservationSubmission(input: {

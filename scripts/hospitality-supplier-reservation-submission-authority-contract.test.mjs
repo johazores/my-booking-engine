@@ -27,12 +27,17 @@ test('fresh authority carries exact ephemeral provider sell reference only throu
   const provider = source('src/server/suppliers/travelport-stays-reservation-authority-provider.ts');
   const binding = source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts');
   const service = source('src/server/suppliers/hospitality-supplier-reservation-authority-service.ts');
+  const publicReview = service.slice(
+    service.indexOf('export async function reviewHospitalitySupplierReservationAuthority'),
+    service.indexOf('export async function reviewAndClaimHospitalitySupplierReservationSubmission'),
+  );
   assert.match(provider, /providerSubmissionReference: identifierValue/);
   assert.match(provider, /providerSubmissionReference: matches\[0\]!\.providerSubmissionReference/);
   assert.match(binding, /providerSubmissionReference: string \| null/);
   assert.match(binding, /providerSubmissionReference\(review\.providerSubmissionReference\)/);
   assert.match(binding, /providerSubmissionReference: submissionReference/);
-  assert.match(service, /providerSubmissionReference: _providerSubmissionReference/);
+  assert.doesNotMatch(publicReview, /providerSubmissionReference/);
+  assert.match(publicReview, /authorityFingerprint: review\.authorityFingerprint/);
   assert.match(service, /const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority\(reservation, review\)/);
 });
 
