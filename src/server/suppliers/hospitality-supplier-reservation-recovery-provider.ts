@@ -1,3 +1,8 @@
+export type HospitalitySupplierReservationRecoveryRequest = Readonly<{
+  providerReservationReference: string;
+  requestCorrelationId: string;
+}>;
+
 export type HospitalitySupplierReservationRecoveryResult =
   | Readonly<{
       status: 'FOUND';
@@ -13,5 +18,5 @@ export type HospitalitySupplierReservationRecoveryResult =
 
 export interface HospitalitySupplierReservationRecoveryProvider {
   readonly code: string;
-  retrieveReservation(providerReservationReference: string): Promise<HospitalitySupplierReservationRecoveryResult>;
+  retrieveReservation(input: HospitalitySupplierReservationRecoveryRequest): Promise<HospitalitySupplierReservationRecoveryResult>;
 }

@@ -46,21 +46,24 @@ test('confirmed supplier evidence is normalized and settled atomically without e
   );
 });
 
-test('provider-neutral coordinator authorizes and claims before provider I/O and always settles normalized recovery outcomes', async () => {
-  const [coordinator, recoveryContract, runner, operationsDoc, responseDoc, travelportDoc] = await Promise.all([
+test('provider-neutral coordinator authorizes, persists correlation, and claims before provider I/O', async () => {
+  const [coordinator, recoveryContract, runner, operationsDoc, responseDoc, travelportDoc, correlationDoc] = await Promise.all([
     source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts'),
     source('src/server/suppliers/hospitality-supplier-reservation-recovery-provider.ts'),
     source('scripts/run-database-tests.mjs'),
     source('docs/supplier-reservation-operations.md'),
     source('docs/travelport-reservation-response-evidence.md'),
     source('docs/travelport-stays-integration.md'),
+    source('docs/supplier-reservation-correlation.md'),
   ]);
 
   assert.match(coordinator, /HospitalitySupplierReservationRecoveryProvider/);
+  assert.match(recoveryContract, /requestCorrelationId: string/);
   assert.doesNotMatch(recoveryContract, /Travelport|credentials|accessToken|ReservationResponse/);
   const claimIndex = coordinator.indexOf('claimHospitalitySupplierReservationReconciliation');
   const providerIoIndex = coordinator.indexOf('input.provider.retrieveReservation');
   assert.ok(claimIndex >= 0 && providerIoIndex > claimIndex);
+  assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
   assert.match(coordinator, /input\.provider\.code !== claim\.reservation\.providerCode/);
   assert.match(coordinator, /error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE'/);
   assert.match(coordinator, /status: 'FOUND'/);
@@ -72,6 +75,9 @@ test('provider-neutral coordinator authorizes and claims before provider I/O and
     assert.match(doc, /supplier confirmation/i);
     assert.doesNotMatch(doc, /does not yet persist the supplier confirmation reference/i);
   }
+  assert.match(correlationDoc, /attempt UUID/i);
+  assert.match(correlationDoc, /E2ETrackingID/);
+  assert.match(correlationDoc, /locator-less ambiguity/i);
   assert.match(operationsDoc, /UNKNOWN[\s\S]*preserv/i);
   assert.match(operationsDoc, /locator-less ambiguity/i);
   assert.match(travelportDoc, /does not yet advertise `reservation`|does not yet advertise `reservation`/i);

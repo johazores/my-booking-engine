@@ -10,10 +10,22 @@ test('Travelport reservation recovery stays behind a provider-neutral contract',
   const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   const responseParser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   assert.match(contract, /HospitalitySupplierReservationRecoveryProvider/);
+  assert.match(contract, /requestCorrelationId: string/);
   assert.doesNotMatch(contract, /Travelport|ReservationResponse|sourceContext|book\/reservations/);
   assert.match(adapter, /book\/reservations\/\$\{encodeURIComponent\(reference\)\}/);
   assert.match(adapter, /parseTravelportStaysReservationResponse/);
   assert.match(responseParser, /sourceContext === 'Travelport'/);
+});
+
+test('Travelport recovery maps durable request correlation into supportable provider headers', () => {
+  const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
+  assert.doesNotMatch(adapter, /randomUUID/);
+  assert.match(adapter, /E2ETrackingID: `sf-\$\{requestCorrelationId\}`/);
+  assert.match(adapter, /TraceId: requestCorrelationId/);
+  assert.match(adapter, /'Content-Type': 'application\/json'/);
+  const correlationValidation = adapter.indexOf("'Request correlation ID'");
+  const accessTokenRequest = adapter.indexOf('await this.#accessToken()', correlationValidation);
+  assert.ok(correlationValidation >= 0 && accessTokenRequest > correlationValidation, 'correlation must be validated before provider I/O');
 });
 
 test('Travelport recovery adapter is read-only and cannot create or silently accept a reservation change', () => {

@@ -108,16 +108,18 @@ test('supplier reconciliation preserves known locator authority and durable supp
   try {
     const foundOperation = await prepare('supplier:reconcile:found');
     await makeAmbiguous(foundOperation.id, 'TVPT-FOUND-001');
+    let foundRequestCorrelationId: string | null = null;
     const confirmed = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: foundOperation.id,
       provider: {
         code: 'travelport-stays',
-        async retrieveReservation(reference) {
+        async retrieveReservation(request) {
+          foundRequestCorrelationId = request.requestCorrelationId;
           return {
             status: 'FOUND' as const,
-            providerReservationReference: reference,
+            providerReservationReference: request.providerReservationReference,
             supplierConfirmationReference: 'SUPPLIER-FOUND-001',
             providerCorrelationId: 'trace-found-1',
           };
@@ -127,6 +129,11 @@ test('supplier reconciliation preserves known locator authority and durable supp
     assert.equal(confirmed.status, 'CONFIRMED');
     assert.equal(confirmed.providerReservationReference, 'TVPT-FOUND-001');
     assert.equal(confirmed.supplierConfirmationReference, 'SUPPLIER-FOUND-001');
+    const foundReconcileAttempt = await db.hospitalitySupplierReservationAttempt.findFirstOrThrow({
+      where: { organizationId: tenantA.id, reservationId: foundOperation.id, kind: 'RECONCILE' },
+      orderBy: { sequence: 'desc' },
+    });
+    assert.equal(foundRequestCorrelationId, foundReconcileAttempt.id);
 
     const locatorlessOperation = await prepare('supplier:reconcile:locatorless');
     await makeAmbiguous(locatorlessOperation.id);
@@ -145,13 +152,15 @@ test('supplier reconciliation preserves known locator authority and durable supp
 
     const transientOperation = await prepare('supplier:reconcile:transient');
     await makeAmbiguous(transientOperation.id, 'TVPT-TRANSIENT-001');
+    let transientCorrelationId: string | null = null;
     const stillAmbiguous = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: transientOperation.id,
       provider: {
         code: 'travelport-stays',
-        async retrieveReservation() {
+        async retrieveReservation(request) {
+          transientCorrelationId = request.requestCorrelationId;
           throw new HospitalitySupplierProviderError('TIMEOUT');
         },
       },
@@ -159,21 +168,38 @@ test('supplier reconciliation preserves known locator authority and durable supp
     assert.equal(stillAmbiguous.status, 'AMBIGUOUS');
     assert.equal(stillAmbiguous.providerReservationReference, 'TVPT-TRANSIENT-001');
     assert.equal(stillAmbiguous.lastFailureCode, 'TIMEOUT');
+    const transientAttempt = await db.hospitalitySupplierReservationAttempt.findFirstOrThrow({
+      where: { organizationId: tenantA.id, reservationId: transientOperation.id, kind: 'RECONCILE' },
+      orderBy: { sequence: 'desc' },
+    });
+    assert.equal(transientCorrelationId, transientAttempt.id);
 
+    let notFoundCorrelationId: string | null = null;
     const safeToRetry = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: transientOperation.id,
       provider: {
         code: 'travelport-stays',
-        async retrieveReservation(reference) {
-          return { status: 'NOT_FOUND' as const, providerReservationReference: reference, providerCorrelationId: 'trace-not-found' };
+        async retrieveReservation(request) {
+          notFoundCorrelationId = request.requestCorrelationId;
+          return {
+            status: 'NOT_FOUND' as const,
+            providerReservationReference: request.providerReservationReference,
+            providerCorrelationId: 'trace-not-found',
+          };
         },
       },
     });
     assert.equal(safeToRetry.status, 'PREPARED');
     assert.equal(safeToRetry.providerReservationReference, null);
     assert.equal(safeToRetry.supplierConfirmationReference, null);
+    const notFoundAttempt = await db.hospitalitySupplierReservationAttempt.findFirstOrThrow({
+      where: { organizationId: tenantA.id, reservationId: transientOperation.id, kind: 'RECONCILE' },
+      orderBy: { sequence: 'desc' },
+    });
+    assert.equal(notFoundCorrelationId, notFoundAttempt.id);
+    assert.notEqual(notFoundCorrelationId, transientCorrelationId);
 
     const mismatchFoundOperation = await prepare('supplier:reconcile:mismatch-found');
     await makeAmbiguous(mismatchFoundOperation.id, 'TVPT-EXPECTED-FOUND-001');
@@ -183,12 +209,12 @@ test('supplier reconciliation preserves known locator authority and durable supp
       reservationId: mismatchFoundOperation.id,
       provider: {
         code: 'travelport-stays',
-        async retrieveReservation() {
+        async retrieveReservation(request) {
           return {
             status: 'FOUND' as const,
             providerReservationReference: 'TVPT-DIFFERENT-FOUND-001',
             supplierConfirmationReference: 'SUPPLIER-DIFFERENT-001',
-            providerCorrelationId: 'trace-mismatch-found',
+            providerCorrelationId: request.requestCorrelationId,
           };
         },
       },
@@ -206,11 +232,11 @@ test('supplier reconciliation preserves known locator authority and durable supp
       reservationId: mismatchNotFoundOperation.id,
       provider: {
         code: 'travelport-stays',
-        async retrieveReservation() {
+        async retrieveReservation(request) {
           return {
             status: 'NOT_FOUND' as const,
             providerReservationReference: 'TVPT-DIFFERENT-NOT-FOUND-001',
-            providerCorrelationId: 'trace-mismatch-not-found',
+            providerCorrelationId: request.requestCorrelationId,
           };
         },
       },
@@ -230,9 +256,13 @@ test('supplier reconciliation preserves known locator authority and durable supp
         reservationId: tenantOperation.id,
         provider: {
           code: 'travelport-stays',
-          async retrieveReservation(reference) {
+          async retrieveReservation(request) {
             providerCalls += 1;
-            return { status: 'NOT_FOUND' as const, providerReservationReference: reference, providerCorrelationId: null };
+            return {
+              status: 'NOT_FOUND' as const,
+              providerReservationReference: request.providerReservationReference,
+              providerCorrelationId: request.requestCorrelationId,
+            };
           },
         },
       }),

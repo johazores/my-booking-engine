@@ -29,7 +29,10 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
   }
 
   try {
-    const result = await input.provider.retrieveReservation(providerReservationReference);
+    const result = await input.provider.retrieveReservation({
+      providerReservationReference,
+      requestCorrelationId: claim.attempt.id,
+    });
     if (result.providerReservationReference !== providerReservationReference) {
       return settleHospitalitySupplierReservationReconciliation({
         organizationId: input.organizationId,

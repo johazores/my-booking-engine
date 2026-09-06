@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto';
-
 import { HospitalitySupplierProviderError, type HospitalitySupplierFailureCode } from './hospitality-supplier-provider.ts';
 import type {
   HospitalitySupplierReservationRecoveryProvider,
+  HospitalitySupplierReservationRecoveryRequest,
   HospitalitySupplierReservationRecoveryResult,
 } from './hospitality-supplier-reservation-recovery-provider.ts';
 import { parseTravelportStaysReservationResponse } from './travelport-stays-reservation-response.ts';
@@ -18,6 +17,7 @@ const ENDPOINTS = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_REFERENCE_LENGTH = 512;
+const MAX_REQUEST_CORRELATION_ID_LENGTH = 120;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -106,14 +106,16 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     return request;
   }
 
-  #headers(accessToken: string) {
+  #headers(accessToken: string, requestCorrelationId: string) {
     return {
       'Accept-Encoding': 'gzip, deflate',
       'Cache-Control': 'no-cache',
       Accept: 'application/json',
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-      E2ETrackingID: `sf-${randomUUID()}`,
+      E2ETrackingID: `sf-${requestCorrelationId}`,
+      TraceId: requestCorrelationId,
       username: this.#credentials.username,
       password: this.#credentials.password,
       client_id: this.#credentials.clientId,
@@ -121,8 +123,17 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     } as const;
   }
 
-  async retrieveReservation(providerReservationReference: string): Promise<HospitalitySupplierReservationRecoveryResult> {
-    const reference = boundedSingleLine(providerReservationReference, 'Provider reservation reference', MAX_REFERENCE_LENGTH);
+  async retrieveReservation(input: HospitalitySupplierReservationRecoveryRequest): Promise<HospitalitySupplierReservationRecoveryResult> {
+    const reference = boundedSingleLine(
+      input.providerReservationReference,
+      'Provider reservation reference',
+      MAX_REFERENCE_LENGTH,
+    );
+    const requestCorrelationId = boundedSingleLine(
+      input.requestCorrelationId,
+      'Request correlation ID',
+      MAX_REQUEST_CORRELATION_ID_LENGTH,
+    );
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
       url: `${ENDPOINTS[this.#credentials.environment]}book/reservations/${encodeURIComponent(reference)}`,
@@ -130,7 +141,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       init: {
         method: 'GET',
         cache: 'no-store',
-        headers: this.#headers(await this.#accessToken()),
+        headers: this.#headers(await this.#accessToken(), requestCorrelationId),
       },
     });
     if (response.status === 404) {
