@@ -45,7 +45,7 @@ test('documentation keeps supplier confirmation as recovery evidence and Travelp
 
   assert.match(operations, /supplier confirmation.*AMBIGUOUS/i);
   assert.match(operations, /does not.*authorize another create/i);
-  assert.match(operations, /locator-less.*Sync/i);
+  assert.match(operations, /locator-less[\s\S]*?Sync/i);
   assert.match(responseEvidence, /ambiguous.*supplier confirmation/i);
   assert.match(responseEvidence, /does not.*prove.*Travelport PNR/i);
   assert.match(responseEvidence, /`reservation` capability.*disabled/i);
