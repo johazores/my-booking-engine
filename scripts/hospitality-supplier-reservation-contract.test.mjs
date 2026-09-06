@@ -50,9 +50,10 @@ test('supplier reservation service authorizes before tenant-scoped persistence a
   assert.doesNotMatch(service, /encryptedCredentials|loadActiveIntegrationCredentials|readTravelportStaysCredentials/);
 });
 
-test('ambiguous supplier creates require known-locator provider truth before another create attempt', () => {
+test('ambiguous supplier creates require exact known-locator provider truth before another create attempt', () => {
   const domain = source('src/server/suppliers/hospitality-supplier-reservation-domain.ts');
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
+  const reconciliation = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
   assert.match(domain, /must be reconciled before another create attempt/);
   assert.match(domain, /status !== 'AMBIGUOUS'/);
   assert.match(service, /status: 'RECONCILING'/);
@@ -60,6 +61,11 @@ test('ambiguous supplier creates require known-locator provider truth before ano
   assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'/);
   assert.match(service, /input\.outcome\.status === 'FOUND'[\s\S]*?\? 'CONFIRMED'/);
   assert.match(service, /recovery returned a different provider reservation reference/);
+  assert.match(reconciliation, /result\.providerReservationReference !== providerReservationReference/);
+  assert.match(reconciliation, /status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE'/);
+  const identityCheck = reconciliation.indexOf('result.providerReservationReference !== providerReservationReference');
+  const notFoundSettlement = reconciliation.indexOf("status: 'NOT_FOUND'", identityCheck);
+  assert.ok(identityCheck >= 0 && notFoundSettlement > identityCheck, 'locator identity must be checked before NOT_FOUND can make a create retryable');
   const reconcileStart = service.indexOf('export async function claimHospitalitySupplierReservationReconciliation');
   const reconcileEnd = service.indexOf('export type HospitalitySupplierReservationReconciliationOutcome');
   const reconciliationClaim = service.slice(reconcileStart, reconcileEnd);
