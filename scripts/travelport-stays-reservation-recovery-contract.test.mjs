@@ -8,10 +8,12 @@ const source = (path) => readFileSync(new URL(path, root), 'utf8');
 test('Travelport reservation recovery stays behind a provider-neutral contract', () => {
   const contract = source('src/server/suppliers/hospitality-supplier-reservation-recovery-provider.ts');
   const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
+  const responseParser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   assert.match(contract, /HospitalitySupplierReservationRecoveryProvider/);
   assert.doesNotMatch(contract, /Travelport|ReservationResponse|sourceContext|book\/reservations/);
   assert.match(adapter, /book\/reservations\/\$\{encodeURIComponent\(reference\)\}/);
-  assert.match(adapter, /sourceContext === 'Travelport'/);
+  assert.match(adapter, /parseTravelportStaysReservationResponse/);
+  assert.match(responseParser, /sourceContext === 'Travelport'/);
 });
 
 test('Travelport recovery adapter is read-only and cannot create or silently accept a reservation change', () => {
@@ -35,15 +37,30 @@ test('Travelport recovery source contains no reservation persistence, audit, or 
   assert.doesNotMatch(adapter, /db\.|prisma|auditEvent|logger|console\.|afterData|beforeData/);
 });
 
-test('supplier source-of-truth docs keep known-locator recovery separate from unverified create authority', () => {
+test('supplier source-of-truth docs describe selected-offer authority without claiming create is live', () => {
   const integrationDoc = source('docs/travelport-stays-integration.md');
   const ledgerDoc = source('docs/supplier-reservation-operations.md');
+  const gdsDoc = source('docs/gds-integration.md');
   const roadmap = source('docs/product-roadmap.md');
-  for (const document of [integrationDoc, ledgerDoc, roadmap]) {
+  for (const document of [integrationDoc, ledgerDoc, gdsDoc, roadmap]) {
     assert.match(document, /known-locator|known locator/i);
-    assert.match(document, /lowestPublicAvailableRate\/rateKey\/value/);
-    assert.match(document, /reservation.*(unadvertised|not advertised|remains closed|create.*closed)/is);
+    assert.match(document, /reservation.*(unadvertised|not advertised|remains closed|not exposed|no external supplier booking action)/is);
   }
-  assert.match(integrationDoc, /no Travelport `POST book\/reservations\/build` call/);
-  assert.match(ledgerDoc, /must not pass an arbitrary selected room-rate key as `CatalogOfferingIdentifier`/);
+  for (const document of [integrationDoc, ledgerDoc, gdsDoc]) {
+    assert.match(document, /Availability/i);
+    assert.match(document, /authorityFingerprint|authority fingerprint/i);
+  }
+  assert.match(integrationDoc, /PCI-safe form-of-payment\/guarantee strategy/i);
+  assert.match(ledgerDoc, /SearchComplete-to-Availability bridge must be validated/i);
+  assert.match(roadmap, /selected-offer.*Availability.*authority/is);
+  assert.doesNotMatch(roadmap, /next dependency is therefore to establish the exact documented\/verified create authority/i);
+});
+
+test('provider reconciliation never accepts provider truth for a different locator', () => {
+  const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
+  assert.match(coordinator, /result\.providerReservationReference !== providerReservationReference/);
+  assert.match(coordinator, /status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE'/);
+  const identityCheck = coordinator.indexOf('result.providerReservationReference !== providerReservationReference');
+  const notFoundSettlement = coordinator.indexOf("status: 'NOT_FOUND'", identityCheck);
+  assert.ok(identityCheck >= 0 && notFoundSettlement > identityCheck, 'locator identity must be verified before NOT_FOUND settlement');
 });
