@@ -60,6 +60,17 @@ function errorResponseCodes(sourceCodes: readonly string[]) {
   };
 }
 
+function hybridResponse(sourceCodes: readonly string[]) {
+  return { ...confirmedResponse(), ...errorResponseCodes(sourceCodes) };
+}
+
+const invalidOutcome = (providerCorrelationId: string | null = null) => ({
+  status: 'AMBIGUOUS' as const,
+  failureCode: 'INVALID_RESPONSE' as const,
+  supplierConfirmationReference: null,
+  providerCorrelationId,
+});
+
 test('confirms only one matching reservation with a confirmed Travelport locator', () => {
   assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,
@@ -148,12 +159,62 @@ test('unknown or malformed write outcomes fail closed to ambiguous instead of be
     [400, errorResponseCodes(['13020', '99999'])],
     [503, { ErrorResponse: { Result: {} } }],
   ] as const) {
-    assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({ httpStatus, body, expectedReservation }), {
-      status: 'AMBIGUOUS',
-      failureCode: 'INVALID_RESPONSE',
-      supplierConfirmationReference: null,
-      providerCorrelationId: httpStatus === 400 ? '4807ae55-722d-4935-93a9-e9f743625bf5' : null,
-    });
+    assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({ httpStatus, body, expectedReservation }), invalidOutcome(
+      httpStatus === 400 ? '4807ae55-722d-4935-93a9-e9f743625bf5' : null,
+    ));
+  }
+});
+
+test('error evidence can never be masked by confirmation-looking data', () => {
+  for (const body of [
+    hybridResponse(['99999']),
+    hybridResponse(['13020', '99999']),
+    { ...confirmedResponse(), ErrorResponse: { Result: {} } },
+    { ...confirmedResponse(), ErrorResponse: { Result: { Error: Array.from({ length: 33 }, () => ({ SourceCode: '13020' })) } } },
+    { ...confirmedResponse(), ErrorResponse: { Result: { Error: [{ SourceCode: '13020' }, { Message: 'missing code' }] } } },
+  ]) {
+    const result = classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body, expectedReservation });
+    assert.equal(result.status, 'AMBIGUOUS');
+    if (result.status === 'AMBIGUOUS') assert.equal(result.failureCode, 'INVALID_RESPONSE');
+  }
+});
+
+test('malformed or oversized warning structures can never be ignored on a confirmation-looking response', () => {
+  const malformedWarnings = [
+    { Result: { Warning: { Message: 'not an array' } } },
+    { Result: { Warning: [{ Message: 'valid' }, {}] } },
+    { Result: { Warning: Array.from({ length: 33 }, () => ({ Message: 'bounded warning' })) } },
+    { Result: { Warning: [], Warnings: [] } },
+  ];
+  for (const resultShape of malformedWarnings) {
+    const body = confirmedResponse();
+    Object.assign(body.ReservationResponse, resultShape);
+    assert.deepEqual(
+      classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body, expectedReservation }),
+      invalidOutcome('9457f5be-e648-4cb6-ac1f-1d349d06d6ce'),
+    );
+  }
+});
+
+test('bounded non-sync warnings do not erase otherwise complete confirmation evidence', () => {
+  const body = confirmedResponse();
+  body.ReservationResponse.Result = { Warning: [{ Message: 'Late arrival note accepted.' }] };
+  const result = classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body, expectedReservation });
+  assert.equal(result.status, 'CONFIRMED');
+});
+
+test('invalid expected reservation authority can never be confirmed from matching malformed input', () => {
+  for (const expected of [
+    { ...expectedReservation, arrivalDateLocal: '2026-02-30', departureDateLocal: '2026-03-02' },
+    { ...expectedReservation, departureDateLocal: '2026-10-09' },
+    { ...expectedReservation, rooms: 2 },
+    { ...expectedReservation, guests: 10 },
+    { ...expectedReservation, chainCode: 'CN\n' },
+  ]) {
+    assert.deepEqual(
+      classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body: confirmedResponse(), expectedReservation: expected }),
+      invalidOutcome('9457f5be-e648-4cb6-ac1f-1d349d06d6ce'),
+    );
   }
 });
 

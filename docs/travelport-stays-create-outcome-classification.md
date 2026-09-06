@@ -16,6 +16,14 @@ Travelport also documents a third Booking.com failure mode in which the supplier
 
 Any unrecognized, malformed, or otherwise unprovable result after a commercial POST is `AMBIGUOUS / INVALID_RESPONSE`. A future coordinator must not turn an unknown 4xx/5xx or malformed 2xx into a blind create retry.
 
+## Structural response authority
+
+Provider response structure is part of the proof required to call a commercial write successful. The classifier distinguishes the absence of an `ErrorResponse` from a malformed error envelope. Once an error envelope is present, it cannot be treated as a successful sell: only a complete set of documented price/guarantee change codes can become `REVIEW_REQUIRED`, while unknown, mixed, malformed, or oversized error evidence remains `AMBIGUOUS / INVALID_RESPONSE`. Source code `13034` remains the stronger fail-closed Sync signal even when the surrounding error response is imperfect.
+
+Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message cannot be silently ignored before confirmation. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence, but malformed warning structure prevents a response from being promoted to `CONFIRMED`.
+
+The durable reservation expectation is validated before it can match provider data. The current create classifier only recognizes the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers. Invalid expected authority therefore cannot accidentally match a malformed provider payload and create false confirmation evidence.
+
 ## Privacy and evidence
 
 The classifier returns only normalized decision state, bounded locator/correlation evidence, and fixed SF failure/review codes. It does not return or log provider error messages, traveler data, form-of-payment data, PAN/CVV, credentials, request bodies, or response bodies.

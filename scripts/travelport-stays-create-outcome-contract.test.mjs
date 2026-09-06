@@ -19,6 +19,17 @@ test('Travelport write decisions fail closed and require explicit review for doc
   assert.match(classifier, /failureCode: 'INVALID_RESPONSE'/);
 });
 
+test('provider error and warning envelopes are bounded and cannot be ignored to confirm a write', () => {
+  const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
+  assert.match(classifier, /type ProviderErrorInspection/);
+  assert.match(classifier, /present: boolean/);
+  assert.match(classifier, /errors\.length > MAX_ERRORS/);
+  assert.match(classifier, /warningValues\.length > MAX_WARNINGS/);
+  assert.match(classifier, /if \(!errors\.valid \|\| !warnings\.valid\) return invalidResponse\(providerCorrelationId\)/);
+  assert.match(classifier, /if \(errors\.present\)[\s\S]*?return invalidResponse\(providerCorrelationId\)/);
+  assert.match(classifier, /validExpectedReservation\(expected\)/);
+});
+
 test('supplier confirmation is retained only as bounded sync evidence and raw provider messages are excluded', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(classifier, /locatorType === 'Confirmation Number'/);
@@ -33,4 +44,6 @@ test('documentation keeps capability disabled and identifies the remaining PCI-s
   assert.match(doc, /does not.*enable the `reservation` capability/i);
   assert.match(doc, /PCI-safe form-of-payment strategy/i);
   assert.match(doc, /must not turn an unknown 4xx\/5xx or malformed 2xx into a blind create retry/i);
+  assert.match(doc, /error envelope.*cannot be treated as a successful sell/i);
+  assert.match(doc, /malformed or oversized warning/i);
 });
