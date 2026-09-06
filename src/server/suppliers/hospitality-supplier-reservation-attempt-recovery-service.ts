@@ -98,7 +98,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
     }
 
     const updatedReservation = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id },
+      where: { id: reservation.id, organizationId: input.organizationId },
       data: {
         status: 'AMBIGUOUS',
         lastFailureCode: EXECUTION_LEASE_EXPIRED_FAILURE_CODE,
@@ -107,7 +107,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
       },
     });
     const updatedAttempt = await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id },
+      where: { id: attempt.id, organizationId: input.organizationId },
       data: {
         status: 'AMBIGUOUS',
         normalizedFailureCode: EXECUTION_LEASE_EXPIRED_FAILURE_CODE,
