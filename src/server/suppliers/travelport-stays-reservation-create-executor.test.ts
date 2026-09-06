@@ -319,6 +319,8 @@ test('network uncertainty after the durable marker stays ambiguous and cannot be
 
 test('requires bounded non-expired card data and a security code before OAuth or provider I/O', () => {
   for (const card of [
+    { ...paymentCard, cardType: 'Debit' as never },
+    { ...paymentCard, cardType: 'Gift' as never },
     { ...paymentCard, expireDate: '0826' },
     { ...paymentCard, expireDate: '1327' },
     { ...paymentCard, cardNumber: '1234' },

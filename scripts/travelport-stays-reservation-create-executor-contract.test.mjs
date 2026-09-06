@@ -12,6 +12,7 @@ test('Travelport create executor keeps sensitive card material inside the server
   assert.match(executor, /FormOfPaymentPaymentCard/);
   assert.match(executor, /PaymentCardDetail/);
   assert.match(executor, /acceptedPaymentCardCodes\.includes\(cardCode\)/);
+  assert.match(executor, /input\.cardType !== 'Credit'/);
   assert.match(executor, /assertPaymentAuthorityMatchesRequestMaterial/);
   assert.match(executor, /moneyMinorToMajorString/);
   assert.match(executor, /assertExpectedReservation/);

@@ -26,7 +26,7 @@ const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: 
 const tokenRequests = new Map<string, Promise<string>>();
 
 export type TravelportStaysSensitiveReservationPaymentCard = Readonly<{
-  cardType: 'Credit' | 'Debit' | 'Gift';
+  cardType: 'Credit';
   cardCode: string;
   cardHolderName: string;
   expireDate: string;
@@ -164,8 +164,11 @@ function normalizePaymentCard(
   if (!Array.isArray(authority.acceptedPaymentCardCodes) || !authority.acceptedPaymentCardCodes.includes(cardCode)) {
     invalidRequest('Travelport payment card is not accepted by the freshly reviewed supplier terms.');
   }
-  if (input.cardType !== 'Credit' && input.cardType !== 'Debit' && input.cardType !== 'Gift') {
-    invalidRequest('Travelport payment card type is invalid.');
+  // Fresh Rules authority is derived from AcceptedCreditCard, so the current write path
+  // cannot authorize debit or gift card semantics even though Travelport's generic payload
+  // type lists those values. Expand only when fresh supplier authority can prove that type.
+  if (input.cardType !== 'Credit') {
+    invalidRequest('Travelport reservation payment currently requires a freshly accepted credit card.');
   }
   const cardHolderName = boundedSingleLine(input.cardHolderName, 'Travelport payment card holder name', MAX_CARD_HOLDER_NAME_LENGTH);
   if (!/^\d{4}$/.test(input.expireDate)) invalidRequest('Travelport payment card expiry is invalid.');
