@@ -24,15 +24,15 @@ The supplier reservation ledger now persists the optional supplier confirmation 
 
 An ambiguous create may retain a known Travelport aggregator locator even though the operation is not confirmed. That locator is recovery authority only. Locator-less ambiguity remains `AMBIGUOUS` and cannot enter automatic Hotel Retrieve reconciliation.
 
-Known-locator reconciliation requires the provider to return the exact same aggregator locator before the operation can become `CONFIRMED`. A transient provider failure maps to `UNKNOWN` and preserves the known locator so recovery can be retried. An authoritative `NOT_FOUND` clears the locator and supplier confirmation evidence before returning the operation to `PREPARED`.
+Known-locator reconciliation identity-binds both possible provider-truth outcomes to that durable locator. `FOUND` must return the exact locator before the operation can become `CONFIRMED`. `NOT_FOUND` must also identify the exact locator that was queried before SF can clear recovery evidence and return the operation to `PREPARED`. Any returned locator mismatch is normalized to `UNKNOWN` / `INVALID_RESPONSE`; the operation remains `AMBIGUOUS` with the original known locator, so unrelated provider truth can never authorize another create. A transient provider failure likewise maps to `UNKNOWN` and preserves the known locator for retry.
 
 The supplier confirmation reference is now durable evidence for future lifecycle work, but cancellation is still not implemented or advertised. Any cancellation capability must separately validate Travelport cancellation semantics, authorization, idempotency, external-write recovery, and live non-production behavior.
 
 ## Validation
 
-Dependency-free tests cover confirmed response evidence, known-locator matching, non-confirmed rejection, locator/reference cardinality, unsafe provider strings, and privacy minimization. The reservation reconciliation source contract also verifies atomic supplier-confirmation persistence, known-locator preservation across `UNKNOWN`, exact-locator matching on `FOUND`, and the provider-neutral coordinator ordering provider I/O after tenant-authorized ledger claim.
+Dependency-free tests cover confirmed response evidence, known-locator matching, non-confirmed rejection, locator/reference cardinality, unsafe provider strings, privacy minimization, and the coordinator's exact-locator gate before any `NOT_FOUND` settlement can make create retryable. The reservation reconciliation source contract also verifies atomic supplier-confirmation persistence, known-locator preservation across `UNKNOWN`, and provider I/O ordering after the tenant-authorized ledger claim.
 
-A guarded PostgreSQL scenario covers locator-less denial, known-locator `FOUND`, supplier confirmation durability, transient recovery retry, `NOT_FOUND` clearing, locator mismatch rejection, and cross-tenant provider-I/O suppression when a disposable database target is available.
+A guarded PostgreSQL scenario covers locator-less denial, known-locator `FOUND`, supplier confirmation durability, transient recovery retry, authoritative `NOT_FOUND` clearing, mismatched `FOUND`/`NOT_FOUND` results remaining ambiguous, and cross-tenant provider-I/O suppression when a disposable database target is available.
 
 Live Create Reservation response validation remains blocked on provisioned Travelport non-production credentials and a reviewed PCI-safe form-of-payment/guarantee strategy. No source-only test is claimed as live-provider evidence.
 
