@@ -42,14 +42,19 @@ test('supplier source-of-truth docs describe selected-offer authority without cl
   const ledgerDoc = source('docs/supplier-reservation-operations.md');
   const gdsDoc = source('docs/gds-integration.md');
   const roadmap = source('docs/product-roadmap.md');
+
   for (const document of [integrationDoc, ledgerDoc, gdsDoc, roadmap]) {
     assert.match(document, /known-locator|known locator/i);
-    assert.match(document, /reservation.*(unadvertised|not advertised|remains closed|not exposed|no external supplier booking action)/is);
   }
   for (const document of [integrationDoc, ledgerDoc, gdsDoc]) {
     assert.match(document, /Availability/i);
     assert.match(document, /authorityFingerprint|authority fingerprint/i);
   }
+
+  assert.match(integrationDoc, /No Travelport reservation create, modification, cancellation, refund, or customer\/staff reserve action is exposed yet\./);
+  assert.match(ledgerDoc, /before any real supplier create call is exposed/);
+  assert.match(gdsDoc, /No Travelport reservation create call or customer\/staff reserve action is exposed yet\./);
+  assert.match(roadmap, /no external supplier booking action is exposed/);
   assert.match(integrationDoc, /PCI-safe form-of-payment\/guarantee strategy/i);
   assert.match(ledgerDoc, /SearchComplete-to-Availability bridge must be validated/i);
   assert.match(roadmap, /selected-offer.*Availability.*authority/is);
