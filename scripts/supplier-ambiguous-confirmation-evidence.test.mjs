@@ -53,3 +53,16 @@ test('documentation keeps supplier confirmation as recovery evidence and Travelp
   assert.match(integration, /supplier confirmation by itself does not prove.*Travelport PNR/i);
   assert.match(integration, /Booking\.com Sync recovery/i);
 });
+
+test('guarded database harness covers ambiguous supplier evidence without weakening retry safety', () => {
+  const runner = source('scripts/run-database-tests.mjs');
+  const scenario = source('src/server/suppliers/hospitality-supplier-reservation-confirmation-evidence.integration.ts');
+
+  assert.match(runner, /hospitality-supplier-reservation-confirmation-evidence\.integration\.ts/);
+  assert.match(scenario, /status: 'AMBIGUOUS'[\s\S]*?supplierConfirmationReference: 'BOOKING-SUPPLIER-001'/);
+  assert.match(scenario, /without a provider reservation reference/i);
+  assert.match(scenario, /must be reconciled/i);
+  assert.match(scenario, /supplierConfirmationReference, 'BOOKING-SUPPLIER-002'/);
+  assert.match(scenario, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: 'TVPT-PNR-002'/);
+  assert.match(scenario, /retryable\.supplierConfirmationReference, null/);
+});
