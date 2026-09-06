@@ -38,6 +38,22 @@ test('supplier confirmation is retained only as bounded sync evidence and raw pr
   assert.doesNotMatch(classifier, /return[^;]*Message|providerMessage|rawMessage/);
 });
 
+test('Travelport review-required decisions map into the durable ledger without creating an automatic retry path', () => {
+  const mapper = source('src/server/suppliers/travelport-stays-reservation-submission-outcome.ts');
+  const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
+
+  assert.match(mapper, /HospitalitySupplierReservationSubmissionOutcome/);
+  assert.match(mapper, /SUPPLIER_PRICE_CHANGED/);
+  assert.match(mapper, /SUPPLIER_GUARANTEE_CHANGED/);
+  assert.match(mapper, /SUPPLIER_PRICE_AND_GUARANTEE_CHANGED/);
+  assert.match(mapper, /status: 'FAILED'/);
+  assert.match(mapper, /retryable: false/);
+  assert.match(mapper, /status: 'AMBIGUOUS'/);
+  assert.match(mapper, /supplierConfirmationReference: outcome\.supplierConfirmationReference/);
+  assert.match(service, /status: 'FAILED'[\s\S]*?failureCode: unknown[\s\S]*?retryable: boolean/);
+  assert.doesNotMatch(mapper, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+});
+
 test('documentation keeps capability disabled and identifies the remaining PCI-safe create boundary', () => {
   const doc = source('docs/travelport-stays-create-outcome-classification.md');
   assert.match(doc, /does not send Create Reservation/i);
@@ -46,4 +62,6 @@ test('documentation keeps capability disabled and identifies the remaining PCI-s
   assert.match(doc, /must not turn an unknown 4xx\/5xx or malformed 2xx into a blind create retry/i);
   assert.match(doc, /error envelope.*cannot be treated as a successful sell/i);
   assert.match(doc, /malformed or oversized warning/i);
+  assert.match(doc, /non-retryable durable `FAILED` settlement/i);
+  assert.match(doc, /does not yet implement that acceptance workflow/i);
 });

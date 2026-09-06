@@ -24,6 +24,18 @@ Reservation warning evidence is also bounded. Malformed or oversized warning col
 
 The durable reservation expectation is validated before it can match provider data. The current create classifier only recognizes the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers. Invalid expected authority therefore cannot accidentally match a malformed provider payload and create false confirmation evidence.
 
+## Durable ledger normalization
+
+`travelportStaysCreateOutcomeToSubmissionOutcome` is the provider-specific bridge from the Travelport classifier into the existing provider-neutral supplier reservation settlement contract. It deliberately has no transport behavior and does not accept provider request bodies, card data, or customer decisions.
+
+- `CONFIRMED` is forwarded only with the already-normalized Travelport locator, optional supplier confirmation, and bounded provider correlation evidence.
+- `AMBIGUOUS` remains ambiguous with its fixed normalized failure code and optional supplier-confirmation recovery evidence. The bridge never converts uncertainty into a retryable failure.
+- `REVIEW_REQUIRED` becomes a non-retryable durable `FAILED` settlement with one fixed SF code: `SUPPLIER_PRICE_CHANGED`, `SUPPLIER_GUARANTEE_CHANGED`, or `SUPPLIER_PRICE_AND_GUARANTEE_CHANGED`.
+
+The non-retryable mapping is intentional. Travelport states that a price or guarantee difference stops the initial sell before the reservation is created and that a second request may proceed only after explicit acceptance of the applicable change. SF does not yet implement that acceptance workflow, so the existing logical operation must not be retried automatically. A future acceptance flow must obtain fresh authoritative offer/Rules/payment evidence, capture an explicit authorized decision, and create a separately auditable supplier-write attempt before sending either acceptance flag.
+
+This bridge closes the classification-to-ledger semantic gap without making the supplier write reachable. It does not weaken the current capability gate and does not make a provider response, browser action, or stale authority sufficient to retry a sell.
+
 ## Privacy and evidence
 
 The classifier returns only normalized decision state, bounded locator/correlation evidence, and fixed SF failure/review codes. It does not return or log provider error messages, traveler data, form-of-payment data, PAN/CVV, credentials, request bodies, or response bodies.
@@ -34,8 +46,9 @@ Supplier confirmation evidence by itself never means that the Travelport reserva
 
 - Travelport Stays API Error Messaging: source codes 13016-13018 (guarantee changes), 13020 (price change), and 13034 (supplier confirmation uncertainty).
 - Travelport TripServices Stays APIs Guide: price/guarantee changes at booking and the three documented aggregator sell-failure cases.
+- Travelport Create Reservation Reference Payload API Reference: the initial request must not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`; a changed price/guarantee stops the initial sell and requires an explicit second-request decision.
 - Travelport Sync Reservation API Reference: `POST book/reservations/` creates the Travelport aggregator segment without re-selling the Booking.com reservation and requires the Booking.com confirmation plus traveler details.
 
 ## Remaining boundary
 
-The Travelport reservation capability stays disabled. The next create dependency is still a reviewed PCI-safe form-of-payment strategy and an actual single-room create executor. When that executor exists, it must consume this classifier after provider I/O, preserve any sync evidence on ambiguity, require explicit fresh customer/staff review for price/guarantee changes, and never retry an unclassified write outcome as if it were known not to have sold.
+The Travelport reservation capability stays disabled. The next create dependency is still a reviewed PCI-safe form-of-payment strategy and an actual single-room create executor. When that executor exists, it must consume the classifier through the durable ledger normalization bridge after provider I/O, preserve any sync evidence on ambiguity, require explicit fresh customer/staff review for price/guarantee changes, and never retry an unclassified write outcome as if it were known not to have sold.
