@@ -118,11 +118,12 @@ export function parseTravelportStaysReservationResponse(
     const locator = locatorValue as RecordValue;
     const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
     const sourceContext = boundedProviderValue(locator.sourceContext, 64);
+    const locatorType = boundedProviderValue(locator.locatorType, 64);
     if (!reference || !sourceContext) continue;
 
     if (sourceContext === 'Travelport') {
       travelportReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
-    } else if (sourceContext === 'Supplier') {
+    } else if (sourceContext === 'Supplier' && locatorType === 'Confirmation Number') {
       supplierReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
     }
   }

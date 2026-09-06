@@ -20,6 +20,7 @@ function response(input: {
   travelportReference?: string;
   travelportStatus?: string;
   supplierReferences?: readonly string[];
+  supplierLocatorType?: string;
   supplierStatus?: string;
   traceId?: string;
   includeSensitiveData?: boolean;
@@ -62,19 +63,23 @@ function response(input: {
         Receipt: [
           ...supplierReferences.map((reference) => ({
             Confirmation: {
-              Locator: { value: reference, sourceContext: 'Supplier' },
+              Locator: {
+                value: reference,
+                locatorType: input.supplierLocatorType ?? 'Confirmation Number',
+                sourceContext: 'Supplier',
+              },
               OfferStatus: { Status: input.supplierStatus ?? 'Confirmed' },
             },
           })),
           {
             Confirmation: {
-              Locator: { value: travelportReference, sourceContext: 'Travelport' },
+              Locator: { value: travelportReference, locatorType: 'PNR Locator', sourceContext: 'Travelport' },
               OfferStatus: { Status: input.travelportStatus ?? 'Confirmed' },
             },
           },
           {
             Confirmation: {
-              Locator: { value: '96120603', sourceContext: 'Agency' },
+              Locator: { value: '96120603', locatorType: 'IATA Number', sourceContext: 'Agency' },
               OfferStatus: { Status: 'Confirmed' },
             },
           },
@@ -97,6 +102,36 @@ test('normalizes only durable locator and correlation evidence from a confirmed 
   });
   assert.equal('Traveler' in result, false);
   assert.equal('FormOfPayment' in result, false);
+});
+
+test('supplier operational locator types are not confused with the supplier confirmation number', () => {
+  const booking = response();
+  booking.ReservationResponse.Reservation.Receipt.unshift({
+    Confirmation: {
+      Locator: {
+        value: '4619',
+        locatorType: 'Pin code',
+        sourceContext: 'Supplier',
+      },
+      OfferStatus: { Status: 'Confirmed' },
+    },
+  });
+
+  const confirmed = parseTravelportStaysReservationResponse(booking, {
+    requireConfirmedTravelportReceipt: true,
+  });
+  assert.equal(confirmed.supplierConfirmationReference, '80073065');
+
+  const cancelled = parseTravelportStaysReservationResponse(response({
+    supplierReferences: ['59824913'],
+    supplierLocatorType: 'Cancellation Number',
+    supplierStatus: 'Cancelled',
+  }), {
+    expectedProviderReservationReference: 'D6VBHL',
+    expectedReservation,
+  });
+  assert.equal(cancelled.providerReservationReference, 'D6VBHL');
+  assert.equal(cancelled.supplierConfirmationReference, null);
 });
 
 test('retrieve verification binds the known locator to the durable property, stay, room, and guest request', () => {
@@ -147,7 +182,7 @@ test('retrieve semantic evidence requires exactly one matching hospitality segme
   );
 });
 
-test('create evidence fails closed unless provider and supplier receipts are confirmed', () => {
+test('create evidence fails closed unless provider and supplier confirmation receipts are confirmed', () => {
   for (const status of ['Pending', 'Rejected', 'Cancelled']) {
     assert.throws(
       () => parseTravelportStaysReservationResponse(response({ travelportStatus: status }), {
@@ -165,11 +200,11 @@ test('create evidence fails closed unless provider and supplier receipts are con
   );
 });
 
-test('ambiguous locator evidence fails closed', () => {
+test('ambiguous confirmation locator evidence fails closed', () => {
   const duplicate = response();
   duplicate.ReservationResponse.Reservation.Receipt.push({
     Confirmation: {
-      Locator: { value: 'OTHER', sourceContext: 'Travelport' },
+      Locator: { value: 'OTHER', locatorType: 'PNR Locator', sourceContext: 'Travelport' },
       OfferStatus: { Status: 'Confirmed' },
     },
   });
