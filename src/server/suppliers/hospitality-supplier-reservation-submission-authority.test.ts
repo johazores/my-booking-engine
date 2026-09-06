@@ -65,6 +65,9 @@ function readyReview(fingerprint = authorityFingerprint) {
       termsFingerprint: operation.termsFingerprint,
       completeForReservationReview: true,
       revalidationRequired: true as const,
+      guaranteeTypes: Object.freeze(['GUARANTEE_REQUIRED'] as const),
+      deposits: Object.freeze([]),
+      acceptedPaymentCardCodes: Object.freeze(['VI']),
       price: Object.freeze({ currency: operation.currency, totalMinor: operation.expectedTotalMinor }),
     }),
   });
@@ -86,10 +89,17 @@ test('rebuilds authority review input only from durable prepared operation evide
   });
 });
 
-test('accepts only READY authority that rebinds to the exact prepared request fingerprint', () => {
+test('accepts only READY authority that rebinds to the exact prepared request and payment semantics', () => {
   const result = assertHospitalitySupplierReservationSubmissionAuthority(operation, readyReview());
   assert.equal(result.authorityFingerprint, authorityFingerprint);
   assert.equal(result.providerSubmissionReference, 'availability-offer-current');
+  assert.deepEqual(result.paymentAuthority, {
+    kind: 'GUARANTEE',
+    collectionTiming: 'AT_PROPERTY',
+    currency: 'USD',
+    amountMinor: 125_500n,
+    acceptedPaymentCardCodes: ['VI'],
+  });
 });
 
 test('rejects a fresh authority fingerprint that differs from the prepared request', () => {
@@ -109,6 +119,37 @@ test('rejects missing or unsafe ephemeral provider submission authority', () => 
       /authority changed/i,
     );
   }
+});
+
+test('rejects unsupported or ambiguous fresh payment and guarantee semantics before create claim', () => {
+  for (const bookingTerms of [
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEES_NOT_REQUIRED'] as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED', 'PREPAY_REQUIRED'] as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['DEPOSIT_REQUIRED'] as const, deposits: [] },
+  ]) {
+    assert.throws(
+      () => assertHospitalitySupplierReservationSubmissionAuthority(operation, { ...readyReview(), bookingTerms }),
+      /authority changed/i,
+    );
+  }
+});
+
+test('derives exact deposit amount from fresh Rules evidence', () => {
+  const result = assertHospitalitySupplierReservationSubmissionAuthority(operation, {
+    ...readyReview(),
+    bookingTerms: {
+      ...readyReview().bookingTerms!,
+      guaranteeTypes: ['DEPOSIT_REQUIRED'] as const,
+      deposits: [{ remainder: null, dueDateLocal: null, money: { currency: 'USD', amountMinor: 50_000n } }],
+    },
+  });
+  assert.deepEqual(result.paymentAuthority, {
+    kind: 'DEPOSIT',
+    collectionTiming: 'AT_BOOKING',
+    currency: 'USD',
+    amountMinor: 50_000n,
+    acceptedPaymentCardCodes: ['VI'],
+  });
 });
 
 test('rejects mismatched offer, terms, money and incomplete review evidence', () => {

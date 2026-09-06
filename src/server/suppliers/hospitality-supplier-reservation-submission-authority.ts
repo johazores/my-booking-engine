@@ -1,8 +1,13 @@
+import type {
+  HospitalitySupplierDepositRule,
+  HospitalitySupplierRuleGuaranteeType,
+} from './hospitality-supplier-booking-terms.ts';
 import {
   HospitalitySupplierReservationConflictError,
   hospitalitySupplierReservationRequestFingerprint,
   normalizeHospitalitySupplierReservationSelection,
 } from './hospitality-supplier-reservation-domain.ts';
+import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
 
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
@@ -46,6 +51,9 @@ export type HospitalitySupplierReservationSubmissionAuthorityReview = Readonly<{
     termsFingerprint: string;
     completeForReservationReview: boolean;
     revalidationRequired: true;
+    guaranteeTypes: readonly HospitalitySupplierRuleGuaranteeType[];
+    deposits: readonly HospitalitySupplierDepositRule[];
+    acceptedPaymentCardCodes: readonly string[];
     price: Readonly<{
       currency: string;
       totalMinor: bigint;
@@ -133,6 +141,13 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
     throw authorityConflict();
   }
 
+  const paymentAuthority = deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: review.bookingTerms,
+    currency: operation.currency,
+    expectedTotalMinor: operation.expectedTotalMinor,
+  });
+  if (!paymentAuthority) throw authorityConflict();
+
   const reboundSelection = normalizeHospitalitySupplierReservationSelection({
     providerCode: operation.providerCode,
     supplierPropertyReference: operation.supplierPropertyReference,
@@ -157,6 +172,7 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
   return Object.freeze({
     authorityFingerprint: review.authorityFingerprint,
     providerSubmissionReference: submissionReference,
+    paymentAuthority,
     observedAt: review.observedAt,
   });
 }

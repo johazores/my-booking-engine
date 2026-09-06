@@ -52,6 +52,20 @@ test('fresh authority is rebuilt from durable evidence and rebound to request fi
   assert.match(binding, /review\.bookingTerms\.completeForReservationReview !== true/);
 });
 
+test('submission gate derives non-secret payment authority from fresh Rules evidence before claiming create', () => {
+  const binding = source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts');
+  const payment = source('src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts');
+  assert.match(binding, /deriveHospitalitySupplierReservationPaymentAuthority\(\{/);
+  assert.match(binding, /if \(!paymentAuthority\) throw authorityConflict\(\)/);
+  assert.match(binding, /paymentAuthority,/);
+  assert.match(payment, /'PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'/);
+  assert.match(payment, /kind: 'PREPAY'/);
+  assert.match(payment, /kind: 'DEPOSIT'/);
+  assert.match(payment, /kind: 'GUARANTEE'/);
+  assert.match(payment, /deposit\.amountMinor > input\.expectedTotalMinor/);
+  assert.doesNotMatch(payment, /cardNumber|seriesCode|cvv|pan|PlainText/i);
+});
+
 test('no production supplier module bypasses the fresh-authority wrapper to claim create submission', () => {
   const suppliers = join(root, 'src/server/suppliers');
   const allowed = new Set([
@@ -74,4 +88,6 @@ test('Travelport reservation remains unavailable until the write adapter and PCI
   assert.match(doc, /ephemeral/i);
   assert.match(doc, /not persisted/i);
   assert.match(doc, /strips `providerSubmissionReference`/);
+  assert.match(doc, /payment authority/i);
+  assert.match(doc, /does not contain card data/i);
 });
