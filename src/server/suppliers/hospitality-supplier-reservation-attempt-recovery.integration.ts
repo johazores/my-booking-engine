@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier reservation attempt recovery integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('stale supplier reservation claims fail closed to ambiguity and remain tenant scoped', async () => {
+test('stale supplier reservation claims distinguish pre-provider recovery from provider ambiguity and remain tenant scoped', async () => {
   const [{ db }, reservations, recovery] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
@@ -88,6 +88,7 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       reservationId: prepared.id,
     });
     assert.ok(submission.attempt.leaseStartedAt instanceof Date);
+    assert.equal(submission.attempt.providerRequestStartedAt, null);
 
     await assert.rejects(
       recovery.recoverStaleHospitalitySupplierReservationAttempt({
@@ -125,15 +126,71 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
       WHERE "id" = ${submission.attempt.id}::uuid
     `;
-    const recoveredSubmission = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
+    const recoveredBeforeProviderRequest = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
     });
-    assert.equal(recoveredSubmission.reservation.status, 'AMBIGUOUS');
-    assert.equal(recoveredSubmission.reservation.lastFailureCode, 'EXECUTION_LEASE_EXPIRED');
-    assert.equal(recoveredSubmission.reservation.providerReservationReference, null);
-    assert.equal(recoveredSubmission.attempt.status, 'AMBIGUOUS');
+    assert.equal(recoveredBeforeProviderRequest.reservation.status, 'PREPARED');
+    assert.equal(recoveredBeforeProviderRequest.reservation.lastFailureCode, 'EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST');
+    assert.equal(recoveredBeforeProviderRequest.reservation.lastFailureRetryable, true);
+    assert.equal(recoveredBeforeProviderRequest.reservation.providerReservationReference, null);
+    assert.equal(recoveredBeforeProviderRequest.attempt.status, 'FAILED');
+
+    const submissionRetry = await reservations.claimHospitalitySupplierReservationSubmission({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+    });
+    await assert.rejects(
+      recovery.markHospitalitySupplierReservationProviderRequestStarted({
+        organizationId: tenantB.id,
+        actorUserId: tenantBAdmin.id,
+        reservationId: prepared.id,
+        attemptId: submissionRetry.attempt.id,
+      }),
+      /not available in this organization/i,
+    );
+    const markedSubmission = await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+      attemptId: submissionRetry.attempt.id,
+    });
+    assert.ok(markedSubmission.providerRequestStartedAt instanceof Date);
+    assert.ok(markedSubmission.leaseStartedAt instanceof Date);
+    assert.equal(markedSubmission.providerRequestStartedAt.getTime(), markedSubmission.leaseStartedAt.getTime());
+    const replayedMarker = await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+      attemptId: submissionRetry.attempt.id,
+    });
+    assert.equal(replayedMarker.providerRequestStartedAt?.getTime(), markedSubmission.providerRequestStartedAt.getTime());
+    assert.equal(replayedMarker.leaseStartedAt?.getTime(), markedSubmission.leaseStartedAt.getTime());
+    await assert.rejects(
+      recovery.recoverStaleHospitalitySupplierReservationAttempt({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: prepared.id,
+      }),
+      /within its execution lease/i,
+    );
+
+    await db.$executeRaw`
+      UPDATE "hospitality_supplier_reservation_attempts"
+      SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
+      WHERE "id" = ${submissionRetry.attempt.id}::uuid
+    `;
+    const recoveredAfterProviderRequest = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+    });
+    assert.equal(recoveredAfterProviderRequest.reservation.status, 'AMBIGUOUS');
+    assert.equal(recoveredAfterProviderRequest.reservation.lastFailureCode, 'EXECUTION_LEASE_EXPIRED');
+    assert.equal(recoveredAfterProviderRequest.reservation.providerReservationReference, null);
+    assert.equal(recoveredAfterProviderRequest.attempt.status, 'AMBIGUOUS');
     await assert.rejects(
       reservations.claimHospitalitySupplierReservationReconciliation({
         organizationId: tenantA.id,
@@ -155,6 +212,12 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       actorUserId: tenantAAdmin.id,
       reservationId: reconcilePrepared.id,
     });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: reconcilePrepared.id,
+      attemptId: reconcileSubmission.attempt.id,
+    });
     const ambiguousWithLocator = await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
@@ -173,7 +236,34 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       actorUserId: tenantAAdmin.id,
       reservationId: reconcilePrepared.id,
     });
-    assert.ok(reconciliation.attempt.leaseStartedAt instanceof Date);
+    assert.equal(reconciliation.attempt.providerRequestStartedAt, null);
+    await db.$executeRaw`
+      UPDATE "hospitality_supplier_reservation_attempts"
+      SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
+      WHERE "id" = ${reconciliation.attempt.id}::uuid
+    `;
+    const recoveredReconciliationBeforeProviderRequest = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: reconcilePrepared.id,
+    });
+    assert.equal(recoveredReconciliationBeforeProviderRequest.reservation.status, 'AMBIGUOUS');
+    assert.equal(recoveredReconciliationBeforeProviderRequest.reservation.providerReservationReference, 'TVPT-STALE-RECONCILE-001');
+    assert.equal(recoveredReconciliationBeforeProviderRequest.attempt.status, 'FAILED');
+    assert.equal(recoveredReconciliationBeforeProviderRequest.attempt.normalizedFailureCode, 'EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST');
+
+    const reconciliationRetry = await reservations.claimHospitalitySupplierReservationReconciliation({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: reconcilePrepared.id,
+    });
+    const markedReconciliation = await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: reconcilePrepared.id,
+      attemptId: reconciliationRetry.attempt.id,
+    });
+    assert.ok(markedReconciliation.providerRequestStartedAt instanceof Date);
     await assert.rejects(
       recovery.recoverStaleHospitalitySupplierReservationAttempt({
         organizationId: tenantA.id,
@@ -182,32 +272,36 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       }),
       /within its execution lease/i,
     );
-
     await db.$executeRaw`
       UPDATE "hospitality_supplier_reservation_attempts"
       SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
-      WHERE "id" = ${reconciliation.attempt.id}::uuid
+      WHERE "id" = ${reconciliationRetry.attempt.id}::uuid
     `;
-    const recoveredReconciliation = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
+    const recoveredReconciliationAfterProviderRequest = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: reconcilePrepared.id,
     });
-    assert.equal(recoveredReconciliation.reservation.status, 'AMBIGUOUS');
-    assert.equal(recoveredReconciliation.reservation.providerReservationReference, 'TVPT-STALE-RECONCILE-001');
-    assert.equal(recoveredReconciliation.attempt.status, 'AMBIGUOUS');
+    assert.equal(recoveredReconciliationAfterProviderRequest.reservation.status, 'AMBIGUOUS');
+    assert.equal(recoveredReconciliationAfterProviderRequest.reservation.providerReservationReference, 'TVPT-STALE-RECONCILE-001');
+    assert.equal(recoveredReconciliationAfterProviderRequest.attempt.status, 'AMBIGUOUS');
 
-    const reconciliationRetry = await reservations.claimHospitalitySupplierReservationReconciliation({
+    const reconciliationFinal = await reservations.claimHospitalitySupplierReservationReconciliation({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: reconcilePrepared.id,
     });
-    assert.ok(reconciliationRetry.attempt.leaseStartedAt instanceof Date);
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: reconcilePrepared.id,
+      attemptId: reconciliationFinal.attempt.id,
+    });
     const unresolved = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: reconcilePrepared.id,
-      attemptId: reconciliationRetry.attempt.id,
+      attemptId: reconciliationFinal.attempt.id,
       outcome: {
         status: 'UNKNOWN',
         failureCode: 'PROVIDER_UNAVAILABLE',
@@ -222,7 +316,10 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
     });
     assert.deepEqual(
       submissionAttempts.map((attempt) => [attempt.sequence, attempt.kind, attempt.status, attempt.normalizedFailureCode]),
-      [[1, 'CREATE', 'AMBIGUOUS', 'EXECUTION_LEASE_EXPIRED']],
+      [
+        [1, 'CREATE', 'FAILED', 'EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST'],
+        [2, 'CREATE', 'AMBIGUOUS', 'EXECUTION_LEASE_EXPIRED'],
+      ],
     );
 
     const reconciliationAttempts = await db.hospitalitySupplierReservationAttempt.findMany({
@@ -233,8 +330,9 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       reconciliationAttempts.map((attempt) => [attempt.sequence, attempt.kind, attempt.status, attempt.normalizedFailureCode]),
       [
         [1, 'CREATE', 'AMBIGUOUS', 'TIMEOUT'],
-        [2, 'RECONCILE', 'AMBIGUOUS', 'EXECUTION_LEASE_EXPIRED'],
-        [3, 'RECONCILE', 'AMBIGUOUS', 'PROVIDER_UNAVAILABLE'],
+        [2, 'RECONCILE', 'FAILED', 'EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST'],
+        [3, 'RECONCILE', 'AMBIGUOUS', 'EXECUTION_LEASE_EXPIRED'],
+        [4, 'RECONCILE', 'AMBIGUOUS', 'PROVIDER_UNAVAILABLE'],
       ],
     );
   } finally {

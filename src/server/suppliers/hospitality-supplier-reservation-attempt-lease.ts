@@ -1,8 +1,19 @@
 export const HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS = 10 * 60_000;
+export const HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE = 'EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST';
+export const HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE = 'EXECUTION_LEASE_EXPIRED';
 
 export type HospitalitySupplierReservationInFlightStatus = 'SUBMITTING' | 'RECONCILING';
 export type HospitalitySupplierReservationAttemptKind = 'CREATE' | 'RECONCILE';
 export type HospitalitySupplierReservationAttemptStatus = 'STARTED' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS' | 'NOT_FOUND';
+
+export type HospitalitySupplierReservationExpiredAttemptRecovery = Readonly<{
+  operationStatus: 'PREPARED' | 'AMBIGUOUS';
+  attemptStatus: 'FAILED' | 'AMBIGUOUS';
+  failureCode:
+    | typeof HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE
+    | typeof HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE;
+  retryable: boolean | null;
+}>;
 
 export class HospitalitySupplierReservationAttemptLeaseConflictError extends Error {
   constructor(message: string) {
@@ -56,4 +67,25 @@ export function assertHospitalitySupplierReservationAttemptLeaseExpired(input: R
       'Supplier reservation attempt is still within its execution lease.',
     );
   }
+}
+
+export function deriveHospitalitySupplierReservationExpiredAttemptRecovery(input: Readonly<{
+  attemptKind: HospitalitySupplierReservationAttemptKind;
+  providerRequestStarted: boolean;
+}>): HospitalitySupplierReservationExpiredAttemptRecovery {
+  if (!input.providerRequestStarted) {
+    return Object.freeze({
+      operationStatus: input.attemptKind === 'CREATE' ? 'PREPARED' : 'AMBIGUOUS',
+      attemptStatus: 'FAILED',
+      failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+      retryable: input.attemptKind === 'CREATE' ? true : null,
+    });
+  }
+
+  return Object.freeze({
+    operationStatus: 'AMBIGUOUS',
+    attemptStatus: 'AMBIGUOUS',
+    failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+    retryable: null,
+  });
 }

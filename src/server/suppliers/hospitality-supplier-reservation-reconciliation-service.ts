@@ -1,4 +1,7 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import {
+  markHospitalitySupplierReservationProviderRequestStarted,
+} from './hospitality-supplier-reservation-attempt-recovery-service.ts';
 import { createHospitalitySupplierReservationProviderObservation } from './hospitality-supplier-reservation-observability.ts';
 import type {
   HospitalitySupplierReservationRecoveryProvider,
@@ -44,6 +47,14 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     adults: claim.reservation.adults,
     childAges: Object.freeze([...claim.reservation.childAges]),
   });
+
+  await markHospitalitySupplierReservationProviderRequestStarted({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    reservationId: input.reservationId,
+    attemptId: claim.attempt.id,
+  });
+
   const providerObservation = createHospitalitySupplierReservationProviderObservation({
     requestCorrelationId: claim.attempt.id,
     organizationId: input.organizationId,

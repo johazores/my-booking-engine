@@ -3,8 +3,11 @@ import test from 'node:test';
 
 import {
   HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS,
+  HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+  HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
   HospitalitySupplierReservationAttemptLeaseConflictError,
   assertHospitalitySupplierReservationAttemptLeaseExpired,
+  deriveHospitalitySupplierReservationExpiredAttemptRecovery,
 } from './hospitality-supplier-reservation-attempt-lease.ts';
 
 const startedAt = new Date('2026-09-06T00:00:00.000Z');
@@ -58,4 +61,48 @@ test('stale recovery rejects mismatched, completed, non-current, or future attem
     () => assertHospitalitySupplierReservationAttemptLeaseExpired(input({ now: new Date(startedAt.getTime() - 1) })),
     /within its execution lease/,
   );
+});
+
+test('stale create before provider request is safe to retry while stale reconciliation stays ambiguous', () => {
+  assert.deepEqual(
+    deriveHospitalitySupplierReservationExpiredAttemptRecovery({
+      attemptKind: 'CREATE',
+      providerRequestStarted: false,
+    }),
+    {
+      operationStatus: 'PREPARED',
+      attemptStatus: 'FAILED',
+      failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+      retryable: true,
+    },
+  );
+  assert.deepEqual(
+    deriveHospitalitySupplierReservationExpiredAttemptRecovery({
+      attemptKind: 'RECONCILE',
+      providerRequestStarted: false,
+    }),
+    {
+      operationStatus: 'AMBIGUOUS',
+      attemptStatus: 'FAILED',
+      failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+      retryable: null,
+    },
+  );
+});
+
+test('provider-request marker makes either stale attempt fail closed to ambiguity', () => {
+  for (const attemptKind of ['CREATE', 'RECONCILE'] as const) {
+    assert.deepEqual(
+      deriveHospitalitySupplierReservationExpiredAttemptRecovery({
+        attemptKind,
+        providerRequestStarted: true,
+      }),
+      {
+        operationStatus: 'AMBIGUOUS',
+        attemptStatus: 'AMBIGUOUS',
+        failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
+        retryable: null,
+      },
+    );
+  }
 });

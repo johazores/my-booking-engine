@@ -31,12 +31,12 @@ test('supplier reservation lifecycle writes repeat tenant scope after authorizat
   assertTenantScopedUpdates(service, 'Attempt', 2);
 });
 
-test('stale supplier attempt recovery repeats tenant scope on both durable writes', () => {
+test('supplier attempt execution and stale recovery repeat tenant scope on every durable write', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-attempt-recovery-service.ts');
   assert.match(service, /permission: 'booking:manage'/);
   assert.match(service, /id: input\.reservationId,[\s\S]*?organizationId: input\.organizationId/);
   assertTenantScopedUpdates(service, 'Operation', 1);
-  assertTenantScopedUpdates(service, 'Attempt', 1);
+  assertTenantScopedUpdates(service, 'Attempt', 2);
 });
 
 test('supplier tenant-write documentation keeps write-time scope as an explicit invariant', () => {

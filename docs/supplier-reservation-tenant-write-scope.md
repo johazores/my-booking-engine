@@ -26,19 +26,20 @@ The invariant is applied consistently to the current supplier reservation lifecy
 - create submission claims;
 - create submission settlement;
 - reconciliation claims;
-- reconciliation settlement; and
+- reconciliation settlement;
+- durable provider-request boundary marking; and
 - stale in-flight create/reconciliation lease recovery.
 
 Both `HospitalitySupplierReservationOperation` and `HospitalitySupplierReservationAttempt` writes are covered. Provider-specific behavior remains outside these persistence services.
 
 ## Privacy and behavior
 
-No new customer, traveler, payment, guarantee, credential, provider payload, or provider locator data is stored or logged by this change. Existing privacy-minimal audits and provider-request observations are unchanged.
+No new customer, traveler, payment, guarantee, credential, provider payload, or provider locator data is stored or logged by this tenant-scope invariant. The provider-request marker stores only a database timestamp on the current tenant-owned attempt and keeps audit evidence privacy-minimal.
 
-The state machine is unchanged. Ambiguous outcomes still fail closed, known-locator reconciliation still requires exact provider truth, and Travelport reservation capability remains disabled until the remaining live-provider and PCI-safe create dependencies are completed.
+The reservation state machine remains fail closed after provider I/O may have started. A stale create can return to `PREPARED` only when the durable provider-request marker is absent, proving the protected provider boundary was not crossed. Known-locator reconciliation still requires exact provider truth, and Travelport reservation capability remains disabled until the remaining live-provider and PCI-safe create dependencies are completed.
 
 ## Validation
 
-`scripts/hospitality-supplier-reservation-tenant-write-scope.test.mjs` is a dependency-free source contract that verifies every current production supplier operation/attempt update includes `organizationId: input.organizationId`, while the existing authorization and scoped-read boundaries remain present.
+`scripts/hospitality-supplier-reservation-tenant-write-scope.test.mjs` is a dependency-free source contract that verifies every current production supplier operation/attempt update includes `organizationId: input.organizationId`, including both attempt updates in provider-request marking and stale recovery, while the existing authorization and scoped-read boundaries remain present.
 
 Full Node 24, Prisma, PostgreSQL, and live Travelport validation remain separate environment gates when those dependencies are available. No GitHub Actions are used for validation.
