@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
 import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
+import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
   probeTravelportStaysIntegrationHealth,
   readTravelportStaysCredentials,
@@ -81,14 +82,17 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
+  const fetchImpl = createTravelportStaysTraceFetch();
   const provider = new TravelportStaysProvider({
     credentials: normalizedCredentials,
     cacheKey,
+    fetchImpl,
   });
   const bookingTermsProvider = new TravelportStaysBookingTermsProvider({
     credentials: normalizedCredentials,
     cacheKey,
     pricingProvider: provider,
+    fetchImpl,
   });
   return Object.freeze({
     integration,
@@ -98,10 +102,12 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
       credentials: normalizedCredentials,
       cacheKey,
       bookingTermsProvider,
+      fetchImpl,
     }),
     reservationRecoveryProvider: new TravelportStaysReservationRecoveryProvider({
       credentials: normalizedCredentials,
       cacheKey,
+      fetchImpl,
     }),
   });
 }
