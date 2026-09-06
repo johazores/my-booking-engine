@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
-import { parseTravelportStaysReservationResponse } from './travelport-stays-reservation-response.ts';
+import {
+  parseTravelportStaysReservationResponse,
+  type TravelportStaysReservationRecoveryExpectation,
+} from './travelport-stays-reservation-response.ts';
+
+const expectedReservation: TravelportStaysReservationRecoveryExpectation = Object.freeze({
+  chainCode: 'HI',
+  propertyCode: 'ABC12',
+  arrivalDateLocal: '2026-10-10',
+  departureDateLocal: '2026-10-12',
+  rooms: 1,
+  guests: 2,
+});
 
 function response(input: {
   travelportReference?: string;
@@ -11,6 +23,12 @@ function response(input: {
   supplierStatus?: string;
   traceId?: string;
   includeSensitiveData?: boolean;
+  chainCode?: string;
+  propertyCode?: string;
+  arrivalDateLocal?: string;
+  departureDateLocal?: string;
+  rooms?: number;
+  guests?: number;
 } = {}) {
   const travelportReference = input.travelportReference ?? 'D6VBHL';
   const supplierReferences = input.supplierReferences ?? ['80073065'];
@@ -21,6 +39,26 @@ function response(input: {
           Traveler: [{ PersonName: { Given: 'Sensitive', Surname: 'Traveler' } }],
           FormOfPayment: [{ PaymentCard: { CardNumber: { PlainText: '4111111111111111' } } }],
         } : {}),
+        Offer: [
+          {
+            '@type': 'Offer',
+            Product: [
+              {
+                '@type': 'ProductHospitality',
+                Quantity: input.rooms ?? 1,
+                guests: input.guests ?? 2,
+                PropertyKey: {
+                  chainCode: input.chainCode ?? 'HI',
+                  propertyCode: input.propertyCode ?? 'ABC12',
+                },
+                DateRange: {
+                  start: input.arrivalDateLocal ?? '2026-10-10',
+                  end: input.departureDateLocal ?? '2026-10-12',
+                },
+              },
+            ],
+          },
+        ],
         Receipt: [
           ...supplierReferences.map((reference) => ({
             Confirmation: {
@@ -61,14 +99,50 @@ test('normalizes only durable locator and correlation evidence from a confirmed 
   assert.equal('FormOfPayment' in result, false);
 });
 
-test('retrieve verification can require an exact known aggregator locator without requiring active status', () => {
+test('retrieve verification binds the known locator to the durable property, stay, room, and guest request', () => {
   const result = parseTravelportStaysReservationResponse(response({ travelportStatus: 'Cancelled' }), {
     expectedProviderReservationReference: 'D6VBHL',
+    expectedReservation,
   });
   assert.equal(result.providerReservationReference, 'D6VBHL');
 
+  for (const mismatch of [
+    { propertyCode: 'OTHER' },
+    { chainCode: 'XX' },
+    { arrivalDateLocal: '2026-10-11' },
+    { departureDateLocal: '2026-10-13' },
+    { rooms: 2 },
+    { guests: 3 },
+  ]) {
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(response(mismatch), {
+        expectedProviderReservationReference: 'D6VBHL',
+        expectedReservation,
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+
   assert.throws(
     () => parseTravelportStaysReservationResponse(response(), { expectedProviderReservationReference: 'OTHER' }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('retrieve semantic evidence requires exactly one matching hospitality segment', () => {
+  const duplicate = response();
+  duplicate.ReservationResponse.Reservation.Offer.push({
+    '@type': 'Offer',
+    Product: [{
+      '@type': 'ProductHospitality',
+      Quantity: 1,
+      guests: 2,
+      PropertyKey: { chainCode: 'HI', propertyCode: 'ABC12' },
+      DateRange: { start: '2026-10-10', end: '2026-10-12' },
+    }],
+  });
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(duplicate, { expectedReservation }),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
 });

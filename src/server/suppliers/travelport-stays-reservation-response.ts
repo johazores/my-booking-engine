@@ -3,6 +3,8 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 const MAX_REFERENCE_LENGTH = 512;
 const MAX_CORRELATION_LENGTH = 512;
 const MAX_RECEIPTS = 32;
+const MAX_OFFERS = 32;
+const MAX_PRODUCTS_PER_OFFER = 8;
 
 type RecordValue = Record<string, unknown>;
 
@@ -10,6 +12,15 @@ export type TravelportStaysReservationResponseEvidence = Readonly<{
   providerReservationReference: string;
   supplierConfirmationReference: string | null;
   providerCorrelationId: string | null;
+}>;
+
+export type TravelportStaysReservationRecoveryExpectation = Readonly<{
+  chainCode: string;
+  propertyCode: string;
+  arrivalDateLocal: string;
+  departureDateLocal: string;
+  rooms: number;
+  guests: number;
 }>;
 
 function record(value: unknown): RecordValue {
@@ -32,10 +43,58 @@ function readOfferStatus(confirmation: RecordValue) {
   return boundedProviderValue(status.Status, 64);
 }
 
+function assertExpectedReservationMatch(
+  reservation: RecordValue,
+  expected: TravelportStaysReservationRecoveryExpectation,
+) {
+  const offers = reservation.Offer;
+  if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
+    throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
+  }
+
+  let matches = 0;
+  for (const offerValue of offers) {
+    if (!offerValue || typeof offerValue !== 'object' || Array.isArray(offerValue)) continue;
+    const products = (offerValue as RecordValue).Product;
+    if (!Array.isArray(products) || products.length > MAX_PRODUCTS_PER_OFFER) continue;
+
+    for (const productValue of products) {
+      if (!productValue || typeof productValue !== 'object' || Array.isArray(productValue)) continue;
+      const product = productValue as RecordValue;
+      if (product['@type'] !== 'ProductHospitality') continue;
+      if (!product.PropertyKey || !product.DateRange) continue;
+      const propertyKey = record(product.PropertyKey);
+      const dateRange = record(product.DateRange);
+      const chainCode = boundedProviderValue(propertyKey.chainCode, 16);
+      const propertyCode = boundedProviderValue(propertyKey.propertyCode, 32);
+      const arrivalDateLocal = boundedProviderValue(dateRange.start, 10);
+      const departureDateLocal = boundedProviderValue(dateRange.end, 10);
+      if (
+        chainCode === expected.chainCode
+        && propertyCode === expected.propertyCode
+        && arrivalDateLocal === expected.arrivalDateLocal
+        && departureDateLocal === expected.departureDateLocal
+        && product.Quantity === expected.rooms
+        && product.guests === expected.guests
+      ) {
+        matches += 1;
+      }
+    }
+  }
+
+  if (matches !== 1) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response did not contain exactly one hospitality segment matching the durable reservation request.',
+    );
+  }
+}
+
 export function parseTravelportStaysReservationResponse(
   value: unknown,
   input: Readonly<{
     expectedProviderReservationReference?: string;
+    expectedReservation?: TravelportStaysReservationRecoveryExpectation;
     requireConfirmedTravelportReceipt?: boolean;
   }> = {},
 ): TravelportStaysReservationResponseEvidence {
@@ -85,6 +144,10 @@ export function parseTravelportStaysReservationResponse(
       'INVALID_RESPONSE',
       'Travelport reservation response did not match the requested reservation locator.',
     );
+  }
+
+  if (input.expectedReservation) {
+    assertExpectedReservationMatch(reservation, input.expectedReservation);
   }
 
   if (input.requireConfirmedTravelportReceipt) {

@@ -1,10 +1,14 @@
 import { HospitalitySupplierProviderError, type HospitalitySupplierFailureCode } from './hospitality-supplier-provider.ts';
 import type {
+  HospitalitySupplierReservationRecoveryExpectation,
   HospitalitySupplierReservationRecoveryProvider,
   HospitalitySupplierReservationRecoveryRequest,
   HospitalitySupplierReservationRecoveryResult,
 } from './hospitality-supplier-reservation-recovery-provider.ts';
-import { parseTravelportStaysReservationResponse } from './travelport-stays-reservation-response.ts';
+import {
+  parseTravelportStaysReservationResponse,
+  type TravelportStaysReservationRecoveryExpectation,
+} from './travelport-stays-reservation-response.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -17,6 +21,7 @@ const ENDPOINTS = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_REFERENCE_LENGTH = 512;
+const MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH = 4_096;
 const MAX_REQUEST_CORRELATION_ID_LENGTH = 120;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
@@ -36,6 +41,85 @@ function boundedSingleLine(value: unknown, label: string, max: number) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
   }
   return normalized;
+}
+
+function localDate(value: unknown, label: string) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
+  }
+  return value;
+}
+
+function decodePropertyReference(value: unknown) {
+  const encoded = boundedSingleLine(
+    value,
+    'Supplier property reference',
+    MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH,
+  );
+  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier property reference is invalid.');
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier property reference is invalid.');
+  }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier property reference is invalid.');
+  }
+  const identity = decoded as Record<string, unknown>;
+  const chainCode = typeof identity.chainCode === 'string' ? identity.chainCode.trim() : '';
+  const propertyCode = typeof identity.propertyCode === 'string' ? identity.propertyCode.trim() : '';
+  if (
+    identity.authority !== 'TVPT'
+    || !/^[A-Za-z0-9]{1,16}$/.test(chainCode)
+    || !/^[A-Za-z0-9]{1,32}$/.test(propertyCode)
+  ) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier property reference is invalid.');
+  }
+  return Object.freeze({ chainCode, propertyCode });
+}
+
+function normalizeExpectedReservation(
+  input: HospitalitySupplierReservationRecoveryExpectation | undefined,
+): TravelportStaysReservationRecoveryExpectation {
+  if (!input || typeof input !== 'object') {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Expected reservation evidence is required.');
+  }
+  const property = decodePropertyReference(input.supplierPropertyReference);
+  const arrivalDateLocal = localDate(input.arrivalDateLocal, 'Arrival date');
+  const departureDateLocal = localDate(input.departureDateLocal, 'Departure date');
+  if (!Array.isArray(input.childAges)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Expected reservation child ages are invalid.');
+  }
+  const childAges = [...input.childAges];
+  if (
+    departureDateLocal <= arrivalDateLocal
+    || input.rooms !== 1
+    || !Number.isInteger(input.adults)
+    || input.adults < 1
+    || childAges.length > 8
+    || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)
+    || input.adults + childAges.length > 9
+  ) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_REQUEST',
+      'Travelport reservation recovery supports the current single-room one-to-nine-guest contract only.',
+    );
+  }
+  return Object.freeze({
+    ...property,
+    arrivalDateLocal,
+    departureDateLocal,
+    rooms: input.rooms,
+    guests: input.adults + childAges.length,
+  });
 }
 
 function failureCodeForStatus(status: number): HospitalitySupplierFailureCode {
@@ -134,6 +218,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       'Request correlation ID',
       MAX_REQUEST_CORRELATION_ID_LENGTH,
     );
+    const expectedReservation = normalizeExpectedReservation(input.expectedReservation);
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
       url: `${ENDPOINTS[this.#credentials.environment]}book/reservations/${encodeURIComponent(reference)}`,
@@ -152,6 +237,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     const payload = await response.json().catch(() => null);
     const parsed = parseTravelportStaysReservationResponse(payload, {
       expectedProviderReservationReference: reference,
+      expectedReservation,
     });
     return Object.freeze({
       status: 'FOUND',

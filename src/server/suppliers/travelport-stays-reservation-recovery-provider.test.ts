@@ -15,22 +15,62 @@ const credentials = normalizeTravelportStaysConfiguration({
 }).credentials;
 
 const REQUEST_CORRELATION_ID = '11111111-1111-4111-8111-111111111111';
+const PROPERTY_REFERENCE = Buffer.from(JSON.stringify({
+  chainCode: 'HI',
+  propertyCode: 'ABC12',
+  authority: 'TVPT',
+}), 'utf8').toString('base64url');
 
 function recoveryRequest(providerReservationReference = 'D6VBHL', requestCorrelationId = REQUEST_CORRELATION_ID) {
-  return { providerReservationReference, requestCorrelationId };
+  return {
+    providerReservationReference,
+    requestCorrelationId,
+    expectedReservation: {
+      supplierPropertyReference: PROPERTY_REFERENCE,
+      arrivalDateLocal: '2026-10-10',
+      departureDateLocal: '2026-10-12',
+      rooms: 1,
+      adults: 1,
+      childAges: [8],
+    },
+  };
 }
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function reservationResponse(locator = 'D6VBHL') {
+function reservationResponse(input: {
+  locator?: string;
+  chainCode?: string;
+  propertyCode?: string;
+  arrivalDateLocal?: string;
+  departureDateLocal?: string;
+  rooms?: number;
+  guests?: number;
+} = {}) {
   return {
     ReservationResponse: {
       Reservation: {
+        Offer: [{
+          '@type': 'Offer',
+          Product: [{
+            '@type': 'ProductHospitality',
+            Quantity: input.rooms ?? 1,
+            guests: input.guests ?? 2,
+            PropertyKey: {
+              chainCode: input.chainCode ?? 'HI',
+              propertyCode: input.propertyCode ?? 'ABC12',
+            },
+            DateRange: {
+              start: input.arrivalDateLocal ?? '2026-10-10',
+              end: input.departureDateLocal ?? '2026-10-12',
+            },
+          }],
+        }],
         Receipt: [
           { Confirmation: { Locator: { value: '80073065', sourceContext: 'Supplier' } } },
-          { Confirmation: { Locator: { value: locator, sourceContext: 'Travelport' } } },
+          { Confirmation: { Locator: { value: input.locator ?? 'D6VBHL', sourceContext: 'Travelport' } } },
         ],
       },
       traceId: 'trace-123',
@@ -38,7 +78,7 @@ function reservationResponse(locator = 'D6VBHL') {
   };
 }
 
-test('Travelport recovery retrieves a known aggregator locator with durable outbound correlation', async () => {
+test('Travelport recovery retrieves the exact durable reservation identity with durable outbound correlation', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url, init) => {
     requests.push({ url: String(url), init });
@@ -65,6 +105,27 @@ test('Travelport recovery retrieves a known aggregator locator with durable outb
   assert.equal(headers.get('TraceId'), REQUEST_CORRELATION_ID);
 });
 
+test('Travelport recovery fails closed when the known locator does not match the durable property, stay, room, or guest request', async () => {
+  for (const [name, mismatch] of Object.entries({
+    property: { propertyCode: 'OTHER' },
+    chain: { chainCode: 'XX' },
+    arrival: { arrivalDateLocal: '2026-10-11' },
+    departure: { departureDateLocal: '2026-10-13' },
+    rooms: { rooms: 2 },
+    guests: { guests: 3 },
+  })) {
+    const fetchImpl = (async (url) => {
+      if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: `token-${name}`, expires_in: 86400 });
+      return jsonResponse(reservationResponse(mismatch));
+    }) as typeof fetch;
+    const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: `recover-identity-${name}`, fetchImpl });
+    await assert.rejects(
+      provider.retrieveReservation(recoveryRequest()),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
 test('Travelport recovery does not treat an undocumented generic HTTP 404 as authoritative NOT_FOUND evidence', async () => {
   const fetchImpl = (async (url) => {
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token', expires_in: 86400 });
@@ -80,7 +141,7 @@ test('Travelport recovery does not treat an undocumented generic HTTP 404 as aut
 test('Travelport recovery fails closed when provider truth returns another Travelport locator', async () => {
   const fetchImpl = (async (url) => {
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token', expires_in: 86400 });
-    return jsonResponse(reservationResponse('OTHER1'));
+    return jsonResponse(reservationResponse({ locator: 'OTHER1' }));
   }) as typeof fetch;
   const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: 'recover-mismatch', fetchImpl });
   await assert.rejects(
@@ -116,7 +177,7 @@ test('Travelport recovery normalizes retryable provider failures and evicts reje
   assert.equal(authCalls, 2);
 });
 
-test('Travelport recovery rejects unsafe locator and request-correlation input before provider transport', async () => {
+test('Travelport recovery rejects unsafe locator, correlation, and reservation expectation before provider transport', async () => {
   let calls = 0;
   const fetchImpl = (async () => {
     calls += 1;
@@ -125,5 +186,13 @@ test('Travelport recovery rejects unsafe locator and request-correlation input b
   const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: 'recover-input', fetchImpl });
   await assert.rejects(provider.retrieveReservation(recoveryRequest('bad\nlocator')));
   await assert.rejects(provider.retrieveReservation(recoveryRequest('D6VBHL', 'bad\ncorrelation')));
+  await assert.rejects(provider.retrieveReservation({
+    ...recoveryRequest(),
+    expectedReservation: { ...recoveryRequest().expectedReservation, supplierPropertyReference: 'not-a-reference' },
+  }));
+  await assert.rejects(provider.retrieveReservation({
+    ...recoveryRequest(),
+    expectedReservation: { ...recoveryRequest().expectedReservation, rooms: 2 },
+  }));
   assert.equal(calls, 0);
 });

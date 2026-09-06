@@ -1,6 +1,16 @@
+export type HospitalitySupplierReservationRecoveryExpectation = Readonly<{
+  supplierPropertyReference: string;
+  arrivalDateLocal: string;
+  departureDateLocal: string;
+  rooms: number;
+  adults: number;
+  childAges: readonly number[];
+}>;
+
 export type HospitalitySupplierReservationRecoveryRequest = Readonly<{
   providerReservationReference: string;
   requestCorrelationId: string;
+  expectedReservation: HospitalitySupplierReservationRecoveryExpectation;
 }>;
 
 export type HospitalitySupplierReservationRecoveryResult =

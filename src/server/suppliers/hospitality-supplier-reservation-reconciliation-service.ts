@@ -9,6 +9,10 @@ import {
   settleHospitalitySupplierReservationReconciliation,
 } from './hospitality-supplier-reservation-service.ts';
 
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
 export async function reconcileHospitalitySupplierReservationWithProvider(input: {
   organizationId: string;
   actorUserId: string;
@@ -32,6 +36,14 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     });
   }
 
+  const expectedReservation = Object.freeze({
+    supplierPropertyReference: claim.reservation.supplierPropertyReference,
+    arrivalDateLocal: dateOnly(claim.reservation.arrivalDate),
+    departureDateLocal: dateOnly(claim.reservation.departureDate),
+    rooms: claim.reservation.rooms,
+    adults: claim.reservation.adults,
+    childAges: Object.freeze([...claim.reservation.childAges]),
+  });
   const providerObservation = createHospitalitySupplierReservationProviderObservation({
     requestCorrelationId: claim.attempt.id,
     organizationId: input.organizationId,
@@ -43,6 +55,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     result = await input.provider.retrieveReservation({
       providerReservationReference,
       requestCorrelationId: claim.attempt.id,
+      expectedReservation,
     });
   } catch (error) {
     const failureCode = error instanceof HospitalitySupplierProviderError ? error.code : 'PROVIDER_UNAVAILABLE';
