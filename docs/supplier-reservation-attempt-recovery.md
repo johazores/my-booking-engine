@@ -10,7 +10,7 @@ A stranded in-flight state must never be interpreted as proof that the provider 
 
 Each current `STARTED` supplier reservation attempt has a fixed ten-minute execution lease. The lease is intentionally longer than the current supplier adapter request ceiling of 120 seconds and is not configurable by browser or tenant input.
 
-The lease is a crash-detection guard, not a provider timeout and not reservation authority. Normal provider code must still use its bounded transport timeout and settle the durable attempt promptly.
+The lease is a crash-detection guard, not a provider timeout and not reservation authority. Lease age is evaluated with PostgreSQL `clock_timestamp()` while the operation lock is held, so application-node clock skew cannot make a fresh claim look stale. Normal provider code must still use its bounded transport timeout and settle the durable attempt promptly.
 
 Stale recovery is allowed only when all of these remain true under the same serializable operation lock used by the reservation ledger:
 

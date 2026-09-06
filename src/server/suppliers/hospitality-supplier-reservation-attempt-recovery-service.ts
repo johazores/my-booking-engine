@@ -68,7 +68,13 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
       );
     }
 
-    const recoveredAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation recovery time is unavailable.',
+      );
+    }
+    const recoveredAt = databaseClock.currentTime;
     try {
       assertHospitalitySupplierReservationAttemptLeaseExpired({
         operationStatus: reservation.status,

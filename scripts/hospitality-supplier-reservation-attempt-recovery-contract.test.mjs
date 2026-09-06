@@ -25,6 +25,7 @@ test('stale recovery authorizes first, scopes every database read, and preserves
   assert.match(service, /organizationId: input\.organizationId,[\s\S]*?reservationId: reservation\.id,[\s\S]*?sequence: reservation\.attemptCount,[\s\S]*?status: 'STARTED'/);
   assert.match(service, /supplier-reservation:\$\{organizationId\}:operation:\$\{reservationId\}/);
   assert.match(service, /isolationLevel: 'Serializable'/);
+  assert.match(service, /SELECT clock_timestamp\(\) AS \"currentTime\"/);
 });
 
 test('expired in-flight claims become ambiguous rather than safe-to-retry', () => {
