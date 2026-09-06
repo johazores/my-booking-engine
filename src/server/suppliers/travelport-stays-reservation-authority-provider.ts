@@ -263,6 +263,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
       response = await this.#fetch(input.url, {
         method: input.method,
         cache: 'no-store',
+        redirect: 'manual',
         signal: controller.signal,
         headers: {
           'Accept-Encoding': 'gzip, deflate', 'Cache-Control': 'no-cache', Accept: 'application/json', 'Content-Type': 'application/json',
@@ -313,7 +314,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
     const guestCounts = [{ '@type': 'GuestCount', count: normalized.adults, ageQualifyingCode: '10' }, ...normalized.childAges.map((age) => ({ '@type': 'GuestCount', count: 1, ageQualifyingCode: '8', age }))];
     const availabilityPayload = await this.#request({
       url: `${endpoints.v11}availability/catalogofferingshospitality`, method: 'POST',
-      body: { CatalogOfferingsQueryRequest: { CatalogOfferingsRequest: [{ '@type': 'CatalogOfferingsRequestHospitality', verboseResponseInd: true, StayDates: { start: normalized.checkInDateLocal, end: normalized.checkOutDateLocal }, HotelSearchCriterion: { '@type': 'HotelSearchCriterion', numberOfRooms: 1, AggregatorList: [normalized.offer.rateAuthority], ...(rate && (rate.rateCode || rate.rateID || rate.rateCategory) ? { RateCandidates: { '@type': 'RateCandidates', RateCandidate: [{ '@type': 'RateCandidate', ...(rate.rateCode ? { rateCode: rate.rateCode, chainCode: rate.chainCode, propertyCode: rate.propertyCode } : {}), ...(rate.rateID ? { rateID: rate.rateID } : {}), ...(rate.rateCategory ? { rateCategory: rate.rateCategory } : {}) }] } } : {}), PropertyRequest: [{ '@type': 'PropertyRequest', PropertyKey: { '@type': 'PropertyKey', chainCode: normalized.property.chainCode, propertyCode: normalized.property.propertyCode } }], RoomStayCandidates: { '@type': 'RoomStayCandidates', RoomStayCandidate: [{ '@type': 'RoomStayCandidate', GuestCounts: { '@type': 'GuestCounts', GuestCount: guestCounts } }] } } }] } },
+      body: { CatalogOfferingsQueryRequest: { CatalogOfferingsRequest: [{ '@type': 'CatalogOfferingsRequestHospitality', verboseResponseInd: true, StayDates: { start: normalized.checkInDateLocal, end: normalized.checkOutDateLocal }, HotelSearchCriterion: { '@type': 'HotelSearchCriterion', numberOfRooms: 1, AggregatorList: [normalized.offer.rateAuthority], ...(rate && (rate.rateCode || rate.rateID || rate.rateCategory) ? { RateCandidates: { '@type': 'RateCandidates', RateCandidate: [{ '@type': 'RateCandidate', ...(rate.rateCode ? { rateCode: rate.rateCode, chainCode: rate.chainCode, propertyCode: rate.propertyCode } : {}), ...(rate.rateID ? { rateID: rate.rateID } : {}), ...(rate.rateCategory ? { rateCategory: rate.rateCategory } : {}) }] } } : {}), PropertyRequest: [{ '@type': 'PropertyRequest', PropertyKey: { '@type': 'PropertyKey', chainCode: normalized.property.chainCode, propertyCode: normalized.property.propertyCode } }], RoomStayCandidates: { '@type': 'RoomStayCandidates', RoomStayCandidate: [{ '@type': 'RoomStayCandidate', GuestCounts: { '@type': 'GuestCounts', GuestCount: guestCounts } }] } } } }] } },
     });
 
     const first = availabilityPage(availabilityPayload, normalized, selected, true);

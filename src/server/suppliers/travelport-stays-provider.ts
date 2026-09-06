@@ -144,7 +144,7 @@ async function fetchWithTimeout(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
   try {
-    return await input.fetchImpl(input.url, { ...input.init, signal: controller.signal });
+    return await input.fetchImpl(input.url, { ...input.init, redirect: 'manual', signal: controller.signal });
   } catch {
     throw new HospitalitySupplierProviderError(controller.signal.aborted ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE');
   } finally {

@@ -20,6 +20,8 @@ Supplier reservation ledger claims and known-locator reconciliation require serv
 
 Travelport configuration stores environment (`pre-production` or `production`), username, password, client ID, client secret, and access group inside the existing encrypted integration credential envelope. Provider endpoints are fixed constants selected from the validated environment; callers cannot supply arbitrary URLs.
 
+All Travelport OAuth and Stays HTTP requests use those fixed environment endpoints with redirect following disabled at the transport boundary via `redirect: 'manual'`. The shared fetch helpers apply this policy after spreading caller request options so it cannot be overridden. Any unexpected 3xx response is handled by the existing non-success status path as `INVALID_RESPONSE`; SF never replays credential-bearing OAuth bodies or provider credential headers to a redirect target.
+
 Reusable access tokens are cached in-process by Integration ID plus credential version. Concurrent refreshes are suppressed, tokens refresh before expiry, and authentication rejection evicts the cached token. Token values and credential headers are never returned, audited, logged, or persisted outside the encrypted credential envelope.
 
 ## Property discovery and pagination
@@ -90,13 +92,13 @@ Travelport also documents price/guarantee changes as explicit follow-up decision
 
 ## Failure and privacy contract
 
-Provider failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Unsafe identifiers, authority mismatch, malformed/mixed money, unsupported Rules shapes, duplicate/oversized structures, incomplete pagination, mismatched reservation locators, undocumented generic negative HTTP statuses, and ambiguous selected-offer mapping fail closed.
+Provider failures normalize to `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, or `INVALID_RESPONSE`. Unsafe identifiers, authority mismatch, malformed/mixed money, unsupported Rules shapes, duplicate/oversized structures, incomplete pagination, mismatched reservation locators, undocumented generic negative HTTP statuses, unexpected redirects, and ambiguous selected-offer mapping fail closed.
 
 Raw Travelport errors, credentials, tokens, access groups, headers/bodies, pagination tokens, booking codes, traveler/customer data, payment/card material, provider locators, supplier confirmations, and supplier commercial payloads are not copied into audit payloads or structured request logs.
 
 ## Validation boundary
 
-The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete pagination, exact-money pricing/revalidation, Rules normalization/race handling, selected-offer Availability authority, supplier reservation state/idempotency/privacy, reservation response evidence, known-locator recovery, generic 404 fail-closed behavior, locator-preserving reconciliation, and supplier-confirmation persistence.
+The supplier suite covers configuration/fixed endpoints, token behavior, health failure normalization, SearchComplete pagination, exact-money pricing/revalidation, Rules normalization/race handling, selected-offer Availability authority, supplier reservation state/idempotency/privacy, reservation response evidence, known-locator recovery, generic 404 fail-closed behavior, locator-preserving reconciliation, supplier-confirmation persistence, and fixed-endpoint redirect suppression.
 
 A guarded PostgreSQL scenario is registered for cross-tenant provider-I/O suppression, locator-less recovery denial, known-locator `FOUND`, transient `UNKNOWN` preservation, provider-neutral `NOT_FOUND` clearing, mismatch rejection, and durable supplier confirmation. Its `NOT_FOUND` branch uses a provider-neutral stub and does not claim Travelport HTTP 404 semantics. It requires the repository's explicitly disposable PostgreSQL harness.
 

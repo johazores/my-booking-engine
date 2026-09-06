@@ -19,7 +19,8 @@ Provider-specific behavior remains under `src/server/suppliers/` and `src/server
 - `availability:read` before discovery, `availability:read` + `pricing:read` before pricing/revalidation/Rules, and those read permissions plus `booking:manage` before reservation-authority review, all before credentials are loaded;
 - normalized provider failures without raw provider payload/error leakage;
 - tenant-owned reservation operation/attempt persistence with exact idempotency, credential-version binding, serializable claims, and fail-closed ambiguity state;
-- provider-neutral known-locator reservation recovery backed by Travelport Hotel `GET book/reservations/{AggregatorLocatorCode}`, with exact Travelport locator verification and fail-closed negative evidence.
+- provider-neutral known-locator reservation recovery backed by Travelport Hotel `GET book/reservations/{AggregatorLocatorCode}`, with exact Travelport locator verification and fail-closed negative evidence;
+- fixed Travelport OAuth/Stays endpoints with redirect following disabled via `redirect: 'manual'`, so an unexpected 3xx is treated as invalid provider behavior rather than replaying credential-bearing requests to another target.
 
 Travelport's public Retrieve reference documents the GET endpoint and successful reservation response shape, but it does not establish HTTP 404 as authoritative proof that the exact reservation does not exist. A generic HTTP 404 is not authoritative negative evidence in SF. The adapter therefore treats it as `INVALID_RESPONSE`, which the coordinator settles back to `AMBIGUOUS`; it does not convert that response into provider-neutral `NOT_FOUND` or make another create retryable. `NOT_FOUND` remains available in the provider-neutral recovery contract only for a provider adapter with verified authoritative negative lookup semantics.
 
@@ -41,9 +42,13 @@ The initial create must also never send `acceptPriceChangeInd` or `acceptGuarant
 
 Known-locator recovery can confirm an exact reservation when Retrieve returns matching reservation evidence, but it still cannot establish safe retry from a generic HTTP 404, and it cannot solve a create that disconnects before SF receives the aggregator locator. Hotel Retrieve requires that locator. Known-locator negative evidence and locator-less uncertain writes must remain `AMBIGUOUS` until a verified provider lookup/correlation mechanism exists; they may not be converted to `NOT_FOUND` or retried blindly.
 
+## Transport security boundary
+
+Travelport endpoint URLs are constants selected from the validated integration environment. Every credential-bearing OAuth and Stays request now also disables redirect following with `redirect: 'manual'`; shared request helpers set that value after caller options so downstream code cannot override it. Existing status normalization treats any returned 3xx as `INVALID_RESPONSE`. This keeps OAuth password/client-secret bodies and Travelport credential headers on the configured Travelport origin instead of allowing Fetch's default redirect-following behavior to replay them elsewhere.
+
 ## Validation boundary
 
-Dependency-free/source-level checks cover property discovery/pagination, authorization-before-credential-load ordering, exact offer normalization, no-cache revalidation, Rules, selected-offer Availability mapping/pagination, provider isolation, reservation-operation idempotency/state/privacy, the known-locator recovery contract, fail-closed generic HTTP 404 handling, and continued absence of a Travelport reservation POST. Focused adapter tests cover the authority success/rejection paths and the recovery success, generic 404 rejection, locator mismatch, retryable provider failures, auth token eviction, and unsafe locator rejection.
+Dependency-free/source-level checks cover property discovery/pagination, authorization-before-credential-load ordering, exact offer normalization, no-cache revalidation, Rules, selected-offer Availability mapping/pagination, provider isolation, reservation-operation idempotency/state/privacy, the known-locator recovery contract, fail-closed generic HTTP 404 handling, fixed-endpoint redirect suppression, and continued absence of a Travelport reservation POST. Focused adapter tests cover the authority success/rejection paths and the recovery success, generic 404 rejection, locator mismatch, retryable provider failures, auth token eviction, and unsafe locator rejection.
 
 Live Travelport validation remains blocked until a provisioned non-production account is available. Full Node 24/Prisma/PostgreSQL execution requires the repository's supported toolchain and an explicitly disposable database target. No credentials belong in source control or repository automation.
 
