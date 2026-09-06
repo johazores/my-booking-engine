@@ -72,6 +72,7 @@ model HospitalitySupplierReservationAttempt {
   providerCorrelationId   String?                                     @db.VarChar(512)
   normalizedFailureCode   String?                                     @db.VarChar(64)
   startedAt               DateTime                                    @default(now()) @db.Timestamptz(6)
+  leaseStartedAt          DateTime?                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
   completedAt             DateTime?                                   @db.Timestamptz(6)
   reservation             HospitalitySupplierReservationOperation     @relation(fields: [reservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
 

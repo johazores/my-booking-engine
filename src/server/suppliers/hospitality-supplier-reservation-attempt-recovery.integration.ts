@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS } from './hospitality-supplier-reservation-attempt-lease.ts';
-
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
@@ -89,6 +87,7 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
     });
+    assert.ok(submission.attempt.leaseStartedAt instanceof Date);
 
     await assert.rejects(
       recovery.recoverStaleHospitalitySupplierReservationAttempt({
@@ -107,11 +106,25 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       /not available in this organization/i,
     );
 
-    const staleStartedAt = new Date(Date.now() - HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS - 1_000);
-    await db.hospitalitySupplierReservationAttempt.update({
-      where: { id: submission.attempt.id },
-      data: { startedAt: staleStartedAt },
-    });
+    await db.$executeRaw`
+      UPDATE "hospitality_supplier_reservation_attempts"
+      SET "startedAt" = clock_timestamp() - interval '1 day'
+      WHERE "id" = ${submission.attempt.id}::uuid
+    `;
+    await assert.rejects(
+      recovery.recoverStaleHospitalitySupplierReservationAttempt({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: prepared.id,
+      }),
+      /within its execution lease/i,
+    );
+
+    await db.$executeRaw`
+      UPDATE "hospitality_supplier_reservation_attempts"
+      SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
+      WHERE "id" = ${submission.attempt.id}::uuid
+    `;
     const recoveredSubmission = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
@@ -126,6 +139,7 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
     });
+    assert.ok(reconciliation.attempt.leaseStartedAt instanceof Date);
     await assert.rejects(
       recovery.recoverStaleHospitalitySupplierReservationAttempt({
         organizationId: tenantA.id,
@@ -135,10 +149,11 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       /within its execution lease/i,
     );
 
-    await db.hospitalitySupplierReservationAttempt.update({
-      where: { id: reconciliation.attempt.id },
-      data: { startedAt: staleStartedAt },
-    });
+    await db.$executeRaw`
+      UPDATE "hospitality_supplier_reservation_attempts"
+      SET "leaseStartedAt" = clock_timestamp() - interval '11 minutes'
+      WHERE "id" = ${reconciliation.attempt.id}::uuid
+    `;
     const recoveredReconciliation = await recovery.recoverStaleHospitalitySupplierReservationAttempt({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
@@ -152,6 +167,7 @@ test('stale supplier reservation claims fail closed to ambiguity and remain tena
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
     });
+    assert.ok(reconciliationRetry.attempt.leaseStartedAt instanceof Date);
     const unresolved = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,

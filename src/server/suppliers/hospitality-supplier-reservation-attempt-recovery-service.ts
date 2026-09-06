@@ -67,6 +67,11 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
         'Supplier reservation current attempt is not available for stale recovery.',
       );
     }
+    if (!attempt.leaseStartedAt) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation attempt lease authority is unavailable.',
+      );
+    }
 
     const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
     if (!databaseClock) {
@@ -82,7 +87,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
         attemptStatus: attempt.status,
         attemptSequence: attempt.sequence,
         currentAttemptCount: reservation.attemptCount,
-        startedAt: attempt.startedAt,
+        startedAt: attempt.leaseStartedAt,
         now: recoveredAt,
       });
     } catch (error) {

@@ -10,16 +10,18 @@ A stranded in-flight state must never be interpreted as proof that the provider 
 
 Each current `STARTED` supplier reservation attempt has a fixed ten-minute execution lease. The lease is intentionally longer than the current supplier adapter request ceiling of 120 seconds and is not configurable by browser or tenant input.
 
-The lease is a crash-detection guard, not a provider timeout and not reservation authority. Lease age is evaluated with PostgreSQL `clock_timestamp()` while the operation lock is held, so application-node clock skew cannot make a fresh claim look stale. Normal provider code must still use its bounded transport timeout and settle the durable attempt promptly.
+The lease is a crash-detection guard, not a provider timeout and not reservation authority. Its start and recovery clocks are both database-authored: new attempts receive `leaseStartedAt` from PostgreSQL `clock_timestamp()`, and recovery reads PostgreSQL `clock_timestamp()` again while the operation lock is held. The existing `startedAt` field remains operational history only and is not lease authority, so application-node clock skew cannot make a fresh claim look stale or postpone recovery indefinitely.
+
+Migration is conservative for attempts that were already `STARTED` before this lease-authority field existed. They receive a fresh database-authored ten-minute lease when the migration runs instead of inheriting an untrusted application timestamp. Completed legacy attempts are not rewritten merely to fabricate historical lease evidence. A database check guarantees every `STARTED` attempt has lease authority.
 
 Stale recovery is allowed only when all of these remain true under the same serializable operation lock used by the reservation ledger:
 
 - the operation is `SUBMITTING` with a current `CREATE` attempt, or `RECONCILING` with a current `RECONCILE` attempt;
 - the attempt is still `STARTED`;
 - the attempt sequence exactly equals the operation `attemptCount`;
-- the attempt start time is valid and at least ten minutes old.
+- the database-authored lease start exists, is valid, and is at least ten minutes old.
 
-A fresh attempt, mismatched kind, completed attempt, stale sequence, invalid timestamp, or operation outside the two in-flight states fails closed without mutation.
+A fresh attempt, missing lease authority, mismatched kind, completed attempt, stale sequence, invalid timestamp, or operation outside the two in-flight states fails closed without mutation.
 
 ## Conservative recovery transition
 
@@ -42,9 +44,9 @@ Audit evidence records only the provider code, resulting state, attempt kind/seq
 
 ## Validation
 
-Dependency-free tests cover the fixed lease, the current-attempt/kind/sequence requirements, fresh-attempt rejection, and both create/reconciliation recovery paths. Source-contract tests cover authorization ordering, tenant-scoped reads, shared lock identity, fail-closed `AMBIGUOUS` transition, audit minimization, and registration in the disposable PostgreSQL suite.
+Dependency-free tests cover the fixed lease, current-attempt/kind/sequence requirements, fresh-attempt rejection, database-authored lease source contract, conservative migration behavior, and both create/reconciliation recovery paths. Source-contract tests cover authorization ordering, tenant-scoped reads, shared lock identity, fail-closed `AMBIGUOUS` transition, audit minimization, and registration in the disposable PostgreSQL suite.
 
-The guarded PostgreSQL scenario covers fresh-lease rejection, Tenant A/Tenant B denial, stale create recovery, stale reconciliation recovery, attempt ordering, and safe reconciliation retry. It runs only through `npm run test:database` against an explicitly disposable PostgreSQL target.
+The guarded PostgreSQL scenario additionally verifies that mutating the historical `startedAt` timestamp cannot expire a fresh lease, then ages `leaseStartedAt` with PostgreSQL time before exercising stale create and stale reconciliation recovery. It also covers Tenant A/Tenant B denial, attempt ordering, and safe reconciliation retry. It runs only through `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 ## Remaining supplier-write boundary
 

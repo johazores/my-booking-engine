@@ -15,6 +15,21 @@ test('stale supplier reservation recovery has a fixed conservative execution lea
   assert.match(lease, /elapsedMs < HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS/);
 });
 
+test('lease age uses database-authored start and recovery clocks rather than application audit time', () => {
+  const schema = source('prisma/hospitality-supplier-reservations.prisma');
+  const migration = source('prisma/migrations/20260906094000_supplier-reservation-db-lease-clock/migration.sql');
+  const service = source('src/server/suppliers/hospitality-supplier-reservation-attempt-recovery-service.ts');
+
+  assert.match(schema, /leaseStartedAt\s+DateTime\?\s+@default\(dbgenerated\("clock_timestamp\(\)"\)\)\s+@db\.Timestamptz\(6\)/);
+  assert.match(migration, /ADD COLUMN "leaseStartedAt" TIMESTAMPTZ\(6\)/);
+  assert.match(migration, /SET "leaseStartedAt" = clock_timestamp\(\)[\s\S]*?WHERE "status" = 'STARTED'/);
+  assert.match(migration, /ALTER COLUMN "leaseStartedAt" SET DEFAULT clock_timestamp\(\)/);
+  assert.match(migration, /CHECK \("status" <> 'STARTED' OR "leaseStartedAt" IS NOT NULL\)/);
+  assert.match(service, /if \(!attempt\.leaseStartedAt\)/);
+  assert.match(service, /startedAt: attempt\.leaseStartedAt/);
+  assert.doesNotMatch(service, /startedAt: attempt\.startedAt/);
+});
+
 test('stale recovery authorizes first, scopes every database read, and preserves the shared operation lock', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-attempt-recovery-service.ts');
   const authorityIndex = service.indexOf('await requireSupplierReservationRecoveryAuthority');
@@ -25,7 +40,7 @@ test('stale recovery authorizes first, scopes every database read, and preserves
   assert.match(service, /organizationId: input\.organizationId,[\s\S]*?reservationId: reservation\.id,[\s\S]*?sequence: reservation\.attemptCount,[\s\S]*?status: 'STARTED'/);
   assert.match(service, /supplier-reservation:\$\{organizationId\}:operation:\$\{reservationId\}/);
   assert.match(service, /isolationLevel: 'Serializable'/);
-  assert.match(service, /SELECT clock_timestamp\(\) AS \"currentTime\"/);
+  assert.match(service, /SELECT clock_timestamp\(\) AS "currentTime"/);
 });
 
 test('expired in-flight claims become ambiguous rather than safe-to-retry', () => {
