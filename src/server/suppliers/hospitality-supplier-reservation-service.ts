@@ -187,7 +187,7 @@ export async function claimHospitalitySupplierReservationSubmission(input: {
     const attemptedAt = new Date();
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id },
+      where: { id: reservation.id, organizationId: input.organizationId },
       data: {
         status: 'SUBMITTING',
         attemptCount: sequence,
@@ -306,7 +306,7 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
     const completedAt = new Date();
     const status = input.outcome.status;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id },
+      where: { id: reservation.id, organizationId: input.organizationId },
       data: {
         status,
         providerReservationReference,
@@ -318,7 +318,7 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
       },
     });
     await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id },
+      where: { id: attempt.id, organizationId: input.organizationId },
       data: {
         status: status === 'CONFIRMED' ? 'SUCCEEDED' : status,
         providerCorrelationId,
@@ -395,7 +395,7 @@ export async function claimHospitalitySupplierReservationReconciliation(input: {
     const attemptedAt = new Date();
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id },
+      where: { id: reservation.id, organizationId: input.organizationId },
       data: {
         status: 'RECONCILING',
         attemptCount: sequence,
@@ -528,7 +528,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
         ? null
         : reservation.supplierConfirmationReference;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id },
+      where: { id: reservation.id, organizationId: input.organizationId },
       data: {
         status: nextStatus,
         providerReservationReference: nextProviderReservationReference,
@@ -540,7 +540,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
       },
     });
     await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id },
+      where: { id: attempt.id, organizationId: input.organizationId },
       data: {
         status: input.outcome.status === 'FOUND'
           ? 'SUCCEEDED'
