@@ -41,7 +41,7 @@ test('derives exact prepay and guarantee authority from fresh normalized terms',
   });
 });
 
-test('derives deposit authority only from one exact same-currency deposit amount', () => {
+test('derives deposit authority only from one exact same-currency deposit rule', () => {
   assert.deepEqual(deriveHospitalitySupplierReservationPaymentAuthority({
     bookingTerms: bookingTerms({
       guaranteeTypes: ['DEPOSIT_REQUIRED'],
@@ -64,6 +64,7 @@ test('derives deposit authority only from one exact same-currency deposit amount
     [{ money: { currency: 'USD', amountMinor: 0n } }],
     [{ money: { currency: 'USD', amountMinor: 125_501n } }],
     [{ money: { currency: 'USD', amountMinor: 50_000n } }, { money: { currency: 'USD', amountMinor: 25_000n } }],
+    [{ money: { currency: 'USD', amountMinor: 50_000n } }, { money: null }],
   ] as const) {
     assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
       bookingTerms: bookingTerms({ guaranteeTypes: ['DEPOSIT_REQUIRED'], deposits }),
@@ -78,8 +79,14 @@ test('fails closed for missing, conflicting, or unsafe create-payment evidence',
     bookingTerms({ guaranteeTypes: [] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEES_NOT_REQUIRED'] }),
     bookingTerms({ guaranteeTypes: ['PREPAY_REQUIRED', 'GUARANTEE_REQUIRED'] }),
+    bookingTerms({ guaranteeTypes: ['PREPAY_REQUIRED', 'PREPAY_NOT_REQUIRED'] }),
+    bookingTerms({ guaranteeTypes: ['DEPOSIT_REQUIRED', 'NO_DEPOSITS_ACCEPTED'], deposits: [{ money: { currency: 'USD', amountMinor: 50_000n } }] }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED', 'NO_GUARANTEES_ACCEPTED'] }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: [] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['VI', 'VI'] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['bad\ncode'] }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: Array.from({ length: 33 }, (_, index) => `C${index}`) }),
+    bookingTerms({ guaranteeTypes: Array.from({ length: 17 }, () => 'GUARANTEE_REQUIRED') }),
   ]) {
     assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
       bookingTerms: terms,

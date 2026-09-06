@@ -121,11 +121,21 @@ test('rejects missing or unsafe ephemeral provider submission authority', () => 
   }
 });
 
-test('rejects unsupported or ambiguous fresh payment and guarantee semantics before create claim', () => {
+test('rejects unsupported, contradictory, or incomplete fresh payment and guarantee semantics before create claim', () => {
   for (const bookingTerms of [
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEES_NOT_REQUIRED'] as const },
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED', 'PREPAY_REQUIRED'] as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED', 'NO_GUARANTEES_ACCEPTED'] as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED'] as const, acceptedPaymentCardCodes: [] },
     { ...readyReview().bookingTerms!, guaranteeTypes: ['DEPOSIT_REQUIRED'] as const, deposits: [] },
+    {
+      ...readyReview().bookingTerms!,
+      guaranteeTypes: ['DEPOSIT_REQUIRED'] as const,
+      deposits: [
+        { remainder: null, dueDateLocal: null, money: { currency: 'USD', amountMinor: 50_000n } },
+        { remainder: null, dueDateLocal: null, money: null },
+      ],
+    },
   ]) {
     assert.throws(
       () => assertHospitalitySupplierReservationSubmissionAuthority(operation, { ...readyReview(), bookingTerms }),

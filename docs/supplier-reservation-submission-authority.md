@@ -20,11 +20,15 @@ Only after all of those checks pass may the existing serializable create-claim p
 
 ## Fresh payment and guarantee authority
 
-A fresh offer and sell reference are not sufficient to construct a safe Create Reservation payment object. The submission gate now derives a normalized, non-secret `paymentAuthority` from the same freshly revalidated Rules evidence before the create claim is allowed.
+A fresh offer and sell reference are not sufficient to construct a safe Create Reservation payment object. The submission gate derives a normalized, non-secret `paymentAuthority` from the same freshly revalidated Rules evidence before the create claim is allowed.
 
-Only one decisive create guarantee type is currently accepted: `PREPAY_REQUIRED`, `DEPOSIT_REQUIRED`, or `GUARANTEE_REQUIRED`. Missing or conflicting decisive types fail closed. Prepay uses the exact accepted reservation total and is classified for collection at booking. Guarantee uses the exact accepted total and is classified for collection at the property. Deposit requires exactly one explicit same-currency deposit amount from fresh Rules evidence; a missing, zero, over-total, conflicting, or cross-currency deposit amount fails closed.
+Only one decisive create guarantee type is currently accepted: `PREPAY_REQUIRED`, `DEPOSIT_REQUIRED`, or `GUARANTEE_REQUIRED`. Missing or multiple decisive types fail closed. The payment boundary also rejects contradictory guarantee evidence: prepay cannot simultaneously be marked not required, deposit cannot simultaneously be marked not required or unsupported, and a required guarantee cannot simultaneously be marked not required or unaccepted.
 
-The derived payment authority may carry the bounded accepted payment-card codes already normalized from Rules, but it does not contain card data, cardholder data, PAN, CVV/security code, billing data, provider credentials, or a form-of-payment token. It is not persisted, audited, or logged by this gate. It is only non-secret commercial instruction evidence for a future provider adapter.
+Payment authority now also requires at least one bounded accepted payment-card code from fresh Rules evidence. Empty card evidence, duplicate codes, unsafe codes, or oversized card-code collections fail closed. This is commercial compatibility evidence only; it does not mean SF has a PCI-safe way to collect or transmit the corresponding card. Travelport documents `AcceptedCreditCard` as an array of two-character card codes, but the provider-neutral authority keeps the normalized provider code opaque and bounded rather than teaching the core about Travelport code syntax.
+
+Prepay uses the exact accepted reservation total and is classified for collection at booking. Guarantee uses the exact accepted total and is classified for collection at the property. Deposit requires exactly one deposit rule and that rule must carry one explicit same-currency deposit amount. A missing, zero, over-total, cross-currency, additional, or otherwise ambiguous deposit rule fails closed instead of allowing SF to choose one of several supplier instructions.
+
+The derived payment authority carries only the bounded accepted payment-card codes already normalized from Rules plus the decisive commercial payment kind, timing, currency, and amount. It does not contain card data, cardholder data, PAN, CVV/security code, billing data, provider credentials, or a form-of-payment token. It is not persisted, audited, or logged by this gate. It is only non-secret commercial instruction evidence for a future provider adapter.
 
 This classification is intentionally narrower than general Rules completeness. Travelport can return other guarantee values such as `GuaranteesNotRequired`, `Profile`, or `GuaranteesAccepted`; SF does not infer Create Reservation payment behavior for those values without a verified provider contract. A future provider adapter may expand normalized payment authority only from documented and live-validated semantics.
 
@@ -40,7 +44,7 @@ The real Travelport write is still blocked on a reviewed PCI-safe form-of-paymen
 
 ## Failure behavior
 
-Legacy reservation operations without request fingerprint v2 fail before a fresh provider review is trusted. Non-`READY`, incomplete, malformed, mismatched, differently fingerprinted, missing provider submission authority, or unsupported/ambiguous payment authority fails closed; it never claims an external write. Integration rotation or capability changes also block the gate and require review against the current configuration.
+Legacy reservation operations without request fingerprint v2 fail before a fresh provider review is trusted. Non-`READY`, incomplete, malformed, mismatched, differently fingerprinted, missing provider submission authority, unsupported/ambiguous payment authority, contradictory guarantee evidence, missing accepted payment-card evidence, or ambiguous deposit evidence fails closed; it never claims an external write. Integration rotation or capability changes also block the gate and require review against the current configuration.
 
 No provider locator, provider submission reference, payment authority, credentials, traveler data, payment details, raw request/response payload, or secret material is added to audit/log persistence by this gate.
 
@@ -48,8 +52,9 @@ No provider locator, provider submission reference, payment authority, credentia
 
 Travelport Stays v11 Availability documents `CatalogOffering.id` / `Identifier.value` as the cached offering identifier used by subsequent hotel workflows, including Create Reservation. SF therefore keeps the exact identifier from the one Availability offering that matched the durable selected offer, but only in memory for the immediate submission boundary.
 
-Travelport's Create Reservation documentation also defines the Payment behavior for prepay, deposit, and guarantee-required rates, and states that `acceptPriceChangeInd` and `acceptGuaranteeChangeInd` must not be sent on the initial create request.
+Travelport's Rules response documents `AcceptedCreditCard` as accepted-card evidence and its Create Reservation documentation defines the Payment behavior for prepay, deposit, and guarantee-required rates. Create also states that `acceptPriceChangeInd` and `acceptGuaranteeChangeInd` must not be sent on the initial request.
 
 - Availability API reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Availability.htm
+- Rules reference payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_RulesRefPayload.htm
 - Create Reservation reference payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
 - Create Reservation full payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationFullPayload.htm

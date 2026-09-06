@@ -52,13 +52,19 @@ test('fresh authority is rebuilt from durable evidence and rebound to request fi
   assert.match(binding, /review\.bookingTerms\.completeForReservationReview !== true/);
 });
 
-test('submission gate derives non-secret payment authority from fresh Rules evidence before claiming create', () => {
+test('submission gate derives bounded non-secret payment authority from decisive fresh Rules evidence', () => {
   const binding = source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts');
   const payment = source('src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts');
   assert.match(binding, /deriveHospitalitySupplierReservationPaymentAuthority\(\{/);
   assert.match(binding, /if \(!paymentAuthority\) throw authorityConflict\(\)/);
   assert.match(binding, /paymentAuthority,/);
   assert.match(payment, /'PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'/);
+  assert.match(payment, /MAX_PAYMENT_CARD_CODES = 32/);
+  assert.match(payment, /values\.length < 1 \|\| values\.length > MAX_PAYMENT_CARD_CODES/);
+  assert.match(payment, /selected === 'PREPAY_REQUIRED'[\s\S]*?PREPAY_NOT_REQUIRED/);
+  assert.match(payment, /selected === 'DEPOSIT_REQUIRED'[\s\S]*?NO_DEPOSITS_ACCEPTED/);
+  assert.match(payment, /selected === 'GUARANTEE_REQUIRED'[\s\S]*?NO_GUARANTEES_ACCEPTED/);
+  assert.match(payment, /input\.bookingTerms\.deposits\.length !== 1/);
   assert.match(payment, /kind: 'PREPAY'/);
   assert.match(payment, /kind: 'DEPOSIT'/);
   assert.match(payment, /kind: 'GUARANTEE'/);
@@ -90,4 +96,7 @@ test('Travelport reservation remains unavailable until the write adapter and PCI
   assert.match(doc, /strips `providerSubmissionReference`/);
   assert.match(doc, /payment authority/i);
   assert.match(doc, /does not contain card data/i);
+  assert.match(doc, /at least one bounded accepted payment-card code/i);
+  assert.match(doc, /contradictory guarantee evidence/i);
+  assert.match(doc, /exactly one deposit rule/i);
 });

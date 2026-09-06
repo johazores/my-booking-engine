@@ -1,7 +1,14 @@
-import type { HospitalitySupplierBookingTerms } from './hospitality-supplier-booking-terms.ts';
+import type {
+  HospitalitySupplierBookingTerms,
+  HospitalitySupplierRuleGuaranteeType,
+} from './hospitality-supplier-booking-terms.ts';
 
 const DECISIVE_GUARANTEE_TYPES = new Set(['PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'] as const);
 const MAX_PAYMENT_CARD_CODE_LENGTH = 16;
+const MAX_PAYMENT_CARD_CODES = 32;
+const MAX_GUARANTEE_TYPES = 16;
+
+type DecisiveGuaranteeType = 'PREPAY_REQUIRED' | 'DEPOSIT_REQUIRED' | 'GUARANTEE_REQUIRED';
 
 export type HospitalitySupplierReservationPaymentAuthority = Readonly<{
   kind: 'PREPAY' | 'DEPOSIT' | 'GUARANTEE';
@@ -12,6 +19,8 @@ export type HospitalitySupplierReservationPaymentAuthority = Readonly<{
 }>;
 
 function acceptedPaymentCardCodes(values: readonly string[]) {
+  if (values.length < 1 || values.length > MAX_PAYMENT_CARD_CODES) return null;
+
   const normalized: string[] = [];
   for (const value of values) {
     if (typeof value !== 'string') return null;
@@ -23,6 +32,24 @@ function acceptedPaymentCardCodes(values: readonly string[]) {
   return Object.freeze(normalized);
 }
 
+function decisiveGuaranteeType(values: readonly HospitalitySupplierRuleGuaranteeType[]): DecisiveGuaranteeType | null {
+  if (values.length < 1 || values.length > MAX_GUARANTEE_TYPES) return null;
+  const decisive = [...new Set(values.filter(
+    (value): value is DecisiveGuaranteeType => DECISIVE_GUARANTEE_TYPES.has(value as DecisiveGuaranteeType),
+  ))];
+  if (decisive.length !== 1) return null;
+
+  const selected = decisive[0]!;
+  if (
+    (selected === 'PREPAY_REQUIRED' && values.includes('PREPAY_NOT_REQUIRED'))
+    || (selected === 'DEPOSIT_REQUIRED' && (values.includes('DEPOSIT_NOT_REQUIRED') || values.includes('NO_DEPOSITS_ACCEPTED')))
+    || (selected === 'GUARANTEE_REQUIRED' && (values.includes('GUARANTEES_NOT_REQUIRED') || values.includes('NO_GUARANTEES_ACCEPTED')))
+  ) {
+    return null;
+  }
+  return selected;
+}
+
 export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
   bookingTerms: Pick<HospitalitySupplierBookingTerms, 'guaranteeTypes' | 'deposits' | 'acceptedPaymentCardCodes'>;
   currency: string;
@@ -31,16 +58,13 @@ export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
   if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) return null;
   if (typeof input.expectedTotalMinor !== 'bigint' || input.expectedTotalMinor < 0n) return null;
 
-  const decisive = [...new Set(input.bookingTerms.guaranteeTypes.filter(
-    (value): value is 'PREPAY_REQUIRED' | 'DEPOSIT_REQUIRED' | 'GUARANTEE_REQUIRED' =>
-      DECISIVE_GUARANTEE_TYPES.has(value as 'PREPAY_REQUIRED' | 'DEPOSIT_REQUIRED' | 'GUARANTEE_REQUIRED'),
-  ))];
-  if (decisive.length !== 1) return null;
+  const decisive = decisiveGuaranteeType(input.bookingTerms.guaranteeTypes);
+  if (!decisive) return null;
 
   const cardCodes = acceptedPaymentCardCodes(input.bookingTerms.acceptedPaymentCardCodes);
   if (!cardCodes) return null;
 
-  if (decisive[0] === 'PREPAY_REQUIRED') {
+  if (decisive === 'PREPAY_REQUIRED') {
     return Object.freeze({
       kind: 'PREPAY',
       collectionTiming: 'AT_BOOKING',
@@ -50,7 +74,7 @@ export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
     });
   }
 
-  if (decisive[0] === 'GUARANTEE_REQUIRED') {
+  if (decisive === 'GUARANTEE_REQUIRED') {
     return Object.freeze({
       kind: 'GUARANTEE',
       collectionTiming: 'AT_PROPERTY',
@@ -60,11 +84,9 @@ export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
     });
   }
 
-  const depositMoney = input.bookingTerms.deposits
-    .map((deposit) => deposit.money)
-    .filter((money): money is NonNullable<typeof money> => money !== null);
-  if (depositMoney.length !== 1) return null;
-  const deposit = depositMoney[0]!;
+  if (input.bookingTerms.deposits.length !== 1) return null;
+  const deposit = input.bookingTerms.deposits[0]?.money;
+  if (!deposit) return null;
   if (
     deposit.currency !== input.currency
     || deposit.amountMinor <= 0n
