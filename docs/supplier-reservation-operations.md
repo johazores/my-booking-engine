@@ -8,7 +8,7 @@ The ledger itself does not call Travelport, expose a browser route, or advertise
 
 ## Data model and exact idempotency
 
-`HospitalitySupplierReservationOperation` is tenant-owned and records one logical external reservation request. It stores organization/integration ownership and credential version, an organization-scoped idempotency key, opaque supplier property/offer references, accepted offer and Rules fingerprints, request fingerprint v2 bound to selected-offer reservation authority, a reservation-payload fingerprint, exact currency/total/stay/occupancy, state, normalized failure evidence, bounded provider correlation evidence, the Travelport/aggregator reservation reference when known, and an optional supplier confirmation reference after confirmation.
+`HospitalitySupplierReservationOperation` is tenant-owned and records one logical external reservation request. It stores organization/integration ownership and credential version, an organization-scoped idempotency key, opaque supplier property/offer references, accepted offer and Rules fingerprints, request fingerprint v2 bound to selected-offer reservation authority, a reservation-payload fingerprint, exact currency/total/stay/occupancy, state, normalized failure evidence, bounded provider correlation evidence, the Travelport/aggregator reservation reference when known, and an optional bounded supplier confirmation reference as lifecycle/recovery evidence.
 
 `HospitalitySupplierReservationAttempt` is append-only history for create and reconciliation attempts. Composite relationships keep attempt ownership inside the same organization.
 
@@ -22,11 +22,11 @@ Operations use `PREPARED`, `SUBMITTING`, `CONFIRMED`, `AMBIGUOUS`, `RECONCILING`
 
 A create claim runs in a serializable transaction under a tenant/operation advisory lock and rechecks the active integration, provider code, exact credential version, and `reservation` capability. A create claim is allowed only for request fingerprint v2. An ambiguous create can optionally retain a known provider reservation locator when the provider write produced that durable evidence even though the overall outcome was not safe to call confirmed.
 
-Automatic reconciliation is permitted only for `AMBIGUOUS` operations that already have a known provider reservation locator. Locator-less ambiguity stays `AMBIGUOUS`; SF must not invent `NOT_FOUND` or retry the external create blindly. Known-locator provider truth normalizes to:
+Automatic reconciliation is permitted only for `AMBIGUOUS` operations that already have a known provider reservation locator. Locator-less ambiguity stays `AMBIGUOUS`; SF must not invent `NOT_FOUND` or retry the external create blindly. A bounded supplier confirmation can now remain durable on an `AMBIGUOUS` operation, including the Travelport/Booking.com sell-confirmed-but-no-PNR case, but that evidence does not authorize another create and does not make locator-less Hotel Retrieve possible. Known-locator provider truth normalizes to:
 
-- `FOUND` -> `CONFIRMED`, but only when the returned provider locator exactly matches the stored known locator. Any normalized supplier confirmation reference is persisted atomically with confirmation.
+- `FOUND` -> `CONFIRMED`, but only when the returned provider locator exactly matches the stored known locator. A newly returned normalized supplier confirmation is persisted atomically; if Retrieve omits the supplier confirmation, already validated supplier-confirmation evidence is preserved instead of being discarded.
 - `NOT_FOUND` -> `PREPARED`, but only when the recovery result explicitly identifies the exact locator that SF queried and the provider adapter has authoritative negative lookup semantics; provider and supplier confirmation references are then cleared because provider truth established that this known locator does not resolve to a reservation.
-- `UNKNOWN` -> `AMBIGUOUS`; the known provider locator is preserved so a transient provider failure cannot destroy the authority required for another recovery attempt.
+- `UNKNOWN` -> `AMBIGUOUS`; the known provider locator and any existing supplier confirmation evidence are preserved so a transient provider failure cannot destroy the authority/evidence required for another recovery attempt.
 
 Both `FOUND` and `NOT_FOUND` are therefore identity-bound to the durable queried locator before either result can change retry safety. A recovery adapter that returns provider truth for a different locator is normalized to `UNKNOWN` with `INVALID_RESPONSE`; the operation returns to `AMBIGUOUS` and keeps the original locator. A mismatched `NOT_FOUND` can never make another supplier create retryable.
 
@@ -74,9 +74,15 @@ Hotel Retrieve still requires an aggregator locator. If a future create becomes 
 
 ## Supplier confirmation evidence
 
-Travelport reservation responses can contain a supplier confirmation locator in addition to the Travelport aggregator locator. SF now stores that optional supplier confirmation only on a `CONFIRMED` operation and only after the same single-line bounded normalization used for operational provider references.
+Travelport reservation responses can contain a supplier confirmation locator in addition to the Travelport aggregator locator. SF stores only the normalized supplier `Confirmation Number`; Booking.com PIN codes, cancellation numbers, and other supplier locator types remain excluded by the provider parser.
 
-The field is lifecycle evidence for future provider operations; it does not by itself authorize cancellation. Cancellation still requires a separately verified provider contract, server-side authorization, write idempotency/recovery, and live non-production validation before any capability or UI is exposed.
+Supplier confirmation is now allowed as bounded durable evidence in `AMBIGUOUS`, `RECONCILING`, and `CONFIRMED` operation states. This is necessary for Travelport's documented Booking.com case where the supplier sell is confirmed but Travelport PNR processing does not complete. The evidence remains tenant-scoped, single-line, and limited to 512 characters. It is never copied into audit payloads or structured provider-request logs.
+
+This does not promote the operation to `CONFIRMED`, does not prove that a Travelport PNR exists, does not authorize another create, and does not authorize cancellation. If an ambiguous operation has no Travelport locator, the existing Hotel Retrieve reconciliation path remains unavailable even when a supplier confirmation exists.
+
+For a future Booking.com Sync recovery coordinator, the supplier confirmation is only one input. Travelport documents that Sync rebuilds the Travelport aggregator segment without re-selling and requires the Booking.com confirmation plus authorized traveler information including email. That future write must have its own tenant authorization, durable idempotency/attempt state, provider-request marker, safe outcome classification, and post-Sync verification of the returned Travelport locator before SF can call the reservation confirmed.
+
+When exact known-locator provider truth is `NOT_FOUND`, both provider and supplier confirmation evidence are cleared before returning to `PREPARED`. When known-locator `FOUND` confirms the operation but the Retrieve response omits a supplier confirmation, previously validated supplier confirmation evidence is retained instead of being erased.
 
 ## Create-path payment boundary remains unresolved
 
@@ -88,13 +94,13 @@ Travelport documents `acceptPriceChangeInd` and `acceptGuaranteeChangeInd` as ex
 
 ## Database, audit, and privacy guarantees
 
-Database checks cover organization idempotency, request/offer/terms/payload fingerprints, migration-safe request-fingerprint versioning, exact-money/date/occupancy bounds, tenant-safe integration and attempt ownership, provider-reference state rules, bounded provider/supplier confirmation reference formatting, confirmed-state provider-reference requirements, failed-state normalized evidence, and unique provider reservation references within tenant/integration.
+Database checks cover organization idempotency, request/offer/terms/payload fingerprints, migration-safe request-fingerprint versioning, exact-money/date/occupancy bounds, tenant-safe integration and attempt ownership, provider-reference state rules, bounded provider/supplier confirmation reference formatting, supplier-confirmation state eligibility (`AMBIGUOUS`, `RECONCILING`, or `CONFIRMED` only), confirmed-state provider-reference requirements, failed-state normalized evidence, and unique provider reservation references within tenant/integration.
 
 Audits record only operational transition facts. Opaque property/offer references, provider/supplier locators, provider correlation values, offer/terms/payload fingerprints, traveler/customer data, card/payment material, credentials, tokens, and raw provider bodies are excluded from audit payloads and structured request logs.
 
 ## Validation
 
-Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, migration-safe legacy behavior, audit privacy, known-locator preservation, coordinator and ledger-level exact-locator matching for both `FOUND` and `NOT_FOUND`, supplier-confirmation persistence, coordinator provider-code checks, normalized provider-failure settlement, and fail-closed Travelport generic HTTP 404 behavior.
+Dependency-free tests cover normalization, authority-bound request fingerprint v2, exact-idempotency conflicts, create-claim version gating, ambiguous-state behavior, provider metadata bounds, tenant/authorization ordering, reservation-capability gating, serializable claims, migration-safe legacy behavior, audit privacy, known-locator preservation, coordinator and ledger-level exact-locator matching for both `FOUND` and `NOT_FOUND`, supplier-confirmation persistence, coordinator provider-code checks, normalized provider-failure settlement, and fail-closed Travelport generic HTTP 404 behavior. A focused persistence contract also checks that ambiguous supplier-confirmation evidence can be stored without relaxing the locator-less retry/reconciliation rules and that a later `FOUND` does not accidentally erase valid prior supplier evidence.
 
 A guarded PostgreSQL scenario covers locator-less reconciliation denial, known-locator `FOUND`, durable supplier confirmation, transient `UNKNOWN` preservation and retry, authoritative provider-neutral `NOT_FOUND` clearing, direct settlement rejection for mismatched `NOT_FOUND`, mismatched provider `FOUND`/`NOT_FOUND` identity remaining ambiguous, and cross-tenant provider-I/O suppression. The `NOT_FOUND` scenario uses a provider-neutral stub and does not claim that Travelport HTTP 404 is authoritative. It is only executed through the disposable-database harness.
 
@@ -104,6 +110,6 @@ Live provider validation still requires a provisioned Travelport non-production 
 
 The next reservation dependency remains the real create boundary, not a guessed POST. The SearchComplete-to-Availability bridge must be validated against Travelport non-production and SF must establish the PCI-safe form-of-payment/guarantee strategy for the provisioned account.
 
-Only then should a single-room create adapter/execution coordinator be connected to this ledger. It must repeat fresh offer/Rules/Availability authority immediately before create, recompute request fingerprint v2, reconstruct only authorized traveler/payment/guarantee material, classify every provider write outcome, retain any known provider locator on ambiguity, and use the recovery coordinator only when that locator exists.
+Only then should a single-room create adapter/execution coordinator be connected to this ledger. It must repeat fresh offer/Rules/Availability authority immediately before create, recompute request fingerprint v2, reconstruct only authorized traveler/payment/guarantee material, classify every provider write outcome, retain any known provider locator and verified supplier-confirmation recovery evidence on ambiguity, and use the known-locator recovery coordinator only when that locator exists.
 
-Authoritative negative lookup semantics, locator-less ambiguity, explicit price/guarantee-change decisions, provider correlation semantics, cancellation, modification, and multi-room behavior remain separate live-validated capabilities rather than assumptions.
+Booking.com Sync now has a durable place for verified supplier-confirmation evidence, but its actual provider-specific recovery coordinator is still separate unfinished work because it needs authorized traveler email, its own external-write idempotency/attempt handling, and live provider verification. Authoritative negative lookup semantics, locator-less ambiguity without Sync evidence, explicit price/guarantee-change decisions, provider correlation semantics, cancellation, modification, and multi-room behavior remain separate live-validated capabilities rather than assumptions.

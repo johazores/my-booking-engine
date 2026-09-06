@@ -243,6 +243,7 @@ export type HospitalitySupplierReservationSubmissionOutcome =
       status: 'AMBIGUOUS';
       failureCode?: unknown;
       providerReservationReference?: unknown;
+      supplierConfirmationReference?: unknown;
       providerCorrelationId?: unknown;
     }>;
 
@@ -262,7 +263,7 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
     : input.outcome.status === 'AMBIGUOUS' && input.outcome.providerReservationReference !== undefined
       ? normalizeHospitalitySupplierReservationProviderReference(input.outcome.providerReservationReference)
       : null;
-  const supplierConfirmationReference = input.outcome.status === 'CONFIRMED'
+  const supplierConfirmationReference = input.outcome.status === 'CONFIRMED' || input.outcome.status === 'AMBIGUOUS'
     ? normalizeHospitalitySupplierReservationSupplierConfirmationReference(input.outcome.supplierConfirmationReference)
     : null;
   const failureCode = input.outcome.status === 'FAILED'
@@ -523,7 +524,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
         ? null
         : reservation.providerReservationReference;
     const nextSupplierConfirmationReference = input.outcome.status === 'FOUND'
-      ? supplierConfirmationReference
+      ? supplierConfirmationReference ?? reservation.supplierConfirmationReference
       : input.outcome.status === 'NOT_FOUND'
         ? null
         : reservation.supplierConfirmationReference;
