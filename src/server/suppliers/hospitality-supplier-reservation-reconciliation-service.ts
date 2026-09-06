@@ -1,5 +1,9 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
-import type { HospitalitySupplierReservationRecoveryProvider } from './hospitality-supplier-reservation-recovery-provider.ts';
+import { createHospitalitySupplierReservationProviderObservation } from './hospitality-supplier-reservation-observability.ts';
+import type {
+  HospitalitySupplierReservationRecoveryProvider,
+  HospitalitySupplierReservationRecoveryResult,
+} from './hospitality-supplier-reservation-recovery-provider.ts';
 import {
   claimHospitalitySupplierReservationReconciliation,
   settleHospitalitySupplierReservationReconciliation,
@@ -28,36 +32,62 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     });
   }
 
+  const providerObservation = createHospitalitySupplierReservationProviderObservation({
+    requestCorrelationId: claim.attempt.id,
+    organizationId: input.organizationId,
+    provider: claim.reservation.providerCode,
+  });
+
+  let result: HospitalitySupplierReservationRecoveryResult;
   try {
-    const result = await input.provider.retrieveReservation({
+    result = await input.provider.retrieveReservation({
       providerReservationReference,
       requestCorrelationId: claim.attempt.id,
     });
-    if (result.providerReservationReference !== providerReservationReference) {
-      return settleHospitalitySupplierReservationReconciliation({
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
-        reservationId: input.reservationId,
-        attemptId: claim.attempt.id,
-        outcome: { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' },
-      });
-    }
+  } catch (error) {
+    const failureCode = error instanceof HospitalitySupplierProviderError ? error.code : 'PROVIDER_UNAVAILABLE';
+    providerObservation.finish({ status: 'FAILED', failureCode });
+    return settleHospitalitySupplierReservationReconciliation({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: {
+        status: 'UNKNOWN',
+        failureCode,
+      },
+    });
+  }
 
-    if (result.status === 'FOUND') {
-      return settleHospitalitySupplierReservationReconciliation({
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
-        reservationId: input.reservationId,
-        attemptId: claim.attempt.id,
-        outcome: {
-          status: 'FOUND',
-          providerReservationReference: result.providerReservationReference,
-          supplierConfirmationReference: result.supplierConfirmationReference,
-          providerCorrelationId: result.providerCorrelationId,
-        },
-      });
-    }
+  if (!result || typeof result !== 'object' || result.providerReservationReference !== providerReservationReference) {
+    providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
+    return settleHospitalitySupplierReservationReconciliation({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' },
+    });
+  }
 
+  if (result.status === 'FOUND') {
+    providerObservation.finish({ status: 'SUCCEEDED', providerResult: 'FOUND' });
+    return settleHospitalitySupplierReservationReconciliation({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: {
+        status: 'FOUND',
+        providerReservationReference: result.providerReservationReference,
+        supplierConfirmationReference: result.supplierConfirmationReference,
+        providerCorrelationId: result.providerCorrelationId,
+      },
+    });
+  }
+
+  if (result.status === 'NOT_FOUND') {
+    providerObservation.finish({ status: 'SUCCEEDED', providerResult: 'NOT_FOUND' });
     return settleHospitalitySupplierReservationReconciliation({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -69,16 +99,14 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
         providerCorrelationId: result.providerCorrelationId,
       },
     });
-  } catch (error) {
-    return settleHospitalitySupplierReservationReconciliation({
-      organizationId: input.organizationId,
-      actorUserId: input.actorUserId,
-      reservationId: input.reservationId,
-      attemptId: claim.attempt.id,
-      outcome: {
-        status: 'UNKNOWN',
-        failureCode: error instanceof HospitalitySupplierProviderError ? error.code : 'PROVIDER_UNAVAILABLE',
-      },
-    });
   }
+
+  providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
+  return settleHospitalitySupplierReservationReconciliation({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    reservationId: input.reservationId,
+    attemptId: claim.attempt.id,
+    outcome: { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' },
+  });
 }

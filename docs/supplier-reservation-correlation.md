@@ -25,6 +25,14 @@ Travelport documents `E2ETrackingID` as an optional caller-defined value used to
 
 The adapter validates the correlation identifier before requesting an OAuth token or making the Hotel Retrieve call. It does not log or audit request headers, credentials, tokens, provider locators, traveler data, payment data, or provider response bodies.
 
+## Operational provider-request logging
+
+Known-locator reconciliation now emits one privacy-safe `supplier.reservation-recovery.provider-request.completed` JSON record around actual provider I/O. The log uses the same persisted attempt UUID as `requestCorrelationId`, plus only the already-authorized organization UUID, bounded provider code, fixed `reservation.retrieve` operation, elapsed time, normalized provider result or failure code, and outcome/level.
+
+The observation is created only after the durable reconciliation claim and provider-code/known-locator checks. Therefore a provider-code mismatch or missing locator cannot create a misleading provider-request completion event because no provider request occurred. A successful provider response is logged before durable settlement as provider transport/result evidence only; the supplier operation ledger and audit history remain the authority for whether reconciliation was durably settled. Durable settlement is outside the provider-I/O catch boundary, so persistence failures are not recast as provider failures.
+
+Provider locators, supplier confirmations, provider response correlation IDs, integration identifiers, request/offer fingerprints, credentials, tokens, headers, URLs, request/response payloads, traveler/customer data, and payment/guarantee material are excluded from the record. See `docs/supplier-provider-observability.md` for the complete safe-field and failure contract.
+
 ## Response correlation is separate evidence
 
 Travelport response `traceId` evidence remains normalized into the existing bounded provider-correlation field when a response is received. It is not used as a substitute for the outbound request identity.
@@ -47,7 +55,7 @@ The future Travelport create executor must allocate/persist its create attempt b
 
 Dependency-free source contracts verify that the provider-neutral recovery request contains the correlation field, the coordinator supplies the persisted attempt ID, the Travelport adapter no longer creates a transient random tracking ID for recovery, and the adapter maps the durable ID into `TraceId` and `E2ETrackingID` before provider I/O.
 
-Travelport adapter tests verify exact header values and fail-closed input validation. The guarded PostgreSQL reconciliation scenario records the correlation seen by a provider stub and verifies it equals the persisted reconciliation attempt ID; successive reconciliation attempts must use different durable attempt IDs. The database scenario still runs only through the explicitly disposable PostgreSQL harness.
+Travelport adapter tests verify exact header values and fail-closed input validation. The guarded PostgreSQL reconciliation scenario records the correlation seen by a provider stub and verifies it equals the persisted reconciliation attempt ID; successive reconciliation attempts must use different durable attempt IDs. `scripts/supplier-reservation-provider-observability.test.mjs` verifies the operational completion record uses the same attempt UUID, contains only reviewed safe fields, emits once, and fails closed on malformed provider result statuses. The database scenario still runs only through the explicitly disposable PostgreSQL harness.
 
 Live Travelport validation remains required before any reservation create capability is enabled.
 
