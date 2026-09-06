@@ -50,8 +50,19 @@ function decisiveGuaranteeType(values: readonly HospitalitySupplierRuleGuarantee
   return selected;
 }
 
+function paymentTimingMatches(
+  decisive: DecisiveGuaranteeType,
+  paymentTiming: HospitalitySupplierBookingTerms['paymentTiming'],
+) {
+  if (decisive === 'GUARANTEE_REQUIRED') return paymentTiming === 'POSTPAY';
+  return paymentTiming === 'PREPAY';
+}
+
 export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
-  bookingTerms: Pick<HospitalitySupplierBookingTerms, 'guaranteeTypes' | 'deposits' | 'acceptedPaymentCardCodes'>;
+  bookingTerms: Pick<
+    HospitalitySupplierBookingTerms,
+    'paymentTiming' | 'guaranteeTypes' | 'deposits' | 'acceptedPaymentCardCodes'
+  >;
   currency: string;
   expectedTotalMinor: bigint;
 }): HospitalitySupplierReservationPaymentAuthority | null {
@@ -59,7 +70,7 @@ export function deriveHospitalitySupplierReservationPaymentAuthority(input: {
   if (typeof input.expectedTotalMinor !== 'bigint' || input.expectedTotalMinor < 0n) return null;
 
   const decisive = decisiveGuaranteeType(input.bookingTerms.guaranteeTypes);
-  if (!decisive) return null;
+  if (!decisive || !paymentTimingMatches(decisive, input.bookingTerms.paymentTiming)) return null;
 
   const cardCodes = acceptedPaymentCardCodes(input.bookingTerms.acceptedPaymentCardCodes);
   if (!cardCodes) return null;

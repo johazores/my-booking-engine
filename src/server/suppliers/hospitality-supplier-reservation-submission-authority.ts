@@ -2,6 +2,7 @@ import type {
   HospitalitySupplierDepositRule,
   HospitalitySupplierRuleGuaranteeType,
 } from './hospitality-supplier-booking-terms.ts';
+import type { HospitalitySupplierPaymentTiming } from './hospitality-supplier-provider.ts';
 import {
   HospitalitySupplierReservationConflictError,
   hospitalitySupplierReservationRequestFingerprint,
@@ -51,7 +52,9 @@ export type HospitalitySupplierReservationSubmissionAuthorityReview = Readonly<{
     termsFingerprint: string;
     completeForReservationReview: boolean;
     revalidationRequired: true;
+    paymentTiming: HospitalitySupplierPaymentTiming;
     guaranteeTypes: readonly HospitalitySupplierRuleGuaranteeType[];
+    customerLoyaltyRequiredAtReservation: boolean | null;
     deposits: readonly HospitalitySupplierDepositRule[];
     acceptedPaymentCardCodes: readonly string[];
     price: Readonly<{
@@ -119,6 +122,7 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
     || !review.bookingTerms
     || review.bookingTerms.completeForReservationReview !== true
     || review.bookingTerms.revalidationRequired !== true
+    || review.bookingTerms.customerLoyaltyRequiredAtReservation !== false
     || typeof review.authorityFingerprint !== 'string'
     || !FINGERPRINT_PATTERN.test(review.authorityFingerprint)
   ) {

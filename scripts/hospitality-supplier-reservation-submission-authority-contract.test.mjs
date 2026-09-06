@@ -58,6 +58,11 @@ test('submission gate derives bounded non-secret payment authority from decisive
   assert.match(binding, /deriveHospitalitySupplierReservationPaymentAuthority\(\{/);
   assert.match(binding, /if \(!paymentAuthority\) throw authorityConflict\(\)/);
   assert.match(binding, /paymentAuthority,/);
+  assert.match(binding, /customerLoyaltyRequiredAtReservation !== false/);
+  assert.match(payment, /'paymentTiming' \| 'guaranteeTypes' \| 'deposits' \| 'acceptedPaymentCardCodes'/);
+  assert.match(payment, /paymentTimingMatches\(decisive, input\.bookingTerms\.paymentTiming\)/);
+  assert.match(payment, /decisive === 'GUARANTEE_REQUIRED'\) return paymentTiming === 'POSTPAY'/);
+  assert.match(payment, /return paymentTiming === 'PREPAY'/);
   assert.match(payment, /'PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'/);
   assert.match(payment, /MAX_PAYMENT_CARD_CODES = 32/);
   assert.match(payment, /values\.length < 1 \|\| values\.length > MAX_PAYMENT_CARD_CODES/);
@@ -99,4 +104,14 @@ test('Travelport reservation remains unavailable until the write adapter and PCI
   assert.match(doc, /at least one bounded accepted payment-card code/i);
   assert.match(doc, /contradictory guarantee evidence/i);
   assert.match(doc, /exactly one deposit rule/i);
+});
+
+test('create-readiness documentation keeps payment timing and loyalty-required rates fail closed', () => {
+  const doc = source('docs/supplier-reservation-create-readiness.md');
+  assert.match(doc, /Travelport `reservation` capability remains disabled/);
+  assert.match(doc, /PCI-safe form-of-payment/);
+  assert.match(doc, /payment timing/i);
+  assert.match(doc, /loyalty/i);
+  assert.match(doc, /must not contain PAN, CVV/i);
+  assert.match(doc, /provider submission reference/i);
 });

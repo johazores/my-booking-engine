@@ -5,17 +5,21 @@ import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospital
 
 function bookingTerms(input: {
   guaranteeTypes: readonly string[];
+  paymentTiming?: 'PREPAY' | 'POSTPAY' | 'UNKNOWN';
   deposits?: readonly { money: { currency: string; amountMinor: bigint } | null }[];
   acceptedPaymentCardCodes?: readonly string[];
 }) {
+  const paymentTiming = input.paymentTiming
+    ?? (input.guaranteeTypes.includes('GUARANTEE_REQUIRED') ? 'POSTPAY' : 'PREPAY');
   return {
+    paymentTiming,
     guaranteeTypes: input.guaranteeTypes,
     deposits: input.deposits ?? [],
     acceptedPaymentCardCodes: input.acceptedPaymentCardCodes ?? ['VI'],
   } as never;
 }
 
-test('derives exact prepay and guarantee authority from fresh normalized terms', () => {
+test('derives exact prepay and guarantee authority from consistent fresh normalized terms', () => {
   assert.deepEqual(deriveHospitalitySupplierReservationPaymentAuthority({
     bookingTerms: bookingTerms({ guaranteeTypes: ['PREPAY_REQUIRED'], acceptedPaymentCardCodes: ['VI', 'AX'] }),
     currency: 'USD',
@@ -68,6 +72,25 @@ test('derives deposit authority only from one exact same-currency deposit rule',
   ] as const) {
     assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
       bookingTerms: bookingTerms({ guaranteeTypes: ['DEPOSIT_REQUIRED'], deposits }),
+      currency: 'USD',
+      expectedTotalMinor: 125_500n,
+    }), null);
+  }
+});
+
+test('fails closed when payment timing contradicts the decisive guarantee instruction', () => {
+  for (const terms of [
+    bookingTerms({ guaranteeTypes: ['PREPAY_REQUIRED'], paymentTiming: 'POSTPAY' }),
+    bookingTerms({
+      guaranteeTypes: ['DEPOSIT_REQUIRED'],
+      paymentTiming: 'POSTPAY',
+      deposits: [{ money: { currency: 'USD', amountMinor: 50_000n } }],
+    }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], paymentTiming: 'PREPAY' }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], paymentTiming: 'UNKNOWN' }),
+  ]) {
+    assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+      bookingTerms: terms,
       currency: 'USD',
       expectedTotalMinor: 125_500n,
     }), null);

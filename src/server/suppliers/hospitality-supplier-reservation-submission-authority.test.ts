@@ -65,7 +65,9 @@ function readyReview(fingerprint = authorityFingerprint) {
       termsFingerprint: operation.termsFingerprint,
       completeForReservationReview: true,
       revalidationRequired: true as const,
+      paymentTiming: 'POSTPAY' as const,
       guaranteeTypes: Object.freeze(['GUARANTEE_REQUIRED'] as const),
+      customerLoyaltyRequiredAtReservation: false,
       deposits: Object.freeze([]),
       acceptedPaymentCardCodes: Object.freeze(['VI']),
       price: Object.freeze({ currency: operation.currency, totalMinor: operation.expectedTotalMinor }),
@@ -121,16 +123,34 @@ test('rejects missing or unsafe ephemeral provider submission authority', () => 
   }
 });
 
+test('rejects loyalty-required or unknown loyalty requirements until reservation payload authority carries loyalty data', () => {
+  for (const customerLoyaltyRequiredAtReservation of [true, null]) {
+    assert.throws(
+      () => assertHospitalitySupplierReservationSubmissionAuthority(operation, {
+        ...readyReview(),
+        bookingTerms: {
+          ...readyReview().bookingTerms!,
+          customerLoyaltyRequiredAtReservation,
+        },
+      }),
+      /authority changed/i,
+    );
+  }
+});
+
 test('rejects unsupported, contradictory, or incomplete fresh payment and guarantee semantics before create claim', () => {
   for (const bookingTerms of [
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEES_NOT_REQUIRED'] as const },
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED', 'PREPAY_REQUIRED'] as const },
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED', 'NO_GUARANTEES_ACCEPTED'] as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED'] as const, paymentTiming: 'PREPAY' as const },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED'] as const, paymentTiming: 'UNKNOWN' as const },
     { ...readyReview().bookingTerms!, guaranteeTypes: ['GUARANTEE_REQUIRED'] as const, acceptedPaymentCardCodes: [] },
-    { ...readyReview().bookingTerms!, guaranteeTypes: ['DEPOSIT_REQUIRED'] as const, deposits: [] },
+    { ...readyReview().bookingTerms!, guaranteeTypes: ['DEPOSIT_REQUIRED'] as const, paymentTiming: 'PREPAY' as const, deposits: [] },
     {
       ...readyReview().bookingTerms!,
       guaranteeTypes: ['DEPOSIT_REQUIRED'] as const,
+      paymentTiming: 'PREPAY' as const,
       deposits: [
         { remainder: null, dueDateLocal: null, money: { currency: 'USD', amountMinor: 50_000n } },
         { remainder: null, dueDateLocal: null, money: null },
@@ -144,11 +164,12 @@ test('rejects unsupported, contradictory, or incomplete fresh payment and guaran
   }
 });
 
-test('derives exact deposit amount from fresh Rules evidence', () => {
+test('derives exact deposit amount from fresh Rules evidence only when payment timing agrees', () => {
   const result = assertHospitalitySupplierReservationSubmissionAuthority(operation, {
     ...readyReview(),
     bookingTerms: {
       ...readyReview().bookingTerms!,
+      paymentTiming: 'PREPAY' as const,
       guaranteeTypes: ['DEPOSIT_REQUIRED'] as const,
       deposits: [{ remainder: null, dueDateLocal: null, money: { currency: 'USD', amountMinor: 50_000n } }],
     },
