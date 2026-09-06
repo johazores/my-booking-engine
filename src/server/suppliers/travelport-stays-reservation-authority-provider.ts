@@ -28,7 +28,17 @@ type PropertyIdentity = Readonly<{ chainCode: string; propertyCode: string; auth
 type OfferIdentity = Readonly<{ property: PropertyIdentity; rateValue: string; rateAuthority: 'TVPT' | 'BKNG' }>;
 type RateCandidate = Readonly<{ rateCode?: string; rateID?: string; rateCategory?: string; chainCode: string; propertyCode: string }>;
 type SelectedRate = Readonly<{ bookingCode: string; rateCandidate: RateCandidate | null }>;
-type AvailabilityMatch = Readonly<{ bookingCode: string; rateCode: string | null; rateID: string | null; rateCategory: string | null }>;
+type AvailabilityMatch = Readonly<{
+  providerSubmissionReference: string;
+  bookingCode: string;
+  rateCode: string | null;
+  rateID: string | null;
+  rateCategory: string | null;
+}>;
+
+export type TravelportStaysReservationAuthorityResult = HospitalitySupplierReservationAuthorityResult & Readonly<{
+  providerSubmissionReference: string | null;
+}>;
 
 function record(value: unknown): RecordValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
@@ -192,7 +202,7 @@ function availabilityPage(value: unknown, input: ReturnType<typeof normalizeInpu
         const property = record(product.PropertyKey);
         const dates = record(product.DateRange);
         if (property.chainCode === input.property.chainCode && property.propertyCode === input.property.propertyCode && dates.start === input.checkInDateLocal && dates.end === input.checkOutDateLocal) {
-          matches.push(Object.freeze({ bookingCode: selected.bookingCode, ...observedRate }));
+          matches.push(Object.freeze({ providerSubmissionReference: identifierValue, bookingCode: selected.bookingCode, ...observedRate }));
         }
       }
     }
@@ -285,11 +295,11 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
     return response.json().catch(() => null);
   }
 
-  async verifyReservationAuthority(input: HospitalitySupplierReservationAuthorityInput): Promise<HospitalitySupplierReservationAuthorityResult> {
+  async verifyReservationAuthority(input: HospitalitySupplierReservationAuthorityInput): Promise<TravelportStaysReservationAuthorityResult> {
     const normalized = normalizeInput(input);
     const reviewed = await this.#bookingTermsProvider.retrieveBookingTerms(input);
     if (reviewed.status !== 'READY') {
-      return Object.freeze({ status: reviewed.status, offer: reviewed.offer, bookingTerms: null, authorityFingerprint: null, observedAt: reviewed.observedAt, revalidationRequired: true });
+      return Object.freeze({ status: reviewed.status, offer: reviewed.offer, bookingTerms: null, authorityFingerprint: null, providerSubmissionReference: null, observedAt: reviewed.observedAt, revalidationRequired: true });
     }
     if (!reviewed.offer || !reviewed.bookingTerms) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned incomplete reservation authority evidence.');
@@ -298,10 +308,10 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned inconsistent reservation authority evidence.');
     }
     if (reviewed.bookingTerms.termsFingerprint !== normalized.expectedTermsFingerprint) {
-      return Object.freeze({ status: 'TERMS_CHANGED', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, observedAt: reviewed.observedAt, revalidationRequired: true });
+      return Object.freeze({ status: 'TERMS_CHANGED', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, providerSubmissionReference: null, observedAt: reviewed.observedAt, revalidationRequired: true });
     }
     if (!reviewed.bookingTerms.completeForReservationReview) {
-      return Object.freeze({ status: 'TERMS_INCOMPLETE', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, observedAt: reviewed.observedAt, revalidationRequired: true });
+      return Object.freeze({ status: 'TERMS_INCOMPLETE', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, providerSubmissionReference: null, observedAt: reviewed.observedAt, revalidationRequired: true });
     }
 
     const endpoints = ENDPOINTS[this.#credentials.environment];
@@ -329,8 +339,8 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
       if (matches.length > 1) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
     }
     if (identifiers.size !== first.total) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-    if (matches.length === 0) return Object.freeze({ status: 'UNAVAILABLE', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, observedAt: this.#now().toISOString(), revalidationRequired: true });
+    if (matches.length === 0) return Object.freeze({ status: 'UNAVAILABLE', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: null, providerSubmissionReference: null, observedAt: this.#now().toISOString(), revalidationRequired: true });
     if (matches.length !== 1) throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
-    return Object.freeze({ status: 'READY', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: fingerprint(normalized, selected, matches[0]!), observedAt: this.#now().toISOString(), revalidationRequired: true });
+    return Object.freeze({ status: 'READY', offer: reviewed.offer, bookingTerms: reviewed.bookingTerms, authorityFingerprint: fingerprint(normalized, selected, matches[0]!), providerSubmissionReference: matches[0]!.providerSubmissionReference, observedAt: this.#now().toISOString(), revalidationRequired: true });
   }
 }
