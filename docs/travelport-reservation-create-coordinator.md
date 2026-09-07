@@ -20,6 +20,8 @@ The Travelport executor performs sensitive request validation/composition and OA
 
 Failures before the durable provider-request marker are safe from duplicate reservation creation because the protected commercial write was not authorized to start. The coordinator immediately settles the current attempt as `FAILED` with `retryable=true`, using only a normalized provider failure code or the fixed `PRE_PROVIDER_EXECUTION_FAILED` code. A later submission must still repeat the entire fresh authority gate; retryable does not make previous Availability or Rules evidence timeless.
 
+If an executor ever returns a commercial outcome without invoking the protected callback, the coordinator treats that as a contract violation: it records conservative provider-request evidence and settles `AMBIGUOUS / INVALID_RESPONSE` so crash recovery can never reopen the write as a blind retry.
+
 Once the marker completes, uncertainty is never downgraded to a retryable create failure. Normal executor results are mapped through the existing Travelport outcome bridge: confirmed receipts become `CONFIRMED`, documented price/guarantee changes become non-retryable review failures, and uncertain/Booking.com Sync-required results remain `AMBIGUOUS`. An unexpected exception after the marker is also settled conservatively as `AMBIGUOUS / INVALID_RESPONSE`.
 
 If durable settlement itself fails after provider execution, the operation remains in-flight and the existing execution lease recovery sees the provider-request marker. It therefore fails closed to ambiguity rather than reopening the create. This preserves the crash-safety contract without treating logging or application exceptions as supplier truth.

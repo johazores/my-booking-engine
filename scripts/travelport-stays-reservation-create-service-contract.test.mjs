@@ -30,6 +30,7 @@ test('pre-provider failures are retry-safe while any post-marker unexpected fail
   assert.match(coordinator, /providerRequestStarted = true/);
   assert.match(coordinator, /status: 'AMBIGUOUS',[\s\S]*?failureCode: 'INVALID_RESPONSE'/);
   assert.match(coordinator, /observationState\.current\?\.finish\('AMBIGUOUS'\)/);
+  assert.match(coordinator, /if \(!providerRequestStarted\) \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted[\s\S]*?postProviderUnexpectedOutcome/);
 });
 
 test('sensitive form of payment stays an ephemeral adapter argument and never enters logs or durable metadata', () => {

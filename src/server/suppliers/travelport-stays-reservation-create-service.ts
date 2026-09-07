@@ -185,6 +185,30 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(i
     });
   }
 
+  if (!providerRequestStarted) {
+    // Returning a commercial outcome without invoking the protected callback violates the
+    // executor contract. Record conservative provider-request evidence before settlement so a
+    // later crash-recovery pass can never reopen this attempt as a safe blind retry.
+    await markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+    });
+    observationState.current = createTravelportStaysReservationCreateProviderObservation({
+      requestCorrelationId: claim.attempt.id,
+      organizationId: input.organizationId,
+    });
+    observationState.current.finish('AMBIGUOUS');
+    return settleHospitalitySupplierReservationSubmission({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: postProviderUnexpectedOutcome(),
+    });
+  }
+
   observationState.current?.finish(observationResult(createOutcome.status));
   const settlement = travelportStaysCreateOutcomeToSubmissionOutcome(createOutcome);
   return settleHospitalitySupplierReservationSubmission({
