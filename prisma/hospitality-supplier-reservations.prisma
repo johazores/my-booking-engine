@@ -10,6 +10,7 @@ enum HospitalitySupplierReservationOperationStatus {
 enum HospitalitySupplierReservationAttemptKind {
   CREATE
   RECONCILE
+  RECOVERY_WRITE
 }
 
 enum HospitalitySupplierReservationAttemptStatus {

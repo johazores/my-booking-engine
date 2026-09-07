@@ -8,6 +8,7 @@ import {
   HospitalitySupplierReservationAttemptLeaseConflictError,
   assertHospitalitySupplierReservationAttemptLeaseExpired,
   deriveHospitalitySupplierReservationExpiredAttemptRecovery,
+  type HospitalitySupplierReservationAttemptKind,
 } from './hospitality-supplier-reservation-attempt-lease.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
 
@@ -25,8 +26,12 @@ async function requireSupplierReservationRecoveryAuthority(organizationId: strin
   });
 }
 
-function expectedAttemptKind(status: 'SUBMITTING' | 'RECONCILING') {
-  return status === 'SUBMITTING' ? 'CREATE' as const : 'RECONCILE' as const;
+function attemptKindMatchesOperation(
+  status: 'SUBMITTING' | 'RECONCILING',
+  kind: HospitalitySupplierReservationAttemptKind,
+) {
+  if (status === 'RECONCILING') return kind === 'RECONCILE';
+  return kind === 'CREATE' || kind === 'RECOVERY_WRITE';
 }
 
 export async function markHospitalitySupplierReservationProviderRequestStarted(input: {
@@ -71,11 +76,10 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
         organizationId: input.organizationId,
         reservationId: reservation.id,
         sequence: reservation.attemptCount,
-        kind: expectedAttemptKind(reservation.status),
         status: 'STARTED',
       },
     });
-    if (!attempt) {
+    if (!attempt || !attemptKindMatchesOperation(reservation.status, attempt.kind)) {
       throw new HospitalitySupplierReservationConflictError(
         'Supplier reservation provider request attempt is no longer current.',
       );
@@ -152,7 +156,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
         status: 'STARTED',
       },
     });
-    if (!attempt) {
+    if (!attempt || !attemptKindMatchesOperation(reservation.status, attempt.kind)) {
       throw new HospitalitySupplierReservationConflictError(
         'Supplier reservation current attempt is not available for stale recovery.',
       );
@@ -209,13 +213,17 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
       },
     });
 
+    const expiryAction = attempt.kind === 'CREATE'
+      ? 'supplier.reservation-submission-lease-expired'
+      : attempt.kind === 'RECOVERY_WRITE'
+        ? 'supplier.reservation-recovery-write-lease-expired'
+        : 'supplier.reservation-reconciliation-lease-expired';
+
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: attempt.kind === 'CREATE'
-          ? 'supplier.reservation-submission-lease-expired'
-          : 'supplier.reservation-reconciliation-lease-expired',
+        action: expiryAction,
         resourceType: 'supplier-reservation-operation',
         resourceId: reservation.id,
         afterData: {

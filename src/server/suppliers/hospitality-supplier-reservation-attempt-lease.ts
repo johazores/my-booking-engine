@@ -3,7 +3,7 @@ export const HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE
 export const HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_CODE = 'EXECUTION_LEASE_EXPIRED';
 
 export type HospitalitySupplierReservationInFlightStatus = 'SUBMITTING' | 'RECONCILING';
-export type HospitalitySupplierReservationAttemptKind = 'CREATE' | 'RECONCILE';
+export type HospitalitySupplierReservationAttemptKind = 'CREATE' | 'RECONCILE' | 'RECOVERY_WRITE';
 export type HospitalitySupplierReservationAttemptStatus = 'STARTED' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS' | 'NOT_FOUND';
 
 export type HospitalitySupplierReservationExpiredAttemptRecovery = Readonly<{
@@ -22,8 +22,12 @@ export class HospitalitySupplierReservationAttemptLeaseConflictError extends Err
   }
 }
 
-function expectedAttemptKind(status: HospitalitySupplierReservationInFlightStatus): HospitalitySupplierReservationAttemptKind {
-  return status === 'SUBMITTING' ? 'CREATE' : 'RECONCILE';
+function attemptMatchesOperation(
+  status: HospitalitySupplierReservationInFlightStatus,
+  kind: HospitalitySupplierReservationAttemptKind,
+) {
+  if (status === 'RECONCILING') return kind === 'RECONCILE';
+  return kind === 'CREATE' || kind === 'RECOVERY_WRITE';
 }
 
 function assertValidDate(value: Date, label: string) {
@@ -41,8 +45,7 @@ export function assertHospitalitySupplierReservationAttemptLeaseExpired(input: R
   startedAt: Date;
   now: Date;
 }>) {
-  const expectedKind = expectedAttemptKind(input.operationStatus);
-  if (input.attemptKind !== expectedKind || input.attemptStatus !== 'STARTED') {
+  if (!attemptMatchesOperation(input.operationStatus, input.attemptKind) || input.attemptStatus !== 'STARTED') {
     throw new HospitalitySupplierReservationAttemptLeaseConflictError(
       'Supplier reservation operation does not have the expected active attempt.',
     );
@@ -78,7 +81,7 @@ export function deriveHospitalitySupplierReservationExpiredAttemptRecovery(input
       operationStatus: input.attemptKind === 'CREATE' ? 'PREPARED' : 'AMBIGUOUS',
       attemptStatus: 'FAILED',
       failureCode: HOSPITALITY_SUPPLIER_RESERVATION_PRE_PROVIDER_LEASE_EXPIRED_FAILURE_CODE,
-      retryable: input.attemptKind === 'CREATE' ? true : null,
+      retryable: input.attemptKind === 'CREATE' || input.attemptKind === 'RECOVERY_WRITE' ? true : null,
     });
   }
 

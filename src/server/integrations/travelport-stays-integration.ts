@@ -4,6 +4,7 @@ import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-sta
 import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
 import { TravelportStaysReservationCreateExecutor } from '../suppliers/travelport-stays-reservation-create-executor.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
+import { TravelportStaysReservationSyncExecutor } from '../suppliers/travelport-stays-reservation-sync-executor.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
   probeTravelportStaysIntegrationHealth,
@@ -76,6 +77,7 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   reservationAuthorityProvider: TravelportStaysReservationAuthorityProvider;
   reservationCreateExecutor: TravelportStaysReservationCreateExecutor;
   reservationRecoveryProvider: TravelportStaysReservationRecoveryProvider;
+  reservationSyncExecutor: TravelportStaysReservationSyncExecutor;
 }>> {
   assertUuidIdentifier(organizationId, 'organizationId');
   const { integration, credentials } = await loadActiveIntegrationCredentials({
@@ -112,6 +114,11 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
       fetchImpl,
     }),
     reservationRecoveryProvider: new TravelportStaysReservationRecoveryProvider({
+      credentials: normalizedCredentials,
+      cacheKey,
+      fetchImpl,
+    }),
+    reservationSyncExecutor: new TravelportStaysReservationSyncExecutor({
       credentials: normalizedCredentials,
       cacheKey,
       fetchImpl,
