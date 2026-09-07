@@ -24,6 +24,12 @@ The actor must explicitly accept exactly the pending dimensions:
 
 Partial acceptance of a combined change and acceptance of an unrelated dimension fail closed.
 
+## Durable provider-write evidence
+
+`REVIEW_REQUIRED` on the operation row is not sufficient by itself to authorize a commercial decision. Before any Travelport credentials are loaded, SF also requires the current durable `CREATE` attempt to match the operation attempt count, be settled as `REVIEW_REQUIRED`, carry the same normalized review reason, and contain both the durable provider-request marker and a valid completion timestamp. The review settlement records that completion time from the PostgreSQL clock after the provider marker has already been persisted.
+
+This prevents an inconsistent, stale, manually altered, or partially persisted operation row from becoming acceptance authority. After fresh supplier authority is reviewed, the same attempt is rechecked under the operation advisory lock before any acceptance fields are persisted. The exact attempt record must still be the one that produced the pending review.
+
 ## Fresh authority before durable acceptance
 
 The previous failed sell is not commercial authority for a later decision. Before the decision is persisted, SF:
@@ -37,7 +43,7 @@ The previous failed sell is not commercial authority for a later decision. Befor
 7. repeats the reservation-authority adapter, which re-runs fresh SearchComplete, Rules, and bounded Availability matching; and
 8. derives a supported current payment/guarantee authority.
 
-Any provider drift, unavailable offer, unrelated price change, incomplete Rules, unsupported payment authority, integration rotation, traveler change, or authority race prevents acceptance.
+Any provider drift, unavailable offer, unrelated price change, incomplete Rules, unsupported payment authority, integration rotation, traveler change, attempt mismatch, or authority race prevents acceptance.
 
 The expiring Travelport `CatalogOfferingIdentifier` is deliberately not persisted as acceptance authority. A future second-write coordinator must perform another immediate fresh authority review and prove it matches the durable accepted fingerprints before it can claim a write.
 

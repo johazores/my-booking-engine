@@ -27,9 +27,9 @@ function normalizeReviewFailureCode(value: unknown) {
 /**
  * Persist definitive provider no-sell evidence that requires an explicit commercial review.
  *
- * This function deliberately does not authorize or claim a second provider write. A future
- * acceptance workflow must re-review current supplier authority and record an explicit decision
- * before moving REVIEW_REQUIRED back into any submitting state.
+ * This function never authorizes or claims a second provider write. The separate acceptance
+ * workflow must re-review current supplier authority and record an explicit actor decision before
+ * any future one-time acceptance-consumption path can move REVIEW_REQUIRED into a submitting state.
  */
 export async function settleHospitalitySupplierReservationReviewRequired(input: Readonly<{
   organizationId: string;
@@ -89,7 +89,13 @@ export async function settleHospitalitySupplierReservationReviewRequired(input: 
       );
     }
 
-    const completedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation review completion time is unavailable.',
+      );
+    }
+    const completedAt = databaseClock.currentTime;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },
       data: {
