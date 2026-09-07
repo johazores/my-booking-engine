@@ -206,6 +206,8 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
     || !finalAuthority.bookingTerms
     || finalAuthority.bookingTerms.completeForReservationReview !== true
     || finalAuthority.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || finalAuthority.offer.supplierPropertyReference !== reservation.supplierPropertyReference
+    || finalAuthority.offer.supplierOfferReference !== reservation.supplierOfferReference
     || finalAuthority.offer.offerFingerprint !== termsReview.offer.offerFingerprint
     || finalAuthority.offer.price.currency !== reservation.currency
     || finalAuthority.offer.price.totalMinor !== termsReview.offer.price.totalMinor
