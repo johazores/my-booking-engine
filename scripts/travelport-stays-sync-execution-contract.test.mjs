@@ -28,12 +28,20 @@ test('provider-neutral recovery-write claim is tenant scoped and blocks replay a
   assert.match(service, /A provider-marked recovery write cannot be settled as retryable/);
 });
 
-test('Travelport Sync sends only retained recovery authority and authorized traveler email', () => {
+test('Create and Sync share one Travelport traveler mapper and Sync still excludes payment-card material', () => {
+  const travelerRequest = source('src/server/suppliers/travelport-stays-reservation-traveler-request.ts');
+  const createMaterial = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
   const domain = source('src/server/suppliers/travelport-stays-reservation-sync-domain.ts');
   const executor = source('src/server/suppliers/travelport-stays-reservation-sync-executor.ts');
+
+  assert.match(travelerRequest, /PersonName:/);
+  assert.match(travelerRequest, /Telephone:/);
+  assert.match(travelerRequest, /Email:/);
+  assert.match(travelerRequest, /MAX_TRAVELPORT_PERSON_NAME_LENGTH\s*=\s*22/);
+  assert.match(createMaterial, /buildTravelportStaysReservationTravelerRequest/);
+  assert.match(domain, /buildTravelportStaysReservationTravelerRequest/);
   assert.match(domain, /passiveOfferInd: true/);
   assert.match(domain, /sourceContext: 'Supplier'/);
-  assert.match(domain, /Email:/);
   assert.match(executor, /book\/reservations\//);
   assert.match(executor, /await input\.beforeProviderRequest\(\)/);
   assert.doesNotMatch(domain, /FormOfPayment|PaymentCard|CardNumber|SeriesCode/);

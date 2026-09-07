@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Travelport documents a Booking.com failure mode where the supplier sell succeeds but Travelport does not finish PNR processing. Retrying Create Reservation in that state can duplicate the hotel sell. SF therefore retains durable provider evidence and now has a server-only Sync recovery-write path that can construct the missing Travelport aggregator segment without re-selling the Booking.com reservation.
+Travelport documents a Booking.com failure mode where the supplier sell succeeds but Travelport does not finish PNR processing. Retrying Create Reservation in that state can duplicate the hotel sell. SF therefore retains durable provider evidence and has a server-only Sync recovery-write path that can construct the missing Travelport aggregator segment without re-selling the Booking.com reservation.
 
 The Sync path remains deliberately unreachable from product routes/actions and does not advertise the `reservation` capability. Live Travelport non-production validation is still required before activation.
 
@@ -51,9 +51,13 @@ A prior `RECOVERY_WRITE` can be claimed again only when its attempt definitively
 - the retained Availability offer `Identifier.authority`;
 - `passiveOfferInd=true`;
 - the verified Booking.com supplier confirmation with source `BO` and `sourceContext=Supplier`; and
-- the authorized primary traveler email.
+- the complete already-authorized primary traveler identity/contact authority: `PersonName`, `Telephone`, and `Email`.
 
-The Sync request deliberately excludes traveler name and telephone because Travelport documents the scaled-down Sync request around the traveler email plus Booking.com booking details. It also accepts no form-of-payment, PAN, CVV, cardholder, billing, credential, token, or arbitrary endpoint input.
+Travelport's current Sync reference describes Sync as a scaled-down retry and its example shows email only, but the same reference marks `Traveler`, `PersonName`, and `Telephone` as required objects and separately states that Booking.com requires traveler email. SF therefore fails closed to the normative required-field contract instead of depending on the abbreviated example.
+
+Create and Sync share the same provider-specific traveler mapper. This keeps canonical first/last name, telephone components, and email identical across both write paths and enforces Travelport's documented 22-character combined `Given` + `Surname` limit before provider I/O. SF does not allow Travelport to silently truncate the traveler identity that is bound into the durable reservation payload fingerprint.
+
+Sync still accepts no form-of-payment, PAN, CVV, cardholder, billing, credential, token, or arbitrary endpoint input.
 
 OAuth and deterministic request construction complete before the durable provider-request marker. The attempt UUID is the provider correlation authority. Only after the marker succeeds may the Sync POST begin.
 
@@ -74,7 +78,7 @@ Successful Sync clears `providerRecoveryReference` and moves the operation to `C
 
 ## Crash recovery
 
-The shared supplier attempt lease now recognizes `RECOVERY_WRITE` as a valid `SUBMITTING` attempt.
+The shared supplier attempt lease recognizes `RECOVERY_WRITE` as a valid `SUBMITTING` attempt.
 
 - If a stale recovery-write attempt has no provider-request marker, it returns to `AMBIGUOUS`, completes as `FAILED`, and is marked retryable.
 - If the marker exists, it returns to `AMBIGUOUS`, completes as `AMBIGUOUS`, and is not retryable.
@@ -83,11 +87,13 @@ This preserves the original supplier confirmation/recovery authority without eve
 
 ## Privacy and observability
 
-The Sync coordinator and executor do not accept payment-card data. Structured Sync observation is allowlisted to the SF attempt correlation UUID, organization UUID, fixed provider/operation, normalized result, duration, level, and timestamp. Supplier confirmations, recovery references, traveler email, provider locators, credentials, tokens, request bodies, and response bodies are excluded.
+The Sync coordinator and executor do not accept payment-card data. Traveler identity/contact remains ephemeral server-side request material and is not added to the supplier operation ledger, attempt history, recovery reference, audit metadata, or structured provider observations.
+
+Structured Sync observation is allowlisted to the SF attempt correlation UUID, organization UUID, fixed provider/operation, normalized result, duration, level, and timestamp. Supplier confirmations, recovery references, traveler identity/contact, provider locators, credentials, tokens, request bodies, and response bodies are excluded.
 
 ## Activation boundary
 
-The server-only executor/coordinator now exists, but Travelport `reservation` remains disabled. Before activation SF still requires:
+The server-only executor/coordinator exists, but Travelport `reservation` remains disabled. Before activation SF still requires:
 
 1. provisioned Travelport non-production validation of SearchComplete → Rules → Availability → Create → Sync behavior and exact response receipts;
 2. a reviewed PCI-safe form-of-payment/guarantee source for the Create path;
@@ -99,5 +105,5 @@ No current route, button, customer action, or staff action can call Sync.
 
 ## References
 
-- Travelport Sync Reservation API Reference: `POST book/reservations/`; `passiveOfferInd=true`; offer identifier authority from Availability; traveler email; supplier confirmation locator; Booking.com supplier source `BO`.
+- Travelport Sync Reservation API Reference: `POST book/reservations/`; `passiveOfferInd=true`; offer identifier authority from Availability; required traveler `PersonName`/`Telephone`, Booking.com traveler email, supplier confirmation locator, and Booking.com supplier source `BO`.
 - Travelport TripServices Stays APIs Guide: Booking.com aggregator sell failure and Sync handling.

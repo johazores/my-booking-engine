@@ -1,13 +1,13 @@
 import { moneyMinorToMajorString } from '../pricing/money.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { HospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
+import type { NormalizedHospitalitySupplierReservationTravelerPayload } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
-  normalizeHospitalitySupplierReservationTravelerPayload,
-  type NormalizedHospitalitySupplierReservationTravelerPayload,
-} from './hospitality-supplier-reservation-traveler-authority.ts';
+  buildTravelportStaysReservationTravelerRequest,
+  type TravelportStaysReservationTravelerRequest,
+} from './travelport-stays-reservation-traveler-request.ts';
 
 const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
-const MAX_TRAVELPORT_PERSON_NAME_LENGTH = 22;
 const MAX_PAYMENT_CARD_CODES = 32;
 const MAX_PAYMENT_CARD_CODE_LENGTH = 16;
 
@@ -16,20 +16,7 @@ export type TravelportStaysReservationCreateRequestMaterial = Readonly<{
     '@type': 'BuildFromCatalogOfferingHospitality';
     CatalogOfferingIdentifier: Readonly<{ value: string }>;
   }>;
-  Traveler: readonly [Readonly<{
-    '@type': 'Traveler';
-    PersonName: Readonly<{
-      Given: string;
-      Surname: string;
-    }>;
-    Telephone: readonly [Readonly<{
-      '@type': 'TelephoneDetail';
-      countryAccessCode: string;
-      areaCityCode: string;
-      phoneNumber: string;
-    }>];
-    Email: readonly [Readonly<{ value: string }>];
-  }>];
+  Traveler: readonly [TravelportStaysReservationTravelerRequest];
   Payment: readonly [Readonly<{
     '@type': 'Payment';
     Amount: Readonly<{
@@ -57,39 +44,6 @@ function providerSubmissionReference(value: unknown) {
     invalidRequest('Travelport reservation offer reference is invalid.');
   }
   return normalized;
-}
-
-function travelerPayload(input: NormalizedHospitalitySupplierReservationTravelerPayload) {
-  const traveler = normalizeHospitalitySupplierReservationTravelerPayload(input);
-  if (traveler.firstName.length + traveler.lastName.length > MAX_TRAVELPORT_PERSON_NAME_LENGTH) {
-    invalidRequest(
-      'Travelport limits the combined primary traveler given and surname to 22 characters. Review the traveler name before reservation submission.',
-    );
-  }
-
-  return Object.freeze({
-    '@type': 'Traveler' as const,
-    PersonName: Object.freeze({
-      Given: traveler.firstName,
-      Surname: traveler.lastName,
-    }),
-    Telephone: Object.freeze([
-      Object.freeze({
-        '@type': 'TelephoneDetail' as const,
-        countryAccessCode: traveler.telephone.countryCallingCode,
-        areaCityCode: traveler.telephone.areaCode,
-        phoneNumber: traveler.telephone.subscriberNumber,
-      }),
-    ]) as readonly [Readonly<{
-      '@type': 'TelephoneDetail';
-      countryAccessCode: string;
-      areaCityCode: string;
-      phoneNumber: string;
-    }>],
-    Email: Object.freeze([
-      Object.freeze({ value: traveler.email }),
-    ]) as readonly [Readonly<{ value: string }>],
-  });
 }
 
 function paymentPayload(authority: HospitalitySupplierReservationPaymentAuthority) {
@@ -156,7 +110,7 @@ export function buildTravelportStaysReservationCreateRequestMaterial(input: Read
   paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
 }>): TravelportStaysReservationCreateRequestMaterial {
   const submissionReference = providerSubmissionReference(input.providerSubmissionReference);
-  const traveler = travelerPayload(input.traveler);
+  const traveler = buildTravelportStaysReservationTravelerRequest(input.traveler);
   const payment = paymentPayload(input.paymentAuthority);
 
   return Object.freeze({

@@ -90,12 +90,14 @@ Travelport documents a Booking.com failure where the supplier sell succeeds but 
 
 The provider adapter stores only an opaque versioned recovery reference containing Travelport-owned non-secret authority. `13034` alone does not create this authority because Travelport documents that the timeout may represent either no sell or a successful Booking.com sell.
 
-`TravelportStaysReservationSyncExecutor` implements fixed v11 `POST /11/hotel/book/reservations/`. It builds the scaled-down request from:
+`TravelportStaysReservationSyncExecutor` implements fixed v11 `POST /11/hotel/book/reservations/`. It builds the request from:
 
 - retained Availability offer authority;
 - `passiveOfferInd=true`;
 - the verified Booking.com supplier confirmation/source; and
-- the authorized primary traveler email.
+- the complete primary traveler `PersonName`, `Telephone`, and `Email` already bound to the durable reservation payload fingerprint.
+
+Travelport's current Sync field table marks `Traveler`, `PersonName`, and `Telephone` required and separately requires traveler email for Booking.com, even though the abbreviated request example shows only email. SF therefore uses the normative required-field contract. Create and Sync share one provider-specific traveler mapper, including the documented 22-character combined `Given` + `Surname` fail-closed check, so the two write paths cannot drift or silently accept provider-side name truncation.
 
 The Sync request does not accept form-of-payment, PAN, CVV, cardholder, billing, arbitrary endpoint, credential, or token input.
 
@@ -152,7 +154,7 @@ Structured provider observations are strict allowlists containing organization U
 
 ## Validation boundary
 
-The source suite covers Travelport configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, supplier reservation idempotency/tenant scope, response evidence, known-locator recovery, Create request/executor/coordinator behavior, crash-safe provider markers, Sync recovery-authority persistence, `RECOVERY_WRITE` lease/replay rules, Sync request construction, Sync outcome verification, and privacy/source-order contracts.
+The source suite covers Travelport configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, supplier reservation idempotency/tenant scope, response evidence, known-locator recovery, Create request/executor/coordinator behavior, crash-safe provider markers, Sync recovery-authority persistence, `RECOVERY_WRITE` lease/replay rules, shared Create/Sync traveler mapping, Sync request construction, Sync outcome verification, and privacy/source-order contracts.
 
 A guarded PostgreSQL recovery-write scenario is registered under `npm run test:database` to validate retry-safe pre-provider failure, marker-based replay denial, traveler fingerprint binding, matching supplier-confirmation settlement, and recovery-reference clearing on success.
 

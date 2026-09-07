@@ -4,6 +4,10 @@ import {
   type TravelportStaysCreateExpectedReservation,
 } from './travelport-stays-reservation-create-outcome.ts';
 import {
+  buildTravelportStaysReservationTravelerRequest,
+  type TravelportStaysReservationTravelerRequest,
+} from './travelport-stays-reservation-traveler-request.ts';
+import {
   parseTravelportStaysSyncRecoveryReference,
 } from './travelport-stays-sync-recovery-reference.ts';
 
@@ -27,10 +31,7 @@ export type TravelportStaysReservationSyncRequest = Readonly<{
         }>;
       }>;
     }>];
-    Traveler: readonly [Readonly<{
-      '@type': 'Traveler';
-      Email: readonly [Readonly<{ value: string }>];
-    }>];
+    Traveler: readonly [TravelportStaysReservationTravelerRequest];
   }>;
 }>;
 
@@ -68,12 +69,7 @@ export function buildTravelportStaysReservationSyncRequest(input: Readonly<{
 }>): TravelportStaysReservationSyncRequest {
   const recovery = parseTravelportStaysSyncRecoveryReference(input.providerRecoveryReference);
   const supplierConfirmationReference = confirmationReference(input.supplierConfirmationReference);
-  if (!input.traveler || typeof input.traveler !== 'object' || Array.isArray(input.traveler)) {
-    throw new Error('Travelport Sync traveler authority is required.');
-  }
-  if (typeof input.traveler.email !== 'string' || !input.traveler.email) {
-    throw new Error('Travelport Sync traveler email authority is required.');
-  }
+  const traveler = buildTravelportStaysReservationTravelerRequest(input.traveler);
 
   return Object.freeze({
     ReservationDetail: Object.freeze({
@@ -97,14 +93,7 @@ export function buildTravelportStaysReservationSyncRequest(input: Readonly<{
           }),
         }),
       ]) as TravelportStaysReservationSyncRequest['ReservationDetail']['Receipt'],
-      Traveler: Object.freeze([
-        Object.freeze({
-          '@type': 'Traveler' as const,
-          Email: Object.freeze([
-            Object.freeze({ value: input.traveler.email }),
-          ]) as TravelportStaysReservationSyncRequest['ReservationDetail']['Traveler'][0]['Email'],
-        }),
-      ]) as TravelportStaysReservationSyncRequest['ReservationDetail']['Traveler'],
+      Traveler: Object.freeze([traveler]) as TravelportStaysReservationSyncRequest['ReservationDetail']['Traveler'],
     }),
   });
 }

@@ -70,7 +70,7 @@ function syncResponse(input: { supplierConfirmation?: string; propertyCode?: str
   };
 }
 
-test('builds the minimal Booking.com Sync request from durable recovery authority', () => {
+test('builds Booking.com Sync with complete bound traveler identity and contact authority', () => {
   assert.deepEqual(buildTravelportStaysReservationSyncRequest({
     providerRecoveryReference: 'travelport-stays-sync-v1:BKNG:BO',
     supplierConfirmationReference: 'T9RY0-WQ842',
@@ -95,21 +95,46 @@ test('builds the minimal Booking.com Sync request from durable recovery authorit
       }],
       Traveler: [{
         '@type': 'Traveler',
+        PersonName: {
+          Given: 'Mary',
+          Surname: 'Smith',
+        },
+        Telephone: [{
+          '@type': 'TelephoneDetail',
+          countryAccessCode: '61',
+          areaCityCode: '2',
+          phoneNumber: '91234567',
+        }],
         Email: [{ value: 'mary@example.com' }],
       }],
     },
   });
 });
 
-test('Sync request excludes names, telephone and any payment or credential material', () => {
+test('Sync carries the durable-bound traveler fields but excludes payment and credential material', () => {
   const serialized = JSON.stringify(buildTravelportStaysReservationSyncRequest({
     providerRecoveryReference: 'travelport-stays-sync-v1:BKNG:BO',
     supplierConfirmationReference: 'T9RY0-WQ842',
     traveler,
   }));
-  for (const forbidden of ['Mary', 'Smith', '91234567', 'FormOfPayment', 'PaymentCard', 'CardNumber', 'SeriesCode']) {
+  for (const expected of ['Mary', 'Smith', '91234567', 'mary@example.com']) {
+    assert.equal(serialized.includes(expected), true);
+  }
+  for (const forbidden of ['FormOfPayment', 'PaymentCard', 'CardNumber', 'SeriesCode', 'client_secret', 'password']) {
     assert.equal(serialized.includes(forbidden), false);
   }
+});
+
+test('Sync reuses the provider traveler limit and refuses provider-side name truncation', () => {
+  assert.throws(() => buildTravelportStaysReservationSyncRequest({
+    providerRecoveryReference: 'travelport-stays-sync-v1:BKNG:BO',
+    supplierConfirmationReference: 'T9RY0-WQ842',
+    traveler: {
+      ...traveler,
+      firstName: 'Alexanderthegreat',
+      lastName: 'Longlastname',
+    },
+  }), /22 characters/);
 });
 
 test('rejects unproven provider recovery authority', () => {
