@@ -28,6 +28,15 @@ export function travelportStaysCreateOutcomeToSubmissionOutcome(
     });
   }
 
+  if (outcome.status === 'FAILED') {
+    return Object.freeze({
+      status: 'FAILED',
+      failureCode: outcome.failureCode,
+      retryable: outcome.retryable,
+      providerCorrelationId: outcome.providerCorrelationId,
+    });
+  }
+
   return Object.freeze({
     status: 'FAILED',
     failureCode: REVIEW_FAILURE_CODES[outcome.reason],

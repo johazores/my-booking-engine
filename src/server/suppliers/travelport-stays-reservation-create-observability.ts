@@ -1,4 +1,4 @@
-export type TravelportStaysReservationCreateProviderResult = 'CONFIRMED' | 'REVIEW_REQUIRED' | 'AMBIGUOUS';
+export type TravelportStaysReservationCreateProviderResult = 'CONFIRMED' | 'FAILED' | 'REVIEW_REQUIRED' | 'AMBIGUOUS';
 
 export interface StructuredTravelportStaysReservationCreateLogRecord {
   timestamp: string;
@@ -8,7 +8,7 @@ export interface StructuredTravelportStaysReservationCreateLogRecord {
   organizationId: string;
   provider: 'travelport-stays';
   operation: 'reservation.create';
-  outcome: 'confirmed' | 'review-required' | 'ambiguous';
+  outcome: 'confirmed' | 'failed' | 'review-required' | 'ambiguous';
   durationMs: number;
 }
 
@@ -27,9 +27,11 @@ export function buildTravelportStaysReservationCreateLogRecord(input: Readonly<{
 }>): StructuredTravelportStaysReservationCreateLogRecord {
   const outcome = input.result === 'CONFIRMED'
     ? 'confirmed'
-    : input.result === 'REVIEW_REQUIRED'
-      ? 'review-required'
-      : 'ambiguous';
+    : input.result === 'FAILED'
+      ? 'failed'
+      : input.result === 'REVIEW_REQUIRED'
+        ? 'review-required'
+        : 'ambiguous';
 
   return Object.freeze({
     timestamp: (input.now ?? (() => new Date()))().toISOString(),

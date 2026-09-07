@@ -6,17 +6,25 @@ import test from 'node:test';
 const root = process.cwd();
 const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('Travelport write decisions fail closed and require explicit review for documented sell changes', () => {
+test('Travelport write decisions keep review and Sync uncertainty fail-closed', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(classifier, /GUARANTEE_CHANGE_SOURCE_CODES = new Set\(\['13016', '13017', '13018'\]\)/);
   assert.match(classifier, /PRICE_CHANGE_SOURCE_CODE = '13020'/);
   assert.match(classifier, /SYNC_REQUIRED_SOURCE_CODE = '13034'/);
   assert.match(classifier, /status: 'REVIEW_REQUIRED'/);
   assert.match(classifier, /'PRICE_AND_GUARANTEE_CHANGED'/);
-  assert.match(classifier, /'GUARANTEE_CHANGED'/);
-  assert.match(classifier, /'PRICE_CHANGED'/);
   assert.match(classifier, /status: 'AMBIGUOUS'[\s\S]*?failureCode: 'TRAVELPORT_SYNC_REQUIRED'/);
   assert.match(classifier, /failureCode: 'INVALID_RESPONSE'/);
+});
+
+test('definitive no-sell failures require reviewed validation-category source codes', () => {
+  const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
+  assert.match(classifier, /DEFINITIVE_NO_SELL_VALIDATION_SOURCE_CODES/);
+  assert.match(classifier, /RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES = new Set\(\['1537', '1538', '1539', '1540', '1541', '1542'\]\)/);
+  assert.match(classifier, /errors\.errors\.every\(\(error\) => error\.category === 'VALIDATION'\)/);
+  assert.match(classifier, /status: 'FAILED'/);
+  assert.match(classifier, /failureCode: `TRAVELPORT_VALIDATION_\$\{sourceCode\}`/);
+  assert.match(classifier, /retryable: RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES\.has\(sourceCode\)/);
 });
 
 test('provider error and warning envelopes are bounded and cannot be ignored to confirm a write', () => {
@@ -30,38 +38,38 @@ test('provider error and warning envelopes are bounded and cannot be ignored to 
   assert.match(classifier, /validExpectedReservation\(expected\)/);
 });
 
-test('supplier confirmation is retained only as bounded sync evidence and raw provider messages are excluded', () => {
+test('supplier confirmation is retained only as bounded Sync evidence and raw provider messages are excluded', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(classifier, /locatorType === 'Confirmation Number'/);
-  assert.match(classifier, /matchesExpectedReservation/);
+  assert.match(classifier, /productMatchesExpectedReservation/);
   assert.match(classifier, /supplierConfirmationReference: reservationMatches \? locators\.supplier : null/);
   assert.doesNotMatch(classifier, /return[^;]*Message|providerMessage|rawMessage/);
 });
 
-test('Travelport review-required decisions map into the durable ledger without creating an automatic retry path', () => {
+test('Travelport outcomes map into the durable ledger without weakening explicit review or ambiguity', () => {
   const mapper = source('src/server/suppliers/travelport-stays-reservation-submission-outcome.ts');
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
 
   assert.match(mapper, /HospitalitySupplierReservationSubmissionOutcome/);
+  assert.match(mapper, /if \(outcome\.status === 'FAILED'\)/);
+  assert.match(mapper, /failureCode: outcome\.failureCode/);
+  assert.match(mapper, /retryable: outcome\.retryable/);
   assert.match(mapper, /SUPPLIER_PRICE_CHANGED/);
   assert.match(mapper, /SUPPLIER_GUARANTEE_CHANGED/);
   assert.match(mapper, /SUPPLIER_PRICE_AND_GUARANTEE_CHANGED/);
-  assert.match(mapper, /status: 'FAILED'/);
-  assert.match(mapper, /retryable: false/);
   assert.match(mapper, /status: 'AMBIGUOUS'/);
-  assert.match(mapper, /supplierConfirmationReference: outcome\.supplierConfirmationReference/);
   assert.match(service, /status: 'FAILED'[\s\S]*?failureCode: unknown[\s\S]*?retryable: boolean/);
   assert.doesNotMatch(mapper, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('documentation keeps capability disabled and identifies the remaining PCI-safe create boundary', () => {
+test('documentation keeps capability disabled and explains the narrow definitive-failure boundary', () => {
   const doc = source('docs/travelport-stays-create-outcome-classification.md');
-  assert.match(doc, /does not send Create Reservation/i);
+  assert.match(doc, /does not collect card data/i);
   assert.match(doc, /does not.*enable the `reservation` capability/i);
-  assert.match(doc, /PCI-safe form-of-payment strategy/i);
-  assert.match(doc, /must not turn an unknown 4xx\/5xx or malformed 2xx into a blind create retry/i);
-  assert.match(doc, /error envelope.*cannot be treated as a successful sell/i);
-  assert.match(doc, /malformed or oversized warning/i);
-  assert.match(doc, /non-retryable durable `FAILED` settlement/i);
+  assert.match(doc, /definitive no-sell validation failures/i);
+  assert.match(doc, /category=VALIDATION/i);
+  assert.match(doc, /1537.*1538.*1539.*1540.*1541.*1542/i);
+  assert.match(doc, /unknown codes.*remain `AMBIGUOUS \/ INVALID_RESPONSE`/i);
+  assert.match(doc, /PCI-safe form-of-payment/i);
   assert.match(doc, /does not yet implement that acceptance workflow/i);
 });

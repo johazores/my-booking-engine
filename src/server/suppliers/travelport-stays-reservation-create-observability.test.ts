@@ -29,6 +29,19 @@ test('create observations expose only bounded operational metadata', () => {
   assert.equal(JSON.stringify(record).includes('traveler'), false);
 });
 
+test('definitive provider rejections are safe info observations without source payload details', () => {
+  const record = buildTravelportStaysReservationCreateLogRecord({
+    requestCorrelationId,
+    organizationId,
+    durationMs: 4,
+    result: 'FAILED',
+  });
+  assert.equal(record.level, 'info');
+  assert.equal(record.outcome, 'failed');
+  assert.equal('failureCode' in record, false);
+  assert.equal('sourceCode' in record, false);
+});
+
 test('ambiguous create observations are warnings and sanitize identifiers', () => {
   const record = buildTravelportStaysReservationCreateLogRecord({
     requestCorrelationId: 'unsafe',

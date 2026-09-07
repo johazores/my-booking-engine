@@ -31,6 +31,32 @@ test('keeps uncertain supplier evidence ambiguous and never invents retryability
   });
 });
 
+test('preserves documented definitive provider validation failures and retryability', () => {
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'FAILED',
+    failureCode: 'TRAVELPORT_VALIDATION_13046',
+    retryable: false,
+    providerCorrelationId: 'trace-3',
+  }), {
+    status: 'FAILED',
+    failureCode: 'TRAVELPORT_VALIDATION_13046',
+    retryable: false,
+    providerCorrelationId: 'trace-3',
+  });
+
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'FAILED',
+    failureCode: 'TRAVELPORT_VALIDATION_1541',
+    retryable: true,
+    providerCorrelationId: 'trace-4',
+  }), {
+    status: 'FAILED',
+    failureCode: 'TRAVELPORT_VALIDATION_1541',
+    retryable: true,
+    providerCorrelationId: 'trace-4',
+  });
+});
+
 test('turns documented sell changes into fixed non-retryable ledger failures', () => {
   const expected = [
     ['PRICE_CHANGED', 'SUPPLIER_PRICE_CHANGED'],
@@ -42,12 +68,12 @@ test('turns documented sell changes into fixed non-retryable ledger failures', (
     assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
       status: 'REVIEW_REQUIRED',
       reason,
-      providerCorrelationId: 'trace-3',
+      providerCorrelationId: 'trace-5',
     }), {
       status: 'FAILED',
       failureCode,
       retryable: false,
-      providerCorrelationId: 'trace-3',
+      providerCorrelationId: 'trace-5',
     });
   }
 });

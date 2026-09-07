@@ -15,14 +15,64 @@ const MAX_OFFER_AUTHORITY_LENGTH = 64;
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
 const SYNC_REQUIRED_SOURCE_CODE = '13034';
+const RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES = new Set(['1537', '1538', '1539', '1540', '1541', '1542']);
+const DEFINITIVE_NO_SELL_VALIDATION_SOURCE_CODES = new Set([
+  '1200',
+  '1250',
+  '1251',
+  '1300',
+  '1320',
+  '1480',
+  '1485',
+  '1495',
+  '1515',
+  '1533',
+  '1534',
+  '1537',
+  '1538',
+  '1539',
+  '1540',
+  '1541',
+  '1542',
+  '1543',
+  '1544',
+  '1545',
+  '1546',
+  '1547',
+  '1549',
+  '1550',
+  '1551',
+  '13001',
+  '13003',
+  '13005',
+  '13006',
+  '13007',
+  '13008',
+  '13012',
+  '13015',
+  '13022',
+  '13038',
+  '13045',
+  '13046',
+  '13047',
+  '13050',
+  '13054',
+  '13064',
+]);
 const CONFIRMED_WITHOUT_PNR_WARNING =
   'HOTEL SELL CONFIRMED FROM SUPPLIER. TRAVELPORT PNR PROCESSING DID NOT COMPLETE. USE SYNC MESSAGE WITH CONFIRMATION NUMBER TO COMPLETE PNR.';
 
 type RecordValue = Record<string, unknown>;
 
+type ProviderErrorDetail = Readonly<{
+  sourceCode: string;
+  category: string | null;
+}>;
+
 type ProviderErrorInspection = Readonly<{
   present: boolean;
   valid: boolean;
+  errors: readonly ProviderErrorDetail[];
   sourceCodes: readonly string[];
 }>;
 
@@ -45,6 +95,12 @@ export type TravelportStaysReservationCreateOutcome =
       status: 'CONFIRMED';
       providerReservationReference: string;
       supplierConfirmationReference: string | null;
+      providerCorrelationId: string | null;
+    }>
+  | Readonly<{
+      status: 'FAILED';
+      failureCode: `TRAVELPORT_VALIDATION_${string}`;
+      retryable: boolean;
       providerCorrelationId: string | null;
     }>
   | Readonly<{
@@ -80,17 +136,27 @@ function correlationFromBody(value: unknown) {
 function inspectProviderErrors(value: unknown): ProviderErrorInspection {
   const root = optionalRecord(value);
   if (!root || root.ErrorResponse === undefined || root.ErrorResponse === null) {
-    return Object.freeze({ present: false, valid: true, sourceCodes: Object.freeze([] as string[]) });
+    return Object.freeze({
+      present: false,
+      valid: true,
+      errors: Object.freeze([] as ProviderErrorDetail[]),
+      sourceCodes: Object.freeze([] as string[]),
+    });
   }
 
   const response = optionalRecord(root.ErrorResponse);
   const result = optionalRecord(response?.Result);
   const errors = result?.Error;
   if (!response || !result || !Array.isArray(errors) || errors.length < 1 || errors.length > MAX_ERRORS) {
-    return Object.freeze({ present: true, valid: false, sourceCodes: Object.freeze([] as string[]) });
+    return Object.freeze({
+      present: true,
+      valid: false,
+      errors: Object.freeze([] as ProviderErrorDetail[]),
+      sourceCodes: Object.freeze([] as string[]),
+    });
   }
 
-  const sourceCodes: string[] = [];
+  const inspectedErrors: ProviderErrorDetail[] = [];
   let valid = true;
   for (const errorValue of errors) {
     const error = optionalRecord(errorValue);
@@ -99,18 +165,33 @@ function inspectProviderErrors(value: unknown): ProviderErrorInspection {
       continue;
     }
     const raw = error.SourceCode;
-    const code = typeof raw === 'number' && Number.isInteger(raw) ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
-    if (!/^\d{1,8}$/.test(code)) {
+    const sourceCode = typeof raw === 'number' && Number.isInteger(raw) ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
+    if (!/^\d{1,8}$/.test(sourceCode)) {
       valid = false;
       continue;
     }
-    sourceCodes.push(code);
+    const rawCategory = error.category ?? error.Category;
+    let category: string | null = null;
+    if (rawCategory !== undefined && rawCategory !== null) {
+      if (typeof rawCategory !== 'string') {
+        valid = false;
+        continue;
+      }
+      const normalizedCategory = rawCategory.trim().toUpperCase();
+      if (!/^[A-Z_]{2,32}$/.test(normalizedCategory)) {
+        valid = false;
+        continue;
+      }
+      category = normalizedCategory;
+    }
+    inspectedErrors.push(Object.freeze({ sourceCode, category }));
   }
 
   return Object.freeze({
     present: true,
-    valid: valid && sourceCodes.length === errors.length,
-    sourceCodes: Object.freeze([...new Set(sourceCodes)]),
+    valid: valid && inspectedErrors.length === errors.length,
+    errors: Object.freeze(inspectedErrors),
+    sourceCodes: Object.freeze([...new Set(inspectedErrors.map((error) => error.sourceCode))]),
   });
 }
 
@@ -279,6 +360,25 @@ function invalidResponse(providerCorrelationId: string | null): TravelportStaysR
   });
 }
 
+function definitiveValidationFailure(
+  errors: ProviderErrorInspection,
+  providerCorrelationId: string | null,
+): TravelportStaysReservationCreateOutcome | null {
+  if (!errors.present || !errors.valid || errors.errors.length < 1) return null;
+  if (!errors.errors.every((error) => error.category === 'VALIDATION')) return null;
+  if (!errors.errors.every((error) => DEFINITIVE_NO_SELL_VALIDATION_SOURCE_CODES.has(error.sourceCode))) return null;
+
+  const sourceCodes = [...new Set(errors.errors.map((error) => error.sourceCode))];
+  if (sourceCodes.length !== 1) return null;
+  const sourceCode = sourceCodes[0]!;
+  return Object.freeze({
+    status: 'FAILED',
+    failureCode: `TRAVELPORT_VALIDATION_${sourceCode}` as const,
+    retryable: RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES.has(sourceCode),
+    providerCorrelationId,
+  });
+}
+
 export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<{
   httpStatus: number;
   body: unknown;
@@ -315,6 +415,8 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
       });
     }
 
+    const validationFailure = definitiveValidationFailure(errors, providerCorrelationId);
+    if (validationFailure) return validationFailure;
     return invalidResponse(providerCorrelationId);
   }
 

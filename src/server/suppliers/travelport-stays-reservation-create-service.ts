@@ -91,7 +91,7 @@ function postProviderUnexpectedOutcome(): HospitalitySupplierReservationSubmissi
   });
 }
 
-function observationResult(status: 'CONFIRMED' | 'AMBIGUOUS' | 'REVIEW_REQUIRED'):
+function observationResult(status: 'CONFIRMED' | 'FAILED' | 'AMBIGUOUS' | 'REVIEW_REQUIRED'):
 TravelportStaysReservationCreateProviderResult {
   return status;
 }
