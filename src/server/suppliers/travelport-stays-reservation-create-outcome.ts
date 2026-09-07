@@ -388,7 +388,18 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   const errors = inspectProviderErrors(input.body);
   const warnings = inspectProviderWarnings(input.body);
 
-  if (errors.sourceCodes.includes(SYNC_REQUIRED_SOURCE_CODE)) {
+  if (!errors.valid || !warnings.valid) return invalidResponse(providerCorrelationId);
+
+  // The current Stays error contract categorizes 13034 as UNKNOWN. Keep legacy
+  // category-less envelopes compatible, but never allow an explicit contradictory
+  // category or a mixed error family to grant Sync-required semantics.
+  const syncRequiredErrors = errors.present
+    && errors.errors.length > 0
+    && errors.errors.every(
+      (error) => error.sourceCode === SYNC_REQUIRED_SOURCE_CODE
+        && (error.category === null || error.category === 'UNKNOWN'),
+    );
+  if (syncRequiredErrors) {
     return Object.freeze({
       status: 'AMBIGUOUS',
       failureCode: 'TRAVELPORT_SYNC_REQUIRED',
@@ -397,13 +408,18 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
     });
   }
 
-  if (!errors.valid || !warnings.valid) return invalidResponse(providerCorrelationId);
-
   if (errors.present) {
-    const guaranteeChanged = errors.sourceCodes.some((code) => GUARANTEE_CHANGE_SOURCE_CODES.has(code));
-    const priceChanged = errors.sourceCodes.includes(PRICE_CHANGE_SOURCE_CODE);
-    const recognizedReviewCodes = errors.sourceCodes.filter((code) => GUARANTEE_CHANGE_SOURCE_CODES.has(code) || code === PRICE_CHANGE_SOURCE_CODE);
-    if (recognizedReviewCodes.length > 0 && recognizedReviewCodes.length === errors.sourceCodes.length) {
+    // Travelport documents the price/guarantee change family as VALIDATION.
+    // Category-less legacy envelopes remain reviewable, but a contradictory
+    // category or unrelated code cannot authorize a second-sell review decision.
+    const reviewErrors = errors.errors.length > 0
+      && errors.errors.every((error) => (
+        (error.category === null || error.category === 'VALIDATION')
+        && (GUARANTEE_CHANGE_SOURCE_CODES.has(error.sourceCode) || error.sourceCode === PRICE_CHANGE_SOURCE_CODE)
+      ));
+    if (reviewErrors) {
+      const guaranteeChanged = errors.errors.some((error) => GUARANTEE_CHANGE_SOURCE_CODES.has(error.sourceCode));
+      const priceChanged = errors.errors.some((error) => error.sourceCode === PRICE_CHANGE_SOURCE_CODE);
       return Object.freeze({
         status: 'REVIEW_REQUIRED',
         reason: guaranteeChanged && priceChanged
