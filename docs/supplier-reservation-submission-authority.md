@@ -32,7 +32,7 @@ The derived payment authority carries only the bounded accepted payment-card cod
 
 This classification is intentionally narrower than general Rules completeness. Travelport can return other guarantee values such as `GuaranteesNotRequired`, `Profile`, or `GuaranteesAccepted`; SF does not infer Create Reservation payment behavior for those values without a verified provider contract. A future provider adapter may expand normalized payment authority only from documented and live-validated semantics.
 
-Travelport documents the Create Reservation `Payment` object differently for the three decisive cases: prepay uses the full total with deposit behavior, deposit uses the deposit amount with deposit behavior, and guarantee uses the full total with guarantee behavior. The Travelport request-material mapper now converts the normalized authority into exact `Amount`, `depositInd`, and `guaranteeInd` fields without changing the selected guarantee type.
+Travelport documents the Create Reservation `Payment` object differently for the three decisive cases: prepay uses the full total with deposit behavior, deposit uses the deposit amount with deposit behavior, and guarantee uses the full total with guarantee behavior. The Travelport request-material mapper converts the normalized authority into exact `Amount`, `depositInd`, and `guaranteeInd` fields without changing the selected guarantee type.
 
 ## Travelport traveler and request-material mapping
 
@@ -40,15 +40,17 @@ The provider-neutral traveler fingerprint permits names up to the product's 80-c
 
 Travelport+ documents a 22-character combined limit for traveler `Given` plus `Surname` and says longer values are truncated in the response. SF treats that truncation as unsafe identity mutation: an over-limit canonical name fails closed before the write claim and is never silently shortened. The mapper also translates the authorized telephone into `countryAccessCode`, `areaCityCode`, and `phoneNumber`, includes the authorized email, and carries only the freshly revalidated `CatalogOfferingIdentifier`.
 
-The resulting `createRequestMaterial` is not a complete provider request. It deliberately has no `FormOfPayment`, `PaymentCard`, PAN, CVV/security code, cardholder, billing-card data, access token, or integration credential. It is server-only ephemeral request composition material and must not be persisted, audited, or logged.
+The resulting `createRequestMaterial` deliberately has no `FormOfPayment`, `PaymentCard`, PAN, CVV/security code, cardholder, billing-card data, access token, or integration credential. It is server-only ephemeral request composition material and must not be persisted, audited, or logged.
 
 ## Provider-write boundary
 
-This slice does not enable Travelport `reservation` capability and exposes no staff or customer reserve action. Travelport remains configured with read-side capabilities only.
+Travelport `reservation` remains disabled and SF exposes no staff or customer reserve action. The implemented server-only create coordinator consumes this fresh-authority gate, rechecks the exact integration and credential version after the claim, supplies the request material and payment authority to the Travelport executor, records the durable provider-request marker immediately before the commercial POST, and settles the normalized provider outcome through the supplier reservation ledger.
 
-A future create coordinator must call this fresh-authority gate and consume the returned `createRequestMaterial` immediately. It must then obtain a reviewed PCI-safe form-of-payment authority, use the existing durable provider-request marker immediately before external I/O, and settle every result through the supplier reservation ledger. It must not bypass the gate by calling the low-level create-claim primitive directly, persist the ephemeral Availability reference/payment/traveler material as durable booking authority, or silently repeat stale provider evidence after a failed authority review.
+The coordinator does not make sensitive form-of-payment collection safe. Its payment-card argument is an unreachable server-side adapter input until SF has a reviewed PCI-safe source/handling boundary for the provisioned Travelport account. Raw card data must not be introduced into normal SF application persistence, logs, audits, queues, analytics, or browser-controlled booking infrastructure merely to make the coordinator reachable.
 
-The real Travelport write is still blocked on the reviewed PCI-safe form-of-payment/guarantee strategy, the actual HTTP Create Reservation executor/composition with that form of payment, explicit provider price/guarantee-change handling, authoritative negative lookup semantics, locator-less ambiguous-write recovery, and provisioned non-production validation. Raw card data must not be introduced into SF application persistence, logs, or browser-controlled booking infrastructure to satisfy the provider contract.
+Failures before `providerRequestStartedAt` are settled immediately as retry-safe `FAILED` attempts; a retry still repeats this full authority gate. After the marker, unexpected uncertainty is `AMBIGUOUS` and cannot become a blind create retry. The existing outcome mapper owns confirmed, price/guarantee review, and ambiguous/Sync-required settlement semantics.
+
+The remaining write blockers are the reviewed PCI-safe form-of-payment/guarantee source, explicit authorized price/guarantee-change acceptance behavior, authoritative negative and locator-less ambiguity recovery including Booking.com Sync, and provisioned non-production validation. See `docs/travelport-reservation-create-coordinator.md`.
 
 ## Failure behavior
 

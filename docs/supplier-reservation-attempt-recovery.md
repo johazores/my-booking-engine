@@ -77,34 +77,41 @@ When `providerRequestStartedAt` exists, the external request may have been sent 
 
 This fail-closed rule applies to both create and reconciliation attempts.
 
-## Existing reconciliation coordinator
+## Create and reconciliation coordinators
 
-The provider-neutral reconciliation coordinator now records the provider-request marker immediately before invoking `retrieveReservation`. Its durable request correlation remains the attempt UUID. Provider-code mismatch and other pre-provider rejection paths settle without pretending provider I/O occurred.
+The provider-neutral reconciliation coordinator records the provider-request marker immediately before invoking `retrieveReservation`. Its durable request correlation remains the attempt UUID. Provider-code mismatch and other pre-provider rejection paths settle without pretending provider I/O occurred.
 
-A future create coordinator must use the same marker immediately before its external reservation write. This document does not authorize a Travelport create call; it defines the crash-safe execution boundary that such a coordinator must honor once the remaining provider and payment prerequisites are satisfied.
+The Travelport create coordinator now uses the same marker immediately before the external Create Reservation POST. Sensitive request validation/composition and OAuth occur before the marker. If those pre-commercial steps fail, the coordinator settles the current create attempt immediately as retry-safe `FAILED`; a later attempt must still repeat fresh offer/Rules/Availability/traveler authority. Once the marker completes, any unexpected execution uncertainty is settled as `AMBIGUOUS`, never as a blind retryable create failure.
+
+If settlement itself fails after the marked provider call, the existing stale-recovery path remains the final crash guard. Because `providerRequestStartedAt` is durable, lease recovery cannot reopen that create as safe merely because the application process lost the settlement write.
+
+This coordinator does not authorize product access to Travelport create. The `reservation` capability remains disabled until the separate PCI-safe form-of-payment and live provider/recovery gates are complete.
 
 ## Authorization, tenancy, and privacy
 
-Both provider-request marking and stale recovery require server-side `booking:manage` before transaction work begins. The operation and current attempt are queried with the authenticated organization scope, and every mutable attempt/operation write repeats that organization scope.
+Provider-request marking and stale recovery require server-side `booking:manage` before transaction work begins. The operation and current attempt are queried with the authenticated organization scope, and every mutable attempt/operation write repeats that organization scope.
 
 Both operations execute inside serializable transactions protected by the same tenant/operation PostgreSQL advisory-lock key used by normal supplier reservation claims.
 
 Audit evidence records only provider code, operation state where relevant, attempt kind/sequence, whether provider request evidence existed, and normalized failure code. Supplier property/offer references, provider reservation locators, supplier confirmations, provider correlation identifiers, traveler/customer data, reservation payload fingerprints, credentials, tokens, request/response bodies, and payment/card material are excluded.
 
+The Travelport create coordinator adds only privacy-minimal structured request observation: attempt correlation UUID, organization UUID, fixed provider/operation name, normalized create result, and duration. Sensitive card/traveler/provider receipt data is not logged.
+
 ## Validation
 
 Dependency-free tests cover the fixed lease, current-attempt/kind/sequence requirements, fresh-attempt rejection, pre-provider create retry safety, pre-provider reconciliation behavior, and fail-closed post-marker ambiguity for both attempt kinds.
 
-Source-contract tests cover database-authored lease and provider-request clocks, conservative migration of legacy `STARTED` attempts, marker authorization and tenant/current-attempt scope, marker idempotency and lease refresh, recovery authorization ordering, shared lock identity, privacy-minimal audit data, and reconciliation marker ordering before provider I/O.
+Source-contract tests cover database-authored lease and provider-request clocks, conservative migration of legacy `STARTED` attempts, marker authorization and tenant/current-attempt scope, marker idempotency and lease refresh, recovery authorization ordering, shared lock identity, privacy-minimal audit data, reconciliation marker ordering before provider I/O, and Travelport create coordinator ordering from fresh authority through marker and settlement.
 
 The guarded PostgreSQL scenario covers both sides of the boundary. It verifies that an expired create claim with no provider marker returns safely to `PREPARED`, can be claimed again, then becomes `AMBIGUOUS` after a provider marker is recorded and that refreshed lease expires. It also covers cross-tenant marker/recovery denial, idempotent markers, historical `startedAt` not controlling the lease, pre-provider reconciliation recovery, post-marker reconciliation ambiguity, locator preservation, attempt ordering, and safe reconciliation retry. It runs only through `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 ## Remaining supplier-write boundary
 
-This recovery slice strengthens the provider-neutral operation ledger but does not make Travelport reservation creation available. Travelport still advertises only read-side capabilities. The real Travelport write remains blocked on provisioned non-production validation of the selected-offer authority bridge, a reviewed PCI-safe form-of-payment/guarantee strategy, the actual create coordinator, explicit price/guarantee-change handling, authoritative negative lookup behavior, locator-less ambiguous-write recovery, and live provider verification.
+The create execution coordinator now exists, but it remains unreachable by design because Travelport still advertises only read-side capabilities. Reservation activation remains blocked on provisioned non-production validation of the selected-offer authority/Create flow, a reviewed PCI-safe form-of-payment/guarantee source, explicit authorized price/guarantee-change handling, authoritative negative behavior, locator-less/Booking.com Sync recovery, and live provider verification.
 
 See also:
 
 - `docs/supplier-reservation-operations.md`
+- `docs/travelport-reservation-create-coordinator.md`
 - `docs/travelport-stays-integration.md`
 - `docs/integration-architecture.md`

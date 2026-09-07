@@ -64,3 +64,17 @@ test('create coordinator documentation keeps PCI and capability activation as ex
   assert.match(document, /ambiguous/i);
   assert.match(document, /PCI-safe/i);
 });
+
+test('direct create-path documentation reflects the implemented executor and coordinator without enabling reservation', () => {
+  for (const path of [
+    'docs/supplier-reservation-create-readiness.md',
+    'docs/supplier-reservation-submission-authority.md',
+    'docs/supplier-reservation-attempt-recovery.md',
+    'docs/travelport-stays-integration.md',
+    'docs/travelport-stays-create-outcome-classification.md',
+  ]) {
+    const document = source(path);
+    assert.doesNotMatch(document, /future create coordinator|actual single-room create executor/i, path);
+    assert.match(document, /reservation.*(?:remains|still|stays).*disabled|does not yet advertise `reservation`|does not yet advertise reservation/i, path);
+  }
+});

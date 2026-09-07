@@ -4,7 +4,7 @@
 
 A supplier reservation POST is a commercial write. Once SF crosses that provider boundary, an HTTP or payload failure is not automatically evidence that no hotel was sold. The Travelport create-outcome classifier therefore converts only documented provider evidence into safe decisions and otherwise fails closed to an ambiguous reservation outcome.
 
-This module does not send Create Reservation, collect card data, enable the `reservation` capability, or expose a booking action. It is the provider-specific post-write decision boundary required by the future create coordinator.
+This module does not collect card data, enable the `reservation` capability, or expose a booking action. It is the provider-specific post-write decision boundary consumed by the server-only Travelport create coordinator.
 
 ## Documented decisions
 
@@ -14,7 +14,7 @@ Source code `13034` is materially different. Travelport documents the same error
 
 Travelport also documents a third Booking.com failure mode in which the supplier sell succeeded but Travelport failed to finish PNR processing. In that case the reservation response can contain the confirmed supplier receipt but no Travelport PNR locator, together with the instruction to use Sync. SF preserves that bounded supplier confirmation only when the returned hospitality segment exactly matches the durable property, stay, room count, and guest count. It still remains `AMBIGUOUS` until Travelport Sync constructs the PNR and returns a verified Travelport locator.
 
-Any unrecognized, malformed, or otherwise unprovable result after a commercial POST is `AMBIGUOUS / INVALID_RESPONSE`. A future coordinator must not turn an unknown 4xx/5xx or malformed 2xx into a blind create retry.
+Any unrecognized, malformed, or otherwise unprovable result after a commercial POST is `AMBIGUOUS / INVALID_RESPONSE`. The create coordinator never turns an unknown 4xx/5xx, malformed 2xx, or unexpected post-marker exception into a blind create retry.
 
 ## Structural response authority
 
@@ -22,7 +22,7 @@ Provider response structure is part of the proof required to call a commercial w
 
 Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message cannot be silently ignored before confirmation. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence, but malformed warning structure prevents a response from being promoted to `CONFIRMED`.
 
-The durable reservation expectation is validated before it can match provider data. The current create classifier only recognizes the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers. Invalid expected authority therefore cannot accidentally match a malformed provider payload and create false confirmation evidence.
+The durable reservation expectation is validated before it can match provider data. The current create classifier only recognizes the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers. Create and known-locator recovery now share that provider-specific expectation decoder so the two receipt paths cannot drift into different property/stay/occupancy identity rules.
 
 ## Durable ledger normalization
 
@@ -34,7 +34,7 @@ The durable reservation expectation is validated before it can match provider da
 
 The non-retryable mapping is intentional. Travelport states that a price or guarantee difference stops the initial sell before the reservation is created and that a second request may proceed only after explicit acceptance of the applicable change. SF does not yet implement that acceptance workflow, so the existing logical operation must not be retried automatically. A future acceptance flow must obtain fresh authoritative offer/Rules/payment evidence, capture an explicit authorized decision, and create a separately auditable supplier-write attempt before sending either acceptance flag.
 
-This bridge closes the classification-to-ledger semantic gap without making the supplier write reachable. It does not weaken the current capability gate and does not make a provider response, browser action, or stale authority sufficient to retry a sell.
+The server-only create coordinator consumes this bridge after provider execution and settles every normalized outcome through the durable operation/attempt ledger. It does not weaken the current capability gate and does not make a provider response, browser action, or stale authority sufficient to retry a sell.
 
 ## Privacy and evidence
 
@@ -51,4 +51,4 @@ Supplier confirmation evidence by itself never means that the Travelport reserva
 
 ## Remaining boundary
 
-The Travelport reservation capability stays disabled. The next create dependency is still a reviewed PCI-safe form-of-payment strategy and an actual single-room create executor. When that executor exists, it must consume the classifier through the durable ledger normalization bridge after provider I/O, preserve any sync evidence on ambiguity, require explicit fresh customer/staff review for price/guarantee changes, and never retry an unclassified write outcome as if it were known not to have sold.
+The Travelport reservation capability stays disabled. The Create Reservation executor and durable coordinator now exist, but activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production create validation, explicit authorized price/guarantee-change acceptance, and safe locator-less/Booking.com Sync recovery with authoritative negative/correlation semantics. The coordinator must continue preserving Sync evidence on ambiguity and never retry an unclassified write outcome as if it were known not to have sold.
