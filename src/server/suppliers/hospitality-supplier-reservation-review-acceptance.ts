@@ -23,6 +23,13 @@ export type HospitalitySupplierReservationReviewAcceptance = Readonly<{
   acceptanceFingerprint: string;
 }>;
 
+export type HospitalitySupplierReservationStoredReviewAcceptance = Readonly<{
+  acceptedAt: Date;
+  acceptedByUserId: string;
+  reviewAttemptSequence: number;
+  acceptance: HospitalitySupplierReservationReviewAcceptance;
+}>;
+
 export function hospitalitySupplierReservationReviewAcceptanceRequirements(
   failureCode: unknown,
 ): Readonly<{ reason: HospitalitySupplierReservationReviewReason; acceptPriceChange: boolean; acceptGuaranteeChange: boolean }> {
@@ -126,5 +133,97 @@ export function createHospitalitySupplierReservationReviewAcceptance(input: Read
     acceptedTermsFingerprint,
     acceptedAuthorityFingerprint,
     acceptanceFingerprint,
+  });
+}
+
+/**
+ * Rebuild the current durable review decision from bounded operation fields before any future
+ * one-time consumption path is allowed to rely on it. This is deliberately provider-neutral:
+ * provider freshness still has to be re-established by the Travelport adapter immediately before
+ * the second write is claimed.
+ */
+export function assertHospitalitySupplierReservationStoredReviewAcceptance(input: Readonly<{
+  id: string;
+  status: string;
+  providerCode: string;
+  requestFingerprintVersion: number | null;
+  rooms: number;
+  reservationPayloadFingerprint: string;
+  currency: string;
+  attemptCount: number;
+  lastFailureCode: string | null;
+  lastFailureRetryable: boolean | null;
+  providerReservationReference: string | null;
+  supplierConfirmationReference: string | null;
+  providerRecoveryReference: string | null;
+  reviewAcceptedAt: Date | null;
+  reviewAcceptedByUserId: string | null;
+  reviewAcceptedAttemptSequence: number | null;
+  reviewAcceptedPriceChange: boolean | null;
+  reviewAcceptedGuaranteeChange: boolean | null;
+  reviewAcceptedCurrency: string | null;
+  reviewAcceptedTotalMinor: bigint | null;
+  reviewAcceptedOfferFingerprint: string | null;
+  reviewAcceptedTermsFingerprint: string | null;
+  reviewAcceptedAuthorityFingerprint: string | null;
+  reviewAcceptanceFingerprint: string | null;
+}>): HospitalitySupplierReservationStoredReviewAcceptance {
+  if (
+    input.status !== 'REVIEW_REQUIRED'
+    || input.providerCode !== 'travelport-stays'
+    || input.requestFingerprintVersion !== 2
+    || input.rooms !== 1
+    || input.lastFailureRetryable !== null
+    || input.providerReservationReference !== null
+    || input.supplierConfirmationReference !== null
+    || input.providerRecoveryReference !== null
+  ) {
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier reservation accepted review is not in a consumable Travelport review state.',
+    );
+  }
+  if (
+    !(input.reviewAcceptedAt instanceof Date)
+    || !Number.isFinite(input.reviewAcceptedAt.getTime())
+    || typeof input.reviewAcceptedByUserId !== 'string'
+    || !input.reviewAcceptedByUserId.trim()
+    || /[\r\n]/.test(input.reviewAcceptedByUserId)
+    || !Number.isSafeInteger(input.reviewAcceptedAttemptSequence)
+    || input.reviewAcceptedAttemptSequence !== input.attemptCount
+  ) {
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier reservation accepted review identity is incomplete or stale.',
+    );
+  }
+
+  const acceptance = createHospitalitySupplierReservationReviewAcceptance({
+    reservationId: input.id,
+    actorUserId: input.reviewAcceptedByUserId,
+    reservationPayloadFingerprint: input.reservationPayloadFingerprint,
+    attemptSequence: input.reviewAcceptedAttemptSequence,
+    failureCode: input.lastFailureCode,
+    acceptPriceChange: input.reviewAcceptedPriceChange,
+    acceptGuaranteeChange: input.reviewAcceptedGuaranteeChange,
+    currency: input.reviewAcceptedCurrency,
+    acceptedTotalMinor: input.reviewAcceptedTotalMinor,
+    acceptedOfferFingerprint: input.reviewAcceptedOfferFingerprint,
+    acceptedTermsFingerprint: input.reviewAcceptedTermsFingerprint,
+    acceptedAuthorityFingerprint: input.reviewAcceptedAuthorityFingerprint,
+  });
+
+  if (
+    input.reviewAcceptedCurrency !== input.currency
+    || input.reviewAcceptanceFingerprint !== acceptance.acceptanceFingerprint
+  ) {
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier reservation accepted review no longer matches its durable acceptance authority.',
+    );
+  }
+
+  return Object.freeze({
+    acceptedAt: new Date(input.reviewAcceptedAt.getTime()),
+    acceptedByUserId: input.reviewAcceptedByUserId,
+    reviewAttemptSequence: input.reviewAcceptedAttemptSequence,
+    acceptance,
   });
 }
