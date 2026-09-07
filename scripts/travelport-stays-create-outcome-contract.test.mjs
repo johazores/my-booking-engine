@@ -20,11 +20,14 @@ test('Travelport write decisions keep review and Sync uncertainty fail-closed', 
 test('definitive no-sell failures require reviewed validation-category source codes', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(classifier, /DEFINITIVE_NO_SELL_VALIDATION_SOURCE_CODES/);
-  assert.match(classifier, /RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES = new Set\(\['1537', '1538', '1539', '1540', '1541', '1542'\]\)/);
+  assert.match(
+    classifier,
+    /RETRYABLE_EPHEMERAL_PAYMENT_VALIDATION_SOURCE_CODES = new Set\(\[[\s\S]*?'1537'[\s\S]*?'1547'[\s\S]*?'13050'[\s\S]*?'13054'[\s\S]*?'13078'[\s\S]*?'13083'[\s\S]*?\]\)/,
+  );
   assert.match(classifier, /errors\.errors\.every\(\(error\) => error\.category === 'VALIDATION'\)/);
   assert.match(classifier, /status: 'FAILED'/);
   assert.match(classifier, /failureCode: `TRAVELPORT_VALIDATION_\$\{sourceCode\}`/);
-  assert.match(classifier, /retryable: RETRYABLE_PAYMENT_VALIDATION_SOURCE_CODES\.has\(sourceCode\)/);
+  assert.match(classifier, /retryable: RETRYABLE_EPHEMERAL_PAYMENT_VALIDATION_SOURCE_CODES\.has\(sourceCode\)/);
 });
 
 test('provider error and warning envelopes are bounded and cannot be ignored to confirm a write', () => {
@@ -68,7 +71,7 @@ test('documentation keeps capability disabled and explains the narrow definitive
   assert.match(doc, /does not.*enable the `reservation` capability/i);
   assert.match(doc, /definitive no-sell validation failures/i);
   assert.match(doc, /category=VALIDATION/i);
-  assert.match(doc, /1537.*1538.*1539.*1540.*1541.*1542/i);
+  assert.match(doc, /1537.*1547.*13050.*13054.*13083.*13078/is);
   assert.match(doc, /unknown codes.*remain `AMBIGUOUS \/ INVALID_RESPONSE`/i);
   assert.match(doc, /PCI-safe form-of-payment/i);
   assert.match(doc, /does not yet implement that acceptance workflow/i);

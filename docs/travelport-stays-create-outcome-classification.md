@@ -29,7 +29,16 @@ The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider me
 
 The allowlist is intentionally conservative and covers request/offer/traveler/payment/date/property/card/occupancy validation cases whose documented semantics reject the sell rather than leave supplier state unknown. Unknown codes, mixed codes, missing categories, `UNKNOWN`/`RETRY` categories, malformed structures, and unsupported combinations remain `AMBIGUOUS / INVALID_RESPONSE`.
 
-Only payment-card code, expiry, cardholder, card-number, CVV, and card-type validation codes `1537`, `1538`, `1539`, `1540`, `1541`, and `1542` are marked retryable. Travelport documents those as validation failures, and SF's sensitive card material is not part of the durable reservation request fingerprint, so a corrected ephemeral card can safely repeat the full fresh-authority gate. All other definitive validation failures are non-retryable for the existing operation and require a new reviewed reservation request where applicable.
+Automatic retry on the existing operation is narrower than the no-sell allowlist. It is limited to reviewed failures that can be corrected entirely in the server-only ephemeral form-of-payment input without changing the durable reservation or traveler authority:
+
+- payment card code, expiry, holder name, number, CVV, and card type: `1537`-`1542`;
+- payment-card billing address street/city/country/postal/state validation: `1543`-`1547` plus supplier-required billing address code `13050`;
+- form-of-payment telephone required/invalid validation: `13054` and `13083`; and
+- supplier card-type rejection `13078`.
+
+Travelport documents these as `VALIDATION` failures. A corrected ephemeral form of payment may therefore repeat the complete fresh-authority gate, but only after the classifier receives a structurally valid single-code `VALIDATION` response proving the previous sell was rejected. The retry does not reuse old offer/Rules/Availability authority.
+
+Traveler identity and contact validation remain different because the traveler is bound into the durable `reservationPayloadFingerprint`. Codes such as `1533`, `1534`, `1549`, and `1550` are not promoted to payment-correction retry authority. Changing those inputs requires a newly reviewed reservation request rather than mutating the existing operation. All other definitive validation failures are likewise non-retryable for the existing operation unless a future reviewed policy proves a safe correction boundary.
 
 This does not weaken the commercial-write safety rule: retryability is granted only from explicit provider no-sell validation evidence, never from transport failure, generic HTTP status, provider free text, unknown categories, or uncertain supplier responses.
 

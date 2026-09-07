@@ -45,8 +45,11 @@ test('documented validation failures with no-sell semantics settle as definitive
   }
 });
 
-test('card validation rejections are retryable only because Travelport proves no sell occurred', () => {
-  for (const sourceCode of ['1537', '1538', '1539', '1540', '1541', '1542']) {
+test('ephemeral form-of-payment validation rejections are retryable only when Travelport proves no sell occurred', () => {
+  for (const sourceCode of [
+    '1537', '1538', '1539', '1540', '1541', '1542', '1543', '1544', '1545', '1546', '1547',
+    '13050', '13054', '13078', '13083',
+  ]) {
     assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
       httpStatus: 400,
       body: errorResponse([{ sourceCode, category: 'validation' }]),
