@@ -61,7 +61,6 @@ function assertReviewOperation(reservation: Readonly<{
   }
 }
 
-
 function assertIntegrationMatches(
   integration: Readonly<{ id: string; providerCode: string; credentialVersion: number; capabilities: readonly string[]; status?: string }>,
   reservation: Readonly<{ integrationId: string; providerCode: string; integrationCredentialVersion: number }>,
@@ -312,7 +311,7 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
           acceptedPriceChange: accepted.acceptPriceChange,
           acceptedGuaranteeChange: accepted.acceptGuaranteeChange,
           acceptedCurrency: accepted.currency,
-          acceptedTotalMinor: acccepted.acceptedTotalMinor.toString(),
+          acceptedTotalMinor: accepted.acceptedTotalMinor.toString(),
           reviewAttemptSequence: latest.attemptCount,
           acceptanceFingerprint: accepted.acceptanceFingerprint,
         },
