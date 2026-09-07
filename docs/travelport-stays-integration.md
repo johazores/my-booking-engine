@@ -58,7 +58,7 @@ Attempts currently distinguish:
 - `RECONCILE` — read-only known-locator provider truth lookup; and
 - `RECOVERY_WRITE` — external recovery write such as Booking.com Sync.
 
-`SUBMITTING` is used for external write attempts (`CREATE` or `RECOVERY_WRITE`), while `RECONCILING` is reserved for `RECONCILE`.
+`SUBMITTING` is used for external write attempts (`CREATE` or `RECOVERY_WRITE`), while `RECONCILING` is reserved for `RECONCILE`. A definitive Travelport price/guarantee no-sell response transitions the current `CREATE` operation and attempt to `REVIEW_REQUIRED`; that state is terminal for ordinary submission/retry and can be consumed only by a future separately authorized acceptance workflow.
 
 The ledger can retain a known provider locator while ambiguous. It can also retain a supplier confirmation and a bounded opaque `providerRecoveryReference` when the original response proves provider-specific recovery authority.
 
@@ -76,11 +76,11 @@ It accepts freshly mapped offer/traveler/payment authority and an ephemeral sens
 4. reconstructs exact expected Travelport property/stay/occupancy identity;
 5. invokes the executor with attempt UUID as request correlation;
 6. stages verified Booking.com Sync recovery evidence before create settlement when returned; and
-7. settles provider output through the provider-neutral ledger.
+7. settles confirmed/failed/ambiguous output through the provider-neutral ledger or persists documented price/guarantee changes as dedicated `REVIEW_REQUIRED` state.
 
 Pre-provider deterministic failures are retry-safe only because the durable provider-request boundary was never crossed. Once marked, timeout/transport/unexpected uncertainty stays `AMBIGUOUS`; SF never blindly resells.
 
-Price/guarantee changes remain explicit review cases. The initial Create request does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`.
+Price/guarantee changes remain explicit review cases. The initial Create request does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`, and `REVIEW_REQUIRED` is not ordinary retry authority.
 
 The Create coordinator is not exposed and does not establish a PCI-safe card collection source.
 
@@ -164,7 +164,7 @@ Live provider verification still requires provisioned Travelport non-production 
 
 1. Validate SearchComplete → Rules → Availability → Create → Sync selected-rate/receipt/correlation behavior with provisioned Travelport non-production credentials.
 2. Establish and review the PCI-safe form-of-payment/guarantee source for Create.
-3. Implement and live-validate explicit authorized price/guarantee-change acceptance.
+3. Implement and live-validate explicit authorized price/guarantee-change acceptance from the durable `REVIEW_REQUIRED` state.
 4. Validate authoritative `13034`, locator-less negative/correlation, and Sync ambiguity/retry semantics with Travelport non-production/provider support.
 5. Advertise `reservation` only after those commercial write/recovery/payment gates pass, then expose complete customer/staff/API states.
 6. Validate modification, cancellation, multi-room, and other lifecycle capabilities independently.

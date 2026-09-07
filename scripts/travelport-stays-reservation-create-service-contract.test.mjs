@@ -13,24 +13,52 @@ test('Travelport create coordinator uses fresh authority, exact current integrat
   const exactMatch = coordinator.indexOf('assertExecutionIntegrationStillMatches', reload);
   const providerCall = coordinator.indexOf('await execution.reservationCreateExecutor.createReservation', exactMatch);
   const marker = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', providerCall);
-  const map = coordinator.indexOf('travelportStaysCreateOutcomeToSubmissionOutcome', marker);
+  const reviewSettlement = coordinator.indexOf('settleHospitalitySupplierReservationReviewRequired', marker);
+  const map = coordinator.indexOf('travelportStaysCreateOutcomeToSubmissionOutcome', reviewSettlement);
   const settle = coordinator.indexOf('settleHospitalitySupplierReservationSubmission', map);
 
-  assert.ok(review >= 0 && reload > review && exactMatch > reload && providerCall > exactMatch && marker > providerCall && map > marker && settle > map);
+  assert.ok(
+    review >= 0
+      && reload > review
+      && exactMatch > reload
+      && providerCall > exactMatch
+      && marker > providerCall
+      && reviewSettlement > marker
+      && map > reviewSettlement
+      && settle > map,
+  );
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
   assert.match(coordinator, /attemptId: claim\.attempt\.id/);
   assert.match(coordinator, /integration\.credentialVersion !== reservation\.integrationCredentialVersion/);
   assert.match(coordinator, /!integration\.capabilities\.includes\('reservation'\)/);
 });
 
-test('pre-provider failures are retry-safe while any post-marker unexpected failure is ambiguous', () => {
+test('pre-provider retryability is classifier-owned while every post-marker unexpected failure remains ambiguous', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
+  assert.match(coordinator, /classifyHospitalitySupplierPreProviderFailure\(input\.error\)/);
+  assert.match(coordinator, /failureCode: failure\.failureCode/);
+  assert.match(coordinator, /retryable: failure\.retryable/);
   assert.match(coordinator, /if \(!providerRequestStarted\)[\s\S]*?settlePreProviderFailure/);
-  assert.match(coordinator, /status: 'FAILED',[\s\S]*?retryable: true/);
+  assert.doesNotMatch(coordinator, /status: 'FAILED',[\s\S]{0,120}retryable: true/);
   assert.match(coordinator, /providerRequestStarted = true/);
   assert.match(coordinator, /status: 'AMBIGUOUS',[\s\S]*?failureCode: 'INVALID_RESPONSE'/);
   assert.match(coordinator, /observationState\.current\?\.finish\('AMBIGUOUS'\)/);
   assert.match(coordinator, /if \(!providerRequestStarted\) \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted[\s\S]*?postProviderUnexpectedOutcome/);
+});
+
+test('documented price and guarantee changes persist as dedicated review-required state without generic retry authority', () => {
+  const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
+  const reviewService = source('src/server/suppliers/hospitality-supplier-reservation-review-service.ts');
+  const domain = source('src/server/suppliers/hospitality-supplier-reservation-domain.ts');
+
+  assert.match(coordinator, /createOutcome\.status === 'REVIEW_REQUIRED'/);
+  assert.match(coordinator, /settleHospitalitySupplierReservationReviewRequired/);
+  assert.match(reviewService, /providerRequestStartedAt/);
+  assert.match(reviewService, /status: 'REVIEW_REQUIRED'/);
+  assert.match(reviewService, /lastFailureRetryable: null/);
+  assert.match(domain, /input\.status === 'REVIEW_REQUIRED'/);
+  assert.match(domain, /explicit price or guarantee review decision/);
+  assert.doesNotMatch(coordinator, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
 test('sensitive form of payment stays an ephemeral adapter argument and never enters logs or durable metadata', () => {
@@ -57,13 +85,14 @@ test('Travelport reservation identity is shared by create and recovery rather th
   assert.doesNotMatch(recovery, /function decodePropertyReference/);
 });
 
-test('create coordinator documentation keeps PCI and capability activation as explicit blockers', () => {
+test('create coordinator documentation keeps PCI, review acceptance, and capability activation as explicit blockers', () => {
   const document = source('docs/travelport-reservation-create-coordinator.md');
   assert.match(document, /not a card-collection surface/i);
   assert.match(document, /reservation.*remains disabled/i);
   assert.match(document, /provider-request marker/i);
-  assert.match(document, /ambiguous/i);
+  assert.match(document, /REVIEW_REQUIRED/);
   assert.match(document, /PCI-safe/i);
+  assert.match(document, /separately authorized price\/guarantee-change acceptance/i);
 });
 
 test('direct create-path documentation reflects the implemented executor and coordinator without enabling reservation', () => {
