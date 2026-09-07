@@ -12,12 +12,19 @@ const expectedReservation = Object.freeze({
   guests: 2,
 });
 
-function confirmedResponse(input: { includeTravelport?: boolean; warning?: string; propertyCode?: string } = {}) {
+function confirmedResponse(input: {
+  includeTravelport?: boolean;
+  warning?: string;
+  propertyCode?: string;
+  offerAuthority?: string | null;
+  supplierSource?: string;
+} = {}) {
   return {
     ReservationResponse: {
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          ...(input.offerAuthority === null ? {} : { Identifier: { authority: input.offerAuthority ?? 'BKNG' } }),
           Product: [{
             '@type': 'ProductHospitality',
             Quantity: 1,
@@ -29,7 +36,12 @@ function confirmedResponse(input: { includeTravelport?: boolean; warning?: strin
         Receipt: [
           {
             Confirmation: {
-              Locator: { value: 'T9RY0-WQ842', locatorType: 'Confirmation Number', source: 'BO', sourceContext: 'Supplier' },
+              Locator: {
+                value: 'T9RY0-WQ842',
+                locatorType: 'Confirmation Number',
+                source: input.supplierSource ?? 'BO',
+                sourceContext: 'Supplier',
+              },
               OfferStatus: { Status: 'Confirmed' },
             },
           },
@@ -130,7 +142,7 @@ test('source code 13034 always stays ambiguous because provider docs cannot dist
   });
 });
 
-test('documented supplier-confirmed/no-PNR warning retains sync evidence only for the expected stay', () => {
+test('documented supplier-confirmed/no-PNR warning retains complete Booking.com Sync authority only for the expected stay', () => {
   const warning = 'Hotel sell confirmed from supplier. Travelport PNR processing did not complete. Use SYNC message with confirmation number to complete PNR.';
   assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,
@@ -140,6 +152,7 @@ test('documented supplier-confirmed/no-PNR warning retains sync evidence only fo
     status: 'AMBIGUOUS',
     failureCode: 'TRAVELPORT_SYNC_REQUIRED',
     supplierConfirmationReference: 'T9RY0-WQ842',
+    providerRecoveryReference: 'travelport-stays-sync-v1:BKNG:BO',
     providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
   });
 
@@ -149,7 +162,26 @@ test('documented supplier-confirmed/no-PNR warning retains sync evidence only fo
     expectedReservation,
   });
   assert.equal(mismatch.status, 'AMBIGUOUS');
-  if (mismatch.status === 'AMBIGUOUS') assert.equal(mismatch.supplierConfirmationReference, null);
+  if (mismatch.status === 'AMBIGUOUS') {
+    assert.equal(mismatch.supplierConfirmationReference, null);
+    assert.equal(mismatch.providerRecoveryReference, null);
+  }
+});
+
+test('Sync authority stays closed when provider evidence cannot prove Booking.com source, offer authority, or missing PNR', () => {
+  const warning = 'Hotel sell confirmed from supplier. Travelport PNR processing did not complete. Use SYNC message with confirmation number to complete PNR.';
+  for (const body of [
+    confirmedResponse({ includeTravelport: false, warning, offerAuthority: null }),
+    confirmedResponse({ includeTravelport: false, warning, supplierSource: 'XZ' }),
+    confirmedResponse({ warning }),
+  ]) {
+    const result = classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body, expectedReservation });
+    assert.equal(result.status, 'AMBIGUOUS');
+    if (result.status === 'AMBIGUOUS') {
+      assert.equal(result.failureCode, 'TRAVELPORT_SYNC_REQUIRED');
+      assert.equal(result.providerRecoveryReference, null);
+    }
+  }
 });
 
 test('unknown or malformed write outcomes fail closed to ambiguous instead of becoming retryable failures', () => {
@@ -226,7 +258,10 @@ test('sync warning overrides otherwise confirmed-looking evidence and duplicate 
     expectedReservation,
   });
   assert.equal(warned.status, 'AMBIGUOUS');
-  if (warned.status === 'AMBIGUOUS') assert.equal(warned.failureCode, 'TRAVELPORT_SYNC_REQUIRED');
+  if (warned.status === 'AMBIGUOUS') {
+    assert.equal(warned.failureCode, 'TRAVELPORT_SYNC_REQUIRED');
+    assert.equal(warned.providerRecoveryReference, null);
+  }
 
   const duplicate = confirmedResponse();
   duplicate.ReservationResponse.Reservation.Receipt.push({

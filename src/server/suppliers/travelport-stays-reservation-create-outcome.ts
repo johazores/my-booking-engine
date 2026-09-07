@@ -1,3 +1,8 @@
+import {
+  createTravelportStaysSyncRecoveryReference,
+  TravelportStaysSyncRecoveryReferenceError,
+} from './travelport-stays-sync-recovery-reference.ts';
+
 const MAX_REFERENCE_LENGTH = 512;
 const MAX_CORRELATION_LENGTH = 512;
 const MAX_ERRORS = 32;
@@ -5,6 +10,7 @@ const MAX_WARNINGS = 32;
 const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
+const MAX_OFFER_AUTHORITY_LENGTH = 64;
 
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
@@ -50,6 +56,7 @@ export type TravelportStaysReservationCreateOutcome =
       status: 'AMBIGUOUS';
       failureCode: 'TRAVELPORT_SYNC_REQUIRED' | 'INVALID_RESPONSE';
       supplierConfirmationReference: string | null;
+      providerRecoveryReference?: string | null;
       providerCorrelationId: string | null;
     }>;
 
@@ -171,40 +178,49 @@ function validExpectedReservation(expected: TravelportStaysCreateExpectedReserva
     && expected.guests <= 9;
 }
 
-function matchesExpectedReservation(reservation: RecordValue, expected: TravelportStaysCreateExpectedReservation) {
-  if (!validExpectedReservation(expected)) return false;
+function productMatchesExpectedReservation(product: RecordValue, expected: TravelportStaysCreateExpectedReservation) {
+  if (product['@type'] !== 'ProductHospitality') return false;
+  const property = optionalRecord(product.PropertyKey);
+  const dates = optionalRecord(product.DateRange);
+  if (!property || !dates) return false;
+  return boundedText(property.chainCode, 16) === expected.chainCode
+    && boundedText(property.propertyCode, 32) === expected.propertyCode
+    && boundedText(dates.start, 10) === expected.arrivalDateLocal
+    && boundedText(dates.end, 10) === expected.departureDateLocal
+    && product.Quantity === expected.rooms
+    && product.guests === expected.guests;
+}
+
+function matchedOfferEvidence(reservation: RecordValue, expected: TravelportStaysCreateExpectedReservation) {
+  if (!validExpectedReservation(expected)) {
+    return Object.freeze({ matches: 0, offerAuthority: null as string | null });
+  }
   const offers = reservation.Offer;
-  if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) return false;
+  if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
+    return Object.freeze({ matches: 0, offerAuthority: null as string | null });
+  }
   let matches = 0;
+  let offerAuthority: string | null = null;
   for (const offerValue of offers) {
     const offer = optionalRecord(offerValue);
     if (!offer || !Array.isArray(offer.Product) || offer.Product.length > MAX_PRODUCTS_PER_OFFER) continue;
     for (const productValue of offer.Product) {
       const product = optionalRecord(productValue);
-      if (!product || product['@type'] !== 'ProductHospitality') continue;
-      const property = optionalRecord(product.PropertyKey);
-      const dates = optionalRecord(product.DateRange);
-      if (!property || !dates) continue;
-      if (
-        boundedText(property.chainCode, 16) === expected.chainCode
-        && boundedText(property.propertyCode, 32) === expected.propertyCode
-        && boundedText(dates.start, 10) === expected.arrivalDateLocal
-        && boundedText(dates.end, 10) === expected.departureDateLocal
-        && product.Quantity === expected.rooms
-        && product.guests === expected.guests
-      ) matches += 1;
+      if (!product || !productMatchesExpectedReservation(product, expected)) continue;
+      matches += 1;
+      offerAuthority = boundedText(optionalRecord(offer.Identifier)?.authority, MAX_OFFER_AUTHORITY_LENGTH);
     }
   }
-  return matches === 1;
+  return Object.freeze({ matches, offerAuthority });
 }
 
 function confirmedLocatorEvidence(reservation: RecordValue) {
   const receipts = reservation.Receipt;
   if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
-    return Object.freeze({ provider: null, supplier: null });
+    return Object.freeze({ provider: null, supplier: null, supplierSource: null });
   }
   const providers: string[] = [];
-  const suppliers: string[] = [];
+  const suppliers: Array<Readonly<{ reference: string; source: string | null }>> = [];
   for (const receiptValue of receipts) {
     const receipt = optionalRecord(receiptValue);
     const confirmation = optionalRecord(receipt?.Confirmation);
@@ -215,14 +231,43 @@ function confirmedLocatorEvidence(reservation: RecordValue) {
     const locatorType = boundedText(locator?.locatorType, 64);
     if (!reference || !context || status !== 'Confirmed') continue;
     if (context === 'Travelport') providers.push(reference);
-    if (context === 'Supplier' && locatorType === 'Confirmation Number') suppliers.push(reference);
+    if (context === 'Supplier' && locatorType === 'Confirmation Number') {
+      suppliers.push(Object.freeze({ reference, source: boundedText(locator?.source, 16) }));
+    }
   }
   const uniqueProviders = [...new Set(providers)];
-  const uniqueSuppliers = [...new Set(suppliers)];
+  const uniqueSupplierReferences = [...new Set(suppliers.map((supplier) => supplier.reference))];
+  const uniqueSupplierSources = [...new Set(suppliers.map((supplier) => supplier.source).filter((source): source is string => source !== null))];
   return Object.freeze({
     provider: providers.length === 1 && uniqueProviders.length === 1 ? uniqueProviders[0]! : null,
-    supplier: suppliers.length === 1 && uniqueSuppliers.length === 1 ? uniqueSuppliers[0]! : null,
+    supplier: suppliers.length === 1 && uniqueSupplierReferences.length === 1 ? uniqueSupplierReferences[0]! : null,
+    supplierSource: suppliers.length === 1 && uniqueSupplierSources.length === 1 ? uniqueSupplierSources[0]! : null,
   });
+}
+
+function syncRecoveryReference(input: Readonly<{
+  reservationMatches: boolean;
+  providerReservationReference: string | null;
+  supplierConfirmationReference: string | null;
+  supplierSource: string | null;
+  offerAuthority: string | null;
+}>) {
+  if (
+    !input.reservationMatches
+    || input.providerReservationReference
+    || !input.supplierConfirmationReference
+    || !input.supplierSource
+    || !input.offerAuthority
+  ) return null;
+  try {
+    return createTravelportStaysSyncRecoveryReference({
+      offerAuthority: input.offerAuthority,
+      supplierSource: input.supplierSource,
+    });
+  } catch (error) {
+    if (error instanceof TravelportStaysSyncRecoveryReferenceError) return null;
+    throw error;
+  }
 }
 
 function invalidResponse(providerCorrelationId: string | null): TravelportStaysReservationCreateOutcome {
@@ -270,21 +315,30 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
       });
     }
 
-    // A response that carries provider error evidence cannot also prove a safe successful sell.
-    // Unknown or mixed source codes remain ambiguous even if a malformed/hybrid payload also
-    // includes confirmation-looking reservation data.
     return invalidResponse(providerCorrelationId);
   }
 
   const reservation = reservationRecord(input.body);
-  const reservationMatches = reservation ? matchesExpectedReservation(reservation, input.expectedReservation) : false;
-  const locators = reservation ? confirmedLocatorEvidence(reservation) : Object.freeze({ provider: null, supplier: null });
+  const offerEvidence = reservation
+    ? matchedOfferEvidence(reservation, input.expectedReservation)
+    : Object.freeze({ matches: 0, offerAuthority: null as string | null });
+  const reservationMatches = offerEvidence.matches === 1;
+  const locators = reservation
+    ? confirmedLocatorEvidence(reservation)
+    : Object.freeze({ provider: null, supplier: null, supplierSource: null });
   const confirmedWithoutPnr = warnings.messages.includes(CONFIRMED_WITHOUT_PNR_WARNING);
   if (confirmedWithoutPnr) {
     return Object.freeze({
       status: 'AMBIGUOUS',
       failureCode: 'TRAVELPORT_SYNC_REQUIRED',
       supplierConfirmationReference: reservationMatches ? locators.supplier : null,
+      providerRecoveryReference: syncRecoveryReference({
+        reservationMatches,
+        providerReservationReference: locators.provider,
+        supplierConfirmationReference: locators.supplier,
+        supplierSource: locators.supplierSource,
+        offerAuthority: offerEvidence.offerAuthority,
+      }),
       providerCorrelationId,
     });
   }
@@ -298,7 +352,5 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
     });
   }
 
-  // After a commercial POST crossed the provider boundary, an unrecognized or malformed
-  // result cannot prove that no supplier sell occurred. Fail closed to ambiguity.
   return invalidResponse(providerCorrelationId);
 }

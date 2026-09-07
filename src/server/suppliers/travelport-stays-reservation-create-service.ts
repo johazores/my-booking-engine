@@ -8,6 +8,9 @@ import {
 } from './hospitality-supplier-reservation-authority-service.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
+  recordHospitalitySupplierReservationProviderRecoveryEvidence,
+} from './hospitality-supplier-reservation-recovery-evidence-service.ts';
+import {
   settleHospitalitySupplierReservationSubmission,
   type HospitalitySupplierReservationSubmissionOutcome,
 } from './hospitality-supplier-reservation-service.ts';
@@ -186,9 +189,6 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(i
   }
 
   if (!providerRequestStarted) {
-    // Returning a commercial outcome without invoking the protected callback violates the
-    // executor contract. Record conservative provider-request evidence before settlement so a
-    // later crash-recovery pass can never reopen this attempt as a safe blind retry.
     await markHospitalitySupplierReservationProviderRequestStarted({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -207,6 +207,32 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(i
       attemptId: claim.attempt.id,
       outcome: postProviderUnexpectedOutcome(),
     });
+  }
+
+  if (
+    createOutcome.status === 'AMBIGUOUS'
+    && createOutcome.providerRecoveryReference
+    && createOutcome.supplierConfirmationReference
+  ) {
+    try {
+      await recordHospitalitySupplierReservationProviderRecoveryEvidence({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        reservationId: input.reservationId,
+        attemptId: claim.attempt.id,
+        supplierConfirmationReference: createOutcome.supplierConfirmationReference,
+        providerRecoveryReference: createOutcome.providerRecoveryReference,
+      });
+    } catch {
+      observationState.current?.finish('AMBIGUOUS');
+      return settleHospitalitySupplierReservationSubmission({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        reservationId: input.reservationId,
+        attemptId: claim.attempt.id,
+        outcome: postProviderUnexpectedOutcome(),
+      });
+    }
   }
 
   observationState.current?.finish(observationResult(createOutcome.status));
