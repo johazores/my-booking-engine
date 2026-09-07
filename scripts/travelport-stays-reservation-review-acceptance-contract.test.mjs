@@ -46,6 +46,17 @@ test('acceptance performs fresh offer, Rules, Availability, traveler, payment, a
   assert.match(service, /pg_advisory_xact_lock/);
 });
 
+test('durable acceptance and audit persist the same validated commercial decision', () => {
+  const service = source('src/server/suppliers/travelport-stays-reservation-review-acceptance-service.ts');
+  const operationUpdate = service.indexOf('hospitalitySupplierReservationOperation.update');
+  const auditCreate = service.indexOf('auditEvent.create', operationUpdate);
+  const auditTotal = service.indexOf('acceptedTotalMinor: accepted.acceptedTotalMinor.toString()', auditCreate);
+  const auditFingerprint = service.indexOf('acceptanceFingerprint: accepted.acceptanceFingerprint', auditTotal);
+
+  assert.ok(operationUpdate >= 0 && auditCreate > operationUpdate && auditTotal > auditCreate && auditFingerprint > auditTotal);
+  assert.doesNotMatch(service, /\bacccepted\b/);
+});
+
 test('durable acceptance is bounded and cannot become ordinary retry authority', () => {
   const schema = source('prisma/hospitality-supplier-reservations.prisma');
   const migration = source('prisma/migrations/20260907162000_supplier-reservation-review-acceptance/migration.sql');
