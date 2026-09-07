@@ -28,27 +28,35 @@ test('Travelport request material is derived only after fresh submission authori
   assert.match(submission, /return Object\.freeze\(\{ claim, submissionAuthority, travelerAuthority, createRequestMaterial \}\)/);
 });
 
-test('Travelport request material maps only the non-secret reference, traveler and payment instruction', () => {
+test('Travelport request material maps only the non-secret reference, shared traveler and payment instruction', () => {
   const material = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+  const traveler = source('src/server/suppliers/travelport-stays-reservation-traveler-request.ts');
 
   assert.match(material, /BuildFromCatalogOfferingHospitality/);
   assert.match(material, /CatalogOfferingIdentifier/);
-  assert.match(material, /PersonName/);
-  assert.match(material, /countryAccessCode/);
-  assert.match(material, /areaCityCode/);
-  assert.match(material, /phoneNumber/);
+  assert.match(material, /buildTravelportStaysReservationTravelerRequest/);
+  assert.match(traveler, /PersonName/);
+  assert.match(traveler, /countryAccessCode/);
+  assert.match(traveler, /areaCityCode/);
+  assert.match(traveler, /phoneNumber/);
   assert.match(material, /moneyMinorToMajorString/);
   assert.match(material, /guaranteeInd/);
   assert.match(material, /depositInd/);
-  assert.doesNotMatch(material, /CardNumber|SeriesCode|PlainText|CardHolderName|FormOfPayment/);
+  for (const productionSource of [material, traveler]) {
+    assert.doesNotMatch(productionSource, /CardNumber|SeriesCode|PlainText|CardHolderName|FormOfPayment/);
+  }
 });
 
-test('Travelport-specific traveler truncation is rejected rather than changing durable traveler authority', () => {
-  const material = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+test('shared Travelport traveler mapping rejects truncation rather than changing durable traveler authority', () => {
+  const traveler = source('src/server/suppliers/travelport-stays-reservation-traveler-request.ts');
+  const createMaterial = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+  const syncDomain = source('src/server/suppliers/travelport-stays-reservation-sync-domain.ts');
   const travelerDoc = source('docs/supplier-reservation-traveler-authority.md');
 
-  assert.match(material, /MAX_TRAVELPORT_PERSON_NAME_LENGTH = 22/);
-  assert.match(material, /firstName\.length \+ traveler\.lastName\.length > MAX_TRAVELPORT_PERSON_NAME_LENGTH/);
+  assert.match(traveler, /MAX_TRAVELPORT_PERSON_NAME_LENGTH = 22/);
+  assert.match(traveler, /firstName\.length \+ traveler\.lastName\.length > MAX_TRAVELPORT_PERSON_NAME_LENGTH/);
+  assert.match(createMaterial, /buildTravelportStaysReservationTravelerRequest/);
+  assert.match(syncDomain, /buildTravelportStaysReservationTravelerRequest/);
   assert.match(travelerDoc, /22 characters/i);
   assert.match(travelerDoc, /fail[^\n]*closed/i);
   assert.match(travelerDoc, /not truncate/i);
