@@ -113,7 +113,7 @@ Any post-marker uncertainty returns to `AMBIGUOUS`, preserves recovery evidence,
 
 ## Travelport Booking.com Sync
 
-`TravelportStaysReservationSyncExecutor` implements Travelport's fixed v11 `POST book/reservations/` Sync endpoint using only retained recovery authority, verified Booking.com confirmation/source, and the authorized primary traveler email.
+`TravelportStaysReservationSyncExecutor` implements Travelport's fixed v11 `POST book/reservations/` Sync endpoint using retained recovery authority, the verified Booking.com confirmation/source, and the complete primary traveler identity/contact authority already bound to the durable reservation payload fingerprint.
 
 `syncTravelportStaysBookingDotComReservation` rebinds the traveler fingerprint, claims `RECOVERY_WRITE`, reloads exact tenant integration authority, constructs the expected stay identity, completes OAuth before the provider marker, sends Sync only after the marker, and confirms only when the response proves:
 
