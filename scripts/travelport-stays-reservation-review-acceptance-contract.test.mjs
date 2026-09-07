@@ -94,6 +94,7 @@ test('documentation reflects implemented review acceptance and Sync while keepin
   const acceptanceDocs = source('docs/supplier-reservation-review-acceptance.md');
   const integrationDocs = source('docs/travelport-stays-integration.md');
   const responseDocs = source('docs/travelport-reservation-response-evidence.md');
+  const roadmap = source('docs/product-roadmap.md');
 
   assert.match(acceptanceDocs, /second-request query parameters/);
   assert.match(acceptanceDocs, /does not enable a second supplier write/);
@@ -108,4 +109,9 @@ test('documentation reflects implemented review acceptance and Sync while keepin
   assert.match(responseDocs, /TravelportStaysReservationSyncExecutor/);
   assert.match(responseDocs, /acceptTravelportStaysReservationCommercialReview/);
   assert.doesNotMatch(responseDocs, /Sync itself remains unimplemented/);
+
+  assert.match(roadmap, /current server-only single-room Create coordinator/);
+  assert.match(roadmap, /Booking\.com Sync coordinator/);
+  assert.match(roadmap, /accepted decision is not yet consumed into Travelport's documented second Create request/);
+  assert.match(roadmap, /one-time accepted-review second-write consumption path/);
 });
