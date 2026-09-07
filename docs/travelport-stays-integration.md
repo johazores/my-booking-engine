@@ -4,7 +4,7 @@
 
 `travelport-stays` is SF's first production external hospitality supplier boundary. The implemented read path covers SearchComplete discovery, exact-money pricing/revalidation, Rules normalization, selected-offer Availability authority, encrypted credentials/OAuth, health checks, and known-locator reservation Retrieve.
 
-The server-only write infrastructure now also contains a single-room Create Reservation executor/coordinator and a Booking.com Sync recovery-write executor/coordinator. Both remain deliberately unreachable while the integration does not advertise `reservation`. No customer/staff reserve action, modification, cancellation, refund, or public booking route calls Travelport writes.
+The server-only write infrastructure also contains a single-room Create Reservation executor/coordinator, a Booking.com Sync recovery-write executor/coordinator, and a durable commercial-review acceptance decision boundary. These remain deliberately unreachable from product flows while the integration does not advertise `reservation`. No customer/staff reserve action, modification, cancellation, refund, or public booking route calls Travelport writes.
 
 ## Provider identity and tenant ownership
 
@@ -12,7 +12,7 @@ Every Travelport integration belongs to one organization. Integration administra
 
 The browser cannot choose a provider capability list or bypass tenant ownership. Supplier reservation operations require `booking:manage`, exact organization scope, a currently active integration, the same provider code, and the credential version captured when the operation was prepared.
 
-The configured capability list remains read-only: `availability`, `hotel-search`, and `pricing`. `reservation`, `modification`, `cancellation`, `refund`, `ticketing`, and flight capabilities are not advertised. Because `reservation` is disabled, the Create and Sync coordinators are not product-reachable.
+The configured capability list remains read-only: `availability`, `hotel-search`, and `pricing`. `reservation`, `modification`, `cancellation`, `refund`, `ticketing`, and flight capabilities are not advertised. Because `reservation` is disabled, the Create, Sync, and commercial-review acceptance coordinators are not product-reachable.
 
 ## Credentials, endpoints, and OAuth
 
@@ -58,7 +58,7 @@ Attempts currently distinguish:
 - `RECONCILE` — read-only known-locator provider truth lookup; and
 - `RECOVERY_WRITE` — external recovery write such as Booking.com Sync.
 
-`SUBMITTING` is used for external write attempts (`CREATE` or `RECOVERY_WRITE`), while `RECONCILING` is reserved for `RECONCILE`. A definitive Travelport price/guarantee no-sell response transitions the current `CREATE` operation and attempt to `REVIEW_REQUIRED`; that state is terminal for ordinary submission/retry and can be consumed only by a future separately authorized acceptance workflow.
+`SUBMITTING` is used for external write attempts (`CREATE` or `RECOVERY_WRITE`), while `RECONCILING` is reserved for `RECONCILE`. A definitive Travelport price/guarantee no-sell response transitions the current `CREATE` operation and attempt to `REVIEW_REQUIRED`. That state remains terminal for ordinary submission/retry. A separate tenant-authorized acceptance service can persist one explicit actor decision only after rechecking the exact durable provider-write attempt plus fresh offer, Rules, Availability, traveler, integration, and payment authority. The accepted decision is not yet consumed into a second provider write.
 
 The ledger can retain a known provider locator while ambiguous. It can also retain a supplier confirmation and a bounded opaque `providerRecoveryReference` when the original response proves provider-specific recovery authority.
 
@@ -80,7 +80,7 @@ It accepts freshly mapped offer/traveler/payment authority and an ephemeral sens
 
 Pre-provider deterministic failures are retry-safe only because the durable provider-request boundary was never crossed. Once marked, timeout/transport/unexpected uncertainty stays `AMBIGUOUS`; SF never blindly resells.
 
-Price/guarantee changes remain explicit review cases. The initial Create request does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`, and `REVIEW_REQUIRED` is not ordinary retry authority.
+Price/guarantee changes remain explicit review cases. The initial Create request does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`, and `REVIEW_REQUIRED` is not ordinary retry authority. `acceptTravelportStaysReservationCommercialReview` now persists an explicit non-secret decision after the current review attempt and fresh commercial authority are revalidated, but it intentionally does not issue or authorize the second Create request.
 
 The Create coordinator is not exposed and does not establish a PCI-safe card collection source.
 
@@ -154,7 +154,7 @@ Structured provider observations are strict allowlists containing organization U
 
 ## Validation boundary
 
-The source suite covers Travelport configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, supplier reservation idempotency/tenant scope, response evidence, known-locator recovery, Create request/executor/coordinator behavior, crash-safe provider markers, Sync recovery-authority persistence, `RECOVERY_WRITE` lease/replay rules, shared Create/Sync traveler mapping, Sync request construction, Sync outcome verification, and privacy/source-order contracts.
+The source suite covers Travelport configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, supplier reservation idempotency/tenant scope, response evidence, known-locator recovery, Create request/executor/coordinator behavior, crash-safe provider markers, Sync recovery-authority persistence, `RECOVERY_WRITE` lease/replay rules, shared Create/Sync traveler mapping, Sync request construction, Sync outcome verification, review-required settlement, durable review-attempt evidence, explicit review-decision persistence/fresh-authority ordering, and privacy/source-order contracts.
 
 A guarded PostgreSQL recovery-write scenario is registered under `npm run test:database` to validate retry-safe pre-provider failure, marker-based replay denial, traveler fingerprint binding, matching supplier-confirmation settlement, and recovery-reference clearing on success.
 
@@ -164,7 +164,7 @@ Live provider verification still requires provisioned Travelport non-production 
 
 1. Validate SearchComplete → Rules → Availability → Create → Sync selected-rate/receipt/correlation behavior with provisioned Travelport non-production credentials.
 2. Establish and review the PCI-safe form-of-payment/guarantee source for Create.
-3. Implement and live-validate explicit authorized price/guarantee-change acceptance from the durable `REVIEW_REQUIRED` state.
+3. Implement the one-time claim/consumption and second Create execution that can consume an already persisted `REVIEW_REQUIRED` acceptance, send only the applicable documented acceptance flag(s), preserve the provider-request/ambiguity/recovery guarantees, and then live-validate that path.
 4. Validate authoritative `13034`, locator-less negative/correlation, and Sync ambiguity/retry semantics with Travelport non-production/provider support.
 5. Advertise `reservation` only after those commercial write/recovery/payment gates pass, then expose complete customer/staff/API states.
 6. Validate modification, cancellation, multi-room, and other lifecycle capabilities independently.
