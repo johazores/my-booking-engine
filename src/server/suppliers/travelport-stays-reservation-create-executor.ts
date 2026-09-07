@@ -20,7 +20,14 @@ const ENDPOINTS = Object.freeze({
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
 const MAX_CARD_HOLDER_NAME_LENGTH = 160;
-const MAX_CARD_CODE_LENGTH = 16;
+const MAX_CARD_CODE_LENGTH = 2;
+const MAX_BILLING_ADDRESS_LINE_LENGTH = 256;
+const MAX_BILLING_CITY_LENGTH = 128;
+const MAX_BILLING_STATE_LENGTH = 64;
+const MAX_BILLING_POSTAL_CODE_LENGTH = 32;
+const MAX_PAYMENT_PHONE_AREA_LENGTH = 16;
+const MAX_PAYMENT_PHONE_NUMBER_LENGTH = 32;
+const MAX_PAYMENT_PHONE_CITY_CODE_LENGTH = 8;
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
@@ -32,6 +39,19 @@ export type TravelportStaysSensitiveReservationPaymentCard = Readonly<{
   expireDate: string;
   cardNumber: string;
   securityCode: string;
+  billingAddress?: Readonly<{
+    addressLine: string;
+    city: string;
+    stateProvince?: string;
+    countryCode: string;
+    postalCode: string;
+  }>;
+  telephone?: Readonly<{
+    countryAccessCode: string;
+    areaCityCode: string;
+    phoneNumber: string;
+    cityCode?: string;
+  }>;
 }>;
 
 export type TravelportStaysReservationCreateRequest = Readonly<{
@@ -57,6 +77,21 @@ export type TravelportStaysReservationCreateRequest = Readonly<{
             '@type': 'SeriesCode';
             PlainText: string;
           }>;
+          Address?: Readonly<{
+            '@type': 'AddressDetail';
+            AddressLine: readonly [string];
+            City: string;
+            StateProv?: Readonly<{ value: string }>;
+            Country: Readonly<{ value: string }>;
+            PostalCode: string;
+          }>;
+          Telephone?: readonly [Readonly<{
+            '@type': 'TelephoneDetail';
+            countryAccessCode: string;
+            areaCityCode: string;
+            phoneNumber: string;
+            cityCode?: string;
+          }>];
         }>;
       }>];
       Payment: TravelportStaysReservationCreateRequestMaterial['Payment'];
@@ -83,6 +118,11 @@ function boundedSingleLine(value: unknown, label: string, max: number) {
     invalidRequest(`${label} is invalid.`);
   }
   return normalized;
+}
+
+function optionalBoundedSingleLine(value: unknown, label: string, max: number) {
+  if (value === undefined || value === null || value === '') return null;
+  return boundedSingleLine(value, label, max);
 }
 
 function validLocalDate(value: unknown) {
@@ -152,15 +192,65 @@ function assertPaymentAuthorityMatchesRequestMaterial(
   }
 }
 
+function normalizeBillingAddress(value: TravelportStaysSensitiveReservationPaymentCard['billingAddress']) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    invalidRequest('Travelport payment card billing address is invalid.');
+  }
+  const addressLine = boundedSingleLine(value.addressLine, 'Travelport payment card billing address line', MAX_BILLING_ADDRESS_LINE_LENGTH);
+  const city = boundedSingleLine(value.city, 'Travelport payment card billing city', MAX_BILLING_CITY_LENGTH);
+  const countryCode = boundedSingleLine(value.countryCode, 'Travelport payment card billing country code', 2);
+  const postalCode = boundedSingleLine(value.postalCode, 'Travelport payment card billing postal code', MAX_BILLING_POSTAL_CODE_LENGTH);
+  const stateProvince = optionalBoundedSingleLine(value.stateProvince, 'Travelport payment card billing state or province', MAX_BILLING_STATE_LENGTH);
+  if (!/^[A-Z]{2}$/.test(countryCode)) invalidRequest('Travelport payment card billing country code is invalid.');
+
+  return Object.freeze({
+    '@type': 'AddressDetail' as const,
+    AddressLine: Object.freeze([addressLine]) as readonly [string],
+    City: city,
+    ...(stateProvince ? { StateProv: Object.freeze({ value: stateProvince }) } : {}),
+    Country: Object.freeze({ value: countryCode }),
+    PostalCode: postalCode,
+  });
+}
+
+function normalizePaymentTelephone(value: TravelportStaysSensitiveReservationPaymentCard['telephone']) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    invalidRequest('Travelport payment card telephone is invalid.');
+  }
+  const countryAccessCode = boundedSingleLine(value.countryAccessCode, 'Travelport payment card telephone country access code', 4);
+  const areaCityCode = boundedSingleLine(value.areaCityCode, 'Travelport payment card telephone area or city code', MAX_PAYMENT_PHONE_AREA_LENGTH);
+  const phoneNumber = boundedSingleLine(value.phoneNumber, 'Travelport payment card telephone number', MAX_PAYMENT_PHONE_NUMBER_LENGTH);
+  const cityCode = optionalBoundedSingleLine(value.cityCode, 'Travelport payment card telephone city code', MAX_PAYMENT_PHONE_CITY_CODE_LENGTH);
+  if (!/^\d{1,4}$/.test(countryAccessCode) || !/^[A-Za-z0-9 .-]+$/.test(areaCityCode) || !/^[A-Za-z0-9 .-]+$/.test(phoneNumber)) {
+    invalidRequest('Travelport payment card telephone is invalid.');
+  }
+  if (cityCode && !/^[A-Za-z0-9]{1,8}$/.test(cityCode)) invalidRequest('Travelport payment card telephone city code is invalid.');
+
+  return Object.freeze({
+    '@type': 'TelephoneDetail' as const,
+    countryAccessCode,
+    areaCityCode,
+    phoneNumber,
+    ...(cityCode ? { cityCode } : {}),
+  });
+}
+
 function normalizePaymentCard(
   input: TravelportStaysSensitiveReservationPaymentCard,
   authority: HospitalitySupplierReservationPaymentAuthority,
+  validThroughDateLocal: string | undefined,
   now: Date,
 ) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) invalidRequest('Travelport payment card is required.');
   if (!authority || typeof authority !== 'object' || Array.isArray(authority)) invalidRequest('Travelport payment authority is required.');
+  if (validThroughDateLocal !== undefined && !validLocalDate(validThroughDateLocal)) {
+    invalidRequest('Travelport reservation card-valid-through date is invalid.');
+  }
 
   const cardCode = boundedSingleLine(input.cardCode, 'Travelport payment card code', MAX_CARD_CODE_LENGTH);
+  if (!/^[A-Z0-9]{1,2}$/.test(cardCode)) invalidRequest('Travelport payment card code is invalid.');
   if (!Array.isArray(authority.acceptedPaymentCardCodes) || !authority.acceptedPaymentCardCodes.includes(cardCode)) {
     invalidRequest('Travelport payment card is not accepted by the freshly reviewed supplier terms.');
   }
@@ -176,9 +266,19 @@ function normalizePaymentCard(
   const year = 2000 + Number(input.expireDate.slice(2, 4));
   if (month < 1 || month > 12 || !Number.isFinite(now.getTime())) invalidRequest('Travelport payment card expiry is invalid.');
   const expiryBoundary = new Date(Date.UTC(year, month, 1));
+  const requiredThrough = validThroughDateLocal
+    ? new Date(`${validThroughDateLocal}T00:00:00.000Z`)
+    : now;
   if (expiryBoundary.getTime() <= now.getTime()) invalidRequest('Travelport payment card is expired.');
-  if (!/^\d{8,19}$/.test(input.cardNumber)) invalidRequest('Travelport payment card number is invalid.');
+  if (expiryBoundary.getTime() <= requiredThrough.getTime()) {
+    invalidRequest('Travelport payment card expires before the reservation stay is complete.');
+  }
+  if (!/^\d{8,19}$/.test(input.cardNumber)) {
+    invalidRequest('Travelport payment card number is invalid.');
+  }
   if (!/^\d{3,4}$/.test(input.securityCode)) invalidRequest('Travelport payment card security code is invalid.');
+  const address = normalizeBillingAddress(input.billingAddress);
+  const telephone = normalizePaymentTelephone(input.telephone);
 
   return Object.freeze({
     '@type': 'FormOfPaymentPaymentCard' as const,
@@ -190,6 +290,8 @@ function normalizePaymentCard(
       CardHolderName: cardHolderName,
       CardNumber: Object.freeze({ '@type': 'CardNumber' as const, PlainText: input.cardNumber }),
       SeriesCode: Object.freeze({ '@type': 'SeriesCode' as const, PlainText: input.securityCode }),
+      ...(address ? { Address: address } : {}),
+      ...(telephone ? { Telephone: Object.freeze([telephone]) as readonly [typeof telephone] } : {}),
     }),
   });
 }
@@ -198,10 +300,16 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
   requestMaterial: TravelportStaysReservationCreateRequestMaterial;
   paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
   paymentCard: TravelportStaysSensitiveReservationPaymentCard;
+  validThroughDateLocal?: string;
   now?: Date;
 }>): TravelportStaysReservationCreateRequest {
   assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
-  const formOfPayment = normalizePaymentCard(input.paymentCard, input.paymentAuthority, input.now ?? new Date());
+  const formOfPayment = normalizePaymentCard(
+    input.paymentCard,
+    input.paymentAuthority,
+    input.validThroughDateLocal,
+    input.now ?? new Date(),
+  );
   return Object.freeze({
     ReservationQueryBuild: Object.freeze({
       '@type': 'ReservationQueryBuild' as const,
@@ -285,6 +393,7 @@ export class TravelportStaysReservationCreateExecutor {
       requestMaterial: input.requestMaterial,
       paymentAuthority: input.paymentAuthority,
       paymentCard: input.paymentCard,
+      validThroughDateLocal: input.expectedReservation.departureDateLocal,
       now: this.#now(),
     });
     const accessToken = await this.#accessToken();

@@ -17,8 +17,25 @@ test('Travelport create executor keeps sensitive card material inside the server
   assert.match(executor, /moneyMinorToMajorString/);
   assert.match(executor, /assertExpectedReservation/);
   assert.match(executor, /SeriesCode/);
+  assert.match(executor, /AddressDetail/);
+  assert.match(executor, /TelephoneDetail/);
+  assert.match(executor, /\\d\{8,19\}/);
+  assert.match(executor, /validThroughDateLocal: input\.expectedReservation\.departureDateLocal/);
   assert.doesNotMatch(executor, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
   assert.doesNotMatch(executor, /\bdb\.|auditEvent|console\.|logger\.|structuredLog/i);
+});
+
+test('Travelport create validates optional billing and payment-phone details before the provider marker', () => {
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
+  const normalizeIndex = executor.indexOf('const address = normalizeBillingAddress(input.billingAddress)');
+  const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest');
+  const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()');
+  const markerIndex = executor.indexOf('await input.beforeProviderRequest()');
+  assert.ok(normalizeIndex >= 0 && requestIndex > normalizeIndex && tokenIndex > requestIndex && markerIndex > tokenIndex);
+  assert.match(executor, /MAX_CARD_CODE_LENGTH = 2/);
+  assert.match(executor, /expires before the reservation stay is complete/);
+  assert.match(executor, /billing country code/);
+  assert.match(executor, /payment card telephone/);
 });
 
 test('OAuth and request composition finish before the durable marker, and provider I/O starts only after it', () => {
@@ -30,6 +47,23 @@ test('OAuth and request composition finish before the durable marker, and provid
   assert.ok(requestIndex >= 0 && tokenIndex > requestIndex && markerIndex > tokenIndex && fetchIndex > markerIndex);
   assert.match(executor, /status: 'AMBIGUOUS'/);
   assert.match(executor, /failureCode: 'INVALID_RESPONSE'/);
+});
+
+
+test('Travelport sensitive form-of-payment documentation stays server-only and fail-closed', () => {
+  const readiness = source('docs/supplier-reservation-create-readiness.md');
+  const coordinator = source('docs/travelport-reservation-create-coordinator.md');
+  for (const doc of [readiness, coordinator]) {
+    assert.match(doc, /PCI/i);
+    assert.match(doc, /reservation.*disabled/i);
+    assert.match(doc, /billing address|billing-address/i);
+    assert.match(doc, /telephone/i);
+    assert.match(doc, /not.*(?:collection|browser|route|API)|no route/i);
+  }
+  assert.match(readiness, /one-to-two-character provider card code/i);
+  assert.match(readiness, /departure date/i);
+  assert.match(coordinator, /only `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, and `TIMEOUT`/);
+  assert.doesNotMatch(readiness, /acceptPriceChangeInd=true|acceptGuaranteeChangeInd=true/);
 });
 
 test('integration constructs the executor without advertising reservation capability', () => {
