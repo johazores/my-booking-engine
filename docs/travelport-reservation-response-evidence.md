@@ -4,7 +4,7 @@
 
 SF has provider-specific response boundaries for durable Travelport Stays reservation evidence. Known-locator Hotel Retrieve uses `parseTravelportStaysReservationResponse`; Create Reservation uses the stricter commercial-write classifier in `travelport-stays-reservation-create-outcome.ts`, which also validates the returned property/stay/occupancy identity and write-specific error/warning semantics.
 
-These boundaries do not expose a browser route, staff/customer reserve action, cancellation action, or public supplier-write API. Travelport `reservation` remains disabled until the outstanding payment, live-provider, explicit-change-acceptance, and Sync execution gates are complete.
+These boundaries do not expose a browser route, staff/customer reserve action, cancellation action, or public supplier-write API. Travelport `reservation` remains disabled until the outstanding PCI-safe payment source, live-provider verification, one-time accepted-change consumption/second-write, and locator-less recovery gates are complete.
 
 ## Normalized Retrieve evidence
 
@@ -36,15 +36,23 @@ Known-locator reconciliation identity-binds both possible provider-truth outcome
 
 ## Booking.com Sync recovery authority
 
-For the documented supplier-confirmed/no-PNR warning path, the Create classifier can now retain the non-secret Travelport authority required for a future Sync attempt. It does so only when the same response proves the exact durable reservation match, exactly one confirmed supplier confirmation, no Travelport locator, Booking.com supplier source `BO`, and a bounded matching-offer `Identifier.authority` from Travelport. The adapter converts only that provider-owned authority into a versioned opaque `providerRecoveryReference`; traveler, payment, credential, request-body, and response-body data are not stored in it.
+For the documented supplier-confirmed/no-PNR warning path, the Create classifier retains the non-secret Travelport authority required for a bounded Sync attempt only when the same response proves the exact durable reservation match, exactly one confirmed supplier confirmation, no Travelport locator, Booking.com supplier source `BO`, and a bounded matching-offer `Identifier.authority` from Travelport. The adapter converts only that provider-owned authority into a versioned opaque `providerRecoveryReference`; traveler, payment, credential, request-body, and response-body data are not stored in it.
 
 The separate `13034` timeout remains `AMBIGUOUS / TRAVELPORT_SYNC_REQUIRED` but does not invent a supplier confirmation or Sync authority. Travelport documents that this timeout can represent either no Booking.com sell or a completed Booking.com sell, so the error response alone is insufficient to authorize an automatic Sync or a retry.
 
 The Create coordinator stages complete Sync recovery evidence only after the durable provider-request marker exists and before final settlement. The staging transaction rechecks `booking:manage`, tenant ownership, the current `CREATE` attempt, and the provider-request marker. An exact replay is idempotent; conflicting evidence fails closed. Audit metadata records only that recovery evidence was staged, not the raw supplier confirmation or provider recovery reference.
 
-Sync itself remains unimplemented. A future Sync coordinator must separately re-bind authorized traveler/contact data to the reservation payload fingerprint, create its own durable external-write attempt and provider-request marker, send only the validated Booking.com confirmation/provider authority, and verify the Sync response against the durable property/stay/occupancy plus exactly one Travelport locator before confirmation. It must not re-sell the hotel segment.
+`TravelportStaysReservationSyncExecutor` and `syncTravelportStaysBookingDotComReservation` implement the server-only Booking.com recovery write. The coordinator rebinds the complete primary traveler to the durable reservation-payload fingerprint, claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, reloads the exact integration/credential version, marks its own durable provider-request boundary, and sends only the validated Booking.com supplier confirmation/provider authority plus the required traveler data. It does not send form-of-payment or perform another hotel sell.
+
+Sync confirms only when the response proves the exact expected property/stay/occupancy, the original supplier confirmation, and one Travelport locator. Pre-provider failures can be retried only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`, including crash/lease recovery. Successful Sync clears the provider recovery reference. Ambiguous Sync retains recovery evidence for manual or provider-supported resolution without converting it into automatic replay authority.
 
 The detailed persistence contract is documented in `docs/travelport-booking-sync-recovery-authority.md`.
+
+## Commercial review evidence
+
+A definitive Travelport price and/or guarantee no-sell response is persisted as `REVIEW_REQUIRED`, not as a generic retryable failure. The current `CREATE` attempt must retain matching `REVIEW_REQUIRED` status, normalized review reason, durable provider-request marker, and completion timestamp before SF can accept a commercial-review decision.
+
+`acceptTravelportStaysReservationCommercialReview` is tenant-authorized and server-only. It repeats fresh offer, Rules, Availability, traveler, integration, and payment authority, then persists only bounded non-secret acceptance evidence plus an audit event. The operation deliberately stays `REVIEW_REQUIRED`, so normal submission remains blocked. The accepted decision does not yet authorize or execute Travelport's documented second Create request; that still requires a dedicated one-time claim/consumption boundary and exact acceptance-query execution.
 
 ## Cancellation boundary
 
@@ -52,9 +60,9 @@ The supplier confirmation reference is durable evidence for future lifecycle wor
 
 ## Validation
 
-Dependency-free and focused tests cover confirmed response evidence, known-locator matching, supplier locator-type semantics, non-confirmed rejection, locator/reference cardinality, unsafe provider strings, privacy minimization, coordinator exact-locator gating, ledger-level `FOUND`/`NOT_FOUND` identity enforcement, ambiguous supplier-confirmation persistence, Booking.com Sync recovery-reference normalization, complete-versus-incomplete Sync authority classification, post-marker recovery-evidence staging order, tenant/authorization checks, and audit privacy.
+Dependency-free and focused tests cover confirmed response evidence, known-locator matching, supplier locator-type semantics, non-confirmed rejection, locator/reference cardinality, unsafe provider strings, privacy minimization, coordinator exact-locator gating, ledger-level `FOUND`/`NOT_FOUND` identity enforcement, ambiguous supplier-confirmation persistence, Booking.com Sync recovery-reference normalization, complete-versus-incomplete Sync authority classification, post-marker recovery-evidence staging order, tenant/authorization checks, Sync request/outcome behavior, durable review-attempt evidence, authorized commercial-review decision persistence, and audit privacy.
 
-A guarded PostgreSQL scenario covers locator-less denial, known-locator `FOUND`, supplier confirmation durability, transient recovery retry, authoritative provider-neutral `NOT_FOUND` clearing, direct mismatched settlement rejection, mismatched provider `FOUND`/`NOT_FOUND` results remaining ambiguous, and cross-tenant provider-I/O suppression when a disposable database target is available. The new Sync recovery-authority migration has source-level contract coverage but still requires execution against an explicitly disposable PostgreSQL target before database validation can be claimed.
+A guarded PostgreSQL scenario covers locator-less denial, known-locator `FOUND`, supplier confirmation durability, transient recovery retry, authoritative provider-neutral `NOT_FOUND` clearing, direct mismatched settlement rejection, mismatched provider `FOUND`/`NOT_FOUND` results remaining ambiguous, and cross-tenant provider-I/O suppression when a disposable database target is available. The Sync recovery-authority and review-acceptance migrations have source-level contract coverage but still require execution against an explicitly disposable PostgreSQL target before database validation can be claimed.
 
 Live Create Reservation and Sync validation remain blocked on provisioned Travelport non-production credentials and a reviewed PCI-safe form-of-payment/guarantee strategy. No source-only test is claimed as live-provider evidence.
 
