@@ -6,7 +6,9 @@ import {
 import {
   reviewAndClaimHospitalitySupplierReservationSubmission,
 } from './hospitality-supplier-reservation-authority-service.ts';
-import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import {
+  classifyHospitalitySupplierPreProviderFailure,
+} from './hospitality-supplier-pre-provider-failure.ts';
 import {
   recordHospitalitySupplierReservationProviderRecoveryEvidence,
 } from './hospitality-supplier-reservation-recovery-evidence-service.ts';
@@ -26,8 +28,6 @@ import {
 import {
   travelportStaysCreateOutcomeToSubmissionOutcome,
 } from './travelport-stays-reservation-submission-outcome.ts';
-
-const PRE_PROVIDER_EXECUTION_FAILURE_CODE = 'PRE_PROVIDER_EXECUTION_FAILED';
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -58,12 +58,6 @@ function assertExecutionIntegrationStillMatches(
   }
 }
 
-function preProviderFailureCode(error: unknown) {
-  return error instanceof HospitalitySupplierProviderError
-    ? error.code
-    : PRE_PROVIDER_EXECUTION_FAILURE_CODE;
-}
-
 async function settlePreProviderFailure(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -71,6 +65,7 @@ async function settlePreProviderFailure(input: Readonly<{
   attemptId: string;
   error: unknown;
 }>) {
+  const failure = classifyHospitalitySupplierPreProviderFailure(input.error);
   return settleHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,
@@ -78,8 +73,8 @@ async function settlePreProviderFailure(input: Readonly<{
     attemptId: input.attemptId,
     outcome: {
       status: 'FAILED',
-      failureCode: preProviderFailureCode(input.error),
-      retryable: true,
+      failureCode: failure.failureCode,
+      retryable: failure.retryable,
     },
   });
 }
