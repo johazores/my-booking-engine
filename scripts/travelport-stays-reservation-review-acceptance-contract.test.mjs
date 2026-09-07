@@ -42,6 +42,8 @@ test('acceptance performs fresh offer, Rules, Availability, traveler, payment, a
   );
   assert.match(service, /integration\.credentialVersion !== reservation\.integrationCredentialVersion/);
   assert.match(service, /!integration\.capabilities\.includes\('reservation'\)/);
+  assert.match(service, /finalAuthority\.offer\.supplierPropertyReference !== reservation\.supplierPropertyReference/);
+  assert.match(service, /finalAuthority\.offer\.supplierOfferReference !== reservation\.supplierOfferReference/);
   assert.match(service, /isolationLevel: 'Serializable'/);
   assert.match(service, /pg_advisory_xact_lock/);
 });
