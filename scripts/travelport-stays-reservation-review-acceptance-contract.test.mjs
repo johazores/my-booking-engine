@@ -92,28 +92,30 @@ test('durable acceptance is bounded and cannot become ordinary retry authority',
   assert.doesNotMatch(createCoordinator, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('documentation reflects implemented review acceptance and Sync while keeping the second sell closed', () => {
+test('documentation reflects implemented review consumption while keeping product activation closed', () => {
   const acceptanceDocs = source('docs/supplier-reservation-review-acceptance.md');
   const integrationDocs = source('docs/travelport-stays-integration.md');
   const responseDocs = source('docs/travelport-reservation-response-evidence.md');
   const roadmap = source('docs/product-roadmap.md');
 
   assert.match(acceptanceDocs, /second-request query parameters/);
-  assert.match(acceptanceDocs, /does not enable a second supplier write/);
+  assert.match(acceptanceDocs, /one-time consumption and second Create/i);
+  assert.match(acceptanceDocs, /HospitalitySupplierReservationReviewAcceptanceHistory/);
   assert.match(acceptanceDocs, /PCI-safe FormOfPayment/);
-  assert.match(acceptanceDocs, /normal submission therefore stays blocked/);
+  assert.match(acceptanceDocs, /Normal retry must never/i);
 
-  assert.match(integrationDocs, /acceptTravelportStaysReservationCommercialReview/);
-  assert.match(integrationDocs, /accepted decision is not yet consumed into a second provider write/i);
-  assert.match(integrationDocs, /one-time claim\/consumption and second Create execution/);
-  assert.doesNotMatch(integrationDocs, /Implement and live-validate explicit authorized price\/guarantee-change acceptance/);
+  assert.match(integrationDocs, /createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard/);
+  assert.match(integrationDocs, /consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest/);
+  assert.match(integrationDocs, /HospitalitySupplierReservationReviewAcceptanceHistory/);
+  assert.match(integrationDocs, /initial Create.*never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`/is);
+  assert.match(integrationDocs, /reservation.*unadvertised|does not advertise `reservation`/i);
 
   assert.match(responseDocs, /TravelportStaysReservationSyncExecutor/);
   assert.match(responseDocs, /acceptTravelportStaysReservationCommercialReview/);
   assert.doesNotMatch(responseDocs, /Sync itself remains unimplemented/);
 
-  assert.match(roadmap, /current server-only single-room Create coordinator/);
-  assert.match(roadmap, /Booking\.com Sync coordinator/);
-  assert.match(roadmap, /accepted decision is not yet consumed into Travelport's documented second Create request/);
-  assert.match(roadmap, /one-time accepted-review second-write consumption path/);
+  assert.match(roadmap, /one-time accepted-review second-write infrastructure is now implemented server-side/);
+  assert.match(roadmap, /Initial Create continues to send neither flag/);
+  assert.match(roadmap, /reservation` capability remains unadvertised/);
+  assert.doesNotMatch(roadmap, /accepted decision is not yet consumed into Travelport's documented second Create request/);
 });

@@ -54,6 +54,11 @@ export type TravelportStaysSensitiveReservationPaymentCard = Readonly<{
   }>;
 }>;
 
+export type TravelportStaysReservationAcceptedReview = Readonly<{
+  acceptPriceChange: boolean;
+  acceptGuaranteeChange: boolean;
+}>;
+
 export type TravelportStaysReservationCreateRequest = Readonly<{
   ReservationQueryBuild: Readonly<{
     '@type': 'ReservationQueryBuild';
@@ -97,6 +102,15 @@ export type TravelportStaysReservationCreateRequest = Readonly<{
       Payment: TravelportStaysReservationCreateRequestMaterial['Payment'];
     }>;
   }>;
+}>;
+
+type TravelportStaysReservationCreateExecutionInput = Readonly<{
+  requestCorrelationId: string;
+  requestMaterial: TravelportStaysReservationCreateRequestMaterial;
+  paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
+  paymentCard: TravelportStaysSensitiveReservationPaymentCard;
+  expectedReservation: TravelportStaysCreateExpectedReservation;
+  beforeProviderRequest: () => Promise<void>;
 }>;
 
 function invalidRequest(message = 'Travelport reservation create request is invalid.'): never {
@@ -254,9 +268,6 @@ function normalizePaymentCard(
   if (!Array.isArray(authority.acceptedPaymentCardCodes) || !authority.acceptedPaymentCardCodes.includes(cardCode)) {
     invalidRequest('Travelport payment card is not accepted by the freshly reviewed supplier terms.');
   }
-  // Fresh Rules authority is derived from AcceptedCreditCard, so the current write path
-  // cannot authorize debit or gift card semantics even though Travelport's generic payload
-  // type lists those values. Expand only when fresh supplier authority can prove that type.
   if (input.cardType !== 'Credit') {
     invalidRequest('Travelport reservation payment currently requires a freshly accepted credit card.');
   }
@@ -294,6 +305,25 @@ function normalizePaymentCard(
       ...(telephone ? { Telephone: Object.freeze([telephone]) as readonly [typeof telephone] } : {}),
     }),
   });
+}
+
+function reviewedReservationBuildUrl(
+  environment: TravelportStaysCredentials['environment'],
+  acceptedReview: TravelportStaysReservationAcceptedReview | null,
+) {
+  const base = `${ENDPOINTS[environment]}book/reservations/build`;
+  if (!acceptedReview) return base;
+  if (
+    typeof acceptedReview.acceptPriceChange !== 'boolean'
+    || typeof acceptedReview.acceptGuaranteeChange !== 'boolean'
+    || (!acceptedReview.acceptPriceChange && !acceptedReview.acceptGuaranteeChange)
+  ) {
+    invalidRequest('Travelport reviewed reservation acceptance flags are invalid.');
+  }
+  const query = new URLSearchParams();
+  if (acceptedReview.acceptPriceChange) query.set('acceptPriceChangeInd', 'true');
+  if (acceptedReview.acceptGuaranteeChange) query.set('acceptGuaranteeChangeInd', 'true');
+  return `${base}?${query.toString()}`;
 }
 
 export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
@@ -373,14 +403,22 @@ export class TravelportStaysReservationCreateExecutor {
     return request;
   }
 
-  async createReservation(input: Readonly<{
-    requestCorrelationId: string;
-    requestMaterial: TravelportStaysReservationCreateRequestMaterial;
-    paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
-    paymentCard: TravelportStaysSensitiveReservationPaymentCard;
-    expectedReservation: TravelportStaysCreateExpectedReservation;
-    beforeProviderRequest: () => Promise<void>;
-  }>): Promise<TravelportStaysReservationCreateOutcome> {
+  async createReservation(input: TravelportStaysReservationCreateExecutionInput): Promise<TravelportStaysReservationCreateOutcome> {
+    return this.#createReservation(input, null);
+  }
+
+  async createReservationAfterAcceptedReview(
+    input: TravelportStaysReservationCreateExecutionInput & Readonly<{
+      acceptedReview: TravelportStaysReservationAcceptedReview;
+    }>,
+  ): Promise<TravelportStaysReservationCreateOutcome> {
+    return this.#createReservation(input, input.acceptedReview);
+  }
+
+  async #createReservation(
+    input: TravelportStaysReservationCreateExecutionInput,
+    acceptedReview: TravelportStaysReservationAcceptedReview | null,
+  ): Promise<TravelportStaysReservationCreateOutcome> {
     if (!SF_TRACE_ID_PATTERN.test(input.requestCorrelationId)) {
       invalidRequest('Travelport reservation request correlation ID is invalid.');
     }
@@ -396,19 +434,20 @@ export class TravelportStaysReservationCreateExecutor {
       validThroughDateLocal: input.expectedReservation.departureDateLocal,
       now: this.#now(),
     });
+    const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
     const accessToken = await this.#accessToken();
     const serializedBody = JSON.stringify(requestBody);
 
-    // All validation, sensitive request composition, and OAuth happen before the durable
-    // provider-request marker. Once the marker succeeds, every transport uncertainty must
-    // settle as ambiguous instead of allowing a blind create retry.
+    // All validation, sensitive request composition, reviewed query selection, and OAuth happen
+    // before the durable provider-request marker. Once the marker succeeds, every transport
+    // uncertainty must settle as ambiguous instead of allowing a blind create retry.
     await input.beforeProviderRequest();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
     let response: Response;
     try {
-      response = await this.#fetchImpl(`${ENDPOINTS[this.#credentials.environment]}book/reservations/build`, {
+      response = await this.#fetchImpl(reservationUrl, {
         method: 'POST',
         cache: 'no-store',
         redirect: 'manual',

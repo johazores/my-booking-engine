@@ -21,8 +21,20 @@ test('Travelport create executor keeps sensitive card material inside the server
   assert.match(executor, /TelephoneDetail/);
   assert.match(executor, /\\d\{8,19\}/);
   assert.match(executor, /validThroughDateLocal: input\.expectedReservation\.departureDateLocal/);
-  assert.doesNotMatch(executor, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+  assert.match(executor, /createReservationAfterAcceptedReview/);
+  assert.match(executor, /acceptPriceChangeInd/);
+  assert.match(executor, /acceptGuaranteeChangeInd/);
   assert.doesNotMatch(executor, /\bdb\.|auditEvent|console\.|logger\.|structuredLog/i);
+});
+
+test('Travelport initial create cannot inherit accepted-review flags', () => {
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
+  const initialStart = executor.indexOf('async createReservation(input:');
+  const reviewedStart = executor.indexOf('async createReservationAfterAcceptedReview', initialStart);
+  assert.ok(initialStart >= 0 && reviewedStart > initialStart);
+  const initial = executor.slice(initialStart, reviewedStart);
+  assert.match(initial, /#createReservation\(input, null\)/);
+  assert.doesNotMatch(initial, /acceptedReview|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
 test('Travelport create validates optional billing and payment-phone details before the provider marker', () => {
@@ -48,7 +60,6 @@ test('OAuth and request composition finish before the durable marker, and provid
   assert.match(executor, /status: 'AMBIGUOUS'/);
   assert.match(executor, /failureCode: 'INVALID_RESPONSE'/);
 });
-
 
 test('Travelport sensitive form-of-payment documentation stays server-only and fail-closed', () => {
   const readiness = source('docs/supplier-reservation-create-readiness.md');
