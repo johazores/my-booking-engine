@@ -61,6 +61,7 @@ function assertReviewOperation(reservation: Readonly<{
   }
 }
 
+
 function assertIntegrationMatches(
   integration: Readonly<{ id: string; providerCode: string; credentialVersion: number; capabilities: readonly string[]; status?: string }>,
   reservation: Readonly<{ integrationId: string; providerCode: string; integrationCredentialVersion: number }>,
@@ -121,48 +122,208 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
   await requireReviewAcceptanceAuthority(input);
   assertUuidIdentifier(input.reservationId, 'reservationId');
 
-  const reservation = await db.hospitalitySupplierReservationOperation.finYš\œÝ
-ÂˆÚ\™NˆÈYˆ[œ]œ™\Ù\˜][Û’YÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’YKˆJNÂˆYˆ
-\™\Ù\˜][ÛŠHÂˆ›ÝÈ™]ÈÜÜ][]TÝ\Y\”™\Ù\˜][Û•[˜]˜Z[X›Q\œ›ÜŠˆ	ÔÝ\Y\ˆ™\Ù\˜][ÛˆÜ\˜][Ûˆ\È›Ý]˜Z[X›H[ˆ\ÈÜ™Ø[š^˜][Û‹‰Ëˆ
-NÂˆBˆ\ÜÙ\™]šY]ÓÜ\˜][ÛŠ™\Ù\˜][ÛŠNÂˆÛÛœÝ™]šY]Ð][\H]ØZ]‹šÜÜ][]TÝ\Y\”™\Ù\˜][Û][\™š[™š\œÝ
-ÂˆÚ\™NˆÂˆÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’Yˆ™\Ù\˜][Û’Yˆ™\Ù\˜][Û‹šYˆÙ\]Y[˜ÙNˆ™\Ù\˜][Û‹˜][\ÛÝ[ˆKˆJNÂˆÛÛœÝ™\]Z\™[Y[ÈH\ÜÙ\ÜÜ][]TÝ\Y\”™\Ù\˜][Û”™]šY]Ð][\]]Üš]JÈ™\Ù\˜][Û‹][\ˆ™]šY]Ð][\JNÂˆYˆ
-ˆ[œ]˜XØÙ\šXÙPÚ[™ÙHOOH™\]Z\™[Y[Ë˜XØÙ\šXÙPÚ[™ÙBˆ[œ]˜XØÙ\ÝX\˜[YPÚ[™ÙHOOH™\]Z\™[Y[Ë˜XØÙ\ÝX\˜[YPÚ[™ÙBˆ
-HÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆ™\Ù\˜][Ûˆ™]šY]ÈXØÙ\[˜ÙH]\Ý^XÚ]HX]ÚH[™[™ÈÛÛ[Y\˜ÚX[Ú[™ÙK‰ÊNÂˆB‚ˆ]˜]™[\]]Üš]NÂˆžHÂˆ˜]™[\]]Üš]HH\ÜÙ\ÜÜ][]TÝ\Y\”™\Ù\˜][Û•˜]™[\”^[ØY]]Üš]JÂˆ^XÝYš[™Ù\œš[ˆ™\Ù\˜][Û‹œ™\Ù\˜][Û”^[ØYš[™Ù\œš[ˆ˜]™[\Žˆ[œ]˜]™[\‹ˆJNÂˆHØ]ÚÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-ˆ	Ôš[X\žH˜]™[\ˆ]Z[ÈÚ[™ÙYY\ˆHÝ\Y\ˆ™\Ù\˜][Ûˆ™\]Y\ÝØ\È™\\™YˆÝ\H™]ÛH™]šY]ÙY™\Ù\˜][Ûˆ™\]Y\Ý‰Ëˆ
-NÂˆB‚ˆÛÛœÝÝ\œ™[H]ØZ]ØY˜]™[ÜÝ^\Ò[YÜ˜][ÛŠ[œ]›Ü™Ø[š^˜][Û’Y
-NÂˆ\ÜÙ\[YÜ˜][Û“X]Ú\ÊÝ\œ™[š[YÜ˜][Û‹™\Ù\˜][ÛŠNÂ‚ˆÛÛœÝš[Ü]]Üš]R[œ]HÜÜ][]TÝ\Y\”™\Ù\˜][Û]]Üš]R[œ]œ›ÛSÜ\˜][ÛŠ™\Ù\˜][ÛŠNÂˆÛÛœÝÙ™™\”™]šY]ÈH]ØZ]Ý\œ™[œ›ÝšY\‹œ™]˜[Y]T›Ü\SÙ™™\Šš[Ü]]Üš]R[œ]
-NÂˆYˆ
-[Ù™™\”™]šY]Ë›Ù™™\ˆÙ™™\”™]šY]ËœÝ]\ÈOOH	ÕSURSP“IÊHÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆÙ™™\ˆ\È›ÈÛ™Ù\ˆ]˜Z[X›H›ÜˆH[™[™ÈÛÛ[Y\˜ÚX[™]šY]Ë‰ÊNÂˆBˆ\ÜÙ\Ý\œ™[ÛÛ[Y\˜ÚX[]]Üš]JÈ™\Ù\˜][Û‹™\]Z\™[Y[ËÙ™™\ŽˆÙ™™\”™]šY]Ë›Ù™™\ˆJNÂ‚ˆÛÛœÝ™Yœ™\ÚYÙ™™\’[œ]HØš™XÝ™œ™Y^™JÂˆÝ\Y\”›Ü\T™Y™\™[˜ÙNˆ™\Ù\˜][Û‹œÝ\Y\”›Ü\T™Y™\™[˜ÙKˆÝ\Y\“Ù™™\”™Y™\™[˜ÙNˆ™\Ù\˜][Û‹œÝ\Y\“Ù™™\”™Y™\™[˜ÙKˆ^XÝYÙ™™\‘š[™Ù\œš[ˆÙ™™\”™]šY]Ë›Ù™™\‹›Ù™™\‘š[™Ù\œš[ˆ^XÝYÝ[Z[›ÜŽˆÙ™™\”™]šY]Ë›Ù™™\‹œšXÙKÝ[Z[›Ü‹ˆÝ\œ™[˜ÞNˆ™\Ù\˜][Û‹˜Ý\œ™[˜ÞKˆÚXÚÒ[‘]SØØ[ˆš[Ü]]Üš]R[œ]˜ÚXÚÒ[‘]SØØ[ˆÚXÚÓÝ]]SØØ[ˆš[Ü]]Üš]R[œ]˜ÚXÚÓÝ]]SØØ[ˆ›ÛÛ\Îˆ™\Ù\˜][Û‹œ›ÛÛ\ËˆY[Îˆ™\Ù\˜][Û‹˜Y[ËˆÚ[YÙ\ÎˆØš™XÝ™œ™Y^™JË‹‹œ™\Ù\˜][Û‹˜Ú[YÙ\×JKˆJNÂ‚ˆÛÛœÝ\›\Ô™]šY]ÈH]ØZ]Ý\œ™[˜›ÛÚÚ[™Õ\›\Ô›ÝšY\‹œ™]šY]™P›ÛÚÚ[™Õ\›\Ê™Yœ™\ÚYÙ™™\’[œ]
-NÂˆYˆ
-ˆ\›\Ô™]šY]ËœÝ]\ÈOOH	Ô‘PQIÂˆ]\›\Ô™]šY]Ë›Ù™™\‚ˆ]\›\Ô™]šY]Ë˜›ÛÚÚ[™Õ\›\Âˆ\›\Ô™]šY]Ë˜›ÛÚÚ[™Õ\›\Ë˜ÛÛ\]Q›Ü”™\Ù\˜][Û”™]šY]ÈOOHYBˆ\›\Ô™]šY]Ë˜›ÛÚÚ[™Õ\›\Ë˜Ý\ÝÛY\“ÞX[T™\]Z\™Y]™\Ù\˜][ÛˆOOH˜[ÙBˆ\›\Ô™]šY]Ë›Ù™™\‹œÝ\Y\”›Ü\T™Y™\™[˜ÙHOOH™\Ù\˜][Û‹œÝ\Y\”›Ü\T™Y™\™[˜ÙBˆ\›\Ô™]šY]Ë›Ù™™\‹œÝ\Y\“Ù™™\”™Y™\™[˜ÙHOOH™\Ù\˜][Û‹œÝ\Y\“Ù™™\”™Y™\™[˜ÙBˆ\›\Ô™]šY]Ë›Ù™™\‹›Ù™™\‘š[™Ù\œš[OOHÙ™™\”™]šY]Ë›Ù™™\‹›Ù™™\‘š[™Ù\œš[ˆ\›\Ô™]šY]Ë›Ù™™\‹œšXÙK˜Ý\œ™[˜ÞHOOH™\Ù\˜][Û‹˜Ý\œ™[˜ÞBˆ\›\Ô™]šY]Ë›Ù™™\‹œšXÙKÝ[Z[›ÜˆOOHÙ™™\”™]šY]Ë›Ù™™\‹œšXÙKÝ[Z[›Ü‚ˆ
-HÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	Ñœ™\ÚÝ\Y\ˆ[\È]]Üš]H\È›ÝÝX›H[›ÝYÚÈXØÙ\H[™[™ÈÛÛ[Y\˜ÚX[Ú[™ÙK‰ÊNÂˆB‚ˆÛÛœÝš[˜[]]Üš]HH]ØZ]Ý\œ™[œ™\Ù\˜][Û]]Üš]T›ÝšY\‹™\šYžT™\Ù\˜][Û]]Üš]JÂˆ‹‹œ™Yœ™\ÚYÙ™™\’[œ]ˆ^XÝY\›\Ñš[™Ù\œš[ˆ\›\Ô™]šY]Ë˜›ÛÚÚ[™Õ\›\Ë\›\Ñš[™Ù\œš[ˆJNÂˆYˆ
-ˆš[˜[]]Üš]KœÝ]\ÈOOH	Ô‘PQIÂˆYš[˜[]]Üš]K›Ù™™\‚ˆYš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\Âˆš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\Ë˜ÛÛ\]Q›Ü”™\Ù\˜][Û”™]šY]ÈOOHYBˆš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\Ë˜Ý\ÝÛY\“ÞX[T™\]Z\™Y]™\Ù\˜][ÛˆOOH˜[ÙBˆš[˜[]]Üš]K›Ù™™\‹›Ù™™\‘š[™Ù\œš[OOH\›\Ô™]šY]Ë›Ù™™\‹›Ù™™\‘š[™Ù\œš[ˆš[˜[]]Üš]K›Ù™™\‹œšXÙK˜Ý\œ™[˜ÞHOOH™\Ù\˜][Û‹˜Ý\œ™[˜ÞBˆš[˜[]]Üš]K›Ù™™\‹œšXÙKÝ[Z[›ÜˆOOH\›\Ô™]šY]Ë›Ù™™\‹œšXÙKÝ[Z[›Ü‚ˆš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\Ë\›\Ñš[™Ù\œš[OOH\›\Ô™]šY]Ë˜›ÛÚÚ[™Õ\›\Ë\›\Ñš[™Ù\œš[ˆ\[Ùˆš[˜[]]Üš]K˜]]Üš]Qš[™Ù\œš[OOH	ÜÝš[™ÉÂˆK×–ÌNXKY—^ÍIË\Ý
-š[˜[]]Üš]K˜]]Üš]Qš[™Ù\œš[
-Bˆ\[Ùˆš[˜[]]Üš]Kœ›ÝšY\”ÝX›Z\ÜÚ[Û”™Y™\™[˜ÙHOOH	ÜÝš[™ÉÂˆYš[˜[]]Üš]Kœ›ÝšY\”ÝX›Z\ÜÚ[Û”™Y™\™[˜ÙBˆ
-HÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	Ñœ™\ÚÝ\Y\ˆ]˜Z[Xš[]H]]Üš]HÚ[™ÙY™Y›Ü™HHÛÛ[Y\˜ÚX[™]šY]ÈÛÝ[™HXØÙ\Y‰ÊNÂˆB‚ˆÛÛœÝ^[Y[]]Üš]HH\š]™RÜÜ][]TÝ\Y\”™\Ù\˜][Û”^[Y[]]Üš]JÂˆ›ÛÚÚ[™Õ\›\Îˆš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\ËˆÝ\œ™[˜ÞNˆ™\Ù\˜][Û‹˜Ý\œ™[˜ÞKˆ^XÝYÝ[Z[›ÜŽˆš[˜[]]Üš]K›Ù™™\‹œšXÙKÝ[Z[›Ü‹ˆJNÂˆYˆ
-\^[Y[]]Üš]JHÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	Ñœ™\ÚÝ\Y\ˆ^[Y[ÜˆÝX\˜[YH]]Üš]H\È›ÝÝ\ÜY›Üˆ™\Ù\˜][ÛˆXØÙ\[˜ÙK‰ÊNÂˆB‚ˆÛÛœÝXØÙ\YHÜ™X]RÜÜ][]TÝ\Y\”™\Ù\˜][Û”™]šY]ÐXØÙ\[˜ÙJÂˆ™\Ù\˜][Û’Yˆ™\Ù\˜][Û‹šYˆXÝÜ•\Ù\’Yˆ[œ]˜XÝÜ•\Ù\’Yˆ™\Ù\˜][Û”^[ØYš[™Ù\œš[ˆ™\Ù\˜][Û‹œ™\Ù\˜][Û”^[ØYš[™Ù\œš[ˆ][\Ù\]Y[˜ÙNˆ™\Ù\˜][Û‹˜][\ÛÝ[ˆ˜Z[\™PÛÙNˆ™\Ù\˜][Û‹›\Ý˜Z[\™PÛÙKˆXØÙ\šXÙPÚ[™ÙNˆ[œ]˜XØÙ\šXÙPÚ[™ÙKˆXØÙ\ÝX\˜[YPÚ[™ÙNˆ[œ]˜XØÙ\ÝX\˜[YPÚ[™ÙKˆÝ\œ™[˜ÞNˆ™\Ù\˜][Û‹˜Ý\œ™[˜ÞKˆXØÙ\YÝ[Z[›ÜŽˆš[˜[]]Üš]K›Ù™™\‹œšXÙKÝ[Z[›Ü‹ˆXØÙ\YÙ™™\‘š[™Ù\œš[ˆš[˜[]]Üš]K›Ù™™\‹›Ù™™\‘š[™Ù\œš[ˆXØÙ\Y\›\Ñš[™Ù\œš[ˆš[˜[]]Üš]K˜›ÛÚÚ[™Õ\›\Ë\›\Ñš[™Ù\œš[ˆXØÙ\Y]]Üš]Qš[™Ù\œš[ˆš[˜[]]Üš]K˜]]Üš]Qš[™Ù\œš[ˆJNÂ‚ˆ™]\›ˆ‹‰˜[œØXÝ[ÛŠ\Þ[˜È
-˜[œØXÝ[ÛŠHOˆÂˆ]ØZ]˜[œØXÝ[Û‹‰]Y\žT˜]ØÑSPÕ×ØYš\ÛÜžWÞXÝÛØÚÊ\Ú^^[™Y
-	ØÝ\Y\‹\™\Ù\˜][ÛŽ‰Ú[œ]›Ü™Ø[š^˜][Û’YN›Ü\˜][ÛŽ‰Ú[œ]œ™\Ù\˜][Û’YXK
-JXÂ‚ˆÛÛœÝ]\ÝH]ØZ]˜[œØXÝ[Û‹šÜÜ][]TÝ\Y\”™\Ù\˜][Û“Ü\˜][Û‹™š[™š\œÝ
-ÂˆÚ\™NˆÈYˆ[œ]œ™\Ù\˜][Û’YÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’YKˆJNÂˆYˆ
-ˆ[]\Ýˆ]\ÝœÝ]\ÈOOH	Ô‘U’QU×Ô‘TURT‘Q	Âˆ]\Ý›\Ý˜Z[\™PÛÙHOOH™\Ù\˜][Û‹›\Ý˜Z[\™PÛÙBˆ]\Ý˜][\ÛÝ[OOH™\Ù\˜][Û‹˜][\ÛÝ[ˆ]\Ýœ™\]Y\Ýš[™Ù\œš[OOH™\Ù\˜][Û‹œ™\]Y\Ýš[™Ù\œš[ˆ]\Ýœ™]šY]ÐXØÙ\Y]ˆ
-HÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆ™\Ù\˜][Ûˆ™]šY]ÈÚ[™ÙYÚ[Hœ™\ÚÛÛ[Y\˜ÚX[]]Üš]HØ\È™Z[™È™\šYšYY‰ÊNÂˆB‚ˆÛÛœÝ]\Ý™]šY]Ð][\H]ØZ]˜[œØXÝ[Û‹šÜÜ][]TÝ\Y\”™\Ù\˜][Û][\™š[™š\œÝ
-ÂˆÚ\™NˆÂˆÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’Yˆ™\Ù\˜][Û’Yˆ]\ÝšYˆÙ\]Y[˜ÙNˆ]\Ý˜][\ÛÝ[ˆKˆJNÂˆ\ÜÙ\ÜÜ][]TÝ\Y\”™\Ù\˜][Û”™]šY]Ð][\]]Üš]JÈ™\Ù\˜][ÛŽˆ]\Ý][\ˆ]\Ý™]šY]Ð][\JNÂˆYˆ
-\™]šY]Ð][\[]\Ý™]šY]Ð][\]\Ý™]šY]Ð][\šYOOH™]šY]Ð][\šY
-HÂˆ›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆ™\Ù\˜][Ûˆ™]šY]È][\Ú[™ÙYÚ[Hœ™\ÚÛÛ[Y\˜ÚX[]]Üš]HØ\È™Z[™È™\šYšYY‰ÊNÂˆB‚ˆÛÛœÝ[YÜ˜][ÛˆH]ØZ]˜[œØXÝ[Û‹š[YÜ˜][Û‹™š[™š\œÝ
-ÂˆÚ\™NˆÈYˆ]\Ýš[YÜ˜][Û’YÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’YKˆÙ[XÝˆÈYˆYK›ÝšY\ÛÙNˆYKÜ™Y[X[™\œÚ[ÛŽˆYKØ\Xš[]Y\ÎˆYKÝ]\ÎˆYHKˆJNÂˆYˆ
-Z[YÜ˜][ÛŠH›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆ[YÜ˜][Ûˆ\È›ÈÛ™Ù\ˆ]˜Z[X›H›Üˆ™\Ù\˜][ÛˆXØÙ\[˜ÙK‰ÊNÂˆ\ÜÙ\[YÜ˜][Û“X]Ú\Ê[YÜ˜][Û‹]\Ý
-NÂ‚ˆÛÛœÝÙ]X˜\ÙPÛØÚ×HH]ØZ]˜[œØXÝ[Û‹‰]Y\žT˜]Ï\œ˜^OÈÝ\œ™[[YNˆ]HO˜ÑSPÕÛØÚ×Ý[Y\Ý[\
+  const reservation = await db.hospitalitySupplierReservationOperation.findFirst({
+    where: { id: input.reservationId, organizationId: input.organizationId },
+  });
+  if (!reservation) {
+    throw new HospitalitySupplierReservationUnavailableError(
+      'Supplier reservation operation is not available in this organization.',
+    );
+  }
+  assertReviewOperation(reservation);
+  const reviewAttempt = await db.hospitalitySupplierReservationAttempt.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      reservationId: reservation.id,
+      sequence: reservation.attemptCount,
+    },
+  });
+  const requirements = assertHospitalitySupplierReservationReviewAttemptAuthority({ reservation, attempt: reviewAttempt });
+  if (
+    input.acceptPriceChange !== requirements.acceptPriceChange
+    || input.acceptGuaranteeChange !== requirements.acceptGuaranteeChange
+  ) {
+    throw reviewConflict('Supplier reservation review acceptance must explicitly match the pending commercial change.');
+  }
 
-HTÈ˜Ý\œ™[[YH˜ÂˆYˆ
-Y]X˜\ÙPÛØÚÊH›ÝÈ™]šY]ÐÛÛ™›XÝ
-	ÔÝ\Y\ˆ™\Ù\˜][ÛˆXØÙ\[˜ÙH[YH\È[˜]˜Z[X›K‰ÊNÂˆÛÛœÝXØÙ\Y]H]X˜\ÙPÛØÚË˜Ý\œ™[[YNÂˆÛÛœÝ\]YH]ØZ]˜[œØXÝ[Û‹šÜÜ][]TÝ\Y\”™\Ù\˜][Û“Ü\˜][Û‹\]JÂˆÚ\™NˆÈYˆ]\ÝšYÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’YKˆ]NˆÂˆ™]šY]ÐXØÙ\Y]ˆXØÙ\Y]ˆ™]šY]ÐXØÙ\YžU\Ù\’Yˆ[œ]˜XÝÜ•\Ù\’Yˆ™]šY]ÐXØÙ\Y][\Ù\]Y[˜ÙNˆ]\Ý˜][\ÛÝ[ˆ™]šY]ÐXØÙ\YšXÙPÚ[™ÙNˆXØÙ\Y˜XØÙ\šXÙPÚ[™ÙKˆ™]šY]ÐXØÙ\YÝX\˜[YPÚ[™ÙNˆXØÙ\Y˜XØÙ\ÝX\˜[YPÚ[™ÙKˆ™]šY]ÐXØÙ\YÝ\œ™[˜ÞNˆXØÙ\Y˜Ý\œ™[˜ÞKˆ™]šY]ÐXØÙ\YÝ[Z[›ÜŽˆXØÙ\Y˜XØÙ\YÝ[Z[›Ü‹ˆ™]šY]ÐXØÙ\YÙ™™\‘š[™Ù\œš[ˆXØÙ\Y˜XØÙ\YÙ™™\‘š[™Ù\œš[ˆ™]šY]ÐXØÙ\Y\›\Ñš[™Ù\œš[ˆXØÙ\Y˜XØÙ\Y\›\Ñš[™Ù\œš[ˆ™]šY]ÐXØÙ\Y]]Üš]Qš[™Ù\œš[ˆXØÙ\Y˜XØÙ\Y]]Üš]Qš[™Ù\œš[ˆ™]šY]ÐXØÙ\[˜ÙQš[™Ù\œš[ˆXØÙ\Y˜XØÙ\[˜ÙQš[™Ù\œš[ˆKˆJNÂ‚ˆ]ØZ]˜[œØXÝ[Û‹˜]Y]]™[˜Ü™X]JÂˆ]NˆÂˆÜ™Ø[š^˜][Û’Yˆ[œ]›Ü™Ø[š^˜][Û’YˆXÝÜ•\Ù\’Yˆ[œ]˜XÝÜ•\Ù\’YˆXÝ[ÛŽˆ	ÜÝ\Y\‹œ™\Ù\˜][Û‹\™]šY]ËXXØÙ\Y	Ëˆ™\ÛÝ\˜ÙU\Nˆ	ÜÝ\Y\‹\™\Ù\˜][Û‹[Ü\˜][Û‰Ëˆ™\ÛÝ\˜ÙRYˆ]\ÝšYˆY\‘]NˆÂˆ›ÝšY\ÛÙNˆ]\Ýœ›ÝšY\ÛÙKˆ™]šY]Ô™X\ÛÛŽˆXØÙ\Yœ™X\ÛÛ‹ˆXØÙ\YšXÙPÚ[™ÙNˆXØÙ\Y˜XØÙ\šXÙPÚ[™ÙKˆXØÙ\YÝX\˜[YPÚ[™ÙNˆXØÙ\Y˜XØÙ\ÝX\˜[YPÚ[™ÙKˆXØÙ\YÝ\œ™[˜ÞNˆXØÙ\Y˜Ý\œ™[˜ÞKˆXØÙ\YÝ[Z[›ÜŽˆXØÙ\Y˜XØÙ\YÝ[Z[›Ü‹ÔÝš[™Ê
-Kˆ™]šY]Ð][\Ù\]Y[˜ÙNˆ]\Ý˜][\ÛÝ[ˆXØÙ\[˜ÙQš[™Ù\œš[ˆXØÙ\Y˜XØÙ\[˜ÙQš[™Ù\œš[ˆKˆKˆJNÂ‚ˆ™]\›ˆØš™XÝ™œ™Y^™JÂˆ™\Ù\˜][ÛŽˆ\]YˆXØÙ\[˜ÙNˆXØÙ\Yˆ˜]™[\]]Üš]Kˆ^[Y[]]Üš]KˆJNÂˆKÈ\ÛÛ][Û“]™[ˆ	ÔÙ\šX[^˜X›IÈJNÂŸB
+  let travelerAuthority;
+  try {
+    travelerAuthority = assertHospitalitySupplierReservationTravelerPayloadAuthority({
+      expectedFingerprint: reservation.reservationPayloadFingerprint,
+      traveler: input.traveler,
+    });
+  } catch {
+    throw reviewConflict(
+      'Primary traveler details changed after the supplier reservation request was prepared. Start a newly reviewed reservation request.',
+    );
+  }
+
+  const current = await loadTravelportStaysIntegration(input.organizationId);
+  assertIntegrationMatches(current.integration, reservation);
+
+  const priorAuthorityInput = hospitalitySupplierReservationAuthorityInputFromOperation(reservation);
+  const offerReview = await current.provider.revalidatePropertyOffer(priorAuthorityInput);
+  if (!offerReview.offer || offerReview.status === 'UNAVAILABLE') {
+    throw reviewConflict('Supplier offer is no longer available for the pending commercial review.');
+  }
+  assertCurrentCommercialAuthority({ reservation, requirements, offer: offerReview.offer });
+
+  const refreshedOfferInput = Object.freeze({
+    supplierPropertyReference: reservation.supplierPropertyReference,
+    supplierOfferReference: reservation.supplierOfferReference,
+    expectedOfferFingerprint: offerReview.offer.offerFingerprint,
+    expectedTotalMinor: offerReview.offer.price.totalMinor,
+    currency: reservation.currency,
+    checkInDateLocal: priorAuthorityInput.checkInDateLocal,
+    checkOutDateLocal: priorAuthorityInput.checkOutDateLocal,
+    rooms: reservation.rooms,
+    adults: reservation.adults,
+    childAges: Object.freeze([...reservation.childAges]),
+  });
+
+  const termsReview = await current.bookingTermsProvider.retrieveBookingTerms(refreshedOfferInput);
+  if (
+    termsReview.status !== 'READY'
+    || !termsReview.offer
+    || !termsReview.bookingTerms
+    || termsReview.bookingTerms.completeForReservationReview !== true
+    || termsReview.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || termsReview.offer.supplierPropertyReference !== reservation.supplierPropertyReference
+    || termsReview.offer.supplierOfferReference !== reservation.supplierOfferReference
+    || termsReview.offer.offerFingerprint !== offerReview.offer.offerFingerprint
+    || termsReview.offer.price.currency !== reservation.currency
+    || termsReview.offer.price.totalMinor !== offerReview.offer.price.totalMinor
+  ) {
+    throw reviewConflict('Fresh supplier Rules authority is not stable enough to accept the pending commercial change.');
+  }
+
+  const finalAuthority = await current.reservationAuthorityProvider.verifyReservationAuthority({
+    ...refreshedOfferInput,
+    expectedTermsFingerprint: termsReview.bookingTerms.termsFingerprint,
+  });
+  if (
+    finalAuthority.status !== 'READY'
+    || !finalAuthority.offer
+    || !finalAuthority.bookingTerms
+    || finalAuthority.bookingTerms.completeForReservationReview !== true
+    || finalAuthority.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || finalAuthority.offer.offerFingerprint !== termsReview.offer.offerFingerprint
+    || finalAuthority.offer.price.currency !== reservation.currency
+    || finalAuthority.offer.price.totalMinor !== termsReview.offer.price.totalMinor
+    || finalAuthority.bookingTerms.termsFingerprint !== termsReview.bookingTerms.termsFingerprint
+    || typeof finalAuthority.authorityFingerprint !== 'string'
+    || !/^[0-9a-f]{64}$/.test(finalAuthority.authorityFingerprint)
+    || typeof finalAuthority.providerSubmissionReference !== 'string'
+    || !finalAuthority.providerSubmissionReference
+  ) {
+    throw reviewConflict('Fresh supplier availability authority changed before the commercial review could be accepted.');
+  }
+
+  const paymentAuthority = deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: finalAuthority.bookingTerms,
+    currency: reservation.currency,
+    expectedTotalMinor: finalAuthority.offer.price.totalMinor,
+  });
+  if (!paymentAuthority) {
+    throw reviewConflict('Fresh supplier payment or guarantee authority is not supported for reservation acceptance.');
+  }
+
+  const accepted = createHospitalitySupplierReservationReviewAcceptance({
+    reservationId: reservation.id,
+    actorUserId: input.actorUserId,
+    reservationPayloadFingerprint: reservation.reservationPayloadFingerprint,
+    attemptSequence: reservation.attemptCount,
+    failureCode: reservation.lastFailureCode,
+    acceptPriceChange: input.acceptPriceChange,
+    acceptGuaranteeChange: input.acceptGuaranteeChange,
+    currency: reservation.currency,
+    acceptedTotalMinor: finalAuthority.offer.price.totalMinor,
+    acceptedOfferFingerprint: finalAuthority.offer.offerFingerprint,
+    acceptedTermsFingerprint: finalAuthority.bookingTerms.termsFingerprint,
+    acceptedAuthorityFingerprint: finalAuthority.authorityFingerprint,
+  });
+
+  return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`supplier-reservation:${input.organizationId}:operation:${input.reservationId}`}, 0))`;
+
+    const latest = await transaction.hospitalitySupplierReservationOperation.findFirst({
+      where: { id: input.reservationId, organizationId: input.organizationId },
+    });
+    if (
+      !latest
+      || latest.status !== 'REVIEW_REQUIRED'
+      || latest.lastFailureCode !== reservation.lastFailureCode
+      || latest.attemptCount !== reservation.attemptCount
+      || latest.requestFingerprint !== reservation.requestFingerprint
+      || latest.reviewAcceptedAt
+    ) {
+      throw reviewConflict('Supplier reservation review changed while fresh commercial authority was being verified.');
+    }
+
+    const latestReviewAttempt = await transaction.hospitalitySupplierReservationAttempt.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        reservationId: latest.id,
+        sequence: latest.attemptCount,
+      },
+    });
+    assertHospitalitySupplierReservationReviewAttemptAuthority({ reservation: latest, attempt: latestReviewAttempt });
+    if (!reviewAttempt || !latestReviewAttempt || latestReviewAttempt.id !== reviewAttempt.id) {
+      throw reviewConflict('Supplier reservation review attempt changed while fresh commercial authority was being verified.');
+    }
+
+    const integration = await transaction.integration.findFirst({
+      where: { id: latest.integrationId, organizationId: input.organizationId },
+      select: { id: true, providerCode: true, credentialVersion: true, capabilities: true, status: true },
+    });
+    if (!integration) throw reviewConflict('Supplier integration is no longer available for reservation acceptance.');
+    assertIntegrationMatches(integration, latest);
+
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) throw reviewConflict('Supplier reservation acceptance time is unavailable.');
+    const acceptedAt = databaseClock.currentTime;
+    const updated = await transaction.hospitalitySupplierReservationOperation.update({
+      where: { id: latest.id, organizationId: input.organizationId },
+      data: {
+        reviewAcceptedAt: acceptedAt,
+        reviewAcceptedByUserId: input.actorUserId,
+        reviewAcceptedAttemptSequence: latest.attemptCount,
+        reviewAcceptedPriceChange: accepted.acceptPriceChange,
+        reviewAcceptedGuaranteeChange: accepted.acceptGuaranteeChange,
+        reviewAcceptedCurrency: accepted.currency,
+        reviewAcceptedTotalMinor: accepted.acceptedTotalMinor,
+        reviewAcceptedOfferFingerprint: accepted.acceptedOfferFingerprint,
+        reviewAcceptedTermsFingerprint: accepted.acceptedTermsFingerprint,
+        reviewAcceptedAuthorityFingerprint: accepted.acceptedAuthorityFingerprint,
+        reviewAcceptanceFingerprint: accepted.acceptanceFingerprint,
+      },
+    });
+
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'supplier.reservation-review-accepted',
+        resourceType: 'supplier-reservation-operation',
+        resourceId: latest.id,
+        afterData: {
+          providerCode: latest.providerCode,
+          reviewReason: accepted.reason,
+          acceptedPriceChange: accepted.acceptPriceChange,
+          acceptedGuaranteeChange: accepted.acceptGuaranteeChange,
+          acceptedCurrency: accepted.currency,
+          acceptedTotalMinor: acccepted.acceptedTotalMinor.toString(),
+          reviewAttemptSequence: latest.attemptCount,
+          acceptanceFingerprint: accepted.acceptanceFingerprint,
+        },
+      },
+    });
+
+    return Object.freeze({
+      reservation: updated,
+      acceptance: accepted,
+      travelerAuthority,
+      paymentAuthority,
+    });
+  }, { isolationLevel: 'Serializable' });
+}
