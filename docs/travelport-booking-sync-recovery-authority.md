@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Travelport documents a Booking.com failure mode where the supplier sell succeeds but Travelport does not finish PNR processing. Retrying Create Reservation in that state can duplicate the hotel sell. SF therefore needs durable evidence that is sufficient to authorize a later provider-specific Sync attempt without treating the reservation as confirmed.
+Travelport documents a Booking.com failure mode where the supplier sell succeeds but Travelport does not finish PNR processing. Retrying Create Reservation in that state can duplicate the hotel sell. SF therefore retains durable provider evidence and now has a server-only Sync recovery-write path that can construct the missing Travelport aggregator segment without re-selling the Booking.com reservation.
 
-This boundary only records recovery authority. It does not call Sync, advertise the `reservation` capability, expose a route or button, or make an ambiguous reservation retryable.
+The Sync path remains deliberately unreachable from product routes/actions and does not advertise the `reservation` capability. Live Travelport non-production validation is still required before activation.
 
 ## Provider evidence required
 
@@ -30,25 +30,74 @@ No traveler name/email/telephone, PAN, CVV, cardholder data, payment data, crede
 
 The create coordinator stages the supplier confirmation and provider recovery reference only after the durable provider-request marker has been written and before final create settlement. The staging transaction requires `booking:manage`, organization/resource scope, the current `CREATE` attempt, and a non-null provider-request marker.
 
-This ordering matters. If the process crashes after recovery evidence is staged but before final settlement, stale-attempt recovery can move the operation from `SUBMITTING` to `AMBIGUOUS` without losing the evidence required for a future Sync path. The operation still cannot re-enter Create Reservation.
+If the process crashes after recovery evidence is staged but before final settlement, stale-attempt recovery moves the marked create attempt to `AMBIGUOUS` without losing the evidence needed by Sync. The operation still cannot re-enter Create Reservation.
 
 If staging fails or evidence is incomplete, SF does not invent or partially reconstruct Sync authority. The write remains fail-closed and ambiguous.
 
-## Remaining Sync execution work
+## Recovery-write claim
 
-A future Travelport Sync executor/coordinator must independently:
+`claimHospitalitySupplierReservationRecoveryWrite` is provider-neutral persistence authority for an external recovery write. It requires `booking:manage`, tenant-scopes the operation and integration, and only accepts a locator-less `AMBIGUOUS` operation with both the verified supplier confirmation and provider recovery reference.
 
-1. require `booking:manage` and exact tenant ownership;
-2. accept only an `AMBIGUOUS`, locator-less operation with verified supplier confirmation and a valid Travelport Sync recovery reference;
-3. re-bind the caller-supplied traveler to the existing reservation-payload fingerprint before using traveler contact fields;
-4. use the fixed Travelport `POST book/reservations/` endpoint with `passiveOfferInd=true`, the retained offer authority, Booking.com supplier source, supplier confirmation, and authorized traveler data;
-5. create its own durable external-write attempt and provider-request marker so an uncertain Sync response cannot be blindly repeated;
-6. verify the Sync response against the durable property/stay/occupancy expectation, original supplier confirmation, and exactly one Travelport locator before moving the operation to `CONFIRMED`; and
-7. remain disabled until live Travelport non-production behavior confirms the exact request/response and ambiguity semantics.
+The caller must also present the exact durable `reservationPayloadFingerprint`. The Travelport coordinator derives that fingerprint from the normalized caller-supplied traveler, so changed traveler/contact data cannot be used to recover an old reservation.
 
-Travelport states that Sync builds the Travelport aggregator segment without re-selling the Booking.com reservation. SF will still treat Sync as an external write requiring its own crash-safe idempotency and recovery boundary.
+A recovery write uses the existing `SUBMITTING` operation state but a distinct `RECOVERY_WRITE` attempt kind. This intentionally keeps the operation mutually exclusive with another create or known-locator reconciliation while preserving the provider-neutral meaning of `SUBMITTING` as an external supplier write in progress.
+
+A prior `RECOVERY_WRITE` can be claimed again only when its attempt definitively failed before `providerRequestStartedAt` was recorded and the operation is explicitly marked retryable. Once a provider-request marker exists, an uncertain Sync is never automatically repeated.
+
+## Travelport Sync request
+
+`TravelportStaysReservationSyncExecutor` uses the fixed v11 `POST book/reservations/` endpoint. The request is constructed only from:
+
+- the retained Availability offer `Identifier.authority`;
+- `passiveOfferInd=true`;
+- the verified Booking.com supplier confirmation with source `BO` and `sourceContext=Supplier`; and
+- the authorized primary traveler email.
+
+The Sync request deliberately excludes traveler name and telephone because Travelport documents the scaled-down Sync request around the traveler email plus Booking.com booking details. It also accepts no form-of-payment, PAN, CVV, cardholder, billing, credential, token, or arbitrary endpoint input.
+
+OAuth and deterministic request construction complete before the durable provider-request marker. The attempt UUID is the provider correlation authority. Only after the marker succeeds may the Sync POST begin.
+
+## Response and settlement authority
+
+Travelport documents that Sync returns the same reservation response structure as Create Reservation. SF reuses the hardened Create response classifier for property/stay/occupancy and locator evidence, then applies stricter Sync settlement rules.
+
+Sync is confirmed only when the response proves all of the following:
+
+- exactly one expected Travelport reservation locator;
+- the exact durable property, dates, room quantity, and guest count;
+- the same original Booking.com supplier confirmation; and
+- a structurally valid successful response.
+
+A changed/missing supplier confirmation, mismatched reservation identity, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
+
+Successful Sync clears `providerRecoveryReference` and moves the operation to `CONFIRMED`. Ambiguous Sync retains the supplier confirmation and recovery reference as evidence but is not retryable. A deterministic pre-provider failure returns to `AMBIGUOUS` with the recovery evidence retained and may be retried only because the provider-request marker proves no Sync request was sent.
+
+## Crash recovery
+
+The shared supplier attempt lease now recognizes `RECOVERY_WRITE` as a valid `SUBMITTING` attempt.
+
+- If a stale recovery-write attempt has no provider-request marker, it returns to `AMBIGUOUS`, completes as `FAILED`, and is marked retryable.
+- If the marker exists, it returns to `AMBIGUOUS`, completes as `AMBIGUOUS`, and is not retryable.
+
+This preserves the original supplier confirmation/recovery authority without ever turning uncertain provider I/O into permission for another external recovery write.
+
+## Privacy and observability
+
+The Sync coordinator and executor do not accept payment-card data. Structured Sync observation is allowlisted to the SF attempt correlation UUID, organization UUID, fixed provider/operation, normalized result, duration, level, and timestamp. Supplier confirmations, recovery references, traveler email, provider locators, credentials, tokens, request bodies, and response bodies are excluded.
+
+## Activation boundary
+
+The server-only executor/coordinator now exists, but Travelport `reservation` remains disabled. Before activation SF still requires:
+
+1. provisioned Travelport non-production validation of SearchComplete → Rules → Availability → Create → Sync behavior and exact response receipts;
+2. a reviewed PCI-safe form-of-payment/guarantee source for the Create path;
+3. explicit authorized price/guarantee-change acceptance;
+4. authoritative validation of `13034`, locator-less negative/correlation behavior, and retry semantics; and
+5. complete product/API orchestration only after the provider capability is actually enabled.
+
+No current route, button, customer action, or staff action can call Sync.
 
 ## References
 
-- Travelport Sync Reservation API Reference: `POST book/reservations/`; `passiveOfferInd=true`; offer identifier authority from Availability; traveler details; supplier confirmation locator; Booking.com supplier source `BO`.
+- Travelport Sync Reservation API Reference: `POST book/reservations/`; `passiveOfferInd=true`; offer identifier authority from Availability; traveler email; supplier confirmation locator; Booking.com supplier source `BO`.
 - Travelport TripServices Stays APIs Guide: Booking.com aggregator sell failure and Sync handling.

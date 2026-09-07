@@ -9,7 +9,8 @@ const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 
 test('stale supplier reservation recovery has a fixed conservative execution lease', () => {
   const lease = source('src/server/suppliers/hospitality-supplier-reservation-attempt-lease.ts');
   assert.match(lease, /ATTEMPT_LEASE_MS\s*=\s*10\s*\*\s*60_000/);
-  assert.match(lease, /status === 'SUBMITTING' \? 'CREATE' : 'RECONCILE'/);
+  assert.match(lease, /status === 'RECONCILING'[\s\S]*?kind === 'RECONCILE'/);
+  assert.match(lease, /kind === 'CREATE' \|\| kind === 'RECOVERY_WRITE'/);
   assert.match(lease, /attemptStatus !== 'STARTED'/);
   assert.match(lease, /attemptSequence !== input\.currentAttemptCount/);
   assert.match(lease, /elapsedMs < HOSPITALITY_SUPPLIER_RESERVATION_ATTEMPT_LEASE_MS/);
@@ -45,7 +46,8 @@ test('provider-request marker authorizes and scopes before establishing external
   const updateIndex = service.indexOf('providerRequestStartedAt: databaseClock.currentTime', markerIndex);
   assert.ok(markerIndex >= 0 && authorityIndex > markerIndex && transactionIndex > authorityIndex && updateIndex > transactionIndex);
   assert.match(service, /id: input\.attemptId,[\s\S]*?organizationId: input\.organizationId,[\s\S]*?reservationId: reservation\.id/);
-  assert.match(service, /sequence: reservation\.attemptCount,[\s\S]*?kind: expectedAttemptKind\(reservation\.status\),[\s\S]*?status: 'STARTED'/);
+  assert.match(service, /sequence: reservation\.attemptCount,[\s\S]*?status: 'STARTED'/);
+  assert.match(service, /!attempt \|\| !attemptKindMatchesOperation\(reservation\.status, attempt\.kind\)/);
   assert.match(service, /if \(attempt\.providerRequestStartedAt\) return attempt/);
   assert.match(service, /action: 'supplier\.reservation-provider-request-started'/);
 });
@@ -74,6 +76,12 @@ test('expired create is retryable only when durable evidence proves provider req
   assert.match(service, /status: recovery\.operationStatus/);
   assert.match(service, /status: recovery\.attemptStatus/);
   assert.doesNotMatch(service, /status: 'PREPARED'/);
+});
+
+test('recovery-write lease reopens only before the provider marker', () => {
+  const lease = source('src/server/suppliers/hospitality-supplier-reservation-attempt-lease.ts');
+  assert.match(lease, /attemptKind === 'CREATE' \|\| input\.attemptKind === 'RECOVERY_WRITE' \? true : null/);
+  assert.match(lease, /operationStatus: input\.attemptKind === 'CREATE' \? 'PREPARED' : 'AMBIGUOUS'/);
 });
 
 test('reconciliation marks provider-request evidence immediately before provider I/O', () => {

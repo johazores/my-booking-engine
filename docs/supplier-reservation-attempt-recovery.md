@@ -2,116 +2,132 @@
 
 ## Purpose
 
-SF persists supplier reservation create and reconciliation claims before provider I/O. That is required for durable idempotency, but it creates a separate crash-recovery responsibility: a process can terminate after a claim becomes `SUBMITTING` or `RECONCILING` and before the matching attempt is settled.
+SF persists supplier reservation external-work claims before provider I/O. The durable ledger currently has three attempt kinds:
 
-A claim alone is not evidence that a provider request was sent. Treating every abandoned create claim as externally ambiguous can strand a reservation forever when the process actually died before provider I/O. Treating every abandoned claim as safely retryable is worse because it can duplicate a real supplier reservation after an uncertain provider write.
+- `CREATE` for a supplier sell;
+- `RECONCILE` for a read-only provider-truth lookup using a known provider locator; and
+- `RECOVERY_WRITE` for a provider-specific external recovery write such as Travelport Booking.com Sync.
 
-SF therefore records a separate durable provider-request boundary. Stale recovery may reopen a create only when the current attempt proves that boundary was never crossed.
+A persisted claim alone does not prove that provider I/O occurred. SF therefore records a separate durable provider-request boundary so stale execution can distinguish work that is definitely safe to retry from work that may already have affected the supplier.
+
+## In-flight operation states
+
+`SUBMITTING` is the provider-neutral external-write state. It may have a current `CREATE` or `RECOVERY_WRITE` attempt.
+
+`RECONCILING` is the read-only provider-truth state and must have a current `RECONCILE` attempt.
+
+The attempt kind, sequence, operation state, and `STARTED` status must agree. Any mismatch fails closed.
 
 ## Two-stage execution lease
 
-Each current `STARTED` supplier reservation attempt has a fixed ten-minute execution lease. The lease is intentionally longer than the current supplier adapter request ceiling of 120 seconds and is not configurable by browser or tenant input.
+Every current `STARTED` supplier reservation attempt has a fixed ten-minute execution lease. The lease is longer than the current supplier adapter request ceiling and is a crash-detection guard, not a provider timeout or commercial authority.
 
-The lease is a crash-detection guard, not a provider timeout and not reservation authority. Its clocks are database-authored. A new claim receives `leaseStartedAt` from PostgreSQL `clock_timestamp()` with `providerRequestStartedAt = null`.
+Lease clocks are database-authored. A new claim receives `leaseStartedAt` from PostgreSQL `clock_timestamp()` with `providerRequestStartedAt = null`.
 
-Immediately before provider transport can begin, server code must call `markHospitalitySupplierReservationProviderRequestStarted`. Under the same tenant/operation advisory lock, that marker:
+Immediately before provider transport can begin, server code calls `markHospitalitySupplierReservationProviderRequestStarted`. Under the same tenant/operation advisory lock, that marker:
 
-- verifies `booking:manage`, organization scope, the in-flight operation, exact current attempt ID/sequence/kind, and `STARTED` status;
-- records a database-authored `providerRequestStartedAt`;
-- resets `leaseStartedAt` to that exact same database clock value so the external request receives a full execution lease;
-- is idempotent after the first successful marker and does not keep extending the lease on repeated calls;
-- writes only privacy-safe audit facts.
+- requires server-side `booking:manage`;
+- validates organization scope, current operation, exact attempt ID and sequence, allowed attempt kind, and `STARTED` status;
+- writes database-authored `providerRequestStartedAt`;
+- resets `leaseStartedAt` to the same database clock so the provider call receives a full lease;
+- is idempotent once written; and
+- audits only privacy-safe operational facts.
 
-The marker must complete before the provider request. The marker and stale recovery use the same serializable operation lock, so they cannot race into contradictory authority. If stale recovery wins first, the attempt is no longer in flight and a later marker cannot authorize provider I/O. If the marker wins first, stale recovery sees durable evidence that provider I/O may have happened and fails closed to ambiguity.
-
-The existing `startedAt` field remains operational history only and is not lease authority, so application-node clock skew cannot make a fresh claim look stale or postpone recovery indefinitely.
-
-## Migration safety
-
-The original lease migration conservatively gave attempts that were already `STARTED` a fresh database-authored lease rather than trusting historical application timestamps.
-
-The provider-request-boundary migration is equally conservative. Existing `STARTED` attempts predate the new marker, so SF cannot prove they did not already reach an external provider. They are migrated with `providerRequestStartedAt` set and with a fresh `leaseStartedAt` from the same database clock. Completed historical attempts are not rewritten merely to fabricate provider-I/O history.
-
-A database check requires any provider-request timestamp to have database lease authority and prevents the provider-request timestamp from preceding that lease timestamp.
+The marker and stale recovery share the same serializable operation lock. If recovery wins first, the attempt is no longer eligible for provider I/O. If the marker wins first, stale recovery must assume provider I/O may have occurred.
 
 ## Stale recovery requirements
 
-Stale recovery is allowed only when all of these remain true under the same serializable operation lock used by the reservation ledger:
+Recovery is allowed only when all of these remain true under the operation lock:
 
-- the operation is `SUBMITTING` with a current `CREATE` attempt, or `RECONCILING` with a current `RECONCILE` attempt;
+- the operation is `SUBMITTING` with a current `CREATE` or `RECOVERY_WRITE`, or `RECONCILING` with a current `RECONCILE`;
 - the attempt is still `STARTED`;
-- the attempt sequence exactly equals the operation `attemptCount`;
-- the database-authored lease start exists, is valid, and is at least ten minutes old.
+- the attempt sequence equals the operation `attemptCount`;
+- database lease authority exists; and
+- the lease is at least ten minutes old.
 
-A fresh attempt, missing lease authority, mismatched kind, completed attempt, stale sequence, invalid timestamp, or operation outside the two in-flight states fails closed without mutation.
+Fresh attempts, missing lease authority, state/kind mismatch, completed attempts, stale sequences, invalid timestamps, and operations outside the two in-flight states fail closed.
 
-## Recovery transitions
+## Recovery transitions before provider I/O
 
-Recovery distinguishes whether durable provider-request evidence exists.
+When `providerRequestStartedAt` is null, SF can prove the external provider boundary was not crossed.
 
-### Lease expired before provider request
+For stale `CREATE`:
 
-When `providerRequestStartedAt` is still null, SF has durable evidence that the current execution never crossed the protected provider-request boundary.
+- operation returns to `PREPARED`;
+- attempt becomes `FAILED`;
+- `lastFailureRetryable=true`; and
+- failure code is `EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST`.
 
-For a stale `CREATE`:
+For stale `RECOVERY_WRITE`:
 
-- the operation returns to `PREPARED`;
-- the attempt completes as `FAILED`;
-- `lastFailureRetryable` is `true`;
-- the normalized failure code is `EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST`;
-- no provider reservation locator or provider truth is invented.
+- operation returns to `AMBIGUOUS`;
+- supplier confirmation and provider recovery authority remain intact;
+- attempt becomes `FAILED`;
+- `lastFailureRetryable=true`; and
+- failure code is `EXECUTION_LEASE_EXPIRED_BEFORE_PROVIDER_REQUEST`.
 
-This is the only stale-create path that becomes safe to submit again, and it is safe only because the marker is mandatory before external provider I/O.
+The operation stays ambiguous because the original supplier sell was already ambiguous. A new recovery write is safe only because durable evidence proves the recovery request itself never reached the provider.
 
-For a stale `RECONCILE`, the attempt completes as `FAILED` with the same pre-provider failure code, but the operation remains `AMBIGUOUS`. The reservation was already ambiguous before reconciliation began, so absence of a recovery lookup does not change supplier truth. A new reconciliation claim is safe when the known provider locator still exists.
+For stale `RECONCILE`:
 
-### Lease expired after provider request may have started
+- operation returns to `AMBIGUOUS`;
+- attempt becomes `FAILED`;
+- the same pre-provider failure code is recorded; and
+- no retryability claim is made about the supplier sell.
 
-When `providerRequestStartedAt` exists, the external request may have been sent even if the process died immediately after recording the marker. Recovery therefore remains conservative:
+A known-locator reconciliation can be claimed again because the lookup itself is read-only and the durable provider locator remains available.
 
-- the operation becomes or remains `AMBIGUOUS`;
-- the attempt completes as `AMBIGUOUS`;
-- the normalized failure code is `EXECUTION_LEASE_EXPIRED`;
-- any known provider reservation locator is preserved;
-- another create is never made safe by lease expiry alone.
+## Recovery transitions after provider I/O may have started
 
-This fail-closed rule applies to both create and reconciliation attempts.
+When `providerRequestStartedAt` exists, the external request may have been sent. For `CREATE`, `RECONCILE`, and `RECOVERY_WRITE`:
 
-## Create and reconciliation coordinators
+- operation becomes or remains `AMBIGUOUS`;
+- attempt becomes `AMBIGUOUS`;
+- failure code is `EXECUTION_LEASE_EXPIRED`; and
+- `lastFailureRetryable` is null.
 
-The provider-neutral reconciliation coordinator records the provider-request marker immediately before invoking `retrieveReservation`. Its durable request correlation remains the attempt UUID. Provider-code mismatch and other pre-provider rejection paths settle without pretending provider I/O occurred.
+This prevents lease expiry from authorizing a duplicate supplier sell or a repeated external recovery write.
 
-The Travelport create coordinator now uses the same marker immediately before the external Create Reservation POST. Sensitive request validation/composition and OAuth occur before the marker. If those pre-commercial steps fail, the coordinator settles the current create attempt immediately as retry-safe `FAILED`; a later attempt must still repeat fresh offer/Rules/Availability/traveler authority. Once the marker completes, any unexpected execution uncertainty is settled as `AMBIGUOUS`, never as a blind retryable create failure.
+## Recovery-write replay boundary
 
-If settlement itself fails after the marked provider call, the existing stale-recovery path remains the final crash guard. Because `providerRequestStartedAt` is durable, lease recovery cannot reopen that create as safe merely because the application process lost the settlement write.
+A provider-neutral recovery-write claim accepts only a locator-less `AMBIGUOUS` operation with a supplier confirmation and provider recovery reference. It also binds the caller to the durable reservation payload fingerprint and exact tenant/integration/credential-version authority.
 
-This coordinator does not authorize product access to Travelport create. The `reservation` capability remains disabled until the separate PCI-safe form-of-payment and live provider/recovery gates are complete.
+If the most recent attempt is `RECOVERY_WRITE`, another claim is allowed only when that attempt is `FAILED`, `providerRequestStartedAt` is null, and the operation is explicitly marked retryable. Any marked, ambiguous, successful, or otherwise uncertain recovery write blocks automatic replay.
+
+Successful recovery clears the provider recovery reference and confirms only with matching supplier confirmation plus a provider reservation locator. An ambiguous recovery retains its evidence but is not automatically retryable.
+
+## Coordinator ordering
+
+The Travelport Create coordinator performs deterministic request validation/composition and OAuth before the provider-request marker, then sends the commercial Create Reservation POST only after the marker succeeds.
+
+The Travelport Booking.com Sync coordinator follows the same write boundary. It rebinds the authorized traveler fingerprint, claims `RECOVERY_WRITE`, reloads exact integration/credential authority, constructs the minimal Sync request, completes OAuth, records the provider-request marker, and only then calls `POST book/reservations/`.
+
+Known-locator reconciliation records the marker immediately before invoking the provider Retrieve operation.
 
 ## Authorization, tenancy, and privacy
 
-Provider-request marking and stale recovery require server-side `booking:manage` before transaction work begins. The operation and current attempt are queried with the authenticated organization scope, and every mutable attempt/operation write repeats that organization scope.
+Provider-request marking, stale recovery, recovery-write claim, and recovery-write settlement require server-side `booking:manage`. Every operation and attempt read/write is scoped by authenticated organization ID and uses the same tenant/operation advisory lock.
 
-Both operations execute inside serializable transactions protected by the same tenant/operation PostgreSQL advisory-lock key used by normal supplier reservation claims.
+Audit records exclude supplier property/offer payloads, provider locators, supplier confirmations, recovery references, traveler/customer data, reservation fingerprints, credentials, tokens, request/response bodies, and payment/card material.
 
-Audit evidence records only provider code, operation state where relevant, attempt kind/sequence, whether provider request evidence existed, and normalized failure code. Supplier property/offer references, provider reservation locators, supplier confirmations, provider correlation identifiers, traveler/customer data, reservation payload fingerprints, credentials, tokens, request/response bodies, and payment/card material are excluded.
-
-The Travelport create coordinator adds only privacy-minimal structured request observation: attempt correlation UUID, organization UUID, fixed provider/operation name, normalized create result, and duration. Sensitive card/traveler/provider receipt data is not logged.
+Travelport Create and Sync structured observations contain only attempt correlation UUID, organization UUID, fixed provider/operation, normalized result, duration, level, and timestamp.
 
 ## Validation
 
-Dependency-free tests cover the fixed lease, current-attempt/kind/sequence requirements, fresh-attempt rejection, pre-provider create retry safety, pre-provider reconciliation behavior, and fail-closed post-marker ambiguity for both attempt kinds.
+Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, and fail-closed post-marker ambiguity, including `RECOVERY_WRITE`.
 
-Source-contract tests cover database-authored lease and provider-request clocks, conservative migration of legacy `STARTED` attempts, marker authorization and tenant/current-attempt scope, marker idempotency and lease refresh, recovery authorization ordering, shared lock identity, privacy-minimal audit data, reconciliation marker ordering before provider I/O, and Travelport create coordinator ordering from fresh authority through marker and settlement.
+Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, and Travelport Sync recovery-write ordering.
 
-The guarded PostgreSQL scenario covers both sides of the boundary. It verifies that an expired create claim with no provider marker returns safely to `PREPARED`, can be claimed again, then becomes `AMBIGUOUS` after a provider marker is recorded and that refreshed lease expires. It also covers cross-tenant marker/recovery denial, idempotent markers, historical `startedAt` not controlling the lease, pre-provider reconciliation recovery, post-marker reconciliation ambiguity, locator preservation, attempt ordering, and safe reconciliation retry. It runs only through `npm run test:database` against an explicitly disposable PostgreSQL target.
+A guarded PostgreSQL recovery-write scenario is registered under `npm run test:database`. It verifies pre-provider recovery retry, provider-marked non-retryability, replay prevention after ambiguous Sync, traveler fingerprint binding, matching supplier-confirmation settlement, and recovery-reference clearing on success. It requires an explicitly disposable PostgreSQL target.
 
-## Remaining supplier-write boundary
+## Activation boundary
 
-The create execution coordinator now exists, but it remains unreachable by design because Travelport still advertises only read-side capabilities. Reservation activation remains blocked on provisioned non-production validation of the selected-offer authority/Create flow, a reviewed PCI-safe form-of-payment/guarantee source, explicit authorized price/guarantee-change handling, authoritative negative behavior, locator-less/Booking.com Sync recovery, and live provider verification.
+The Travelport Create and Booking.com Sync server-side coordinators exist but remain unreachable because the integration does not advertise `reservation`. Activation still requires live Travelport non-production verification, a reviewed PCI-safe Create form-of-payment strategy, explicit price/guarantee-change acceptance, authoritative `13034`/negative-correlation semantics, and complete product/API states.
 
 See also:
 
 - `docs/supplier-reservation-operations.md`
+- `docs/travelport-booking-sync-recovery-authority.md`
 - `docs/travelport-reservation-create-coordinator.md`
 - `docs/travelport-stays-integration.md`
 - `docs/integration-architecture.md`
