@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { moneyMinorToMajorString, normalizeCurrency, parseMoneyMajorToMinor, PricingValidationError } from '../pricing/money.ts';
 import {
@@ -17,6 +17,7 @@ import type {
   HospitalitySupplierRuleGuaranteeType,
   HospitalitySupplierRuleText,
 } from './hospitality-supplier-booking-terms.ts';
+import { fingerprintTravelportStaysBookingTerms } from './travelport-stays-booking-terms-fingerprint.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -423,30 +424,6 @@ function normalizeTextBlocks(value: unknown): readonly HospitalitySupplierRuleTe
   return Object.freeze(output);
 }
 
-function fingerprintTerms(value: Omit<HospitalitySupplierBookingTerms, 'termsFingerprint'>) {
-  const payload = {
-    ...value,
-    price: {
-      ...value.price,
-      baseMinor: value.price.baseMinor?.toString() ?? null,
-      taxMinor: value.price.taxMinor?.toString() ?? null,
-      feeMinor: value.price.feeMinor?.toString() ?? null,
-      totalMinor: value.price.totalMinor.toString(),
-    },
-    cancellationRules: value.cancellationRules.map((rule) => ({
-      ...rule,
-      penalty: rule.penalty?.kind === 'AMOUNT'
-        ? { kind: 'AMOUNT', money: { currency: rule.penalty.money.currency, amountMinor: rule.penalty.money.amountMinor.toString() } }
-        : rule.penalty,
-    })),
-    deposits: value.deposits.map((deposit) => ({
-      ...deposit,
-      money: deposit.money ? { currency: deposit.money.currency, amountMinor: deposit.money.amountMinor.toString() } : null,
-    })),
-  };
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-}
-
 function normalizeRulesResponse(input: {
   value: unknown;
   supplierPropertyReference: string;
@@ -596,7 +573,7 @@ function normalizeRulesResponse(input: {
     }
   }
 
-  const uniqueGuarantees = Object.freeze([...new Set(guarantees)]);
+  const uniqueGuarantees = Object.freeze([...new Set(guarantees)].sort());
   const acceptedPaymentCardCodes = Object.freeze([...cards].sort());
   const completeForReservationReview = uniqueGuarantees.length > 0
     && !uniqueGuarantees.includes('UNKNOWN')
@@ -626,7 +603,7 @@ function normalizeRulesResponse(input: {
     completeForReservationReview,
     revalidationRequired: true,
   });
-  return Object.freeze({ ...normalized, termsFingerprint: fingerprintTerms(normalized) });
+  return Object.freeze({ ...normalized, termsFingerprint: fingerprintTravelportStaysBookingTerms(normalized) });
 }
 
 function readBridgeResponse(input: {
