@@ -90,10 +90,22 @@ test('durable acceptance is bounded and cannot become ordinary retry authority',
   assert.doesNotMatch(createCoordinator, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('documentation keeps the second provider write and sensitive payment boundary closed', () => {
-  const docs = source('docs/supplier-reservation-review-acceptance.md');
-  assert.match(docs, /second-request query parameters/);
-  assert.match(docs, /does not enable a second supplier write/);
-  assert.match(docs, /PCI-safe FormOfPayment/);
-  assert.match(docs, /normal submission therefore stays blocked/);
+test('documentation reflects implemented review acceptance and Sync while keeping the second sell closed', () => {
+  const acceptanceDocs = source('docs/supplier-reservation-review-acceptance.md');
+  const integrationDocs = source('docs/travelport-stays-integration.md');
+  const responseDocs = source('docs/travelport-reservation-response-evidence.md');
+
+  assert.match(acceptanceDocs, /second-request query parameters/);
+  assert.match(acceptanceDocs, /does not enable a second supplier write/);
+  assert.match(acceptanceDocs, /PCI-safe FormOfPayment/);
+  assert.match(acceptanceDocs, /normal submission therefore stays blocked/);
+
+  assert.match(integrationDocs, /acceptTravelportStaysReservationCommercialReview/);
+  assert.match(integrationDocs, /accepted decision is not yet consumed into a second provider write/i);
+  assert.match(integrationDocs, /one-time claim\/consumption and second Create execution/);
+  assert.doesNotMatch(integrationDocs, /Implement and live-validate explicit authorized price\/guarantee-change acceptance/);
+
+  assert.match(responseDocs, /TravelportStaysReservationSyncExecutor/);
+  assert.match(responseDocs, /acceptTravelportStaysReservationCommercialReview/);
+  assert.doesNotMatch(responseDocs, /Sync itself remains unimplemented/);
 });
