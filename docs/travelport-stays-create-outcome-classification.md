@@ -64,13 +64,13 @@ The opaque recovery reference contains only Travelport-owned non-secret authorit
 
 Price and guarantee change responses are now persisted as a dedicated `REVIEW_REQUIRED` operation and attempt state rather than being collapsed into generic `FAILED`. The transition is allowed only for the three fixed normalized review reasons and only when the current tenant-scoped `CREATE` attempt has a durable `providerRequestStartedAt` marker. The transition clears provider/supplier recovery locators, keeps retryability `NULL`, and emits a bounded `supplier.reservation-review-required` audit event.
 
-`assertHospitalitySupplierReservationCanSubmit` rejects `REVIEW_REQUIRED`. This is intentional: normal retry logic, including the safe ephemeral payment-correction retry path, cannot turn a commercial review into a second sell. A future acceptance path must separately re-review current offer, Rules, Availability, traveler, and payment authority; bind the exact accepted commercial change to a durable actor decision; and only then add the applicable Travelport acceptance query parameter for that one provider write.
+`assertHospitalitySupplierReservationCanSubmit` rejects `REVIEW_REQUIRED`. This is intentional: normal retry logic, including the safe ephemeral payment-correction retry path, cannot turn a commercial review into a second sell. The server-only acceptance-decision path now separately re-reviews current offer, Rules, Availability, traveler, integration, and payment authority and binds the exact accepted dimensions/current total/current commercial fingerprints to the authorized actor. It deliberately leaves the operation `REVIEW_REQUIRED`; a future one-time second-write claim must revalidate that durable decision before adding the applicable Travelport acceptance query parameter(s).
 
 ## Durable ledger normalization
 
 `travelportStaysCreateOutcomeToSubmissionOutcome` remains the provider-specific bridge for confirmed, ambiguous, and ordinary failed outcomes. Price/guarantee review outcomes are deliberately rejected by that generic mapper and are routed by the Create coordinator into the dedicated review settlement path.
 
-The dedicated review state is not retry authority. Travelport states that a price or guarantee difference stops the initial sell and that a second request may proceed only after explicit acceptance. SF does not yet implement that acceptance workflow, and neither `acceptPriceChangeInd` nor `acceptGuaranteeChangeInd` is sent by the initial create executor.
+The dedicated review state is not retry authority. Travelport states that a price or guarantee difference stops the initial sell and that a second request may proceed only after explicit acceptance. SF now implements the durable authorized decision/revalidation boundary, but not its consumption into a second Create request; neither `acceptPriceChangeInd` nor `acceptGuaranteeChangeInd` is ever sent by the initial create executor.
 
 ## Privacy and observability
 
@@ -86,7 +86,8 @@ Supplier confirmation evidence by itself never means the Travelport reservation 
 - Travelport TripServices Stays APIs Guide: price/guarantee change behavior.
 - Travelport Create Reservation Reference Payload API Reference.
 - Travelport Sync Reservation API Reference.
+- `docs/supplier-reservation-review-acceptance.md` for SF's durable authorized review-decision boundary.
 
 ## Remaining boundary
 
-The Travelport reservation capability stays disabled. The single-room Create executor/coordinator and Booking.com Sync executor/coordinator exist, but activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a separately authorized price/guarantee-change acceptance path that consumes the durable `REVIEW_REQUIRED` state, and live validation of authoritative locator-less negative/correlation semantics.
+The Travelport reservation capability stays disabled. The single-room Create executor/coordinator and Booking.com Sync executor/coordinator exist, and SF can now persist an authorized price/guarantee review decision after fresh commercial authority. Activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a dedicated one-time consumption/second-request path for the durable accepted review decision plus live validation of those second-sell semantics, and live validation of authoritative locator-less negative/correlation semantics.

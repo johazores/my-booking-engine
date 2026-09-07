@@ -26,6 +26,8 @@ Once the marker completes, uncertainty is never downgraded to a retryable create
 
 Documented price/guarantee changes are different from ordinary failure. They are stored as a dedicated provider-neutral `REVIEW_REQUIRED` operation and attempt state with one of the fixed reasons `SUPPLIER_PRICE_CHANGED`, `SUPPLIER_GUARANTEE_CHANGED`, or `SUPPLIER_PRICE_AND_GUARANTEE_CHANGED`. This transition requires the exact current tenant-scoped `CREATE` attempt and its durable provider-request marker. It has no generic retry authority, and normal create submission explicitly rejects the state. The initial Create request still never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`.
 
+An authorized actor can now record the exact pending review decision through the server-only Travelport review-acceptance service. That service requires `availability:read`, `pricing:read`, and `booking:manage`, rebinds the immutable traveler fingerprint, checks the same integration/credential version and disabled `reservation` capability boundary, revalidates the current selected offer, retrieves current Rules, repeats selected-offer Availability authority, derives current payment/guarantee authority, and persists actor/time, accepted dimensions, exact total, and current offer/terms/authority fingerprints under a database all-or-none contract. The operation intentionally stays `REVIEW_REQUIRED`; this decision cannot enter normal retry and cannot invoke the current Create executor.
+
 Automatic retry after a definitive provider no-sell response is limited to reviewed failures that can be corrected entirely inside the ephemeral form-of-payment input without changing durable reservation/traveler authority. The current allowlist covers card code/expiry/cardholder/number/CVV/type (`1537`-`1542`), billing address (`1543`-`1547` and `13050`), form-of-payment telephone (`13054`, `13083`), and supplier card-type rejection (`13078`). Every permitted retry repeats the full fresh authority gate. Traveler validation failures remain non-retryable on the existing operation because traveler identity/contact is bound into the durable reservation payload fingerprint.
 
 If durable settlement itself fails after provider execution, the operation remains in-flight and the existing execution lease recovery sees the provider-request marker. It therefore fails closed to ambiguity rather than reopening the create. This preserves the crash-safety contract without treating logging or application exceptions as supplier truth.
@@ -36,13 +38,16 @@ The create provider observation is a strict allowlist containing only timestamp,
 
 Sensitive payment-card material is passed only from the coordinator argument into the server-only Travelport executor. It is not added to the supplier operation/attempt rows, audit metadata, provider observation, request fingerprint, or application logs.
 
+The review-acceptance audit event is separately allowlisted to provider code, normalized review reason, accepted dimensions, accepted currency/total, review attempt sequence, and the acceptance fingerprint. It does not persist traveler PII, raw provider payloads, the expiring provider submission reference, credentials, PAN, CVV, cardholder, or other form-of-payment material.
+
 ## Remaining activation boundary
 
-This coordinator removes the missing orchestration dependency, but Travelport `reservation` remains disabled. Production activation still requires a reviewed PCI-safe form-of-payment source/handling strategy for the provisioned Travelport account, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a separately authorized price/guarantee-change acceptance path that consumes the durable `REVIEW_REQUIRED` state and revalidates fresh commercial authority before the applicable provider acceptance flag can be sent, and authoritative locator-less/`13034` correlation semantics. Only after those gates are verified should SF advertise the reservation capability or expose reserve UX.
+This coordinator removes the missing initial orchestration dependency, and the authorized review-decision persistence boundary is now implemented, but Travelport `reservation` remains disabled. Production activation still requires a reviewed PCI-safe form-of-payment source/handling strategy for the provisioned Travelport account, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a dedicated one-time acceptance claim/consumption path that revalidates the recorded decision and sends only the applicable Travelport second-request query parameter(s), live validation of that price/guarantee second-sell behavior, and authoritative locator-less/`13034` correlation semantics. Only after those gates are verified should SF advertise the reservation capability or expose reserve UX.
 
 See also:
 
 - `docs/supplier-reservation-submission-authority.md`
 - `docs/supplier-reservation-create-readiness.md`
 - `docs/supplier-reservation-attempt-recovery.md`
+- `docs/supplier-reservation-review-acceptance.md`
 - `docs/travelport-stays-integration.md`
