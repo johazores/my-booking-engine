@@ -1,12 +1,6 @@
 import type { HospitalitySupplierReservationSubmissionOutcome } from './hospitality-supplier-reservation-service.ts';
 import type { TravelportStaysReservationCreateOutcome } from './travelport-stays-reservation-create-outcome.ts';
 
-const REVIEW_FAILURE_CODES = Object.freeze({
-  PRICE_CHANGED: 'SUPPLIER_PRICE_CHANGED',
-  GUARANTEE_CHANGED: 'SUPPLIER_GUARANTEE_CHANGED',
-  PRICE_AND_GUARANTEE_CHANGED: 'SUPPLIER_PRICE_AND_GUARANTEE_CHANGED',
-} as const);
-
 export function travelportStaysCreateOutcomeToSubmissionOutcome(
   outcome: TravelportStaysReservationCreateOutcome,
 ): HospitalitySupplierReservationSubmissionOutcome {
@@ -37,10 +31,5 @@ export function travelportStaysCreateOutcomeToSubmissionOutcome(
     });
   }
 
-  return Object.freeze({
-    status: 'FAILED',
-    failureCode: REVIEW_FAILURE_CODES[outcome.reason],
-    retryable: false,
-    providerCorrelationId: outcome.providerCorrelationId,
-  });
+  throw new Error('Travelport price or guarantee review outcomes require the dedicated durable review settlement path.');
 }

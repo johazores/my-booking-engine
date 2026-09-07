@@ -19,6 +19,7 @@ export const hospitalitySupplierReservationStatuses = [
   'CONFIRMED',
   'AMBIGUOUS',
   'RECONCILING',
+  'REVIEW_REQUIRED',
   'FAILED',
 ] as const;
 
@@ -234,6 +235,11 @@ export function assertHospitalitySupplierReservationCanSubmit(
       );
     }
     return;
+  }
+  if (input.status === 'REVIEW_REQUIRED') {
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier reservation requires an explicit price or guarantee review decision before another create attempt.',
+    );
   }
   if (input.status === 'AMBIGUOUS' || input.status === 'RECONCILING') {
     throw new HospitalitySupplierReservationConflictError(

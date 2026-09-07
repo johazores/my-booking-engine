@@ -60,11 +60,17 @@ That staging transaction independently requires server-side `booking:manage`, te
 
 The opaque recovery reference contains only Travelport-owned non-secret authority needed by the provider adapter. Core supplier booking logic does not parse it, and audit metadata records only that recovery evidence was staged, never the confirmation or recovery value itself.
 
+## Durable review-required state
+
+Price and guarantee change responses are now persisted as a dedicated `REVIEW_REQUIRED` operation and attempt state rather than being collapsed into generic `FAILED`. The transition is allowed only for the three fixed normalized review reasons and only when the current tenant-scoped `CREATE` attempt has a durable `providerRequestStartedAt` marker. The transition clears provider/supplier recovery locators, keeps retryability `NULL`, and emits a bounded `supplier.reservation-review-required` audit event.
+
+`assertHospitalitySupplierReservationCanSubmit` rejects `REVIEW_REQUIRED`. This is intentional: normal retry logic, including the safe ephemeral payment-correction retry path, cannot turn a commercial review into a second sell. A future acceptance path must separately re-review current offer, Rules, Availability, traveler, and payment authority; bind the exact accepted commercial change to a durable actor decision; and only then add the applicable Travelport acceptance query parameter for that one provider write.
+
 ## Durable ledger normalization
 
-`travelportStaysCreateOutcomeToSubmissionOutcome` is the provider-specific bridge into the provider-neutral supplier reservation settlement contract. Confirmed evidence maps to `CONFIRMED`; uncertainty stays `AMBIGUOUS`; documented price/guarantee changes become fixed non-retryable review failures; and reviewed definitive validation rejections preserve their exact normalized failure code and retryability.
+`travelportStaysCreateOutcomeToSubmissionOutcome` remains the provider-specific bridge for confirmed, ambiguous, and ordinary failed outcomes. Price/guarantee review outcomes are deliberately rejected by that generic mapper and are routed by the Create coordinator into the dedicated review settlement path.
 
-The non-retryable mapping for price/guarantee changes is intentional. Travelport states that a price or guarantee difference stops the initial sell and that a second request may proceed only after explicit acceptance. SF does not yet implement that acceptance workflow.
+The dedicated review state is not retry authority. Travelport states that a price or guarantee difference stops the initial sell and that a second request may proceed only after explicit acceptance. SF does not yet implement that acceptance workflow, and neither `acceptPriceChangeInd` nor `acceptGuaranteeChangeInd` is sent by the initial create executor.
 
 ## Privacy and observability
 
@@ -83,4 +89,4 @@ Supplier confirmation evidence by itself never means the Travelport reservation 
 
 ## Remaining boundary
 
-The Travelport reservation capability stays disabled. The single-room Create executor/coordinator and Booking.com Sync executor/coordinator exist, but activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production SearchComplete → Rules → Availability → Create → Sync validation, explicit authorized price/guarantee-change acceptance, and live validation of authoritative locator-less negative/correlation semantics.
+The Travelport reservation capability stays disabled. The single-room Create executor/coordinator and Booking.com Sync executor/coordinator exist, but activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a separately authorized price/guarantee-change acceptance path that consumes the durable `REVIEW_REQUIRED` state, and live validation of authoritative locator-less negative/correlation semantics.

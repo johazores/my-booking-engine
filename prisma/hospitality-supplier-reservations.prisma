@@ -4,6 +4,7 @@ enum HospitalitySupplierReservationOperationStatus {
   CONFIRMED
   AMBIGUOUS
   RECONCILING
+  REVIEW_REQUIRED
   FAILED
 }
 
@@ -16,6 +17,7 @@ enum HospitalitySupplierReservationAttemptKind {
 enum HospitalitySupplierReservationAttemptStatus {
   STARTED
   SUCCEEDED
+  REVIEW_REQUIRED
   FAILED
   AMBIGUOUS
   NOT_FOUND

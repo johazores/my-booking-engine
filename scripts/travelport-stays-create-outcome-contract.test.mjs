@@ -49,19 +49,24 @@ test('supplier confirmation is retained only as bounded Sync evidence and raw pr
   assert.doesNotMatch(classifier, /return[^;]*Message|providerMessage|rawMessage/);
 });
 
-test('Travelport outcomes map into the durable ledger without weakening explicit review or ambiguity', () => {
+test('Travelport review outcomes use a dedicated durable state instead of generic failed retry semantics', () => {
   const mapper = source('src/server/suppliers/travelport-stays-reservation-submission-outcome.ts');
-  const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
+  const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
+  const reviewService = source('src/server/suppliers/hospitality-supplier-reservation-review-service.ts');
+  const schema = source('prisma/hospitality-supplier-reservations.prisma');
 
-  assert.match(mapper, /HospitalitySupplierReservationSubmissionOutcome/);
-  assert.match(mapper, /if \(outcome\.status === 'FAILED'\)/);
-  assert.match(mapper, /failureCode: outcome\.failureCode/);
-  assert.match(mapper, /retryable: outcome\.retryable/);
-  assert.match(mapper, /SUPPLIER_PRICE_CHANGED/);
-  assert.match(mapper, /SUPPLIER_GUARANTEE_CHANGED/);
-  assert.match(mapper, /SUPPLIER_PRICE_AND_GUARANTEE_CHANGED/);
-  assert.match(mapper, /status: 'AMBIGUOUS'/);
-  assert.match(service, /status: 'FAILED'[\s\S]*?failureCode: unknown[\s\S]*?retryable: boolean/);
+  assert.match(coordinator, /createOutcome\.status === 'REVIEW_REQUIRED'/);
+  assert.match(coordinator, /settleHospitalitySupplierReservationReviewRequired/);
+  assert.match(coordinator, /SUPPLIER_PRICE_CHANGED/);
+  assert.match(coordinator, /SUPPLIER_GUARANTEE_CHANGED/);
+  assert.match(coordinator, /SUPPLIER_PRICE_AND_GUARANTEE_CHANGED/);
+  assert.match(reviewService, /status: 'REVIEW_REQUIRED'/);
+  assert.match(reviewService, /providerRequestStartedAt/);
+  assert.match(reviewService, /lastFailureRetryable: null/);
+  assert.match(reviewService, /supplier\.reservation-review-required/);
+  assert.match(schema, /enum HospitalitySupplierReservationOperationStatus\s*\{[\s\S]*REVIEW_REQUIRED/);
+  assert.match(schema, /enum HospitalitySupplierReservationAttemptStatus\s*\{[\s\S]*REVIEW_REQUIRED/);
+  assert.match(mapper, /dedicated durable review settlement path/);
   assert.doesNotMatch(mapper, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
@@ -73,6 +78,7 @@ test('documentation keeps capability disabled and explains the narrow definitive
   assert.match(doc, /category=VALIDATION/i);
   assert.match(doc, /1537.*1547.*13050.*13054.*13083.*13078/is);
   assert.match(doc, /unknown codes.*remain `AMBIGUOUS \/ INVALID_RESPONSE`/i);
+  assert.match(doc, /dedicated `REVIEW_REQUIRED`/i);
   assert.match(doc, /PCI-safe form-of-payment/i);
   assert.match(doc, /does not yet implement that acceptance workflow/i);
 });

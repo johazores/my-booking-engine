@@ -4,7 +4,7 @@ export const HOSPITALITY_SUPPLIER_RESERVATION_PROVIDER_LEASE_EXPIRED_FAILURE_COD
 
 export type HospitalitySupplierReservationInFlightStatus = 'SUBMITTING' | 'RECONCILING';
 export type HospitalitySupplierReservationAttemptKind = 'CREATE' | 'RECONCILE' | 'RECOVERY_WRITE';
-export type HospitalitySupplierReservationAttemptStatus = 'STARTED' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS' | 'NOT_FOUND';
+export type HospitalitySupplierReservationAttemptStatus = 'STARTED' | 'SUCCEEDED' | 'REVIEW_REQUIRED' | 'FAILED' | 'AMBIGUOUS' | 'NOT_FOUND';
 
 export type HospitalitySupplierReservationExpiredAttemptRecovery = Readonly<{
   operationStatus: 'PREPARED' | 'AMBIGUOUS';

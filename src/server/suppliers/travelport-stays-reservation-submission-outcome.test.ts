@@ -57,23 +57,15 @@ test('preserves documented definitive provider validation failures and retryabil
   });
 });
 
-test('turns documented sell changes into fixed non-retryable ledger failures', () => {
-  const expected = [
-    ['PRICE_CHANGED', 'SUPPLIER_PRICE_CHANGED'],
-    ['GUARANTEE_CHANGED', 'SUPPLIER_GUARANTEE_CHANGED'],
-    ['PRICE_AND_GUARANTEE_CHANGED', 'SUPPLIER_PRICE_AND_GUARANTEE_CHANGED'],
-  ] as const;
-
-  for (const [reason, failureCode] of expected) {
-    assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
-      status: 'REVIEW_REQUIRED',
-      reason,
-      providerCorrelationId: 'trace-5',
-    }), {
-      status: 'FAILED',
-      failureCode,
-      retryable: false,
-      providerCorrelationId: 'trace-5',
-    });
+test('refuses to collapse price or guarantee review outcomes into generic failure settlement', () => {
+  for (const reason of ['PRICE_CHANGED', 'GUARANTEE_CHANGED', 'PRICE_AND_GUARANTEE_CHANGED'] as const) {
+    assert.throws(
+      () => travelportStaysCreateOutcomeToSubmissionOutcome({
+        status: 'REVIEW_REQUIRED',
+        reason,
+        providerCorrelationId: 'trace-5',
+      }),
+      /dedicated durable review settlement path/,
+    );
   }
 });

@@ -13,6 +13,9 @@ import {
   recordHospitalitySupplierReservationProviderRecoveryEvidence,
 } from './hospitality-supplier-reservation-recovery-evidence-service.ts';
 import {
+  settleHospitalitySupplierReservationReviewRequired,
+} from './hospitality-supplier-reservation-review-service.ts';
+import {
   settleHospitalitySupplierReservationSubmission,
   type HospitalitySupplierReservationSubmissionOutcome,
 } from './hospitality-supplier-reservation-service.ts';
@@ -28,6 +31,12 @@ import {
 import {
   travelportStaysCreateOutcomeToSubmissionOutcome,
 } from './travelport-stays-reservation-submission-outcome.ts';
+
+const REVIEW_FAILURE_CODES = Object.freeze({
+  PRICE_CHANGED: 'SUPPLIER_PRICE_CHANGED',
+  GUARANTEE_CHANGED: 'SUPPLIER_GUARANTEE_CHANGED',
+  PRICE_AND_GUARANTEE_CHANGED: 'SUPPLIER_PRICE_AND_GUARANTEE_CHANGED',
+} as const);
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -231,6 +240,17 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(i
   }
 
   observationState.current?.finish(observationResult(createOutcome.status));
+  if (createOutcome.status === 'REVIEW_REQUIRED') {
+    return settleHospitalitySupplierReservationReviewRequired({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      failureCode: REVIEW_FAILURE_CODES[createOutcome.reason],
+      providerCorrelationId: createOutcome.providerCorrelationId,
+    });
+  }
+
   const settlement = travelportStaysCreateOutcomeToSubmissionOutcome(createOutcome);
   return settleHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
