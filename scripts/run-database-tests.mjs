@@ -56,6 +56,7 @@ run(process.execPath, [
   'src/server/suppliers/hospitality-supplier-reservation.integration.ts',
   'src/server/suppliers/hospitality-supplier-reservation-confirmation-evidence.integration.ts',
   'src/server/suppliers/hospitality-supplier-reservation-attempt-recovery.integration.ts',
+  'src/server/suppliers/hospitality-supplier-reservation-provider-evidence.integration.ts',
   'src/server/suppliers/hospitality-supplier-reservation-recovery-write.integration.ts',
   'src/server/suppliers/hospitality-supplier-reservation-reconciliation.integration.ts',
   'src/server/payments/payment.integration.ts',

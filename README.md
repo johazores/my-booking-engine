@@ -28,7 +28,8 @@ The current repository includes real persisted production boundaries for:
 - an explicit versioned commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
 - a normalized payment contract plus manual/offline payments and a real Stripe adapter for authorization/capture, hosted Checkout, verified webhooks, reconciliation, refunds, public payment recovery, and commercial-amendment settlement;
 - Australian hospitality legal-document infrastructure with immutable issuer/recipient/pricing evidence, serializable tax-invoice numbering and issuance, direction-aware commercial adjustment-note chains, supported cancellation adjustments, deterministic PDFs for the current lossless-text contract, tenant registers/accounting exports, retention boundaries, and reconciliation;
-- encrypted tenant integration credentials, provider capabilities, lifecycle management, connection health, rotation, disable/enable/archive/reconnect behavior, and secret-safe auditing; and
+- encrypted tenant integration credentials, provider capabilities, lifecycle management, connection health, rotation, disable/enable/archive/reconnect behavior, and secret-safe auditing;
+- a server-only Travelport TripServices Stays supplier adapter for bounded SearchComplete discovery, exact pricing, Rules, selected-offer Availability authority, durable reservation attempts, known-locator recovery, reviewed Create infrastructure, and Booking.com Sync recovery; its `reservation` capability remains intentionally disabled pending the documented activation gates; and
 - a real tenant-branded public hospitality journey from live discovery through hold, current-price review, customer/guest capture, booking confirmation, Stripe Checkout, signed payment completion, abandonment handling, and recovery.
 
 Provider-specific behavior remains behind adapters. Browser redirects are never accepted as proof of payment, public callers never receive staff authority, and tenant scope is resolved and revalidated server-side.
@@ -39,7 +40,7 @@ The repository does not pretend unfinished product areas are complete. Notable r
 
 - price-changing date reschedules beyond the current same-price reschedule contract, if that product capability is prioritized;
 - remaining Australian legal-document boundaries such as mixed-taxability or partial/non-standard-GST adjustments, generic correction/void/reissue, durable re-authenticated customer history and email/resend delivery, universal Unicode-safe PDF rendering, broader booking-linked customer-data disposal, production database/toolchain validation, and jurisdiction/legal review;
-- the first external supplier/GDS adapter and later provider-specific supplier integrations;
+- activation of the implemented Travelport Stays reservation lifecycle only after a concrete reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end verification, and authoritative locator-less/retry/recovery semantics are proven, plus later provider-specific supplier integrations when required;
 - additional payment/email/SMS providers only when there is a real product requirement; and
 - tours, appointments, rentals, marketplace capabilities, and other advanced business modules after the shared booking foundation is proven.
 
@@ -87,6 +88,7 @@ Start with:
 - `docs/invoice-foundation.md`
 - `docs/customer-data-lifecycle.md`
 - `docs/integration-architecture.md`
+- `docs/supplier-reservation-provider-evidence.md`
 - `docs/development-guide.md`
 
 Documentation must describe what the repository actually implements and must not present planned integrations or workflows as real.
