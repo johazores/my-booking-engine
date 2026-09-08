@@ -562,8 +562,7 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
 }
 
 function travelportRequestInit(init: RequestInit | undefined, headers: Headers): RequestInit {
-  return {
-    ...init,
+  const requestInit: RequestInit = {
     cache: 'no-store',
     credentials: 'omit',
     redirect: 'manual',
@@ -573,6 +572,10 @@ function travelportRequestInit(init: RequestInit | undefined, headers: Headers):
     integrity: '',
     headers,
   };
+  if (init?.method !== undefined) requestInit.method = init.method;
+  if (init?.body !== undefined) requestInit.body = init.body;
+  if (init?.signal !== undefined) requestInit.signal = init.signal;
+  return requestInit;
 }
 
 export function createTravelportStaysTraceFetch(input: Readonly<{
