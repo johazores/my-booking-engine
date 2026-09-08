@@ -109,7 +109,6 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
         'Supplier reservation provider request attempt is no longer current.',
       );
     }
-    if (attempt.providerRequestStartedAt) return attempt;
 
     const integration = await transaction.integration.findFirst({
       where: {
@@ -124,6 +123,7 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
       },
     });
     assertProviderRequestIntegrationStillMatches(integration, reservation);
+    if (attempt.providerRequestStartedAt) return attempt;
 
     const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
     if (!databaseClock) {

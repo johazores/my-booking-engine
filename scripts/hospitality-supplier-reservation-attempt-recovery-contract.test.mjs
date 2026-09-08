@@ -38,24 +38,24 @@ test('lease age and provider-request evidence use database-authored clocks', () 
   assert.match(service, /providerRequestStartedAt: databaseClock\.currentTime,[\s\S]*?leaseStartedAt: databaseClock\.currentTime/);
 });
 
-test('provider-request marker authorizes tenant, current attempt, and live integration before establishing external-I/O ambiguity', () => {
+test('provider-request marker authorizes tenant, current attempt, and live integration before establishing or replaying external-I/O ambiguity', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-attempt-recovery-service.ts');
   const markerIndex = service.indexOf('export async function markHospitalitySupplierReservationProviderRequestStarted');
   const authorityIndex = service.indexOf('await requireSupplierReservationRecoveryAuthority', markerIndex);
   const transactionIndex = service.indexOf('return db.$transaction', markerIndex);
-  const replayIndex = service.indexOf('if (attempt.providerRequestStartedAt) return attempt', markerIndex);
-  const integrationIndex = service.indexOf('const integration = await transaction.integration.findFirst', replayIndex);
+  const integrationIndex = service.indexOf('const integration = await transaction.integration.findFirst', transactionIndex);
   const integrationAuthorityIndex = service.indexOf('assertProviderRequestIntegrationStillMatches(integration, reservation)', integrationIndex);
-  const clockIndex = service.indexOf('SELECT clock_timestamp() AS "currentTime"', integrationAuthorityIndex);
+  const replayIndex = service.indexOf('if (attempt.providerRequestStartedAt) return attempt', integrationAuthorityIndex);
+  const clockIndex = service.indexOf('SELECT clock_timestamp() AS "currentTime"', replayIndex);
   const updateIndex = service.indexOf('providerRequestStartedAt: databaseClock.currentTime', clockIndex);
   assert.ok(
     markerIndex >= 0
     && authorityIndex > markerIndex
     && transactionIndex > authorityIndex
-    && replayIndex > transactionIndex
-    && integrationIndex > replayIndex
+    && integrationIndex > transactionIndex
     && integrationAuthorityIndex > integrationIndex
-    && clockIndex > integrationAuthorityIndex
+    && replayIndex > integrationAuthorityIndex
+    && clockIndex > replayIndex
     && updateIndex > clockIndex,
   );
   assert.match(service, /id: input\.attemptId,[\s\S]*?organizationId: input\.organizationId,[\s\S]*?reservationId: reservation\.id/);

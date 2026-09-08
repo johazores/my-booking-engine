@@ -28,13 +28,14 @@ Immediately before provider transport can begin, server code calls `markHospital
 
 - requires server-side `booking:manage`;
 - validates organization scope, current operation, exact attempt ID and sequence, allowed attempt kind, and `STARTED` status;
-- if the marker is not already present, rechecks that the operation's exact tenant integration is still `ACTIVE`, has the same provider and credential version, and still advertises `reservation`;
-- writes database-authored `providerRequestStartedAt`;
-- resets `leaseStartedAt` to the same database clock so the provider call receives a full lease;
-- is idempotent once written; and
-- audits only privacy-safe operational facts.
+- rechecks that the operation's exact tenant integration is still `ACTIVE`, has the same provider and credential version, and still advertises `reservation` on every marker call, including an idempotent replay;
+- when the marker is not already present, writes database-authored `providerRequestStartedAt` and resets `leaseStartedAt` to the same database clock so the provider call receives a full lease;
+- is idempotent as a durable ledger mutation once written, but does not bypass current integration authority on replay; and
+- audits only privacy-safe operational facts when the marker is first written.
 
-The live-integration recheck happens after current-attempt validation and immediately before the database marker is written. This closes the claim/load/OAuth window where an integration could otherwise be disabled, rotated, or lose reservation capability while a prepared provider client still held older credentials. Once `providerRequestStartedAt` already exists, a repeated marker call returns the existing attempt instead of pretending that a later integration change proves the earlier provider request did not start.
+The live-integration recheck happens after current-attempt validation and immediately before either a new marker is written or an existing marker is returned. This closes both the claim/load/OAuth window and the replay path where an integration could otherwise be disabled, rotated, or lose reservation capability while a prepared provider client still held older credentials. Once `providerRequestStartedAt` already exists, a repeated marker call preserves that historical fact but succeeds only while the exact live integration still matches.
+
+An idempotent marker replay is not permission to issue a second provider request. Provider coordinators own one external request per attempt; if execution becomes uncertain after the marker, the durable attempt must be settled or recovered through the existing ambiguity rules rather than replaying the supplier operation.
 
 The marker and stale recovery share the same serializable operation lock. If recovery wins first, the attempt is no longer eligible for provider I/O. If the marker wins first, stale recovery must assume provider I/O may have occurred.
 
@@ -129,7 +130,7 @@ Travelport Create and Sync structured observations contain only attempt correlat
 
 ## Validation
 
-Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, fail-closed post-marker ambiguity, and the source contract requiring live integration/provider/credential/capability authority before a new marker can be written.
+Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, fail-closed post-marker ambiguity, and the source contract requiring live integration/provider/credential/capability authority before both a new marker and an idempotent marker replay can succeed.
 
 Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, Travelport Sync recovery-write ordering, and the provider-evidence settlement gate for Create, reconciliation, and recovery writes.
 
