@@ -329,7 +329,7 @@ function confirmedLocatorEvidence(reservation: RecordValue) {
     const context = boundedText(locator?.sourceContext, 64);
     const locatorType = boundedText(locator?.locatorType, 64);
     if (!reference || !context || status !== 'Confirmed') continue;
-    if (context === 'Travelport') providers.push(reference);
+    if (context === 'Travelport' && locatorType === 'PNR Locator') providers.push(reference);
     if (context === 'Supplier' && locatorType === 'Confirmation Number') {
       suppliers.push(Object.freeze({ reference, source: boundedText(locator?.source, 16) }));
     }

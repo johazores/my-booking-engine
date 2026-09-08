@@ -121,7 +121,7 @@ export function parseTravelportStaysReservationResponse(
     const locatorType = boundedProviderValue(locator.locatorType, 64);
     if (!reference || !sourceContext) continue;
 
-    if (sourceContext === 'Travelport') {
+    if (sourceContext === 'Travelport' && locatorType === 'PNR Locator') {
       travelportReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
     } else if (sourceContext === 'Supplier' && locatorType === 'Confirmation Number') {
       supplierReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
@@ -132,7 +132,7 @@ export function parseTravelportStaysReservationResponse(
   if (providerReferences.length !== 1) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
-      'Travelport reservation response did not contain exactly one aggregator locator.',
+      'Travelport reservation response did not contain exactly one Travelport PNR locator.',
     );
   }
   const providerReservationReference = providerReferences[0]!;
@@ -159,7 +159,7 @@ export function parseTravelportStaysReservationResponse(
     ) {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
-        'Travelport create response did not contain one confirmed aggregator receipt.',
+        'Travelport create response did not contain one confirmed Travelport PNR receipt.',
       );
     }
   }
