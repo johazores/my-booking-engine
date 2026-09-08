@@ -199,6 +199,24 @@ test('does not reinterpret an explicit non-PNR Travelport locator type during Sy
   });
 });
 
+test('keeps duplicate documented Travelport locator receipts ambiguous after Sync normalization', () => {
+  const body = syncResponse({ travelportLocatorType: null });
+  body.ReservationResponse.Reservation.Receipt.push(
+    body.ReservationResponse.Reservation.Receipt[1]!,
+  );
+
+  assert.deepEqual(classifyTravelportStaysReservationSyncOutcome({
+    httpStatus: 200,
+    body,
+    expectedReservation,
+    supplierConfirmationReference: 'T9RY0-WQ842',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'INVALID_RESPONSE',
+    providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
+  });
+});
+
 test('keeps a mismatched supplier confirmation or reservation identity ambiguous', () => {
   for (const body of [
     syncResponse({ supplierConfirmation: 'OTHER-CONFIRMATION' }),
