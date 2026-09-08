@@ -10,11 +10,13 @@ Travelport Stays documents different caller-defined request-trace headers by API
 - v12 SearchComplete/SearchComplete Pagination requests use `TVP-Trace-Id`.
 - SF also keeps `E2ETrackingID: sf-<correlation UUID>` as its provider-support identifier.
 
-Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper derives the version-specific trace header from the existing SF `E2ETrackingID`, so the two support identifiers cannot silently disagree at the transport boundary.
+Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper is bound to the validated integration environment and derives the version-specific trace header from the existing SF `E2ETrackingID`, so the support identifiers cannot silently disagree at the transport boundary.
 
-The shared transport wrapper is also a fail-closed outbound target boundary. Stays traffic is accepted only for HTTPS requests to `api.pp.travelport.net` or `api.travelport.net` on the default HTTPS port, with no URL userinfo, a supported `/11/hotel/` or `/12/hotel/` path, and an SF-owned `E2ETrackingID` containing a valid UUID. Missing, foreign, or malformed Stays correlation fails before transport.
+The shared transport wrapper is also a fail-closed outbound target boundary. A pre-production integration can reach only the pre-production Travelport API/authentication hosts and a production integration can reach only the production hosts. Stays traffic is accepted only over HTTPS on the default HTTPS port, with no URL userinfo or fragment, a supported `/11/hotel/` or `/12/hotel/` path, and an SF-owned `E2ETrackingID` containing a valid UUID. Missing, foreign, malformed, or cross-environment Stays correlation/targeting fails before transport.
 
-OAuth is the only uncorrelated exception. It is accepted only for the fixed HTTPS `auth.pp.travelport.net/oauth/token` or `auth.travelport.net/oauth/token` target on the default HTTPS port, with no URL userinfo, query, fragment, or `E2ETrackingID`. Stays trace headers are removed from that request. Any other host, alternate port, credentialed URL, unsupported path, or unexpected OAuth shape fails closed before credentials can leave the process.
+OAuth is the only uncorrelated exception. It is accepted only as `POST` to the configured environment's fixed `/oauth/token` target, on the default HTTPS port, with no URL userinfo, query, fragment, or `E2ETrackingID`. Stays trace headers are removed from that request. Any other host, alternate port, credentialed URL, method, unsupported path, or unexpected OAuth shape fails closed before credentials can leave the process.
+
+The authenticated integration connection test uses the same environment-bound wrapper around its injectable transport, so validation traffic cannot bypass the production target policy.
 
 ## Correlation lifetime
 
@@ -30,7 +32,7 @@ A durable attempt/correlation is still not proof of provider success. `providerR
 
 Trace IDs are opaque UUIDs. They must not contain traveler names, email addresses, payment data, reservation locators, supplier confirmations, credentials, or other business payload data.
 
-The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
+The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port, cross-environment host, or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
 
 ## Capability boundary
 

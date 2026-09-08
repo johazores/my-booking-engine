@@ -38,9 +38,14 @@ export async function testTravelportStaysIntegrationConnection(input: {
     organizationId: input.organizationId,
     providerCode: 'travelport-stays',
   });
-  const result = await probeTravelportStaysIntegrationHealth({
-    credentials: readTravelportStaysCredentials(credentials),
+  const normalizedCredentials = readTravelportStaysCredentials(credentials);
+  const fetchImpl = createTravelportStaysTraceFetch({
+    environment: normalizedCredentials.environment,
     fetchImpl: input.fetchImpl,
+  });
+  const result = await probeTravelportStaysIntegrationHealth({
+    credentials: normalizedCredentials,
+    fetchImpl,
   });
 
   const current = await db.integration.findFirst({
@@ -86,7 +91,9 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
-  const fetchImpl = createTravelportStaysTraceFetch();
+  const fetchImpl = createTravelportStaysTraceFetch({
+    environment: normalizedCredentials.environment,
+  });
   const provider = new TravelportStaysProvider({
     credentials: normalizedCredentials,
     cacheKey,

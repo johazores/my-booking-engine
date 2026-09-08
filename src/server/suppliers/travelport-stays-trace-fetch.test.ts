@@ -16,8 +16,8 @@ function captureFetch() {
 
 test('maps SF correlation to the documented v11 TraceId header', async () => {
   const captured = captureFetch();
-  const tracedFetch = createTravelportStaysTraceFetch(captured.fetchImpl);
-  await tracedFetch('https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+  const preProductionFetch = createTravelportStaysTraceFetch({ environment: 'pre-production', fetchImpl: captured.fetchImpl });
+  await preProductionFetch('https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
     method: 'POST',
     headers: { E2ETrackingID: `sf-${TRACE_ID}`, 'TVP-Trace-Id': 'stale-value' },
   });
@@ -31,7 +31,7 @@ test('maps SF correlation to the documented v11 TraceId header', async () => {
 
 test('maps SF correlation to the documented v12 TVP-Trace-Id header', async () => {
   const captured = captureFetch();
-  const tracedFetch = createTravelportStaysTraceFetch(captured.fetchImpl);
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
   await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
     method: 'POST',
     headers: { E2ETrackingID: `sf-${TRACE_ID}`, TraceId: 'stale-value' },
@@ -45,7 +45,7 @@ test('maps SF correlation to the documented v12 TVP-Trace-Id header', async () =
 
 test('allows only the fixed OAuth token targets without SF request correlation', async () => {
   const captured = captureFetch();
-  const tracedFetch = createTravelportStaysTraceFetch(captured.fetchImpl);
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
   await tracedFetch('https://auth.travelport.net/oauth/token', {
     method: 'POST',
     headers: {
@@ -63,7 +63,7 @@ test('allows only the fixed OAuth token targets without SF request correlation',
 
 test('fails closed before transport for missing, foreign, or malformed SF correlation', async () => {
   const captured = captureFetch();
-  const tracedFetch = createTravelportStaysTraceFetch(captured.fetchImpl);
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
 
   await assert.rejects(
     tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete'),
@@ -84,11 +84,15 @@ test('fails closed before transport for missing, foreign, or malformed SF correl
   assert.equal(captured.calls.length, 0);
 });
 
-test('fails closed before transport for unexpected hosts, ports, userinfo, OAuth shapes, or Stays paths', async () => {
+test('fails closed before transport for cross-environment hosts, unexpected ports, userinfo, OAuth shapes, or Stays paths', async () => {
   const captured = captureFetch();
-  const tracedFetch = createTravelportStaysTraceFetch(captured.fetchImpl);
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
   const sfHeaders = { E2ETrackingID: `sf-${TRACE_ID}` };
 
+  await assert.rejects(
+    tracedFetch('https://api.pp.travelport.net/12/hotel/search/searchcomplete', { headers: sfHeaders }),
+    /request target is invalid/i,
+  );
   await assert.rejects(
     tracedFetch('https://example.com/12/hotel/search/searchcomplete', { headers: sfHeaders }),
     /request target is invalid/i,
@@ -102,16 +106,33 @@ test('fails closed before transport for unexpected hosts, ports, userinfo, OAuth
     /request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://auth.travelport.net/oauth/token?next=1'),
+    tracedFetch('https://auth.pp.travelport.net/oauth/token', { method: 'POST' }),
+    /request target is invalid/i,
+  );
+  await assert.rejects(
+    tracedFetch('https://auth.travelport.net/oauth/token', { method: 'GET' }),
     /OAuth request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://auth.travelport.net/oauth/token', { headers: sfHeaders }),
+    tracedFetch('https://auth.travelport.net/oauth/token?next=1', { method: 'POST' }),
+    /OAuth request target is invalid/i,
+  );
+  await assert.rejects(
+    tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST', headers: sfHeaders }),
     /OAuth request target is invalid/i,
   );
   await assert.rejects(
     tracedFetch('https://api.travelport.net/13/hotel/search/searchcomplete', { headers: sfHeaders }),
     /API version is unsupported/i,
+  );
+  assert.equal(captured.calls.length, 0);
+});
+
+test('fails closed when the transport environment is invalid', () => {
+  const captured = captureFetch();
+  assert.throws(
+    () => createTravelportStaysTraceFetch({ environment: 'qa' as never, fetchImpl: captured.fetchImpl }),
+    /transport environment is invalid/i,
   );
   assert.equal(captured.calls.length, 0);
 });
