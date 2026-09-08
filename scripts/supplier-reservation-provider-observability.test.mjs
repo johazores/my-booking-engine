@@ -138,7 +138,7 @@ test('reconciliation observes only real provider I/O and rejects unrecognized pr
   const providerGuardIndex = source.indexOf("input.provider.code !== claim.reservation.providerCode");
   const observerIndex = source.indexOf('createHospitalitySupplierReservationProviderObservation({');
   const providerIoIndex = source.indexOf('input.provider.retrieveReservation');
-  const catchIndex = source.indexOf('} catch (error) {');
+  const catchIndex = source.indexOf('} catch (error) {', providerIoIndex);
   const postCatchValidationIndex = source.indexOf("if (!result || typeof result !== 'object'");
 
   assert.ok(claimIndex >= 0);
