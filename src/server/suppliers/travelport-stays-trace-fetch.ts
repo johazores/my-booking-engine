@@ -3,6 +3,7 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
+const TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 * 1024;
 const TRAVELPORT_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
   'connection',
   'content-length',
@@ -224,6 +225,23 @@ function cancelResponseBody(body: ReadableStream<Uint8Array> | null) {
   }
 }
 
+function replayTravelportResponse(response: Response, blocks: readonly Uint8Array[]) {
+  const headers = new Headers(response.headers);
+  headers.delete('Content-Length');
+  headers.delete('Content-Encoding');
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const block of blocks) controller.enqueue(block);
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function bufferTravelportResponse(response: Response, maxBytes: number): Promise<Response> {
   let declaredBytes: number | null;
   try {
@@ -239,7 +257,9 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
   if (response.body === null) return response;
 
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const blocks: Uint8Array[] = [];
+  let currentBlock: Uint8Array | null = null;
+  let currentBlockLength = 0;
   let receivedBytes = 0;
   try {
     while (true) {
@@ -255,23 +275,45 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
         }
         throw oversizedTravelportResponseError();
       }
-      chunks.push(value);
+
+      let sourceOffset = 0;
+      while (sourceOffset < value.byteLength) {
+        if (currentBlock === null || currentBlockLength === currentBlock.byteLength) {
+          if (currentBlock !== null) blocks.push(currentBlock);
+          currentBlock = new Uint8Array(Math.min(TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES, maxBytes));
+          currentBlockLength = 0;
+        }
+        const copyLength = Math.min(
+          value.byteLength - sourceOffset,
+          currentBlock.byteLength - currentBlockLength,
+        );
+        currentBlock.set(value.subarray(sourceOffset, sourceOffset + copyLength), currentBlockLength);
+        currentBlockLength += copyLength;
+        sourceOffset += copyLength;
+      }
     }
   } finally {
     reader.releaseLock();
   }
 
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(chunk);
-      controller.close();
-    },
-  });
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+  if (currentBlock !== null && currentBlockLength > 0) {
+    blocks.push(currentBlockLength === currentBlock.byteLength ? currentBlock : currentBlock.subarray(0, currentBlockLength));
+  }
+  return replayTravelportResponse(response, blocks);
+}
+
+function travelportRequestInit(init: RequestInit | undefined, headers: Headers): RequestInit {
+  return {
+    ...init,
+    cache: 'no-store',
+    credentials: 'omit',
+    redirect: 'manual',
+    referrer: '',
+    referrerPolicy: 'no-referrer',
+    keepalive: false,
+    integrity: '',
+    headers,
+  };
 }
 
 export function createTravelportStaysTraceFetch(input: Readonly<{
@@ -302,7 +344,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       }
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', credentials: 'omit', redirect: 'manual', headers });
+      const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
       return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
@@ -328,7 +370,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', credentials: 'omit', redirect: 'manual', headers });
+    const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
     return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
   }) as typeof fetch;
 }

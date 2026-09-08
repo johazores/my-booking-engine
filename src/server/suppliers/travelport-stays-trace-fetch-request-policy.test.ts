@@ -13,7 +13,7 @@ function assertInvalidRequest(error: unknown) {
   return true;
 }
 
-test('forces no-store cache semantics and omits ambient credentials for OAuth and Stays', async () => {
+test('forces process-owned request metadata for OAuth and Stays', async () => {
   const calls: Array<RequestInit | undefined> = [];
   const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(init);
@@ -21,19 +21,38 @@ test('forces no-store cache semantics and omits ambient credentials for OAuth an
   }) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
 
-  await tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST', cache: 'force-cache', credentials: 'include' });
+  await tracedFetch('https://auth.travelport.net/oauth/token', {
+    method: 'POST',
+    cache: 'force-cache',
+    credentials: 'include',
+    redirect: 'follow',
+    referrer: 'https://sf.example/internal',
+    referrerPolicy: 'unsafe-url',
+    keepalive: true,
+    integrity: 'sha256-not-provider-authority',
+  });
   await tracedFetch(new Request('https://api.travelport.net/12/hotel/search/searchcomplete', {
     method: 'POST',
     cache: 'force-cache',
     credentials: 'include',
+    redirect: 'follow',
+    referrer: 'https://sf.example/book',
+    referrerPolicy: 'unsafe-url',
+    keepalive: true,
+    integrity: 'sha256-not-provider-authority',
     headers: { E2ETrackingID: `sf-${TRACE_ID}` },
   }));
 
   assert.equal(calls.length, 2);
-  assert.equal(calls[0]?.cache, 'no-store');
-  assert.equal(calls[1]?.cache, 'no-store');
-  assert.equal(calls[0]?.credentials, 'omit');
-  assert.equal(calls[1]?.credentials, 'omit');
+  for (const call of calls) {
+    assert.equal(call?.cache, 'no-store');
+    assert.equal(call?.credentials, 'omit');
+    assert.equal(call?.redirect, 'manual');
+    assert.equal(call?.referrer, '');
+    assert.equal(call?.referrerPolicy, 'no-referrer');
+    assert.equal(call?.keepalive, false);
+    assert.equal(call?.integrity, '');
+  }
 });
 
 test('rejects caller-controlled routing, ambient credential, forwarding, and hop-by-hop headers before Travelport transport', async () => {
