@@ -141,6 +141,19 @@ test('supplier recovery writes preserve evidence and never replay after provider
       reservationId: retryableOperation.id,
       reservationPayloadFingerprint: 'd'.repeat(64),
     });
+    await assert.rejects(
+      recoveryWrite.settleHospitalitySupplierReservationRecoveryWrite({
+        organizationId: organization.id,
+        actorUserId: admin.id,
+        reservationId: retryableOperation.id,
+        attemptId: secondRecovery.attempt.id,
+        outcome: {
+          status: 'AMBIGUOUS',
+          failureCode: 'INVALID_RESPONSE',
+        },
+      }),
+      /missing durable provider-request evidence/i,
+    );
     await recovery.markHospitalitySupplierReservationProviderRequestStarted({
       organizationId: organization.id,
       actorUserId: admin.id,
