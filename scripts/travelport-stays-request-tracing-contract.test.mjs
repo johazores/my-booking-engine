@@ -48,8 +48,10 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /availability: '\/11\/hotel\/availability\/catalogofferingshospitality'/);
   assert.match(trace, /reservationBuild: '\/11\/hotel\/book\/reservations\/build'/);
   assert.match(trace, /reservationCollection: '\/11\/hotel\/book\/reservations\/'/);
+  assert.match(trace, /hasCanonicalQueryEncoding/);
   assert.match(trace, /hasExactPaginationQuery/);
   assert.match(trace, /hasAcceptedReservationReviewQuery/);
+  assert.match(trace, /hasSingleCanonicalEncodedPathSegment/);
   assert.match(trace, /assertSupportedTravelportStaysRequest\(url, method\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
@@ -66,6 +68,7 @@ test('request tracing documentation preserves reservation, environment, exact en
   assert.match(doc, /exact implemented Stays operation shapes/);
   assert.match(doc, /pageNumber=2\.\.5/);
   assert.match(doc, /only `true` acceptance flags/);
+  assert.match(doc, /canonical adapter encoding/);
   assert.match(doc, /connection test uses the same environment-bound wrapper/);
   assert.match(doc, /manual redirects/);
 });

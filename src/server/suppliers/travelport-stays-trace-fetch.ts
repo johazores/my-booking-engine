@@ -61,15 +61,21 @@ function assertSecureTravelportTarget(url: URL) {
   }
 }
 
+function hasCanonicalQueryEncoding(url: URL) {
+  return url.search === '' || url.search === `?${url.searchParams.toString()}`;
+}
+
 function hasExactPaginationQuery(url: URL) {
   const entries = [...url.searchParams.entries()];
-  return entries.length === 1
+  return hasCanonicalQueryEncoding(url)
+    && entries.length === 1
     && entries[0]?.[0] === 'pageNumber'
     && /^[2-5]$/.test(entries[0]?.[1] ?? '');
 }
 
 function hasAcceptedReservationReviewQuery(url: URL) {
   const entries = [...url.searchParams.entries()];
+  if (!hasCanonicalQueryEncoding(url)) return false;
   if (entries.length === 0) return true;
   if (entries.length > 2) return false;
 
@@ -82,10 +88,15 @@ function hasAcceptedReservationReviewQuery(url: URL) {
   return true;
 }
 
-function hasSingleEncodedPathSegment(url: URL, prefix: string) {
+function hasSingleCanonicalEncodedPathSegment(url: URL, prefix: string) {
   if (!url.pathname.startsWith(prefix)) return false;
   const suffix = url.pathname.slice(prefix.length);
-  return suffix.length > 0 && !suffix.includes('/');
+  if (!suffix || suffix.includes('/')) return false;
+  try {
+    return encodeURIComponent(decodeURIComponent(suffix)) === suffix;
+  } catch {
+    return false;
+  }
 }
 
 function assertSupportedTravelportStaysRequest(url: URL, method: string) {
@@ -96,7 +107,7 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
   ) return;
 
   if (
-    hasSingleEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.searchComplete}/`)
+    hasSingleCanonicalEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.searchComplete}/`)
     && method === 'GET'
     && hasExactPaginationQuery(url)
   ) return;
@@ -114,7 +125,7 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
   ) return;
 
   if (
-    hasSingleEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.availability}/`)
+    hasSingleCanonicalEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.availability}/`)
     && method === 'GET'
     && hasExactPaginationQuery(url)
   ) return;
@@ -132,7 +143,7 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
   ) return;
 
   if (
-    hasSingleEncodedPathSegment(url, TRAVELPORT_STAYS_ENDPOINTS.reservationCollection)
+    hasSingleCanonicalEncodedPathSegment(url, TRAVELPORT_STAYS_ENDPOINTS.reservationCollection)
     && url.pathname !== TRAVELPORT_STAYS_ENDPOINTS.reservationBuild
     && method === 'GET'
     && url.search === ''
