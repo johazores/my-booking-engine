@@ -26,7 +26,8 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   assert.match(adapter, /book\/reservations\/\$\{encodeURIComponent\(reference\)\}/);
   assert.match(adapter, /normalizeExpectedReservation\(input\.expectedReservation\)/);
   assert.match(adapter, /expectedReservation,/);
-  assert.match(responseParser, /sourceContext === 'Travelport'/);
+  assert.match(responseParser, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
+  assert.match(responseParser, /exactly one Travelport PNR locator/i);
   assert.match(responseParser, /exactly one hospitality segment matching the durable reservation request/i);
 });
 
@@ -78,7 +79,7 @@ test('Travelport recovery source contains no reservation persistence, audit, or 
   assert.doesNotMatch(adapter, /db\.|prisma|auditEvent|logger|console\.|afterData|beforeData/);
 });
 
-test('supplier source-of-truth docs describe selected-offer authority without claiming create is live', () => {
+test('supplier source-of-truth docs describe the implemented server-only write boundary without claiming activation', () => {
   const integrationDoc = source('docs/travelport-stays-integration.md');
   const ledgerDoc = source('docs/supplier-reservation-operations.md');
   const gdsDoc = source('docs/gds-integration.md');
@@ -93,13 +94,13 @@ test('supplier source-of-truth docs describe selected-offer authority without cl
     assert.match(document, /authorityFingerprint|authority fingerprint/i);
   }
 
-  assert.match(integrationDoc, /No Travelport reservation create, modification, cancellation, refund, or customer\/staff reserve action is exposed yet\./);
-  assert.match(ledgerDoc, /before any real supplier create call is exposed/);
-  assert.match(gdsDoc, /No Travelport reservation create call or customer\/staff reserve action is exposed yet\./);
-  assert.match(roadmap, /no external supplier booking action is exposed/);
-  assert.match(integrationDoc, /PCI-safe form-of-payment\/guarantee strategy/i);
-  assert.match(ledgerDoc, /SearchComplete-to-Availability bridge must be validated/i);
-  assert.match(roadmap, /selected-offer.*Availability.*authority/is);
+  assert.match(integrationDoc, /server-only write infrastructure[\s\S]*single-room Create Reservation[\s\S]*reviewed second-Create path/i);
+  assert.match(integrationDoc, /Travelport `reservation` remains disabled/i);
+  assert.match(ledgerDoc, /server-only initial Create[\s\S]*reviewed second Create[\s\S]*Booking\.com Sync/i);
+  assert.match(gdsDoc, /server-only single-room Create Reservation and Booking\.com Sync write executors\/coordinators are also implemented behind the disabled `reservation` capability/i);
+  assert.match(roadmap, /one-time accepted-review second-write infrastructure is now implemented server-side/i);
+  assert.match(integrationDoc, /concrete reviewed PCI-safe source/i);
+  assert.match(roadmap, /reviewed PCI-safe form-of-payment\/guarantee source/i);
   assert.match(integrationDoc, /generic HTTP 404[\s\S]*not authoritative/i);
   assert.match(ledgerDoc, /generic HTTP 404[\s\S]*not authoritative/i);
   assert.match(gdsDoc, /generic HTTP 404[\s\S]*not authoritative/i);
@@ -108,7 +109,8 @@ test('supplier source-of-truth docs describe selected-offer authority without cl
   assert.match(recoveryIdentityDoc, /room quantity/i);
   assert.match(recoveryIdentityDoc, /guest count/i);
   assert.match(recoveryIdentityDoc, /does not enable|does not advertise/i);
-  assert.doesNotMatch(roadmap, /next dependency is therefore to establish the exact documented\/verified create authority/i);
+
+  assert.doesNotMatch(gdsDoc, /dedicated one-time claim\/consumption boundary[\s\S]*remain intentionally closed/i);
 });
 
 test('provider reconciliation never accepts provider truth for a different locator', () => {

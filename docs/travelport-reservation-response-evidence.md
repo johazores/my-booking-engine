@@ -2,75 +2,104 @@
 
 ## Purpose
 
-SF has provider-specific response boundaries for durable Travelport Stays reservation evidence. Known-locator Hotel Retrieve uses `parseTravelportStaysReservationResponse`; Create Reservation uses the stricter commercial-write classifier in `travelport-stays-reservation-create-outcome.ts`, which also validates the returned property/stay/occupancy identity and write-specific error/warning semantics.
+SF uses provider-specific response boundaries for durable Travelport Stays reservation evidence. Known-locator Hotel Retrieve uses `parseTravelportStaysReservationResponse`; Create Reservation and Booking.com Sync use the stricter commercial-write classifier in `travelport-stays-reservation-create-outcome.ts`, which also validates the returned property/stay/occupancy identity and write-specific error/warning semantics.
 
-These boundaries do not expose a browser route, staff/customer reserve action, cancellation action, or public supplier-write API. Travelport `reservation` remains disabled until the outstanding PCI-safe payment source, live-provider verification, one-time accepted-change consumption/second-write, and locator-less recovery gates are complete.
+These boundaries do not expose a browser route, staff/customer reserve action, cancellation action, or public supplier-write API. Travelport `reservation` remains disabled until the concrete PCI-safe payment source, live-provider verification, and authoritative locator-less recovery/correlation gates are complete.
+
+## Durable locator semantics
+
+Travelport Stays reservation responses can contain multiple locator families. SF must not normalize all `sourceContext=Travelport` locators as the durable provider reservation reference.
+
+A Travelport provider reservation reference is accepted only from a receipt locator with both:
+
+- `sourceContext=Travelport`; and
+- `locatorType=PNR Locator`.
+
+A Travelport-context locator with another locator type is ignored for provider-reservation authority. It cannot confirm Create, Sync, or known-locator recovery, and it does not create false duplicate-PNR ambiguity when one valid Travelport PNR Locator is also present.
+
+Supplier confirmation evidence is separate. `supplierConfirmationReference` is accepted only from a locator with `sourceContext=Supplier` and `locatorType=Confirmation Number`. Booking.com `Pin code`, supplier `Cancellation Number`, agency `IATA Number`, and other locator families are not relabeled under the wrong durable field.
+
+Locator and correlation strings are bounded and must not contain line breaks.
 
 ## Normalized Retrieve evidence
 
-`parseTravelportStaysReservationResponse` accepts an untrusted Travelport response body and returns only the single Travelport aggregator locator, at most one supplier confirmation reference for the current single-room contract, and a bounded correlation/trace identifier. Traveler data, contact details, form-of-payment fields, card data, payment payloads, comments, offer bodies, and raw provider payloads are discarded.
+`parseTravelportStaysReservationResponse` accepts an untrusted Travelport response body and returns only:
 
-The parser requires exactly one unique Travelport aggregator locator. A supplier confirmation reference is accepted only from a locator with both `sourceContext=Supplier` and `locatorType=Confirmation Number`. Multiple distinct Travelport locators or multiple distinct supplier `Confirmation Number` locators fail closed as `INVALID_RESPONSE`. Locator and correlation strings are bounded and must not contain line breaks.
+- exactly one Travelport PNR Locator as `providerReservationReference`;
+- at most one supplier Confirmation Number; and
+- a bounded correlation/trace identifier.
 
-Travelport can return other supplier-owned locator types with different lifecycle meaning. Booking.com examples include a separate `Pin code`, while a canceled reservation changes the supplier locator to `locatorType=Cancellation Number`. Those values are deliberately excluded from `supplierConfirmationReference`; they are neither treated as ambiguity nor persisted under the wrong semantic field.
+Traveler data, contact details, form-of-payment fields, card data, payment payloads, comments, offer bodies, and raw provider payloads are discarded from the normalized result.
 
-## Retrieve versus create semantics
+Known-locator Hotel Retrieve supplies `expectedProviderReservationReference`, so the returned Travelport PNR Locator must equal the requested locator exactly. Retrieve also rebinds property, stay dates, room quantity, and guest count to the durable reservation request.
 
-Known-locator Hotel Retrieve supplies `expectedProviderReservationReference`, so the response locator must exactly equal the requested locator. Retrieve does not require the current receipt to be `Confirmed`; a cancelled or otherwise historical provider record is still proof that the locator exists and must never be misclassified as safe-to-retry non-existence.
+Retrieve does not require the current supplier or Travelport receipt status to be `Confirmed`; a cancelled or historical provider record can still prove that the Travelport PNR exists. A cancelled Retrieve may therefore return `FOUND` while `supplierConfirmationReference` is null if Travelport exposes only a supplier cancellation-number locator.
 
-A cancelled retrieve may therefore return `FOUND` while `supplierConfirmationReference` is null when Travelport exposes only a supplier `Cancellation Number`. The durable Travelport aggregator locator still proves the reservation record exists, but SF does not relabel cancellation evidence as the original supplier confirmation number.
+Generic HTTP 404 is not treated as authoritative non-existence because the public Travelport Stays Retrieve contract does not establish that meaning. Unknown or malformed negative evidence preserves ambiguity rather than authorizing another sell.
 
-Create Reservation no longer relies on this generic Retrieve parser for success classification. The commercial-write classifier independently requires a successful HTTP result, exactly one durable reservation match for the expected Travelport property/stay/occupancy, exactly one confirmed Travelport locator, bounded structural warning/error evidence, and confirmed supplier receipt state when a supplier confirmation is accepted. Documented price/guarantee changes become explicit review-required outcomes; Booking.com Sync-required conditions and unknown/malformed post-write outcomes remain ambiguous rather than becoming successful or retry-safe.
+## Create success evidence
+
+Create Reservation does not rely on the generic Retrieve parser for commercial success. `classifyTravelportStaysReservationCreateOutcome` independently requires:
+
+- a successful HTTP result;
+- exactly one hospitality segment matching the durable property, dates, room quantity, and guest count;
+- exactly one confirmed receipt whose locator is `sourceContext=Travelport` and `locatorType=PNR Locator`;
+- structurally valid bounded error/warning evidence; and
+- confirmed supplier receipt state when a supplier confirmation is accepted.
+
+A Travelport-context non-PNR locator cannot satisfy the provider-reservation requirement. Multiple confirmed PNR Locator receipts remain fail-closed ambiguity.
+
+Documented price/guarantee no-sell responses become `REVIEW_REQUIRED`. Reviewed definitive validation errors can become `FAILED`. Booking.com Sync-required conditions and unknown/malformed post-write outcomes remain `AMBIGUOUS` rather than being promoted to success or retry authority.
 
 ## Durable ledger evidence
 
-The supplier reservation ledger persists an optional supplier confirmation reference as tenant-scoped, bounded lifecycle/recovery evidence. A confirmed create or successful `FOUND` reconciliation can store it, and an ambiguous supplier confirmation can also be retained when the provider-specific create classifier has verified it against the durable property/stay/occupancy request but no Travelport PNR was established. The value follows the same 512-character single-line operational-reference contract as the provider locator and is not written to audit payloads or structured logs.
+The supplier reservation ledger persists optional provider and supplier confirmation references as tenant-scoped bounded operational evidence. These values are not written into audit metadata or structured logs.
 
-Normally supplier confirmation exists while the operation is `AMBIGUOUS`, `RECONCILING`, or `CONFIRMED`. There is one intentionally narrow transient exception: after a marked commercial Create response proves complete Booking.com Sync recovery authority, SF may stage the supplier confirmation while the operation is still `SUBMITTING`, but only when a bounded `providerRecoveryReference` is stored in the same transaction. Database constraints prevent a standalone `SUBMITTING` supplier confirmation. This staging exists solely so a process crash before final settlement cannot discard the evidence required to recover the already-sold supplier reservation.
+The presence of a supplier confirmation does not prove a Travelport PNR exists and never authorizes another Create Reservation attempt. Likewise, a provider correlation identifier is troubleshooting evidence, not retry authority.
 
-The presence of supplier confirmation or provider recovery authority does not prove a Travelport PNR exists, does not promote an ambiguous write to confirmed, and does not authorize another Create Reservation attempt. This distinction is required for Travelport's documented Booking.com sell-confirmed/PNR-processing-failed scenario, where the supplier booking can exist before Travelport has a locator.
+Known-locator reconciliation identity-binds both provider-truth outcomes to the durable Travelport PNR Locator. `FOUND` must return the exact requested locator before the operation can become `CONFIRMED`. A provider-neutral `NOT_FOUND` result can only be used when a provider adapter has separately verified authoritative negative semantics for that exact locator.
 
-An ambiguous create may retain a known Travelport aggregator locator, a verified supplier confirmation, both, or neither depending on the provider evidence actually returned. A known Travelport locator is the authority used by the existing Hotel Retrieve reconciliation path. Locator-less ambiguity remains `AMBIGUOUS` and cannot enter automatic Hotel Retrieve reconciliation merely because a supplier confirmation exists.
+## Booking.com Sync recovery evidence
 
-Known-locator reconciliation identity-binds both possible provider-truth outcomes to that durable locator. `FOUND` must return the exact locator before the operation can become `CONFIRMED`. If that Retrieve response omits a supplier confirmation, existing verified supplier-confirmation evidence is preserved rather than erased. `NOT_FOUND` must also identify the exact locator that was queried before SF can clear provider and supplier recovery evidence and return the operation to `PREPARED`. The coordinator verifies provider output before settlement, and the ledger settlement boundary independently requires and rechecks the locator for both outcomes so direct server callers cannot bypass that invariant. Any provider-returned locator mismatch is normalized to `UNKNOWN` / `INVALID_RESPONSE`; a direct mismatched settlement is rejected transactionally. A transient provider failure likewise maps to `UNKNOWN` and preserves existing recovery evidence.
+For the documented supplier-confirmed/no-PNR warning path, the Create classifier retains Booking.com Sync recovery authority only when the same response proves:
 
-## Booking.com Sync recovery authority
+- the exact durable property/stay/occupancy request;
+- exactly one confirmed supplier Confirmation Number;
+- supplier source `BO`;
+- one bounded matching-offer authority; and
+- no confirmed Travelport PNR Locator.
 
-For the documented supplier-confirmed/no-PNR warning path, the Create classifier retains the non-secret Travelport authority required for a bounded Sync attempt only when the same response proves the exact durable reservation match, exactly one confirmed supplier confirmation, no Travelport locator, Booking.com supplier source `BO`, and a bounded matching-offer `Identifier.authority` from Travelport. The adapter converts only that provider-owned authority into a versioned opaque `providerRecoveryReference`; traveler, payment, credential, request-body, and response-body data are not stored in it.
+A Travelport-context locator of another type does not count as the Travelport PNR, but it also cannot itself grant Sync authority. The remaining required supplier/stay/offer evidence must still be complete.
 
-The separate `13034` timeout remains `AMBIGUOUS / TRAVELPORT_SYNC_REQUIRED` but does not invent a supplier confirmation or Sync authority. Travelport documents that this timeout can represent either no Booking.com sell or a completed Booking.com sell, so the error response alone is insufficient to authorize an automatic Sync or a retry.
+The opaque `providerRecoveryReference` contains only provider-owned non-secret recovery authority. Traveler data, card data, credentials, tokens, raw request bodies, and raw response bodies are excluded.
 
-The Create coordinator stages complete Sync recovery evidence only after the durable provider-request marker exists and before final settlement. The staging transaction rechecks `booking:manage`, tenant ownership, the current `CREATE` attempt, and the provider-request marker. An exact replay is idempotent; conflicting evidence fails closed. Audit metadata records only that recovery evidence was staged, not the raw supplier confirmation or provider recovery reference.
+The separate `13034` error remains ambiguous and does not invent a supplier confirmation or Sync authority. SF does not treat the error response alone as proof that either no Booking.com sell occurred or that Sync is safe.
 
-`TravelportStaysReservationSyncExecutor` and `syncTravelportStaysBookingDotComReservation` implement the server-only Booking.com recovery write. The coordinator rebinds the complete primary traveler to the durable reservation-payload fingerprint, claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, reloads the exact integration/credential version, marks its own durable provider-request boundary, and sends only the validated Booking.com supplier confirmation/provider authority plus the required traveler data. It does not send form-of-payment or perform another hotel sell.
-
-Sync confirms only when the response proves the exact expected property/stay/occupancy, the original supplier confirmation, and one Travelport locator. Pre-provider failures can be retried only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`, including crash/lease recovery. Successful Sync clears the provider recovery reference. Ambiguous Sync retains recovery evidence for manual or provider-supported resolution without converting it into automatic replay authority.
-
-The detailed persistence contract is documented in `docs/travelport-booking-sync-recovery-authority.md`.
+Sync confirms only when its response proves the exact expected property/stay/occupancy, the original supplier confirmation, and exactly one confirmed Travelport PNR Locator. Pre-provider deterministic failure is retryable only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`.
 
 ## Commercial review evidence
 
-A definitive Travelport price and/or guarantee no-sell response is persisted as `REVIEW_REQUIRED`, not as a generic retryable failure. The current `CREATE` attempt must retain matching `REVIEW_REQUIRED` status, normalized review reason, durable provider-request marker, and completion timestamp before SF can accept a commercial-review decision.
+A definitive Travelport price and/or guarantee no-sell response is persisted as `REVIEW_REQUIRED`, not generic retryable failure. The current `CREATE` attempt must retain matching review state, normalized reason, a durable provider-request marker, and completion evidence before an acceptance can be recorded.
 
-`acceptTravelportStaysReservationCommercialReview` is tenant-authorized and server-only. It repeats fresh offer, Rules, Availability, traveler, integration, and payment authority, then persists only bounded non-secret acceptance evidence plus an audit event. The operation deliberately stays `REVIEW_REQUIRED`, so normal submission remains blocked. The accepted decision does not yet authorize or execute Travelport's documented second Create request; that still requires a dedicated one-time claim/consumption boundary and exact acceptance-query execution.
+`acceptTravelportStaysReservationCommercialReview` is tenant-authorized and server-only. It repeats fresh offer, Rules, Availability, traveler, integration, and payment authority before persisting bounded non-secret acceptance evidence. The operation remains `REVIEW_REQUIRED`, so normal retry cannot consume that decision.
 
-## Cancellation boundary
+The reviewed second-Create path is implemented separately. A read-only gate first reconstructs and revalidates the accepted decision. Deterministic request composition, sensitive-card validation, accepted-query selection, and OAuth finish before `consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest` executes under the tenant operation lock. That transaction archives immutable acceptance history, binds the decision to exactly one new `CREATE` attempt, clears the active acceptance slot, moves the operation to `SUBMITTING`, and writes the provider-request marker immediately before external POST authority.
 
-The supplier confirmation reference is durable evidence for future lifecycle work, but cancellation is still not implemented or advertised. Any cancellation capability must separately validate Travelport cancellation semantics, authorization, idempotency, external-write recovery, and live non-production behavior.
+Only the exact accepted `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` values are sent on that reviewed second request. The initial Create sends neither flag. Normal retry cannot silently reuse reviewed acceptance.
+
+## Privacy and observability
+
+Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardholder/billing data, credentials, tokens, request bodies, response bodies, and free-form provider error messages. Structured observations use bounded allowlists and SF-owned correlation identifiers.
 
 ## Validation
 
-Dependency-free and focused tests cover confirmed response evidence, known-locator matching, supplier locator-type semantics, non-confirmed rejection, locator/reference cardinality, unsafe provider strings, privacy minimization, coordinator exact-locator gating, ledger-level `FOUND`/`NOT_FOUND` identity enforcement, ambiguous supplier-confirmation persistence, Booking.com Sync recovery-reference normalization, complete-versus-incomplete Sync authority classification, post-marker recovery-evidence staging order, tenant/authorization checks, Sync request/outcome behavior, durable review-attempt evidence, authorized commercial-review decision persistence, and audit privacy.
+Focused tests cover PNR-locator identity, supplier locator-type semantics, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
-A guarded PostgreSQL scenario covers locator-less denial, known-locator `FOUND`, supplier confirmation durability, transient recovery retry, authoritative provider-neutral `NOT_FOUND` clearing, direct mismatched settlement rejection, mismatched provider `FOUND`/`NOT_FOUND` results remaining ambiguous, and cross-tenant provider-I/O suppression when a disposable database target is available. The Sync recovery-authority and review-acceptance migrations have source-level contract coverage but still require execution against an explicitly disposable PostgreSQL target before database validation can be claimed.
-
-Live Create Reservation and Sync validation remain blocked on provisioned Travelport non-production credentials and a reviewed PCI-safe form-of-payment/guarantee strategy. No source-only test is claimed as live-provider evidence.
+Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 
 ## References
 
-- Travelport Stays APIs Guide — confirmations, locator codes, price/guarantee changes, and Sync after aggregator sell failure: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/Guides/HotelAPIsGuide.htm
-- Travelport Sync Reservation API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Sync.htm
-- Travelport Add Hotel Reservation reference payload — Booking.com confirmation number and PIN example: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_AddReservationRefPayload.htm
-- Travelport Cancel Hotel Reservation — supplier cancellation-number semantics: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Cancel.htm
-- Travelport Create Reservation reference payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
+- Travelport Create Reservation Reference Payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
 - Travelport Retrieve Hotel Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Retrieve.htm
+- Travelport Sync Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Sync.htm
+- Travelport Stays APIs Guide: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/Guides/HotelAPIsGuide.htm

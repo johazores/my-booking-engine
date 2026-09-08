@@ -2,92 +2,113 @@
 
 ## Purpose
 
-A supplier reservation POST is a commercial write. Once SF crosses that provider boundary, an HTTP or payload failure is not automatically evidence that no hotel was sold. The Travelport create-outcome classifier therefore converts only documented provider evidence into safe decisions and otherwise fails closed to an ambiguous reservation outcome.
+A supplier reservation POST is a commercial write. Once SF crosses the provider boundary, an HTTP or payload failure is not automatically evidence that no hotel was sold. `classifyTravelportStaysReservationCreateOutcome` therefore converts only bounded, reviewed Travelport evidence into durable decisions and otherwise fails closed to ambiguity.
 
-This module does not collect card data, enable the `reservation` capability, or expose a booking action. It is the provider-specific post-write decision boundary consumed by the server-only Travelport create coordinator.
+This module does not collect card data, enable the `reservation` capability, or expose a booking action. It is the provider-specific post-write decision boundary used by the server-only initial Create, reviewed second Create, and Booking.com Sync flows.
 
-## Documented decisions
+## Success authority
 
-Travelport Stays source codes `13016`, `13017`, and `13018` mean the guarantee requirement changed during sell. Source code `13020` means the price changed during sell. Travelport documents that these cases stop the initial booking before a reservation is created and require a second reservation request only if the applicable change is explicitly accepted. SF classifies these responses as `REVIEW_REQUIRED`, including a combined price-and-guarantee review when both documented change codes are returned. It never sends `acceptGuaranteeChangeInd` or `acceptPriceChangeInd` automatically.
+A Create response can become `CONFIRMED` only when all required evidence agrees:
 
-Source code `13034` is materially different. Travelport documents the same error for a Booking.com supplier-confirmation problem where the final sell state cannot be proven from the error alone. SF therefore keeps `13034` at `AMBIGUOUS / TRAVELPORT_SYNC_REQUIRED`; it never invents a supplier confirmation or retry authority from that error response.
+- HTTP status is successful;
+- exactly one hospitality product matches the durable chain/property, stay dates, single-room quantity, and guest count;
+- exactly one confirmed Travelport receipt carries both `sourceContext=Travelport` and `locatorType=PNR Locator`; and
+- error and warning envelopes are structurally valid and bounded.
 
-Travelport also documents a Booking.com failure mode in which the supplier sell succeeded but Travelport failed to finish PNR processing. In that exact warning path, SF retains Sync authority only when the returned hospitality segment exactly matches the durable property, stay, room count, and guest count, there is one supplier confirmation, there is no Travelport locator, the supplier source is `BO`, and the matching offer has a bounded identifier authority. The reservation remains ambiguous until Sync returns the verified Travelport locator.
+Travelport Stays responses can contain multiple locator families. A Travelport-context locator that is not a `PNR Locator` is not a provider reservation reference. It cannot confirm Create or Sync, and it does not create duplicate-PNR ambiguity when one valid Travelport PNR Locator is present.
+
+Supplier confirmation is normalized separately only from a confirmed `sourceContext=Supplier` + `locatorType=Confirmation Number` receipt. Booking.com PIN, supplier cancellation-number, agency IATA, and unrelated locator values are not stored under the supplier-confirmation field.
+
+## Price and guarantee review outcomes
+
+Travelport Stays source codes `13016`, `13017`, and `13018` indicate a guarantee requirement changed during sell. Source code `13020` indicates the price changed. Travelport documents that the initial request stops without creating the reservation and that a second request is required only when the applicable change is explicitly accepted.
+
+SF maps those outcomes to `REVIEW_REQUIRED` with one of:
+
+- `GUARANTEE_CHANGED`;
+- `PRICE_CHANGED`; or
+- `PRICE_AND_GUARANTEE_CHANGED`.
+
+The initial Create never sends `acceptGuaranteeChangeInd` or `acceptPriceChangeInd`.
+
+The tenant-authorized acceptance service verifies the exact marked/completed Create attempt and repeats fresh SearchComplete, Rules, Availability, traveler, integration, and payment authority before persisting bounded non-secret acceptance evidence. The operation stays `REVIEW_REQUIRED`, so normal retry cannot consume the decision.
+
+The one-time reviewed second-Create path is implemented separately. A read-only gate reconstructs and revalidates the accepted decision. Request composition, card validation, accepted-query selection, and OAuth finish before a serializable provider-boundary transaction archives immutable acceptance history, creates exactly one next `CREATE` attempt, clears the active acceptance slot, moves the operation to `SUBMITTING`, and writes `providerRequestStartedAt`. Only after that commit may the external POST begin.
+
+The reviewed request sends only the exact accepted `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` parameter. Normal retry cannot enter this path or reuse accepted flags. If the provider reports another commercial change, SF starts a new `REVIEW_REQUIRED` cycle while prior acceptance remains immutable.
+
+## `13034` and locator-less ambiguity
+
+`13034` is intentionally not treated as retry authority. SF keeps the outcome at `AMBIGUOUS / TRAVELPORT_SYNC_REQUIRED` and does not invent a supplier confirmation, Travelport PNR Locator, or Booking.com Sync reference from that error response alone.
+
+This is distinct from Travelport's documented supplier-confirmed/no-PNR warning path. For that warning, Sync recovery authority is retained only when the same response proves:
+
+- the exact durable hospitality request;
+- one confirmed supplier Confirmation Number;
+- Booking.com supplier source `BO`;
+- one bounded matching-offer authority; and
+- no confirmed Travelport PNR Locator.
+
+The supplier confirmation and opaque provider recovery authority are staged only after the durable Create provider marker exists. If the process crashes after staging but before settlement, stale-attempt recovery preserves that evidence and keeps another Create blocked.
 
 ## Definitive no-sell validation failures
 
-Travelport's current Stays error contract distinguishes unsuccessful `Result/Error` responses and, in the newer error format, includes `SourceCode` plus `category`. SF now uses that evidence narrowly to avoid turning every provider-side validation rejection into permanent ambiguity.
+Travelport's Stays error contract distinguishes unsuccessful `Result/Error` responses and, in newer error envelopes, provides `SourceCode` plus `category`. SF uses that evidence narrowly.
 
-A provider error becomes a durable `FAILED` result only when all of the following are true:
+A provider error becomes durable `FAILED` only when:
 
 - the error envelope is structurally valid and bounded;
-- every returned error has `category=VALIDATION`;
-- every returned source code is in SF's reviewed Stays no-sell validation allowlist; and
-- there is exactly one unique source code in the response.
+- every error has `category=VALIDATION`;
+- every source code is in SF's reviewed no-sell validation allowlist; and
+- exactly one unique source code is present.
 
-The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider message text is ignored and never persisted or logged.
+The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider message text is ignored.
 
-The allowlist is intentionally conservative and covers request/offer/traveler/payment/date/property/card/occupancy validation cases whose documented semantics reject the sell rather than leave supplier state unknown. Unknown codes, mixed codes, missing categories, `UNKNOWN`/`RETRY` categories, malformed structures, and unsupported combinations remain `AMBIGUOUS / INVALID_RESPONSE`.
+Automatic retry is narrower than the no-sell allowlist. It is restricted to reviewed validation failures that can be corrected entirely in the server-only ephemeral payment-card source without changing durable reservation or traveler authority. Current retryable form-of-payment validation includes card fields, billing address, telephone, and reviewed supplier card-type validation codes already encoded by the classifier.
 
-Automatic retry on the existing operation is narrower than the no-sell allowlist. It is limited to reviewed failures that can be corrected entirely in the server-only ephemeral form-of-payment input without changing the durable reservation or traveler authority:
+Traveler identity/contact validation remains non-retryable for the existing operation because traveler authority is bound into the durable reservation-payload fingerprint. Changing that payload requires a new reviewed reservation request rather than mutating the existing operation.
 
-- payment card code, expiry, holder name, number, CVV, and card type: `1537`-`1542`;
-- payment-card billing address street/city/country/postal/state validation: `1543`-`1547` plus supplier-required billing address code `13050`;
-- form-of-payment telephone required/invalid validation: `13054` and `13083`; and
-- supplier card-type rejection `13078`.
+Unknown codes, mixed codes, contradictory categories, malformed error structures, transport failures, generic HTTP statuses, free-form provider messages, and other uncertain results do not become retryable.
 
-Travelport documents these as `VALIDATION` failures. A corrected ephemeral form of payment may therefore repeat the complete fresh-authority gate, but only after the classifier receives a structurally valid single-code `VALIDATION` response proving the previous sell was rejected. The retry does not reuse old offer/Rules/Availability authority.
+## Structural warning and error authority
 
-Traveler identity and contact validation remain different because the traveler is bound into the durable `reservationPayloadFingerprint`. Codes such as `1533`, `1534`, `1549`, and `1550` are not promoted to payment-correction retry authority. Changing those inputs requires a newly reviewed reservation request rather than mutating the existing operation. All other definitive validation failures are likewise non-retryable for the existing operation unless a future reviewed policy proves a safe correction boundary.
+The presence of an `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed.
 
-This does not weaken the commercial-write safety rule: retryability is granted only from explicit provider no-sell validation evidence, never from transport failure, generic HTTP status, provider free text, unknown categories, or uncertain supplier responses.
+Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message prevent promotion to success. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence.
 
-## Structural response authority
+The durable expected reservation is validated before it can match provider data. The current Create classifier recognizes only the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers.
 
-Provider response structure is part of the proof required to call a commercial write successful. The classifier distinguishes absence of an `ErrorResponse` from a malformed error envelope. Once an error envelope is present it cannot be masked by confirmation-looking response data.
+## Durable settlement
 
-Documented price/guarantee source codes retain review semantics. `13034` retains the stronger Sync-required ambiguity semantics. Reviewed definitive validation errors can become `FAILED`. Everything else fails closed to ambiguity.
+`travelportStaysCreateOutcomeToSubmissionOutcome` remains the provider-specific bridge for ordinary confirmed, failed, and ambiguous outcomes. `REVIEW_REQUIRED` is deliberately routed through the dedicated review settlement boundary instead of the generic mapper.
 
-Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message cannot be silently ignored before confirmation. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence, but malformed warning structure prevents promotion to `CONFIRMED`.
+A durable review transition requires the tenant-scoped current `CREATE` attempt, a non-null provider-request marker, a fixed normalized review reason, and matching operation state. The transition is non-retryable and clears locator/recovery fields that would conflict with the documented no-sell review state.
 
-The durable reservation expectation is validated before it can match provider data. The current create classifier recognizes only the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers. Sync recovery authority is extracted from the same unique matching offer rather than unrelated response data.
-
-## Durable recovery staging
-
-The Travelport classifier does not write the database. The create coordinator stages complete Sync recovery evidence through `recordHospitalitySupplierReservationProviderRecoveryEvidence` only after the durable provider-request marker exists and before final create settlement.
-
-That staging transaction independently requires server-side `booking:manage`, tenant/resource scope, the current `CREATE` attempt, and a non-null provider-request marker. It atomically stores the supplier confirmation plus the opaque provider recovery reference while the operation is still `SUBMITTING`. If the process crashes before final settlement, stale-attempt recovery moves the marked attempt to ambiguity without losing the staged recovery evidence, so another Create Reservation attempt stays blocked.
-
-The opaque recovery reference contains only Travelport-owned non-secret authority needed by the provider adapter. Core supplier booking logic does not parse it, and audit metadata records only that recovery evidence was staged, never the confirmation or recovery value itself.
-
-## Durable review-required state
-
-Price and guarantee change responses are now persisted as a dedicated `REVIEW_REQUIRED` operation and attempt state rather than being collapsed into generic `FAILED`. The transition is allowed only for the three fixed normalized review reasons and only when the current tenant-scoped `CREATE` attempt has a durable `providerRequestStartedAt` marker. The transition clears provider/supplier recovery locators, keeps retryability `NULL`, and emits a bounded `supplier.reservation-review-required` audit event.
-
-`assertHospitalitySupplierReservationCanSubmit` rejects `REVIEW_REQUIRED`. This is intentional: normal retry logic, including the safe ephemeral payment-correction retry path, cannot turn a commercial review into a second sell. The server-only acceptance-decision path now separately re-reviews current offer, Rules, Availability, traveler, integration, and payment authority and binds the exact accepted dimensions/current total/current commercial fingerprints to the authorized actor. It deliberately leaves the operation `REVIEW_REQUIRED`; a future one-time second-write claim must revalidate that durable decision before adding the applicable Travelport acceptance query parameter(s).
-
-## Durable ledger normalization
-
-`travelportStaysCreateOutcomeToSubmissionOutcome` remains the provider-specific bridge for confirmed, ambiguous, and ordinary failed outcomes. Price/guarantee review outcomes are deliberately rejected by that generic mapper and are routed by the Create coordinator into the dedicated review settlement path.
-
-The dedicated review state is not retry authority. Travelport states that a price or guarantee difference stops the initial sell and that a second request may proceed only after explicit acceptance. SF now implements the durable authorized decision/revalidation boundary, but not its consumption into a second Create request; neither `acceptPriceChangeInd` nor `acceptGuaranteeChangeInd` is ever sent by the initial create executor.
+For Booking.com supplier-confirmed/no-PNR recovery, `recordHospitalitySupplierReservationProviderRecoveryEvidence` stages the supplier confirmation and opaque recovery reference only after the provider marker and before final settlement. Audit metadata records only that recovery evidence was staged, never the raw confirmation or recovery value.
 
 ## Privacy and observability
 
-The classifier returns only normalized decision state, bounded locator/correlation evidence, fixed SF failure/review codes, and the small non-secret Sync recovery reference when the Booking.com recovery preconditions are proven. It does not return or log provider error messages, traveler data, form-of-payment data, PAN/CVV, credentials, request bodies, or response bodies.
+The classifier returns only normalized decision state, bounded provider/supplier/correlation evidence, fixed SF failure/review codes, and the small non-secret Sync recovery reference when its preconditions are proven. It does not return or log provider error messages, traveler data, form-of-payment data, PAN/CVV, credentials, tokens, request bodies, or response bodies.
 
-The create provider observation records only `confirmed`, `failed`, `review-required`, or `ambiguous` plus safe tenant/attempt correlation and duration. It does not emit the Travelport source code or any raw provider payload.
+Structured observations use fixed result names and SF-owned tenant/attempt correlation. Raw Travelport payloads are excluded.
 
-Supplier confirmation evidence by itself never means the Travelport reservation is fully confirmed. The provider PNR locator remains required for the normal lifecycle. Booking.com Sync is a separate provider write with its own durable marker, traveler binding, and ambiguity semantics.
+## Validation and remaining activation gates
+
+Focused tests cover commercial outcome classification, PNR-locator identity, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, reviewed second-Create flag isolation, and privacy.
+
+Travelport `reservation` remains disabled. Activation still requires:
+
+1. a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned account;
+2. live non-production SearchComplete → Rules → Availability → initial Create → reviewed second Create → Sync/recovery validation; and
+3. authoritative live `13034`, negative lookup, locator-less correlation, and retry/recovery semantics.
+
+No source-only test is claimed as live-provider evidence.
 
 ## References
 
-- Travelport Stays API Error Messaging: `Result/Error`, error categories, request validation source codes, price/guarantee changes, and `13034`.
-- Travelport TripServices Stays APIs Guide: price/guarantee change behavior.
+- Travelport Stays API Error Messaging.
 - Travelport Create Reservation Reference Payload API Reference.
 - Travelport Sync Reservation API Reference.
-- `docs/supplier-reservation-review-acceptance.md` for SF's durable authorized review-decision boundary.
-
-## Remaining boundary
-
-The Travelport reservation capability stays disabled. The single-room Create executor/coordinator and Booking.com Sync executor/coordinator exist, and SF can now persist an authorized price/guarantee review decision after fresh commercial authority. Activation still requires a reviewed PCI-safe form-of-payment source/handling strategy, live non-production SearchComplete → Rules → Availability → Create → Sync validation, a dedicated one-time consumption/second-request path for the durable accepted review decision plus live validation of those second-sell semantics, and live validation of authoritative locator-less negative/correlation semantics.
+- Travelport Stays APIs Guide.
+- `docs/supplier-reservation-review-acceptance.md`.
+- `docs/travelport-reservation-response-evidence.md`.
