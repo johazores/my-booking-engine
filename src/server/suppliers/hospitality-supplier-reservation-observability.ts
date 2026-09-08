@@ -36,6 +36,21 @@ function safeFailureCode(value: HospitalitySupplierFailureCode) {
   return FAILURE_CODES.has(value) ? value : 'INVALID_RESPONSE';
 }
 
+function safeProviderResult(value: unknown): HospitalitySupplierReservationProviderResult | null {
+  return value === 'FOUND' || value === 'NOT_FOUND' ? value : null;
+}
+
+function invalidProviderResultRecord(
+  base: Omit<StructuredHospitalitySupplierReservationProviderLogRecord, 'level' | 'outcome' | 'providerResult' | 'failureCode'>,
+): StructuredHospitalitySupplierReservationProviderLogRecord {
+  return {
+    ...base,
+    level: 'warn',
+    outcome: 'failed',
+    failureCode: 'INVALID_RESPONSE',
+  };
+}
+
 export function buildHospitalitySupplierReservationProviderLogRecord(input: {
   requestCorrelationId: string;
   organizationId: string;
@@ -57,20 +72,26 @@ export function buildHospitalitySupplierReservationProviderLogRecord(input: {
   };
 
   if (input.result.status === 'SUCCEEDED') {
+    const providerResult = safeProviderResult(input.result.providerResult);
+    if (!providerResult) return invalidProviderResultRecord(base);
     return {
       ...base,
       level: 'info',
       outcome: 'succeeded',
-      providerResult: input.result.providerResult,
+      providerResult,
     };
   }
 
-  return {
-    ...base,
-    level: 'warn',
-    outcome: 'failed',
-    failureCode: safeFailureCode(input.result.failureCode),
-  };
+  if (input.result.status === 'FAILED') {
+    return {
+      ...base,
+      level: 'warn',
+      outcome: 'failed',
+      failureCode: safeFailureCode(input.result.failureCode),
+    };
+  }
+
+  return invalidProviderResultRecord(base);
 }
 
 function writeStructuredSupplierProviderLog(record: StructuredHospitalitySupplierReservationProviderLogRecord) {

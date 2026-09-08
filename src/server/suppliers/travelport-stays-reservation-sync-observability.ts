@@ -18,6 +18,10 @@ function safeUuid(value: string, fallback: string) {
   return UUID_PATTERN.test(value) ? value : fallback;
 }
 
+function safeProviderResult(value: unknown): TravelportStaysReservationSyncProviderResult {
+  return value === 'CONFIRMED' ? 'CONFIRMED' : 'AMBIGUOUS';
+}
+
 export function buildTravelportStaysReservationSyncLogRecord(input: Readonly<{
   requestCorrelationId: string;
   organizationId: string;
@@ -25,15 +29,16 @@ export function buildTravelportStaysReservationSyncLogRecord(input: Readonly<{
   result: TravelportStaysReservationSyncProviderResult;
   now?: () => Date;
 }>): StructuredTravelportStaysReservationSyncLogRecord {
+  const result = safeProviderResult(input.result);
   return Object.freeze({
     timestamp: (input.now ?? (() => new Date()))().toISOString(),
-    level: input.result === 'AMBIGUOUS' ? 'warn' : 'info',
+    level: result === 'AMBIGUOUS' ? 'warn' : 'info',
     event: 'supplier.reservation-sync.provider-request.completed',
     requestCorrelationId: safeUuid(input.requestCorrelationId, 'invalid-request-correlation-id'),
     organizationId: safeUuid(input.organizationId, 'invalid-organization-id'),
     provider: 'travelport-stays',
     operation: 'reservation.sync',
-    outcome: input.result === 'CONFIRMED' ? 'confirmed' : 'ambiguous',
+    outcome: result === 'CONFIRMED' ? 'confirmed' : 'ambiguous',
     durationMs: Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0,
   });
 }

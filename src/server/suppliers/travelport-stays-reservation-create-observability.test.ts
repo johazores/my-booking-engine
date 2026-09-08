@@ -55,3 +55,16 @@ test('ambiguous create observations are warnings and sanitize identifiers', () =
   assert.equal(record.organizationId, 'invalid-organization-id');
   assert.equal(record.durationMs, 0);
 });
+
+test('unknown runtime create outcomes fail closed as ambiguous warnings without copying the value', () => {
+  const record = buildTravelportStaysReservationCreateLogRecord({
+    requestCorrelationId,
+    organizationId,
+    durationMs: 8,
+    result: 'SECRET_SHOULD_NOT_LOG' as never,
+  });
+  const serialized = JSON.stringify(record);
+  assert.equal(record.level, 'warn');
+  assert.equal(record.outcome, 'ambiguous');
+  assert.equal(serialized.includes('SECRET_SHOULD_NOT_LOG'), false);
+});

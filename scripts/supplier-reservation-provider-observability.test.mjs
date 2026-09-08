@@ -89,6 +89,23 @@ test('provider failures are warning-level normalized records and unsafe identifi
   assert.equal(JSON.stringify(malformedFailure).includes('SECRET_SHOULD_NOT_LOG'), false);
 });
 
+test('malformed successful provider results fail closed without copying untrusted values into logs', () => {
+  const record = buildHospitalitySupplierReservationProviderLogRecord({
+    requestCorrelationId: '5e2b72da-060b-4c87-a630-d68dbd5d14ad',
+    organizationId: '4c8fb076-d79b-4e4f-83d3-41221657795e',
+    provider: 'travelport-stays',
+    durationMs: 3,
+    result: { status: 'SUCCEEDED', providerResult: 'SECRET_SHOULD_NOT_LOG' },
+    now: () => new Date('2026-09-06T08:00:01.500Z'),
+  });
+  const serialized = JSON.stringify(record);
+  assert.equal(record.level, 'warn');
+  assert.equal(record.outcome, 'failed');
+  assert.equal(record.failureCode, 'INVALID_RESPONSE');
+  assert.equal('providerResult' in record, false);
+  assert.equal(serialized.includes('SECRET_SHOULD_NOT_LOG'), false);
+});
+
 test('supplier provider observation emits one completion record only', () => {
   let tick = 1_000;
   const observation = createHospitalitySupplierReservationProviderObservation({

@@ -42,12 +42,16 @@ Travelport response `traceId` evidence may still be normalized into the durable 
 
 ## Provider result safety
 
-The reconciliation coordinator now accepts only the two provider-neutral result statuses declared by the recovery contract: `FOUND` and `NOT_FOUND`. A runtime adapter value outside that union fails closed as `INVALID_RESPONSE`, is logged as a failed provider request, and settles the durable operation back to `AMBIGUOUS` through the existing `UNKNOWN` path. It is never treated as `NOT_FOUND` by fallthrough.
+Structured provider observations treat their result enums as runtime trust boundaries rather than relying only on TypeScript unions. Recovery logging accepts only `FOUND` or `NOT_FOUND` for a successful provider result. A malformed successful result becomes a warning-level `failed / INVALID_RESPONSE` record, and the untrusted value is never copied into the log.
+
+Travelport Create logging accepts only `CONFIRMED`, `FAILED`, `REVIEW_REQUIRED`, or `AMBIGUOUS`; Travelport Sync logging accepts only `CONFIRMED` or `AMBIGUOUS`. Any other runtime value fails closed to a warning-level `ambiguous` observation without copying the value. This keeps malformed adapter/runtime data from becoming an info-level success-looking record or an accidental logging channel.
+
+The reconciliation coordinator separately accepts only the two provider-neutral result statuses declared by the recovery contract: `FOUND` and `NOT_FOUND`. A runtime adapter value outside that union fails closed as `INVALID_RESPONSE`, is logged as a failed provider request, and settles the durable operation back to `AMBIGUOUS` through the existing `UNKNOWN` path. It is never treated as `NOT_FOUND` by fallthrough.
 
 Exact-locator identity checks remain unchanged. A mismatched returned locator is also `INVALID_RESPONSE`, and the current Travelport adapter still does not infer authoritative `NOT_FOUND` from a generic HTTP 404.
 
 ## Validation
 
-`scripts/supplier-reservation-provider-observability.test.mjs` covers the safe structured record, normalization of unsafe log identifiers, one-completion-only behavior, authority/provider-I/O ordering, durable attempt correlation, explicit `FOUND` / `NOT_FOUND` handling, fail-closed unrecognized provider results, and normalized failure logging.
+`scripts/supplier-reservation-provider-observability.test.mjs` covers the safe structured recovery record, normalization of unsafe log identifiers, malformed success-result fail-closed behavior, one-completion-only behavior, authority/provider-I/O ordering, durable attempt correlation, explicit `FOUND` / `NOT_FOUND` handling, fail-closed unrecognized provider results, and normalized failure logging. Travelport Create and Sync observability tests separately cover their runtime enum allowlists and warning-level fallback behavior.
 
 Full repository validation still requires the repository Node 24 toolchain. Database-backed supplier scenarios still require an explicitly disposable PostgreSQL target, and live Travelport verification still requires provisioned non-production credentials. GitHub Actions are not used for validation.

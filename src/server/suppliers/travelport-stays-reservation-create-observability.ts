@@ -18,6 +18,15 @@ function safeUuid(value: string, fallback: string) {
   return UUID_PATTERN.test(value) ? value : fallback;
 }
 
+function safeProviderResult(value: unknown): TravelportStaysReservationCreateProviderResult {
+  return value === 'CONFIRMED'
+    || value === 'FAILED'
+    || value === 'REVIEW_REQUIRED'
+    || value === 'AMBIGUOUS'
+    ? value
+    : 'AMBIGUOUS';
+}
+
 export function buildTravelportStaysReservationCreateLogRecord(input: Readonly<{
   requestCorrelationId: string;
   organizationId: string;
@@ -25,17 +34,18 @@ export function buildTravelportStaysReservationCreateLogRecord(input: Readonly<{
   result: TravelportStaysReservationCreateProviderResult;
   now?: () => Date;
 }>): StructuredTravelportStaysReservationCreateLogRecord {
-  const outcome = input.result === 'CONFIRMED'
+  const result = safeProviderResult(input.result);
+  const outcome = result === 'CONFIRMED'
     ? 'confirmed'
-    : input.result === 'FAILED'
+    : result === 'FAILED'
       ? 'failed'
-      : input.result === 'REVIEW_REQUIRED'
+      : result === 'REVIEW_REQUIRED'
         ? 'review-required'
         : 'ambiguous';
 
   return Object.freeze({
     timestamp: (input.now ?? (() => new Date()))().toISOString(),
-    level: input.result === 'AMBIGUOUS' ? 'warn' : 'info',
+    level: result === 'AMBIGUOUS' ? 'warn' : 'info',
     event: 'supplier.reservation-create.provider-request.completed',
     requestCorrelationId: safeUuid(input.requestCorrelationId, 'invalid-request-correlation-id'),
     organizationId: safeUuid(input.organizationId, 'invalid-organization-id'),
