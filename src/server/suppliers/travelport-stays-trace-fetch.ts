@@ -1,13 +1,23 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 * 1024;
+const TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS: Readonly<Record<string, number>> = Object.freeze({
+  username: 512,
+  password: 4096,
+  client_id: 512,
+  client_secret: 4096,
+});
 const TRAVELPORT_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
   'connection',
+  'content-encoding',
   'content-length',
+  'content-range',
   'cookie',
+  'expect',
   'forwarded',
   'host',
   'if-match',
@@ -68,6 +78,112 @@ function requestUrl(input: RequestInfo | URL) {
 function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
   const value = init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET');
   return value.toUpperCase();
+}
+
+function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): BodyInit | null {
+  if (init?.body != null) return init.body;
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.body;
+  return null;
+}
+
+function invalidTravelportRequestBody(): never {
+  throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request body is invalid.');
+}
+
+function hasExactContentType(headers: Headers, expected: string) {
+  return headers.get('Content-Type')?.trim().toLowerCase() === expected;
+}
+
+function hasUtf8ByteLengthAtMost(value: string, maxBytes: number) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x7f) bytes += 1;
+    else if (codeUnit <= 0x7ff) bytes += 2;
+    else if (
+      codeUnit >= 0xd800
+      && codeUnit <= 0xdbff
+      && index + 1 < value.length
+      && value.charCodeAt(index + 1) >= 0xdc00
+      && value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4;
+      index += 1;
+    } else bytes += 3;
+    if (bytes > maxBytes) return false;
+  }
+  return true;
+}
+
+function isJsonWhitespace(codeUnit: number) {
+  return codeUnit === 0x20 || codeUnit === 0x09 || codeUnit === 0x0a || codeUnit === 0x0d;
+}
+
+function hasJsonObjectEnvelope(value: string) {
+  let start = 0;
+  while (start < value.length && isJsonWhitespace(value.charCodeAt(start))) start += 1;
+  if (start >= value.length || value[start] !== '{') return false;
+
+  let end = value.length - 1;
+  while (end > start && isJsonWhitespace(value.charCodeAt(end))) end -= 1;
+  return value[end] === '}';
+}
+
+function assertTravelportOAuthRequestBody(body: BodyInit | null, headers: Headers) {
+  if (body === null) return;
+  if (!(body instanceof URLSearchParams) || !hasExactContentType(headers, 'application/x-www-form-urlencoded')) {
+    invalidTravelportRequestBody();
+  }
+
+  const entries = [...body.entries()];
+  if (entries.length !== 5) invalidTravelportRequestBody();
+
+  const seen = new Set<string>();
+  for (const [key, value] of entries) {
+    if (seen.has(key)) invalidTravelportRequestBody();
+    seen.add(key);
+    if (key === 'grant_type') {
+      if (value !== 'password') invalidTravelportRequestBody();
+      continue;
+    }
+
+    const maxLength = TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS[key];
+    if (
+      maxLength === undefined
+      || value.length === 0
+      || value.length > maxLength
+      || value.trim() !== value
+      || /[\r\n]/.test(value)
+    ) {
+      invalidTravelportRequestBody();
+    }
+  }
+
+  if (
+    !seen.has('grant_type')
+    || !seen.has('username')
+    || !seen.has('password')
+    || !seen.has('client_id')
+    || !seen.has('client_secret')
+  ) {
+    invalidTravelportRequestBody();
+  }
+}
+
+function assertTravelportStaysRequestBody(body: BodyInit | null, headers: Headers, method: string) {
+  if (method === 'GET') {
+    if (body !== null) invalidTravelportRequestBody();
+    return;
+  }
+  if (body === null) return;
+  if (
+    typeof body !== 'string'
+    || !hasExactContentType(headers, 'application/json')
+    || !hasJsonObjectEnvelope(body)
+    || !hasUtf8ByteLengthAtMost(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES)
+  ) {
+    invalidTravelportRequestBody();
+  }
 }
 
 function parsedRequestUrl(input: RequestInfo | URL) {
@@ -330,6 +446,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     const e2eTrackingId = headers.get('E2ETrackingID');
     const url = parsedRequestUrl(requestInput);
     const method = requestMethod(requestInput, init);
+    const body = effectiveRequestBody(requestInput, init);
     assertSecureTravelportTarget(url);
 
     if (url.hostname === targets.authenticationHost) {
@@ -342,6 +459,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       ) {
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
+      assertTravelportOAuthRequestBody(body, headers);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
       const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
@@ -361,6 +479,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     }
 
     assertSupportedTravelportStaysRequest(url, method);
+    assertTravelportStaysRequestBody(body, headers, method);
 
     if (url.pathname.startsWith('/11/hotel/')) {
       headers.set('TraceId', traceId);

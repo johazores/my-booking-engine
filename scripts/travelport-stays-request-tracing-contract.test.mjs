@@ -70,8 +70,32 @@ test('trace transport owns sensitive Fetch request metadata', () => {
   assert.match(trace, /keepalive: false/);
   assert.match(trace, /integrity: ''/);
   assert.match(trace, /TRAVELPORT_FORBIDDEN_REQUEST_HEADERS/);
+  assert.match(trace, /'content-encoding'/);
+  assert.match(trace, /'content-range'/);
+  assert.match(trace, /'expect'/);
   assert.match(trace, /'origin'/);
   assert.match(trace, /'referer'/);
+});
+
+test('trace transport bounds adapter-owned request body representations without parsing sensitive JSON', () => {
+  const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
+  assert.match(trace, /MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(trace, /function effectiveRequestBody/);
+  assert.match(trace, /function assertTravelportOAuthRequestBody/);
+  assert.match(trace, /body instanceof URLSearchParams/);
+  assert.match(trace, /application\/x-www-form-urlencoded/);
+  assert.match(trace, /value !== 'password'/);
+  assert.match(trace, /TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS/);
+  assert.match(trace, /function assertTravelportStaysRequestBody/);
+  assert.match(trace, /typeof body !== 'string'/);
+  assert.match(trace, /application\/json/);
+  assert.match(trace, /hasJsonObjectEnvelope\(body\)/);
+  assert.match(trace, /hasUtf8ByteLengthAtMost\(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES\)/);
+  assert.match(trace, /if \(method === 'GET'\)/);
+  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers\)/);
+  assert.match(trace, /assertTravelportStaysRequestBody\(body, headers, method\)/);
+  assert.doesNotMatch(trace, /JSON\.parse\(body\)/);
+  assert.doesNotMatch(trace, /JSON\.stringify\(body\)/);
 });
 
 test('trace transport keeps provider request deadlines active while bounding replay memory and representation metadata', () => {
@@ -124,6 +148,10 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`credentials: 'omit'`/);
   assert.match(doc, /referrerPolicy: 'no-referrer'/);
   assert.match(doc, /`keepalive: false`/);
+  assert.match(doc, /adapter-owned `URLSearchParams` password-grant form/);
+  assert.match(doc, /at most 4 MiB of UTF-8 payload/);
+  assert.match(doc, /Stays `GET` requests cannot carry a body/);
+  assert.match(doc, /without parsing, copying, hashing, logging, or retaining the JSON payload/);
   assert.match(doc, /fully consumes each Travelport response body/);
   assert.match(doc, /timeout remains active until the complete provider payload is received/);
   assert.match(doc, /does not use `Response\.clone\(\)`/);
