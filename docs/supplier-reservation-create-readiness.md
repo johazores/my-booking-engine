@@ -1,14 +1,12 @@
 # Supplier Reservation Create Readiness
 
-SF keeps the Travelport reservation capability closed until the remaining payment, recovery, and live-validation gates are complete. A real single-room Create Reservation executor and server-only create coordinator now exist, but neither is reachable from product UX while the reviewed PCI-safe form-of-payment strategy and provider validation are unresolved. The submission-authority boundary remains intentionally stricter than general read-only Rules display because it decides whether an external commercial write may be claimed.
+SF keeps the Travelport reservation capability closed until the remaining payment, recovery, and live-validation gates are complete. A real single-room Create Reservation executor, initial create coordinator, commercial-review decision path, and one-time reviewed second-Create path now exist, but none is reachable from product UX while the concrete reviewed PCI-safe form-of-payment source and provider validation are unresolved.
 
 ## Fresh commercial consistency
 
 Immediately before a create, SF repeats the selected-offer Rules and Availability authority checks and derives non-secret payment authority only from fresh normalized evidence.
 
-The decisive guarantee instruction and normalized payment timing must agree. `PREPAY_REQUIRED` and `DEPOSIT_REQUIRED` are accepted only with `PREPAY`; `GUARANTEE_REQUIRED` is accepted only with `POSTPAY`. `UNKNOWN` or contradictory payment timing fails closed before the create claim. This is a consistency check, not a provider retry rule.
-
-Travelport documents `RatePaymentInfo` as `PrePay`, `PostPay`, or `Unknown`. Its Create Reservation contract states that prepay and deposit amounts are charged at booking, while guarantee-required amounts are expected at check-in. SF therefore does not infer a writable payment instruction from contradictory Rules evidence.
+The decisive guarantee instruction and normalized payment timing must agree. `PREPAY_REQUIRED` and `DEPOSIT_REQUIRED` are accepted only with `PREPAY`; `GUARANTEE_REQUIRED` is accepted only with `POSTPAY`. `UNKNOWN` or contradictory payment timing fails closed before the create claim.
 
 The existing payment-authority checks remain in force: exactly one decisive guarantee type, no contradictory guarantee flags, at least one bounded accepted-card code, and for deposits exactly one positive same-currency deposit amount not exceeding the accepted reservation total.
 
@@ -16,61 +14,76 @@ The existing payment-authority checks remain in force: exactly one decisive guar
 
 Travelport Rules documents `CustomerLoyaltyIDRequiredAtReservation=true` as meaning the rate is contingent on a membership number included in the reservation request.
 
-SF does not yet bind an authorized traveler loyalty identifier into the durable reservation payload authority. The create submission gate therefore requires `customerLoyaltyRequiredAtReservation` to be explicitly `false`. `true` and unknown/null both fail closed before the external-write claim. A future loyalty-capable create flow must add an authorized traveler-owned loyalty boundary and include it in the reservation payload fingerprint rather than taking an unbound value from browser input.
-
-`RateQualificationIDRequiredAtCheckIn` is different: Travelport describes it as proof presented at the property. SF does not reinterpret that flag as a Create Reservation payload requirement, although it remains part of normalized Rules evidence shown to the reservation review flow.
+SF does not yet bind an authorized traveler loyalty identifier into durable reservation payload authority. The create submission gate therefore requires `customerLoyaltyRequiredAtReservation` to be explicitly `false`. `true` and unknown/null both fail closed before the external-write claim. A future loyalty-capable flow must add an authorized traveler-owned loyalty boundary and include it in the reservation payload fingerprint rather than taking an unbound browser value.
 
 ## Provider-specific non-secret request material
 
-After fresh submission authority and traveler re-binding succeed, SF builds the provider-specific non-secret portion of the Travelport v11 Create Reservation request **before** claiming the durable external write. The material contains only:
+After fresh submission authority and traveler re-binding succeed, SF builds the provider-specific non-secret portion of the Travelport v11 Create Reservation request before claiming the durable external write. The material contains only the freshly revalidated Availability `CatalogOfferingIdentifier`, one canonical primary `Traveler`, and one exact `Payment` instruction derived from fresh payment authority.
 
-- the freshly revalidated Availability `CatalogOfferingIdentifier`;
-- one canonical primary `Traveler` with Travelport name, telephone, and email fields; and
-- one exact `Payment` instruction derived from the fresh payment authority, using SF's integer-minor money conversion and the correct deposit/guarantee indicators.
-
-Travelport documents a 22-character combined limit for traveler `Given` plus `Surname` and says longer names are truncated in the response. SF rejects an over-limit name before the create claim instead of allowing the provider to change the identity evidence through truncation.
-
-The request material is ephemeral server-only data. It must not be persisted or audited and it is not a complete Create Reservation request. In particular, it does not include `FormOfPayment`, `PaymentCard`, card number, CVV/security code, cardholder, billing-card data, provider credentials, or access tokens.
+The request material is ephemeral server-only data. It does not include `FormOfPayment`, `PaymentCard`, card number, CVV/security code, cardholder, billing-card data, provider credentials, or access tokens.
 
 ## Server-only Travelport Create executor
 
-The provider adapter has a real fixed-endpoint v11 Create Reservation executor for the documented reference-payload workflow. It composes `ReservationQueryBuild` from the freshly built non-secret request material plus one sensitive payment-card value supplied only to the server adapter. It validates the card code, expiry, PAN shape, cardholder, security-code shape, and accepted-card authority before OAuth or provider I/O. The current authority comes from Travelport Rules `AcceptedCreditCard`, so this first write path accepts only `CardType=Credit`; Travelport's generic `Debit`/`Gift` payload values remain unsupported until fresh supplier authority can prove those payment types.
+The provider adapter has a fixed-endpoint v11 Create Reservation executor for the documented reference-payload workflow. It composes `ReservationQueryBuild` from fresh non-secret request material plus one ephemeral payment-card value. It validates card code, type, expiry through the durable stay, PAN/cardholder/security-code shape, optional billing address/telephone, and current accepted-card authority before the provider request marker can succeed.
 
-Travelport's current error contract limits payment-card `CardCode` to two characters and requires the expiry to remain valid during the booking dates. SF therefore enforces a one-to-two-character provider card code and binds the expiry check to the durable reservation departure date, not merely to the clock at submission time.
+The initial Create never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`. The reviewed second Create sends only the accepted `true` flag or flags after a durable commercial-review decision has been freshly revalidated and atomically consumed.
 
-The same ephemeral payment-card boundary can carry Travelport's documented optional billing `AddressDetail` and payment-card `TelephoneDetail`. Those values are validated and composed only inside the provider adapter because Travelport documents supplier failures that require billing address or form-of-payment telephone data. This support does **not** create a browser/API collection surface and does not persist, audit, fingerprint, or log those values.
+The executor is intentionally not a card-collection strategy. Raw PAN/CVV storage is not made acceptable by the adapter, and no public route or browser form is authorized to pass raw card data into ordinary SF request payloads.
 
-This executor is intentionally **not** a card-collection strategy. No route, browser form, public action, persistence model, audit payload, or log sink accepts the sensitive payment-card input. The executor does not make raw PAN/CVV storage acceptable and does not make the application PCI-ready. The remaining product decision is where the sensitive form of payment comes from under the reviewed PCI scope for the actually provisioned Travelport commercial account.
+## Explicit ephemeral payment-card source contract
 
-Request composition and OAuth finish before the durable commercial-write marker. The executor then invokes the supplied callback immediately before the POST and only sends `POST /11/hotel/book/reservations/build` after that callback succeeds. A token/authentication failure or card-authority failure therefore happens before provider-write ambiguity is established; network uncertainty after the marker is returned as `AMBIGUOUS` and must not cause a blind re-sell.
+Raw card data is no longer part of the initial or reviewed coordinator request objects. Both coordinators require a separate `TravelportStaysReservationPaymentCardSource` server capability.
 
-The initial sell never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`. Existing response classification owns confirmed, review-required, Booking.com Sync-required, and unknown/malformed outcomes. The integration loader constructs the executor behind the existing encrypted credential boundary and shared trace transport, but the provider still does not advertise the `reservation` capability.
+The source receives only:
+
+- organization ID;
+- reservation ID;
+- exact Travelport integration ID;
+- exact integration credential version;
+- exact reservation attempt ID; and
+- a fixed purpose of `INITIAL_CREATE` or `REVIEW_ACCEPTANCE_CREATE`.
+
+`acquireTravelportStaysReservationPaymentCard` validates that non-sensitive execution context and fails closed when the source capability is absent, the context is malformed, or no usable card object is returned. Provider-specific card/payment validation remains inside the Travelport adapter against current Rules/Availability-derived payment authority.
+
+For the initial Create, the source is not invoked until the authoritative tenant/traveler/commercial gate has claimed the exact Create attempt and the active Travelport integration identity/credential version has been rechecked. A source failure is therefore a pre-provider failure and cannot create supplier-write ambiguity.
+
+For a reviewed second Create, the source is not invoked until the stored acceptance has been reconstructed, fresh accepted commercial authority has been revalidated, current request material has been rebuilt, and the exact Travelport integration identity has been rechecked. If source acquisition fails, no second Create attempt has been consumed and the accepted review remains available for a later authorized attempt.
+
+This source contract narrows the sensitive-data boundary; it does **not** complete the PCI gate. The repository deliberately contains no fake vault, hosted-field flow, token exchange, collection route, or mock production payment integration. A concrete source must still be implemented/reviewed for the actually provisioned Travelport commercial account.
 
 ## Authorized create coordinator
 
-`createTravelportStaysReservationWithSensitivePaymentCard` now connects the fresh authority gate, durable create claim, exact current integration/credential version, Travelport executor, provider-request marker, normalized create-outcome bridge, and durable settlement ledger.
+`createTravelportStaysReservationWithSensitivePaymentCard` connects the fresh authority gate, durable create claim, exact current integration/credential version, explicit payment-card source capability, Travelport executor, provider-request marker, normalized outcome bridge, and durable settlement ledger.
 
-The coordinator repeats the exact integration identity and credential version after the claim so a configuration rotation cannot silently switch credentials between review and commercial execution. It reconstructs the expected Travelport property/stay/occupancy receipt identity from durable operation evidence, using the same provider-specific property decoder as known-locator recovery.
+Failures before the durable provider-request marker are duplicate-safe because the supplier write did not cross the protected boundary, but automatic retry still requires explicit provider-neutral retry authority. Only rate limiting, provider unavailability, and timeout are persisted as retryable. Authentication failures, invalid request/response authority, integration/configuration drift, invalid payment-source context, and unexpected application failures are non-retryable.
 
-Failures before the durable provider-request marker are duplicate-safe because the supplier write did not cross the protected boundary, but automatic retry still requires explicit provider-neutral retry authority. Only rate limiting, provider unavailability, and timeout are persisted as retryable. Authentication failures, invalid request/response authority, integration/configuration drift, and unexpected application failures are non-retryable and require corrected authority or a newly prepared operation. A later permitted retry still repeats the full fresh authority gate.
+If an executor ever returns a commercial outcome without invoking its protected callback, the coordinator records conservative provider-request evidence and settles `AMBIGUOUS / INVALID_RESPONSE`. After the marker, unexpected execution uncertainty remains ambiguous; normal results are settled through the existing confirmed/review/ambiguous mapping.
 
-If an executor ever returns a commercial outcome without invoking its protected callback, the coordinator records conservative provider-request evidence and settles `AMBIGUOUS / INVALID_RESPONSE` rather than risking a later blind retry. After the marker, any unexpected execution uncertainty is conservatively `AMBIGUOUS / INVALID_RESPONSE`; normal results are settled through the existing confirmed/review/ambiguous mapping. A settlement failure after provider execution remains protected by the durable marker and stale-attempt recovery.
+## Commercial-review second Create
 
-Create observability is allowlisted to timestamp, operation/tenant/correlation identifiers, normalized result, and duration. It does not log traveler, card, locator, supplier confirmation, provider payload, credential, or token data.
+A definitive Travelport price/guarantee change becomes `REVIEW_REQUIRED`. Explicit acceptance is actor-bound and fingerprinted against the exact price/guarantee dimensions, amount/currency, offer, terms, authority, traveler, integration, and review attempt.
 
-The coordinator is server infrastructure only. There is still no route/action or product control that can provide its sensitive payment-card parameter, and it does not establish a PCI-safe source for that material. See `docs/travelport-reservation-create-coordinator.md`.
+`createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard` repeats fresh accepted authority, acquires its ephemeral card through the same source contract with `REVIEW_ACCEPTANCE_CREATE`, and invokes the reviewed executor. The provider-request callback then atomically archives the accepted decision, creates the next Create attempt, marks the provider request, and clears the active acceptance slot immediately before the second POST. Normal retry cannot reach this path.
+
+If the second provider response reports another commercial change, a new `REVIEW_REQUIRED` cycle is created. Prior accepted evidence remains immutable history.
 
 ## Secrets and provider ownership
 
 Fresh payment authority contains only commercial instruction metadata: kind, collection timing, currency, amount, and bounded accepted-card codes. It must not contain PAN, CVV/security code, billing-card plaintext, access tokens, provider credentials, or raw provider payloads.
 
-The fresh Travelport provider submission reference remains ephemeral and adapter-owned. It is carried only from the freshly revalidated Availability authority into the server-only write coordinator and is not persisted, audited, logged, or accepted from the browser.
+The fresh Travelport provider submission reference remains ephemeral and adapter-owned. It is carried only from freshly revalidated Availability authority into the server-only write coordinator and is not persisted, audited, logged, or accepted from the browser.
 
-Travelport's documented reference Create Reservation request requires `FormOfPayment` with payment-card data. Public Travelport Stays documentation includes plaintext card-number fields and makes CVV mandatory for certain suppliers, including Booking.com. SF therefore does not claim a PCI-safe implementation merely because the provider adapter and coordinator can compose and send that sensitive payload. The source/collection/handling boundary for form of payment must be reviewed for the actually provisioned commercial account before any reachable caller can supply it to the coordinator.
+Travelport's documented Create request can require `FormOfPayment` with plaintext card-number/security-code fields. SF therefore does not claim a PCI-safe implementation merely because the provider adapter can compose and send that payload or because the source interface is explicit.
 
 ## Capability gate
 
-Travelport `reservation` capability remains disabled. The fresh-authority checks, non-secret request mapping, server-only HTTP executor, and create coordinator remove the core request/orchestration dependencies but do not make the integration write-ready by themselves. Enabling reservation still requires the reviewed PCI-safe form-of-payment source/handling approach, explicit authorized price/guarantee-change decisions, safe locator-less/Booking.com Sync recovery, authoritative negative/correlation semantics, and live non-production validation.
+Travelport `reservation` remains disabled. Enabling it still requires:
+
+- a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned Travelport account;
+- live non-production SearchComplete → Rules → Availability → initial Create → reviewed second Create → Sync/recovery validation;
+- live price/guarantee acceptance verification using only the explicitly accepted query flags;
+- authoritative `13034` and locator-less negative/correlation/retry semantics; and
+- product/API states only after those commercial-write/payment/recovery gates pass.
 
 References:
 
