@@ -205,11 +205,28 @@ test('binds OAuth and Stays static credentials to the configured integration', a
     }),
     assertInvalidRequest,
   );
+  await assert.rejects(
+    tracedFetch('https://auth.travelport.net/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
 
   await assert.rejects(
     tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
       method: 'POST',
       headers: staysHeaders({ XAUTH_TRAVELPORT_ACCESSGROUP: 'other-access-group' }),
+      body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  const { Authorization: _authorization, ...missingAuthorization } = staysHeaders();
+  await assert.rejects(
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      method: 'POST',
+      headers: missingAuthorization,
       body: '{}',
     }),
     assertInvalidRequest,

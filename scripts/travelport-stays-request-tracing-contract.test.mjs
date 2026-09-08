@@ -80,11 +80,13 @@ test('trace transport owns sensitive Fetch request metadata and header channels'
   assert.match(trace, /TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS/);
   assert.match(trace, /MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH/);
   assert.match(trace, /assertAllowedTravelportRequestHeaders/);
-  assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers\)/);
+  assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers, input\.credentials !== undefined\)/);
   assert.match(trace, /assertTravelportStaysRequestHeaders\(headers, url, method, input\.credentials\)/);
   assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, input\.credentials\)/);
   assert.match(trace, /body\.get\('client_id'\) !== credentials\.clientId/);
   assert.match(trace, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
+  assert.match(trace, /!headers\.has\('Accept-Encoding'\)/);
+  assert.match(trace, /authorization === null/);
   assert.match(trace, /'content-encoding'/);
   assert.match(trace, /'content-range'/);
   assert.match(trace, /'expect'/);
@@ -169,6 +171,7 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /route-specific header allowlist/);
   assert.match(doc, /Any other caller header/);
   assert.match(doc, /same length ceilings as server-side credential normalization/);
+  assert.match(doc, /adapter-owned common authentication\/content headers must be present/);
   assert.match(doc, /must exactly match the configured integration before provider I\/O/);
   assert.match(doc, /`TVP-Cache-Control` is accepted only as `no-cache`/);
   assert.match(doc, /OAuth request body must remain the adapter-owned `URLSearchParams` password-grant form/);

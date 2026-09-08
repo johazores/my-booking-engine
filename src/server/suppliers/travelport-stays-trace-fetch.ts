@@ -295,9 +295,13 @@ function assertBoundedOptionalHeader(headers: Headers, name: string, maxLength: 
   }
 }
 
-function assertTravelportOAuthRequestHeaders(headers: Headers) {
+function assertTravelportOAuthRequestHeaders(
+  headers: Headers,
+  requireAdapterHeaders: boolean,
+) {
   assertAllowedTravelportRequestHeaders(headers, TRAVELPORT_OAUTH_ALLOWED_REQUEST_HEADERS);
   assertExactOptionalHeader(headers, 'Accept', 'application/json');
+  if (requireAdapterHeaders && !headers.has('Accept')) invalidTravelportRequestHeaders();
 }
 
 function assertTravelportStaysRequestHeaders(
@@ -330,7 +334,12 @@ function assertTravelportStaysRequestHeaders(
   if (
     credentials
     && (
-      headers.get('username') !== credentials.username
+      !headers.has('Accept')
+      || !headers.has('Accept-Encoding')
+      || !headers.has('Cache-Control')
+      || !headers.has('Content-Type')
+      || authorization === null
+      || headers.get('username') !== credentials.username
       || headers.get('password') !== credentials.password
       || headers.get('client_id') !== credentials.clientId
       || headers.get('client_secret') !== credentials.clientSecret
@@ -594,7 +603,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       ) {
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
-      assertTravelportOAuthRequestHeaders(headers);
+      assertTravelportOAuthRequestHeaders(headers, input.credentials !== undefined);
       assertTravelportOAuthRequestBody(body, headers, input.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
