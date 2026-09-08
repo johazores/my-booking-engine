@@ -100,6 +100,69 @@ test('forces manual redirect handling for OAuth and credential-bearing Stays req
   assert.equal(captured.calls[1]!.init?.redirect, 'manual');
 });
 
+test('does not resolve until the Travelport response body is fully buffered', async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const encoder = new TextEncoder();
+  const fetchImpl = (async () => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+      controller.enqueue(encoder.encode('{"ok":'));
+    },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+
+  let settled = false;
+  const pending = tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
+  }).then((response) => {
+    settled = true;
+    return response;
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(settled, false);
+  if (!streamController) throw new Error('response stream controller was not initialized');
+  streamController.enqueue(encoder.encode('true}'));
+  streamController.close();
+
+  const response = await pending;
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
+test('keeps the caller abort signal active while buffering the response body', async () => {
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      const signal = init?.signal;
+      signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+    },
+  }), { status: 200 })) as typeof fetch;
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+  const controller = new AbortController();
+
+  const pending = tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
+    signal: controller.signal,
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  controller.abort(new Error('request timed out'));
+
+  await assert.rejects(pending, /request timed out/i);
+});
+
+test('preserves bodyless Travelport responses', async () => {
+  const fetchImpl = (async () => new Response(null, { status: 204 })) as typeof fetch;
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
+  });
+
+  assert.equal(response.status, 204);
+  assert.equal(await response.text(), '');
+});
+
 test('fails closed before transport for missing, foreign, or malformed SF correlation', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });

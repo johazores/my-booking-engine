@@ -14,17 +14,18 @@ test('production Travelport adapters and connection tests share the environment-
   assert.match(integration, /probeTravelportStaysIntegrationHealth\(\{[\s\S]*fetchImpl/);
   assert.match(integration, /const fetchImpl = createTravelportStaysTraceFetch\(\{[\s\S]*environment: normalizedCredentials\.environment/);
 
-  const providerStart = integration.indexOf('new TravelportStaysProvider');
-  const termsStart = integration.indexOf('new TravelportStaysBookingTermsProvider', providerStart);
-  const authorityStart = integration.indexOf('new TravelportStaysReservationAuthorityProvider', termsStart);
-  const recoveryStart = integration.indexOf('new TravelportStaysReservationRecoveryProvider', authorityStart);
-  assert.ok(providerStart >= 0 && termsStart > providerStart && authorityStart > termsStart && recoveryStart > authorityStart);
-
-  const providerBlock = integration.slice(providerStart, termsStart);
-  const termsBlock = integration.slice(termsStart, authorityStart);
-  const authorityBlock = integration.slice(authorityStart, recoveryStart);
-  const recoveryBlock = integration.slice(recoveryStart);
-  for (const block of [providerBlock, termsBlock, authorityBlock, recoveryBlock]) assert.match(block, /fetchImpl/);
+  for (const constructorName of [
+    'TravelportStaysProvider',
+    'TravelportStaysBookingTermsProvider',
+    'TravelportStaysReservationAuthorityProvider',
+    'TravelportStaysReservationCreateExecutor',
+    'TravelportStaysReservationRecoveryProvider',
+    'TravelportStaysReservationSyncExecutor',
+  ]) {
+    const constructorStart = integration.indexOf(`new ${constructorName}({`);
+    assert.ok(constructorStart >= 0, `${constructorName} must be constructed by the integration loader`);
+    assert.match(integration.slice(constructorStart, constructorStart + 700), /\bfetchImpl\b/);
+  }
 });
 
 test('trace transport binds OAuth and exact implemented Stays request shapes to one configured environment', () => {
@@ -55,10 +56,20 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /assertSupportedTravelportStaysRequest\(url, method\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
-  assert.match(trace, /fetchImpl\(requestInput, \{ \.\.\.init, redirect: 'manual', headers \}\)/);
+  assert.match(trace, /redirect: 'manual'/);
 });
 
-test('request tracing documentation preserves reservation, environment, exact endpoint, and privacy boundaries', () => {
+test('trace transport keeps provider request deadlines active through response-body acquisition', () => {
+  const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
+  assert.match(trace, /async function bufferTravelportResponse/);
+  assert.match(trace, /if \(response\.body === null\) return response/);
+  assert.match(trace, /const bufferedResponse = response\.clone\(\)/);
+  assert.match(trace, /await response\.arrayBuffer\(\)/);
+  assert.match(trace, /return bufferedResponse/);
+  assert.equal((trace.match(/return bufferTravelportResponse\(response\)/g) ?? []).length, 2);
+});
+
+test('request tracing documentation preserves reservation, environment, exact endpoint, timeout, and privacy boundaries', () => {
   const doc = source('docs/travelport-stays-request-tracing.md');
   assert.match(doc, /does not enable Travelport `reservation`/);
   assert.match(doc, /PCI-safe FormOfPayment\/guarantee source/);
@@ -73,4 +84,7 @@ test('request tracing documentation preserves reservation, environment, exact en
   assert.match(doc, /connection test uses the same environment-bound wrapper/);
   assert.match(doc, /forces `redirect: 'manual'`/);
   assert.match(doc, /automatically replayed to a redirect target/);
+  assert.match(doc, /fully buffers each Travelport response body/);
+  assert.match(doc, /timeout remains active until the complete provider payload is received/);
+  assert.match(doc, /returns an unread clone/);
 });

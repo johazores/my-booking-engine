@@ -45,6 +45,8 @@ Trace IDs are opaque UUIDs. They must not contain traveler names, email addresse
 
 The wrapper never logs headers or request bodies and now forces `redirect: 'manual'` for both OAuth and Stays requests regardless of caller or `Request` redirect policy. Individual credential-bearing Travelport helpers may also specify manual redirects as defense in depth, but the shared environment-bound transport is the final redirect-suppression authority. This prevents Travelport bearer tokens, account headers, OAuth credentials, and reservation credentials from being automatically replayed to a redirect target.
 
+The wrapper also fully buffers each Travelport response body before it resolves back to a provider adapter. The adapters already place their request `AbortSignal` around the wrapped fetch call; keeping the wrapper pending through body acquisition means that timeout remains active until the complete provider payload is received instead of ending as soon as response headers arrive. The wrapper does not parse or trust the payload: it returns an unread clone with the original response metadata for the existing adapter-specific status and schema validation, and preserves bodyless responses without manufacturing content.
+
 ## Capability boundary
 
 This tracing and durable-correlation infrastructure does not enable Travelport `reservation`, `modification`, or `cancellation` capabilities and does not expose a supplier booking action.

@@ -152,6 +152,13 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport Stays request target is invalid.');
 }
 
+async function bufferTravelportResponse(response: Response): Promise<Response> {
+  if (response.body === null) return response;
+  const bufferedResponse = response.clone();
+  await response.arrayBuffer();
+  return bufferedResponse;
+}
+
 export function createTravelportStaysTraceFetch(input: Readonly<{
   environment: TravelportStaysTransportEnvironment;
   fetchImpl?: typeof fetch;
@@ -178,7 +185,8 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       }
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      return fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+      const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+      return bufferTravelportResponse(response);
     }
 
     if (url.hostname !== targets.staysHost) {
@@ -203,6 +211,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    return fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+    const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+    return bufferTravelportResponse(response);
   }) as typeof fetch;
 }
