@@ -18,8 +18,10 @@ test('Travelport write decisions keep review and sell uncertainty fail-closed', 
   assert.match(classifier, /failureCode: 'INVALID_RESPONSE'/);
   assert.match(mapper, /TRAVELPORT_SELL_UNCERTAIN/);
   assert.match(mapper, /outcome\.failureCode === 'TRAVELPORT_SYNC_REQUIRED'/);
-  assert.match(mapper, /!outcome\.supplierConfirmationReference/);
-  assert.match(mapper, /!outcome\.providerRecoveryReference/);
+  assert.match(
+    mapper,
+    /\(!outcome\.supplierConfirmationReference \|\| !outcome\.providerRecoveryReference\)/,
+  );
 });
 
 test('definitive no-sell failures require reviewed validation-category source codes', () => {
@@ -87,4 +89,5 @@ test('documentation keeps capability disabled and explains the narrow definitive
   assert.match(doc, /PCI-safe FormOfPayment/i);
   assert.match(doc, /one-time reviewed second-Create path is implemented separately/i);
   assert.match(doc, /TRAVELPORT_SELL_UNCERTAIN/);
+  assert.match(doc, /both.*supplier confirmation.*provider recovery reference/i);
 });

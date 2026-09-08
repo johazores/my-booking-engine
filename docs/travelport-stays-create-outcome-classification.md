@@ -84,7 +84,9 @@ The durable expected reservation is validated before it can match provider data.
 
 ## Durable settlement
 
-`travelportStaysCreateOutcomeToSubmissionOutcome` is the provider-specific bridge for ordinary confirmed, failed, and ambiguous outcomes. It also prevents a raw provider-special-case name from becoming false operational authority: an ambiguous `TRAVELPORT_SYNC_REQUIRED` classifier result without supplier confirmation and recovery evidence is persisted as `TRAVELPORT_SELL_UNCERTAIN`. `REVIEW_REQUIRED` is deliberately routed through the dedicated review settlement boundary instead of the generic mapper.
+`travelportStaysCreateOutcomeToSubmissionOutcome` is the provider-specific bridge for ordinary confirmed, failed, and ambiguous outcomes. It also prevents a raw provider-special-case name from becoming false operational authority: an ambiguous `TRAVELPORT_SYNC_REQUIRED` classifier result is persisted as `TRAVELPORT_SELL_UNCERTAIN` unless both a supplier confirmation and provider recovery reference are present. `REVIEW_REQUIRED` is deliberately routed through the dedicated review settlement boundary instead of the generic mapper.
+
+A bounded supplier confirmation may still be retained as investigation evidence when the paired recovery reference is missing, but it is not Sync authority and the recovery-write claim remains blocked.
 
 A durable review transition requires the tenant-scoped current `CREATE` attempt, a non-null provider-request marker, a fixed normalized review reason, and matching operation state. The transition is non-retryable and clears locator/recovery fields that would conflict with the documented no-sell review state.
 
@@ -98,7 +100,7 @@ Structured observations use fixed result names and SF-owned tenant/attempt corre
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, PNR-locator identity, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, PNR-locator identity, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 

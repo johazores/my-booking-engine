@@ -5,12 +5,12 @@ function normalizeTravelportAmbiguousFailureCode(
   outcome: Extract<TravelportStaysReservationCreateOutcome, Readonly<{ status: 'AMBIGUOUS' }>>,
 ) {
   // Travelport 13034 is not proof that Sync is required: the provider documents both
-  // a no-sell branch and a sold-at-Booking.com branch that share the same error. Only
-  // supplier-confirmed recovery evidence can retain the actionable Sync-required code.
+  // a no-sell branch and a sold-at-Booking.com branch that share the same error. The
+  // actionable Sync-required code is retained only when both pieces of recovery
+  // authority are complete: a supplier confirmation and provider recovery reference.
   if (
     outcome.failureCode === 'TRAVELPORT_SYNC_REQUIRED'
-    && !outcome.supplierConfirmationReference
-    && !outcome.providerRecoveryReference
+    && (!outcome.supplierConfirmationReference || !outcome.providerRecoveryReference)
   ) {
     return 'TRAVELPORT_SELL_UNCERTAIN' as const;
   }

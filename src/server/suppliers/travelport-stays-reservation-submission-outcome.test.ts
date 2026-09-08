@@ -32,6 +32,34 @@ test('keeps proven supplier-confirmed recovery evidence Sync-required and never 
   });
 });
 
+test('downgrades Sync-required ambiguity when either recovery authority component is missing', () => {
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SYNC_REQUIRED',
+    supplierConfirmationReference: 'T9RY0-WQ842',
+    providerRecoveryReference: null,
+    providerCorrelationId: 'trace-partial-confirmation',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SELL_UNCERTAIN',
+    supplierConfirmationReference: 'T9RY0-WQ842',
+    providerCorrelationId: 'trace-partial-confirmation',
+  });
+
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SYNC_REQUIRED',
+    supplierConfirmationReference: null,
+    providerRecoveryReference: 'v1.sync-evidence',
+    providerCorrelationId: 'trace-partial-recovery',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SELL_UNCERTAIN',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-partial-recovery',
+  });
+});
+
 test('normalizes locator-less 13034-style ambiguity without recovery evidence as sell-uncertain', () => {
   assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
     status: 'AMBIGUOUS',

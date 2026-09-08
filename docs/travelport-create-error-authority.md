@@ -14,6 +14,8 @@ SF therefore does not persist locator-less `13034` as though Sync were already p
 
 `TRAVELPORT_SYNC_REQUIRED` is reserved at the durable settlement boundary for supplier-confirmed recovery evidence, such as Travelport's separate sell-confirmed/no-PNR warning path where the response itself can prove the exact stay, Booking.com supplier confirmation, supplier source, matching offer authority, and absence of a Travelport PNR Locator.
 
+At durable settlement, missing either half of the required recovery pair fails closed. A supplier confirmation without the opaque provider recovery reference, or a recovery reference without its supplier confirmation, is normalized to `AMBIGUOUS / TRAVELPORT_SELL_UNCERTAIN`. Partial evidence cannot authorize Sync.
+
 ## Retry and acceptance boundary
 
 Travelport documents that price or guarantee changes stop the initial sell and that a subsequent Create Reservation request may proceed only after the applicable change is explicitly accepted. SF does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd` automatically. The current review outcome settles the existing operation into dedicated `REVIEW_REQUIRED` state; authorized acceptance and the one-time reviewed second Create are separate server-only boundaries with fresh offer, Rules, Availability, traveler, integration, and payment authority.
