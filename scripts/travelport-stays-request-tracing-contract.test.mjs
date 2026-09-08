@@ -82,6 +82,7 @@ test('trace transport bounds adapter-owned request body representations without 
   assert.match(trace, /MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 \* 1024 \* 1024/);
   assert.match(trace, /function effectiveRequestBody/);
   assert.match(trace, /function assertTravelportOAuthRequestBody/);
+  assert.match(trace, /if \(body === null\) invalidTravelportRequestBody\(\)/);
   assert.match(trace, /body instanceof URLSearchParams/);
   assert.match(trace, /application\/x-www-form-urlencoded/);
   assert.match(trace, /value !== 'password'/);
@@ -148,9 +149,9 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`credentials: 'omit'`/);
   assert.match(doc, /referrerPolicy: 'no-referrer'/);
   assert.match(doc, /`keepalive: false`/);
-  assert.match(doc, /adapter-owned `URLSearchParams` password-grant form/);
+  assert.match(doc, /OAuth request body must remain the adapter-owned `URLSearchParams` password-grant form/);
   assert.match(doc, /at most 4 MiB of UTF-8 payload/);
-  assert.match(doc, /Stays `GET` requests cannot carry a body/);
+  assert.match(doc, /Bodyless OAuth or Stays `POST` requests/);
   assert.match(doc, /without parsing, copying, hashing, logging, or retaining the JSON payload/);
   assert.match(doc, /fully consumes each Travelport response body/);
   assert.match(doc, /timeout remains active until the complete provider payload is received/);

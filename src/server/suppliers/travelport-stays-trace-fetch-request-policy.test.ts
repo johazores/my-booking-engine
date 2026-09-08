@@ -40,6 +40,8 @@ test('forces process-owned request metadata for OAuth and Stays', async () => {
     referrerPolicy: 'unsafe-url',
     keepalive: true,
     integrity: 'sha256-not-provider-authority',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: oauthBody(),
   });
   await tracedFetch(new Request('https://api.travelport.net/12/hotel/search/searchcomplete', {
     method: 'POST',
@@ -51,7 +53,10 @@ test('forces process-owned request metadata for OAuth and Stays', async () => {
     keepalive: true,
     integrity: 'sha256-not-provider-authority',
     headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-  }));
+  }), {
+    headers: { E2ETrackingID: `sf-${TRACE_ID}`, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
 
   assert.equal(calls.length, 2);
   for (const call of calls) {
@@ -226,6 +231,16 @@ test('rejects non-canonical OAuth and Stays request bodies before Travelport tra
   await assert.rejects(
     tracedFetch('https://api.travelport.net/11/hotel/book/reservations/D6VBHL', {
       method: 'GET', headers: staysHeaders, body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST' }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      method: 'POST', headers: { E2ETrackingID: `sf-${TRACE_ID}` },
     }),
     assertInvalidRequest,
   );

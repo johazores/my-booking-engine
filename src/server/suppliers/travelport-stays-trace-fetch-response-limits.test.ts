@@ -8,7 +8,21 @@ const TRACE_ID = '123e4567-e89b-42d3-a456-426614174000';
 const STAYS_RESPONSE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 function staysHeaders() {
-  return { E2ETrackingID: `sf-${TRACE_ID}` };
+  return { E2ETrackingID: `sf-${TRACE_ID}`, 'Content-Type': 'application/json' };
+}
+
+function staysPostInit(): RequestInit {
+  return { method: 'POST', headers: staysHeaders(), body: '{}' };
+}
+
+function oauthPostInit(): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'password', username: 'user', password: 'password', client_id: 'client', client_secret: 'secret',
+    }),
+  };
 }
 
 function assertInvalidResponse(error: unknown) {
@@ -29,14 +43,11 @@ test('rejects oversized declared OAuth and Stays response bodies before adapter 
   });
 
   await assert.rejects(
-    tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST' }),
+    tracedFetch('https://auth.travelport.net/oauth/token', oauthPostInit()),
     assertInvalidResponse,
   );
   await assert.rejects(
-    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-      method: 'POST',
-      headers: staysHeaders(),
-    }),
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
     assertInvalidResponse,
   );
 });
@@ -59,10 +70,7 @@ test('rejects malformed declared response lengths as invalid provider evidence a
   });
 
   await assert.rejects(
-    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-      method: 'POST',
-      headers: staysHeaders(),
-    }),
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
     assertInvalidResponse,
   );
   assert.equal(cancelled, true);
@@ -82,10 +90,7 @@ test('rejects chunked Stays responses when received bytes exceed the transport c
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
 
   await assert.rejects(
-    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-      method: 'POST',
-      headers: staysHeaders(),
-    }),
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
     assertInvalidResponse,
   );
   assert.equal(cancelled, true);
@@ -102,10 +107,7 @@ test('coalesces tiny provider chunks into bounded replay blocks', async () => {
     },
   }), { status: 200 })) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: staysHeaders(),
-  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
 
   const reader = response.body!.getReader();
   const chunks: Uint8Array[] = [];
@@ -130,10 +132,7 @@ test('preserves bytes exactly when provider chunks cross replay block boundaries
     },
   }), { status: 200 })) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: staysHeaders(),
-  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
 
   const replayed = new Uint8Array(await response.arrayBuffer());
   assert.deepEqual(replayed, payload);
@@ -150,10 +149,7 @@ test('copies narrow source views so oversized backing buffers are not retained b
     },
   }), { status: 200 })) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: staysHeaders(),
-  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
 
   const first = await response.body!.getReader().read();
   assert.equal(first.done, false);
@@ -173,10 +169,7 @@ test('drops stale wire representation headers after replaying decoded bytes', as
     },
   })) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: staysHeaders(),
-  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
 
   assert.equal(response.headers.get('Content-Encoding'), null);
   assert.equal(response.headers.get('Content-Length'), null);

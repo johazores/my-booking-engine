@@ -14,13 +14,33 @@ function captureFetch() {
   return { calls, fetchImpl };
 }
 
+function staysPostInit(headers: Readonly<Record<string, string>>, extra: RequestInit = {}): RequestInit {
+  return {
+    ...extra,
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: '{}',
+  };
+}
+
+function oauthPostInit(extra: RequestInit = {}): RequestInit {
+  return {
+    ...extra,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'password', username: 'user', password: 'password', client_id: 'client', client_secret: 'secret',
+    }),
+  };
+}
+
 test('maps SF correlation to the documented v11 TraceId header', async () => {
   const captured = captureFetch();
   const preProductionFetch = createTravelportStaysTraceFetch({ environment: 'pre-production', fetchImpl: captured.fetchImpl });
-  await preProductionFetch('https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}`, 'TVP-Trace-Id': 'stale-value' },
-  });
+  await preProductionFetch(
+    'https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}`, 'TVP-Trace-Id': 'stale-value' }),
+  );
 
   assert.equal(captured.calls.length, 1);
   const headers = new Headers(captured.calls[0]!.init?.headers);
@@ -32,10 +52,10 @@ test('maps SF correlation to the documented v11 TraceId header', async () => {
 test('maps SF correlation to the documented v12 TVP-Trace-Id header', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
-  await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}`, TraceId: 'stale-value' },
-  });
+  await tracedFetch(
+    'https://api.travelport.net/12/hotel/search/searchcomplete',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}`, TraceId: 'stale-value' }),
+  );
 
   assert.equal(captured.calls.length, 1);
   const headers = new Headers(captured.calls[0]!.init?.headers);
@@ -59,21 +79,22 @@ test('allows every currently implemented Travelport Stays endpoint shape', async
     ['https://api.travelport.net/11/hotel/book/reservations/D6VBHL', 'GET'],
   ] as const;
 
-  for (const [url, method] of requests) await tracedFetch(url, { method, headers });
+  for (const [url, method] of requests) {
+    await tracedFetch(url, method === 'POST' ? staysPostInit(headers) : { method, headers });
+  }
   assert.equal(captured.calls.length, requests.length);
 });
 
 test('allows only the fixed OAuth token targets without SF request correlation', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
-  await tracedFetch('https://auth.travelport.net/oauth/token', {
-    method: 'POST',
+  await tracedFetch('https://auth.travelport.net/oauth/token', oauthPostInit({
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       TraceId: 'stale-value',
       'TVP-Trace-Id': 'stale-value',
     },
-  });
+  }));
 
   assert.equal(captured.calls.length, 1);
   const headers = new Headers(captured.calls[0]!.init?.headers);
@@ -85,15 +106,12 @@ test('forces manual redirect handling for OAuth and credential-bearing Stays req
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
 
-  await tracedFetch('https://auth.travelport.net/oauth/token', {
-    method: 'POST',
-    redirect: 'follow',
-  });
+  await tracedFetch('https://auth.travelport.net/oauth/token', oauthPostInit({ redirect: 'follow' }));
   await tracedFetch(new Request('https://api.travelport.net/12/hotel/search/searchcomplete', {
     method: 'POST',
     redirect: 'follow',
     headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-  }));
+  }), staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }));
 
   assert.equal(captured.calls.length, 2);
   assert.equal(captured.calls[0]!.init?.redirect, 'manual');
@@ -112,10 +130,10 @@ test('does not resolve until the Travelport response body is fully buffered', as
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
 
   let settled = false;
-  const pending = tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-  }).then((response) => {
+  const pending = tracedFetch(
+    'https://api.travelport.net/12/hotel/search/searchcomplete',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }),
+  ).then((response) => {
     settled = true;
     return response;
   });
@@ -144,10 +162,10 @@ test('buffers provider responses without cloning a second unread branch and pres
     fetchImpl: (async () => providerResponse) as typeof fetch,
   });
 
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-  });
+  const response = await tracedFetch(
+    'https://api.travelport.net/12/hotel/search/searchcomplete',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }),
+  );
 
   assert.equal(response.status, 206);
   assert.equal(response.statusText, 'Partial Content');
@@ -165,11 +183,10 @@ test('keeps the caller abort signal active while buffering the response body', a
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
   const controller = new AbortController();
 
-  const pending = tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-    signal: controller.signal,
-  });
+  const pending = tracedFetch(
+    'https://api.travelport.net/12/hotel/search/searchcomplete',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }, { signal: controller.signal }),
+  );
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   controller.abort(new Error('request timed out'));
 
@@ -179,10 +196,10 @@ test('keeps the caller abort signal active while buffering the response body', a
 test('preserves bodyless Travelport responses', async () => {
   const fetchImpl = (async () => new Response(null, { status: 204 })) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
-  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
-    method: 'POST',
-    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
-  });
+  const response = await tracedFetch(
+    'https://api.travelport.net/12/hotel/search/searchcomplete',
+    staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }),
+  );
 
   assert.equal(response.status, 204);
   assert.equal(await response.text(), '');

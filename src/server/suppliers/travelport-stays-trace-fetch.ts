@@ -130,7 +130,7 @@ function hasJsonObjectEnvelope(value: string) {
 }
 
 function assertTravelportOAuthRequestBody(body: BodyInit | null, headers: Headers) {
-  if (body === null) return;
+  if (body === null) invalidTravelportRequestBody();
   if (!(body instanceof URLSearchParams) || !hasExactContentType(headers, 'application/x-www-form-urlencoded')) {
     invalidTravelportRequestBody();
   }
@@ -175,7 +175,7 @@ function assertTravelportStaysRequestBody(body: BodyInit | null, headers: Header
     if (body !== null) invalidTravelportRequestBody();
     return;
   }
-  if (body === null) return;
+  if (body === null) invalidTravelportRequestBody();
   if (
     typeof body !== 'string'
     || !hasExactContentType(headers, 'application/json')
