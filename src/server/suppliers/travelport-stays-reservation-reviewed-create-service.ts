@@ -20,7 +20,10 @@ import {
   createTravelportStaysReservationCreateProviderObservation,
   type TravelportStaysReservationCreateProviderResult,
 } from './travelport-stays-reservation-create-observability.ts';
-import type { TravelportStaysSensitiveReservationPaymentCard } from './travelport-stays-reservation-create-executor.ts';
+import {
+  acquireTravelportStaysReservationPaymentCard,
+  type TravelportStaysReservationPaymentCardSource,
+} from './travelport-stays-reservation-payment-card-source.ts';
 import { buildTravelportStaysReservationCreateRequestMaterial } from './travelport-stays-reservation-create-request-material.ts';
 import {
   normalizeTravelportStaysReservationExpectation,
@@ -90,7 +93,8 @@ TravelportStaysReservationCreateProviderResult {
  * The accepted decision remains REVIEW_REQUIRED until request composition and OAuth finish. The
  * executor callback then atomically archives the decision, creates the next CREATE attempt, clears
  * the active acceptance fields, and sets providerRequestStartedAt immediately before the POST.
- * Sensitive card material remains ephemeral and is never persisted or audited by this workflow.
+ * Form-of-payment material is acquired only through a separately supplied server capability after
+ * the accepted authority and exact integration identity are revalidated; it is never persisted.
  */
 export async function createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard(
   input: Readonly<{
@@ -98,9 +102,9 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
     actorUserId: string;
     reservationId: string;
     traveler: HospitalitySupplierReservationTravelerPayloadInput;
-    paymentCard: TravelportStaysSensitiveReservationPaymentCard;
     expectedAcceptanceFingerprint: unknown;
   }>,
+  paymentCardSource: TravelportStaysReservationPaymentCardSource,
 ) {
   const reviewed = await reviewTravelportStaysReservationAcceptedCommercialAuthority({
     organizationId: input.organizationId,
@@ -144,11 +148,19 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
   } = { current: null };
   let createOutcome;
   try {
+    const paymentCard = await acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
+      organizationId: input.organizationId,
+      reservationId: input.reservationId,
+      integrationId: execution.integration.id,
+      integrationCredentialVersion: execution.integration.credentialVersion,
+      attemptId,
+      purpose: 'REVIEW_ACCEPTANCE_CREATE',
+    });
     createOutcome = await execution.reservationCreateExecutor.createReservationAfterAcceptedReview({
       requestCorrelationId: attemptId,
       requestMaterial: createRequestMaterial,
       paymentAuthority: reviewed.paymentAuthority,
-      paymentCard: input.paymentCard,
+      paymentCard,
       expectedReservation,
       acceptedReview,
       beforeProviderRequest: async () => {
