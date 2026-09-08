@@ -239,6 +239,14 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
         'Supplier reservation recovery-write attempt is no longer current.',
       );
     }
+    if (
+      (input.outcome.status === 'CONFIRMED' || input.outcome.status === 'AMBIGUOUS')
+      && !attempt.providerRequestStartedAt
+    ) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation recovery-write outcome is missing durable provider-request evidence.',
+      );
+    }
     if (!reservation.supplierConfirmationReference || !reservation.providerRecoveryReference) {
       throw new HospitalitySupplierReservationConflictError(
         'Supplier reservation recovery evidence is no longer complete.',

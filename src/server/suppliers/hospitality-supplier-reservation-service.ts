@@ -303,6 +303,14 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
         'Supplier reservation create attempt is no longer current.',
       );
     }
+    if (
+      (input.outcome.status === 'CONFIRMED' || input.outcome.status === 'AMBIGUOUS')
+      && !attempt.providerRequestStartedAt
+    ) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation provider outcome is missing durable provider-request evidence.',
+      );
+    }
 
     const completedAt = new Date();
     const status = input.outcome.status;
@@ -501,6 +509,14 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
     if (!attempt || attempt.sequence !== reservation.attemptCount) {
       throw new HospitalitySupplierReservationConflictError(
         'Supplier reservation reconciliation attempt is no longer current.',
+      );
+    }
+    if (
+      (input.outcome.status === 'FOUND' || input.outcome.status === 'NOT_FOUND')
+      && !attempt.providerRequestStartedAt
+    ) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation reconciliation outcome is missing durable provider-request evidence.',
       );
     }
     if (

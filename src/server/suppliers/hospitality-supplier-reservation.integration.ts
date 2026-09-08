@@ -9,9 +9,10 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('supplier reservation operations enforce tenant scope, exact idempotency, ambiguity recovery, and integration version safety', async () => {
-  const [{ db }, reservations] = await Promise.all([
+  const [{ db }, reservations, recovery] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
+    import('./hospitality-supplier-reservation-attempt-recovery-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -155,17 +156,34 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       /already in progress/i,
     );
 
+    const ambiguousOutcome = {
+      status: 'AMBIGUOUS',
+      failureCode: 'TIMEOUT',
+      providerReservationReference: 'TVPT-AMBIGUOUS-001',
+      providerCorrelationId: 'travelport-correlation-1',
+    } as const;
+    await assert.rejects(
+      reservations.settleHospitalitySupplierReservationSubmission({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: prepared.id,
+        attemptId: firstClaim.attempt.id,
+        outcome: ambiguousOutcome,
+      }),
+      /missing durable provider-request evidence/i,
+    );
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+      attemptId: firstClaim.attempt.id,
+    });
     const ambiguous = await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
       attemptId: firstClaim.attempt.id,
-      outcome: {
-        status: 'AMBIGUOUS',
-        failureCode: 'TIMEOUT',
-        providerReservationReference: 'TVPT-AMBIGUOUS-001',
-        providerCorrelationId: 'travelport-correlation-1',
-      },
+      outcome: ambiguousOutcome,
     });
     assert.equal(ambiguous.status, 'AMBIGUOUS');
     assert.equal(ambiguous.lastFailureCode, 'TIMEOUT');
@@ -187,6 +205,27 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
     });
     assert.equal(reconciliation.reservation.status, 'RECONCILING');
     assert.equal(reconciliation.attempt.kind, 'RECONCILE');
+
+    await assert.rejects(
+      reservations.settleHospitalitySupplierReservationReconciliation({
+        organizationId: tenantA.id,
+        actorUserId: tenantAAdmin.id,
+        reservationId: prepared.id,
+        attemptId: reconciliation.attempt.id,
+        outcome: {
+          status: 'NOT_FOUND',
+          providerReservationReference: 'TVPT-AMBIGUOUS-001',
+          providerCorrelationId: 'travelport-reconcile-unmarked',
+        },
+      }),
+      /missing durable provider-request evidence/i,
+    );
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+      attemptId: reconciliation.attempt.id,
+    });
 
     await assert.rejects(
       reservations.settleHospitalitySupplierReservationReconciliation({
@@ -227,6 +266,12 @@ test('supplier reservation operations enforce tenant scope, exact idempotency, a
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId: prepared.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: prepared.id,
+      attemptId: retryClaim.attempt.id,
     });
     const confirmed = await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: tenantA.id,

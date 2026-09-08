@@ -11,9 +11,10 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('supplier reconciliation preserves known locator authority and durable supplier confirmation evidence', async () => {
-  const [{ db }, reservations, reconciliation] = await Promise.all([
+  const [{ db }, reservations, recovery, reconciliation] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
+    import('./hospitality-supplier-reservation-attempt-recovery-service.ts'),
     import('./hospitality-supplier-reservation-reconciliation-service.ts'),
   ]);
 
@@ -91,6 +92,12 @@ test('supplier reconciliation preserves known locator authority and durable supp
       organizationId: tenantA.id,
       actorUserId: tenantAAdmin.id,
       reservationId,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId,
+      attemptId: claim.attempt.id,
     });
     return reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: tenantA.id,

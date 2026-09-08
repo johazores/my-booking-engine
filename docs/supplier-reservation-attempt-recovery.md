@@ -38,6 +38,16 @@ The live-integration recheck happens after current-attempt validation and immedi
 
 The marker and stale recovery share the same serializable operation lock. If recovery wins first, the attempt is no longer eligible for provider I/O. If the marker wins first, stale recovery must assume provider I/O may have occurred.
 
+## Provider evidence settlement gate
+
+The provider-request marker is also required before durable state can accept an outcome that itself claims provider execution or provider truth. This invariant is enforced inside the provider-neutral settlement transactions rather than trusted to each adapter coordinator.
+
+- A current `CREATE` attempt may settle `CONFIRMED` or `AMBIGUOUS` only when `providerRequestStartedAt` exists. A deterministic pre-provider failure may still settle `FAILED` without the marker.
+- A current `RECONCILE` attempt may settle definitive `FOUND` or `NOT_FOUND` truth only when the provider-request marker exists. Pre-provider validation or marker failure may still settle `UNKNOWN` without pretending that a provider lookup occurred.
+- A current `RECOVERY_WRITE` attempt may settle `CONFIRMED` or `AMBIGUOUS` only when the provider-request marker exists. A deterministic pre-provider recovery-write failure may still settle `FAILED` without the marker.
+
+This prevents a provider adapter, future coordinator, or direct internal caller from persisting a locator, confirmation, ambiguity, or definitive negative lookup as provider evidence when the durable ledger still proves that the provider boundary was never crossed.
+
 ## Stale recovery requirements
 
 Recovery is allowed only when all of these remain true under the operation lock:
@@ -121,7 +131,7 @@ Travelport Create and Sync structured observations contain only attempt correlat
 
 Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, fail-closed post-marker ambiguity, and the source contract requiring live integration/provider/credential/capability authority before a new marker can be written.
 
-Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, and Travelport Sync recovery-write ordering.
+Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, Travelport Sync recovery-write ordering, and the provider-evidence settlement gate for Create, reconciliation, and recovery writes.
 
 Guarded PostgreSQL supplier-reservation scenarios are registered under `npm run test:database`. They require an explicitly disposable PostgreSQL target and remain part of the live database validation gate.
 

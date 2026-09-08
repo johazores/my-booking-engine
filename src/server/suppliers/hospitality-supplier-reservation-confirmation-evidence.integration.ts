@@ -9,9 +9,10 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('supplier confirmation recovery evidence stays ambiguous until provider truth is established', async () => {
-  const [{ db }, reservations] = await Promise.all([
+  const [{ db }, reservations, recovery] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
+    import('./hospitality-supplier-reservation-attempt-recovery-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -76,6 +77,12 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       actorUserId: admin.id,
       reservationId: locatorless.id,
     });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: locatorless.id,
+      attemptId: locatorlessClaim.attempt.id,
+    });
     const locatorlessAmbiguous = await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -121,6 +128,12 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       actorUserId: admin.id,
       reservationId: knownLocator.id,
     });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: knownLocator.id,
+      attemptId: knownLocatorClaim.attempt.id,
+    });
     const knownLocatorAmbiguous = await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -139,6 +152,12 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: knownLocator.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: knownLocator.id,
+      attemptId: foundClaim.attempt.id,
     });
     const found = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: organization.id,
@@ -166,6 +185,12 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       actorUserId: admin.id,
       reservationId: notFoundOperation.id,
     });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: notFoundOperation.id,
+      attemptId: notFoundSubmission.attempt.id,
+    });
     await reservations.settleHospitalitySupplierReservationSubmission({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -182,6 +207,12 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: notFoundOperation.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: notFoundOperation.id,
+      attemptId: notFoundClaim.attempt.id,
     });
     const retryable = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: organization.id,
