@@ -28,14 +28,15 @@ Immediately before provider transport can begin, server code calls `markHospital
 
 - requires server-side `booking:manage`;
 - validates organization scope, current operation, exact attempt ID and sequence, allowed attempt kind, and `STARTED` status;
-- rechecks that the operation's exact tenant integration is still `ACTIVE`, has the same provider and credential version, and still advertises `reservation` on every marker call, including an idempotent replay;
+- rechecks that the operation's exact tenant integration is still `ACTIVE`, has the same provider and credential version, and still advertises `reservation` on every marker call, including an evidence replay;
 - when the marker is not already present, writes database-authored `providerRequestStartedAt` and resets `leaseStartedAt` to the same database clock so the provider call receives a full lease;
-- is idempotent as a durable ledger mutation once written, but does not bypass current integration authority on replay; and
+- remains idempotent as a durable evidence mutation for non-transport callers and defensive ambiguity fallback;
+- can require a fresh provider request, in which case an existing marker raises `HospitalitySupplierReservationProviderRequestAlreadyStartedError` before external I/O can be replayed; and
 - audits only privacy-safe operational facts when the marker is first written.
 
-The live-integration recheck happens after current-attempt validation and immediately before either a new marker is written or an existing marker is returned. This closes both the claim/load/OAuth window and the replay path where an integration could otherwise be disabled, rotated, or lose reservation capability while a prepared provider client still held older credentials. Once `providerRequestStartedAt` already exists, a repeated marker call preserves that historical fact but succeeds only while the exact live integration still matches.
+The live-integration recheck happens after current-attempt validation and immediately before either a new marker is written or an existing marker is considered. This closes both the claim/load/OAuth window and the replay path where an integration could otherwise be disabled, rotated, or lose reservation capability while a prepared provider client still held older credentials.
 
-An idempotent marker replay is not permission to issue a second provider request. Provider coordinators own one external request per attempt; if execution becomes uncertain after the marker, the durable attempt must be settled or recovered through the existing ambiguity rules rather than replaying the supplier operation.
+Provider transport callbacks use `requireFreshProviderRequest: true`. An existing marker is therefore historical evidence only, never a reusable transport permit. Travelport initial Create and Booking.com Sync treat that replay conflict as post-marker uncertainty and settle the current attempt `AMBIGUOUS` rather than misclassifying it as a retry-safe pre-provider failure. Known-locator reconciliation similarly refuses to issue a second Retrieve for the same marked attempt. The reviewed second Create already has a separate atomic single-use boundary because accepted commercial consent is consumed into exactly one new marked attempt.
 
 The marker and stale recovery share the same serializable operation lock. If recovery wins first, the attempt is no longer eligible for provider I/O. If the marker wins first, stale recovery must assume provider I/O may have occurred.
 
@@ -112,13 +113,13 @@ Successful recovery clears the provider recovery reference and confirms only wit
 
 ## Coordinator ordering
 
-The Travelport initial Create coordinator performs fresh offer/Rules/Availability/traveler/payment authority, claims a durable `CREATE` attempt, reloads the exact integration, acquires the ephemeral payment source, performs deterministic request validation/composition and OAuth, and then calls the provider-request marker. The marker rechecks the exact live integration under the operation lock before the commercial POST can begin.
+The Travelport initial Create coordinator performs fresh offer/Rules/Availability/traveler/payment authority, claims a durable `CREATE` attempt, reloads the exact integration, acquires the ephemeral payment source, performs deterministic request validation/composition and OAuth, and then calls the provider-request marker with a fresh-request requirement. The marker rechecks the exact live integration under the operation lock and refuses an already-marked attempt before the commercial POST can begin.
 
 The reviewed second Create is stricter still: its provider callback atomically rechecks the accepted commercial decision and live integration while consuming that decision into exactly one new marked `CREATE` attempt immediately before the POST.
 
-The Travelport Booking.com Sync coordinator follows the shared provider-request boundary. It rebinds the authorized traveler fingerprint, claims `RECOVERY_WRITE`, reloads exact integration/credential authority, constructs the minimal Sync request, completes OAuth, records the provider-request marker with the live-integration recheck, and only then calls `POST book/reservations/`.
+The Travelport Booking.com Sync coordinator follows the shared provider-request boundary. It rebinds the authorized traveler fingerprint, claims `RECOVERY_WRITE`, reloads exact integration/credential authority, constructs the minimal Sync request, completes OAuth, requires a fresh provider-request marker, and only then calls `POST book/reservations/`.
 
-Known-locator reconciliation records the same marker immediately before invoking provider Retrieve, so a disabled/rotated integration also cannot cross that read-side provider boundary on a stale claim.
+Known-locator reconciliation requires the same fresh marker immediately before invoking provider Retrieve, so a disabled/rotated integration or an already-marked attempt cannot cross that read-side provider boundary.
 
 ## Authorization, tenancy, and privacy
 
@@ -130,15 +131,15 @@ Travelport Create and Sync structured observations contain only attempt correlat
 
 ## Validation
 
-Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, fail-closed post-marker ambiguity, and the source contract requiring live integration/provider/credential/capability authority before both a new marker and an idempotent marker replay can succeed.
+Dependency-free tests cover lease timing, state/kind matching, pre-provider retry safety, fail-closed post-marker ambiguity, live integration/provider/credential/capability authority, and the fresh-provider-request contract that prevents a durable marker from being reused as permission for second external I/O.
 
-Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, Travelport Sync recovery-write ordering, and the provider-evidence settlement gate for Create, reconciliation, and recovery writes.
+Source contracts verify authorization, tenant/current-attempt scope, shared lock identity, marker ordering, privacy-minimal audits, Travelport Create ordering, Travelport Sync recovery-write ordering, known-locator reconciliation ordering, reviewed second-Create single-use behavior, and the provider-evidence settlement gate for Create, reconciliation, and recovery writes.
 
 Guarded PostgreSQL supplier-reservation scenarios are registered under `npm run test:database`. They require an explicitly disposable PostgreSQL target and remain part of the live database validation gate.
 
 ## Activation boundary
 
-The Travelport initial Create, reviewed second Create, and Booking.com Sync server-side coordinators exist but remain unreachable because the integration does not advertise `reservation`. Activation still requires a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned account, live Travelport non-production end-to-end verification, authoritative `13034`/locator-less correlation and retry semantics, and complete product/API states after those provider gates are proven.
+The Travelport initial Create, reviewed second Create, and Booking.com Sync server-side coordinators exist but remain unreachable because the integration does not advertise `reservation`. Activation still requires a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned account, live Travelport non-production end-to-end verification, live validation of the documented `13034` branches and external supplier-confirmation recovery path, verified locator-less/negative-lookup correlation behavior, and complete product/API states after those provider gates are proven.
 
 See also:
 

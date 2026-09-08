@@ -57,11 +57,22 @@ function assertProviderRequestIntegrationStillMatches(
   }
 }
 
+export class HospitalitySupplierReservationProviderRequestAlreadyStartedError
+  extends HospitalitySupplierReservationConflictError {
+  constructor() {
+    super(
+      'Supplier reservation provider request already started for this attempt. Recover or settle the existing attempt instead of replaying provider I/O.',
+    );
+    this.name = 'HospitalitySupplierReservationProviderRequestAlreadyStartedError';
+  }
+}
+
 export async function markHospitalitySupplierReservationProviderRequestStarted(input: {
   organizationId: string;
   actorUserId: string;
   reservationId: string;
   attemptId: string;
+  requireFreshProviderRequest?: boolean;
 }) {
   await requireSupplierReservationRecoveryAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.reservationId, 'reservationId');
@@ -123,6 +134,9 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
       },
     });
     assertProviderRequestIntegrationStillMatches(integration, reservation);
+    if (attempt.providerRequestStartedAt && input.requireFreshProviderRequest) {
+      throw new HospitalitySupplierReservationProviderRequestAlreadyStartedError();
+    }
     if (attempt.providerRequestStartedAt) return attempt;
 
     const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;

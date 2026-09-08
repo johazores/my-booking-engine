@@ -54,6 +54,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       actorUserId: input.actorUserId,
       reservationId: input.reservationId,
       attemptId: claim.attempt.id,
+      requireFreshProviderRequest: true,
     });
   } catch (error) {
     return settleHospitalitySupplierReservationReconciliation({

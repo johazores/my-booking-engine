@@ -1,6 +1,7 @@
 import { loadTravelportStaysIntegration } from '../integrations/travelport-stays-integration.ts';
 import { HospitalitySupplierReservationConflictError } from './hospitality-supplier-reservation-domain.ts';
 import {
+  HospitalitySupplierReservationProviderRequestAlreadyStartedError,
   markHospitalitySupplierReservationProviderRequestStarted,
 } from './hospitality-supplier-reservation-attempt-recovery-service.ts';
 import {
@@ -175,6 +176,7 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
           actorUserId: input.actorUserId,
           reservationId: input.reservationId,
           attemptId: claim.attempt.id,
+          requireFreshProviderRequest: true,
         });
         providerRequestStarted = true;
         observationState.current = createTravelportStaysReservationCreateProviderObservation({
@@ -184,6 +186,9 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
       },
     });
   } catch (error) {
+    if (error instanceof HospitalitySupplierReservationProviderRequestAlreadyStartedError) {
+      providerRequestStarted = true;
+    }
     if (!providerRequestStarted) {
       await settlePreProviderFailure({
         organizationId: input.organizationId,
