@@ -61,12 +61,17 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /assertSupportedTravelportStaysRequest\(url, method\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
-  assert.match(trace, /travelportRequestInit\(init, headers\)/);
+  assert.match(trace, /const signal = effectiveRequestSignal\(requestInput, init\)/);
+  assert.match(trace, /fetchImpl\(url\.href, travelportRequestInit\(method, body, signal, headers\)\)/);
 });
 
 test('trace transport owns sensitive Fetch request metadata and header channels', () => {
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
-  assert.match(trace, /function travelportRequestInit\(init: RequestInit \| undefined, headers: Headers\): RequestInit/);
+  assert.match(trace, /function effectiveRequestSignal\(input: RequestInfo \| URL, init\?: RequestInit\)/);
+  assert.match(trace, /function travelportRequestInit\(/);
+  assert.match(trace, /method: string/);
+  assert.match(trace, /body: BodyInit \| null/);
+  assert.match(trace, /signal: AbortSignal \| null \| undefined/);
   assert.match(trace, /cache: 'no-store'/);
   assert.match(trace, /credentials: 'omit'/);
   assert.match(trace, /redirect: 'manual'/);
@@ -74,6 +79,9 @@ test('trace transport owns sensitive Fetch request metadata and header channels'
   assert.match(trace, /referrerPolicy: 'no-referrer'/);
   assert.match(trace, /keepalive: false/);
   assert.match(trace, /integrity: ''/);
+  assert.match(trace, /if \(body !== null\) requestInit\.body = body/);
+  assert.match(trace, /if \(signal !== undefined\) requestInit\.signal = signal/);
+  assert.doesNotMatch(trace, /\.\.\.init/);
   assert.match(trace, /TRAVELPORT_FORBIDDEN_REQUEST_HEADERS/);
   assert.match(trace, /TRAVELPORT_OAUTH_ALLOWED_REQUEST_HEADERS/);
   assert.match(trace, /TRAVELPORT_STAYS_ALLOWED_REQUEST_HEADERS/);
@@ -168,6 +176,8 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`credentials: 'omit'`/);
   assert.match(doc, /referrerPolicy: 'no-referrer'/);
   assert.match(doc, /`keepalive: false`/);
+  assert.match(doc, /does not spread arbitrary caller `RequestInit` metadata/);
+  assert.match(doc, /Node\/Undici `dispatcher`/);
   assert.match(doc, /route-specific header allowlist/);
   assert.match(doc, /Any other caller header/);
   assert.match(doc, /same length ceilings as server-side credential normalization/);
