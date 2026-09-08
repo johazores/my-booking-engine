@@ -47,7 +47,7 @@ Older provider-derived attempts can predate `providerRequestStartedAt`. The migr
 
 That timestamp is intentionally conservative. It means “this historical row must be treated as having crossed the provider boundary”; it does not claim to reconstruct the exact historical network-send instant. The constraint is validated only after this backfill.
 
-Unexpected historical `REVIEW_REQUIRED` rows with the wrong attempt kind or wrong normalized review code are not silently rewritten. Constraint validation fails so the inconsistent commercial evidence must be investigated instead of guessed.
+Unexpected historical `REVIEW_REQUIRED` rows with the wrong attempt kind or wrong normalized review code are not silently rewritten. The migration fails closed during the protected backfill or subsequent constraint validation so inconsistent commercial evidence must be investigated instead of guessed.
 
 ## Authorization and tenant isolation
 

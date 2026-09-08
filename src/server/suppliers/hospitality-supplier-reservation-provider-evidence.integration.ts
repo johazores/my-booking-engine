@@ -4,6 +4,13 @@ import test from 'node:test';
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
+type SupplierReservationAttemptKind = 'CREATE' | 'RECONCILE' | 'RECOVERY_WRITE';
+type RejectedTerminalAttemptUpdate = Readonly<{
+  status: 'SUCCEEDED' | 'REVIEW_REQUIRED' | 'AMBIGUOUS' | 'NOT_FOUND';
+  normalizedFailureCode?: string | null;
+  completedAt: Date;
+}>;
+
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier provider-evidence integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
@@ -53,7 +60,7 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
     },
   });
 
-  async function createStartedAttempt(sequence, kind) {
+  async function createStartedAttempt(sequence: number, kind: SupplierReservationAttemptKind) {
     return db.hospitalitySupplierReservationAttempt.create({
       data: {
         organizationId: organization.id,
@@ -65,7 +72,7 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
     });
   }
 
-  async function expectRejectedTerminalState(attemptId, data) {
+  async function expectRejectedTerminalState(attemptId: string, data: RejectedTerminalAttemptUpdate) {
     await assert.rejects(
       db.hospitalitySupplierReservationAttempt.update({
         where: { id: attemptId, organizationId: organization.id },
@@ -79,7 +86,7 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
     assert.equal(unchanged.completedAt, null);
   }
 
-  async function markProviderBoundary(attemptId) {
+  async function markProviderBoundary(attemptId: string) {
     await db.$executeRaw`
       UPDATE "hospitality_supplier_reservation_attempts"
       SET "providerRequestStartedAt" = "leaseStartedAt"
