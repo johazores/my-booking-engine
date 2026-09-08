@@ -123,6 +123,12 @@ function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): Bod
   return null;
 }
 
+function effectiveRequestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null | undefined {
+  if (init?.signal !== undefined) return init.signal;
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.signal;
+  return undefined;
+}
+
 function invalidTravelportRequestBody(): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request body is invalid.');
 }
@@ -561,8 +567,14 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
   return replayTravelportResponse(response, blocks);
 }
 
-function travelportRequestInit(init: RequestInit | undefined, headers: Headers): RequestInit {
+function travelportRequestInit(
+  method: string,
+  body: BodyInit | null,
+  signal: AbortSignal | null | undefined,
+  headers: Headers,
+): RequestInit {
   const requestInit: RequestInit = {
+    method,
     cache: 'no-store',
     credentials: 'omit',
     redirect: 'manual',
@@ -572,9 +584,8 @@ function travelportRequestInit(init: RequestInit | undefined, headers: Headers):
     integrity: '',
     headers,
   };
-  if (init?.method !== undefined) requestInit.method = init.method;
-  if (init?.body !== undefined) requestInit.body = init.body;
-  if (init?.signal !== undefined) requestInit.signal = init.signal;
+  if (body !== null) requestInit.body = body;
+  if (signal !== undefined) requestInit.signal = signal;
   return requestInit;
 }
 
@@ -594,6 +605,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     const url = parsedRequestUrl(requestInput);
     const method = requestMethod(requestInput, init);
     const body = effectiveRequestBody(requestInput, init);
+    const signal = effectiveRequestSignal(requestInput, init);
     assertSecureTravelportTarget(url);
 
     if (url.hostname === targets.authenticationHost) {
@@ -610,7 +622,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       assertTravelportOAuthRequestBody(body, headers, input.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
+      const response = await fetchImpl(url.href, travelportRequestInit(method, body, signal, headers));
       return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
@@ -638,7 +650,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
+    const response = await fetchImpl(url.href, travelportRequestInit(method, body, signal, headers));
     return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
   }) as typeof fetch;
 }
