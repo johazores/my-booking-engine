@@ -24,22 +24,31 @@ test('production Travelport adapters share the version-aware trace transport wra
   for (const block of [providerBlock, termsBlock, authorityBlock, recoveryBlock]) assert.match(block, /fetchImpl/);
 });
 
-test('trace transport maps only supported Travelport Stays hosts and versions', () => {
+test('trace transport allowlists only fixed Travelport OAuth and correlated Stays targets', () => {
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
   assert.match(trace, /api\.pp\.travelport\.net/);
   assert.match(trace, /api\.travelport\.net/);
+  assert.match(trace, /auth\.pp\.travelport\.net/);
+  assert.match(trace, /auth\.travelport\.net/);
   assert.match(trace, /url\.protocol !== 'https:'/);
+  assert.match(trace, /url\.port !== '' && url\.port !== '443'/);
+  assert.match(trace, /url\.username !== ''/);
+  assert.match(trace, /url\.password !== ''/);
+  assert.match(trace, /url\.pathname !== '\/oauth\/token'/);
+  assert.match(trace, /e2eTrackingId !== null/);
+  assert.match(trace, /!e2eTrackingId\?\.startsWith\('sf-'\)/);
   assert.match(trace, /url\.pathname\.startsWith\('\/11\/hotel\/'\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /url\.pathname\.startsWith\('\/12\/hotel\/'\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
-  assert.match(trace, /E2ETrackingID/);
 });
 
-test('request tracing documentation preserves reservation and privacy boundaries', () => {
+test('request tracing documentation preserves reservation, target, and privacy boundaries', () => {
   const doc = source('docs/travelport-stays-request-tracing.md');
   assert.match(doc, /does not enable Travelport `reservation`/);
-  assert.match(doc, /PCI-safe payment\/guarantee strategy/);
+  assert.match(doc, /PCI-safe FormOfPayment\/guarantee source/);
   assert.match(doc, /must not contain traveler names/);
+  assert.match(doc, /default HTTPS port/);
+  assert.match(doc, /no URL userinfo/);
   assert.match(doc, /manual redirects/);
 });

@@ -12,7 +12,9 @@ Travelport Stays documents different caller-defined request-trace headers by API
 
 Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper derives the version-specific trace header from the existing SF `E2ETrackingID`, so the two support identifiers cannot silently disagree at the transport boundary.
 
-The wrapper only adds trace headers for HTTPS requests to `api.pp.travelport.net` or `api.travelport.net`. An SF-prefixed malformed correlation ID, unexpected host, or unsupported Stays API path fails closed before transport. OAuth token requests do not carry an SF E2E request correlation and pass through without a Stays trace header.
+The shared transport wrapper is also a fail-closed outbound target boundary. Stays traffic is accepted only for HTTPS requests to `api.pp.travelport.net` or `api.travelport.net` on the default HTTPS port, with no URL userinfo, a supported `/11/hotel/` or `/12/hotel/` path, and an SF-owned `E2ETrackingID` containing a valid UUID. Missing, foreign, or malformed Stays correlation fails before transport.
+
+OAuth is the only uncorrelated exception. It is accepted only for the fixed HTTPS `auth.pp.travelport.net/oauth/token` or `auth.travelport.net/oauth/token` target on the default HTTPS port, with no URL userinfo, query, fragment, or `E2ETrackingID`. Stays trace headers are removed from that request. Any other host, alternate port, credentialed URL, unsupported path, or unexpected OAuth shape fails closed before credentials can leave the process.
 
 ## Correlation lifetime
 
@@ -28,7 +30,7 @@ A durable attempt/correlation is still not proof of provider success. `providerR
 
 Trace IDs are opaque UUIDs. They must not contain traveler names, email addresses, payment data, reservation locators, supplier confirmations, credentials, or other business payload data.
 
-The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target.
+The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
 
 ## Capability boundary
 
