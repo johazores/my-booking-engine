@@ -46,9 +46,11 @@ Attempts distinguish `CREATE` external sells, `RECONCILE` read-only known-locato
 
 `createTravelportStaysReservationWithSensitivePaymentCard` is the initial provider-specific coordinator. Despite the legacy internal symbol name, raw card data is no longer accepted in its ordinary request object. The coordinator requires a separate `TravelportStaysReservationPaymentCardSource` capability, repeats fresh offer/Rules/Availability/traveler authority, claims the durable `CREATE` attempt, rechecks exact integration/credential version, and only then asks the source for one ephemeral card using the exact tenant/reservation/integration/attempt context and `INITIAL_CREATE` purpose.
 
+After OAuth succeeds, the Create executor runs the exact credentialed Travelport transport policy through a non-network preflight before acquiring PAN/CVV. It then constructs the final sensitive JSON body and preflights that exact serialized request again before the durable provider-request marker. The real commercial POST is still validated independently by the same shared transport after the marker. Deterministic target/query/header/credential/body-policy defects therefore fail before the marker, and avoid acquiring card data at all when the non-sensitive transport contract is already invalid.
+
 The source result is passed directly to the Travelport executor. It is never added to the reservation operation, attempt, audit metadata, provider observation, request fingerprint, or application logs. The initial Create never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`.
 
-Pre-provider deterministic/source failures are retry-safe only because the protected provider-write boundary was never crossed; retryability itself still comes from the provider-neutral classifier. Once marked, timeout/transport/unexpected uncertainty stays `AMBIGUOUS`; SF never blindly resells.
+Pre-provider deterministic/source/transport-policy failures are retry-safe only because the protected provider-write boundary was never crossed; retryability itself still comes from the provider-neutral classifier. Once marked, timeout/transport/unexpected uncertainty stays `AMBIGUOUS`; SF never blindly resells.
 
 ## Explicit price/guarantee review and second Create
 
@@ -58,9 +60,9 @@ Documented Travelport price/guarantee no-sell responses persist as `REVIEW_REQUI
 
 `createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard` implements the one-time second sell. Raw card data is also absent from this coordinator request object. After accepted authority and exact integration identity are revalidated, it acquires one ephemeral card through the same source capability with purpose `REVIEW_ACCEPTANCE_CREATE`.
 
-The executor completes deterministic card/request validation, reviewed query selection, serialization, and OAuth first. Its provider-request callback then runs `consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest` under the tenant operation advisory lock. That serializable transaction reconstructs the accepted decision, rechecks the review attempt and integration authority, creates exactly one next `CREATE` attempt, archives immutable acceptance history, moves the operation to `SUBMITTING`, clears the active acceptance slot, and persists the provider-request marker immediately before the external POST.
+The executor completes deterministic card/request validation, reviewed query selection, OAuth, and both transport-policy preflights first. Its provider-request callback then runs `consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest` under the tenant operation advisory lock. That serializable transaction reconstructs the accepted decision, rechecks the review attempt and integration authority, creates exactly one next `CREATE` attempt, archives immutable acceptance history, moves the operation to `SUBMITTING`, clears the active acceptance slot, and persists the provider-request marker immediately before the external POST.
 
-If deterministic work, source acquisition, or OAuth fails before consumption, no second attempt exists and the accepted decision remains unconsumed. After consumption the acceptance is single-use. Transport uncertainty cannot authorize replay; even a definitive provider failure is non-retryable through normal Create. Another provider commercial change creates a new `REVIEW_REQUIRED` cycle while prior accepted evidence remains immutable.
+If deterministic work, source acquisition, OAuth, or transport preflight fails before consumption, no second attempt exists and the accepted decision remains unconsumed. After consumption the acceptance is single-use. Transport uncertainty cannot authorize replay; even a definitive provider failure is non-retryable through normal Create. Another provider commercial change creates a new `REVIEW_REQUIRED` cycle while prior accepted evidence remains immutable.
 
 The reviewed executor sends only the accepted `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` query parameter and never sends a false/unaccepted flag.
 
@@ -72,7 +74,7 @@ Travelport documents a Booking.com failure where the supplier sell succeeds but 
 
 `TravelportStaysReservationSyncExecutor` implements fixed v11 Sync. It uses retained Availability offer authority, `passiveOfferInd=true`, verified Booking.com supplier confirmation/source, and the complete primary traveler already bound to the reservation payload fingerprint. It accepts no form-of-payment, PAN, CVV, cardholder, arbitrary endpoint, credential, or token input.
 
-`syncTravelportStaysBookingDotComReservation` claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, completes request construction/OAuth before the provider marker, and confirms only when the exact stay, original supplier confirmation, and one Travelport locator return. Once marked, uncertainty is never automatic retry authority.
+`syncTravelportStaysBookingDotComReservation` claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, completes request construction/OAuth, and runs the exact credentialed transport policy against the final serialized Sync request before the provider marker. The actual POST is independently validated again by the shared transport after marking. It confirms only when the exact stay, original supplier confirmation, and one Travelport locator return. Once marked, uncertainty is never automatic retry authority.
 
 See `docs/travelport-booking-sync-recovery-authority.md`.
 
@@ -98,9 +100,11 @@ Provider failures normalize into bounded SF failure codes. Provider timeouts, au
 
 Create, reviewed Create, and Sync use durable attempt UUIDs as E2E correlation authority. Structured provider observations are strict allowlists and exclude traveler/card data, supplier confirmations, recovery references, provider locators, credentials, tokens, request bodies, and response bodies.
 
+The write preflight is validation only: its terminal transport performs no network I/O and therefore cannot prove that Travelport received a request. The durable provider marker remains the crash-safety boundary for possible external writes, and the real shared transport revalidates after that marker before any provider network call.
+
 ## Validation boundary
 
-Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, known-locator recovery, initial Create, payment-source isolation, crash-safe provider markers, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
+Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, known-locator recovery, initial Create, payment-source isolation, crash-safe provider markers, write-transport preflight ordering, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database. Live provider verification still requires provisioned Travelport non-production credentials.
 

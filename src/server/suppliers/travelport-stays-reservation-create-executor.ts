@@ -11,6 +11,7 @@ import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
 } from './travelport-stays-provider.ts';
+import { assertTravelportStaysTransportRequestReady } from './travelport-stays-transport-preflight.ts';
 
 const ENDPOINTS = Object.freeze({
   'pre-production': 'https://api.pp.travelport.net/11/hotel/',
@@ -433,10 +434,38 @@ export class TravelportStaysReservationCreateExecutor {
     assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
     const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
     const accessToken = await this.#accessToken();
+    const requestHeaders = Object.freeze({
+      'Accept-Encoding': 'gzip, deflate',
+      'Cache-Control': 'no-cache',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
+      E2ETrackingID: `sf-${input.requestCorrelationId}`,
+      username: this.#credentials.username,
+      password: this.#credentials.password,
+      client_id: this.#credentials.clientId,
+      client_secret: this.#credentials.clientSecret,
+    });
 
-    // Do not acquire PAN/CVV until provider authentication has succeeded. Sensitive form-of-payment
-    // material then exists only for the final request-composition window immediately before the
-    // durable provider-request marker and commercial POST.
+    // Catch target/query/header/credential transport-policy defects before acquiring PAN/CVV.
+    // A minimal JSON object is sufficient because provider business-schema validation remains
+    // adapter-owned; the final sensitive body is preflighted separately below.
+    await assertTravelportStaysTransportRequestReady({
+      credentials: this.#credentials,
+      requestInput: reservationUrl,
+      init: {
+        method: 'POST',
+        cache: 'no-store',
+        redirect: 'manual',
+        headers: requestHeaders,
+        body: '{}',
+      },
+    });
+
+    // Do not acquire PAN/CVV until provider authentication and non-sensitive transport preflight
+    // have succeeded. Sensitive form-of-payment material then exists only for the final request-
+    // composition window immediately before the durable provider-request marker and commercial POST.
     const paymentCard = await input.acquirePaymentCard();
     const requestBody = buildTravelportStaysReservationCreateRequest({
       requestMaterial: input.requestMaterial,
@@ -447,9 +476,23 @@ export class TravelportStaysReservationCreateExecutor {
     });
     const serializedBody = JSON.stringify(requestBody);
 
-    // All deterministic validation, reviewed query selection, OAuth, and sensitive request
-    // composition happen before the durable provider-request marker. Once the marker succeeds,
-    // every transport uncertainty must settle as ambiguous instead of allowing a blind retry.
+    // Reuse the exact production transport policy for the final serialized body before marking.
+    // The credentialed transport validates the same request again when the real POST executes.
+    await assertTravelportStaysTransportRequestReady({
+      credentials: this.#credentials,
+      requestInput: reservationUrl,
+      init: {
+        method: 'POST',
+        cache: 'no-store',
+        redirect: 'manual',
+        headers: requestHeaders,
+        body: serializedBody,
+      },
+    });
+
+    // All deterministic validation, reviewed query selection, OAuth, sensitive request composition,
+    // and transport-policy validation happen before the durable provider-request marker. Once the
+    // marker succeeds, every transport uncertainty must settle as ambiguous instead of allowing a blind retry.
     await input.beforeProviderRequest();
 
     const controller = new AbortController();
@@ -461,19 +504,7 @@ export class TravelportStaysReservationCreateExecutor {
         cache: 'no-store',
         redirect: 'manual',
         signal: controller.signal,
-        headers: {
-          'Accept-Encoding': 'gzip, deflate',
-          'Cache-Control': 'no-cache',
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-          E2ETrackingID: `sf-${input.requestCorrelationId}`,
-          username: this.#credentials.username,
-          password: this.#credentials.password,
-          client_id: this.#credentials.clientId,
-          client_secret: this.#credentials.clientSecret,
-        },
+        headers: requestHeaders,
         body: serializedBody,
       });
     } catch {

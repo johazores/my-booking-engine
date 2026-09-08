@@ -10,6 +10,7 @@ import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
 } from './travelport-stays-provider.ts';
+import { assertTravelportStaysTransportRequestReady } from './travelport-stays-transport-preflight.ts';
 
 const ENDPOINTS = Object.freeze({
   'pre-production': 'https://api.pp.travelport.net/11/hotel/',
@@ -118,34 +119,50 @@ export class TravelportStaysReservationSyncExecutor {
 
     const accessToken = await this.#accessToken();
     const serializedBody = JSON.stringify(requestBody);
+    const reservationUrl = `${ENDPOINTS[this.#credentials.environment]}book/reservations/`;
+    const requestHeaders = Object.freeze({
+      'Accept-Encoding': 'gzip, deflate',
+      'Cache-Control': 'no-cache',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
+      E2ETrackingID: `sf-${input.requestCorrelationId}`,
+      username: this.#credentials.username,
+      password: this.#credentials.password,
+      client_id: this.#credentials.clientId,
+      client_secret: this.#credentials.clientSecret,
+    });
 
-    // All deterministic request construction and OAuth complete before the durable marker.
-    // After this point any transport uncertainty must remain ambiguous and must not authorize
-    // another Sync write automatically.
+    // Reuse the exact production transport policy with a no-I/O terminal before the durable marker.
+    // The credentialed transport validates the same request again when the real POST executes.
+    await assertTravelportStaysTransportRequestReady({
+      credentials: this.#credentials,
+      requestInput: reservationUrl,
+      init: {
+        method: 'POST',
+        cache: 'no-store',
+        redirect: 'manual',
+        headers: requestHeaders,
+        body: serializedBody,
+      },
+    });
+
+    // All deterministic request construction, OAuth, and transport-policy validation complete
+    // before the durable marker. After this point any transport uncertainty must remain ambiguous
+    // and must not authorize another Sync write automatically.
     await input.beforeProviderRequest();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
     let response: Response;
     try {
-      response = await this.#fetchImpl(`${ENDPOINTS[this.#credentials.environment]}book/reservations/`, {
+      response = await this.#fetchImpl(reservationUrl, {
         method: 'POST',
         cache: 'no-store',
         redirect: 'manual',
         signal: controller.signal,
-        headers: {
-          'Accept-Encoding': 'gzip, deflate',
-          'Cache-Control': 'no-cache',
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-          E2ETrackingID: `sf-${input.requestCorrelationId}`,
-          username: this.#credentials.username,
-          password: this.#credentials.password,
-          client_id: this.#credentials.clientId,
-          client_secret: this.#credentials.clientSecret,
-        },
+        headers: requestHeaders,
         body: serializedBody,
       });
     } catch {
