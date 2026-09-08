@@ -34,6 +34,29 @@ function attemptKindMatchesOperation(
   return kind === 'CREATE' || kind === 'RECOVERY_WRITE';
 }
 
+function assertProviderRequestIntegrationStillMatches(
+  integration: Readonly<{
+    providerCode: string;
+    credentialVersion: number;
+    capabilities: readonly string[];
+  }> | null,
+  reservation: Readonly<{
+    providerCode: string;
+    integrationCredentialVersion: number;
+  }>,
+) {
+  if (
+    !integration
+    || integration.providerCode !== reservation.providerCode
+    || integration.credentialVersion !== reservation.integrationCredentialVersion
+    || !integration.capabilities.includes('reservation')
+  ) {
+    throw new HospitalitySupplierReservationConflictError(
+      'Supplier integration changed before the provider request could start. Review the supplier reservation again.',
+    );
+  }
+}
+
 export async function markHospitalitySupplierReservationProviderRequestStarted(input: {
   organizationId: string;
   actorUserId: string;
@@ -54,6 +77,8 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
       },
       select: {
         id: true,
+        integrationId: true,
+        integrationCredentialVersion: true,
         providerCode: true,
         status: true,
         attemptCount: true,
@@ -85,6 +110,20 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
       );
     }
     if (attempt.providerRequestStartedAt) return attempt;
+
+    const integration = await transaction.integration.findFirst({
+      where: {
+        id: reservation.integrationId,
+        organizationId: input.organizationId,
+        status: 'ACTIVE',
+      },
+      select: {
+        providerCode: true,
+        credentialVersion: true,
+        capabilities: true,
+      },
+    });
+    assertProviderRequestIntegrationStillMatches(integration, reservation);
 
     const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
     if (!databaseClock) {

@@ -8,7 +8,7 @@ Travelport Stays documents different caller-defined request-trace headers by API
 
 - v11 Stays requests use `TraceId`.
 - v12 SearchComplete/SearchComplete Pagination requests use `TVP-Trace-Id`.
-- SF also keeps its existing `E2ETrackingID: sf-<correlation UUID>` support identifier.
+- SF also keeps `E2ETrackingID: sf-<correlation UUID>` as its provider-support identifier.
 
 Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper derives the version-specific trace header from the existing SF `E2ETrackingID`, so the two support identifiers cannot silently disagree at the transport boundary.
 
@@ -16,9 +16,13 @@ The wrapper only adds trace headers for HTTPS requests to `api.pp.travelport.net
 
 ## Correlation lifetime
 
-Current read adapters generate a fresh UUID for each provider HTTP request. The wrapper preserves that behavior and maps the same UUID into the correct version-specific trace header. The known-locator reservation recovery path is stronger: it already uses the durable `HospitalitySupplierReservationAttempt.id`, so its v11 `TraceId`, E2E tracking value, structured completion record, and durable attempt can be correlated after a timeout or process failure.
+Read-only discovery/pricing adapters may use fresh request UUIDs because those calls do not create supplier inventory. Reservation lifecycle work is stronger: Create, reviewed Create, Booking.com Sync, and known-locator Retrieve are correlated to the provider-neutral supplier reservation attempt ledger.
 
-Future multi-request supplier write workflows should reuse one durable workflow/attempt correlation where provider semantics require cross-call investigation. This transport helper must not be treated as a substitute for the reservation operation ledger, provider-request-started marker, authoritative provider locator, or reconciliation rules.
+Initial Create, Sync, and reconciliation pass their already-persisted `HospitalitySupplierReservationAttempt.id` as the outbound correlation UUID. Reviewed Create reserves its correlation UUID while accepted authority remains unconsumed and atomically creates the exact marked `CREATE` attempt with that UUID in the immediate pre-POST acceptance-consumption transaction.
+
+The provider-request marker rechecks the exact tenant integration is still active with the same provider, credential version, and reservation capability before a new marked request can begin. This prevents a stale prepared client from crossing the provider boundary after integration disablement or credential rotation.
+
+A durable attempt/correlation is still not proof of provider success. `providerRequestStartedAt`, provider locator/recovery evidence, settlement state, and provider-truth reconciliation remain separate authorities.
 
 ## Privacy and security
 
@@ -28,4 +32,6 @@ The wrapper never logs headers or request bodies and never changes redirect poli
 
 ## Capability boundary
 
-This tracing improvement does not enable Travelport `reservation`, `modification`, or `cancellation` capabilities and does not expose any supplier booking action. The real reservation write remains gated by live selected-offer authority validation, a reviewed PCI-safe payment/guarantee strategy, create/change orchestration, authoritative negative lookup semantics, locator-less ambiguity recovery, and provisioned non-production verification.
+This tracing and durable-correlation infrastructure does not enable Travelport `reservation`, `modification`, or `cancellation` capabilities and does not expose a supplier booking action.
+
+The server-only initial Create, explicit price/guarantee review acceptance, one-time reviewed second Create, Booking.com Sync recovery, and known-locator Retrieve boundaries are implemented. Travelport `reservation` remains disabled until SF has a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned account, live non-production end-to-end validation, and authoritative live `13034`/locator-less correlation and retry semantics.

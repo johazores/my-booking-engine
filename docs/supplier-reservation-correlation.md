@@ -2,62 +2,90 @@
 
 ## Purpose
 
-External supplier reservation work needs a durable outbound correlation identity before provider I/O starts. A timeout, process crash, or disconnected response must not erase the only identifier that can help operators and provider support identify the exact request that SF sent.
+External supplier reservation work needs a durable outbound correlation identity before provider I/O starts. A timeout, process crash, or disconnected response must not erase the identifier that can help SF, operators, and provider support identify the exact attempt.
 
-This boundary is provider-neutral at the orchestration layer and provider-specific only inside each adapter. It strengthens operational evidence; it does not make an uncertain reservation safe to retry and it does not replace provider-truth reconciliation.
+Correlation is operational evidence. It does not prove that a supplier write succeeded, does not make an ambiguous write retryable, and does not replace provider-truth reconciliation.
 
-## Durable correlation authority
+## Durable attempt identity
 
-Each `HospitalitySupplierReservationAttempt` is persisted before the reconciliation coordinator calls a provider. The current attempt UUID is therefore the request correlation authority for that provider call.
+Each `HospitalitySupplierReservationAttempt` is tenant-owned and persisted before its provider boundary. The attempt UUID is the canonical outbound request-correlation authority for the current provider operation.
 
-`HospitalitySupplierReservationRecoveryProvider.retrieveReservation` receives both the known provider reservation reference and `requestCorrelationId`. The reconciliation coordinator always sets `requestCorrelationId` to the already-persisted current attempt ID. A new reconciliation attempt receives a new durable UUID, while the previous attempt remains append-only history.
+Current attempt kinds are:
 
-This ordering matters: authorization, tenant scope, integration ownership, credential version, reservation capability, operation state, and the attempt row are established before any provider request can leave SF.
+- `CREATE` for the initial supplier sell and each explicitly accepted reviewed second sell;
+- `RECONCILE` for known-locator provider-truth retrieval; and
+- `RECOVERY_WRITE` for provider-specific external recovery such as Travelport Booking.com Sync.
+
+Initial Create, Sync, and known-locator reconciliation use the already-persisted attempt UUID directly. The reviewed second Create reserves a UUID while the accepted decision is still unconsumed; its immediate pre-POST transaction atomically creates the exact `CREATE` attempt with that UUID, archives the single-use acceptance, and writes `providerRequestStartedAt`. If deterministic work, payment-source acquisition, or OAuth fails first, that reserved correlation never becomes a durable provider attempt and no external POST occurs.
+
+## Provider-request boundary
+
+A durable claim alone is not evidence that transport began. `providerRequestStartedAt` is written immediately before provider I/O under the tenant/operation advisory lock.
+
+Before a new marker is written SF rechecks:
+
+- server-side `booking:manage`;
+- organization-owned operation and exact current attempt;
+- valid state/kind/sequence;
+- the exact operation integration is still `ACTIVE`;
+- provider code is unchanged;
+- credential version is unchanged; and
+- `reservation` capability is still present.
+
+This means a claim cannot cross the provider boundary using an integration that was disabled, rotated, or had reservation authority removed while request preparation/OAuth was in progress. Once the marker exists, later configuration changes cannot be used as evidence that the earlier request was never sent.
 
 ## Travelport mapping
 
-For Travelport Stays known-locator Hotel Retrieve, the adapter maps the durable attempt UUID to provider headers rather than generating a transient random value inside the adapter:
+Travelport Stays maps the durable SF correlation into provider transport headers:
 
-- `TraceId` is the raw attempt UUID.
-- `E2ETrackingID` is `sf-<attempt UUID>`.
+- v11 requests use `TraceId: <attempt UUID>`;
+- v12 requests use `TVP-Trace-Id: <correlation UUID>`; and
+- applicable requests use `E2ETrackingID: sf-<correlation UUID>`.
 
-Travelport documents `E2ETrackingID` as an optional caller-defined value used to track requests in Travelport logs and support cases. Travelport also documents a caller-defined v11 `TraceId` for request/workflow tracking. The recovery adapter sends the documented common JSON content header as well as the existing authentication/access-group headers.
+For the implemented reservation write/recovery paths, the v11 correlation UUID is the current durable attempt identity described above. The shared Travelport trace wrapper derives the version-specific trace header from the SF E2E identifier so the two outbound support identifiers cannot silently disagree.
 
-The adapter validates the correlation identifier before requesting an OAuth token or making the Hotel Retrieve call. It does not log or audit request headers, credentials, tokens, provider locators, traveler data, payment data, or provider response bodies.
+Correlation values are UUIDs only. They never contain traveler/customer identity, supplier locators, commercial terms, payment data, credentials, tokens, or provider payloads.
 
-## Operational provider-request logging
+## Known-locator reconciliation
 
-Known-locator reconciliation now emits one privacy-safe `supplier.reservation-recovery.provider-request.completed` JSON record around actual provider I/O. The log uses the same persisted attempt UUID as `requestCorrelationId`, plus only the already-authorized organization UUID, bounded provider code, fixed `reservation.retrieve` operation, elapsed time, normalized provider result or failure code, and outcome/level.
+`HospitalitySupplierReservationRecoveryProvider.retrieveReservation` receives both the known provider reservation reference and the durable current attempt UUID as `requestCorrelationId`.
 
-The observation is created only after the durable reconciliation claim and provider-code/known-locator checks. Therefore a provider-code mismatch or missing locator cannot create a misleading provider-request completion event because no provider request occurred. A successful provider response is logged before durable settlement as provider transport/result evidence only; the supplier operation ledger and audit history remain the authority for whether reconciliation was durably settled. Durable settlement is outside the provider-I/O catch boundary, so persistence failures are not recast as provider failures.
+The coordinator marks the attempt immediately before provider retrieval. `FOUND` must return the exact queried locator; `NOT_FOUND` is accepted only when the provider adapter has authoritative exact-locator negative semantics; all other cases remain unknown/ambiguous.
 
-Provider locators, supplier confirmations, provider response correlation IDs, integration identifiers, request/offer fingerprints, credentials, tokens, headers, URLs, request/response payloads, traveler/customer data, and payment/guarantee material are excluded from the record. See `docs/supplier-provider-observability.md` for the complete safe-field and failure contract.
+A new reconciliation receives a new durable attempt UUID while prior attempt history remains append-only.
+
+## Create and recovery writes
+
+Travelport initial Create passes its claimed `CREATE` attempt UUID to the executor. The executor finishes deterministic validation, sensitive request composition, query selection, and OAuth before the provider-request callback marks that same attempt and the POST can begin.
+
+The reviewed second Create uses a separately authorized acceptance path. The accepted decision is consumed into exactly one marked `CREATE` attempt using the preselected request-correlation UUID immediately before the POST. Normal retry cannot create a replacement sell after that acceptance has been consumed.
+
+Booking.com Sync uses its claimed `RECOVERY_WRITE` attempt UUID for both the durable marker and Travelport request correlation. A marked or ambiguous recovery write cannot be blindly replayed.
 
 ## Response correlation is separate evidence
 
-Travelport response `traceId` evidence remains normalized into the existing bounded provider-correlation field when a response is received. It is not used as a substitute for the outbound request identity.
+Travelport response trace/correlation values are normalized separately into bounded provider-correlation evidence where available. They do not replace the outbound SF attempt identity.
 
-On a timeout where no response correlation arrives, operators can still derive the exact outbound Travelport tracking values from the persisted supplier reservation attempt ID. No additional secret or PII field is required in the database.
+On a timeout with no response correlation, SF still has the attempt UUID and can derive the exact outbound Travelport tracking values. No additional PII or secret field is needed in the database.
 
 ## Failure and retry semantics
 
-Durable correlation does not change reservation safety:
+Durable correlation never changes commercial safety:
 
-- a provider timeout or unknown response remains `AMBIGUOUS`;
-- a known locator still requires exact-locator provider truth before retry safety can change;
-- locator-less ambiguity still cannot be automatically resolved by the current Hotel Retrieve contract;
-- an attempt UUID is support/reconciliation evidence, not proof that a reservation exists or does not exist;
-- SF never performs a blind create retry merely because a durable tracking ID exists.
+- provider timeout/unknown response remains `AMBIGUOUS` after the marker;
+- a known locator still requires provider truth;
+- locator-less ambiguity cannot become retryable merely because a tracking ID exists;
+- Booking.com Sync requires its distinct verified recovery authority;
+- reviewed price/guarantee acceptance is single-use and distinct from retry authority; and
+- `13034` remains insufficient by itself to prove whether the supplier sold the room.
 
-The future Travelport create executor must allocate/persist its create attempt before crossing the provider boundary and reuse that attempt's durable correlation identity for the corresponding outbound request. A separate live-validated provider lookup/correlation mechanism is still required before SF can claim automatic locator-less recovery.
+Authoritative live locator-less correlation/recovery semantics are still a provider activation gate.
 
 ## Validation
 
-Dependency-free source contracts verify that the provider-neutral recovery request contains the correlation field, the coordinator supplies the persisted attempt ID, the Travelport adapter no longer creates a transient random tracking ID for recovery, and the adapter maps the durable ID into `TraceId` and `E2ETrackingID` before provider I/O.
+Dependency-free/source contracts verify durable correlation and marker ordering across Create, reviewed Create, Sync, and reconciliation. The provider-request marker contract also verifies the live tenant integration/provider/credential/capability recheck occurs before a new marker is written.
 
-Travelport adapter tests verify exact header values and fail-closed input validation. The guarded PostgreSQL reconciliation scenario records the correlation seen by a provider stub and verifies it equals the persisted reconciliation attempt ID; successive reconciliation attempts must use different durable attempt IDs. `scripts/supplier-reservation-provider-observability.test.mjs` verifies the operational completion record uses the same attempt UUID, contains only reviewed safe fields, emits once, and fails closed on malformed provider result statuses. The database scenario still runs only through the explicitly disposable PostgreSQL harness.
-
-Live Travelport validation remains required before any reservation create capability is enabled.
+Guarded PostgreSQL scenarios cover durable attempts, tenant isolation, provider markers, stale recovery, and reservation-write replay rules when an explicitly disposable database is available. Live Travelport validation remains required before `reservation` is advertised.
 
 ## Current Travelport references
 

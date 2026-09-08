@@ -38,17 +38,34 @@ test('lease age and provider-request evidence use database-authored clocks', () 
   assert.match(service, /providerRequestStartedAt: databaseClock\.currentTime,[\s\S]*?leaseStartedAt: databaseClock\.currentTime/);
 });
 
-test('provider-request marker authorizes and scopes before establishing external-I/O ambiguity', () => {
+test('provider-request marker authorizes tenant, current attempt, and live integration before establishing external-I/O ambiguity', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-attempt-recovery-service.ts');
   const markerIndex = service.indexOf('export async function markHospitalitySupplierReservationProviderRequestStarted');
   const authorityIndex = service.indexOf('await requireSupplierReservationRecoveryAuthority', markerIndex);
   const transactionIndex = service.indexOf('return db.$transaction', markerIndex);
-  const updateIndex = service.indexOf('providerRequestStartedAt: databaseClock.currentTime', markerIndex);
-  assert.ok(markerIndex >= 0 && authorityIndex > markerIndex && transactionIndex > authorityIndex && updateIndex > transactionIndex);
+  const replayIndex = service.indexOf('if (attempt.providerRequestStartedAt) return attempt', markerIndex);
+  const integrationIndex = service.indexOf('const integration = await transaction.integration.findFirst', replayIndex);
+  const integrationAuthorityIndex = service.indexOf('assertProviderRequestIntegrationStillMatches(integration, reservation)', integrationIndex);
+  const clockIndex = service.indexOf('SELECT clock_timestamp() AS "currentTime"', integrationAuthorityIndex);
+  const updateIndex = service.indexOf('providerRequestStartedAt: databaseClock.currentTime', clockIndex);
+  assert.ok(
+    markerIndex >= 0
+    && authorityIndex > markerIndex
+    && transactionIndex > authorityIndex
+    && replayIndex > transactionIndex
+    && integrationIndex > replayIndex
+    && integrationAuthorityIndex > integrationIndex
+    && clockIndex > integrationAuthorityIndex
+    && updateIndex > clockIndex,
+  );
   assert.match(service, /id: input\.attemptId,[\s\S]*?organizationId: input\.organizationId,[\s\S]*?reservationId: reservation\.id/);
   assert.match(service, /sequence: reservation\.attemptCount,[\s\S]*?status: 'STARTED'/);
   assert.match(service, /!attempt \|\| !attemptKindMatchesOperation\(reservation\.status, attempt\.kind\)/);
-  assert.match(service, /if \(attempt\.providerRequestStartedAt\) return attempt/);
+  assert.match(service, /integrationId: true,[\s\S]*?integrationCredentialVersion: true/);
+  assert.match(service, /id: reservation\.integrationId,[\s\S]*?organizationId: input\.organizationId,[\s\S]*?status: 'ACTIVE'/);
+  assert.match(service, /integration\.providerCode !== reservation\.providerCode/);
+  assert.match(service, /integration\.credentialVersion !== reservation\.integrationCredentialVersion/);
+  assert.match(service, /!integration\.capabilities\.includes\('reservation'\)/);
   assert.match(service, /action: 'supplier\.reservation-provider-request-started'/);
 });
 
@@ -84,11 +101,13 @@ test('recovery-write lease reopens only before the provider marker', () => {
   assert.match(lease, /operationStatus: input\.attemptKind === 'CREATE' \? 'PREPARED' : 'AMBIGUOUS'/);
 });
 
-test('reconciliation marks provider-request evidence immediately before provider I/O', () => {
+test('reconciliation marks provider-request evidence immediately before provider I/O and settles pre-provider marker failure', () => {
   const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
   const markIndex = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted');
+  const markerFailureSettlementIndex = coordinator.indexOf('settleHospitalitySupplierReservationReconciliation', markIndex);
   const providerIndex = coordinator.indexOf('await input.provider.retrieveReservation');
-  assert.ok(markIndex >= 0 && providerIndex > markIndex);
+  assert.ok(markIndex >= 0 && markerFailureSettlementIndex > markIndex && providerIndex > markerFailureSettlementIndex);
+  assert.match(coordinator, /try \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted[\s\S]*?catch \(error\) \{[\s\S]*?status: 'UNKNOWN',[\s\S]*?failureCode: error instanceof HospitalitySupplierProviderError \? error\.code : 'INVALID_REQUEST'/);
   assert.match(coordinator, /attemptId: claim\.attempt\.id/);
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
 });

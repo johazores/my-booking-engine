@@ -45,9 +45,13 @@ A create may be claimed from `PREPARED`, or from a retryable `FAILED` state only
 
 Legacy fingerprint versions fail closed and must be reviewed/prepared again before create.
 
+A definitive Travelport price/guarantee no-sell response enters `REVIEW_REQUIRED`, not normal retry. Explicit accepted commercial evidence is revalidated and single-use; the reviewed second sell is consumed into exactly one new marked `CREATE` attempt while prior acceptance remains immutable history.
+
 ## Provider-request boundary and crash recovery
 
-Every started attempt has a database-authored lease. Immediately before provider I/O, the coordinator records `providerRequestStartedAt` under the same tenant/operation advisory lock.
+Every started attempt has a database-authored lease. Immediately before provider I/O, the provider-request boundary records `providerRequestStartedAt` under the tenant/operation advisory lock.
+
+Before writing a new marker, SF rechecks that the operation's exact tenant integration is still `ACTIVE`, has the same provider and credential version, and still advertises `reservation`. This closes the window where an integration could be disabled or rotated after a claim/provider client was prepared but before transport begins. An already-written marker remains authoritative even if the integration changes later.
 
 If a stale `CREATE` has no provider marker, it can return to `PREPARED` as retryable. If a stale `RECOVERY_WRITE` has no marker, it returns to `AMBIGUOUS` but is explicitly retryable because the recovery request itself never reached the provider. A stale `RECONCILE` returns to `AMBIGUOUS`.
 
@@ -129,7 +133,7 @@ See `docs/travelport-booking-sync-recovery-authority.md`.
 
 All supplier reservation claim/settlement/recovery services require server-side `booking:manage`. Reads and writes repeat organization scope and use tenant/operation advisory locks.
 
-Provider-specific coordinators load credentials only through the tenant-owned active integration and recheck provider code and credential version after durable claims before provider I/O.
+Provider-specific coordinators load credentials only through the tenant-owned active integration. External provider work rechecks provider code and credential version after durable claims, and the shared provider-request marker now repeats active integration/provider/credential/reservation-capability authority immediately before a new provider request is marked.
 
 ## Audit and privacy
 
@@ -141,7 +145,7 @@ Structured provider observations are similarly allowlisted and do not contain co
 
 ## Validation
 
-Dependency-free tests cover state/kind lease rules, request authority/idempotency, provider marker ordering, replay denial, Travelport Sync request construction, exact Sync confirmation matching, and privacy/source contracts.
+Dependency-free tests cover state/kind lease rules, request authority/idempotency, provider marker ordering and live integration revalidation, replay denial, Travelport Sync request construction, exact Sync confirmation matching, and privacy/source contracts.
 
 Guarded PostgreSQL scenarios cover create/reconciliation persistence plus `RECOVERY_WRITE` behavior: pre-provider retry, marker-based retry denial, traveler fingerprint binding, exact supplier-confirmation confirmation, durable evidence preservation, and recovery-reference clearing on success.
 
@@ -149,12 +153,13 @@ Database tests run only through the explicitly disposable PostgreSQL harness. Li
 
 ## Activation boundary
 
-Travelport `reservation` remains disabled. Before external supplier reservations can be enabled SF still needs:
+Travelport `reservation` remains disabled. The server-only initial Create, explicit commercial review acceptance, reviewed second Create, Booking.com Sync recovery, durable idempotency/correlation, and known-locator Retrieve infrastructure are implemented.
 
-1. live SearchComplete → Rules → Availability → Create → Sync validation;
-2. a reviewed PCI-safe Create form-of-payment/guarantee source;
-3. explicit authorized price/guarantee-change acceptance;
-4. authoritative `13034`, negative lookup, locator-less correlation, and Sync ambiguity semantics; and
-5. complete customer/staff/API states only after capability activation.
+Before external supplier reservations can be enabled SF still needs:
+
+1. a concrete reviewed PCI-safe Create FormOfPayment/guarantee source appropriate for the provisioned Travelport account;
+2. live SearchComplete → Rules → Availability → initial Create → reviewed second Create → Sync/recovery validation;
+3. authoritative live `13034`, negative lookup, locator-less correlation, and retry/recovery semantics; and
+4. complete customer/staff/API states only after capability activation.
 
 Modification, cancellation, multi-room, refunds, and other lifecycle capabilities remain independent validation work.

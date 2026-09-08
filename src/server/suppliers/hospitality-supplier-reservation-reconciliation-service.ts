@@ -48,12 +48,25 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     childAges: Object.freeze([...claim.reservation.childAges]),
   });
 
-  await markHospitalitySupplierReservationProviderRequestStarted({
-    organizationId: input.organizationId,
-    actorUserId: input.actorUserId,
-    reservationId: input.reservationId,
-    attemptId: claim.attempt.id,
-  });
+  try {
+    await markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+    });
+  } catch (error) {
+    return settleHospitalitySupplierReservationReconciliation({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: {
+        status: 'UNKNOWN',
+        failureCode: error instanceof HospitalitySupplierProviderError ? error.code : 'INVALID_REQUEST',
+      },
+    });
+  }
 
   const providerObservation = createHospitalitySupplierReservationProviderObservation({
     requestCorrelationId: claim.attempt.id,
