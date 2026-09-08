@@ -13,7 +13,7 @@ function assertInvalidRequest(error: unknown) {
   return true;
 }
 
-test('forces no-store cache semantics for OAuth and Stays even when callers request caching', async () => {
+test('forces no-store cache semantics and omits ambient credentials for OAuth and Stays', async () => {
   const calls: Array<RequestInit | undefined> = [];
   const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(init);
@@ -21,16 +21,19 @@ test('forces no-store cache semantics for OAuth and Stays even when callers requ
   }) as typeof fetch;
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
 
-  await tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST', cache: 'force-cache' });
+  await tracedFetch('https://auth.travelport.net/oauth/token', { method: 'POST', cache: 'force-cache', credentials: 'include' });
   await tracedFetch(new Request('https://api.travelport.net/12/hotel/search/searchcomplete', {
     method: 'POST',
     cache: 'force-cache',
+    credentials: 'include',
     headers: { E2ETrackingID: `sf-${TRACE_ID}` },
   }));
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0]?.cache, 'no-store');
   assert.equal(calls[1]?.cache, 'no-store');
+  assert.equal(calls[0]?.credentials, 'omit');
+  assert.equal(calls[1]?.credentials, 'omit');
 });
 
 test('rejects caller-controlled routing, ambient credential, forwarding, and hop-by-hop headers before Travelport transport', async () => {
@@ -51,6 +54,8 @@ test('rejects caller-controlled routing, ambient credential, forwarding, and hop
     ['X-Forwarded-Host', 'example.com'],
     ['If-None-Match', '"stale-etag"'],
     ['Range', 'bytes=0-99'],
+    ['Origin', 'https://sf.example'],
+    ['Referer', 'https://sf.example/book'],
   ] as const;
 
   for (const [name, value] of forbiddenHeaders) {

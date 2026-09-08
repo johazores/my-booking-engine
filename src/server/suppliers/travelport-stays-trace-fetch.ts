@@ -15,9 +15,11 @@ const TRAVELPORT_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
   'if-range',
   'if-unmodified-since',
   'keep-alive',
+  'origin',
   'proxy-authorization',
   'proxy-connection',
   'range',
+  'referer',
   'te',
   'trailer',
   'transfer-encoding',
@@ -300,7 +302,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       }
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', redirect: 'manual', headers });
+      const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', credentials: 'omit', redirect: 'manual', headers });
       return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
@@ -326,7 +328,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', redirect: 'manual', headers });
+    const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', credentials: 'omit', redirect: 'manual', headers });
     return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
   }) as typeof fetch;
 }
