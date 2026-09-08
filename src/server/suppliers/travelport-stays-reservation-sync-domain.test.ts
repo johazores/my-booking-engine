@@ -26,7 +26,11 @@ const traveler = Object.freeze({
   }),
 });
 
-function syncResponse(input: { supplierConfirmation?: string; propertyCode?: string } = {}) {
+function syncResponse(input: {
+  supplierConfirmation?: string;
+  propertyCode?: string;
+  travelportLocatorType?: string | null;
+} = {}) {
   return {
     ReservationResponse: {
       Reservation: {
@@ -57,7 +61,9 @@ function syncResponse(input: { supplierConfirmation?: string; propertyCode?: str
             Confirmation: {
               Locator: {
                 value: '0GQ9HS',
-                locatorType: 'PNR Locator',
+                ...(input.travelportLocatorType === null
+                  ? {}
+                  : { locatorType: input.travelportLocatorType ?? 'PNR Locator' }),
                 sourceContext: 'Travelport',
               },
               OfferStatus: { Status: 'Confirmed' },
@@ -155,6 +161,40 @@ test('confirms Sync only when the exact stay and original supplier confirmation 
     status: 'CONFIRMED',
     providerReservationReference: '0GQ9HS',
     supplierConfirmationReference: 'T9RY0-WQ842',
+    providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
+  });
+});
+
+test('accepts the documented Sync response omission of Travelport locatorType without mutating provider data', () => {
+  const body = syncResponse({ travelportLocatorType: null });
+  const travelportLocator = body.ReservationResponse.Reservation.Receipt[1]!.Confirmation.Locator as {
+    locatorType?: string;
+  };
+  assert.equal(travelportLocator.locatorType, undefined);
+
+  assert.deepEqual(classifyTravelportStaysReservationSyncOutcome({
+    httpStatus: 200,
+    body,
+    expectedReservation,
+    supplierConfirmationReference: 'T9RY0-WQ842',
+  }), {
+    status: 'CONFIRMED',
+    providerReservationReference: '0GQ9HS',
+    supplierConfirmationReference: 'T9RY0-WQ842',
+    providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
+  });
+  assert.equal(travelportLocator.locatorType, undefined);
+});
+
+test('does not reinterpret an explicit non-PNR Travelport locator type during Sync', () => {
+  assert.deepEqual(classifyTravelportStaysReservationSyncOutcome({
+    httpStatus: 200,
+    body: syncResponse({ travelportLocatorType: 'Agency Locator' }),
+    expectedReservation,
+    supplierConfirmationReference: 'T9RY0-WQ842',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'INVALID_RESPONSE',
     providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
   });
 });

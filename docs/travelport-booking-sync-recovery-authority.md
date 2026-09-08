@@ -71,18 +71,22 @@ OAuth and deterministic request construction complete before the durable provide
 
 ## Response and settlement authority
 
-Travelport documents that Sync returns the reservation response shape used by Create Reservation. SF reuses the hardened Create classifier for property/stay/occupancy and locator evidence, then applies Sync-specific settlement requirements.
+Travelport documents that Sync returns the reservation response shape used by Create Reservation. SF reuses the hardened Create classifier for property/stay/occupancy, supplier-confirmation, warning/error, and locator evidence, then applies Sync-specific settlement requirements.
+
+The current Travelport Sync Reservation response example omits `locatorType` on the confirmed Travelport receipt while still returning `sourceContext=Travelport` and the Travelport locator value. SF accepts that omission **only inside the Sync response path** by non-mutatingly canonicalizing that documented receipt shape to `PNR Locator` before invoking the strict shared classifier. Create Reservation responses remain strict and still require an explicit `locatorType=PNR Locator`.
+
+This compatibility rule is intentionally narrow: an explicit locator type is never rewritten. An explicit non-PNR locator type, malformed/missing Travelport context, duplicate Travelport locator evidence, or otherwise inconsistent receipt data remains ambiguous.
 
 Sync is confirmed only when the response proves all of the following:
 
-- exactly one confirmed Travelport receipt locator with `sourceContext=Travelport` and `locatorType=PNR Locator`;
+- exactly one confirmed Travelport PNR receipt, either with explicit `locatorType=PNR Locator` or the documented Sync-only omission with `sourceContext=Travelport`;
 - the exact durable property, dates, room quantity, and guest count;
 - the same original Booking.com supplier confirmation; and
 - a structurally valid successful response.
 
-A Travelport-context locator of another type cannot satisfy the PNR requirement. It is ignored for provider reservation authority rather than being mistaken for a duplicate PNR.
+A Travelport-context locator with an explicit different type cannot satisfy the PNR requirement.
 
-Changed/missing supplier confirmation, mismatched reservation identity, missing/duplicate PNR Locator, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
+Changed/missing supplier confirmation, mismatched reservation identity, missing/duplicate PNR evidence, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
 
 Successful Sync clears `providerRecoveryReference` and moves the operation to `CONFIRMED` with the verified Travelport PNR Locator. Ambiguous Sync retains supplier/recovery evidence for provider-supported or manual resolution but is not retryable after the marker.
 
@@ -119,6 +123,12 @@ Travelport `reservation` remains disabled. Before activation SF still requires:
 4. complete product/API orchestration only after the provider capability is deliberately enabled.
 
 No current route, button, customer action, or staff action can call Sync.
+
+## Validation
+
+Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed.
+
+No source-only or local contract test is claimed as live-provider evidence.
 
 ## References
 

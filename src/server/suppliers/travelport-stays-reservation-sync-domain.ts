@@ -13,6 +13,8 @@ import {
 
 const MAX_CONFIRMATION_LENGTH = 512;
 
+type RecordValue = Record<string, unknown>;
+
 export type TravelportStaysReservationSyncRequest = Readonly<{
   ReservationDetail: Readonly<{
     Offer: readonly [Readonly<{
@@ -48,6 +50,10 @@ export type TravelportStaysReservationSyncOutcome =
       providerCorrelationId: string | null;
     }>;
 
+function optionalRecord(value: unknown): RecordValue | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : null;
+}
+
 function confirmationReference(value: unknown) {
   if (typeof value !== 'string') throw new Error('Travelport Sync supplier confirmation is required.');
   const normalized = value.trim();
@@ -60,6 +66,54 @@ function confirmationReference(value: unknown) {
     throw new Error('Travelport Sync supplier confirmation is invalid.');
   }
   return normalized;
+}
+
+/**
+ * Travelport's current Sync Reservation example omits locatorType on the confirmed
+ * Travelport receipt even though Create responses normally identify that locator as
+ * "PNR Locator". Canonicalize only that documented Sync-only omission so the shared
+ * strict Create classifier can continue owning all other reservation/receipt checks.
+ * Explicit locator types are never rewritten and the provider payload is not mutated.
+ */
+function normalizeDocumentedTravelportSyncProviderLocator(value: unknown): unknown {
+  const root = optionalRecord(value);
+  const response = optionalRecord(root?.ReservationResponse);
+  const reservation = optionalRecord(response?.Reservation);
+  const receipts = reservation?.Receipt;
+  if (!root || !response || !reservation || !Array.isArray(receipts)) return value;
+
+  let changed = false;
+  const normalizedReceipts = receipts.map((receiptValue) => {
+    const receipt = optionalRecord(receiptValue);
+    const confirmation = optionalRecord(receipt?.Confirmation);
+    const locator = optionalRecord(confirmation?.Locator);
+    if (!receipt || !confirmation || !locator) return receiptValue;
+    if (locator.sourceContext !== 'Travelport' || locator.locatorType !== undefined) return receiptValue;
+
+    changed = true;
+    return {
+      ...receipt,
+      Confirmation: {
+        ...confirmation,
+        Locator: {
+          ...locator,
+          locatorType: 'PNR Locator',
+        },
+      },
+    };
+  });
+
+  if (!changed) return value;
+  return {
+    ...root,
+    ReservationResponse: {
+      ...response,
+      Reservation: {
+        ...reservation,
+        Receipt: normalizedReceipts,
+      },
+    },
+  };
 }
 
 export function buildTravelportStaysReservationSyncRequest(input: Readonly<{
@@ -107,7 +161,7 @@ export function classifyTravelportStaysReservationSyncOutcome(input: Readonly<{
   const expectedSupplierConfirmation = confirmationReference(input.supplierConfirmationReference);
   const createShape = classifyTravelportStaysReservationCreateOutcome({
     httpStatus: input.httpStatus,
-    body: input.body,
+    body: normalizeDocumentedTravelportSyncProviderLocator(input.body),
     expectedReservation: input.expectedReservation,
   });
 
