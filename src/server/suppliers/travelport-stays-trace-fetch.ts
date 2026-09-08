@@ -154,9 +154,30 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
 
 async function bufferTravelportResponse(response: Response): Promise<Response> {
   if (response.body === null) return response;
-  const bufferedResponse = response.clone();
-  await response.arrayBuffer();
-  return bufferedResponse;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > 0) chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 export function createTravelportStaysTraceFetch(input: Readonly<{

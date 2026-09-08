@@ -59,17 +59,26 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /redirect: 'manual'/);
 });
 
-test('trace transport keeps provider request deadlines active through response-body acquisition', () => {
+test('trace transport keeps provider request deadlines active through response-body acquisition without teeing a second unread branch', () => {
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
   assert.match(trace, /async function bufferTravelportResponse/);
   assert.match(trace, /if \(response\.body === null\) return response/);
-  assert.match(trace, /const bufferedResponse = response\.clone\(\)/);
-  assert.match(trace, /await response\.arrayBuffer\(\)/);
-  assert.match(trace, /return bufferedResponse/);
+  assert.match(trace, /const reader = response\.body\.getReader\(\)/);
+  assert.match(trace, /const chunks: Uint8Array\[\] = \[\]/);
+  assert.match(trace, /const \{ done, value \} = await reader\.read\(\)/);
+  assert.match(trace, /chunks\.push\(value\)/);
+  assert.match(trace, /reader\.releaseLock\(\)/);
+  assert.match(trace, /new ReadableStream<Uint8Array>/);
+  assert.match(trace, /return new Response\(body/);
+  assert.match(trace, /status: response\.status/);
+  assert.match(trace, /statusText: response\.statusText/);
+  assert.match(trace, /headers: response\.headers/);
+  assert.doesNotMatch(trace, /response\.clone\(\)/);
+  assert.doesNotMatch(trace, /response\.arrayBuffer\(\)/);
   assert.equal((trace.match(/return bufferTravelportResponse\(response\)/g) ?? []).length, 2);
 });
 
-test('request tracing documentation preserves reservation, environment, exact endpoint, timeout, and privacy boundaries', () => {
+test('request tracing documentation preserves reservation, environment, exact endpoint, timeout, memory, and privacy boundaries', () => {
   const doc = source('docs/travelport-stays-request-tracing.md');
   assert.match(doc, /does not enable Travelport `reservation`/);
   assert.match(doc, /PCI-safe FormOfPayment\/guarantee source/);
@@ -84,7 +93,8 @@ test('request tracing documentation preserves reservation, environment, exact en
   assert.match(doc, /connection test uses the same environment-bound wrapper/);
   assert.match(doc, /forces `redirect: 'manual'`/);
   assert.match(doc, /automatically replayed to a redirect target/);
-  assert.match(doc, /fully buffers each Travelport response body/);
+  assert.match(doc, /fully consumes each Travelport response body/);
   assert.match(doc, /timeout remains active until the complete provider payload is received/);
-  assert.match(doc, /returns an unread clone/);
+  assert.match(doc, /does not use `Response\.clone\(\)`/);
+  assert.match(doc, /single unread replay stream/);
 });

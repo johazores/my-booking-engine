@@ -130,6 +130,31 @@ test('does not resolve until the Travelport response body is fully buffered', as
   assert.deepEqual(await response.json(), { ok: true });
 });
 
+test('buffers provider responses without cloning a second unread branch and preserves adapter metadata', async () => {
+  const providerResponse = new Response('{"ok":true}', {
+    status: 206,
+    statusText: 'Partial Content',
+    headers: { 'Content-Type': 'application/json', 'X-Provider-Test': 'present' },
+  });
+  Object.defineProperty(providerResponse, 'clone', {
+    value: () => { throw new Error('response clone must not be used'); },
+  });
+  const tracedFetch = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => providerResponse) as typeof fetch,
+  });
+
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
+  });
+
+  assert.equal(response.status, 206);
+  assert.equal(response.statusText, 'Partial Content');
+  assert.equal(response.headers.get('X-Provider-Test'), 'present');
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
 test('keeps the caller abort signal active while buffering the response body', async () => {
   const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => new Response(new ReadableStream<Uint8Array>({
     start(controller) {
