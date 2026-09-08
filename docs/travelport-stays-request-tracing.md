@@ -43,7 +43,7 @@ A durable attempt/correlation is still not proof of provider success. `providerR
 
 Trace IDs are opaque UUIDs. They must not contain traveler names, email addresses, payment data, reservation locators, supplier confirmations, credentials, or other business payload data.
 
-The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port, cross-environment host, unsupported API operation, or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
+The wrapper never logs headers or request bodies and now forces `redirect: 'manual'` for both OAuth and Stays requests regardless of caller or `Request` redirect policy. Individual credential-bearing Travelport helpers may also specify manual redirects as defense in depth, but the shared environment-bound transport is the final redirect-suppression authority. This prevents Travelport bearer tokens, account headers, OAuth credentials, and reservation credentials from being automatically replayed to a redirect target.
 
 ## Capability boundary
 

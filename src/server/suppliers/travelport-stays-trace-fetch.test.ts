@@ -81,6 +81,25 @@ test('allows only the fixed OAuth token targets without SF request correlation',
   assert.equal(headers.get('TVP-Trace-Id'), null);
 });
 
+test('forces manual redirect handling for OAuth and credential-bearing Stays requests', async () => {
+  const captured = captureFetch();
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
+
+  await tracedFetch('https://auth.travelport.net/oauth/token', {
+    method: 'POST',
+    redirect: 'follow',
+  });
+  await tracedFetch(new Request('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { E2ETrackingID: `sf-${TRACE_ID}` },
+  }));
+
+  assert.equal(captured.calls.length, 2);
+  assert.equal(captured.calls[0]!.init?.redirect, 'manual');
+  assert.equal(captured.calls[1]!.init?.redirect, 'manual');
+});
+
 test('fails closed before transport for missing, foreign, or malformed SF correlation', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });

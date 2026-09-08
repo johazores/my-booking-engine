@@ -178,7 +178,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       }
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      return fetchImpl(requestInput, { ...init, headers });
+      return fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
     }
 
     if (url.hostname !== targets.staysHost) {
@@ -203,6 +203,6 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    return fetchImpl(requestInput, { ...init, headers });
+    return fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
   }) as typeof fetch;
 }

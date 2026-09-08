@@ -55,6 +55,7 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /assertSupportedTravelportStaysRequest\(url, method\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
+  assert.match(trace, /fetchImpl\(requestInput, \{ \.\.\.init, redirect: 'manual', headers \}\)/);
 });
 
 test('request tracing documentation preserves reservation, environment, exact endpoint, and privacy boundaries', () => {
@@ -70,5 +71,6 @@ test('request tracing documentation preserves reservation, environment, exact en
   assert.match(doc, /only `true` acceptance flags/);
   assert.match(doc, /canonical adapter encoding/);
   assert.match(doc, /connection test uses the same environment-bound wrapper/);
-  assert.match(doc, /manual redirects/);
+  assert.match(doc, /forces `redirect: 'manual'`/);
+  assert.match(doc, /automatically replayed to a redirect target/);
 });
