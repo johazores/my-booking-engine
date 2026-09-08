@@ -17,17 +17,44 @@ test('maps confirmed Travelport evidence into the durable confirmed settlement s
   });
 });
 
-test('keeps uncertain supplier evidence ambiguous and never invents retryability', () => {
+test('keeps proven supplier-confirmed recovery evidence Sync-required and never invents retryability', () => {
   assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
     status: 'AMBIGUOUS',
     failureCode: 'TRAVELPORT_SYNC_REQUIRED',
     supplierConfirmationReference: 'T9RY0-WQ842',
+    providerRecoveryReference: 'v1.sync-evidence',
     providerCorrelationId: 'trace-2',
   }), {
     status: 'AMBIGUOUS',
     failureCode: 'TRAVELPORT_SYNC_REQUIRED',
     supplierConfirmationReference: 'T9RY0-WQ842',
     providerCorrelationId: 'trace-2',
+  });
+});
+
+test('normalizes locator-less 13034-style ambiguity without recovery evidence as sell-uncertain', () => {
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SYNC_REQUIRED',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-13034',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'TRAVELPORT_SELL_UNCERTAIN',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-13034',
+  });
+
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'AMBIGUOUS',
+    failureCode: 'INVALID_RESPONSE',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-invalid',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'INVALID_RESPONSE',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-invalid',
   });
 });
 

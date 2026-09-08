@@ -6,8 +6,9 @@ import test from 'node:test';
 const root = process.cwd();
 const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('Travelport write decisions keep review and Sync uncertainty fail-closed', () => {
+test('Travelport write decisions keep review and sell uncertainty fail-closed', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
+  const mapper = source('src/server/suppliers/travelport-stays-reservation-submission-outcome.ts');
   assert.match(classifier, /GUARANTEE_CHANGE_SOURCE_CODES = new Set\(\['13016', '13017', '13018'\]\)/);
   assert.match(classifier, /PRICE_CHANGE_SOURCE_CODE = '13020'/);
   assert.match(classifier, /SYNC_REQUIRED_SOURCE_CODE = '13034'/);
@@ -15,6 +16,10 @@ test('Travelport write decisions keep review and Sync uncertainty fail-closed', 
   assert.match(classifier, /'PRICE_AND_GUARANTEE_CHANGED'/);
   assert.match(classifier, /status: 'AMBIGUOUS'[\s\S]*?failureCode: 'TRAVELPORT_SYNC_REQUIRED'/);
   assert.match(classifier, /failureCode: 'INVALID_RESPONSE'/);
+  assert.match(mapper, /TRAVELPORT_SELL_UNCERTAIN/);
+  assert.match(mapper, /outcome\.failureCode === 'TRAVELPORT_SYNC_REQUIRED'/);
+  assert.match(mapper, /!outcome\.supplierConfirmationReference/);
+  assert.match(mapper, /!outcome\.providerRecoveryReference/);
 });
 
 test('definitive no-sell failures require reviewed validation-category source codes', () => {
@@ -76,9 +81,10 @@ test('documentation keeps capability disabled and explains the narrow definitive
   assert.match(doc, /does not.*enable the `reservation` capability/i);
   assert.match(doc, /definitive no-sell validation failures/i);
   assert.match(doc, /category=VALIDATION/i);
-  assert.match(doc, /1537.*1547.*13050.*13054.*13083.*13078/is);
+  for (const code of ['1537', '1547', '13050', '13054', '13078', '13083']) assert.match(doc, new RegExp(code));
   assert.match(doc, /unknown codes.*remain `AMBIGUOUS \/ INVALID_RESPONSE`/i);
   assert.match(doc, /dedicated `REVIEW_REQUIRED`/i);
-  assert.match(doc, /PCI-safe form-of-payment/i);
-  assert.match(doc, /does not yet implement that acceptance workflow/i);
+  assert.match(doc, /PCI-safe FormOfPayment/i);
+  assert.match(doc, /one-time reviewed second-Create path is implemented separately/i);
+  assert.match(doc, /TRAVELPORT_SELL_UNCERTAIN/);
 });
