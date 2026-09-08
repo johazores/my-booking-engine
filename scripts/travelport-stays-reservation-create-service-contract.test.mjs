@@ -11,7 +11,8 @@ test('Travelport create coordinator uses fresh authority, exact current integrat
   const review = coordinator.indexOf('await reviewAndClaimHospitalitySupplierReservationSubmission');
   const reload = coordinator.indexOf('await loadTravelportStaysIntegration', review);
   const exactMatch = coordinator.indexOf('assertExecutionIntegrationStillMatches', reload);
-  const providerCall = coordinator.indexOf('await execution.reservationCreateExecutor.createReservation', exactMatch);
+  const paymentSource = coordinator.indexOf('await acquireTravelportStaysReservationPaymentCard', exactMatch);
+  const providerCall = coordinator.indexOf('await execution.reservationCreateExecutor.createReservation', paymentSource);
   const marker = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', providerCall);
   const reviewSettlement = coordinator.indexOf('settleHospitalitySupplierReservationReviewRequired', marker);
   const map = coordinator.indexOf('travelportStaysCreateOutcomeToSubmissionOutcome', reviewSettlement);
@@ -21,7 +22,8 @@ test('Travelport create coordinator uses fresh authority, exact current integrat
     review >= 0
       && reload > review
       && exactMatch > reload
-      && providerCall > exactMatch
+      && paymentSource > exactMatch
+      && providerCall > paymentSource
       && marker > providerCall
       && reviewSettlement > marker
       && map > reviewSettlement
@@ -61,14 +63,25 @@ test('documented price and guarantee changes persist as dedicated review-require
   assert.doesNotMatch(coordinator, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('sensitive form of payment stays an ephemeral adapter argument and never enters logs or durable metadata', () => {
+test('sensitive form of payment is sourced after authority instead of entering the coordinator request', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
+  const paymentSource = source('src/server/suppliers/travelport-stays-reservation-payment-card-source.ts');
   const observability = source('src/server/suppliers/travelport-stays-reservation-create-observability.ts');
   const integration = source('src/server/suppliers/travelport-stays-provider.ts');
 
-  assert.match(coordinator, /paymentCard: TravelportStaysSensitiveReservationPaymentCard/);
-  assert.match(coordinator, /paymentCard: input\.paymentCard/);
+  assert.match(coordinator, /paymentCardSource: TravelportStaysReservationPaymentCardSource/);
+  assert.match(coordinator, /purpose: 'INITIAL_CREATE'/);
+  assert.match(coordinator, /paymentCard,/);
+  assert.doesNotMatch(coordinator, /paymentCard:\s*TravelportStaysSensitiveReservationPaymentCard|paymentCard:\s*input\.paymentCard/);
   assert.doesNotMatch(coordinator, /JSON\.stringify\(input|console\.(?:info|warn|error)\(.*input|afterData:[\s\S]{0,300}paymentCard/);
+
+  assert.match(paymentSource, /acquirePaymentCard\(/);
+  assert.match(paymentSource, /organizationId:/);
+  assert.match(paymentSource, /reservationId:/);
+  assert.match(paymentSource, /integrationId:/);
+  assert.match(paymentSource, /integrationCredentialVersion:/);
+  assert.match(paymentSource, /attemptId:/);
+  assert.doesNotMatch(paymentSource, /cardNumber:\s*string|securityCode:\s*string|cardHolderName:\s*string|billingAddress\?:/);
   assert.doesNotMatch(observability, /cardNumber|securityCode|cardHolder|traveler|providerReservationReference|supplierConfirmationReference/i);
   assert.match(integration, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\] as const\)/);
 });
