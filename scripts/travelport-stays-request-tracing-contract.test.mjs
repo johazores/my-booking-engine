@@ -59,13 +59,20 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /redirect: 'manual'/);
 });
 
-test('trace transport keeps provider request deadlines active through response-body acquisition without teeing a second unread branch', () => {
+test('trace transport keeps provider request deadlines active while bounding response-body memory', () => {
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
-  assert.match(trace, /async function bufferTravelportResponse/);
+  assert.match(trace, /MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 \* 1024/);
+  assert.match(trace, /MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 \* 1024 \* 1024/);
+  assert.match(trace, /async function bufferTravelportResponse\(response: Response, maxBytes: number\)/);
+  assert.match(trace, /declaredTravelportResponseBytes\(response\)/);
+  assert.match(trace, /response\.headers\.get\('Content-Length'\)/);
+  assert.match(trace, /Number\.isSafeInteger\(value\)/);
   assert.match(trace, /if \(response\.body === null\) return response/);
   assert.match(trace, /const reader = response\.body\.getReader\(\)/);
   assert.match(trace, /const chunks: Uint8Array\[\] = \[\]/);
-  assert.match(trace, /const \{ done, value \} = await reader\.read\(\)/);
+  assert.match(trace, /receivedBytes \+= value\.byteLength/);
+  assert.match(trace, /receivedBytes > maxBytes/);
+  assert.match(trace, /reader\.cancel\(\)\.catch/);
   assert.match(trace, /chunks\.push\(value\)/);
   assert.match(trace, /reader\.releaseLock\(\)/);
   assert.match(trace, /new ReadableStream<Uint8Array>/);
@@ -73,12 +80,13 @@ test('trace transport keeps provider request deadlines active through response-b
   assert.match(trace, /status: response\.status/);
   assert.match(trace, /statusText: response\.statusText/);
   assert.match(trace, /headers: response\.headers/);
+  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES\)/);
+  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES\)/);
   assert.doesNotMatch(trace, /response\.clone\(\)/);
   assert.doesNotMatch(trace, /response\.arrayBuffer\(\)/);
-  assert.equal((trace.match(/return bufferTravelportResponse\(response\)/g) ?? []).length, 2);
 });
 
-test('request tracing documentation preserves reservation, environment, exact endpoint, timeout, memory, and privacy boundaries', () => {
+test('request tracing documentation preserves reservation, environment, endpoint, timeout, memory, and privacy boundaries', () => {
   const doc = source('docs/travelport-stays-request-tracing.md');
   assert.match(doc, /does not enable Travelport `reservation`/);
   assert.match(doc, /PCI-safe FormOfPayment\/guarantee source/);
@@ -97,4 +105,10 @@ test('request tracing documentation preserves reservation, environment, exact en
   assert.match(doc, /timeout remains active until the complete provider payload is received/);
   assert.match(doc, /does not use `Response\.clone\(\)`/);
   assert.match(doc, /single unread replay stream/);
+  assert.match(doc, /256 KiB for OAuth token responses/);
+  assert.match(doc, /32 MiB for Stays responses/);
+  assert.match(doc, /`Content-Length`/);
+  assert.match(doc, /actual bytes delivered by the Fetch response stream/);
+  assert.match(doc, /cancels the provider body/);
+  assert.match(doc, /non-retryable `INVALID_RESPONSE`/);
 });

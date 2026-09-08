@@ -1,6 +1,8 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
+const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TRAVELPORT_TARGETS = Object.freeze({
   'pre-production': Object.freeze({
     authenticationHost: 'auth.pp.travelport.net',
@@ -152,16 +154,64 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport Stays request target is invalid.');
 }
 
-async function bufferTravelportResponse(response: Response): Promise<Response> {
+function declaredTravelportResponseBytes(response: Response): number | null {
+  const contentLength = response.headers.get('Content-Length');
+  if (contentLength === null) return null;
+  if (!/^\d+$/.test(contentLength)) {
+    throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response content length is invalid.');
+  }
+  const value = Number(contentLength);
+  if (!Number.isSafeInteger(value)) {
+    throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response content length is invalid.');
+  }
+  return value;
+}
+
+function oversizedTravelportResponseError() {
+  return new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response body exceeded the supported size.');
+}
+
+function cancelResponseBody(body: ReadableStream<Uint8Array> | null) {
+  if (body === null) return;
+  try {
+    void body.cancel().catch(() => undefined);
+  } catch {
+    // Cancellation is best-effort after the response has already failed closed.
+  }
+}
+
+async function bufferTravelportResponse(response: Response, maxBytes: number): Promise<Response> {
+  let declaredBytes: number | null;
+  try {
+    declaredBytes = declaredTravelportResponseBytes(response);
+  } catch (error) {
+    cancelResponseBody(response.body);
+    throw error;
+  }
+  if (declaredBytes !== null && declaredBytes > maxBytes) {
+    cancelResponseBody(response.body);
+    throw oversizedTravelportResponseError();
+  }
   if (response.body === null) return response;
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (value.byteLength > 0) chunks.push(value);
+      if (value.byteLength === 0) continue;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maxBytes) {
+        try {
+          void reader.cancel().catch(() => undefined);
+        } catch {
+          // Cancellation is best-effort after the response has already failed closed.
+        }
+        throw oversizedTravelportResponseError();
+      }
+      chunks.push(value);
     }
   } finally {
     reader.releaseLock();
@@ -207,7 +257,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
       const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
-      return bufferTravelportResponse(response);
+      return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
     if (url.hostname !== targets.staysHost) {
@@ -233,6 +283,6 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     }
 
     const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
-    return bufferTravelportResponse(response);
+    return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
   }) as typeof fetch;
 }
