@@ -52,7 +52,7 @@ function assertProviderRequestIntegrationStillMatches(
     || !integration.capabilities.includes('reservation')
   ) {
     throw new HospitalitySupplierReservationConflictError(
-      'Supplier integration changed before the provider request could start. Review the supplier reservation again.',
+      'Supplier integration changed at the provider-request boundary. Review the supplier reservation again.',
     );
   }
 }
