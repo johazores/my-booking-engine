@@ -3,6 +3,38 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
+const TRAVELPORT_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
+  'connection',
+  'content-length',
+  'cookie',
+  'forwarded',
+  'host',
+  'if-match',
+  'if-modified-since',
+  'if-none-match',
+  'if-range',
+  'if-unmodified-since',
+  'keep-alive',
+  'proxy-authorization',
+  'proxy-connection',
+  'range',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'via',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+] as const);
+const TRAVELPORT_OAUTH_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
+  'authorization',
+  'client_id',
+  'client_secret',
+  'password',
+  'username',
+  'xauth_travelport_accessgroup',
+] as const);
 const TRAVELPORT_TARGETS = Object.freeze({
   'pre-production': Object.freeze({
     authenticationHost: 'auth.pp.travelport.net',
@@ -61,6 +93,16 @@ function assertSecureTravelportTarget(url: URL) {
   ) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request target is invalid.');
   }
+}
+
+function assertSafeTravelportRequestHeaders(headers: Headers) {
+  if (TRAVELPORT_FORBIDDEN_REQUEST_HEADERS.some((name) => headers.has(name))) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request headers are invalid.');
+  }
+}
+
+function hasUnsafeTravelportOAuthHeaders(headers: Headers) {
+  return TRAVELPORT_OAUTH_FORBIDDEN_REQUEST_HEADERS.some((name) => headers.has(name));
 }
 
 function hasCanonicalQueryEncoding(url: URL) {
@@ -240,6 +282,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const sourceHeaders = init?.headers ?? (typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined);
     const headers = new Headers(sourceHeaders);
+    assertSafeTravelportRequestHeaders(headers);
     const e2eTrackingId = headers.get('E2ETrackingID');
     const url = parsedRequestUrl(requestInput);
     const method = requestMethod(requestInput, init);
@@ -251,12 +294,13 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
         || url.pathname !== '/oauth/token'
         || url.search !== ''
         || e2eTrackingId !== null
+        || hasUnsafeTravelportOAuthHeaders(headers)
       ) {
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+      const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', redirect: 'manual', headers });
       return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
@@ -282,7 +326,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    const response = await fetchImpl(requestInput, { ...init, redirect: 'manual', headers });
+    const response = await fetchImpl(requestInput, { ...init, cache: 'no-store', redirect: 'manual', headers });
     return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
   }) as typeof fetch;
 }
