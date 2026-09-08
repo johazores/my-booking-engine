@@ -12,13 +12,22 @@ test('reviewed second sell consumes one accepted decision only at the provider-r
 
   const reviewIndex = coordinator.indexOf('reviewTravelportStaysReservationAcceptedCommercialAuthority');
   const requestMaterialIndex = coordinator.indexOf('buildTravelportStaysReservationCreateRequestMaterial', reviewIndex);
-  const executorIndex = coordinator.indexOf('createReservationAfterAcceptedReview', requestMaterialIndex);
+  const paymentSourceIndex = coordinator.indexOf('acquireTravelportStaysReservationPaymentCard', requestMaterialIndex);
+  const executorIndex = coordinator.indexOf('createReservationAfterAcceptedReview', paymentSourceIndex);
   const consumeIndex = coordinator.indexOf('consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest', executorIndex);
-  assert.ok(reviewIndex >= 0 && requestMaterialIndex > reviewIndex && executorIndex > requestMaterialIndex && consumeIndex > executorIndex);
+  assert.ok(
+    reviewIndex >= 0
+      && requestMaterialIndex > reviewIndex
+      && paymentSourceIndex > requestMaterialIndex
+      && executorIndex > paymentSourceIndex
+      && consumeIndex > executorIndex,
+  );
 
   assert.match(coordinator, /const attemptId = randomUUID\(\)/);
   assert.match(coordinator, /expectedAcceptanceFingerprint: reviewed\.storedAcceptance\.acceptance\.acceptanceFingerprint/);
   assert.match(coordinator, /acceptedReview,/);
+  assert.match(coordinator, /purpose: 'REVIEW_ACCEPTANCE_CREATE'/);
+  assert.doesNotMatch(coordinator, /paymentCard:\s*TravelportStaysSensitiveReservationPaymentCard|paymentCard:\s*input\.paymentCard/);
   assert.doesNotMatch(coordinator, /reviewAndClaimHospitalitySupplierReservationSubmission/);
   assert.doesNotMatch(coordinator, /markHospitalitySupplierReservationProviderRequestStarted/);
   assert.match(coordinator, /settlement\.status === 'FAILED'/);
@@ -112,13 +121,16 @@ test('reviewed executor sends only explicitly accepted Travelport second-request
   assert.ok(requestIndex >= 0 && urlIndex > requestIndex && tokenIndex > urlIndex && markerIndex > tokenIndex && fetchIndex > markerIndex);
 });
 
-test('reviewed second sell keeps the reservation capability and card source closed', () => {
+test('reviewed second sell keeps the reservation capability closed and requires an external payment source capability', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-reviewed-create-service.ts');
+  const paymentSource = source('src/server/suppliers/travelport-stays-reservation-payment-card-source.ts');
   const provider = source('src/server/suppliers/travelport-stays-provider.ts');
   const integrationDocs = source('docs/travelport-stays-integration.md');
 
   assert.match(coordinator, /Server-only one-time second-sell path/);
-  assert.match(coordinator, /Sensitive card material remains ephemeral/);
+  assert.match(coordinator, /paymentCardSource: TravelportStaysReservationPaymentCardSource/);
+  assert.match(coordinator, /Form-of-payment material is acquired only through a separately supplied server capability/);
+  assert.match(paymentSource, /This contract[\s\S]*is not a token[\s\S]*or evidence that SF is PCI-ready/);
   assert.match(provider, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\]/);
   assert.doesNotMatch(provider, /capabilities: Object\.freeze\([^\n]*'reservation'/);
   assert.match(integrationDocs, /reservation.*(?:disabled|unadvertised|not advertised)/i);
