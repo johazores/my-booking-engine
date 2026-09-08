@@ -120,7 +120,13 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
     });
     assertIntegrationMatchesReservation(integration, reservation);
 
-    const attemptedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation recovery-write attempt time is unavailable.',
+      );
+    }
+    const attemptedAt = databaseClock.currentTime;
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },
@@ -270,7 +276,13 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
       );
     }
 
-    const completedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation recovery-write completion time is unavailable.',
+      );
+    }
+    const completedAt = databaseClock.currentTime;
     const confirmed = input.outcome.status === 'CONFIRMED';
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },

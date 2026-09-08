@@ -184,7 +184,13 @@ export async function claimHospitalitySupplierReservationSubmission(input: {
     });
     assertIntegrationMatchesReservation(integration, reservation);
 
-    const attemptedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation submission attempt time is unavailable.',
+      );
+    }
+    const attemptedAt = databaseClock.currentTime;
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },
@@ -312,7 +318,13 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
       );
     }
 
-    const completedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation completion time is unavailable.',
+      );
+    }
+    const completedAt = databaseClock.currentTime;
     const status = input.outcome.status;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },
@@ -401,7 +413,13 @@ export async function claimHospitalitySupplierReservationReconciliation(input: {
     });
     assertIntegrationMatchesReservation(integration, reservation);
 
-    const attemptedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation reconciliation attempt time is unavailable.',
+      );
+    }
+    const attemptedAt = databaseClock.currentTime;
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
       where: { id: reservation.id, organizationId: input.organizationId },
@@ -528,7 +546,13 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
       );
     }
 
-    const completedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
+    if (!databaseClock) {
+      throw new HospitalitySupplierReservationConflictError(
+        'Supplier reservation reconciliation completion time is unavailable.',
+      );
+    }
+    const completedAt = databaseClock.currentTime;
     const nextStatus = input.outcome.status === 'FOUND'
       ? 'CONFIRMED'
       : input.outcome.status === 'NOT_FOUND'
