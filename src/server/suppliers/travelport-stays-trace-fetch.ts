@@ -12,6 +12,14 @@ const TRAVELPORT_TARGETS = Object.freeze({
   }),
 });
 
+const TRAVELPORT_STAYS_ENDPOINTS = Object.freeze({
+  searchComplete: '/12/hotel/search/searchcomplete',
+  rules: '/11/hotel/rules/offershospitality/buildfromrequest',
+  availability: '/11/hotel/availability/catalogofferingshospitality',
+  reservationBuild: '/11/hotel/book/reservations/build',
+  reservationCollection: '/11/hotel/book/reservations/',
+});
+
 type TravelportStaysTransportEnvironment = keyof typeof TRAVELPORT_TARGETS;
 
 function requestUrl(input: RequestInfo | URL) {
@@ -53,6 +61,86 @@ function assertSecureTravelportTarget(url: URL) {
   }
 }
 
+function hasExactPaginationQuery(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  return entries.length === 1
+    && entries[0]?.[0] === 'pageNumber'
+    && /^[2-5]$/.test(entries[0]?.[1] ?? '');
+}
+
+function hasAcceptedReservationReviewQuery(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length === 0) return true;
+  if (entries.length > 2) return false;
+
+  const acceptedKeys = new Set(['acceptPriceChangeInd', 'acceptGuaranteeChangeInd']);
+  const seen = new Set<string>();
+  for (const [key, value] of entries) {
+    if (!acceptedKeys.has(key) || seen.has(key) || value !== 'true') return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+function hasSingleEncodedPathSegment(url: URL, prefix: string) {
+  if (!url.pathname.startsWith(prefix)) return false;
+  const suffix = url.pathname.slice(prefix.length);
+  return suffix.length > 0 && !suffix.includes('/');
+}
+
+function assertSupportedTravelportStaysRequest(url: URL, method: string) {
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.searchComplete
+    && method === 'POST'
+    && url.search === ''
+  ) return;
+
+  if (
+    hasSingleEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.searchComplete}/`)
+    && method === 'GET'
+    && hasExactPaginationQuery(url)
+  ) return;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.rules
+    && method === 'POST'
+    && url.search === ''
+  ) return;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.availability
+    && method === 'POST'
+    && url.search === ''
+  ) return;
+
+  if (
+    hasSingleEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.availability}/`)
+    && method === 'GET'
+    && hasExactPaginationQuery(url)
+  ) return;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationBuild
+    && method === 'POST'
+    && hasAcceptedReservationReviewQuery(url)
+  ) return;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationCollection
+    && method === 'POST'
+    && url.search === ''
+  ) return;
+
+  if (
+    hasSingleEncodedPathSegment(url, TRAVELPORT_STAYS_ENDPOINTS.reservationCollection)
+    && url.pathname !== TRAVELPORT_STAYS_ENDPOINTS.reservationBuild
+    && method === 'GET'
+    && url.search === ''
+  ) return;
+
+  throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport Stays request target is invalid.');
+}
+
 export function createTravelportStaysTraceFetch(input: Readonly<{
   environment: TravelportStaysTransportEnvironment;
   fetchImpl?: typeof fetch;
@@ -65,11 +153,12 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     const headers = new Headers(sourceHeaders);
     const e2eTrackingId = headers.get('E2ETrackingID');
     const url = parsedRequestUrl(requestInput);
+    const method = requestMethod(requestInput, init);
     assertSecureTravelportTarget(url);
 
     if (url.hostname === targets.authenticationHost) {
       if (
-        requestMethod(requestInput, init) !== 'POST'
+        method !== 'POST'
         || url.pathname !== '/oauth/token'
         || url.search !== ''
         || e2eTrackingId !== null
@@ -93,14 +182,14 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request correlation ID is invalid.');
     }
 
+    assertSupportedTravelportStaysRequest(url, method);
+
     if (url.pathname.startsWith('/11/hotel/')) {
       headers.set('TraceId', traceId);
       headers.delete('TVP-Trace-Id');
-    } else if (url.pathname.startsWith('/12/hotel/')) {
+    } else {
       headers.set('TVP-Trace-Id', traceId);
       headers.delete('TraceId');
-    } else {
-      throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport Stays API version is unsupported.');
     }
 
     return fetchImpl(requestInput, { ...init, headers });

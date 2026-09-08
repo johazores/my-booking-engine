@@ -43,6 +43,26 @@ test('maps SF correlation to the documented v12 TVP-Trace-Id header', async () =
   assert.equal(headers.get('TraceId'), null);
 });
 
+test('allows every currently implemented Travelport Stays endpoint shape', async () => {
+  const captured = captureFetch();
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
+  const headers = { E2ETrackingID: `sf-${TRACE_ID}` };
+  const requests = [
+    ['https://api.travelport.net/12/hotel/search/searchcomplete', 'POST'],
+    ['https://api.travelport.net/12/hotel/search/searchcomplete/opaque%2Ftoken%2Bvalue?pageNumber=2', 'GET'],
+    ['https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', 'POST'],
+    ['https://api.travelport.net/11/hotel/availability/catalogofferingshospitality', 'POST'],
+    ['https://api.travelport.net/11/hotel/availability/catalogofferingshospitality/availability-token?pageNumber=5', 'GET'],
+    ['https://api.travelport.net/11/hotel/book/reservations/build', 'POST'],
+    ['https://api.travelport.net/11/hotel/book/reservations/build?acceptPriceChangeInd=true&acceptGuaranteeChangeInd=true', 'POST'],
+    ['https://api.travelport.net/11/hotel/book/reservations/', 'POST'],
+    ['https://api.travelport.net/11/hotel/book/reservations/D6VBHL', 'GET'],
+  ] as const;
+
+  for (const [url, method] of requests) await tracedFetch(url, { method, headers });
+  assert.equal(captured.calls.length, requests.length);
+});
+
 test('allows only the fixed OAuth token targets without SF request correlation', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
@@ -84,25 +104,25 @@ test('fails closed before transport for missing, foreign, or malformed SF correl
   assert.equal(captured.calls.length, 0);
 });
 
-test('fails closed before transport for cross-environment hosts, unexpected ports, userinfo, OAuth shapes, or Stays paths', async () => {
+test('fails closed before transport for cross-environment hosts, unexpected ports, userinfo, OAuth shapes, or API versions', async () => {
   const captured = captureFetch();
   const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
   const sfHeaders = { E2ETrackingID: `sf-${TRACE_ID}` };
 
   await assert.rejects(
-    tracedFetch('https://api.pp.travelport.net/12/hotel/search/searchcomplete', { headers: sfHeaders }),
+    tracedFetch('https://api.pp.travelport.net/12/hotel/search/searchcomplete', { method: 'POST', headers: sfHeaders }),
     /request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://example.com/12/hotel/search/searchcomplete', { headers: sfHeaders }),
+    tracedFetch('https://example.com/12/hotel/search/searchcomplete', { method: 'POST', headers: sfHeaders }),
     /request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://api.travelport.net:444/12/hotel/search/searchcomplete', { headers: sfHeaders }),
+    tracedFetch('https://api.travelport.net:444/12/hotel/search/searchcomplete', { method: 'POST', headers: sfHeaders }),
     /request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://user:pass@api.travelport.net/12/hotel/search/searchcomplete', { headers: sfHeaders }),
+    tracedFetch('https://user:pass@api.travelport.net/12/hotel/search/searchcomplete', { method: 'POST', headers: sfHeaders }),
     /request target is invalid/i,
   );
   await assert.rejects(
@@ -122,9 +142,33 @@ test('fails closed before transport for cross-environment hosts, unexpected port
     /OAuth request target is invalid/i,
   );
   await assert.rejects(
-    tracedFetch('https://api.travelport.net/13/hotel/search/searchcomplete', { headers: sfHeaders }),
-    /API version is unsupported/i,
+    tracedFetch('https://api.travelport.net/13/hotel/search/searchcomplete', { method: 'POST', headers: sfHeaders }),
+    /Stays request target is invalid/i,
   );
+  assert.equal(captured.calls.length, 0);
+});
+
+test('fails closed for unsupported Stays methods, paths, and query parameters', async () => {
+  const captured = captureFetch();
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl: captured.fetchImpl });
+  const headers = { E2ETrackingID: `sf-${TRACE_ID}` };
+  const rejected = [
+    ['https://api.travelport.net/12/hotel/search/searchcomplete', 'DELETE'],
+    ['https://api.travelport.net/12/hotel/search/searchcomplete?pageNumber=2', 'POST'],
+    ['https://api.travelport.net/12/hotel/search/searchcomplete/token?pageNumber=1', 'GET'],
+    ['https://api.travelport.net/12/hotel/search/searchcomplete/token?pageNumber=2&extra=true', 'GET'],
+    ['https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest?extra=true', 'POST'],
+    ['https://api.travelport.net/11/hotel/availability/catalogofferingshospitality/token?pageNumber=6', 'GET'],
+    ['https://api.travelport.net/11/hotel/book/reservations/build?acceptPriceChangeInd=false', 'POST'],
+    ['https://api.travelport.net/11/hotel/book/reservations/build?acceptPriceChangeInd=true&acceptPriceChangeInd=true', 'POST'],
+    ['https://api.travelport.net/11/hotel/book/reservations/build', 'GET'],
+    ['https://api.travelport.net/11/hotel/book/reservations/', 'GET'],
+    ['https://api.travelport.net/11/hotel/unsupported', 'POST'],
+  ] as const;
+
+  for (const [url, method] of rejected) {
+    await assert.rejects(tracedFetch(url, { method, headers }), /Stays request target is invalid/i);
+  }
   assert.equal(captured.calls.length, 0);
 });
 

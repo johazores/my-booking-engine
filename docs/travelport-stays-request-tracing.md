@@ -12,7 +12,18 @@ Travelport Stays documents different caller-defined request-trace headers by API
 
 Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper is bound to the validated integration environment and derives the version-specific trace header from the existing SF `E2ETrackingID`, so the support identifiers cannot silently disagree at the transport boundary.
 
-The shared transport wrapper is also a fail-closed outbound target boundary. A pre-production integration can reach only the pre-production Travelport API/authentication hosts and a production integration can reach only the production hosts. Stays traffic is accepted only over HTTPS on the default HTTPS port, with no URL userinfo or fragment, a supported `/11/hotel/` or `/12/hotel/` path, and an SF-owned `E2ETrackingID` containing a valid UUID. Missing, foreign, malformed, or cross-environment Stays correlation/targeting fails before transport.
+The shared transport wrapper is also a fail-closed outbound target boundary. A pre-production integration can reach only the pre-production Travelport API/authentication hosts and a production integration can reach only the production hosts. Stays traffic is accepted only over HTTPS on the default HTTPS port, with no URL userinfo or fragment, an SF-owned `E2ETrackingID` containing a valid UUID, and one of the exact implemented Stays operation shapes below:
+
+- `POST /12/hotel/search/searchcomplete` with no query string;
+- `GET /12/hotel/search/searchcomplete/{SearchIdentifier}?pageNumber=2..5`;
+- `POST /11/hotel/rules/offershospitality/buildfromrequest` with no query string;
+- `POST /11/hotel/availability/catalogofferingshospitality` with no query string;
+- `GET /11/hotel/availability/catalogofferingshospitality/{AvailabilityIdentifier}?pageNumber=2..5`;
+- `POST /11/hotel/book/reservations/build` with no query string for the initial Create or only `true` acceptance flags (`acceptPriceChangeInd` and/or `acceptGuaranteeChangeInd`) for the reviewed second Create;
+- `POST /11/hotel/book/reservations/` with no query string for Booking.com Sync; and
+- `GET /11/hotel/book/reservations/{AggregatorLocatorCode}` with no query string for known-locator Retrieve.
+
+Unsupported methods, extra query parameters, duplicate review flags, false review flags, unrelated Stays paths, missing/foreign/malformed correlation, and cross-environment targets all fail before transport. This keeps an adapter defect or injected transport caller from turning Travelport credentials into authority for an API operation SF has not implemented and reviewed.
 
 OAuth is the only uncorrelated exception. It is accepted only as `POST` to the configured environment's fixed `/oauth/token` target, on the default HTTPS port, with no URL userinfo, query, fragment, or `E2ETrackingID`. Stays trace headers are removed from that request. Any other host, alternate port, credentialed URL, method, unsupported path, or unexpected OAuth shape fails closed before credentials can leave the process.
 
@@ -32,7 +43,7 @@ A durable attempt/correlation is still not proof of provider success. `providerR
 
 Trace IDs are opaque UUIDs. They must not contain traveler names, email addresses, payment data, reservation locators, supplier confirmations, credentials, or other business payload data.
 
-The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port, cross-environment host, or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
+The wrapper never logs headers or request bodies and never changes redirect policy. Travelport credential-bearing fetch helpers continue to use manual redirects so credentials are not replayed to a redirect target. Transport target validation additionally prevents a non-default port, cross-environment host, unsupported API operation, or URL-embedded username/password from bypassing the fixed Travelport endpoint boundary.
 
 ## Capability boundary
 
