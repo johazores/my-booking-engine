@@ -47,6 +47,8 @@ The wrapper never logs headers or request bodies and now forces `redirect: 'manu
 
 The wrapper also fully buffers each Travelport response body before it resolves back to a provider adapter. The adapters already place their request `AbortSignal` around the wrapped fetch call; keeping the wrapper pending through body acquisition means that timeout remains active until the complete provider payload is received instead of ending as soon as response headers arrive. The wrapper does not parse or trust the payload: it returns an unread clone with the original response metadata for the existing adapter-specific status and schema validation, and preserves bodyless responses without manufacturing content.
 
+Read/auth adapter timeout wrappers preserve normalized `HospitalitySupplierProviderError` values raised by the shared transport when their caller deadline has not fired. This keeps fail-closed transport target and response violations as their original non-retryable `INVALID_REQUEST` or `INVALID_RESPONSE` authority instead of disguising them as retryable provider outages. A caller-owned deadline remains authoritative as `TIMEOUT`, while unknown low-level transport failures normalize to bounded `PROVIDER_UNAVAILABLE` without leaking implementation-specific error details.
+
 ## Capability boundary
 
 This tracing and durable-correlation infrastructure does not enable Travelport `reservation`, `modification`, or `cancellation` capabilities and does not expose a supplier booking action.

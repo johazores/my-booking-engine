@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { normalizeCurrency, parseMoneyMajorToMinor } from '../pricing/money.ts';
 import type { HospitalitySupplierBookingTermsProvider } from './hospitality-supplier-booking-terms.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { throwHospitalitySupplierTransportFailure } from './hospitality-supplier-transport-failure.ts';
 import type {
   HospitalitySupplierReservationAuthorityInput,
   HospitalitySupplierReservationAuthorityProvider,
@@ -283,8 +284,8 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
         },
         ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
       });
-    } catch {
-      throw new HospitalitySupplierProviderError(controller.signal.aborted ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE');
+    } catch (error) {
+      throwHospitalitySupplierTransportFailure(error, controller.signal);
     } finally {
       clearTimeout(timer);
     }

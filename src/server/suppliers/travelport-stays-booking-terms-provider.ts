@@ -8,6 +8,7 @@ import {
   type HospitalitySupplierPaymentTiming,
   type HospitalitySupplierPricingProvider,
 } from './hospitality-supplier-provider.ts';
+import { throwHospitalitySupplierTransportFailure } from './hospitality-supplier-transport-failure.ts';
 import type {
   HospitalitySupplierBookingTerms,
   HospitalitySupplierBookingTermsProvider,
@@ -91,8 +92,8 @@ async function fetchWithTimeout(input: {
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
   try {
     return await input.fetchImpl(input.url, { ...input.init, redirect: 'manual', signal: controller.signal });
-  } catch {
-    throw new HospitalitySupplierProviderError(controller.signal.aborted ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE');
+  } catch (error) {
+    throwHospitalitySupplierTransportFailure(error, controller.signal);
   } finally {
     clearTimeout(timeout);
   }
