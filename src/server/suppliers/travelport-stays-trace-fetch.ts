@@ -5,12 +5,42 @@ const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 * 1024;
+const MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH = 'Bearer '.length + 16_384;
 const TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   username: 512,
   password: 4096,
   client_id: 512,
   client_secret: 4096,
 });
+const TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS: Readonly<Record<string, number>> = Object.freeze({
+  username: 512,
+  password: 4096,
+  client_id: 512,
+  client_secret: 4096,
+  xauth_travelport_accessgroup: 512,
+});
+const TRAVELPORT_OAUTH_ALLOWED_REQUEST_HEADERS = Object.freeze(new Set([
+  'accept',
+  'content-type',
+  'traceid',
+  'tvp-trace-id',
+]));
+const TRAVELPORT_STAYS_ALLOWED_REQUEST_HEADERS = Object.freeze(new Set([
+  'accept',
+  'accept-encoding',
+  'authorization',
+  'cache-control',
+  'client_id',
+  'client_secret',
+  'content-type',
+  'e2etrackingid',
+  'password',
+  'traceid',
+  'tvp-cache-control',
+  'tvp-trace-id',
+  'username',
+  'xauth_travelport_accessgroup',
+]));
 const TRAVELPORT_FORBIDDEN_REQUEST_HEADERS = Object.freeze([
   'connection',
   'content-encoding',
@@ -68,6 +98,13 @@ const TRAVELPORT_STAYS_ENDPOINTS = Object.freeze({
 });
 
 type TravelportStaysTransportEnvironment = keyof typeof TRAVELPORT_TARGETS;
+type TravelportStaysTransportCredentials = Readonly<{
+  username: string;
+  password: string;
+  clientId: string;
+  clientSecret: string;
+  accessGroup: string;
+}>;
 
 function requestUrl(input: RequestInfo | URL) {
   if (typeof input === 'string') return input;
@@ -88,6 +125,10 @@ function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): Bod
 
 function invalidTravelportRequestBody(): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request body is invalid.');
+}
+
+function invalidTravelportRequestHeaders(): never {
+  throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request headers are invalid.');
 }
 
 function hasExactContentType(headers: Headers, expected: string) {
@@ -129,7 +170,11 @@ function hasJsonObjectEnvelope(value: string) {
   return value[end] === '}';
 }
 
-function assertTravelportOAuthRequestBody(body: BodyInit | null, headers: Headers) {
+function assertTravelportOAuthRequestBody(
+  body: BodyInit | null,
+  headers: Headers,
+  credentials?: TravelportStaysTransportCredentials,
+) {
   if (body === null) invalidTravelportRequestBody();
   if (!(body instanceof URLSearchParams) || !hasExactContentType(headers, 'application/x-www-form-urlencoded')) {
     invalidTravelportRequestBody();
@@ -165,6 +210,18 @@ function assertTravelportOAuthRequestBody(body: BodyInit | null, headers: Header
     || !seen.has('password')
     || !seen.has('client_id')
     || !seen.has('client_secret')
+  ) {
+    invalidTravelportRequestBody();
+  }
+
+  if (
+    credentials
+    && (
+      body.get('username') !== credentials.username
+      || body.get('password') !== credentials.password
+      || body.get('client_id') !== credentials.clientId
+      || body.get('client_secret') !== credentials.clientSecret
+    )
   ) {
     invalidTravelportRequestBody();
   }
@@ -216,7 +273,84 @@ function assertSecureTravelportTarget(url: URL) {
 
 function assertSafeTravelportRequestHeaders(headers: Headers) {
   if (TRAVELPORT_FORBIDDEN_REQUEST_HEADERS.some((name) => headers.has(name))) {
-    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request headers are invalid.');
+    invalidTravelportRequestHeaders();
+  }
+}
+
+function assertAllowedTravelportRequestHeaders(headers: Headers, allowed: ReadonlySet<string>) {
+  for (const name of headers.keys()) {
+    if (!allowed.has(name.toLowerCase())) invalidTravelportRequestHeaders();
+  }
+}
+
+function assertExactOptionalHeader(headers: Headers, name: string, expected: string) {
+  const value = headers.get(name);
+  if (value !== null && value.trim().toLowerCase() !== expected) invalidTravelportRequestHeaders();
+}
+
+function assertBoundedOptionalHeader(headers: Headers, name: string, maxLength: number) {
+  const value = headers.get(name);
+  if (value !== null && (!value || value.length > maxLength || value.trim() !== value)) {
+    invalidTravelportRequestHeaders();
+  }
+}
+
+function assertTravelportOAuthRequestHeaders(headers: Headers) {
+  assertAllowedTravelportRequestHeaders(headers, TRAVELPORT_OAUTH_ALLOWED_REQUEST_HEADERS);
+  assertExactOptionalHeader(headers, 'Accept', 'application/json');
+}
+
+function assertTravelportStaysRequestHeaders(
+  headers: Headers,
+  url: URL,
+  method: string,
+  credentials?: TravelportStaysTransportCredentials,
+) {
+  assertAllowedTravelportRequestHeaders(headers, TRAVELPORT_STAYS_ALLOWED_REQUEST_HEADERS);
+  assertExactOptionalHeader(headers, 'Accept', 'application/json');
+  assertExactOptionalHeader(headers, 'Accept-Encoding', 'gzip, deflate');
+  assertExactOptionalHeader(headers, 'Cache-Control', 'no-cache');
+  assertExactOptionalHeader(headers, 'Content-Type', 'application/json');
+
+  const authorization = headers.get('Authorization');
+  if (
+    authorization !== null
+    && (
+      authorization.length > MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH
+      || !/^Bearer \S+$/.test(authorization)
+    )
+  ) {
+    invalidTravelportRequestHeaders();
+  }
+
+  for (const [name, maxLength] of Object.entries(TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS)) {
+    assertBoundedOptionalHeader(headers, name, maxLength);
+  }
+
+  if (
+    credentials
+    && (
+      headers.get('username') !== credentials.username
+      || headers.get('password') !== credentials.password
+      || headers.get('client_id') !== credentials.clientId
+      || headers.get('client_secret') !== credentials.clientSecret
+      || headers.get('XAUTH_TRAVELPORT_ACCESSGROUP') !== credentials.accessGroup
+    )
+  ) {
+    invalidTravelportRequestHeaders();
+  }
+
+  const cacheControl = headers.get('TVP-Cache-Control');
+  if (
+    cacheControl !== null
+    && (
+      cacheControl.trim().toLowerCase() !== 'no-cache'
+      || method !== 'POST'
+      || url.pathname !== TRAVELPORT_STAYS_ENDPOINTS.searchComplete
+      || url.search !== ''
+    )
+  ) {
+    invalidTravelportRequestHeaders();
   }
 }
 
@@ -434,6 +568,7 @@ function travelportRequestInit(init: RequestInit | undefined, headers: Headers):
 
 export function createTravelportStaysTraceFetch(input: Readonly<{
   environment: TravelportStaysTransportEnvironment;
+  credentials?: TravelportStaysTransportCredentials;
   fetchImpl?: typeof fetch;
 }>): typeof fetch {
   const targets = transportTargets(input.environment);
@@ -459,7 +594,8 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       ) {
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
-      assertTravelportOAuthRequestBody(body, headers);
+      assertTravelportOAuthRequestHeaders(headers);
+      assertTravelportOAuthRequestBody(body, headers, input.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
       const response = await fetchImpl(requestInput, travelportRequestInit(init, headers));
@@ -479,6 +615,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     }
 
     assertSupportedTravelportStaysRequest(url, method);
+    assertTravelportStaysRequestHeaders(headers, url, method, input.credentials);
     assertTravelportStaysRequestBody(body, headers, method);
 
     if (url.pathname.startsWith('/11/hotel/')) {

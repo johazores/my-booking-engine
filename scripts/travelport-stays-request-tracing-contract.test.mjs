@@ -11,6 +11,11 @@ test('production Travelport adapters and connection tests share the environment-
   assert.match(integration, /createTravelportStaysTraceFetch/);
   assert.match(integration, /environment: normalizedCredentials\.environment/);
   assert.match(integration, /fetchImpl: input\.fetchImpl/);
+  const traceFetchStarts = [...integration.matchAll(/createTravelportStaysTraceFetch\(\{/g)].map((match) => match.index);
+  assert.equal(traceFetchStarts.length, 2);
+  for (const start of traceFetchStarts) {
+    assert.match(integration.slice(start, start + 240), /credentials: normalizedCredentials/);
+  }
   assert.match(integration, /probeTravelportStaysIntegrationHealth\(\{[\s\S]*fetchImpl/);
   assert.match(integration, /const fetchImpl = createTravelportStaysTraceFetch\(\{[\s\S]*environment: normalizedCredentials\.environment/);
 
@@ -59,7 +64,7 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /travelportRequestInit\(init, headers\)/);
 });
 
-test('trace transport owns sensitive Fetch request metadata', () => {
+test('trace transport owns sensitive Fetch request metadata and header channels', () => {
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
   assert.match(trace, /function travelportRequestInit\(init: RequestInit \| undefined, headers: Headers\): RequestInit/);
   assert.match(trace, /cache: 'no-store'/);
@@ -70,11 +75,23 @@ test('trace transport owns sensitive Fetch request metadata', () => {
   assert.match(trace, /keepalive: false/);
   assert.match(trace, /integrity: ''/);
   assert.match(trace, /TRAVELPORT_FORBIDDEN_REQUEST_HEADERS/);
+  assert.match(trace, /TRAVELPORT_OAUTH_ALLOWED_REQUEST_HEADERS/);
+  assert.match(trace, /TRAVELPORT_STAYS_ALLOWED_REQUEST_HEADERS/);
+  assert.match(trace, /TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS/);
+  assert.match(trace, /MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH/);
+  assert.match(trace, /assertAllowedTravelportRequestHeaders/);
+  assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers\)/);
+  assert.match(trace, /assertTravelportStaysRequestHeaders\(headers, url, method, input\.credentials\)/);
+  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, input\.credentials\)/);
+  assert.match(trace, /body\.get\('client_id'\) !== credentials\.clientId/);
+  assert.match(trace, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
   assert.match(trace, /'content-encoding'/);
   assert.match(trace, /'content-range'/);
   assert.match(trace, /'expect'/);
   assert.match(trace, /'origin'/);
   assert.match(trace, /'referer'/);
+  assert.match(trace, /cacheControl\.trim\(\)\.toLowerCase\(\) !== 'no-cache'/);
+  assert.match(trace, /url\.pathname !== TRAVELPORT_STAYS_ENDPOINTS\.searchComplete/);
 });
 
 test('trace transport bounds adapter-owned request body representations without parsing sensitive JSON', () => {
@@ -93,7 +110,7 @@ test('trace transport bounds adapter-owned request body representations without 
   assert.match(trace, /hasJsonObjectEnvelope\(body\)/);
   assert.match(trace, /hasUtf8ByteLengthAtMost\(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES\)/);
   assert.match(trace, /if \(method === 'GET'\)/);
-  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers\)/);
+  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, input\.credentials\)/);
   assert.match(trace, /assertTravelportStaysRequestBody\(body, headers, method\)/);
   assert.doesNotMatch(trace, /JSON\.parse\(body\)/);
   assert.doesNotMatch(trace, /JSON\.stringify\(body\)/);
@@ -149,6 +166,11 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`credentials: 'omit'`/);
   assert.match(doc, /referrerPolicy: 'no-referrer'/);
   assert.match(doc, /`keepalive: false`/);
+  assert.match(doc, /route-specific header allowlist/);
+  assert.match(doc, /Any other caller header/);
+  assert.match(doc, /same length ceilings as server-side credential normalization/);
+  assert.match(doc, /must exactly match the configured integration before provider I\/O/);
+  assert.match(doc, /`TVP-Cache-Control` is accepted only as `no-cache`/);
   assert.match(doc, /OAuth request body must remain the adapter-owned `URLSearchParams` password-grant form/);
   assert.match(doc, /at most 4 MiB of UTF-8 payload/);
   assert.match(doc, /Bodyless OAuth or Stays `POST` requests/);
