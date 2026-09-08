@@ -24,7 +24,10 @@ import {
   createTravelportStaysReservationCreateProviderObservation,
   type TravelportStaysReservationCreateProviderResult,
 } from './travelport-stays-reservation-create-observability.ts';
-import type { TravelportStaysSensitiveReservationPaymentCard } from './travelport-stays-reservation-create-executor.ts';
+import {
+  acquireTravelportStaysReservationPaymentCard,
+  type TravelportStaysReservationPaymentCardSource,
+} from './travelport-stays-reservation-payment-card-source.ts';
 import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
@@ -103,17 +106,19 @@ TravelportStaysReservationCreateProviderResult {
 /**
  * Server-only orchestration for the currently implemented single-room Travelport create path.
  *
- * This is deliberately not exposed by a route/action and does not establish a PCI-safe card
- * collection source. Sensitive card material is accepted only as an ephemeral adapter input and
- * is never added to the supplier operation ledger, audits, or structured provider observations.
+ * The ordinary request input never carries form-of-payment secrets. A separately supplied
+ * server capability acquires one ephemeral card only after tenant, integration, and fresh
+ * reservation authority have been verified. No route/action currently provides that capability.
  */
-export async function createTravelportStaysReservationWithSensitivePaymentCard(input: Readonly<{
-  organizationId: string;
-  actorUserId: string;
-  reservationId: string;
-  traveler: HospitalitySupplierReservationTravelerPayloadInput;
-  paymentCard: TravelportStaysSensitiveReservationPaymentCard;
-}>) {
+export async function createTravelportStaysReservationWithSensitivePaymentCard(
+  input: Readonly<{
+    organizationId: string;
+    actorUserId: string;
+    reservationId: string;
+    traveler: HospitalitySupplierReservationTravelerPayloadInput;
+  }>,
+  paymentCardSource: TravelportStaysReservationPaymentCardSource,
+) {
   const reviewed = await reviewAndClaimHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,
@@ -150,11 +155,19 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(i
   const observationState: { current: ReturnType<typeof createTravelportStaysReservationCreateProviderObservation> | null } = { current: null };
   let createOutcome;
   try {
+    const paymentCard = await acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
+      organizationId: input.organizationId,
+      reservationId: input.reservationId,
+      integrationId: execution.integration.id,
+      integrationCredentialVersion: execution.integration.credentialVersion,
+      attemptId: claim.attempt.id,
+      purpose: 'INITIAL_CREATE',
+    });
     createOutcome = await execution.reservationCreateExecutor.createReservation({
       requestCorrelationId: claim.attempt.id,
       requestMaterial: reviewed.createRequestMaterial,
       paymentAuthority: reviewed.submissionAuthority.paymentAuthority,
-      paymentCard: input.paymentCard,
+      paymentCard,
       expectedReservation,
       beforeProviderRequest: async () => {
         await markHospitalitySupplierReservationProviderRequestStarted({
