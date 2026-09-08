@@ -6,14 +6,14 @@ import test from 'node:test';
 const root = process.cwd();
 const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('Travelport create coordinator uses fresh authority, exact current integration, durable marker, and ledger settlement in order', () => {
+test('Travelport create coordinator uses fresh authority, exact current integration, deferred card source, durable marker, and ledger settlement in order', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
   const review = coordinator.indexOf('await reviewAndClaimHospitalitySupplierReservationSubmission');
   const reload = coordinator.indexOf('await loadTravelportStaysIntegration', review);
   const exactMatch = coordinator.indexOf('assertExecutionIntegrationStillMatches', reload);
-  const paymentSource = coordinator.indexOf('await acquireTravelportStaysReservationPaymentCard', exactMatch);
-  const providerCall = coordinator.indexOf('await execution.reservationCreateExecutor.createReservation', paymentSource);
-  const marker = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', providerCall);
+  const providerCall = coordinator.indexOf('await execution.reservationCreateExecutor.createReservation', exactMatch);
+  const paymentSource = coordinator.indexOf('acquirePaymentCard: () => acquireTravelportStaysReservationPaymentCard', providerCall);
+  const marker = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', paymentSource);
   const reviewSettlement = coordinator.indexOf('settleHospitalitySupplierReservationReviewRequired', marker);
   const map = coordinator.indexOf('travelportStaysCreateOutcomeToSubmissionOutcome', reviewSettlement);
   const settle = coordinator.indexOf('settleHospitalitySupplierReservationSubmission', map);
@@ -22,9 +22,9 @@ test('Travelport create coordinator uses fresh authority, exact current integrat
     review >= 0
       && reload > review
       && exactMatch > reload
-      && paymentSource > exactMatch
-      && providerCall > paymentSource
-      && marker > providerCall
+      && providerCall > exactMatch
+      && paymentSource > providerCall
+      && marker > paymentSource
       && reviewSettlement > marker
       && map > reviewSettlement
       && settle > map,
@@ -63,19 +63,26 @@ test('documented price and guarantee changes persist as dedicated review-require
   assert.doesNotMatch(coordinator, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('sensitive form of payment is sourced after authority instead of entering the coordinator request', () => {
+test('sensitive form of payment is a deferred source callback instead of coordinator input state', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
   const paymentSource = source('src/server/suppliers/travelport-stays-reservation-payment-card-source.ts');
   const observability = source('src/server/suppliers/travelport-stays-reservation-create-observability.ts');
   const integration = source('src/server/suppliers/travelport-stays-provider.ts');
 
   assert.match(coordinator, /paymentCardSource: TravelportStaysReservationPaymentCardSource/);
+  assert.match(coordinator, /acquirePaymentCard: \(\) => acquireTravelportStaysReservationPaymentCard/);
   assert.match(coordinator, /purpose: 'INITIAL_CREATE'/);
-  assert.match(coordinator, /paymentCard,/);
+  assert.doesNotMatch(coordinator, /const paymentCard = await acquireTravelportStaysReservationPaymentCard/);
   assert.doesNotMatch(coordinator, /paymentCard:\s*TravelportStaysSensitiveReservationPaymentCard|paymentCard:\s*input\.paymentCard/);
   assert.doesNotMatch(coordinator, /JSON\.stringify\(input|console\.(?:info|warn|error)\(.*input|afterData:[\s\S]{0,300}paymentCard/);
 
+  const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()');
+  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  assert.ok(tokenIndex >= 0 && sourceIndex > tokenIndex);
+
   assert.match(paymentSource, /acquirePaymentCard\(/);
+  assert.match(paymentSource, /assertUuidIdentifier/);
   assert.match(paymentSource, /organizationId:/);
   assert.match(paymentSource, /reservationId:/);
   assert.match(paymentSource, /integrationId:/);
@@ -106,6 +113,7 @@ test('create coordinator documentation keeps PCI, review acceptance, and capabil
   assert.match(document, /REVIEW_REQUIRED/);
   assert.match(document, /PCI-safe/i);
   assert.match(document, /separately authorized price\/guarantee-change acceptance/i);
+  assert.match(document, /OAuth[\s\S]{0,300}(?:before|prior to)[\s\S]{0,300}(?:payment-card source|form-of-payment|PAN|CVV)/i);
 });
 
 test('direct create-path documentation reflects the implemented executor and coordinator without enabling reservation', () => {

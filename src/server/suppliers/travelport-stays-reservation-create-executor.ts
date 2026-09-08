@@ -108,7 +108,7 @@ type TravelportStaysReservationCreateExecutionInput = Readonly<{
   requestCorrelationId: string;
   requestMaterial: TravelportStaysReservationCreateRequestMaterial;
   paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
-  paymentCard: TravelportStaysSensitiveReservationPaymentCard;
+  acquirePaymentCard: () => Promise<TravelportStaysSensitiveReservationPaymentCard>;
   expectedReservation: TravelportStaysCreateExpectedReservation;
   beforeProviderRequest: () => Promise<void>;
 }>;
@@ -422,25 +422,34 @@ export class TravelportStaysReservationCreateExecutor {
     if (!SF_TRACE_ID_PATTERN.test(input.requestCorrelationId)) {
       invalidRequest('Travelport reservation request correlation ID is invalid.');
     }
+    if (typeof input.acquirePaymentCard !== 'function') {
+      invalidRequest('Travelport reservation payment-card acquisition callback is required.');
+    }
     if (typeof input.beforeProviderRequest !== 'function') {
       invalidRequest('Travelport reservation provider-request marker is required.');
     }
 
     assertExpectedReservation(input.expectedReservation);
+    assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
+    const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
+    const accessToken = await this.#accessToken();
+
+    // Do not acquire PAN/CVV until provider authentication has succeeded. Sensitive form-of-payment
+    // material then exists only for the final request-composition window immediately before the
+    // durable provider-request marker and commercial POST.
+    const paymentCard = await input.acquirePaymentCard();
     const requestBody = buildTravelportStaysReservationCreateRequest({
       requestMaterial: input.requestMaterial,
       paymentAuthority: input.paymentAuthority,
-      paymentCard: input.paymentCard,
+      paymentCard,
       validThroughDateLocal: input.expectedReservation.departureDateLocal,
       now: this.#now(),
     });
-    const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
-    const accessToken = await this.#accessToken();
     const serializedBody = JSON.stringify(requestBody);
 
-    // All validation, sensitive request composition, reviewed query selection, and OAuth happen
-    // before the durable provider-request marker. Once the marker succeeds, every transport
-    // uncertainty must settle as ambiguous instead of allowing a blind create retry.
+    // All deterministic validation, reviewed query selection, OAuth, and sensitive request
+    // composition happen before the durable provider-request marker. Once the marker succeeds,
+    // every transport uncertainty must settle as ambiguous instead of allowing a blind retry.
     await input.beforeProviderRequest();
 
     const controller = new AbortController();

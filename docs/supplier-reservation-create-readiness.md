@@ -24,7 +24,9 @@ The request material is ephemeral server-only data. It does not include `FormOfP
 
 ## Server-only Travelport Create executor
 
-The provider adapter has a fixed-endpoint v11 Create Reservation executor for the documented reference-payload workflow. It composes `ReservationQueryBuild` from fresh non-secret request material plus one ephemeral payment-card value. It validates card code, type, expiry through the durable stay, PAN/cardholder/security-code shape, optional billing address/telephone, and current accepted-card authority before the provider request marker can succeed.
+The provider adapter has a fixed-endpoint v11 Create Reservation executor for the documented reference-payload workflow. Before asking for sensitive form-of-payment, it validates the non-secret reservation/payment authority and reviewed query selection and completes Travelport OAuth. OAuth therefore completes before the payment-card source is invoked. Only after OAuth succeeds does the executor validate the returned card, compose and serialize the final request, record the durable provider-request marker, and start the POST.
+
+This ordering keeps PAN/CVV out of the authentication/retry window and means an OAuth failure never asks the external payment-card source for card material. The final card checks include the freshly accepted one-to-two-character provider card code, credit-card type, cardholder/PAN/security-code shape, expiry through the reservation departure date, and bounded optional billing address and telephone details.
 
 The initial Create never sends `acceptPriceChangeInd` or `acceptGuaranteeChangeInd`. The reviewed second Create sends only the accepted `true` flag or flags after a durable commercial-review decision has been freshly revalidated and atomically consumed.
 
@@ -32,7 +34,7 @@ The executor is intentionally not a card-collection strategy. Raw PAN/CVV storag
 
 ## Explicit ephemeral payment-card source contract
 
-Raw card data is no longer part of the initial or reviewed coordinator request objects. Both coordinators require a separate `TravelportStaysReservationPaymentCardSource` server capability.
+Raw card data is not part of the initial or reviewed coordinator request objects. Both coordinators provide a deferred `TravelportStaysReservationPaymentCardSource` server capability to the provider executor rather than acquiring a card before provider authentication.
 
 The source receives only:
 
@@ -43,17 +45,17 @@ The source receives only:
 - exact reservation attempt ID; and
 - a fixed purpose of `INITIAL_CREATE` or `REVIEW_ACCEPTANCE_CREATE`.
 
-`acquireTravelportStaysReservationPaymentCard` validates that non-sensitive execution context and fails closed when the source capability is absent, the context is malformed, or no usable card object is returned. Provider-specific card/payment validation remains inside the Travelport adapter against current Rules/Availability-derived payment authority.
+Every identifier in this sensitive-source context must be a valid UUID. `acquireTravelportStaysReservationPaymentCard` also validates the credential version and fixed purpose and fails closed when the source capability is absent, the context is malformed, or no usable card object is returned. Provider-specific card/payment validation remains inside the Travelport adapter against current Rules/Availability-derived payment authority.
 
-For the initial Create, the source is not invoked until the authoritative tenant/traveler/commercial gate has claimed the exact Create attempt and the active Travelport integration identity/credential version has been rechecked. A source failure is therefore a pre-provider failure and cannot create supplier-write ambiguity.
+For the initial Create, the source callback is not invoked until the authoritative tenant/traveler/commercial gate has claimed the exact Create attempt, the active Travelport integration identity/credential version has been rechecked, non-secret request authority is valid, and OAuth has succeeded. A source failure is therefore a pre-provider failure and cannot create supplier-write ambiguity.
 
-For a reviewed second Create, the source is not invoked until the stored acceptance has been reconstructed, fresh accepted commercial authority has been revalidated, current request material has been rebuilt, and the exact Travelport integration identity has been rechecked. If source acquisition fails, no second Create attempt has been consumed and the accepted review remains available for a later authorized attempt.
+For a reviewed second Create, the source callback is not invoked until the stored acceptance has been reconstructed, fresh accepted commercial authority has been revalidated, current request material has been rebuilt, the exact Travelport integration identity has been rechecked, and OAuth has succeeded. If OAuth, source acquisition, or deterministic card validation fails, no second Create attempt has been consumed and the accepted review remains available for a later authorized attempt.
 
 This source contract narrows the sensitive-data boundary; it does **not** complete the PCI gate. The repository deliberately contains no fake vault, hosted-field flow, token exchange, collection route, or mock production payment integration. A concrete source must still be implemented/reviewed for the actually provisioned Travelport commercial account.
 
 ## Authorized create coordinator
 
-`createTravelportStaysReservationWithSensitivePaymentCard` connects the fresh authority gate, durable create claim, exact current integration/credential version, explicit payment-card source capability, Travelport executor, provider-request marker, normalized outcome bridge, and durable settlement ledger.
+`createTravelportStaysReservationWithSensitivePaymentCard` connects the fresh authority gate, durable create claim, exact current integration/credential version, deferred payment-card source capability, Travelport executor, provider-request marker, normalized outcome bridge, and durable settlement ledger.
 
 Failures before the durable provider-request marker are duplicate-safe because the supplier write did not cross the protected boundary, but automatic retry still requires explicit provider-neutral retry authority. Only rate limiting, provider unavailability, and timeout are persisted as retryable. Authentication failures, invalid request/response authority, integration/configuration drift, invalid payment-source context, and unexpected application failures are non-retryable.
 
@@ -63,7 +65,7 @@ If an executor ever returns a commercial outcome without invoking its protected 
 
 A definitive Travelport price/guarantee change becomes `REVIEW_REQUIRED`. Explicit acceptance is actor-bound and fingerprinted against the exact price/guarantee dimensions, amount/currency, offer, terms, authority, traveler, integration, and review attempt.
 
-`createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard` repeats fresh accepted authority, acquires its ephemeral card through the same source contract with `REVIEW_ACCEPTANCE_CREATE`, and invokes the reviewed executor. The provider-request callback then atomically archives the accepted decision, creates the next Create attempt, marks the provider request, and clears the active acceptance slot immediately before the second POST. Normal retry cannot reach this path.
+`createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard` repeats fresh accepted authority and delegates deferred form-of-payment acquisition to the reviewed executor. The executor completes OAuth first, then obtains and validates the ephemeral card. Its provider-request callback atomically archives the accepted decision, creates the next Create attempt, marks the provider request, and clears the active acceptance slot immediately before the second POST. Normal retry cannot reach this path.
 
 If the second provider response reports another commercial change, a new `REVIEW_REQUIRED` cycle is created. Prior accepted evidence remains immutable history.
 

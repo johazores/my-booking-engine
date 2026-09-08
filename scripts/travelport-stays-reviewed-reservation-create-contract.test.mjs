@@ -6,27 +6,28 @@ import test from 'node:test';
 const root = process.cwd();
 const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('reviewed second sell consumes one accepted decision only at the provider-request boundary', () => {
+test('reviewed second sell defers card acquisition and consumes one accepted decision only at the provider-request boundary', () => {
   const coordinator = source('src/server/suppliers/travelport-stays-reservation-reviewed-create-service.ts');
   const consumption = source('src/server/suppliers/hospitality-supplier-reservation-review-consumption-service.ts');
 
   const reviewIndex = coordinator.indexOf('reviewTravelportStaysReservationAcceptedCommercialAuthority');
   const requestMaterialIndex = coordinator.indexOf('buildTravelportStaysReservationCreateRequestMaterial', reviewIndex);
-  const paymentSourceIndex = coordinator.indexOf('acquireTravelportStaysReservationPaymentCard', requestMaterialIndex);
-  const executorIndex = coordinator.indexOf('createReservationAfterAcceptedReview', paymentSourceIndex);
-  const consumeIndex = coordinator.indexOf('consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest', executorIndex);
+  const executorIndex = coordinator.indexOf('createReservationAfterAcceptedReview', requestMaterialIndex);
+  const paymentSourceIndex = coordinator.indexOf('acquirePaymentCard: () => acquireTravelportStaysReservationPaymentCard', executorIndex);
+  const consumeIndex = coordinator.indexOf('consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest', paymentSourceIndex);
   assert.ok(
     reviewIndex >= 0
       && requestMaterialIndex > reviewIndex
-      && paymentSourceIndex > requestMaterialIndex
-      && executorIndex > paymentSourceIndex
-      && consumeIndex > executorIndex,
+      && executorIndex > requestMaterialIndex
+      && paymentSourceIndex > executorIndex
+      && consumeIndex > paymentSourceIndex,
   );
 
   assert.match(coordinator, /const attemptId = randomUUID\(\)/);
   assert.match(coordinator, /expectedAcceptanceFingerprint: reviewed\.storedAcceptance\.acceptance\.acceptanceFingerprint/);
   assert.match(coordinator, /acceptedReview,/);
   assert.match(coordinator, /purpose: 'REVIEW_ACCEPTANCE_CREATE'/);
+  assert.doesNotMatch(coordinator, /const paymentCard = await acquireTravelportStaysReservationPaymentCard/);
   assert.doesNotMatch(coordinator, /paymentCard:\s*TravelportStaysSensitiveReservationPaymentCard|paymentCard:\s*input\.paymentCard/);
   assert.doesNotMatch(coordinator, /reviewAndClaimHospitalitySupplierReservationSubmission/);
   assert.doesNotMatch(coordinator, /markHospitalitySupplierReservationProviderRequestStarted/);
@@ -97,7 +98,7 @@ test('consumption preserves accepted evidence and clears only the active accepta
   assert.match(migration, /SUPPLIER_PRICE_AND_GUARANTEE_CHANGED/);
 });
 
-test('reviewed executor sends only explicitly accepted Travelport second-request query flags', () => {
+test('reviewed executor authenticates before acquiring card and sends only explicitly accepted second-request query flags', () => {
   const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
 
   const initialStart = executor.indexOf('async createReservation(input:');
@@ -113,12 +114,22 @@ test('reviewed executor sends only explicitly accepted Travelport second-request
   assert.doesNotMatch(executor, /acceptPriceChangeInd[^\n]*false|acceptGuaranteeChangeInd[^\n]*false/);
   assert.match(executor, /\(!acceptedReview\.acceptPriceChange && !acceptedReview\.acceptGuaranteeChange\)/);
 
-  const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest');
-  const urlIndex = executor.indexOf('const reservationUrl = reviewedReservationBuildUrl', requestIndex);
+  const authorityIndex = executor.indexOf('assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority)', commonStart);
+  const urlIndex = executor.indexOf('const reservationUrl = reviewedReservationBuildUrl', authorityIndex);
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()', urlIndex);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', tokenIndex);
+  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest', sourceIndex);
+  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', requestIndex);
   const fetchIndex = executor.indexOf('response = await this.#fetchImpl(reservationUrl', markerIndex);
-  assert.ok(requestIndex >= 0 && urlIndex > requestIndex && tokenIndex > urlIndex && markerIndex > tokenIndex && fetchIndex > markerIndex);
+  assert.ok(
+    authorityIndex >= 0
+      && urlIndex > authorityIndex
+      && tokenIndex > urlIndex
+      && sourceIndex > tokenIndex
+      && requestIndex > sourceIndex
+      && markerIndex > requestIndex
+      && fetchIndex > markerIndex,
+  );
 });
 
 test('reviewed second sell keeps the reservation capability closed and requires an external payment source capability', () => {
@@ -129,7 +140,7 @@ test('reviewed second sell keeps the reservation capability closed and requires 
 
   assert.match(coordinator, /Server-only one-time second-sell path/);
   assert.match(coordinator, /paymentCardSource: TravelportStaysReservationPaymentCardSource/);
-  assert.match(coordinator, /Form-of-payment material is acquired only through a separately supplied server capability/);
+  assert.match(coordinator, /executor then acquires form-of-payment through the separately supplied server capability/);
   assert.match(paymentSource, /This contract[\s\S]*is not a token[\s\S]*or evidence that SF is PCI-ready/);
   assert.match(provider, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\]/);
   assert.doesNotMatch(provider, /capabilities: Object\.freeze\([^\n]*'reservation'/);

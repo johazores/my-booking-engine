@@ -9,11 +9,11 @@ import {
 } from './travelport-stays-reservation-payment-card-source.ts';
 
 const context: TravelportStaysReservationPaymentCardSourceContext = Object.freeze({
-  organizationId: 'organization-1',
-  reservationId: 'reservation-1',
-  integrationId: 'integration-1',
+  organizationId: '11111111-1111-4111-8111-111111111111',
+  reservationId: '22222222-2222-4222-8222-222222222222',
+  integrationId: '33333333-3333-4333-8333-333333333333',
   integrationCredentialVersion: 3,
-  attemptId: 'attempt-1',
+  attemptId: '44444444-4444-4444-8444-444444444444',
   purpose: 'INITIAL_CREATE',
 });
 
@@ -59,7 +59,11 @@ test('payment source fails closed when the capability or execution context is in
     [{}, context],
     [{ acquirePaymentCard: async () => paymentCard }, { ...context, integrationCredentialVersion: 0 }],
     [{ acquirePaymentCard: async () => paymentCard }, { ...context, purpose: 'UNKNOWN' }],
-    [{ acquirePaymentCard: async () => paymentCard }, { ...context, reservationId: ' reservation-1' }],
+    [{ acquirePaymentCard: async () => paymentCard }, { ...context, reservationId: ` ${context.reservationId}` }],
+    [{ acquirePaymentCard: async () => paymentCard }, { ...context, organizationId: 'organization-1' }],
+    [{ acquirePaymentCard: async () => paymentCard }, { ...context, reservationId: 'reservation-1' }],
+    [{ acquirePaymentCard: async () => paymentCard }, { ...context, integrationId: 'integration-1' }],
+    [{ acquirePaymentCard: async () => paymentCard }, { ...context, attemptId: 'attempt-1' }],
   ] as const;
 
   for (const [source, invalidContext] of cases) {

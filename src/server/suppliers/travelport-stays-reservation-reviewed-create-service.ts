@@ -91,10 +91,10 @@ TravelportStaysReservationCreateProviderResult {
  * Server-only one-time second-sell path after an explicit Travelport commercial-review decision.
  *
  * The accepted decision remains REVIEW_REQUIRED until request composition and OAuth finish. The
- * executor callback then atomically archives the decision, creates the next CREATE attempt, clears
- * the active acceptance fields, and sets providerRequestStartedAt immediately before the POST.
- * Form-of-payment material is acquired only through a separately supplied server capability after
- * the accepted authority and exact integration identity are revalidated; it is never persisted.
+ * executor then acquires form-of-payment through the separately supplied server capability and its
+ * provider callback atomically archives the decision, creates the next CREATE attempt, clears the
+ * active acceptance fields, and sets providerRequestStartedAt immediately before the POST. Card
+ * material is never persisted.
  */
 export async function createTravelportStaysReservationAfterAcceptedCommercialReviewWithSensitivePaymentCard(
   input: Readonly<{
@@ -148,19 +148,18 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
   } = { current: null };
   let createOutcome;
   try {
-    const paymentCard = await acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
-      organizationId: input.organizationId,
-      reservationId: input.reservationId,
-      integrationId: execution.integration.id,
-      integrationCredentialVersion: execution.integration.credentialVersion,
-      attemptId,
-      purpose: 'REVIEW_ACCEPTANCE_CREATE',
-    });
     createOutcome = await execution.reservationCreateExecutor.createReservationAfterAcceptedReview({
       requestCorrelationId: attemptId,
       requestMaterial: createRequestMaterial,
       paymentAuthority: reviewed.paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: () => acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
+        organizationId: input.organizationId,
+        reservationId: input.reservationId,
+        integrationId: execution.integration.id,
+        integrationCredentialVersion: execution.integration.credentialVersion,
+        attemptId,
+        purpose: 'REVIEW_ACCEPTANCE_CREATE',
+      }),
       expectedReservation,
       acceptedReview,
       beforeProviderRequest: async () => {

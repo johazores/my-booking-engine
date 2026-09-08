@@ -1,3 +1,4 @@
+import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { TravelportStaysSensitiveReservationPaymentCard } from './travelport-stays-reservation-create-executor.ts';
 
@@ -35,7 +36,11 @@ function requiredIdentifier(value: unknown, label: string) {
   if (typeof value !== 'string' || !value || value.trim() !== value || /[\r\n]/.test(value)) {
     invalidSource(`${label} is invalid.`);
   }
-  return value;
+  try {
+    return assertUuidIdentifier(value, label);
+  } catch {
+    invalidSource(`${label} is invalid.`);
+  }
 }
 
 export async function acquireTravelportStaysReservationPaymentCard(

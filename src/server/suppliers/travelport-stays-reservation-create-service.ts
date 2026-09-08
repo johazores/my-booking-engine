@@ -107,8 +107,9 @@ TravelportStaysReservationCreateProviderResult {
  * Server-only orchestration for the currently implemented single-room Travelport create path.
  *
  * The ordinary request input never carries form-of-payment secrets. A separately supplied
- * server capability acquires one ephemeral card only after tenant, integration, and fresh
- * reservation authority have been verified. No route/action currently provides that capability.
+ * server capability acquires one ephemeral card only after tenant, integration, fresh reservation
+ * authority, and provider authentication have been verified. No route/action currently provides
+ * that capability.
  */
 export async function createTravelportStaysReservationWithSensitivePaymentCard(
   input: Readonly<{
@@ -155,19 +156,18 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
   const observationState: { current: ReturnType<typeof createTravelportStaysReservationCreateProviderObservation> | null } = { current: null };
   let createOutcome;
   try {
-    const paymentCard = await acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
-      organizationId: input.organizationId,
-      reservationId: input.reservationId,
-      integrationId: execution.integration.id,
-      integrationCredentialVersion: execution.integration.credentialVersion,
-      attemptId: claim.attempt.id,
-      purpose: 'INITIAL_CREATE',
-    });
     createOutcome = await execution.reservationCreateExecutor.createReservation({
       requestCorrelationId: claim.attempt.id,
       requestMaterial: reviewed.createRequestMaterial,
       paymentAuthority: reviewed.submissionAuthority.paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: () => acquireTravelportStaysReservationPaymentCard(paymentCardSource, {
+        organizationId: input.organizationId,
+        reservationId: input.reservationId,
+        integrationId: execution.integration.id,
+        integrationCredentialVersion: execution.integration.credentialVersion,
+        attemptId: claim.attempt.id,
+        purpose: 'INITIAL_CREATE',
+      }),
       expectedReservation,
       beforeProviderRequest: async () => {
         await markHospitalitySupplierReservationProviderRequestStarted({
