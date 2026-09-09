@@ -174,7 +174,7 @@ test('retrieve verification binds the known locator to the durable property, sta
   );
 });
 
-test('retrieve semantic evidence requires exactly one matching hospitality segment', () => {
+test('retrieve semantic evidence requires exactly one matching active hospitality segment', () => {
   const duplicate = response();
   duplicate.ReservationResponse.Reservation.Offer.push({
     '@type': 'Offer',
@@ -188,6 +188,37 @@ test('retrieve semantic evidence requires exactly one matching hospitality segme
   });
   assert.throws(
     () => parseTravelportStaysReservationResponse(duplicate, { expectedReservation }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('retrieve ignores documented passive hospitality placeholders but rejects malformed passive-offer evidence', () => {
+  const activeWithPassive = response();
+  const activeWithPassiveOffers = activeWithPassive.ReservationResponse.Reservation.Offer as Array<Record<string, unknown>>;
+  activeWithPassiveOffers[0]!.passiveOfferInd = false;
+  activeWithPassiveOffers.push({
+    '@type': 'Offer',
+    passiveOfferInd: true,
+    Product: [{
+      '@type': 'ProductHospitality',
+      Quantity: 1,
+      DateRange: { start: '2026-11-01', end: '2026-11-02' },
+    }],
+  });
+
+  const recovered = parseTravelportStaysReservationResponse(activeWithPassive, {
+    expectedProviderReservationReference: 'D6VBHL',
+    expectedReservation,
+    requireConfirmedTravelportReceipt: true,
+  });
+  assert.equal(recovered.providerReservationReference, 'D6VBHL');
+  assert.equal(recovered.supplierConfirmationReference, '80073065');
+
+  const malformedPassiveFlag = response();
+  const malformedOffers = malformedPassiveFlag.ReservationResponse.Reservation.Offer as Array<Record<string, unknown>>;
+  malformedOffers[0]!.passiveOfferInd = 'false';
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(malformedPassiveFlag, { expectedReservation }),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
 });

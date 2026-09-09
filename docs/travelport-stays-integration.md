@@ -82,7 +82,9 @@ See `docs/travelport-booking-sync-recovery-authority.md`.
 
 ## Known-locator reservation recovery
 
-`TravelportStaysReservationRecoveryProvider` implements Hotel Retrieve by Travelport locator using the same tenant integration credentials. `FOUND` requires exactly one valid Travelport PNR Locator receipt matching the requested durable locator and expected property/stay/room/guest identity. Repeated identical PNR receipts and malformed relevant PNR evidence fail closed. Generic HTTP 404 is not treated as authoritative non-existence unless the provider contract proves it.
+`TravelportStaysReservationRecoveryProvider` implements Hotel Retrieve by Travelport locator using the same tenant integration credentials. `FOUND` requires exactly one valid Travelport PNR Locator receipt matching the requested durable locator and exactly one non-passive hotel segment matching the expected property/stay/room/guest identity. Repeated identical PNR receipts and malformed relevant PNR evidence fail closed. Generic HTTP 404 is not treated as authoritative non-existence unless the provider contract proves it.
+
+Travelport's current Retrieve documentation includes a valid response containing an active offer and a placeholder passive offer. The recovery parser therefore excludes an offer only when `passiveOfferInd=true`; a present non-null passive indicator must be boolean. The documented passive placeholder cannot create false extra-hotel ambiguity, while a second non-passive, unclassified, mismatched, or malformed hotel segment still fails closed. This read-only compatibility rule does not broaden Create Reservation or Booking.com Sync confirmation, which continue to use the independent stricter commercial-write classifier.
 
 `reconcileHospitalitySupplierReservationWithProvider` claims the tenant-scoped read-only `RECONCILE` attempt before provider I/O. Locator-less ambiguity cannot enter this path.
 
@@ -106,7 +108,7 @@ The write preflight is validation only: its terminal transport performs no netwo
 
 ## Validation boundary
 
-Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, relevant receipt cardinality/status/malformed evidence, known-locator recovery, initial Create, payment-source isolation, crash-safe provider markers, write-transport preflight ordering, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
+Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, relevant receipt cardinality/status/malformed evidence, known-locator recovery including documented active-plus-passive placeholder responses and malformed passive indicators, initial Create, payment-source isolation, crash-safe provider markers, write-transport preflight ordering, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database. Live provider verification still requires provisioned Travelport non-production credentials.
 

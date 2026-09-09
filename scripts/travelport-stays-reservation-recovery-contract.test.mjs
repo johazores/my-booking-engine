@@ -24,12 +24,12 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   assert.match(coordinator, /childAges: Object\.freeze\(\[\.\.\.claim\.reservation\.childAges\]\)/);
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id,[\s\S]*?expectedReservation/);
   assert.match(adapter, /book\/reservations\/\$\{encodeURIComponent\(reference\)\}/);
-  assert.match(adapter, /normalizeExpectedReservation\(input\.expectedReservation\)/);
+  assert.match(adapter, /normalizeTravelportStaysReservationExpectation\(input\.expectedReservation\)/);
   assert.match(adapter, /expectedReservation,/);
   assert.match(responseParser, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
   assert.match(responseParser, /exactly one Travelport PNR locator/i);
-  assert.match(responseParser, /hospitalitySegments !== 1 \|\| matches !== 1/);
-  assert.match(responseParser, /exactly one hospitality segment matching the durable reservation request/i);
+  assert.match(responseParser, /activeHospitalitySegments !== 1 \|\| matches !== 1/);
+  assert.match(responseParser, /exactly one active hospitality segment matching the durable reservation request/i);
 });
 
 test('Travelport recovery maps durable request correlation into supportable provider headers', () => {
@@ -39,23 +39,29 @@ test('Travelport recovery maps durable request correlation into supportable prov
   assert.match(adapter, /TraceId: requestCorrelationId/);
   assert.match(adapter, /'Content-Type': 'application\/json'/);
   const correlationValidation = adapter.indexOf("'Request correlation ID'");
-  const expectationValidation = adapter.indexOf('normalizeExpectedReservation(input.expectedReservation)');
+  const expectationValidation = adapter.indexOf('normalizeTravelportStaysReservationExpectation(input.expectedReservation)');
   const accessTokenRequest = adapter.indexOf('await this.#accessToken()', expectationValidation);
   assert.ok(correlationValidation >= 0 && expectationValidation > correlationValidation, 'reservation expectation must be validated after correlation');
   assert.ok(accessTokenRequest > expectationValidation, 'reservation expectation must be validated before provider I/O');
 });
 
-test('Travelport recovery confirms only one total hospitality segment matching durable property, stay, room, and guest identity', () => {
+test('Travelport recovery confirms one active hospitality segment while excluding explicit passive placeholders', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
+  const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(parser, /product\['@type'\] !== 'ProductHospitality'/);
+  assert.match(parser, /const passiveOfferInd = offer\.passiveOfferInd/);
+  assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
+  assert.match(parser, /if \(passiveOfferInd === true\) continue/);
   assert.match(parser, /chainCode === expected\.chainCode/);
   assert.match(parser, /propertyCode === expected\.propertyCode/);
   assert.match(parser, /arrivalDateLocal === expected\.arrivalDateLocal/);
   assert.match(parser, /departureDateLocal === expected\.departureDateLocal/);
   assert.match(parser, /product\.Quantity === expected\.rooms/);
   assert.match(parser, /product\.guests === expected\.guests/);
-  assert.match(parser, /if \(hospitalitySegments !== 1 \|\| matches !== 1\)/);
+  assert.match(parser, /if \(activeHospitalitySegments !== 1 \|\| matches !== 1\)/);
   assert.doesNotMatch(parser, /PersonName|CardNumber|PaymentCard|FormOfPayment/);
+  assert.match(createClassifier, /hospitalitySegments !== 1/);
+  assert.doesNotMatch(createClassifier, /passiveOfferInd === true/);
 });
 
 test('Travelport recovery adapter is read-only and generic HTTP 404 cannot authorize another create', () => {
@@ -109,7 +115,8 @@ test('supplier source-of-truth docs describe the implemented server-only write b
   assert.match(recoveryIdentityDoc, /stay dates/i);
   assert.match(recoveryIdentityDoc, /room quantity/i);
   assert.match(recoveryIdentityDoc, /guest count/i);
-  assert.match(recoveryIdentityDoc, /exactly one total `ProductHospitality` segment/i);
+  assert.match(recoveryIdentityDoc, /exactly one non-passive `ProductHospitality` segment/i);
+  assert.match(recoveryIdentityDoc, /passiveOfferInd=true/i);
   assert.match(recoveryIdentityDoc, /does not enable|does not advertise/i);
 
   assert.doesNotMatch(gdsDoc, /dedicated one-time claim\/consumption boundary[\s\S]*remain intentionally closed/i);

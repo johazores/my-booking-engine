@@ -97,17 +97,31 @@ function assertExpectedReservationMatch(
   }
 
   let matches = 0;
-  let hospitalitySegments = 0;
+  let activeHospitalitySegments = 0;
   for (const offerValue of offers) {
     if (!offerValue || typeof offerValue !== 'object' || Array.isArray(offerValue)) continue;
-    const products = (offerValue as RecordValue).Product;
+    const offer = offerValue as RecordValue;
+    const passiveOfferInd = offer.passiveOfferInd;
+    if (
+      passiveOfferInd !== undefined
+      && passiveOfferInd !== null
+      && typeof passiveOfferInd !== 'boolean'
+    ) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained malformed passive-offer evidence.',
+      );
+    }
+
+    const products = offer.Product;
     if (!Array.isArray(products) || products.length > MAX_PRODUCTS_PER_OFFER) continue;
+    if (passiveOfferInd === true) continue;
 
     for (const productValue of products) {
       if (!productValue || typeof productValue !== 'object' || Array.isArray(productValue)) continue;
       const product = productValue as RecordValue;
       if (product['@type'] !== 'ProductHospitality') continue;
-      hospitalitySegments += 1;
+      activeHospitalitySegments += 1;
       if (!product.PropertyKey || !product.DateRange) continue;
       const propertyKey = record(product.PropertyKey);
       const dateRange = record(product.DateRange);
@@ -128,10 +142,10 @@ function assertExpectedReservationMatch(
     }
   }
 
-  if (hospitalitySegments !== 1 || matches !== 1) {
+  if (activeHospitalitySegments !== 1 || matches !== 1) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
-      'Travelport reservation response did not contain exactly one hospitality segment matching the durable reservation request.',
+      'Travelport reservation response did not contain exactly one active hospitality segment matching the durable reservation request.',
     );
   }
 }

@@ -22,14 +22,18 @@ No traveler identity, customer contact data, payment/card material, credentials,
 
 ## Travelport matching
 
-Travelport Hotel Retrieve still requires the exact durable aggregator locator. In addition, the Travelport adapter decodes the existing SF property reference and requires the retrieved reservation to contain exactly one `ProductHospitality` segment, and that single segment must match the durable request across:
+Travelport Hotel Retrieve still requires the exact durable aggregator locator. In addition, the Travelport adapter decodes the existing SF property reference and requires the retrieved reservation to contain exactly one non-passive `ProductHospitality` segment, and that active segment must match the durable request across:
 
 - Travelport property identity (`chainCode` and `propertyCode`);
 - stay dates (`DateRange.start` and `DateRange.end`);
 - room quantity (`Quantity`); and
 - total guest count (`guests`, derived from adults plus child count).
 
-Travelport can return non-hospitality content in a multi-content PNR, and those products do not count as Stays identity evidence. A second, mismatched, or malformed `ProductHospitality` segment is contradictory evidence and fails closed; it is not ignored merely because another hotel segment matches. Zero hospitality segments, multiple hospitality segments, or one hospitality segment that does not exactly match the durable request are `INVALID_RESPONSE` and remain fail-closed through the existing `UNKNOWN -> AMBIGUOUS` reconciliation path.
+Travelport's current Retrieve documentation explicitly shows a reservation containing one active offer and one placeholder passive offer. The active offer carries `passiveOfferInd=false`; the placeholder carries `passiveOfferInd=true` and may contain an intentionally incomplete `ProductHospitality` product. Known-locator recovery therefore excludes only an explicitly passive offer from active hotel identity cardinality. When `passiveOfferInd` is present and non-null it must be a boolean; malformed values fail closed. An absent or null passive indicator is not treated as proof that an offer is passive.
+
+Non-hospitality content in a multi-content PNR does not count as Stays identity evidence. A second non-passive or unclassified `ProductHospitality` segment, including a mismatched or malformed one, remains contradictory evidence and fails closed; it is not ignored merely because another active hotel segment matches. Zero active hospitality segments, multiple active hospitality segments, or one active hospitality segment that does not exactly match the durable request are `INVALID_RESPONSE` and remain fail-closed through the existing `UNKNOWN -> AMBIGUOUS` reconciliation path.
+
+This passive-placeholder allowance belongs only to known-locator Retrieve identity. Create Reservation and Booking.com Sync continue to use the independent commercial-write classifier and keep their stricter response cardinality rules; recovery parsing does not broaden external-write confirmation authority.
 
 The adapter validates the durable expectation before requesting an OAuth token or sending Hotel Retrieve. Invalid SF/provider-reference input therefore cannot cause provider I/O.
 
@@ -61,10 +65,10 @@ An authoritative provider-neutral `NOT_FOUND` can restore `PREPARED` only when t
 
 ## Validation
 
-Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, duplicate/mismatched/malformed hospitality-segment, locator, and malformed-input failures. Supplier-confirmation recovery tests cover exact known-reference continuity, missing/different-reference rejection, contradictory negative lookup from durable identity or runtime result evidence, and the still-valid clean no-supplier-confirmation negative-recovery path. Dependency-free source contracts verify that recovery captures runtime supplier evidence before settlement, checks shared confirmation evidence before both `FOUND` and `NOT_FOUND` success observations, and rechecks that evidence at the durable ledger boundary.
+Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, active/passive-offer, duplicate/mismatched/malformed active hospitality-segment, locator, and malformed-input failures. The documented active-plus-passive Retrieve shape is accepted only when exactly one non-passive hotel segment matches the durable reservation; malformed `passiveOfferInd` evidence remains fail-closed. Supplier-confirmation recovery tests cover exact known-reference continuity, missing/different-reference rejection, contradictory negative lookup from durable identity or runtime result evidence, and the still-valid clean no-supplier-confirmation negative-recovery path. Dependency-free source contracts verify that recovery captures runtime supplier evidence before settlement, checks shared confirmation evidence before both `FOUND` and `NOT_FOUND` success observations, preserves the commercial Create classifier's stricter segment rule, and rechecks confirmation evidence at the durable ledger boundary.
 
 Full Node 24 validation, Prisma/PostgreSQL execution, and live Travelport verification remain separate environment gates. GitHub Actions are not used.
 
 ## Provider reference
 
-Travelport's current Retrieve Hotel Reservation documentation describes `GET book/reservations/{AggregatorLocatorCode}` and shows `ProductHospitality` responses containing `Quantity`, `guests`, `PropertyKey.chainCode`, `PropertyKey.propertyCode`, and `DateRange.start/end`. These are the provider fields used only for the fail-closed identity comparison above.
+Travelport's current Retrieve Hotel Reservation documentation describes `GET book/reservations/{AggregatorLocatorCode}` and shows `ProductHospitality` responses containing `Quantity`, `guests`, `PropertyKey.chainCode`, `PropertyKey.propertyCode`, and `DateRange.start/end`. The same documentation includes a response with one active offer (`passiveOfferInd=false`) and one placeholder passive offer (`passiveOfferInd=true`). These provider fields are used only for the fail-closed identity comparison above.
