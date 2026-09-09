@@ -11,7 +11,11 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   const retrieve = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const create = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
 
-  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
+  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\([\s\S]*activeReservationReceiptEvidence\(reservation\.Receipt, passiveOfferIds\)[\s\S]*\)/);
+  assert.match(retrieve, /explicitPassiveOfferIds\(reservation\)/);
+  assert.match(retrieve, /receipt\.OfferRef/);
+  assert.match(retrieve, /passiveOfferIds\.has\(offerRef!\)/);
+  assert.match(retrieve, /mixed active and passive offer references in one receipt/i);
   assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
   assert.match(helper, /receiptType === 'ReceiptPayment'/);
   assert.match(helper, /receiptType === 'ReceiptCancellation'[\s\S]*inspectCancellationReceipt\(receipt\)/);
