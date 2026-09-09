@@ -199,3 +199,18 @@ test('malformed passive supplier confirmation cannot be hidden by passive scopin
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
 });
+
+test('passive supplier confirmation detection uses the same bounded normalization as the shared receipt inspector', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt.splice(1, 1);
+  body.ReservationResponse.Reservation.Receipt[0]!.OfferRef = ['O2'];
+  body.ReservationResponse.Reservation.Receipt[0]!['@type'] = ' ReceiptConfirmation ';
+  body.ReservationResponse.Reservation.Receipt[0]!.Confirmation.Locator.sourceContext = ' Supplier ';
+  body.ReservationResponse.Reservation.Receipt[0]!.Confirmation.Locator.locatorType = ' Confirmation Number ';
+
+  assert.deepEqual(parse(body), {
+    providerReservationReference: 'D6VBHL',
+    supplierConfirmationReference: null,
+    providerCorrelationId: '8c0ff96b-b0d9-493d-83a4-a3fb8cbc943f',
+  });
+});
