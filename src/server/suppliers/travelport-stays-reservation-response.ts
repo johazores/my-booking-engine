@@ -7,6 +7,9 @@ const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
+const MAX_RECEIPT_TYPE_LENGTH = 64;
+const MAX_LOCATOR_CONTEXT_LENGTH = 64;
+const MAX_LOCATOR_TYPE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
 
@@ -195,13 +198,19 @@ function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
 }
 
 function isSupplierConfirmationReceipt(receipt: RecordValue) {
-  if (receipt['@type'] !== undefined && receipt['@type'] !== 'ReceiptConfirmation') return false;
+  const rawReceiptType = receipt['@type'];
+  if (rawReceiptType !== undefined && rawReceiptType !== null) {
+    const receiptType = boundedProviderValue(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH);
+    if (receiptType !== 'ReceiptConfirmation') return false;
+  }
+
   const confirmationValue = receipt.Confirmation;
   if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
   const locatorValue = (confirmationValue as RecordValue).Locator;
   if (!locatorValue || typeof locatorValue !== 'object' || Array.isArray(locatorValue)) return false;
   const locator = locatorValue as RecordValue;
-  return locator.sourceContext === 'Supplier' && locator.locatorType === 'Confirmation Number';
+  return boundedProviderValue(locator.sourceContext, MAX_LOCATOR_CONTEXT_LENGTH) === 'Supplier'
+    && boundedProviderValue(locator.locatorType, MAX_LOCATOR_TYPE_LENGTH) === 'Confirmation Number';
 }
 
 function activeReservationReceiptEvidence(
