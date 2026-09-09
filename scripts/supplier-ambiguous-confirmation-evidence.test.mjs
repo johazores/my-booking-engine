@@ -25,16 +25,21 @@ test('ambiguous supplier confirmation evidence is durable without becoming confi
   assert.match(service, /cannot be reconciled automatically without a provider reservation reference/);
 });
 
-test('known-locator reconciliation preserves valid prior supplier evidence unless provider truth is NOT_FOUND', () => {
+test('known-locator reconciliation preserves durable supplier evidence when provider truth conflicts', () => {
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
 
+  assert.match(service, /hospitalitySupplierReservationRecoveryConfirmationFailureCode/);
   assert.match(
     service,
-    /input\.outcome\.status === 'FOUND'[\s\S]*?\? supplierConfirmationReference \?\? reservation\.supplierConfirmationReference[\s\S]*?input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.supplierConfirmationReference/,
+    /const effectiveOutcomeStatus = confirmationFailureCode \? 'UNKNOWN' : input\.outcome\.status/,
   );
   assert.match(
     service,
-    /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'[\s\S]*?providerReservationReference: nextProviderReservationReference[\s\S]*?supplierConfirmationReference: nextSupplierConfirmationReference/,
+    /effectiveOutcomeStatus === 'FOUND'[\s\S]*?\? supplierConfirmationReference[\s\S]*?effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.supplierConfirmationReference/,
+  );
+  assert.match(
+    service,
+    /effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'[\s\S]*?providerReservationReference: nextProviderReservationReference[\s\S]*?supplierConfirmationReference: nextSupplierConfirmationReference/,
   );
 });
 
@@ -62,7 +67,10 @@ test('guarded database harness covers ambiguous supplier evidence without weaken
   assert.match(scenario, /status: 'AMBIGUOUS'[\s\S]*?supplierConfirmationReference: 'BOOKING-SUPPLIER-001'/);
   assert.match(scenario, /without a provider reservation reference/i);
   assert.match(scenario, /must be reconciled/i);
-  assert.match(scenario, /supplierConfirmationReference, 'BOOKING-SUPPLIER-002'/);
-  assert.match(scenario, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: 'TVPT-PNR-002'/);
+  assert.match(scenario, /incompleteFound\.supplierConfirmationReference, 'BOOKING-SUPPLIER-002'/);
+  assert.match(scenario, /incompleteFound\.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH'/);
+  assert.match(scenario, /conflictingNotFound\.supplierConfirmationReference, 'BOOKING-SUPPLIER-003'/);
+  assert.match(scenario, /conflictingNotFound\.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH'/);
+  assert.match(scenario, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: 'TVPT-PNR-003'/);
   assert.match(scenario, /retryable\.supplierConfirmationReference, null/);
 });
