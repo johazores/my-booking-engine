@@ -83,7 +83,34 @@ test('recovery confirmation evidence fails closed before durable found or not-fo
       status: 'NOT_FOUND',
       lastFailureCode: null,
       durableSupplierConfirmationReference: null,
+      recoveredSupplierConfirmationReference: 'SUP-200',
+    }),
+    HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE,
+  );
+  assert.equal(
+    hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+      status: 'NOT_FOUND',
+      lastFailureCode: null,
+      durableSupplierConfirmationReference: null,
+      recoveredSupplierConfirmationReference: '',
+    }),
+    HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE,
+  );
+  assert.equal(
+    hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+      status: 'NOT_FOUND',
+      lastFailureCode: null,
+      durableSupplierConfirmationReference: null,
       recoveredSupplierConfirmationReference: null,
+    }),
+    null,
+  );
+  assert.equal(
+    hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+      status: 'NOT_FOUND',
+      lastFailureCode: null,
+      durableSupplierConfirmationReference: null,
+      recoveredSupplierConfirmationReference: undefined,
     }),
     null,
   );

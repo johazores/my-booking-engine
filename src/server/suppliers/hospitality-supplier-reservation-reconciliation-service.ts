@@ -115,13 +115,16 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     });
   }
 
+  const rawSupplierConfirmationReference = (
+    result as Readonly<{ supplierConfirmationReference?: unknown }>
+  ).supplierConfirmationReference;
   let providerCorrelationId: string | null;
   let supplierConfirmationReference: string | null = null;
   try {
     providerCorrelationId = normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId);
     if (result.status === 'FOUND') {
       supplierConfirmationReference = normalizeHospitalitySupplierReservationSupplierConfirmationReference(
-        result.supplierConfirmationReference,
+        rawSupplierConfirmationReference,
       );
     }
   } catch {
@@ -177,7 +180,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       status: 'NOT_FOUND',
       lastFailureCode: claim.reservation.lastFailureCode,
       durableSupplierConfirmationReference: claim.reservation.supplierConfirmationReference,
-      recoveredSupplierConfirmationReference: null,
+      recoveredSupplierConfirmationReference: rawSupplierConfirmationReference,
     });
     if (confirmationFailureCode) {
       providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });

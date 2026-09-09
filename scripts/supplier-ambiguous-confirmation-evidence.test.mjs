@@ -29,6 +29,7 @@ test('known-locator reconciliation preserves durable supplier evidence when prov
   const service = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
 
   assert.match(service, /hospitalitySupplierReservationRecoveryConfirmationFailureCode/);
+  assert.match(service, /const recoverySupplierConfirmationEvidence =/);
   assert.match(
     service,
     /const effectiveOutcomeStatus = confirmationFailureCode \? 'UNKNOWN' : input\.outcome\.status/,
@@ -40,6 +41,10 @@ test('known-locator reconciliation preserves durable supplier evidence when prov
   assert.match(
     service,
     /effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'[\s\S]*?providerReservationReference: nextProviderReservationReference[\s\S]*?supplierConfirmationReference: nextSupplierConfirmationReference/,
+  );
+  assert.match(
+    service,
+    /recoveredSupplierConfirmationReference: input\.outcome\.status === 'FOUND'[\s\S]*?: recoverySupplierConfirmationEvidence/,
   );
 });
 
@@ -71,6 +76,10 @@ test('guarded database harness covers ambiguous supplier evidence without weaken
   assert.match(scenario, /incompleteFound\.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH'/);
   assert.match(scenario, /conflictingNotFound\.supplierConfirmationReference, 'BOOKING-SUPPLIER-003'/);
   assert.match(scenario, /conflictingNotFound\.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH'/);
+  assert.match(scenario, /supplierConfirmationReference: 'BOOKING-SUPPLIER-004'/);
+  assert.match(scenario, /contradictoryNotFound\.status, 'AMBIGUOUS'/);
+  assert.match(scenario, /contradictoryNotFound\.providerReservationReference, 'TVPT-PNR-003'/);
+  assert.match(scenario, /contradictoryNotFound\.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH'/);
   assert.match(scenario, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: 'TVPT-PNR-003'/);
   assert.match(scenario, /retryable\.supplierConfirmationReference, null/);
 });

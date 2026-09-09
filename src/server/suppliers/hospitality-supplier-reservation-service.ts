@@ -494,8 +494,13 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
   const providerReservationReference = input.outcome.status === 'FOUND' || input.outcome.status === 'NOT_FOUND'
     ? normalizeHospitalitySupplierReservationProviderReference(input.outcome.providerReservationReference)
     : null;
+  const recoverySupplierConfirmationEvidence = (
+    input.outcome as HospitalitySupplierReservationReconciliationOutcome & Readonly<{
+      supplierConfirmationReference?: unknown;
+    }>
+  ).supplierConfirmationReference;
   const supplierConfirmationReference = input.outcome.status === 'FOUND'
-    ? normalizeHospitalitySupplierReservationSupplierConfirmationReference(input.outcome.supplierConfirmationReference)
+    ? normalizeHospitalitySupplierReservationSupplierConfirmationReference(recoverySupplierConfirmationEvidence)
     : null;
   const failureCode = input.outcome.status === 'UNKNOWN' && input.outcome.failureCode !== undefined
     ? normalizeHospitalitySupplierReservationFailureCode(input.outcome.failureCode)
@@ -554,7 +559,9 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
           status: input.outcome.status,
           lastFailureCode: reservation.lastFailureCode,
           durableSupplierConfirmationReference: reservation.supplierConfirmationReference,
-          recoveredSupplierConfirmationReference: supplierConfirmationReference,
+          recoveredSupplierConfirmationReference: input.outcome.status === 'FOUND'
+            ? supplierConfirmationReference
+            : recoverySupplierConfirmationEvidence,
         })
       : null;
     const effectiveOutcomeStatus = confirmationFailureCode ? 'UNKNOWN' : input.outcome.status;

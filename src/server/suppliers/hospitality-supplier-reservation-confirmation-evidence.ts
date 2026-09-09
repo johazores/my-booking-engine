@@ -35,10 +35,15 @@ export function hospitalitySupplierReservationRecoveryConfirmationFailureCode(in
   recoveredSupplierConfirmationReference: unknown;
 }>) {
   if (input.status === 'NOT_FOUND') {
-    return input.durableSupplierConfirmationReference === null
-      || input.durableSupplierConfirmationReference === undefined
-      ? null
-      : HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE;
+    if (
+      (input.durableSupplierConfirmationReference !== null
+        && input.durableSupplierConfirmationReference !== undefined)
+      || (input.recoveredSupplierConfirmationReference !== null
+        && input.recoveredSupplierConfirmationReference !== undefined)
+    ) {
+      return HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE;
+    }
+    return null;
   }
 
   if (

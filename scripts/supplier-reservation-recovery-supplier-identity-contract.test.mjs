@@ -14,12 +14,19 @@ test('recovery normalizes provider evidence and never replaces or erases a known
     /HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE\s*=\s*[\s\S]*?'SUPPLIER_CONFIRMATION_MISMATCH'/,
   );
   assert.match(evidence, /supplierConfirmationMatchesDurableReservation/);
-  assert.match(evidence, /status === 'NOT_FOUND'[\s\S]*?HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE/);
+  assert.match(
+    evidence,
+    /status === 'NOT_FOUND'[\s\S]*?recoveredSupplierConfirmationReference !== null[\s\S]*?HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE/,
+  );
 
   const providerCall = reconciliation.indexOf('await input.provider.retrieveReservation');
+  const rawSupplierEvidence = reconciliation.indexOf(
+    'const rawSupplierConfirmationReference =',
+    providerCall,
+  );
   const correlationNormalization = reconciliation.indexOf(
     'normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId)',
-    providerCall,
+    rawSupplierEvidence,
   );
   const supplierNormalization = reconciliation.indexOf(
     'normalizeHospitalitySupplierReservationSupplierConfirmationReference(',
@@ -40,7 +47,8 @@ test('recovery normalizes provider evidence and never replaces or erases a known
   const notFoundSuccess = reconciliation.indexOf("providerResult: 'NOT_FOUND'", notFoundConfirmationCheck);
 
   assert.ok(providerCall >= 0);
-  assert.ok(correlationNormalization > providerCall);
+  assert.ok(rawSupplierEvidence > providerCall);
+  assert.ok(correlationNormalization > rawSupplierEvidence);
   assert.ok(supplierNormalization > correlationNormalization);
   assert.ok(foundBranch > supplierNormalization);
   assert.ok(foundConfirmationCheck > foundBranch);
@@ -58,6 +66,10 @@ test('recovery normalizes provider evidence and never replaces or erases a known
     /providerObservation\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
   );
   assert.match(
+    reconciliation.slice(notFoundConfirmationCheck, notFoundSuccess),
+    /recoveredSupplierConfirmationReference: rawSupplierConfirmationReference/,
+  );
+  assert.match(
     reconciliation.slice(foundSuccess, foundSettlement + 300),
     /supplierConfirmationReference,\n\s+providerCorrelationId,/,
   );
@@ -67,19 +79,28 @@ test('recovery normalizes provider evidence and never replaces or erases a known
   );
 
   const ledgerSettlement = ledger.indexOf('settleHospitalitySupplierReservationReconciliation');
+  const ledgerRuntimeEvidence = ledger.indexOf(
+    'const recoverySupplierConfirmationEvidence =',
+    ledgerSettlement,
+  );
   const ledgerConfirmationCheck = ledger.indexOf(
     'hospitalitySupplierReservationRecoveryConfirmationFailureCode({',
-    ledgerSettlement,
+    ledgerRuntimeEvidence,
   );
   const effectiveStatus = ledger.indexOf('effectiveOutcomeStatus', ledgerConfirmationCheck);
   const preservedProvider = ledger.indexOf(': reservation.providerReservationReference;', effectiveStatus);
   const preservedSupplier = ledger.indexOf(': reservation.supplierConfirmationReference;', effectiveStatus);
-  assert.ok(ledgerConfirmationCheck > ledgerSettlement);
+  assert.ok(ledgerRuntimeEvidence > ledgerSettlement);
+  assert.ok(ledgerConfirmationCheck > ledgerRuntimeEvidence);
   assert.ok(effectiveStatus > ledgerConfirmationCheck);
   assert.ok(preservedProvider > effectiveStatus);
   assert.ok(preservedSupplier > effectiveStatus);
   assert.match(
-    ledger.slice(ledgerConfirmationCheck, effectiveStatus + 300),
+    ledger.slice(ledgerConfirmationCheck, effectiveStatus + 400),
     /durableSupplierConfirmationReference: reservation\.supplierConfirmationReference/,
+  );
+  assert.match(
+    ledger.slice(ledgerConfirmationCheck, effectiveStatus + 400),
+    /input\.outcome\.status === 'FOUND'[\s\S]*?supplierConfirmationReference[\s\S]*?: recoverySupplierConfirmationEvidence/,
   );
 });
