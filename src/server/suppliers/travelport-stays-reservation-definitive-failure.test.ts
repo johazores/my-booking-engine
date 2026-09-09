@@ -15,12 +15,13 @@ const expectedReservation = Object.freeze({
 function errorResponse(errors: readonly Readonly<{
   sourceCode: string;
   category?: string;
-}>[]) {
+}>[], statusCode = 400) {
   return {
     ErrorResponse: {
       traceId: '4807ae55-722d-4935-93a9-e9f743625bf5',
       Result: {
         Error: errors.map((error) => ({
+          StatusCode: statusCode,
           SourceCode: error.sourceCode,
           ...(error.category === undefined ? {} : { category: error.category }),
           Message: 'provider message intentionally ignored',
@@ -96,7 +97,7 @@ test('review-required and Sync-required source codes never become definitive val
 
   const syncRequired = classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 500,
-    body: errorResponse([{ sourceCode: '13034', category: 'UNKNOWN' }]),
+    body: errorResponse([{ sourceCode: '13034', category: 'UNKNOWN' }], 500),
     expectedReservation,
   });
   assert.equal(syncRequired.status, 'AMBIGUOUS');

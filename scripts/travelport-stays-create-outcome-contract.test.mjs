@@ -37,12 +37,16 @@ test('definitive no-sell failures require reviewed validation-category source co
   assert.match(classifier, /retryable: RETRYABLE_EPHEMERAL_PAYMENT_VALIDATION_SOURCE_CODES\.has\(sourceCode\)/);
 });
 
-test('provider error and warning envelopes are bounded and cannot be ignored to confirm a write', () => {
+test('provider error and warning envelopes are bounded, HTTP-consistent, and cannot be ignored to confirm a write', () => {
   const classifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(classifier, /type ProviderErrorInspection/);
   assert.match(classifier, /present: boolean/);
   assert.match(classifier, /errors\.length > MAX_ERRORS/);
   assert.match(classifier, /warningValues\.length > MAX_WARNINGS/);
+  assert.match(classifier, /const rawStatusCode = error\.StatusCode/);
+  assert.match(classifier, /rawStatusCode !== httpStatus/);
+  assert.match(classifier, /typeof rawCategory !== 'string'/);
+  assert.match(classifier, /inspectProviderErrors\(input\.body, input\.httpStatus\)/);
   assert.match(classifier, /if \(!errors\.valid \|\| !warnings\.valid\) return invalidResponse\(providerCorrelationId\)/);
   assert.match(classifier, /if \(errors\.present\)[\s\S]*?return invalidResponse\(providerCorrelationId\)/);
   assert.match(classifier, /validExpectedReservation\(expected\)/);
@@ -83,6 +87,7 @@ test('documentation keeps capability disabled and explains the narrow definitive
   assert.match(doc, /does not.*enable the `reservation` capability/i);
   assert.match(doc, /definitive no-sell validation failures/i);
   assert.match(doc, /category=VALIDATION/i);
+  assert.match(doc, /StatusCode.*actual HTTP/i);
   for (const code of ['1537', '1547', '13050', '13054', '13078', '13083']) assert.match(doc, new RegExp(code));
   assert.match(doc, /unknown codes.*remain `AMBIGUOUS \/ INVALID_RESPONSE`/i);
   assert.match(doc, /dedicated `REVIEW_REQUIRED`/i);

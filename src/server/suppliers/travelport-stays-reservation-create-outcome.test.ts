@@ -59,15 +59,22 @@ function confirmedResponse(input: {
   };
 }
 
-function errorResponse(sourceCode: string) {
-  return errorResponseCodes([sourceCode]);
+function errorResponse(sourceCode: string, statusCode = 400, category = 'VALIDATION') {
+  return errorResponseCodes([sourceCode], statusCode, category);
 }
 
-function errorResponseCodes(sourceCodes: readonly string[]) {
+function errorResponseCodes(sourceCodes: readonly string[], statusCode = 400, category = 'VALIDATION') {
   return {
     ErrorResponse: {
       traceId: '4807ae55-722d-4935-93a9-e9f743625bf5',
-      Result: { Error: sourceCodes.map((SourceCode) => ({ SourceCode, Message: 'provider message intentionally ignored' })) },
+      Result: {
+        Error: sourceCodes.map((SourceCode) => ({
+          StatusCode: statusCode,
+          SourceCode,
+          category,
+          Message: 'provider message intentionally ignored',
+        })),
+      },
     },
   };
 }
@@ -132,7 +139,7 @@ test('classifies documented price and guarantee changes as review-required rathe
 test('source code 13034 always stays ambiguous because provider docs cannot distinguish no-sell from sold', () => {
   assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 500,
-    body: errorResponse('13034'),
+    body: errorResponse('13034', 500, 'UNKNOWN'),
     expectedReservation,
   }), {
     status: 'AMBIGUOUS',
@@ -202,8 +209,8 @@ test('error evidence can never be masked by confirmation-looking data', () => {
     hybridResponse(['99999']),
     hybridResponse(['13020', '99999']),
     { ...confirmedResponse(), ErrorResponse: { Result: {} } },
-    { ...confirmedResponse(), ErrorResponse: { Result: { Error: Array.from({ length: 33 }, () => ({ SourceCode: '13020' })) } } },
-    { ...confirmedResponse(), ErrorResponse: { Result: { Error: [{ SourceCode: '13020' }, { Message: 'missing code' }] } } },
+    { ...confirmedResponse(), ErrorResponse: { Result: { Error: Array.from({ length: 33 }, () => ({ StatusCode: 200, SourceCode: '13020', category: 'VALIDATION' })) } } },
+    { ...confirmedResponse(), ErrorResponse: { Result: { Error: [{ StatusCode: 200, SourceCode: '13020', category: 'VALIDATION' }, { StatusCode: 200, Message: 'missing code', category: 'VALIDATION' }] } } },
   ]) {
     const result = classifyTravelportStaysReservationCreateOutcome({ httpStatus: 200, body, expectedReservation });
     assert.equal(result.status, 'AMBIGUOUS');

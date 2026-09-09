@@ -21,9 +21,18 @@ function response(errors: readonly unknown[]) {
   };
 }
 
-function classify(errors: readonly unknown[]) {
+function providerError(SourceCode: string, category: string, StatusCode = 500) {
+  return {
+    StatusCode,
+    SourceCode,
+    category,
+    Message: 'provider message intentionally ignored',
+  };
+}
+
+function classify(errors: readonly unknown[], httpStatus = 500) {
   return classifyTravelportStaysReservationCreateOutcome({
-    httpStatus: 500,
+    httpStatus,
     body: response(errors),
     expectedReservation,
   });
@@ -38,44 +47,50 @@ function assertInvalid(result: ReturnType<typeof classify>) {
   });
 }
 
-test('13034 requires a structurally valid homogeneous Sync-required error family', () => {
-  assert.deepEqual(classify([{ SourceCode: '13034', category: 'UNKNOWN' }]), {
+test('13034 requires a complete newer error envelope with UNKNOWN category', () => {
+  assert.deepEqual(classify([providerError('13034', 'UNKNOWN')]), {
     status: 'AMBIGUOUS',
     failureCode: 'TRAVELPORT_SYNC_REQUIRED',
     supplierConfirmationReference: null,
     providerCorrelationId: '4807ae55-722d-4935-93a9-e9f743625bf5',
   });
 
-  // Legacy category-less envelopes retain the existing conservative Sync-required
-  // classification, but malformed, contradictory, or mixed evidence does not.
-  assert.equal(classify([{ SourceCode: '13034' }]).failureCode, 'TRAVELPORT_SYNC_REQUIRED');
-  assertInvalid(classify([{ SourceCode: '13034', category: 'VALIDATION' }]));
+  assertInvalid(classify([{ ...providerError('13034', 'UNKNOWN'), category: undefined }]));
+  assertInvalid(classify([{ SourceCode: '13034', category: 'UNKNOWN', Message: 'missing status code' }]));
+  assertInvalid(classify([providerError('13034', 'VALIDATION')]));
   assertInvalid(classify([
-    { SourceCode: '13034', category: 'UNKNOWN' },
-    { SourceCode: '13020', category: 'VALIDATION' },
+    providerError('13034', 'UNKNOWN'),
+    providerError('13020', 'VALIDATION'),
   ]));
   assertInvalid(classify([
-    { SourceCode: '13034', category: 'UNKNOWN' },
-    { Message: 'missing source code' },
+    providerError('13034', 'UNKNOWN'),
+    { StatusCode: 500, Message: 'missing source code', category: 'UNKNOWN' },
   ]));
 });
 
-test('price and guarantee review decisions reject explicit contradictory categories and mixed families', () => {
-  assert.deepEqual(classify([{ SourceCode: '13020', category: 'VALIDATION' }]), {
+test('source-code authority requires body StatusCode to match the actual HTTP response', () => {
+  assertInvalid(classify([providerError('13034', 'UNKNOWN', 400)], 500));
+  assertInvalid(classify([{ ...providerError('13034', 'UNKNOWN'), StatusCode: '500' }], 500));
+  assertInvalid(classify([providerError('13034', 'UNKNOWN', 99)], 500));
+});
+
+test('price and guarantee review decisions require complete VALIDATION evidence', () => {
+  assert.deepEqual(classify([providerError('13020', 'VALIDATION')]), {
     status: 'REVIEW_REQUIRED',
     reason: 'PRICE_CHANGED',
     providerCorrelationId: '4807ae55-722d-4935-93a9-e9f743625bf5',
   });
-  assert.deepEqual(classify([{ SourceCode: '13017', category: 'VALIDATION' }]), {
+  assert.deepEqual(classify([providerError('13017', 'VALIDATION')]), {
     status: 'REVIEW_REQUIRED',
     reason: 'GUARANTEE_CHANGED',
     providerCorrelationId: '4807ae55-722d-4935-93a9-e9f743625bf5',
   });
 
-  assertInvalid(classify([{ SourceCode: '13020', category: 'UNKNOWN' }]));
-  assertInvalid(classify([{ SourceCode: '13017', category: 'RETRY' }]));
+  assertInvalid(classify([{ ...providerError('13020', 'VALIDATION'), category: undefined }]));
+  assertInvalid(classify([providerError('13020', 'UNKNOWN')]));
+  assertInvalid(classify([providerError('13017', 'RETRY')]));
   assertInvalid(classify([
-    { SourceCode: '13020', category: 'VALIDATION' },
-    { SourceCode: '99999', category: 'VALIDATION' },
+    providerError('13020', 'VALIDATION'),
+    providerError('99999', 'VALIDATION'),
   ]));
 });

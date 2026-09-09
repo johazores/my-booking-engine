@@ -18,6 +18,7 @@ function validationError(sourceCodes: readonly string[], category: string | null
       traceId: 'a6bbfb20-dc6f-4d74-b41f-62c714dd04f0',
       Result: {
         Error: sourceCodes.map((SourceCode) => ({
+          StatusCode: 400,
           SourceCode,
           ...(category === null ? {} : { category }),
           Message: 'provider text is not durable authority',

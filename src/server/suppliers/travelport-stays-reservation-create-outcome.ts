@@ -84,7 +84,8 @@ type RecordValue = Record<string, unknown>;
 
 type ProviderErrorDetail = Readonly<{
   sourceCode: string;
-  category: string | null;
+  category: string;
+  statusCode: number;
 }>;
 
 type ProviderErrorInspection = Readonly<{
@@ -158,7 +159,7 @@ function correlationFromBody(value: unknown) {
   return boundedText(response?.traceId ?? response?.traceID, MAX_CORRELATION_LENGTH);
 }
 
-function inspectProviderErrors(value: unknown): ProviderErrorInspection {
+function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErrorInspection {
   const root = optionalRecord(value);
   if (!root || root.ErrorResponse === undefined || root.ErrorResponse === null) {
     return Object.freeze({
@@ -172,7 +173,16 @@ function inspectProviderErrors(value: unknown): ProviderErrorInspection {
   const response = optionalRecord(root.ErrorResponse);
   const result = optionalRecord(response?.Result);
   const errors = result?.Error;
-  if (!response || !result || !Array.isArray(errors) || errors.length < 1 || errors.length > MAX_ERRORS) {
+  if (
+    !response
+    || !result
+    || !Array.isArray(errors)
+    || errors.length < 1
+    || errors.length > MAX_ERRORS
+    || !Number.isInteger(httpStatus)
+    || httpStatus < 100
+    || httpStatus > 599
+  ) {
     return Object.freeze({
       present: true,
       valid: false,
@@ -189,27 +199,38 @@ function inspectProviderErrors(value: unknown): ProviderErrorInspection {
       valid = false;
       continue;
     }
+
+    const rawStatusCode = error.StatusCode;
+    if (
+      typeof rawStatusCode !== 'number'
+      || !Number.isInteger(rawStatusCode)
+      || rawStatusCode < 100
+      || rawStatusCode > 599
+      || rawStatusCode !== httpStatus
+    ) {
+      valid = false;
+      continue;
+    }
+
     const raw = error.SourceCode;
     const sourceCode = typeof raw === 'number' && Number.isInteger(raw) ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
     if (!/^\d{1,8}$/.test(sourceCode)) {
       valid = false;
       continue;
     }
+
     const rawCategory = error.category ?? error.Category;
-    let category: string | null = null;
-    if (rawCategory !== undefined && rawCategory !== null) {
-      if (typeof rawCategory !== 'string') {
-        valid = false;
-        continue;
-      }
-      const normalizedCategory = rawCategory.trim().toUpperCase();
-      if (!/^[A-Z_]{2,32}$/.test(normalizedCategory)) {
-        valid = false;
-        continue;
-      }
-      category = normalizedCategory;
+    if (typeof rawCategory !== 'string') {
+      valid = false;
+      continue;
     }
-    inspectedErrors.push(Object.freeze({ sourceCode, category }));
+    const category = rawCategory.trim().toUpperCase();
+    if (!/^[A-Z_]{2,32}$/.test(category)) {
+      valid = false;
+      continue;
+    }
+
+    inspectedErrors.push(Object.freeze({ sourceCode, category, statusCode: rawStatusCode }));
   }
 
   return Object.freeze({
@@ -431,19 +452,19 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   expectedReservation: TravelportStaysCreateExpectedReservation;
 }>): TravelportStaysReservationCreateOutcome {
   const providerCorrelationId = correlationFromBody(input.body);
-  const errors = inspectProviderErrors(input.body);
+  const errors = inspectProviderErrors(input.body, input.httpStatus);
   const warnings = inspectProviderWarnings(input.body);
 
   if (!errors.valid || !warnings.valid) return invalidResponse(providerCorrelationId);
 
-  // The current Stays error contract categorizes 13034 as UNKNOWN. Keep legacy
-  // category-less envelopes compatible, but never allow an explicit contradictory
-  // category or a mixed error family to grant Sync-required semantics.
+  // SourceCode is available only in Travelport's newer Stays error envelope,
+  // where Category and StatusCode are also part of the documented evidence.
+  // Partial or HTTP-inconsistent envelopes cannot grant recovery semantics.
   const syncRequiredErrors = errors.present
     && errors.errors.length > 0
     && errors.errors.every(
       (error) => error.sourceCode === SYNC_REQUIRED_SOURCE_CODE
-        && (error.category === null || error.category === 'UNKNOWN'),
+        && error.category === 'UNKNOWN',
     );
   if (syncRequiredErrors) {
     return Object.freeze({
@@ -455,12 +476,12 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   }
 
   if (errors.present) {
-    // Travelport documents the price/guarantee change family as VALIDATION.
-    // Category-less legacy envelopes remain reviewable, but a contradictory
-    // category or unrelated code cannot authorize a second-sell review decision.
+    // Travelport documents the price/guarantee change family as VALIDATION in
+    // the newer SourceCode-bearing envelope. Incomplete or contradictory
+    // category evidence cannot authorize a reviewed second sell.
     const reviewErrors = errors.errors.length > 0
       && errors.errors.every((error) => (
-        (error.category === null || error.category === 'VALIDATION')
+        error.category === 'VALIDATION'
         && (GUARANTEE_CHANGE_SOURCE_CODES.has(error.sourceCode) || error.sourceCode === PRICE_CHANGE_SOURCE_CODE)
       ));
     if (reviewErrors) {

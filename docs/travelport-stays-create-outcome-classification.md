@@ -43,7 +43,7 @@ The reviewed request sends only the exact accepted `acceptPriceChangeInd=true` a
 
 Travelport's Stays error reference documents `13034` as an `UNKNOWN` server-side outcome. The Stays guide is more specific about its operational meaning: the same unconfirmed-supplier error can represent either a timeout where no Booking.com sell occurred or a timeout where Booking.com sold the room but Travelport did not receive the response. The branch is determined by whether the traveler receives the Booking.com confirmation email.
 
-That means `13034` by itself proves neither safe retry nor Sync authority. SF's provider classifier recognizes only a structurally valid homogeneous `13034` family, but because that error response contains no verified supplier confirmation or recovery reference, `travelportStaysCreateOutcomeToSubmissionOutcome` normalizes the durable failure code to `TRAVELPORT_SELL_UNCERTAIN` while keeping the operation `AMBIGUOUS`.
+That means `13034` by itself proves neither safe retry nor Sync authority. SF's provider classifier recognizes only a structurally valid homogeneous `13034` family from Travelport's newer SourceCode-bearing envelope, with `Category=UNKNOWN` and a numeric body `StatusCode` matching the actual HTTP response. Because that error response contains no verified supplier confirmation or recovery reference, `travelportStaysCreateOutcomeToSubmissionOutcome` normalizes the durable failure code to `TRAVELPORT_SELL_UNCERTAIN` while keeping the operation `AMBIGUOUS`.
 
 SF does not invent a supplier confirmation, Travelport PNR Locator, Booking.com Sync reference, `NOT_FOUND`, or retryability from `13034`. A future product flow that chooses to resolve this branch must authenticate and validate externally obtained supplier confirmation evidence; raw user claims or free-form email text cannot directly authorize Sync.
 
@@ -59,14 +59,17 @@ An unconfirmed or malformed relevant PNR receipt is contradictory evidence, not 
 
 ## Definitive no-sell validation failures
 
-Travelport's Stays error contract distinguishes unsuccessful `Result/Error` responses and, in newer error envelopes, provides `SourceCode` plus `category`. SF uses that evidence narrowly.
+Travelport's Stays error contract uses two provisioned formats. The older format contains only `StatusCode` and `Message`; it cannot provide SourceCode/category authority. The newer format includes `StatusCode`, `SourceCode`, and `Category` in addition to non-authoritative provider text/source metadata. SF uses the newer decision-bearing evidence narrowly.
 
 A provider error becomes durable `FAILED` only when:
 
 - the error envelope is structurally valid and bounded;
+- every error includes a numeric `StatusCode` equal to the actual HTTP response status;
 - every error has `category=VALIDATION`;
 - every source code is in SF's reviewed no-sell validation allowlist; and
 - exactly one unique source code is present.
+
+A SourceCode-bearing envelope with missing Category or StatusCode is not treated as a legacy response. It is incomplete newer evidence and remains ambiguous.
 
 The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider message text is ignored.
 
@@ -74,11 +77,11 @@ Automatic retry is narrower than the no-sell allowlist. It is restricted to revi
 
 Traveler identity/contact validation remains non-retryable for the existing operation because traveler authority is bound into the durable reservation-payload fingerprint. Changing that payload requires a new reviewed reservation request rather than mutating the existing operation.
 
-Unknown codes, mixed codes, contradictory categories, malformed error structures, transport failures, generic HTTP statuses, free-form provider messages, and other uncertain results remain `AMBIGUOUS / INVALID_RESPONSE`; they do not become retryable.
+Unknown codes, mixed codes, contradictory categories, missing/malformed/mismatched StatusCode evidence, malformed error structures, transport failures, generic HTTP statuses, free-form provider messages, and other uncertain results remain `AMBIGUOUS / INVALID_RESPONSE`; they do not become retryable.
 
 ## Structural warning and error authority
 
-The presence of an `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed.
+The presence of an `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed. Source-code decisions require complete newer decision-bearing evidence: numeric HTTP-consistent `StatusCode`, bounded `SourceCode`, and valid `Category`. The older StatusCode/Message-only format does not grant source-code-based retry, review, or recovery authority.
 
 Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message prevent promotion to success. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence.
 
@@ -102,7 +105,7 @@ Structured observations use fixed result names and SF-owned tenant/attempt corre
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 
