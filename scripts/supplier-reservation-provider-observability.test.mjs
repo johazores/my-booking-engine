@@ -132,7 +132,7 @@ test('supplier provider observation emits one completion record only', () => {
   assert.equal(captured.value.second, null);
 });
 
-test('reconciliation observes only real provider I/O and rejects unrecognized provider results', () => {
+test('reconciliation observes only real provider I/O and rejects unrecognized or identity-conflicting provider results', () => {
   const source = readFileSync(new URL('../src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts', import.meta.url), 'utf8');
   const claimIndex = source.indexOf('claimHospitalitySupplierReservationReconciliation');
   const providerGuardIndex = source.indexOf("input.provider.code !== claim.reservation.providerCode");
@@ -140,6 +140,15 @@ test('reconciliation observes only real provider I/O and rejects unrecognized pr
   const providerIoIndex = source.indexOf('input.provider.retrieveReservation');
   const catchIndex = source.indexOf('} catch (error) {', providerIoIndex);
   const postCatchValidationIndex = source.indexOf("if (!result || typeof result !== 'object'");
+  const correlationNormalizationIndex = source.indexOf(
+    'normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId)',
+    postCatchValidationIndex,
+  );
+  const durableSupplierCheckIndex = source.indexOf(
+    'supplierConfirmationMatchesDurableReservation(',
+    correlationNormalizationIndex,
+  );
+  const foundSuccessIndex = source.indexOf("providerResult: 'FOUND'", durableSupplierCheckIndex);
 
   assert.ok(claimIndex >= 0);
   assert.ok(providerGuardIndex > claimIndex);
@@ -147,15 +156,25 @@ test('reconciliation observes only real provider I/O and rejects unrecognized pr
   assert.ok(providerIoIndex > observerIndex);
   assert.ok(catchIndex > providerIoIndex);
   assert.ok(postCatchValidationIndex > catchIndex);
+  assert.ok(correlationNormalizationIndex > postCatchValidationIndex);
+  assert.ok(durableSupplierCheckIndex > correlationNormalizationIndex);
+  assert.ok(foundSuccessIndex > durableSupplierCheckIndex);
   assert.doesNotMatch(source.slice(catchIndex, postCatchValidationIndex), /status: 'FOUND'|status: 'NOT_FOUND'/);
   assert.match(source, /requestCorrelationId: claim\.attempt\.id/);
   assert.match(source, /if \(result\.status === 'FOUND'\)/);
   assert.match(source, /if \(result\.status === 'NOT_FOUND'\)/);
-  assert.match(source, /providerObservation\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\);[\s\S]*?outcome: \{ status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' \}/);
   assert.match(source, /const failureCode = error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE';/);
   assert.match(source, /providerObservation\.finish\(\{ status: 'FAILED', failureCode \}\);/);
+  assert.match(
+    source.slice(durableSupplierCheckIndex, foundSuccessIndex),
+    /providerObservation\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
+  );
+  assert.match(
+    source.slice(durableSupplierCheckIndex, foundSuccessIndex),
+    /HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE/,
+  );
 
   const observationCalls = [...source.matchAll(/providerObservation\.finish/g)];
-  assert.equal(observationCalls.length, 5);
+  assert.equal(observationCalls.length, 7);
   assert.match(source, /createHospitalitySupplierReservationProviderObservation\(\{\n\s+requestCorrelationId: claim\.attempt\.id,\n\s+organizationId: input\.organizationId,\n\s+provider: claim\.reservation\.providerCode,\n\s+\}\)/);
 });

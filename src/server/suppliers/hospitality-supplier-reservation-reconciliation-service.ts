@@ -1,10 +1,16 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
+  normalizeHospitalitySupplierReservationCorrelationId,
+  normalizeHospitalitySupplierReservationSupplierConfirmationReference,
+} from './hospitality-supplier-reservation-domain.ts';
+import {
   markHospitalitySupplierReservationProviderRequestStarted,
 } from './hospitality-supplier-reservation-attempt-recovery-service.ts';
 import {
+  HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE,
   HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
   requiresSupplierConfirmationForReservationRecovery,
+  supplierConfirmationMatchesDurableReservation,
 } from './hospitality-supplier-reservation-confirmation-evidence.ts';
 import { createHospitalitySupplierReservationProviderObservation } from './hospitality-supplier-reservation-observability.ts';
 import type {
@@ -112,11 +118,51 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
     });
   }
 
+  let providerCorrelationId: string | null;
+  let supplierConfirmationReference: string | null = null;
+  try {
+    providerCorrelationId = normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId);
+    if (result.status === 'FOUND') {
+      supplierConfirmationReference = normalizeHospitalitySupplierReservationSupplierConfirmationReference(
+        result.supplierConfirmationReference,
+      );
+    }
+  } catch {
+    providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
+    return settleHospitalitySupplierReservationReconciliation({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' },
+    });
+  }
+
   if (result.status === 'FOUND') {
+    if (
+      !supplierConfirmationMatchesDurableReservation(
+        claim.reservation.supplierConfirmationReference,
+        supplierConfirmationReference,
+      )
+    ) {
+      providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
+      return settleHospitalitySupplierReservationReconciliation({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        reservationId: input.reservationId,
+        attemptId: claim.attempt.id,
+        outcome: {
+          status: 'UNKNOWN',
+          failureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE,
+          providerCorrelationId,
+        },
+      });
+    }
+
     providerObservation.finish({ status: 'SUCCEEDED', providerResult: 'FOUND' });
     if (
       requiresSupplierConfirmationForReservationRecovery(claim.reservation.lastFailureCode)
-      && !result.supplierConfirmationReference
+      && !supplierConfirmationReference
     ) {
       return settleHospitalitySupplierReservationReconciliation({
         organizationId: input.organizationId,
@@ -126,7 +172,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
         outcome: {
           status: 'UNKNOWN',
           failureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
-          providerCorrelationId: result.providerCorrelationId,
+          providerCorrelationId,
         },
       });
     }
@@ -139,8 +185,8 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       outcome: {
         status: 'FOUND',
         providerReservationReference: result.providerReservationReference,
-        supplierConfirmationReference: result.supplierConfirmationReference,
-        providerCorrelationId: result.providerCorrelationId,
+        supplierConfirmationReference,
+        providerCorrelationId,
       },
     });
   }
@@ -155,7 +201,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       outcome: {
         status: 'NOT_FOUND',
         providerReservationReference: result.providerReservationReference,
-        providerCorrelationId: result.providerCorrelationId,
+        providerCorrelationId,
       },
     });
   }
