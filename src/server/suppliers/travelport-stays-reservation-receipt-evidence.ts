@@ -1,6 +1,7 @@
 const MAX_RECEIPTS = 32;
 const MAX_RECEIPT_TYPE_LENGTH = 64;
 const MAX_CONFIRMATION_TYPE_LENGTH = 64;
+const MAX_CANCELLATION_TYPE_LENGTH = 64;
 const MAX_REFERENCE_LENGTH = 512;
 const MAX_LOCATOR_CONTEXT_LENGTH = 64;
 const MAX_LOCATOR_TYPE_LENGTH = 64;
@@ -23,6 +24,12 @@ export type TravelportStaysReservationReceiptEvidence = Readonly<{
   supplierCancellationReceipts: readonly TravelportStaysLocatorReceiptEvidence[];
 }>;
 
+type TravelportStaysCancellationInspection = Readonly<{
+  valid: boolean;
+  relevant: boolean;
+  receipt: TravelportStaysLocatorReceiptEvidence | null;
+}>;
+
 function optionalRecord(value: unknown): RecordValue | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : null;
 }
@@ -41,6 +48,25 @@ function invalidEvidence(): TravelportStaysReservationReceiptEvidence {
     supplierConfirmationReceipts: Object.freeze([] as TravelportStaysLocatorReceiptEvidence[]),
     supplierCancellationReceipts: Object.freeze([] as TravelportStaysLocatorReceiptEvidence[]),
   });
+}
+
+function isStaysSourceContext(value: string | null) {
+  return value === 'Travelport' || value === 'Supplier' || value === 'Agency';
+}
+
+function isStaysLocatorType(value: string | null) {
+  return value === 'PNR Locator'
+    || value === 'Confirmation Number'
+    || value === 'Cancellation Number'
+    || value === 'IATA Number'
+    || value === 'Pin code';
+}
+
+function isCanonicalStaysPair(sourceContext: string | null, locatorType: string | null) {
+  return (sourceContext === 'Travelport' && locatorType === 'PNR Locator')
+    || (sourceContext === 'Supplier' && locatorType === 'Confirmation Number')
+    || (sourceContext === 'Supplier' && locatorType === 'Cancellation Number')
+    || (sourceContext === 'Agency' && locatorType === 'IATA Number');
 }
 
 function normalizedReceipt(
@@ -82,13 +108,116 @@ function normalizedReceipt(
   return Object.freeze({ reference, status, source });
 }
 
+function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancellationInspection {
+  const cancellation = optionalRecord(receipt.Cancellation);
+  const locator = optionalRecord(cancellation?.Locator);
+  if (!cancellation || !locator) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const rawSourceContext = locator.sourceContext;
+  const rawLocatorType = locator.locatorType;
+  const hasSourceContext = rawSourceContext !== undefined && rawSourceContext !== null;
+  const hasLocatorType = rawLocatorType !== undefined && rawLocatorType !== null;
+  const sourceContext = hasSourceContext
+    ? boundedProviderValue(rawSourceContext, MAX_LOCATOR_CONTEXT_LENGTH)
+    : null;
+  const locatorType = hasLocatorType
+    ? boundedProviderValue(rawLocatorType, MAX_LOCATOR_TYPE_LENGTH)
+    : null;
+  if ((hasSourceContext && !sourceContext) || (hasLocatorType && !locatorType)) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const hasStaysSourceContext = isStaysSourceContext(sourceContext);
+  const hasStaysLocatorType = isStaysLocatorType(locatorType);
+  const hasCanonicalStaysPair = isCanonicalStaysPair(sourceContext, locatorType);
+  if ((hasStaysSourceContext || hasStaysLocatorType) && !hasCanonicalStaysPair) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const offerStatus = cancellation.OfferStatus;
+  const offerStatusRecord = offerStatus === undefined || offerStatus === null
+    ? null
+    : optionalRecord(offerStatus);
+  if ((hasCanonicalStaysPair || hasStaysSourceContext || hasStaysLocatorType) && offerStatus !== undefined && offerStatus !== null && !offerStatusRecord) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const rawOfferStatusType = offerStatusRecord?.['@type'];
+  const offerStatusType = rawOfferStatusType === undefined || rawOfferStatusType === null
+    ? null
+    : boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
+  if (
+    rawOfferStatusType !== undefined
+    && rawOfferStatusType !== null
+    && !offerStatusType
+    && (hasStaysSourceContext || hasStaysLocatorType)
+  ) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const hasHospitalityStatus = offerStatusType === 'OfferStatusHospitality';
+  const relevant = hasCanonicalStaysPair || hasHospitalityStatus;
+  if (!relevant) {
+    return Object.freeze({ valid: true, relevant: false, receipt: null });
+  }
+
+  if (
+    hasHospitalityStatus
+    && (hasSourceContext || hasLocatorType)
+    && !hasCanonicalStaysPair
+  ) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const rawCancellationType = cancellation['@type'];
+  if (rawCancellationType !== undefined && rawCancellationType !== null) {
+    const cancellationType = boundedProviderValue(rawCancellationType, MAX_CANCELLATION_TYPE_LENGTH);
+    if (cancellationType !== 'CancellationHold') {
+      return Object.freeze({ valid: false, relevant: false, receipt: null });
+    }
+  }
+
+  if (offerStatusType !== null && offerStatusType !== 'OfferStatusHospitality') {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
+  if (!reference) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  const rawSource = locator.source;
+  const source = rawSource === undefined || rawSource === null
+    ? null
+    : boundedProviderValue(rawSource, MAX_LOCATOR_SOURCE_LENGTH);
+  if (rawSource !== undefined && rawSource !== null && !source) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
+  let status: string | null = null;
+  if (offerStatusRecord) {
+    status = boundedProviderValue(offerStatusRecord.Status, MAX_STATUS_LENGTH);
+    if (!status || status !== 'Cancelled') {
+      return Object.freeze({ valid: false, relevant: false, receipt: null });
+    }
+  }
+
+  return Object.freeze({
+    valid: true,
+    relevant: true,
+    receipt: Object.freeze({ reference, status, source }),
+  });
+}
+
 /**
  * Normalizes only Travelport Stays locator families that can influence durable
- * reservation identity. Unrelated multi-content ReceiptPayment /
- * ReceiptCancellation records and generic confirmation locators without Stays
- * locator semantics are ignored, while malformed, partial, or contradictory
- * Stays locator evidence fails closed. Documented Booking.com Supplier + Pin
- * code receipts are structurally validated but remain non-durable evidence.
+ * reservation identity or active/cancelled lifecycle authority. Unrelated
+ * multi-content ReceiptPayment, generic ReceiptCancellation, and confirmation
+ * locators without Stays semantics are ignored, while malformed, partial, or
+ * contradictory Stays evidence fails closed. Documented Booking.com Supplier
+ * + Pin code receipts are structurally validated but remain non-durable.
  */
 export function inspectTravelportStaysReservationReceiptEvidence(
   value: unknown,
@@ -109,7 +238,20 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     if (rawReceiptType !== undefined && rawReceiptType !== null) {
       const receiptType = boundedProviderValue(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH);
       if (!receiptType) return invalidEvidence();
-      if (receiptType === 'ReceiptPayment' || receiptType === 'ReceiptCancellation') continue;
+      if (receiptType === 'ReceiptPayment') continue;
+      if (receiptType === 'ReceiptCancellation') {
+        const cancellation = inspectCancellationReceipt(receipt);
+        if (!cancellation.valid) return invalidEvidence();
+        if (cancellation.relevant && cancellation.receipt) {
+          // Existing callers treat this collection as cancellation lifecycle
+          // evidence rather than as durable supplier identity. Keeping
+          // self-identifying Stays ReceiptCancellation evidence here makes
+          // Create/Sync and active Retrieve reject the cancelled lifecycle
+          // without exposing a new provider-neutral identifier.
+          supplierCancellationReceipts.push(cancellation.receipt);
+        }
+        continue;
+      }
       if (receiptType !== 'ReceiptConfirmation') return invalidEvidence();
     }
 
@@ -143,23 +285,16 @@ export function inspectTravelportStaysReservationReceiptEvidence(
       // coexist in the shared reservation model. Stays authority contexts may
       // not omit locatorType (the documented Sync-only Travelport omission is
       // normalized before this helper is called).
-      if (sourceContext === 'Travelport' || sourceContext === 'Supplier' || sourceContext === 'Agency') {
+      if (isStaysSourceContext(sourceContext)) {
         return invalidEvidence();
       }
       continue;
     }
     if (!hasSourceContext) return invalidEvidence();
 
-    const hasStaysSourceContext = sourceContext === 'Travelport' || sourceContext === 'Supplier' || sourceContext === 'Agency';
-    const hasStaysLocatorType = locatorType === 'PNR Locator'
-      || locatorType === 'Confirmation Number'
-      || locatorType === 'Cancellation Number'
-      || locatorType === 'IATA Number'
-      || locatorType === 'Pin code';
-    const hasCanonicalStaysPair = (sourceContext === 'Travelport' && locatorType === 'PNR Locator')
-      || (sourceContext === 'Supplier' && locatorType === 'Confirmation Number')
-      || (sourceContext === 'Supplier' && locatorType === 'Cancellation Number')
-      || (sourceContext === 'Agency' && locatorType === 'IATA Number');
+    const hasStaysSourceContext = isStaysSourceContext(sourceContext);
+    const hasStaysLocatorType = isStaysLocatorType(locatorType);
+    const hasCanonicalStaysPair = isCanonicalStaysPair(sourceContext, locatorType);
     const hasSupportedStaysPair = hasCanonicalStaysPair
       || (sourceContext === 'Supplier' && locatorType === 'Pin code');
     if ((hasStaysSourceContext || hasStaysLocatorType) && !hasSupportedStaysPair) {

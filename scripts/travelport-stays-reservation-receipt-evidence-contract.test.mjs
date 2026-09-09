@@ -13,16 +13,20 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
 
   assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
   assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
-  assert.match(helper, /receiptType === 'ReceiptPayment' \|\| receiptType === 'ReceiptCancellation'/);
-  assert.match(helper, /sourceContext === 'Travelport' \|\| sourceContext === 'Supplier' \|\| sourceContext === 'Agency'/);
-  assert.match(helper, /const hasStaysSourceContext = sourceContext === 'Travelport' \|\| sourceContext === 'Supplier' \|\| sourceContext === 'Agency'/);
-  assert.match(helper, /const hasStaysLocatorType = locatorType === 'PNR Locator'[\s\S]*locatorType === 'Confirmation Number'[\s\S]*locatorType === 'Cancellation Number'[\s\S]*locatorType === 'IATA Number'[\s\S]*locatorType === 'Pin code'/);
-  assert.match(helper, /const hasCanonicalStaysPair = \(sourceContext === 'Travelport' && locatorType === 'PNR Locator'\)[\s\S]*sourceContext === 'Supplier' && locatorType === 'Confirmation Number'[\s\S]*sourceContext === 'Supplier' && locatorType === 'Cancellation Number'[\s\S]*sourceContext === 'Agency' && locatorType === 'IATA Number'/);
+  assert.match(helper, /receiptType === 'ReceiptPayment'/);
+  assert.match(helper, /receiptType === 'ReceiptCancellation'[\s\S]*inspectCancellationReceipt\(receipt\)/);
+  assert.match(helper, /cancellationType !== 'CancellationHold'/);
+  assert.match(helper, /offerStatusType !== null && offerStatusType !== 'OfferStatusHospitality'/);
+  assert.match(helper, /!status \|\| status !== 'Cancelled'/);
+  assert.match(helper, /isStaysSourceContext\(sourceContext\)/);
+  assert.match(helper, /const hasStaysLocatorType = isStaysLocatorType\(locatorType\)/);
+  assert.match(helper, /const hasCanonicalStaysPair = isCanonicalStaysPair\(sourceContext, locatorType\)/);
   assert.match(helper, /const hasSupportedStaysPair = hasCanonicalStaysPair[\s\S]*sourceContext === 'Supplier' && locatorType === 'Pin code'/);
   assert.match(helper, /if \(\(hasStaysSourceContext \|\| hasStaysLocatorType\) && !hasSupportedStaysPair\)/);
   assert.match(helper, /confirmationType !== 'ConfirmationHold'/);
   assert.match(helper, /offerStatusType !== 'OfferStatusHospitality'/);
   assert.match(helper, /if \(!hasSourceContext && !hasLocatorType\)/);
+  assert.match(helper, /supplierCancellationReceipts\.push\(cancellation\.receipt\)/);
   assert.match(create, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
   assert.match(retrieve, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
   assert.doesNotMatch(helper, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
