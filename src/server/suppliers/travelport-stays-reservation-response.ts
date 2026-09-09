@@ -116,14 +116,27 @@ export function parseTravelportStaysReservationResponse(
     const locatorValue = confirmation.Locator;
     if (!locatorValue || typeof locatorValue !== 'object' || Array.isArray(locatorValue)) continue;
     const locator = locatorValue as RecordValue;
-    const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
     const sourceContext = boundedProviderValue(locator.sourceContext, 64);
     const locatorType = boundedProviderValue(locator.locatorType, 64);
-    if (!reference || !sourceContext) continue;
+    if (!sourceContext || !locatorType) continue;
 
     if (sourceContext === 'Travelport' && locatorType === 'PNR Locator') {
+      const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
+      if (!reference) {
+        throw new HospitalitySupplierProviderError(
+          'INVALID_RESPONSE',
+          'Travelport reservation response contained an invalid Travelport PNR locator receipt.',
+        );
+      }
       travelportReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
     } else if (sourceContext === 'Supplier' && locatorType === 'Confirmation Number') {
+      const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
+      if (!reference) {
+        throw new HospitalitySupplierProviderError(
+          'INVALID_RESPONSE',
+          'Travelport reservation response contained an invalid supplier confirmation receipt.',
+        );
+      }
       supplierReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
     }
   }

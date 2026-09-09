@@ -14,7 +14,9 @@ SF records Booking.com Sync recovery authority only from the documented supplier
 - there is exactly one confirmed supplier locator with `sourceContext=Supplier` and `locatorType=Confirmation Number`;
 - the supplier locator source is exactly `BO`, which Travelport identifies as Booking.com;
 - the matching offer has one bounded `Identifier.authority`; and
-- there is no confirmed Travelport PNR Locator, meaning no receipt simultaneously has `sourceContext=Travelport` and `locatorType=PNR Locator` with confirmed status.
+- there is no Travelport PNR Locator receipt at all.
+
+A recognized Travelport PNR receipt whose locator is malformed or whose status is not `Confirmed` is contradictory evidence, not proof that PNR processing failed cleanly. It therefore blocks Sync recovery authority rather than being ignored. Likewise, a second relevant supplier Confirmation Number receipt that is malformed, unconfirmed, or duplicated invalidates the commercial locator set.
 
 A Travelport-context locator of another type is not a PNR and cannot be normalized as `providerReservationReference`.
 
@@ -75,7 +77,7 @@ Travelport documents that Sync returns the reservation response shape used by Cr
 
 The current Travelport Sync Reservation response example omits `locatorType` on the confirmed Travelport receipt while still returning `sourceContext=Travelport` and the Travelport locator value. SF accepts that omission **only inside the Sync response path** by non-mutatingly canonicalizing that documented receipt shape to `PNR Locator` before invoking the strict shared classifier. Create Reservation responses remain strict and still require an explicit `locatorType=PNR Locator`.
 
-This compatibility rule is intentionally narrow: an explicit locator type is never rewritten. An explicit non-PNR locator type, malformed/missing Travelport context, duplicate Travelport locator evidence, or otherwise inconsistent receipt data remains ambiguous.
+This compatibility rule is intentionally narrow: an explicit locator type is never rewritten. An explicit non-PNR locator type, malformed/missing Travelport context, duplicate Travelport locator evidence, unconfirmed relevant receipt, malformed relevant locator value, or otherwise inconsistent receipt data remains ambiguous.
 
 Sync is confirmed only when the response proves all of the following:
 
@@ -86,7 +88,7 @@ Sync is confirmed only when the response proves all of the following:
 
 A Travelport-context locator with an explicit different type cannot satisfy the PNR requirement.
 
-Changed/missing supplier confirmation, mismatched reservation identity, missing/duplicate PNR evidence, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
+Changed/missing supplier confirmation, mismatched reservation identity, missing/duplicate PNR evidence, malformed or unconfirmed relevant receipt evidence, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
 
 Successful Sync clears `providerRecoveryReference` and moves the operation to `CONFIRMED` with the verified Travelport PNR Locator. Ambiguous Sync retains supplier/recovery evidence for provider-supported or manual resolution but is not retryable after the marker.
 
@@ -126,7 +128,7 @@ No current route, button, customer action, or staff action can call Sync.
 
 ## Validation
 
-Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed.
+Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed. Shared commercial-receipt coverage additionally proves that pending, cancelled, malformed, or duplicated relevant PNR/supplier receipt evidence cannot be filtered away to create confirmation or Sync authority.
 
 No source-only or local contract test is claimed as live-provider evidence.
 

@@ -19,7 +19,7 @@ A Travelport-context locator with another locator type is ignored for provider-r
 
 Supplier confirmation evidence is separate. `supplierConfirmationReference` is accepted only from a locator with `sourceContext=Supplier` and `locatorType=Confirmation Number`. Booking.com `Pin code`, supplier `Cancellation Number`, agency `IATA Number`, and other locator families are not relabeled under the wrong durable field.
 
-Locator and correlation strings are bounded and must not contain line breaks.
+Locator and correlation strings are bounded and must not contain line breaks. Once a receipt identifies itself as one of SF's relevant locator families, an invalid bounded locator value is contradictory evidence and fails closed; it is not discarded merely because another valid receipt exists.
 
 ## Normalized Retrieve evidence
 
@@ -29,7 +29,7 @@ Locator and correlation strings are bounded and must not contain line breaks.
 - at most one supplier Confirmation Number receipt; and
 - a bounded correlation/trace identifier.
 
-Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. This prevents duplicated provider evidence from being silently collapsed into one durable fact.
+Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. A malformed relevant PNR or supplier-confirmation receipt also cannot be hidden beside an otherwise valid receipt. This prevents duplicated or structurally unsafe provider evidence from being silently collapsed into one durable fact.
 
 Traveler data, contact details, form-of-payment fields, card data, payment payloads, comments, offer bodies, and raw provider payloads are discarded from the normalized result.
 
@@ -48,6 +48,8 @@ Create Reservation does not rely on the generic Retrieve parser for commercial s
 - exactly one confirmed receipt whose locator is `sourceContext=Travelport` and `locatorType=PNR Locator`;
 - structurally valid bounded error/warning evidence; and
 - confirmed supplier receipt state when a supplier confirmation is accepted.
+
+Commercial locator evidence is validated before confirmation-status filtering. Any recognized Travelport PNR or supplier Confirmation Number receipt with a malformed locator value or a status other than `Confirmed` invalidates the commercial locator set. A confirmed receipt therefore cannot hide a second pending, cancelled, rejected, or malformed receipt from the same durable locator family.
 
 A Travelport-context non-PNR locator cannot satisfy the provider-reservation requirement. Multiple confirmed PNR Locator receipts remain fail-closed ambiguity, including repeated receipts carrying the same locator.
 
@@ -69,9 +71,9 @@ For the documented supplier-confirmed/no-PNR warning path, the Create classifier
 - exactly one confirmed supplier Confirmation Number;
 - supplier source `BO`;
 - one bounded matching-offer authority; and
-- no confirmed Travelport PNR Locator.
+- no Travelport PNR Locator receipt at all.
 
-A Travelport-context locator of another type does not count as the Travelport PNR, but it also cannot itself grant Sync authority. The remaining required supplier/stay/offer evidence must still be complete.
+An unconfirmed or malformed Travelport PNR receipt is contradictory evidence, not proof that the PNR is absent, and therefore cannot grant Sync recovery authority. A Travelport-context locator of another type is not a PNR and cannot itself grant Sync authority. The remaining required supplier/stay/offer evidence must still be complete.
 
 The opaque `providerRecoveryReference` contains only provider-owned non-secret recovery authority. Traveler data, card data, credentials, tokens, raw request bodies, and raw response bodies are excluded.
 
@@ -95,7 +97,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical provider/supplier locators, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 

@@ -99,6 +99,13 @@ type ProviderWarningInspection = Readonly<{
   messages: readonly string[];
 }>;
 
+type ConfirmedLocatorEvidence = Readonly<{
+  valid: boolean;
+  provider: string | null;
+  supplier: string | null;
+  supplierSource: string | null;
+}>;
+
 export type TravelportStaysCreateExpectedReservation = Readonly<{
   chainCode: string;
   propertyCode: string;
@@ -313,13 +320,16 @@ function matchedOfferEvidence(reservation: RecordValue, expected: TravelportStay
   return Object.freeze({ matches, offerAuthority });
 }
 
-function confirmedLocatorEvidence(reservation: RecordValue) {
+function confirmedLocatorEvidence(reservation: RecordValue): ConfirmedLocatorEvidence {
   const receipts = reservation.Receipt;
   if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
-    return Object.freeze({ provider: null, supplier: null, supplierSource: null });
+    return Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });
   }
+
   const providers: string[] = [];
   const suppliers: Array<Readonly<{ reference: string; source: string | null }>> = [];
+  let valid = true;
+
   for (const receiptValue of receipts) {
     const receipt = optionalRecord(receiptValue);
     const confirmation = optionalRecord(receipt?.Confirmation);
@@ -328,19 +338,34 @@ function confirmedLocatorEvidence(reservation: RecordValue) {
     const reference = boundedText(locator?.value, MAX_REFERENCE_LENGTH);
     const context = boundedText(locator?.sourceContext, 64);
     const locatorType = boundedText(locator?.locatorType, 64);
-    if (!reference || !context || status !== 'Confirmed') continue;
-    if (context === 'Travelport' && locatorType === 'PNR Locator') providers.push(reference);
+
+    if (context === 'Travelport' && locatorType === 'PNR Locator') {
+      if (!reference || status !== 'Confirmed') {
+        valid = false;
+        continue;
+      }
+      providers.push(reference);
+      continue;
+    }
+
     if (context === 'Supplier' && locatorType === 'Confirmation Number') {
+      if (!reference || status !== 'Confirmed') {
+        valid = false;
+        continue;
+      }
       suppliers.push(Object.freeze({ reference, source: boundedText(locator?.source, 16) }));
     }
   }
-  const uniqueProviders = [...new Set(providers)];
-  const uniqueSupplierReferences = [...new Set(suppliers.map((supplier) => supplier.reference))];
-  const uniqueSupplierSources = [...new Set(suppliers.map((supplier) => supplier.source).filter((source): source is string => source !== null))];
+
+  if (!valid || providers.length > 1 || suppliers.length > 1) {
+    return Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });
+  }
+
   return Object.freeze({
-    provider: providers.length === 1 && uniqueProviders.length === 1 ? uniqueProviders[0]! : null,
-    supplier: suppliers.length === 1 && uniqueSupplierReferences.length === 1 ? uniqueSupplierReferences[0]! : null,
-    supplierSource: suppliers.length === 1 && uniqueSupplierSources.length === 1 ? uniqueSupplierSources[0]! : null,
+    valid: true,
+    provider: providers[0] ?? null,
+    supplier: suppliers[0]?.reference ?? null,
+    supplierSource: suppliers[0]?.source ?? null,
   });
 }
 
@@ -461,7 +486,9 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   const reservationMatches = offerEvidence.matches === 1;
   const locators = reservation
     ? confirmedLocatorEvidence(reservation)
-    : Object.freeze({ provider: null, supplier: null, supplierSource: null });
+    : Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });
+  if (!locators.valid) return invalidResponse(providerCorrelationId);
+
   const confirmedWithoutPnr = warnings.messages.includes(CONFIRMED_WITHOUT_PNR_WARNING);
   if (confirmedWithoutPnr) {
     return Object.freeze({
