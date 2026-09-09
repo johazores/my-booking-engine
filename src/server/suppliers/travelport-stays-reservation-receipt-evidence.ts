@@ -46,9 +46,10 @@ function invalidEvidence(): TravelportStaysReservationReceiptEvidence {
 function normalizedReceipt(
   locator: RecordValue,
   confirmation: RecordValue,
+  requireHospitalityDiscriminators: boolean,
 ): TravelportStaysLocatorReceiptEvidence | null {
   const rawConfirmationType = confirmation['@type'];
-  if (rawConfirmationType !== undefined && rawConfirmationType !== null) {
+  if (requireHospitalityDiscriminators && rawConfirmationType !== undefined && rawConfirmationType !== null) {
     const confirmationType = boundedProviderValue(rawConfirmationType, MAX_CONFIRMATION_TYPE_LENGTH);
     if (confirmationType !== 'ConfirmationHold') return null;
   }
@@ -69,7 +70,7 @@ function normalizedReceipt(
     if (!statusRecord) return null;
 
     const rawOfferStatusType = statusRecord['@type'];
-    if (rawOfferStatusType !== undefined && rawOfferStatusType !== null) {
+    if (requireHospitalityDiscriminators && rawOfferStatusType !== undefined && rawOfferStatusType !== null) {
       const offerStatusType = boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
       if (offerStatusType !== 'OfferStatusHospitality') return null;
     }
@@ -161,7 +162,7 @@ export function inspectTravelportStaysReservationReceiptEvidence(
       return invalidEvidence();
     }
 
-    const normalized = normalizedReceipt(locator, confirmation);
+    const normalized = normalizedReceipt(locator, confirmation, hasCanonicalStaysPair);
     if (!normalized) return invalidEvidence();
 
     if (sourceContext === 'Travelport' && locatorType === 'PNR Locator') {

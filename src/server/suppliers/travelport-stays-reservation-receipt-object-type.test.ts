@@ -69,15 +69,16 @@ test('does not reinterpret unrelated multi-content confirmation types as Stays e
   const result = inspectTravelportStaysReservationReceiptEvidence([{
     '@type': 'ReceiptConfirmation',
     Confirmation: {
-      '@type': 'ConfirmationHold',
+      '@type': 'ConfirmationOrder',
       Locator: {
         value: 'AA001HD1YYTA7',
         sourceContext: 'OrderId',
+        locatorType: 'Order Locator',
         source: 'AA',
       },
       OfferStatus: {
         '@type': 'OfferStatusAir',
-        StatusAir: [{ code: 'HK', value: 'Confirmed' }],
+        Status: 'Confirmed',
       },
     },
   }]);
