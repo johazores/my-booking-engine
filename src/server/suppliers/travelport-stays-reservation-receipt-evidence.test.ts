@@ -159,6 +159,37 @@ test('Create cannot ignore malformed relevant locator evidence beside a valid co
   expectInvalidCreate(malformedSupplier);
 });
 
+test('Create and Retrieve reject contradictory Stays source-context and locator-family pairs', () => {
+  for (const conflictingReceipt of [
+    receipt({
+      value: 'WRONG-TRAVELPORT-FAMILY',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'Travelport',
+      status: 'Confirmed',
+    }),
+    receipt({
+      value: 'WRONG-SUPPLIER-FAMILY',
+      locatorType: 'PNR Locator',
+      sourceContext: 'Supplier',
+      status: 'Confirmed',
+    }),
+    receipt({
+      value: 'WRONG-AGENCY-FAMILY',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'Agency',
+      status: 'Confirmed',
+    }),
+  ]) {
+    const body = reservationResponse();
+    body.ReservationResponse.Reservation.Receipt.push(conflictingReceipt);
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(body),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+    expectInvalidCreate(body);
+  }
+});
+
 test('Sync recovery authority requires absence of any Travelport PNR receipt, not just absence of a confirmed one', () => {
   const body = reservationResponse({ includeTravelport: false, warning: syncWarning });
   body.ReservationResponse.Reservation.Receipt.push(receipt({

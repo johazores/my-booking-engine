@@ -16,7 +16,9 @@ Travelport's current Hotel Create/Retrieve response examples use `ReceiptConfirm
 
 SF normalizes only the first two as durable reservation identifiers. Supplier `Cancellation Number` is tracked separately as lifecycle evidence and cannot be mistaken for the supplier confirmation.
 
-The shared inspector requires the receipt collection to be bounded and every receipt entry to be structurally readable. A Stays confirmation that partially presents `sourceContext`/`locatorType`, has malformed locator/status/source text, or omits a required Stays locator field fails closed. Create/Sync also rejects any supplier cancellation evidence because a cancelled supplier lifecycle cannot prove an active successful write. Active known-locator recovery already applies the same cancellation rejection before returning provider-neutral `FOUND`.
+The shared inspector requires the receipt collection to be bounded and every receipt entry to be structurally readable. A Stays confirmation that partially presents `sourceContext`/`locatorType`, has malformed locator/status/source text, omits a required Stays locator field, or pairs a Stays source context with the wrong locator family fails closed. Travelport authority is only `Travelport + PNR Locator`; Supplier authority is only `Supplier + Confirmation Number` or `Supplier + Cancellation Number`; Agency evidence is only `Agency + IATA Number`. This prevents contradictory provider-owned locator metadata from disappearing as if it were unrelated multi-content evidence.
+
+Create/Sync also rejects any supplier cancellation evidence because a cancelled supplier lifecycle cannot prove an active successful write. Active known-locator recovery applies the same cancellation rejection before returning provider-neutral `FOUND`.
 
 ## Multi-content compatibility
 
@@ -26,10 +28,11 @@ SF therefore distinguishes unrelated bounded multi-content evidence from malform
 
 - bounded `ReceiptPayment` and `ReceiptCancellation` records are ignored by the Stays locator inspector;
 - a generic confirmation locator with neither Stays `sourceContext` nor `locatorType` is ignored;
-- a non-Stays source context without `locatorType` can remain outside Stays authority; but
-- Travelport, Supplier, or Agency Stays contexts cannot omit `locatorType`, and a locator type cannot be presented without its source context.
+- a non-Stays source context without `locatorType` can remain outside Stays authority;
+- Travelport, Supplier, or Agency Stays contexts cannot omit `locatorType`, and a locator type cannot be presented without its source context; and
+- recognized Stays source contexts must use their documented locator family rather than being silently ignored when the pair is contradictory.
 
-This preserves multi-content compatibility without allowing a partial hotel locator to disappear silently next to a valid PNR.
+This preserves multi-content compatibility without allowing a partial or contradictory hotel locator to disappear silently next to a valid PNR.
 
 ## Sync exception
 
@@ -45,17 +48,9 @@ Duplicate relevant locator receipts still fail closed at their calling boundary,
 
 ## Validation
 
-Focused tests cover:
+Focused tests cover shared normalization, supplier cancellation evidence, malformed/partial Stays receipt rejection, canonical source-context/locator-family pairing, bounded unrelated multi-content compatibility, the documented Sync-only missing-locator-type exception, end-to-end Create/Retrieve malformed sibling rejection, and active Create/Retrieve cancellation rejection.
 
-- shared normalization of Travelport PNR and supplier confirmation receipts;
-- separate supplier cancellation evidence;
-- malformed/partial Stays receipt rejection;
-- bounded unrelated multi-content receipt compatibility;
-- the documented Sync-only missing-locator-type exception remaining invalid until Sync normalization;
-- end-to-end Create and Retrieve rejection of malformed sibling receipt structure; and
-- active Create/Retrieve rejection of supplier cancellation evidence.
-
-A dependency-free source contract requires Retrieve and Create/Sync to keep using the same inspector and checks that payment-card/form-of-payment fields are not part of the normalized receipt module.
+A dependency-free source contract requires Retrieve and Create/Sync to keep using the same inspector, protects the canonical Travelport/Supplier/Agency locator-family allowlist, and checks that payment-card/form-of-payment fields are not part of the normalized receipt module.
 
 Full repository validation still requires the repository-supported Node 24/TypeScript 6 environment. PostgreSQL scenarios require an explicitly disposable target. Live Travelport verification requires provisioned non-production credentials and reviewed payment authority. GitHub Actions are not used.
 

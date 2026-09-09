@@ -70,8 +70,8 @@ function normalizedReceipt(
  * Normalizes only Travelport Stays locator families that can influence durable
  * reservation identity. Unrelated multi-content ReceiptPayment /
  * ReceiptCancellation records and generic confirmation locators without Stays
- * locator semantics are ignored, while malformed or partial Stays locator
- * evidence fails closed.
+ * locator semantics are ignored, while malformed, partial, or contradictory
+ * Stays locator evidence fails closed.
  */
 export function inspectTravelportStaysReservationReceiptEvidence(
   value: unknown,
@@ -132,6 +132,18 @@ export function inspectTravelportStaysReservationReceiptEvidence(
       continue;
     }
     if (!hasSourceContext) return invalidEvidence();
+
+    if (
+      (sourceContext === 'Travelport' && locatorType !== 'PNR Locator')
+      || (
+        sourceContext === 'Supplier'
+        && locatorType !== 'Confirmation Number'
+        && locatorType !== 'Cancellation Number'
+      )
+      || (sourceContext === 'Agency' && locatorType !== 'IATA Number')
+    ) {
+      return invalidEvidence();
+    }
 
     const normalized = normalizedReceipt(locator, confirmation);
     if (!normalized) return invalidEvidence();

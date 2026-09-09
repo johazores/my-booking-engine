@@ -104,6 +104,34 @@ test('fails closed on malformed or partial Stays receipt structure', () => {
   }
 });
 
+test('fails closed when a Stays source context is paired with the wrong locator family', () => {
+  for (const receipts of [
+    [confirmation({
+      receiptType: 'ReceiptConfirmation',
+      value: '80073065',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'Travelport',
+      status: 'Confirmed',
+    })],
+    [confirmation({
+      receiptType: 'ReceiptConfirmation',
+      value: 'D6VBHL',
+      locatorType: 'PNR Locator',
+      sourceContext: 'Supplier',
+      status: 'Confirmed',
+    })],
+    [confirmation({
+      receiptType: 'ReceiptConfirmation',
+      value: '96120603',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'Agency',
+      status: 'Confirmed',
+    })],
+  ]) {
+    assert.equal(inspectTravelportStaysReservationReceiptEvidence(receipts).valid, false);
+  }
+});
+
 test('documented Sync-only Travelport locator omission remains invalid until the Sync normalizer adds locatorType', () => {
   const result = inspectTravelportStaysReservationReceiptEvidence([
     confirmation({
