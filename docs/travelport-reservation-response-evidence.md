@@ -25,9 +25,11 @@ Locator and correlation strings are bounded and must not contain line breaks.
 
 `parseTravelportStaysReservationResponse` accepts an untrusted Travelport response body and returns only:
 
-- exactly one Travelport PNR Locator as `providerReservationReference`;
-- at most one supplier Confirmation Number; and
+- exactly one Travelport PNR Locator receipt as `providerReservationReference`;
+- at most one supplier Confirmation Number receipt; and
 - a bounded correlation/trace identifier.
+
+Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. This prevents duplicated provider evidence from being silently collapsed into one durable fact.
 
 Traveler data, contact details, form-of-payment fields, card data, payment payloads, comments, offer bodies, and raw provider payloads are discarded from the normalized result.
 
@@ -47,7 +49,7 @@ Create Reservation does not rely on the generic Retrieve parser for commercial s
 - structurally valid bounded error/warning evidence; and
 - confirmed supplier receipt state when a supplier confirmation is accepted.
 
-A Travelport-context non-PNR locator cannot satisfy the provider-reservation requirement. Multiple confirmed PNR Locator receipts remain fail-closed ambiguity.
+A Travelport-context non-PNR locator cannot satisfy the provider-reservation requirement. Multiple confirmed PNR Locator receipts remain fail-closed ambiguity, including repeated receipts carrying the same locator.
 
 Documented price/guarantee no-sell responses become `REVIEW_REQUIRED`. Reviewed definitive validation errors can become `FAILED`. Booking.com Sync-required conditions and unknown/malformed post-write outcomes remain `AMBIGUOUS` rather than being promoted to success or retry authority.
 
@@ -93,7 +95,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover PNR-locator identity, supplier locator-type semantics, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical provider/supplier locators, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 

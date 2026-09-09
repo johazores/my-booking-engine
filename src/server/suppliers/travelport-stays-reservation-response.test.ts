@@ -200,21 +200,38 @@ test('create evidence fails closed unless provider and supplier confirmation rec
   );
 });
 
-test('ambiguous confirmation locator evidence fails closed', () => {
-  const duplicate = response();
-  duplicate.ReservationResponse.Reservation.Receipt.push({
+test('duplicate or conflicting confirmation locator evidence fails closed', () => {
+  const conflictingProvider = response();
+  conflictingProvider.ReservationResponse.Reservation.Receipt.push({
     Confirmation: {
       Locator: { value: 'OTHER', locatorType: 'PNR Locator', sourceContext: 'Travelport' },
       OfferStatus: { Status: 'Confirmed' },
     },
   });
   assert.throws(
-    () => parseTravelportStaysReservationResponse(duplicate),
+    () => parseTravelportStaysReservationResponse(conflictingProvider),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+
+  const duplicateProvider = response();
+  duplicateProvider.ReservationResponse.Reservation.Receipt.push({
+    Confirmation: {
+      Locator: { value: 'D6VBHL', locatorType: 'PNR Locator', sourceContext: 'Travelport' },
+      OfferStatus: { Status: 'Confirmed' },
+    },
+  });
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(duplicateProvider),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
 
   assert.throws(
     () => parseTravelportStaysReservationResponse(response({ supplierReferences: ['A', 'B'] })),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(response({ supplierReferences: ['A', 'A'] })),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
 });

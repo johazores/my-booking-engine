@@ -128,14 +128,13 @@ export function parseTravelportStaysReservationResponse(
     }
   }
 
-  const providerReferences = [...new Set(travelportReceipts.map((receipt) => receipt.reference))];
-  if (providerReferences.length !== 1) {
+  if (travelportReceipts.length !== 1) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
-      'Travelport reservation response did not contain exactly one Travelport PNR locator.',
+      'Travelport reservation response did not contain exactly one Travelport PNR locator receipt.',
     );
   }
-  const providerReservationReference = providerReferences[0]!;
+  const providerReservationReference = travelportReceipts[0]!.reference;
 
   if (
     input.expectedProviderReservationReference !== undefined
@@ -152,11 +151,7 @@ export function parseTravelportStaysReservationResponse(
   }
 
   if (input.requireConfirmedTravelportReceipt) {
-    if (
-      travelportReceipts.length !== 1
-      || travelportReceipts[0]!.reference !== providerReservationReference
-      || travelportReceipts[0]!.status !== 'Confirmed'
-    ) {
+    if (travelportReceipts[0]!.status !== 'Confirmed') {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
         'Travelport create response did not contain one confirmed Travelport PNR receipt.',
@@ -164,11 +159,10 @@ export function parseTravelportStaysReservationResponse(
     }
   }
 
-  const uniqueSupplierReferences = [...new Set(supplierReceipts.map((receipt) => receipt.reference))];
-  if (uniqueSupplierReferences.length > 1) {
+  if (supplierReceipts.length > 1) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
-      'Travelport returned multiple supplier confirmation references for a single-room reservation.',
+      'Travelport returned multiple supplier confirmation receipts for a single-room reservation.',
     );
   }
   if (input.requireConfirmedTravelportReceipt && supplierReceipts.some((receipt) => receipt.status !== 'Confirmed')) {
@@ -180,7 +174,7 @@ export function parseTravelportStaysReservationResponse(
 
   return Object.freeze({
     providerReservationReference,
-    supplierConfirmationReference: uniqueSupplierReferences[0] ?? null,
+    supplierConfirmationReference: supplierReceipts[0]?.reference ?? null,
     providerCorrelationId: boundedProviderValue(response.traceId ?? response.traceID, MAX_CORRELATION_LENGTH),
   });
 }
