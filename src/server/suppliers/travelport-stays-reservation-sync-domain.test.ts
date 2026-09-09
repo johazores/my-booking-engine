@@ -69,6 +69,22 @@ function syncResponse(input: {
               OfferStatus: { Status: 'Confirmed' },
             },
           },
+          {
+            '@type': 'ReceiptConfirmation',
+            Confirmation: {
+              '@type': 'ConfirmationHold',
+              Locator: {
+                value: '4619',
+                locatorType: 'Pin code',
+                source: 'BO',
+                sourceContext: 'Supplier',
+              },
+              OfferStatus: {
+                '@type': 'OfferStatusHospitality',
+                Status: 'Confirmed',
+              },
+            },
+          },
         ],
       },
       traceId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
