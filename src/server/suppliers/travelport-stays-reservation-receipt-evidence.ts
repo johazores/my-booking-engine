@@ -132,9 +132,6 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   const hasStaysSourceContext = isStaysSourceContext(sourceContext);
   const hasStaysLocatorType = isStaysLocatorType(locatorType);
   const hasCanonicalStaysPair = isCanonicalStaysPair(sourceContext, locatorType);
-  if ((hasStaysSourceContext || hasStaysLocatorType) && !hasCanonicalStaysPair) {
-    return Object.freeze({ valid: false, relevant: false, receipt: null });
-  }
 
   const offerStatus = cancellation.OfferStatus;
   const offerStatusRecord = offerStatus === undefined || offerStatus === null
@@ -152,12 +149,16 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
     rawOfferStatusType !== undefined
     && rawOfferStatusType !== null
     && !offerStatusType
-    && (hasStaysSourceContext || hasStaysLocatorType)
+    && (hasCanonicalStaysPair || hasStaysLocatorType)
   ) {
     return Object.freeze({ valid: false, relevant: false, receipt: null });
   }
 
   const hasHospitalityStatus = offerStatusType === 'OfferStatusHospitality';
+  if (hasStaysLocatorType && !hasCanonicalStaysPair) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
   const relevant = hasCanonicalStaysPair || hasHospitalityStatus;
   if (!relevant) {
     return Object.freeze({ valid: true, relevant: false, receipt: null });

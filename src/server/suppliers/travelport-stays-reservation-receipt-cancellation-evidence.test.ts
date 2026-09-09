@@ -84,6 +84,13 @@ test('keeps unrelated shared-model ReceiptCancellation outside Stays authority',
       cancellationType: 'CancellationHold',
       offerStatusType: 'OfferStatusAir',
     }),
+    cancellation({
+      value: '0GM4S1',
+      locatorType: 'Locator',
+      sourceContext: 'Travelport',
+      source: '1G',
+      cancellationType: 'CancellationHold',
+    }),
   ]);
 
   assert.equal(result.valid, true);

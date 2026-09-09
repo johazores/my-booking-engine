@@ -33,7 +33,7 @@ Travelport's shared reservation model can also contain non-hotel receipt familie
 SF therefore distinguishes unrelated bounded multi-content evidence from malformed Stays evidence:
 
 - bounded `ReceiptPayment` records remain outside Stays authority;
-- generic `ReceiptCancellation` records without a canonical Stays locator pair or explicit `OfferStatusHospitality` remain outside Stays authority;
+- generic `ReceiptCancellation` records without a canonical Stays locator pair or explicit `OfferStatusHospitality` remain outside Stays authority; this includes the documented air GDS cancellation shape using `sourceContext=Travelport` with generic `locatorType=Locator` rather than the Stays `PNR Locator` family;
 - a self-identifying Stays `ReceiptCancellation` is normalized only as cancellation lifecycle evidence and can never become a provider PNR or supplier confirmation;
 - a generic confirmation locator with neither Stays `sourceContext` nor `locatorType` is ignored;
 - a non-Stays source context without `locatorType` can remain outside Stays authority;
