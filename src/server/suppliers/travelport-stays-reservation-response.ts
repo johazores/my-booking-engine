@@ -10,6 +10,11 @@ const MAX_OFFER_REFERENCE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
 
+type TravelportStaysReservationOfferScope = Readonly<{
+  offerIds: ReadonlySet<string>;
+  passiveOfferIds: ReadonlySet<string>;
+}>;
+
 export type TravelportStaysReservationResponseEvidence = Readonly<{
   providerReservationReference: string;
   supplierConfirmationReference: string | null;
@@ -85,16 +90,27 @@ function assertSupportedResultEvidence(response: RecordValue) {
 function assertExpectedReservationMatch(
   reservation: RecordValue,
   expected: TravelportStaysReservationRecoveryExpectation,
-) {
+): TravelportStaysReservationOfferScope {
   const offers = reservation.Offer;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
     throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
   }
 
+  const offerIds = new Set<string>();
+  const passiveOfferIds = new Set<string>();
   let matches = 0;
   let activeHospitalitySegments = 0;
   for (const offerValue of offers) {
     const offer = record(offerValue);
+    const offerId = boundedProviderValue(offer.id, MAX_OFFER_REFERENCE_LENGTH);
+    if (!offerId || offerIds.has(offerId)) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained missing, malformed, or duplicate offer identifiers.',
+      );
+    }
+    offerIds.add(offerId);
+
     const passiveOfferInd = offer.passiveOfferInd;
     if (
       passiveOfferInd !== undefined
@@ -107,7 +123,10 @@ function assertExpectedReservationMatch(
       );
     }
 
-    if (passiveOfferInd === true) continue;
+    if (passiveOfferInd === true) {
+      passiveOfferIds.add(offerId);
+      continue;
+    }
 
     const products = offer.Product;
     if (!Array.isArray(products) || products.length < 1 || products.length > MAX_PRODUCTS_PER_OFFER) {
@@ -154,21 +173,8 @@ function assertExpectedReservationMatch(
       'Travelport reservation response did not contain exactly one active hospitality segment matching the durable reservation request.',
     );
   }
-}
 
-function explicitPassiveOfferIds(reservation: RecordValue) {
-  const passiveOfferIds = new Set<string>();
-  const offers = reservation.Offer;
-  if (!Array.isArray(offers)) return passiveOfferIds;
-
-  for (const offerValue of offers) {
-    const offer = record(offerValue);
-    if (offer.passiveOfferInd !== true) continue;
-    const passiveOfferId = boundedProviderValue(offer.id, MAX_OFFER_REFERENCE_LENGTH);
-    if (passiveOfferId) passiveOfferIds.add(passiveOfferId);
-  }
-
-  return passiveOfferIds;
+  return Object.freeze({ offerIds, passiveOfferIds });
 }
 
 function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
@@ -188,11 +194,21 @@ function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
     && offerStatus.Status === 'Confirmed';
 }
 
+function isSupplierConfirmationReceipt(receipt: RecordValue) {
+  if (receipt['@type'] !== undefined && receipt['@type'] !== 'ReceiptConfirmation') return false;
+  const confirmationValue = receipt.Confirmation;
+  if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
+  const locatorValue = (confirmationValue as RecordValue).Locator;
+  if (!locatorValue || typeof locatorValue !== 'object' || Array.isArray(locatorValue)) return false;
+  const locator = locatorValue as RecordValue;
+  return locator.sourceContext === 'Supplier' && locator.locatorType === 'Confirmation Number';
+}
+
 function activeReservationReceiptEvidence(
   value: unknown,
-  passiveOfferIds: ReadonlySet<string>,
+  offerScope: TravelportStaysReservationOfferScope,
 ) {
-  if (!Array.isArray(value) || passiveOfferIds.size === 0) return value;
+  if (!Array.isArray(value)) return value;
 
   return value.filter((receiptValue) => {
     if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)) return true;
@@ -213,8 +229,14 @@ function activeReservationReceiptEvidence(
         'Travelport reservation response contained malformed receipt offer references.',
       );
     }
+    if (offerRefs.some((offerRef) => !offerScope.offerIds.has(offerRef!))) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained receipt evidence for an unknown offer.',
+      );
+    }
 
-    const passiveMatches = offerRefs.filter((offerRef) => passiveOfferIds.has(offerRef!));
+    const passiveMatches = offerRefs.filter((offerRef) => offerScope.passiveOfferIds.has(offerRef!));
     if (passiveMatches.length === 0) return true;
     if (passiveMatches.length !== offerRefs.length) {
       throw new HospitalitySupplierProviderError(
@@ -223,7 +245,22 @@ function activeReservationReceiptEvidence(
       );
     }
 
-    return !isDocumentedPassivePlaceholderReceipt(receipt);
+    if (isDocumentedPassivePlaceholderReceipt(receipt)) return false;
+    if (!isSupplierConfirmationReceipt(receipt)) return true;
+
+    const passiveSupplierEvidence = inspectTravelportStaysReservationReceiptEvidence([receipt]);
+    if (!passiveSupplierEvidence.valid || passiveSupplierEvidence.supplierConfirmationReceipts.length !== 1) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained malformed passive supplier confirmation evidence.',
+      );
+    }
+
+    // A supplier Confirmation Number tied exclusively to an explicit passive
+    // offer can describe only that passive segment. Validate it first so
+    // malformed Stays evidence cannot disappear, then exclude it from the
+    // active reservation authority set.
+    return false;
   });
 }
 
@@ -247,14 +284,12 @@ export function parseTravelportStaysReservationResponse(
   assertSupportedResultEvidence(response);
 
   const reservation = record(response.Reservation);
-  let passiveOfferIds = new Set<string>();
+  let receiptInput = reservation.Receipt;
   if (input.expectedReservation) {
-    assertExpectedReservationMatch(reservation, input.expectedReservation);
-    passiveOfferIds = explicitPassiveOfferIds(reservation);
+    const offerScope = assertExpectedReservationMatch(reservation, input.expectedReservation);
+    receiptInput = activeReservationReceiptEvidence(reservation.Receipt, offerScope);
   }
-  const receiptEvidence = inspectTravelportStaysReservationReceiptEvidence(
-    activeReservationReceiptEvidence(reservation.Receipt, passiveOfferIds),
-  );
+  const receiptEvidence = inspectTravelportStaysReservationReceiptEvidence(receiptInput);
   if (!receiptEvidence.valid) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
