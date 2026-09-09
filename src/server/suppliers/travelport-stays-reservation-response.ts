@@ -1,8 +1,7 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { inspectTravelportStaysReservationReceiptEvidence } from './travelport-stays-reservation-receipt-evidence.ts';
 
-const MAX_REFERENCE_LENGTH = 512;
 const MAX_CORRELATION_LENGTH = 512;
-const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
@@ -37,12 +36,6 @@ function boundedProviderValue(value: unknown, max: number) {
   const normalized = value.trim();
   if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) return null;
   return normalized;
-}
-
-function readOfferStatus(confirmation: RecordValue) {
-  if (confirmation.OfferStatus === undefined || confirmation.OfferStatus === null) return null;
-  const status = record(confirmation.OfferStatus);
-  return boundedProviderValue(status.Status, 64);
 }
 
 function assertSupportedResultEvidence(response: RecordValue) {
@@ -182,49 +175,17 @@ export function parseTravelportStaysReservationResponse(
   assertSupportedResultEvidence(response);
 
   const reservation = record(response.Reservation);
-  const receipts = reservation.Receipt;
-  if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
-    throw new HospitalitySupplierProviderError('INVALID_RESPONSE');
+  const receiptEvidence = inspectTravelportStaysReservationReceiptEvidence(reservation.Receipt);
+  if (!receiptEvidence.valid) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained malformed receipt evidence.',
+    );
   }
 
-  const travelportReceipts: Array<Readonly<{ reference: string; status: string | null }>> = [];
-  const supplierReceipts: Array<Readonly<{ reference: string; status: string | null }>> = [];
-  let supplierCancellationEvidence = false;
-
-  for (const receiptValue of receipts) {
-    if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)) continue;
-    const confirmationValue = (receiptValue as RecordValue).Confirmation;
-    if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) continue;
-    const confirmation = confirmationValue as RecordValue;
-    const locatorValue = confirmation.Locator;
-    if (!locatorValue || typeof locatorValue !== 'object' || Array.isArray(locatorValue)) continue;
-    const locator = locatorValue as RecordValue;
-    const sourceContext = boundedProviderValue(locator.sourceContext, 64);
-    const locatorType = boundedProviderValue(locator.locatorType, 64);
-    if (!sourceContext || !locatorType) continue;
-
-    if (sourceContext === 'Travelport' && locatorType === 'PNR Locator') {
-      const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
-      if (!reference) {
-        throw new HospitalitySupplierProviderError(
-          'INVALID_RESPONSE',
-          'Travelport reservation response contained an invalid Travelport PNR locator receipt.',
-        );
-      }
-      travelportReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
-    } else if (sourceContext === 'Supplier' && locatorType === 'Confirmation Number') {
-      const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
-      if (!reference) {
-        throw new HospitalitySupplierProviderError(
-          'INVALID_RESPONSE',
-          'Travelport reservation response contained an invalid supplier confirmation receipt.',
-        );
-      }
-      supplierReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
-    } else if (sourceContext === 'Supplier' && locatorType === 'Cancellation Number') {
-      supplierCancellationEvidence = true;
-    }
-  }
+  const travelportReceipts = receiptEvidence.travelportPnrReceipts;
+  const supplierReceipts = receiptEvidence.supplierConfirmationReceipts;
+  const supplierCancellationEvidence = receiptEvidence.supplierCancellationReceipts.length > 0;
 
   if (travelportReceipts.length !== 1) {
     throw new HospitalitySupplierProviderError(

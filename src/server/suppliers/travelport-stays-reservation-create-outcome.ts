@@ -2,12 +2,11 @@ import {
   createTravelportStaysSyncRecoveryReference,
   TravelportStaysSyncRecoveryReferenceError,
 } from './travelport-stays-sync-recovery-reference.ts';
+import { inspectTravelportStaysReservationReceiptEvidence } from './travelport-stays-reservation-receipt-evidence.ts';
 
-const MAX_REFERENCE_LENGTH = 512;
 const MAX_CORRELATION_LENGTH = 512;
 const MAX_ERRORS = 32;
 const MAX_WARNINGS = 32;
-const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_OFFER_AUTHORITY_LENGTH = 64;
@@ -399,51 +398,23 @@ function matchedOfferEvidence(
 }
 
 function confirmedLocatorEvidence(reservation: RecordValue): ConfirmedLocatorEvidence {
-  const receipts = reservation.Receipt;
-  if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
-    return Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });
-  }
-
-  const providers: string[] = [];
-  const suppliers: Array<Readonly<{ reference: string; source: string | null }>> = [];
-  let valid = true;
-
-  for (const receiptValue of receipts) {
-    const receipt = optionalRecord(receiptValue);
-    const confirmation = optionalRecord(receipt?.Confirmation);
-    const locator = optionalRecord(confirmation?.Locator);
-    const status = boundedText(optionalRecord(confirmation?.OfferStatus)?.Status, 64);
-    const reference = boundedText(locator?.value, MAX_REFERENCE_LENGTH);
-    const context = boundedText(locator?.sourceContext, 64);
-    const locatorType = boundedText(locator?.locatorType, 64);
-
-    if (context === 'Travelport' && locatorType === 'PNR Locator') {
-      if (!reference || status !== 'Confirmed') {
-        valid = false;
-        continue;
-      }
-      providers.push(reference);
-      continue;
-    }
-
-    if (context === 'Supplier' && locatorType === 'Confirmation Number') {
-      if (!reference || status !== 'Confirmed') {
-        valid = false;
-        continue;
-      }
-      suppliers.push(Object.freeze({ reference, source: boundedText(locator?.source, 16) }));
-    }
-  }
-
-  if (!valid || providers.length > 1 || suppliers.length > 1) {
+  const evidence = inspectTravelportStaysReservationReceiptEvidence(reservation.Receipt);
+  if (
+    !evidence.valid
+    || evidence.supplierCancellationReceipts.length > 0
+    || evidence.travelportPnrReceipts.length > 1
+    || evidence.supplierConfirmationReceipts.length > 1
+    || evidence.travelportPnrReceipts.some((receipt) => receipt.status !== 'Confirmed')
+    || evidence.supplierConfirmationReceipts.some((receipt) => receipt.status !== 'Confirmed')
+  ) {
     return Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });
   }
 
   return Object.freeze({
     valid: true,
-    provider: providers[0] ?? null,
-    supplier: suppliers[0]?.reference ?? null,
-    supplierSource: suppliers[0]?.source ?? null,
+    provider: evidence.travelportPnrReceipts[0]?.reference ?? null,
+    supplier: evidence.supplierConfirmationReceipts[0]?.reference ?? null,
+    supplierSource: evidence.supplierConfirmationReceipts[0]?.source ?? null,
   });
 }
 

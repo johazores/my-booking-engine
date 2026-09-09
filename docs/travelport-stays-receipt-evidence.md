@@ -1,0 +1,68 @@
+# Travelport Stays receipt evidence
+
+## Purpose
+
+SF treats Travelport reservation receipts as commercial identity evidence, not as loosely typed metadata. The same provider-specific receipt inspection boundary is used by known-locator Hotel Retrieve and by the Create/Booking.com Sync commercial outcome classifier so malformed or contradictory receipt structure cannot be ignored beside one otherwise valid locator.
+
+This boundary does not enable the Travelport `reservation` capability. It only strengthens response interpretation for already-implemented server-only reservation lifecycle work. Activation still depends on the separately documented PCI-safe payment/guarantee source and live non-production provider verification.
+
+## Stays locator authority
+
+Travelport's current Hotel Create/Retrieve response examples use `ReceiptConfirmation` entries for the hotel locator families that SF needs:
+
+- Travelport `PNR Locator` with `sourceContext=Travelport`;
+- supplier `Confirmation Number` with `sourceContext=Supplier`; and
+- agency `IATA Number` with `sourceContext=Agency`.
+
+SF normalizes only the first two as durable reservation identifiers. Supplier `Cancellation Number` is tracked separately as lifecycle evidence and cannot be mistaken for the supplier confirmation.
+
+The shared inspector requires the receipt collection to be bounded and every receipt entry to be structurally readable. A Stays confirmation that partially presents `sourceContext`/`locatorType`, has malformed locator/status/source text, or omits a required Stays locator field fails closed. Create/Sync also rejects any supplier cancellation evidence because a cancelled supplier lifecycle cannot prove an active successful write. Active known-locator recovery already applies the same cancellation rejection before returning provider-neutral `FOUND`.
+
+## Multi-content compatibility
+
+Travelport's shared reservation model can also contain non-hotel receipt families such as `ReceiptPayment`, `ReceiptCancellation`, and confirmation locators owned by other content such as OrderId/VendorLocator. Those records are not relabeled as Stays reservation authority.
+
+SF therefore distinguishes unrelated bounded multi-content evidence from malformed Stays evidence:
+
+- bounded `ReceiptPayment` and `ReceiptCancellation` records are ignored by the Stays locator inspector;
+- a generic confirmation locator with neither Stays `sourceContext` nor `locatorType` is ignored;
+- a non-Stays source context without `locatorType` can remain outside Stays authority; but
+- Travelport, Supplier, or Agency Stays contexts cannot omit `locatorType`, and a locator type cannot be presented without its source context.
+
+This preserves multi-content compatibility without allowing a partial hotel locator to disappear silently next to a valid PNR.
+
+## Sync exception
+
+Travelport's current Sync response example can omit `locatorType` from the confirmed Travelport receipt. SF keeps that exception narrowly scoped to `travelport-stays-reservation-sync-domain.ts`, which copies the provider payload and adds `PNR Locator` only for the documented Sync-only Travelport omission before calling the shared Create classifier. Explicit locator types are never rewritten.
+
+The shared receipt inspector itself remains strict, so the exception cannot accidentally broaden ordinary Create or Retrieve response authority.
+
+## Privacy and durability
+
+The normalized evidence contains only bounded provider locator, supplier locator, supplier source, and receipt status fields needed for lifecycle decisions. It does not retain raw provider responses, traveler data, payment-card data, credentials, tokens, or free-form provider messages.
+
+Duplicate relevant locator receipts still fail closed at their calling boundary, including repeated identical locators. Receipt structure validation therefore complements rather than replaces the existing exact cardinality, confirmed-status, reservation-identity, supplier-confirmation continuity, and retry-safety rules.
+
+## Validation
+
+Focused tests cover:
+
+- shared normalization of Travelport PNR and supplier confirmation receipts;
+- separate supplier cancellation evidence;
+- malformed/partial Stays receipt rejection;
+- bounded unrelated multi-content receipt compatibility;
+- the documented Sync-only missing-locator-type exception remaining invalid until Sync normalization;
+- end-to-end Create and Retrieve rejection of malformed sibling receipt structure; and
+- active Create/Retrieve rejection of supplier cancellation evidence.
+
+A dependency-free source contract requires Retrieve and Create/Sync to keep using the same inspector and checks that payment-card/form-of-payment fields are not part of the normalized receipt module.
+
+Full repository validation still requires the repository-supported Node 24/TypeScript 6 environment. PostgreSQL scenarios require an explicitly disposable target. Live Travelport verification requires provisioned non-production credentials and reviewed payment authority. GitHub Actions are not used.
+
+## Provider references
+
+- Travelport Hotel v11 Create Reservation Reference Payload: `Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm`
+- Travelport Hotel v11 Retrieve Hotel Reservation: `Hotel11/APIReferences/APIRef_Retrieve.htm`
+- Travelport Hotel v11 Cancel Hotel Reservation: `Hotel11/APIReferences/APIRef_Cancel.htm`
+- Travelport Hotel v11 Sync Reservation: `Hotel11/APIReferences/APIRef_Sync.htm`
+- Travelport shared Reservation Retrieve response model: `Air11/Book/APIRef_ReservationRetrieve.htm`
