@@ -162,6 +162,12 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       expectedReservation,
       requireConfirmedTravelportReceipt: true,
     });
+    if (!parsed.supplierConfirmationReference) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport active reservation recovery did not return the supplier confirmation required for lifecycle operations.',
+      );
+    }
     return Object.freeze({
       status: 'FOUND',
       providerReservationReference: parsed.providerReservationReference,
