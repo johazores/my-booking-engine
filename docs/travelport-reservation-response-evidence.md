@@ -29,7 +29,9 @@ Locator and correlation strings are bounded and must not contain line breaks. On
 - at most one supplier Confirmation Number receipt; and
 - a bounded correlation/trace identifier.
 
-Known-locator recovery calls this parser only after the transport returned a successful HTTP response. A successful `ReservationResponse` that also carries a top-level `ErrorResponse` is contradictory provider evidence and now fails closed to `INVALID_RESPONSE`; the parser never promotes the reservation half to `FOUND` while ignoring the error half.
+Known-locator recovery calls this parser only after the transport returned a successful HTTP response. A successful `ReservationResponse` that also carries a top-level `ErrorResponse` is contradictory provider evidence and fails closed to `INVALID_RESPONSE`; the parser never promotes the reservation half to `FOUND` while ignoring the error half.
+
+Travelport's shared `ReservationResponse` contract can also include a `Result` object that carries warning or error evidence. SF accepts warning-only `Result` data as non-authoritative context, but any non-null embedded `Result.Error` evidence (and the defensive unsupported plural `Result.Errors` shape) invalidates positive Retrieve authority. A valid-looking reservation, PNR, and hotel segment cannot hide embedded provider error evidence.
 
 Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. A malformed relevant PNR or supplier-confirmation receipt also cannot be hidden beside an otherwise valid receipt. This prevents duplicated or structurally unsafe provider evidence from being silently collapsed into one durable fact.
 
@@ -49,12 +51,13 @@ Create Reservation does not rely on the generic Retrieve parser for commercial s
 
 - exactly one top-level response family that agrees with the HTTP outcome class: `ReservationResponse` on 2xx or `ErrorResponse` on 4xx/5xx;
 - a successful HTTP result for confirmation authority;
+- no embedded `ReservationResponse.Result.Error`/`Errors` evidence;
 - exactly one `ProductHospitality` segment in the response, and that segment must match the durable property, dates, room quantity, and guest count;
 - exactly one confirmed receipt whose locator is `sourceContext=Travelport` and `locatorType=PNR Locator`;
 - structurally valid bounded error/warning evidence; and
 - confirmed supplier receipt state when a supplier confirmation is accepted.
 
-A body containing both top-level `ReservationResponse` and `ErrorResponse`, neither envelope, an error envelope on 2xx/3xx, or a reservation envelope on non-2xx never grants success, review, definitive failure, or Sync/recovery authority. Contradictory dual-envelope bodies also do not choose one provider trace identifier as durable correlation evidence.
+A body containing both top-level `ReservationResponse` and `ErrorResponse`, neither envelope, an error envelope on 2xx/3xx, a reservation envelope on non-2xx, or embedded `ReservationResponse.Result` error evidence never grants success, review, definitive failure, or Sync/recovery authority. Contradictory dual-envelope bodies also do not choose one provider trace identifier as durable correlation evidence.
 
 Commercial hotel-segment cardinality is fail-closed in the same way as locator cardinality. A valid matching hotel segment cannot hide a second mismatched or malformed `ProductHospitality` segment. Non-hospitality products may coexist in a Travelport multi-content reservation without being relabeled as Stays evidence.
 
@@ -90,7 +93,7 @@ The opaque `providerRecoveryReference` contains only provider-owned non-secret r
 
 The separate `13034` error remains ambiguous and does not invent a supplier confirmation or Sync authority. SF does not treat the error response alone as proof that either no Booking.com sell occurred or that Sync is safe.
 
-Sync confirms only when its response proves the exact expected property/stay/occupancy, the original supplier confirmation, and exactly one confirmed Travelport PNR Locator. Because Sync reuses the Create commercial-response classifier, contradictory top-level response/error envelopes fail closed before the documented Sync-only missing-`locatorType` normalization can grant confirmation authority. Pre-provider deterministic failure is retryable only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`.
+Sync confirms only when its response proves the exact expected property/stay/occupancy, the original supplier confirmation, and exactly one confirmed Travelport PNR Locator. Because Sync reuses the Create commercial-response classifier, contradictory top-level response/error envelopes and embedded `ReservationResponse.Result` errors fail closed before the documented Sync-only missing-`locatorType` normalization can grant confirmation authority. Pre-provider deterministic failure is retryable only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`.
 
 ## Commercial review evidence
 
@@ -108,7 +111,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover top-level envelope exclusivity/HTTP-class coherence, PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, exact hospitality-segment cardinality including contradictory extra/malformed hotel segments while preserving non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover top-level envelope exclusivity/HTTP-class coherence, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, exact hospitality-segment cardinality including contradictory extra/malformed hotel segments while preserving non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 
@@ -117,4 +120,5 @@ Guarded PostgreSQL scenarios still require an explicitly disposable database tar
 - Travelport Create Reservation Reference Payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
 - Travelport Retrieve Hotel Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Retrieve.htm
 - Travelport Sync Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Sync.htm
+- Travelport Reservation Retrieve response contract: https://support.travelport.com/webhelp/JSONAPIs/Airv11/Content/Air11/Book/APIRef_ReservationRetrieve.htm
 - Travelport Stays APIs Guide: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/Guides/HotelAPIsGuide.htm
