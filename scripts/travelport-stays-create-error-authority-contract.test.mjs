@@ -34,16 +34,23 @@ test('Travelport special create decisions require complete HTTP-consistent provi
   assert.doesNotMatch(classifier, /errors\.sourceCodes\.includes\(SYNC_REQUIRED_SOURCE_CODE\)/);
 });
 
-test('Travelport known-locator reservation evidence also rejects embedded Result errors', () => {
+test('Travelport known-locator reservation evidence rejects unsupported embedded Result evidence', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
 
   const responseIndex = parser.indexOf('const response = record(root.ReservationResponse)');
-  const resultIndex = parser.indexOf('if (response.Result !== undefined && response.Result !== null)');
+  const resultGuardIndex = parser.indexOf('assertSupportedResultEvidence(response)');
   const reservationIndex = parser.indexOf('const reservation = record(response.Reservation)');
-  assert.ok(responseIndex >= 0 && resultIndex > responseIndex && reservationIndex > resultIndex);
+  assert.ok(responseIndex >= 0 && resultGuardIndex > responseIndex && reservationIndex > resultGuardIndex);
+  assert.match(parser, /function assertSupportedResultEvidence\(response: RecordValue\)/);
   assert.match(parser, /result\.Error !== undefined && result\.Error !== null/);
   assert.match(parser, /result\.Errors !== undefined && result\.Errors !== null/);
+  assert.match(parser, /const hasWarning = result\.Warning !== undefined && result\.Warning !== null/);
+  assert.match(parser, /const hasWarnings = result\.Warnings !== undefined && result\.Warnings !== null/);
+  assert.match(parser, /if \(hasWarning && hasWarnings\)/);
+  assert.match(parser, /!Array\.isArray\(warningValues\) \|\| warningValues\.length > MAX_WARNINGS/);
+  assert.match(parser, /boundedProviderValue\(warning\.Message, 512\)/);
   assert.match(parser, /embedded result error evidence/);
+  assert.match(parser, /conflicting result warning evidence/);
 });
 
 test('Travelport create error authority documentation keeps partial and contradictory envelopes fail-closed', () => {

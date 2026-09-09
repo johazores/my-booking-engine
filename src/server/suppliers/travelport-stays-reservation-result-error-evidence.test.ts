@@ -103,17 +103,52 @@ test('known-locator Retrieve fails closed on embedded Result error evidence', ()
   }
 });
 
+test('Create and known-locator Retrieve reject malformed Result warning evidence consistently', () => {
+  const malformedResults = [
+    { Warning: { Message: 'warning container must be an array' } },
+    { Warnings: 'warning container must be an array' },
+    { Warning: [{ Message: '' }] },
+    { Warning: [{ Message: 'unsafe\nwarning' }] },
+    { Warning: [{ Message: 'one warning family' }], Warnings: [{ Message: 'conflicting warning family' }] },
+    { Warning: Array.from({ length: 33 }, () => ({ Message: 'bounded warning' })) },
+  ];
+
+  for (const result of malformedResults) {
+    assert.equal(
+      classifyTravelportStaysReservationCreateOutcome({
+        httpStatus: 200,
+        body: reservationResponse(result),
+        expectedReservation,
+      }).status,
+      'AMBIGUOUS',
+    );
+
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(reservationResponse(result), {
+        expectedProviderReservationReference: 'D6VBHL',
+        expectedReservation,
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
 test('warning-only ReservationResponse Result remains usable when all durable evidence agrees', () => {
-  const body = reservationResponse({ Warning: [{ Message: 'Non-commercial provider warning.' }] });
+  for (const result of [
+    { Warning: [{ Message: 'Non-commercial provider warning.' }] },
+    { Warnings: [{ Message: 'Defensive plural warning shape.' }] },
+  ]) {
+    const body = reservationResponse(result);
 
-  assert.equal(classifyTravelportStaysReservationCreateOutcome({
-    httpStatus: 200,
-    body,
-    expectedReservation,
-  }).status, 'CONFIRMED');
+    assert.equal(classifyTravelportStaysReservationCreateOutcome({
+      httpStatus: 200,
+      body,
+      expectedReservation,
+    }).status, 'CONFIRMED');
 
-  assert.equal(parseTravelportStaysReservationResponse(body, {
-    expectedProviderReservationReference: 'D6VBHL',
-    expectedReservation,
-  }).providerReservationReference, 'D6VBHL');
+    assert.equal(parseTravelportStaysReservationResponse(body, {
+      expectedProviderReservationReference: 'D6VBHL',
+      expectedReservation,
+    }).providerReservationReference, 'D6VBHL');
+  }
 });

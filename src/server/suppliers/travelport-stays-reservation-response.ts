@@ -5,6 +5,7 @@ const MAX_CORRELATION_LENGTH = 512;
 const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
+const MAX_WARNINGS = 32;
 
 type RecordValue = Record<string, unknown>;
 
@@ -41,6 +42,49 @@ function readOfferStatus(confirmation: RecordValue) {
   if (confirmation.OfferStatus === undefined || confirmation.OfferStatus === null) return null;
   const status = record(confirmation.OfferStatus);
   return boundedProviderValue(status.Status, 64);
+}
+
+function assertSupportedResultEvidence(response: RecordValue) {
+  if (response.Result === undefined || response.Result === null) return;
+
+  const result = record(response.Result);
+  if (
+    (result.Error !== undefined && result.Error !== null)
+    || (result.Errors !== undefined && result.Errors !== null)
+  ) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained embedded result error evidence.',
+    );
+  }
+
+  const hasWarning = result.Warning !== undefined && result.Warning !== null;
+  const hasWarnings = result.Warnings !== undefined && result.Warnings !== null;
+  if (hasWarning && hasWarnings) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained conflicting result warning evidence.',
+    );
+  }
+  if (!hasWarning && !hasWarnings) return;
+
+  const warningValues = hasWarning ? result.Warning : result.Warnings;
+  if (!Array.isArray(warningValues) || warningValues.length > MAX_WARNINGS) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained malformed or oversized result warning evidence.',
+    );
+  }
+
+  for (const warningValue of warningValues) {
+    const warning = record(warningValue);
+    if (!boundedProviderValue(warning.Message, 512)) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained a malformed result warning message.',
+      );
+    }
+  }
 }
 
 function assertExpectedReservationMatch(
@@ -109,18 +153,7 @@ export function parseTravelportStaysReservationResponse(
   }
 
   const response = record(root.ReservationResponse);
-  if (response.Result !== undefined && response.Result !== null) {
-    const result = record(response.Result);
-    if (
-      (result.Error !== undefined && result.Error !== null)
-      || (result.Errors !== undefined && result.Errors !== null)
-    ) {
-      throw new HospitalitySupplierProviderError(
-        'INVALID_RESPONSE',
-        'Travelport reservation response contained embedded result error evidence.',
-      );
-    }
-  }
+  assertSupportedResultEvidence(response);
 
   const reservation = record(response.Reservation);
   const receipts = reservation.Receipt;
