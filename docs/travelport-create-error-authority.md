@@ -10,6 +10,8 @@ Travelport's current Stays error documentation describes two provisioned error f
 
 SF requires one mutually exclusive top-level commercial response envelope before any provider evidence can grant authority. A 2xx Create or Sync result may carry `ReservationResponse`; a 4xx/5xx provider result may carry `ErrorResponse`. A body containing both envelopes, neither envelope, `ErrorResponse` on 2xx/3xx, or `ReservationResponse` on a non-2xx result is contradictory transport/application evidence and becomes `AMBIGUOUS / INVALID_RESPONSE`. When both envelopes are present, SF does not choose either provider trace identifier as authoritative correlation evidence.
 
+Travelport's shared `ReservationResponse` model also defines `Result` as the place where warning or error messages can be returned. SF therefore rejects any non-null `ReservationResponse.Result.Error` evidence before a success-looking reservation can grant confirmation or Sync authority; the defensive unsupported plural `Result.Errors` shape is rejected as well. Warning-only `Result` data remains allowed when all durable reservation evidence agrees. Embedded result errors are not reclassified as Stays top-level `ErrorResponse` evidence and cannot grant retry, review, definitive failure, or recovery authority.
+
 SF never treats a partial SourceCode-bearing payload as documented legacy evidence. Any decision that depends on `SourceCode` requires the newer envelope's decision-bearing fields: a numeric `StatusCode`, a bounded numeric `SourceCode`, and a valid `Category`. The body `StatusCode` must equal the actual HTTP response status. Missing, malformed, or HTTP-inconsistent status/category evidence becomes `AMBIGUOUS / INVALID_RESPONSE` before any source-code family can grant retry, review, or recovery semantics.
 
 Provider `Message` text and `SourceID` are not durable commercial authority and are not copied into the normalized result, logs, or reservation ledger.
@@ -30,16 +32,17 @@ At durable settlement, missing either half of the required recovery pair fails c
 
 Travelport documents that price or guarantee changes stop the initial sell and that a subsequent Create Reservation request may proceed only after the applicable change is explicitly accepted. SF does not send `acceptPriceChangeInd` or `acceptGuaranteeChangeInd` automatically. The current review outcome settles the existing operation into dedicated `REVIEW_REQUIRED` state; authorized acceptance and the one-time reviewed second Create are separate server-only boundaries with fresh offer, Rules, Availability, traveler, integration, and payment authority.
 
-Transport uncertainty, malformed provider envelopes, mixed special source codes, conflicting top-level response envelopes, conflicting categories, HTTP-inconsistent status evidence, unknown source codes, and `13034` without supplier-confirmed recovery evidence never become retry authority. They remain ambiguous unless another reviewed provider-specific rule proves a definitive no-sell result.
+Transport uncertainty, malformed provider envelopes, embedded `ReservationResponse.Result` errors, mixed special source codes, conflicting top-level response envelopes, conflicting categories, HTTP-inconsistent status evidence, unknown source codes, and `13034` without supplier-confirmed recovery evidence never become retry authority. They remain ambiguous unless another reviewed provider-specific rule proves a definitive no-sell result.
 
 ## Activation boundary
 
-The Travelport `reservation` capability remains disabled. This hardening resolves the source-only meaning of `13034` without pretending SF can observe the traveler's external Booking.com email. Production activation still requires a concrete reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end validation including both documented `13034` branches, a deliberate authenticated mechanism if SF is to ingest external supplier confirmation for Sync, and verified negative-lookup/other locator-less correlation behavior.
+The Travelport `reservation` capability remains disabled. This hardening resolves the source-only meaning of contradictory success/error evidence without pretending SF can observe the traveler's external Booking.com email. Production activation still requires a concrete reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end validation including both documented `13034` branches, a deliberate authenticated mechanism if SF is to ingest external supplier confirmation for Sync, and verified negative-lookup/other locator-less correlation behavior.
 
 References:
 
 - Travelport Stays API Error Messaging.
 - Travelport Stays APIs Guide, including Syncing Reservations after Aggregator Sell Failure.
 - Travelport Create Reservation Reference Payload.
+- Travelport Reservation Retrieve API Reference (`ReservationResponse.Result` error/warning semantics).
 - `docs/travelport-stays-create-outcome-classification.md`.
 - `docs/travelport-booking-sync-recovery-authority.md`.
