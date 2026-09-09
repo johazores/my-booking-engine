@@ -26,10 +26,24 @@ test('Travelport special create decisions require complete HTTP-consistent provi
   assert.match(classifier, /const rawCategory = error\.category \?\? error\.Category/);
   assert.match(classifier, /typeof rawCategory !== 'string'/);
   assert.match(classifier, /inspectProviderErrors\(input\.body, input\.httpStatus\)/);
+  assert.match(classifier, /result\.Error !== undefined && result\.Error !== null/);
+  assert.match(classifier, /result\.Errors !== undefined && result\.Errors !== null/);
   assert.match(classifier, /error\.sourceCode === SYNC_REQUIRED_SOURCE_CODE[\s\S]*?error\.category === 'UNKNOWN'/);
   assert.match(classifier, /error\.category === 'VALIDATION'[\s\S]*?GUARANTEE_CHANGE_SOURCE_CODES\.has\(error\.sourceCode\)[\s\S]*?PRICE_CHANGE_SOURCE_CODE/);
   assert.doesNotMatch(classifier, /error\.category === null/);
   assert.doesNotMatch(classifier, /errors\.sourceCodes\.includes\(SYNC_REQUIRED_SOURCE_CODE\)/);
+});
+
+test('Travelport known-locator reservation evidence also rejects embedded Result errors', () => {
+  const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
+
+  const responseIndex = parser.indexOf('const response = record(root.ReservationResponse)');
+  const resultIndex = parser.indexOf('if (response.Result !== undefined && response.Result !== null)');
+  const reservationIndex = parser.indexOf('const reservation = record(response.Reservation)');
+  assert.ok(responseIndex >= 0 && resultIndex > responseIndex && reservationIndex > resultIndex);
+  assert.match(parser, /result\.Error !== undefined && result\.Error !== null/);
+  assert.match(parser, /result\.Errors !== undefined && result\.Errors !== null/);
+  assert.match(parser, /embedded result error evidence/);
 });
 
 test('Travelport create error authority documentation keeps partial and contradictory envelopes fail-closed', () => {
@@ -40,6 +54,8 @@ test('Travelport create error authority documentation keeps partial and contradi
   assert.match(doc, /mutually exclusive/i);
   assert.match(doc, /2xx.*ReservationResponse/is);
   assert.match(doc, /4xx.*5xx.*ErrorResponse/is);
+  assert.match(doc, /ReservationResponse\.Result\.Error/is);
+  assert.match(doc, /warning-only.*allowed/is);
   assert.match(doc, /13034.*UNKNOWN/is);
   assert.match(doc, /13016.*13017.*13018.*13020.*VALIDATION/is);
   assert.match(doc, /mixed.*INVALID_RESPONSE/is);
