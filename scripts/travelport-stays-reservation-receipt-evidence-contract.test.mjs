@@ -16,6 +16,9 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(retrieve, /receipt\.OfferRef/);
   assert.match(retrieve, /passiveOfferIds\.has\(offerRef!\)/);
   assert.match(retrieve, /mixed active and passive offer references in one receipt/i);
+  assert.match(retrieve, /isDocumentedPassivePlaceholderReceipt\(receipt\)/);
+  assert.match(retrieve, /offerStatus\.code === 'AK'/);
+  assert.match(retrieve, /offerStatus\.Status === 'Confirmed'/);
   assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
   assert.match(helper, /receiptType === 'ReceiptPayment'/);
   assert.match(helper, /receiptType === 'ReceiptCancellation'[\s\S]*inspectCancellationReceipt\(receipt\)/);

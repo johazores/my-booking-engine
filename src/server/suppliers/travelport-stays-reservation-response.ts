@@ -171,6 +171,23 @@ function explicitPassiveOfferIds(reservation: RecordValue) {
   return passiveOfferIds;
 }
 
+function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
+  if (receipt['@type'] !== 'ReceiptConfirmation') return false;
+
+  const confirmationValue = receipt.Confirmation;
+  if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
+  const confirmation = confirmationValue as RecordValue;
+  if (confirmation['@type'] !== 'ConfirmationHold') return false;
+  if (confirmation.Locator !== undefined && confirmation.Locator !== null) return false;
+
+  const offerStatusValue = confirmation.OfferStatus;
+  if (!offerStatusValue || typeof offerStatusValue !== 'object' || Array.isArray(offerStatusValue)) return false;
+  const offerStatus = offerStatusValue as RecordValue;
+  return offerStatus['@type'] === 'OfferStatusHospitality'
+    && offerStatus.code === 'AK'
+    && offerStatus.Status === 'Confirmed';
+}
+
 function activeReservationReceiptEvidence(
   value: unknown,
   passiveOfferIds: ReadonlySet<string>,
@@ -206,7 +223,7 @@ function activeReservationReceiptEvidence(
       );
     }
 
-    return false;
+    return !isDocumentedPassivePlaceholderReceipt(receipt);
   });
 }
 

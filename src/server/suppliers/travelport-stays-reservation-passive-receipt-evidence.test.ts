@@ -115,6 +115,36 @@ test('receipt evidence cannot mix active and passive offer references', () => {
   );
 });
 
+test('passive offer scoping cannot hide durable locator evidence', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt[1] = {
+    '@type': 'ReceiptConfirmation',
+    OfferRef: ['O2'],
+    Confirmation: {
+      '@type': 'ConfirmationHold',
+      Locator: {
+        value: 'OTHER',
+        locatorType: 'PNR Locator',
+        sourceContext: 'Travelport',
+      },
+      OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' },
+    },
+  } as never;
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('only the documented AK locator-less placeholder shape is excluded', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt[1]!.Confirmation.OfferStatus.code = 'MK';
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
 test('malformed passive receipt offer references remain fail closed', () => {
   for (const malformed of [null, [], [null], ['O2\nsecret']]) {
     const body = response();
