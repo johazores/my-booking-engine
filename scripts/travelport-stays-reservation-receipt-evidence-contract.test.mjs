@@ -21,6 +21,7 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(helper, /isStaysSourceContext\(sourceContext\)/);
   assert.match(helper, /const hasStaysLocatorType = isStaysLocatorType\(locatorType\)/);
   assert.match(helper, /const hasCanonicalStaysPair = isCanonicalStaysPair\(sourceContext, locatorType\)/);
+  assert.match(helper, /if \(hasStaysSourceContext && !hasLocatorType\)/);
   assert.match(helper, /if \(hasStaysLocatorType && !hasCanonicalStaysPair\)/);
   assert.match(helper, /const relevant = hasCanonicalStaysPair \|\| hasHospitalityStatus/);
   assert.match(helper, /const hasSupportedStaysPair = hasCanonicalStaysPair[\s\S]*sourceContext === 'Supplier' && locatorType === 'Pin code'/);

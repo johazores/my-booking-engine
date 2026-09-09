@@ -97,6 +97,20 @@ test('keeps unrelated shared-model ReceiptCancellation outside Stays authority',
   assert.deepEqual(result.supplierCancellationReceipts, []);
 });
 
+test('fails closed when a Stays-owned cancellation context omits locatorType', () => {
+  for (const sourceContext of ['Travelport', 'Supplier', 'Agency']) {
+    const result = inspectTravelportStaysReservationReceiptEvidence([
+      cancellation({
+        value: 'PARTIAL-STAYS-CANCEL',
+        sourceContext,
+        cancellationType: 'CancellationHold',
+      }),
+    ]);
+
+    assert.equal(result.valid, false, `${sourceContext} cancellation context must not be silently ignored`);
+  }
+});
+
 test('fails closed on contradictory or malformed Stays ReceiptCancellation evidence', () => {
   for (const receipt of [
     cancellation({

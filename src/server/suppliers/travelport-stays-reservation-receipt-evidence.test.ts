@@ -37,6 +37,19 @@ function receipt(input: Readonly<{
   };
 }
 
+function partialCancellationReceipt(sourceContext: 'Travelport' | 'Supplier' | 'Agency') {
+  return {
+    '@type': 'ReceiptCancellation',
+    Cancellation: {
+      '@type': 'CancellationHold',
+      Locator: {
+        value: 'PARTIAL-STAYS-CANCEL',
+        sourceContext,
+      },
+    },
+  };
+}
+
 function reservationResponse(input: Readonly<{
   includeTravelport?: boolean;
   warning?: string;
@@ -194,6 +207,20 @@ test('Create and Retrieve reject contradictory Stays source-context and locator-
   ]) {
     const body = reservationResponse();
     body.ReservationResponse.Reservation.Receipt.push(conflictingReceipt);
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(body),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+    expectInvalidCreate(body);
+  }
+});
+
+test('Create and Retrieve reject Stays cancellation source contexts that omit locatorType', () => {
+  for (const sourceContext of ['Travelport', 'Supplier', 'Agency'] as const) {
+    const body = reservationResponse();
+    const receipts = body.ReservationResponse.Reservation.Receipt as unknown[];
+    receipts.push(partialCancellationReceipt(sourceContext));
+
     assert.throws(
       () => parseTravelportStaysReservationResponse(body),
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',

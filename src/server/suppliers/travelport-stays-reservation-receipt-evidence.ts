@@ -133,6 +133,14 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   const hasStaysLocatorType = isStaysLocatorType(locatorType);
   const hasCanonicalStaysPair = isCanonicalStaysPair(sourceContext, locatorType);
 
+  if (hasStaysSourceContext && !hasLocatorType) {
+    // A provider-owned Stays context cannot be partially presented and then
+    // disappear as unrelated multi-content evidence. Explicit generic locator
+    // families (for example Travelport + Locator on air cancellations) remain
+    // outside Stays authority when a locatorType is actually supplied.
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+
   const offerStatus = cancellation.OfferStatus;
   const offerStatusRecord = offerStatus === undefined || offerStatus === null
     ? null
