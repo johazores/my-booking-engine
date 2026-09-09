@@ -87,7 +87,8 @@ function normalizedReceipt(
  * reservation identity. Unrelated multi-content ReceiptPayment /
  * ReceiptCancellation records and generic confirmation locators without Stays
  * locator semantics are ignored, while malformed, partial, or contradictory
- * Stays locator evidence fails closed.
+ * Stays locator evidence fails closed. Documented Booking.com Supplier + Pin
+ * code receipts are structurally validated but remain non-durable evidence.
  */
 export function inspectTravelportStaysReservationReceiptEvidence(
   value: unknown,
@@ -153,16 +154,19 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const hasStaysLocatorType = locatorType === 'PNR Locator'
       || locatorType === 'Confirmation Number'
       || locatorType === 'Cancellation Number'
-      || locatorType === 'IATA Number';
+      || locatorType === 'IATA Number'
+      || locatorType === 'Pin code';
     const hasCanonicalStaysPair = (sourceContext === 'Travelport' && locatorType === 'PNR Locator')
       || (sourceContext === 'Supplier' && locatorType === 'Confirmation Number')
       || (sourceContext === 'Supplier' && locatorType === 'Cancellation Number')
       || (sourceContext === 'Agency' && locatorType === 'IATA Number');
-    if ((hasStaysSourceContext || hasStaysLocatorType) && !hasCanonicalStaysPair) {
+    const hasSupportedStaysPair = hasCanonicalStaysPair
+      || (sourceContext === 'Supplier' && locatorType === 'Pin code');
+    if ((hasStaysSourceContext || hasStaysLocatorType) && !hasSupportedStaysPair) {
       return invalidEvidence();
     }
 
-    const normalized = normalizedReceipt(locator, confirmation, hasCanonicalStaysPair);
+    const normalized = normalizedReceipt(locator, confirmation, hasSupportedStaysPair);
     if (!normalized) return invalidEvidence();
 
     if (sourceContext === 'Travelport' && locatorType === 'PNR Locator') {

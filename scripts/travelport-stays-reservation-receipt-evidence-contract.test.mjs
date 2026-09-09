@@ -16,9 +16,10 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(helper, /receiptType === 'ReceiptPayment' \|\| receiptType === 'ReceiptCancellation'/);
   assert.match(helper, /sourceContext === 'Travelport' \|\| sourceContext === 'Supplier' \|\| sourceContext === 'Agency'/);
   assert.match(helper, /const hasStaysSourceContext = sourceContext === 'Travelport' \|\| sourceContext === 'Supplier' \|\| sourceContext === 'Agency'/);
-  assert.match(helper, /const hasStaysLocatorType = locatorType === 'PNR Locator'[\s\S]*locatorType === 'Confirmation Number'[\s\S]*locatorType === 'Cancellation Number'[\s\S]*locatorType === 'IATA Number'/);
+  assert.match(helper, /const hasStaysLocatorType = locatorType === 'PNR Locator'[\s\S]*locatorType === 'Confirmation Number'[\s\S]*locatorType === 'Cancellation Number'[\s\S]*locatorType === 'IATA Number'[\s\S]*locatorType === 'Pin code'/);
   assert.match(helper, /const hasCanonicalStaysPair = \(sourceContext === 'Travelport' && locatorType === 'PNR Locator'\)[\s\S]*sourceContext === 'Supplier' && locatorType === 'Confirmation Number'[\s\S]*sourceContext === 'Supplier' && locatorType === 'Cancellation Number'[\s\S]*sourceContext === 'Agency' && locatorType === 'IATA Number'/);
-  assert.match(helper, /if \(\(hasStaysSourceContext \|\| hasStaysLocatorType\) && !hasCanonicalStaysPair\)/);
+  assert.match(helper, /const hasSupportedStaysPair = hasCanonicalStaysPair[\s\S]*sourceContext === 'Supplier' && locatorType === 'Pin code'/);
+  assert.match(helper, /if \(\(hasStaysSourceContext \|\| hasStaysLocatorType\) && !hasSupportedStaysPair\)/);
   assert.match(helper, /confirmationType !== 'ConfirmationHold'/);
   assert.match(helper, /offerStatusType !== 'OfferStatusHospitality'/);
   assert.match(helper, /if \(!hasSourceContext && !hasLocatorType\)/);
