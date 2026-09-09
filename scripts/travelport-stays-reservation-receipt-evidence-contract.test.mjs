@@ -11,14 +11,20 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   const retrieve = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const create = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
 
-  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\([\s\S]*activeReservationReceiptEvidence\(reservation\.Receipt, passiveOfferIds\)[\s\S]*\)/);
-  assert.match(retrieve, /explicitPassiveOfferIds\(reservation\)/);
-  assert.match(retrieve, /receipt\.OfferRef/);
-  assert.match(retrieve, /passiveOfferIds\.has\(offerRef!\)/);
+  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(receiptInput\)/);
+  assert.match(retrieve, /const offerScope = assertExpectedReservationMatch\(reservation, input\.expectedReservation\)/);
+  assert.match(retrieve, /const offerIds = new Set<string>\(\)/);
+  assert.match(retrieve, /const passiveOfferIds = new Set<string>\(\)/);
+  assert.match(retrieve, /!offerId \|\| offerIds\.has\(offerId\)/);
+  assert.match(retrieve, /offerRefs\.some\(\(offerRef\) => !offerScope\.offerIds\.has\(offerRef!\)\)/);
+  assert.match(retrieve, /unknown offer/i);
   assert.match(retrieve, /mixed active and passive offer references in one receipt/i);
   assert.match(retrieve, /isDocumentedPassivePlaceholderReceipt\(receipt\)/);
   assert.match(retrieve, /offerStatus\.code === 'AK'/);
   assert.match(retrieve, /offerStatus\.Status === 'Confirmed'/);
+  assert.match(retrieve, /isSupplierConfirmationReceipt\(receipt\)/);
+  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(\[receipt\]\)/);
+  assert.match(retrieve, /passiveSupplierEvidence\.supplierConfirmationReceipts\.length !== 1/);
   assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
   assert.match(helper, /receiptType === 'ReceiptPayment'/);
   assert.match(helper, /receiptType === 'ReceiptCancellation'[\s\S]*inspectCancellationReceipt\(receipt\)/);
