@@ -7,6 +7,7 @@ import {
   markHospitalitySupplierReservationProviderRequestStarted,
 } from './hospitality-supplier-reservation-attempt-recovery-service.ts';
 import {
+  HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
   hospitalitySupplierReservationRecoveryConfirmationFailureCode,
 } from './hospitality-supplier-reservation-confirmation-evidence.ts';
 import { createHospitalitySupplierReservationProviderObservation } from './hospitality-supplier-reservation-observability.ts';
@@ -139,12 +140,19 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
   }
 
   if (result.status === 'FOUND') {
-    const confirmationFailureCode = hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+    let confirmationFailureCode = hospitalitySupplierReservationRecoveryConfirmationFailureCode({
       status: 'FOUND',
       lastFailureCode: claim.reservation.lastFailureCode,
       durableSupplierConfirmationReference: claim.reservation.supplierConfirmationReference,
       recoveredSupplierConfirmationReference: supplierConfirmationReference,
     });
+    if (
+      !confirmationFailureCode
+      && input.provider.requiresSupplierConfirmationForFound === true
+      && !supplierConfirmationReference
+    ) {
+      confirmationFailureCode = HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE;
+    }
     if (confirmationFailureCode) {
       providerObservation.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
       return settleHospitalitySupplierReservationReconciliation({

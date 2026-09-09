@@ -14,7 +14,11 @@ const responseParser = readFileSync(
 test('Travelport known-locator recovery grants FOUND only from complete active reservation evidence', () => {
   assert.match(
     recoveryProvider,
-    /parseTravelportStaysReservationResponse\(payload, \{[\s\S]*?expectedProviderReservationReference: reference,[\s\S]*?expectedReservation,[\s\S]*?requireConfirmedTravelportReceipt: true,[\s\S]*?\}\);[\s\S]*?if \(!parsed\.supplierConfirmationReference\)[\s\S]*?INVALID_RESPONSE[\s\S]*?status: 'FOUND'/,
+    /requiresSupplierConfirmationForFound = true/,
+  );
+  assert.match(
+    recoveryProvider,
+    /parseTravelportStaysReservationResponse\(payload, \{[\s\S]*?expectedProviderReservationReference: reference,[\s\S]*?expectedReservation,[\s\S]*?requireConfirmedTravelportReceipt: true,/,
   );
   assert.match(
     responseParser,

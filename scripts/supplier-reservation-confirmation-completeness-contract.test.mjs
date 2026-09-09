@@ -6,7 +6,9 @@ const source = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'u
 
 test('fresh supplier confirmation completeness is preserved through durable settlement and reconciliation', () => {
   const evidence = source('src/server/suppliers/hospitality-supplier-reservation-confirmation-evidence.ts');
+  const recoveryContract = source('src/server/suppliers/hospitality-supplier-reservation-recovery-provider.ts');
   const mapper = source('src/server/suppliers/travelport-stays-reservation-submission-outcome.ts');
+  const travelportRecovery = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   const reconciliation = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
   const ledger = source('src/server/suppliers/hospitality-supplier-reservation-service.ts');
 
@@ -16,6 +18,8 @@ test('fresh supplier confirmation completeness is preserved through durable sett
   );
   assert.match(evidence, /requiresSupplierConfirmationForReservationRecovery/);
   assert.match(evidence, /hospitalitySupplierReservationRecoveryConfirmationFailureCode/);
+  assert.match(recoveryContract, /readonly requiresSupplierConfirmationForFound\?: boolean/);
+  assert.match(travelportRecovery, /readonly requiresSupplierConfirmationForFound = true/);
 
   const confirmedIndex = mapper.indexOf("if (outcome.status === 'CONFIRMED')");
   const missingSupplierIndex = mapper.indexOf('if (!outcome.supplierConfirmationReference)', confirmedIndex);
@@ -29,17 +33,22 @@ test('fresh supplier confirmation completeness is preserved through durable sett
     'hospitalitySupplierReservationRecoveryConfirmationFailureCode({',
     foundIndex,
   );
-  const foundSuccessIndex = reconciliation.indexOf("providerResult: 'FOUND'", confirmationCheckIndex);
+  const providerCompletenessIndex = reconciliation.indexOf(
+    'input.provider.requiresSupplierConfirmationForFound === true',
+    confirmationCheckIndex,
+  );
+  const foundSuccessIndex = reconciliation.indexOf("providerResult: 'FOUND'", providerCompletenessIndex);
   const foundSettlementIndex = reconciliation.indexOf("status: 'FOUND'", foundSuccessIndex);
   assert.ok(
     foundIndex >= 0
       && confirmationCheckIndex > foundIndex
-      && foundSuccessIndex > confirmationCheckIndex
+      && providerCompletenessIndex > confirmationCheckIndex
+      && foundSuccessIndex > providerCompletenessIndex
       && foundSettlementIndex > foundSuccessIndex,
   );
   assert.match(
     reconciliation.slice(confirmationCheckIndex, foundSuccessIndex),
-    /status: 'UNKNOWN'[\s\S]*?failureCode: confirmationFailureCode/,
+    /HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE[\s\S]*?status: 'UNKNOWN'[\s\S]*?failureCode: confirmationFailureCode/,
   );
 
   const ledgerSettlementIndex = ledger.indexOf('settleHospitalitySupplierReservationReconciliation');

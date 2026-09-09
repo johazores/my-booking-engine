@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { TravelportStaysReservationRecoveryProvider } from './travelport-stays-reservation-recovery-provider.ts';
 import { normalizeTravelportStaysConfiguration } from './travelport-stays-provider.ts';
 
@@ -46,7 +45,7 @@ function activeReservationWithoutSupplierConfirmation() {
   };
 }
 
-test('Travelport active recovery does not emit FOUND without a supplier confirmation number', async () => {
+test('Travelport recovery marks supplier confirmation as required for provider-neutral FOUND settlement', async () => {
   const fetchImpl = (async (url: RequestInfo | URL) => {
     if (String(url).includes('/oauth/token')) {
       return new Response(JSON.stringify({ access_token: 'token', expires_in: 86400 }), {
@@ -65,20 +64,20 @@ test('Travelport active recovery does not emit FOUND without a supplier confirma
     cacheKey: 'recover-missing-supplier-confirmation',
     fetchImpl,
   });
+  assert.equal(provider.requiresSupplierConfirmationForFound, true);
 
-  await assert.rejects(
-    provider.retrieveReservation({
-      providerReservationReference: 'D6VBHL',
-      requestCorrelationId: '11111111-1111-4111-8111-111111111111',
-      expectedReservation: {
-        supplierPropertyReference: PROPERTY_REFERENCE,
-        arrivalDateLocal: '2026-10-10',
-        departureDateLocal: '2026-10-12',
-        rooms: 1,
-        adults: 1,
-        childAges: [8],
-      },
-    }),
-    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
-  );
+  const result = await provider.retrieveReservation({
+    providerReservationReference: 'D6VBHL',
+    requestCorrelationId: '11111111-1111-4111-8111-111111111111',
+    expectedReservation: {
+      supplierPropertyReference: PROPERTY_REFERENCE,
+      arrivalDateLocal: '2026-10-10',
+      departureDateLocal: '2026-10-12',
+      rooms: 1,
+      adults: 1,
+      childAges: [8],
+    },
+  });
+  assert.equal(result.status, 'FOUND');
+  if (result.status === 'FOUND') assert.equal(result.supplierConfirmationReference, null);
 });

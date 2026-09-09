@@ -28,5 +28,6 @@ export type HospitalitySupplierReservationRecoveryResult =
 
 export interface HospitalitySupplierReservationRecoveryProvider {
   readonly code: string;
+  readonly requiresSupplierConfirmationForFound?: boolean;
   retrieveReservation(input: HospitalitySupplierReservationRecoveryRequest): Promise<HospitalitySupplierReservationRecoveryResult>;
 }
