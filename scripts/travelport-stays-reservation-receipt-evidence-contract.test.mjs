@@ -23,6 +23,9 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(retrieve, /offerStatus\.code === 'AK'/);
   assert.match(retrieve, /offerStatus\.Status === 'Confirmed'/);
   assert.match(retrieve, /isSupplierConfirmationReceipt\(receipt\)/);
+  assert.match(retrieve, /boundedProviderValue\(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH\)/);
+  assert.match(retrieve, /boundedProviderValue\(locator\.sourceContext, MAX_LOCATOR_CONTEXT_LENGTH\) === 'Supplier'/);
+  assert.match(retrieve, /boundedProviderValue\(locator\.locatorType, MAX_LOCATOR_TYPE_LENGTH\) === 'Confirmation Number'/);
   assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(\[receipt\]\)/);
   assert.match(retrieve, /passiveSupplierEvidence\.supplierConfirmationReceipts\.length !== 1/);
   assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
