@@ -27,7 +27,7 @@ test('fresh supplier confirmation completeness is preserved through durable sett
     'requiresSupplierConfirmationForReservationRecovery(claim.reservation.lastFailureCode)',
     foundIndex,
   );
-  const supplierCheckIndex = reconciliation.indexOf('!result.supplierConfirmationReference', recoveryRequirementIndex);
+  const supplierCheckIndex = reconciliation.indexOf('!supplierConfirmationReference', recoveryRequirementIndex);
   const foundSettlementIndex = reconciliation.indexOf("status: 'FOUND'", supplierCheckIndex);
   assert.ok(
     foundIndex >= 0
@@ -38,5 +38,9 @@ test('fresh supplier confirmation completeness is preserved through durable sett
   assert.match(
     reconciliation,
     /status: 'UNKNOWN'[\s\S]*?failureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE/,
+  );
+  assert.match(
+    reconciliation,
+    /supplierConfirmationMatchesDurableReservation\([\s\S]*?claim\.reservation\.supplierConfirmationReference,[\s\S]*?supplierConfirmationReference/,
   );
 });
