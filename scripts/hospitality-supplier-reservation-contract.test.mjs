@@ -59,14 +59,24 @@ test('ambiguous supplier creates require exact identity-safe provider truth befo
   assert.match(service, /status: 'RECONCILING'/);
   assert.match(service, /cannot be reconciled automatically without a provider reservation reference/);
   assert.match(service, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: unknown/);
+  assert.match(service, /const recoverySupplierConfirmationEvidence =/);
   assert.match(service, /const effectiveOutcomeStatus = confirmationFailureCode \? 'UNKNOWN' : input\.outcome\.status/);
   assert.match(service, /effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? 'PREPARED'/);
   assert.match(service, /effectiveOutcomeStatus === 'FOUND'[\s\S]*?\? 'CONFIRMED'/);
+  assert.match(
+    service,
+    /recoveredSupplierConfirmationReference: input\.outcome\.status === 'FOUND'[\s\S]*?\? supplierConfirmationReference[\s\S]*?: recoverySupplierConfirmationEvidence/,
+  );
   assert.match(service, /input\.outcome\.status === 'FOUND' \|\| input\.outcome\.status === 'NOT_FOUND'[\s\S]*?reservation\.providerReservationReference !== providerReservationReference/);
   assert.match(service, /recovery returned a different provider reservation reference/);
   assert.match(service, /hospitalitySupplierReservationRecoveryConfirmationFailureCode/);
   assert.match(reconciliation, /result\.providerReservationReference !== providerReservationReference/);
+  assert.match(reconciliation, /const rawSupplierConfirmationReference =/);
   assert.match(reconciliation, /status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE'/);
+  assert.match(
+    reconciliation,
+    /status: 'NOT_FOUND'[\s\S]*?recoveredSupplierConfirmationReference: rawSupplierConfirmationReference[\s\S]*?providerResult: 'NOT_FOUND'/,
+  );
   assert.match(reconciliation, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: result\.providerReservationReference/);
   assert.match(reconciliation, /hospitalitySupplierReservationRecoveryConfirmationFailureCode/);
   const identityCheck = reconciliation.indexOf('result.providerReservationReference !== providerReservationReference');

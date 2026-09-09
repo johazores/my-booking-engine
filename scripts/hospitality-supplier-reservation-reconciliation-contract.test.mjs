@@ -23,8 +23,13 @@ test('known-locator ambiguity remains durable until provider truth is resolved',
   assert.match(service, /cannot be reconciled automatically without a provider reservation reference/i);
   assert.match(service, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: unknown/);
   assert.match(service, /input\.outcome\.status === 'FOUND' \|\| input\.outcome\.status === 'NOT_FOUND'[\s\S]*?reservation\.providerReservationReference !== providerReservationReference/);
-  assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.providerReservationReference/);
-  assert.match(service, /input\.outcome\.status === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.supplierConfirmationReference/);
+  assert.match(service, /const recoverySupplierConfirmationEvidence =/);
+  assert.match(
+    service,
+    /recoveredSupplierConfirmationReference: input\.outcome\.status === 'FOUND'[\s\S]*?\? supplierConfirmationReference[\s\S]*?: recoverySupplierConfirmationEvidence/,
+  );
+  assert.match(service, /effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.providerReservationReference/);
+  assert.match(service, /effectiveOutcomeStatus === 'NOT_FOUND'[\s\S]*?\? null[\s\S]*?: reservation\.supplierConfirmationReference/);
   assert.match(service, /recovery returned a different provider reservation reference/i);
 });
 
@@ -66,7 +71,12 @@ test('provider-neutral coordinator authorizes, persists correlation, and claims 
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
   assert.match(coordinator, /input\.provider\.code !== claim\.reservation\.providerCode/);
   assert.match(coordinator, /error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE'/);
+  assert.match(coordinator, /const rawSupplierConfirmationReference =/);
   assert.match(coordinator, /status: 'FOUND'/);
+  assert.match(
+    coordinator,
+    /status: 'NOT_FOUND'[\s\S]*?recoveredSupplierConfirmationReference: rawSupplierConfirmationReference[\s\S]*?providerResult: 'NOT_FOUND'/,
+  );
   assert.match(coordinator, /status: 'NOT_FOUND'[\s\S]*?providerReservationReference: result\.providerReservationReference/);
   assert.match(coordinator, /status: 'UNKNOWN'/);
   assert.doesNotMatch(coordinator, /error\.message|responseBody|requestPayload|encryptedCredentials|accessToken|cardNumber|cvv/i);
