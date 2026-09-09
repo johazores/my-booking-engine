@@ -27,7 +27,11 @@ Known-locator reconciliation is allowed to retrieve the retained PNR. When the o
 
 If the PNR exists but the supplier confirmation is still absent, reconciliation settles back to `AMBIGUOUS`, keeps the provider reference, retains the normalized missing-confirmation failure code, and can be attempted again later under the existing tenant-scoped reconciliation authority.
 
-Once SF already has a supplier confirmation, recovery cannot silently rotate that lifecycle identifier. A `FOUND` result with a missing or different supplier confirmation fails closed as `SUPPLIER_CONFIRMATION_MISMATCH`; the existing provider/supplier identity remains durable, the operation stays ambiguous, and another Create is not authorized. Only the missing-confirmation state may acquire a previously absent supplier confirmation during recovery.
+Once SF already has a supplier confirmation, recovery cannot silently rotate or erase that lifecycle identifier. A `FOUND` result with a missing or different supplier confirmation fails closed as `SUPPLIER_CONFIRMATION_MISMATCH`; the existing provider/supplier identity remains durable, the operation stays ambiguous, and another Create is not authorized. Only the missing-confirmation state may acquire a previously absent supplier confirmation during recovery.
+
+A provider-neutral `NOT_FOUND` result is also contradictory when SF already has a supplier confirmation. It cannot clear the provider locator, clear the supplier confirmation, or return the operation to `PREPARED`. SF keeps both durable identifiers and settles the attempt back to `AMBIGUOUS` with `SUPPLIER_CONFIRMATION_MISMATCH`. Only authoritative negative provider evidence for an operation with no durable supplier confirmation can use the normal `NOT_FOUND -> PREPARED` recovery path. Travelport currently does not treat a generic Hotel Retrieve HTTP 404 as that authority.
+
+The confirmation-evidence rule is shared by the coordinator and the durable reconciliation settlement service. This defense in depth means a direct server-side settlement call cannot bypass supplier-confirmation completeness or identity continuity even if a future caller does not use the current coordinator correctly.
 
 Recovered provider correlation and supplier-confirmation values are normalized before the reconciliation success path. Malformed runtime adapter evidence therefore becomes `INVALID_RESPONSE` rather than being allowed to reach a `FOUND` settlement or strand the operation behind an exception thrown by the settlement normalizer.
 
@@ -45,7 +49,9 @@ Only bounded provider/supplier references and normalized failure state are persi
 
 ## Validation and activation gates
 
-Focused behavior tests cover the durable Create downgrade, the normalized missing-confirmation recovery requirement, and immutable known supplier confirmation identity. Dependency-free source contracts verify that the PNR is preserved for reconciliation, a missing supplier confirmation cannot pass the `FOUND` reconciliation branch for an operation carrying `SUPPLIER_CONFIRMATION_MISSING`, provider evidence is normalized before settlement, and a different supplier confirmation cannot replace a durable one.
+Focused behavior tests cover the durable Create downgrade, the normalized missing-confirmation recovery requirement, immutable known supplier confirmation identity, and the rule that contradictory `NOT_FOUND` evidence cannot erase a known supplier confirmation. Dependency-free source contracts verify that the same evidence rule runs before provider success observations and again at durable reconciliation settlement.
+
+Database integration coverage now distinguishes the two negative-recovery cases: a durable supplier confirmation keeps the operation ambiguous and preserves provider/supplier identity, while an operation with no supplier confirmation may still become `PREPARED` after authoritative provider-neutral `NOT_FOUND` evidence. These database-backed scenarios require the explicitly disposable PostgreSQL test target before they can be claimed as executed.
 
 Travelport `reservation` remains disabled. This hardening does not replace the remaining activation gates: a reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end validation, and authoritative live `13034`, negative-lookup, and locator-less correlation/retry semantics.
 

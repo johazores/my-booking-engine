@@ -37,11 +37,15 @@ The adapter validates the durable expectation before requesting an OAuth token o
 
 When SF already holds a normalized supplier confirmation for the ambiguous reservation, that confirmation is part of the durable reservation identity. A later `FOUND` recovery result must return the exact same supplier confirmation before the operation may become `CONFIRMED`.
 
-The comparison happens server-side after the provider result has been normalized and before the `FOUND` settlement. The known supplier confirmation is not added to the outbound Retrieve request and is not copied into operational logs.
+The comparison happens server-side after the provider result has been normalized and before the `FOUND` success observation or settlement. The known supplier confirmation is not added to the outbound Retrieve request and is not copied into operational logs.
 
 A missing or different recovered supplier confirmation cannot silently replace the durable value. SF records `SUPPLIER_CONFIRMATION_MISMATCH`, keeps the operation ambiguous, preserves the existing provider and supplier references, and does not authorize another Create. Provider-correlation and recovered supplier-confirmation fields are normalized before any `FOUND` or `NOT_FOUND` settlement so malformed runtime adapter values also fail closed to `INVALID_RESPONSE` instead of leaving a successful-looking recovery result.
 
+The same durable supplier confirmation also blocks negative recovery from erasing known lifecycle identity. A provider-neutral `NOT_FOUND` result is accepted as retry authority only when SF has no durable supplier confirmation. If a supplier confirmation already exists, `NOT_FOUND` is contradictory evidence: SF records `SUPPLIER_CONFIRMATION_MISMATCH`, preserves both the provider locator and supplier confirmation, and leaves the operation `AMBIGUOUS`.
+
 The separate `SUPPLIER_CONFIRMATION_MISSING` recovery state remains valid: if SF never had a supplier confirmation, a matching recovered supplier confirmation may complete that missing lifecycle authority. It is only an already-known supplier confirmation that is immutable during this create-recovery flow.
+
+The provider-neutral confirmation-evidence rule is enforced twice: the coordinator checks it before emitting a successful provider observation, and the durable reconciliation settlement service checks it again before changing reservation state or clearing provider identity. This prevents a future direct settlement caller from bypassing the same recovery authority.
 
 ## Why money and offer identifiers are not matched here
 
@@ -51,13 +55,13 @@ A future create executor must still repeat fresh offer/Rules/Availability author
 
 ## Failure and retry safety
 
-A semantic mismatch never becomes provider-neutral `NOT_FOUND` and never makes another create retryable. The Travelport adapter or recovery coordinator records normalized invalid provider evidence, and the ledger returns the operation to `AMBIGUOUS` while preserving the known provider locator and any already-known supplier confirmation.
+A semantic mismatch never becomes provider-neutral `NOT_FOUND` and never makes another create retryable. The Travelport adapter, recovery coordinator, or durable reconciliation ledger records normalized invalid provider evidence, and the operation returns to `AMBIGUOUS` while preserving the known provider locator and any already-known supplier confirmation.
 
-Generic Travelport HTTP 404 remains non-authoritative for negative lookup. Locator-less uncertainty also remains closed because the public Hotel Retrieve contract still requires an aggregator locator.
+An authoritative provider-neutral `NOT_FOUND` can restore `PREPARED` only when the returned provider locator matches the durable locator and SF has no durable supplier confirmation. Generic Travelport HTTP 404 remains non-authoritative for negative lookup. Locator-less uncertainty also remains closed because the public Hotel Retrieve contract still requires an aggregator locator.
 
 ## Validation
 
-Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, duplicate/mismatched/malformed hospitality-segment, locator, and malformed-input failures. Supplier-confirmation recovery tests cover exact known-reference continuity plus missing/different-reference rejection. Dependency-free source contracts verify that recovery normalizes provider evidence before settlement, checks a known durable supplier confirmation before the success observation and `FOUND` settlement, and never passes the raw recovered supplier confirmation directly into the durable success path.
+Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, duplicate/mismatched/malformed hospitality-segment, locator, and malformed-input failures. Supplier-confirmation recovery tests cover exact known-reference continuity, missing/different-reference rejection, contradictory negative lookup, and the still-valid no-supplier-confirmation negative-recovery path. Dependency-free source contracts verify that recovery normalizes provider evidence before settlement, checks shared confirmation evidence before both `FOUND` and `NOT_FOUND` success observations, and rechecks that evidence at the durable ledger boundary.
 
 Full Node 24 validation, Prisma/PostgreSQL execution, and live Travelport verification remain separate environment gates. GitHub Actions are not used.
 

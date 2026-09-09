@@ -148,7 +148,7 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
     });
     assert.equal(knownLocatorAmbiguous.supplierConfirmationReference, 'BOOKING-SUPPLIER-002');
 
-    const foundClaim = await reservations.claimHospitalitySupplierReservationReconciliation({
+    const incompleteFoundClaim = await reservations.claimHospitalitySupplierReservationReconciliation({
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: knownLocator.id,
@@ -157,16 +157,43 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: knownLocator.id,
-      attemptId: foundClaim.attempt.id,
+      attemptId: incompleteFoundClaim.attempt.id,
+    });
+    const incompleteFound = await reservations.settleHospitalitySupplierReservationReconciliation({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: knownLocator.id,
+      attemptId: incompleteFoundClaim.attempt.id,
+      outcome: {
+        status: 'FOUND',
+        providerReservationReference: 'TVPT-PNR-001',
+      },
+    });
+    assert.equal(incompleteFound.status, 'AMBIGUOUS');
+    assert.equal(incompleteFound.providerReservationReference, 'TVPT-PNR-001');
+    assert.equal(incompleteFound.supplierConfirmationReference, 'BOOKING-SUPPLIER-002');
+    assert.equal(incompleteFound.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH');
+
+    const matchingFoundClaim = await reservations.claimHospitalitySupplierReservationReconciliation({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: knownLocator.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: knownLocator.id,
+      attemptId: matchingFoundClaim.attempt.id,
     });
     const found = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: knownLocator.id,
-      attemptId: foundClaim.attempt.id,
+      attemptId: matchingFoundClaim.attempt.id,
       outcome: {
         status: 'FOUND',
         providerReservationReference: 'TVPT-PNR-001',
+        supplierConfirmationReference: 'BOOKING-SUPPLIER-002',
       },
     });
     assert.equal(found.status, 'CONFIRMED');
@@ -214,7 +241,7 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       reservationId: notFoundOperation.id,
       attemptId: notFoundClaim.attempt.id,
     });
-    const retryable = await reservations.settleHospitalitySupplierReservationReconciliation({
+    const conflictingNotFound = await reservations.settleHospitalitySupplierReservationReconciliation({
       organizationId: organization.id,
       actorUserId: admin.id,
       reservationId: notFoundOperation.id,
@@ -222,6 +249,61 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
       outcome: {
         status: 'NOT_FOUND',
         providerReservationReference: 'TVPT-PNR-002',
+      },
+    });
+    assert.equal(conflictingNotFound.status, 'AMBIGUOUS');
+    assert.equal(conflictingNotFound.providerReservationReference, 'TVPT-PNR-002');
+    assert.equal(conflictingNotFound.supplierConfirmationReference, 'BOOKING-SUPPLIER-003');
+    assert.equal(conflictingNotFound.lastFailureCode, 'SUPPLIER_CONFIRMATION_MISMATCH');
+
+    const safeNotFoundOperation = await reservations.prepareHospitalitySupplierReservation({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      integrationId: integration.id,
+      idempotencyKey: `supplier:confirmation:safe-not-found:${runId}`,
+      selection: { ...selection, reservationPayloadFingerprint: '1'.repeat(64) },
+    });
+    const safeNotFoundSubmission = await reservations.claimHospitalitySupplierReservationSubmission({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+      attemptId: safeNotFoundSubmission.attempt.id,
+    });
+    await reservations.settleHospitalitySupplierReservationSubmission({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+      attemptId: safeNotFoundSubmission.attempt.id,
+      outcome: {
+        status: 'AMBIGUOUS',
+        failureCode: 'TIMEOUT',
+        providerReservationReference: 'TVPT-PNR-003',
+      },
+    });
+    const safeNotFoundClaim = await reservations.claimHospitalitySupplierReservationReconciliation({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+    });
+    await recovery.markHospitalitySupplierReservationProviderRequestStarted({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+      attemptId: safeNotFoundClaim.attempt.id,
+    });
+    const retryable = await reservations.settleHospitalitySupplierReservationReconciliation({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      reservationId: safeNotFoundOperation.id,
+      attemptId: safeNotFoundClaim.attempt.id,
+      outcome: {
+        status: 'NOT_FOUND',
+        providerReservationReference: 'TVPT-PNR-003',
       },
     });
     assert.equal(retryable.status, 'PREPARED');

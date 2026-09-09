@@ -15,6 +15,9 @@ import {
   normalizeHospitalitySupplierReservationSupplierConfirmationReference,
   type HospitalitySupplierReservationSelectionInput,
 } from './hospitality-supplier-reservation-domain.ts';
+import {
+  hospitalitySupplierReservationRecoveryConfirmationFailureCode,
+} from './hospitality-supplier-reservation-confirmation-evidence.ts';
 
 function supplierReservationLockKey(organizationId: string, scope: string, value: string) {
   return `supplier-reservation:${organizationId}:${scope}:${value}`;
@@ -546,6 +549,17 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
       );
     }
 
+    const confirmationFailureCode = input.outcome.status === 'FOUND' || input.outcome.status === 'NOT_FOUND'
+      ? hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+          status: input.outcome.status,
+          lastFailureCode: reservation.lastFailureCode,
+          durableSupplierConfirmationReference: reservation.supplierConfirmationReference,
+          recoveredSupplierConfirmationReference: supplierConfirmationReference,
+        })
+      : null;
+    const effectiveOutcomeStatus = confirmationFailureCode ? 'UNKNOWN' : input.outcome.status;
+    const effectiveFailureCode = confirmationFailureCode ?? failureCode;
+
     const [databaseClock] = await transaction.$queryRaw<Array<{ currentTime: Date }>>`SELECT clock_timestamp() AS "currentTime"`;
     if (!databaseClock) {
       throw new HospitalitySupplierReservationConflictError(
@@ -553,19 +567,19 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
       );
     }
     const completedAt = databaseClock.currentTime;
-    const nextStatus = input.outcome.status === 'FOUND'
+    const nextStatus = effectiveOutcomeStatus === 'FOUND'
       ? 'CONFIRMED'
-      : input.outcome.status === 'NOT_FOUND'
+      : effectiveOutcomeStatus === 'NOT_FOUND'
         ? 'PREPARED'
         : 'AMBIGUOUS';
-    const nextProviderReservationReference = input.outcome.status === 'FOUND'
+    const nextProviderReservationReference = effectiveOutcomeStatus === 'FOUND'
       ? providerReservationReference
-      : input.outcome.status === 'NOT_FOUND'
+      : effectiveOutcomeStatus === 'NOT_FOUND'
         ? null
         : reservation.providerReservationReference;
-    const nextSupplierConfirmationReference = input.outcome.status === 'FOUND'
-      ? supplierConfirmationReference ?? reservation.supplierConfirmationReference
-      : input.outcome.status === 'NOT_FOUND'
+    const nextSupplierConfirmationReference = effectiveOutcomeStatus === 'FOUND'
+      ? supplierConfirmationReference
+      : effectiveOutcomeStatus === 'NOT_FOUND'
         ? null
         : reservation.supplierConfirmationReference;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
@@ -575,7 +589,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
         providerReservationReference: nextProviderReservationReference,
         supplierConfirmationReference: nextSupplierConfirmationReference,
         lastProviderCorrelationId: providerCorrelationId,
-        lastFailureCode: failureCode,
+        lastFailureCode: effectiveFailureCode,
         lastFailureRetryable: null,
         reconciledAt: completedAt,
       },
@@ -583,13 +597,13 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
     await transaction.hospitalitySupplierReservationAttempt.update({
       where: { id: attempt.id, organizationId: input.organizationId },
       data: {
-        status: input.outcome.status === 'FOUND'
+        status: effectiveOutcomeStatus === 'FOUND'
           ? 'SUCCEEDED'
-          : input.outcome.status === 'NOT_FOUND'
+          : effectiveOutcomeStatus === 'NOT_FOUND'
             ? 'NOT_FOUND'
             : 'AMBIGUOUS',
         providerCorrelationId,
-        normalizedFailureCode: failureCode,
+        normalizedFailureCode: effectiveFailureCode,
         completedAt,
       },
     });
@@ -598,9 +612,9 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: input.outcome.status === 'FOUND'
+        action: effectiveOutcomeStatus === 'FOUND'
           ? 'supplier.reservation-reconciliation-found'
-          : input.outcome.status === 'NOT_FOUND'
+          : effectiveOutcomeStatus === 'NOT_FOUND'
             ? 'supplier.reservation-reconciliation-not-found'
             : 'supplier.reservation-reconciliation-ambiguous',
         resourceType: 'supplier-reservation-operation',
@@ -609,7 +623,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
           providerCode: reservation.providerCode,
           status: nextStatus,
           attemptSequence: attempt.sequence,
-          failureCode,
+          failureCode: effectiveFailureCode,
         },
       },
     });
