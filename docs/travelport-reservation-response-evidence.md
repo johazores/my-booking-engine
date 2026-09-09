@@ -41,7 +41,9 @@ Traveler data, contact details, form-of-payment fields, card data, payment paylo
 
 Known-locator Hotel Retrieve supplies `expectedProviderReservationReference`, so the returned Travelport PNR Locator must equal the requested locator exactly. Retrieve also rebinds property, stay dates, room quantity, and guest count to the durable reservation request.
 
-Retrieve does not require the current supplier or Travelport receipt status to be `Confirmed`; a cancelled or historical provider record can still prove that the Travelport PNR exists. A cancelled Retrieve may therefore return `FOUND` while `supplierConfirmationReference` is null if Travelport exposes only a supplier cancellation-number locator.
+The low-level parser can still inspect historical provider records when active-state confirmation is not requested. That is deliberately separate from provider-neutral recovery authority. `TravelportStaysReservationRecoveryProvider` sets `requireConfirmedTravelportReceipt=true` before it can emit `FOUND`, so the current Travelport PNR receipt must be `Confirmed`, every supplier Confirmation Number receipt that is presented must be `Confirmed`, and explicit supplier `Cancellation Number` evidence fails closed. Travelport's cancellation response can keep the PNR receipt `Confirmed` while changing the supplier receipt to `Cancellation Number` / `Cancelled`; checking the PNR status alone is therefore insufficient to prove an active reservation.
+
+A historical or cancelled response may still be parsed without the active-state option for bounded record-inspection semantics, but it cannot be promoted by the fresh-Create reconciliation adapter to provider-neutral `FOUND`. This prevents a cancelled provider record from settling an uncertain sell as `CONFIRMED` merely because the original PNR still exists.
 
 Generic HTTP 404 is not treated as authoritative non-existence because the public Travelport Stays Retrieve contract does not establish that meaning. Unknown or malformed negative evidence preserves ambiguity rather than authorizing another sell.
 
@@ -111,7 +113,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover top-level envelope exclusivity/HTTP-class coherence, embedded `ReservationResponse.Result` error rejection, malformed/conflicting/oversized warning evidence rejection while preserving bounded warning-only responses, PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, exact hospitality-segment cardinality including contradictory extra/malformed hotel segments while preserving non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover top-level envelope exclusivity/HTTP-class coherence, embedded `ReservationResponse.Result` error rejection, malformed/conflicting/oversized warning evidence rejection while preserving bounded warning-only responses, PNR-locator identity, supplier locator-type semantics, active-vs-historical Retrieve state, supplier cancellation evidence, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, exact hospitality-segment cardinality including contradictory extra/malformed hotel segments while preserving non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 
@@ -119,6 +121,7 @@ Guarded PostgreSQL scenarios still require an explicitly disposable database tar
 
 - Travelport Create Reservation Reference Payload: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
 - Travelport Retrieve Hotel Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Retrieve.htm
+- Travelport Cancel Hotel Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Cancel.htm
 - Travelport Sync Reservation: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Sync.htm
 - Travelport Reservation Retrieve response contract: https://support.travelport.com/webhelp/JSONAPIs/Airv11/Content/Air11/Book/APIRef_ReservationRetrieve.htm
 - Travelport Stays APIs Guide: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/Guides/HotelAPIsGuide.htm

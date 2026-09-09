@@ -42,6 +42,7 @@ function jsonResponse(payload: unknown, status = 200) {
 
 function reservationResponse(input: {
   locator?: string;
+  travelportStatus?: string;
   supplierLocatorType?: string;
   supplierStatus?: string;
   chainCode?: string;
@@ -81,7 +82,12 @@ function reservationResponse(input: {
               OfferStatus: { Status: input.supplierStatus ?? 'Confirmed' },
             },
           },
-          { Confirmation: { Locator: { value: input.locator ?? 'D6VBHL', locatorType: 'PNR Locator', sourceContext: 'Travelport' } } },
+          {
+            Confirmation: {
+              Locator: { value: input.locator ?? 'D6VBHL', locatorType: 'PNR Locator', sourceContext: 'Travelport' },
+              OfferStatus: { Status: input.travelportStatus ?? 'Confirmed' },
+            },
+          },
         ],
       },
       traceId: 'trace-123',
@@ -89,7 +95,7 @@ function reservationResponse(input: {
   };
 }
 
-test('Travelport recovery retrieves the exact durable reservation identity with durable outbound correlation', async () => {
+test('Travelport recovery retrieves the exact durable active reservation identity with durable outbound correlation', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url, init) => {
     requests.push({ url: String(url), init });
@@ -116,17 +122,48 @@ test('Travelport recovery retrieves the exact durable reservation identity with 
   assert.equal(headers.get('TraceId'), REQUEST_CORRELATION_ID);
 });
 
-test('Travelport recovery never misclassifies a supplier cancellation number as confirmation evidence', async () => {
+test('Travelport recovery does not promote explicit supplier cancellation evidence to FOUND', async () => {
   const fetchImpl = (async (url) => {
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token-cancelled', expires_in: 86400 });
     return jsonResponse(reservationResponse({ supplierLocatorType: 'Cancellation Number', supplierStatus: 'Cancelled' }));
   }) as typeof fetch;
   const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: 'recover-cancelled', fetchImpl });
 
-  const result = await provider.retrieveReservation(recoveryRequest());
-  assert.equal(result.status, 'FOUND');
-  assert.equal(result.providerReservationReference, 'D6VBHL');
-  assert.equal(result.supplierConfirmationReference, null);
+  await assert.rejects(
+    provider.retrieveReservation(recoveryRequest()),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('Travelport recovery requires active confirmed provider and supplier confirmation receipt state', async () => {
+  const cases = [
+    ...['Pending', 'Rejected', 'Cancelled'].map((travelportStatus) => ({
+      name: `provider-${travelportStatus}`,
+      response: reservationResponse({ travelportStatus }),
+    })),
+    ...['Pending', 'Rejected', 'Cancelled'].map((supplierStatus) => ({
+      name: `supplier-${supplierStatus}`,
+      response: reservationResponse({ supplierStatus }),
+    })),
+  ];
+
+  for (const current of cases) {
+    const fetchImpl = (async (url) => {
+      if (String(url).includes('/oauth/token')) {
+        return jsonResponse({ access_token: `token-${current.name}`, expires_in: 86400 });
+      }
+      return jsonResponse(current.response);
+    }) as typeof fetch;
+    const provider = new TravelportStaysReservationRecoveryProvider({
+      credentials,
+      cacheKey: `recover-status-${current.name}`,
+      fetchImpl,
+    });
+    await assert.rejects(
+      provider.retrieveReservation(recoveryRequest()),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
 });
 
 test('Travelport recovery fails closed when the known locator does not match the durable property, stay, room, or guest request', async () => {

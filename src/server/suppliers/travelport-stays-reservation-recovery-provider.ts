@@ -160,6 +160,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     const parsed = parseTravelportStaysReservationResponse(payload, {
       expectedProviderReservationReference: reference,
       expectedReservation,
+      requireConfirmedTravelportReceipt: true,
     });
     return Object.freeze({
       status: 'FOUND',

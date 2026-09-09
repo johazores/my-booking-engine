@@ -163,6 +163,7 @@ export function parseTravelportStaysReservationResponse(
 
   const travelportReceipts: Array<Readonly<{ reference: string; status: string | null }>> = [];
   const supplierReceipts: Array<Readonly<{ reference: string; status: string | null }>> = [];
+  let supplierCancellationEvidence = false;
 
   for (const receiptValue of receipts) {
     if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)) continue;
@@ -194,6 +195,8 @@ export function parseTravelportStaysReservationResponse(
         );
       }
       supplierReceipts.push(Object.freeze({ reference, status: readOfferStatus(confirmation) }));
+    } else if (sourceContext === 'Supplier' && locatorType === 'Cancellation Number') {
+      supplierCancellationEvidence = true;
     }
   }
 
@@ -223,7 +226,13 @@ export function parseTravelportStaysReservationResponse(
     if (travelportReceipts[0]!.status !== 'Confirmed') {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
-        'Travelport create response did not contain one confirmed Travelport PNR receipt.',
+        'Travelport reservation response did not contain one confirmed Travelport PNR receipt.',
+      );
+    }
+    if (supplierCancellationEvidence) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained supplier cancellation evidence.',
       );
     }
   }
@@ -237,7 +246,7 @@ export function parseTravelportStaysReservationResponse(
   if (input.requireConfirmedTravelportReceipt && supplierReceipts.some((receipt) => receipt.status !== 'Confirmed')) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
-      'Travelport create response contained an unconfirmed supplier receipt.',
+      'Travelport reservation response contained an unconfirmed supplier confirmation receipt.',
     );
   }
 

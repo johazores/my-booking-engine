@@ -35,11 +35,13 @@ The confirmation-evidence rule is shared by the coordinator and the durable reco
 
 Recovered provider correlation and `FOUND` supplier-confirmation values are normalized before the reconciliation success path. For `NOT_FOUND`, the raw supplier-confirmation value is deliberately evaluated before optional-value normalization so an unexpected blank/non-canonical field cannot disappear into clean negative authority.
 
-## Historical and cancelled reservations
+## Active versus historical provider records
 
-This rule does not redefine Travelport Retrieve parsing globally. A historical or cancelled reservation can legitimately expose a Travelport PNR while the supplier receipt has changed to a cancellation-number locator. The Retrieve adapter may still use that PNR as evidence that the provider record exists.
+The low-level Travelport response parser can normalize a historical PNR without granting commercial recovery authority. That capability is useful for bounded provider-record inspection and does not mean a cancelled reservation is still active.
 
-The stricter supplier-confirmation requirement applies when SF is resolving a fresh Create that was prevented from becoming durable `CONFIRMED` specifically because its lifecycle authority was incomplete, or when an already-known supplier confirmation is part of the durable ambiguous reservation identity.
+Fresh-Create reconciliation is stricter. Before the Travelport recovery adapter may emit provider-neutral `FOUND`, it requires active confirmation evidence: the Travelport PNR receipt must be `Confirmed`, any supplier Confirmation Number receipt that is present must be `Confirmed`, and an explicit supplier `Cancellation Number` is rejected as cancellation evidence. Travelport documents that a cancellation response changes the supplier receipt to `Cancellation Number` / `Cancelled` while the Travelport PNR receipt can remain `Confirmed`, so the aggregator PNR alone cannot prove an active hotel reservation.
+
+This keeps historical record-existence parsing separate from the state transition that can settle an uncertain external sell as `CONFIRMED`. A cancelled or otherwise unconfirmed Retrieve remains fail-closed through the recovery coordinator and cannot authorize another Create.
 
 ## Security and tenancy
 
@@ -49,7 +51,7 @@ Only bounded provider/supplier references and normalized failure state are persi
 
 ## Validation and activation gates
 
-Focused behavior tests cover the durable Create downgrade, the normalized missing-confirmation recovery requirement, immutable known supplier confirmation identity, and the rule that contradictory `NOT_FOUND` evidence cannot come from either durable supplier identity or the runtime recovery result. Dependency-free source contracts verify that the same evidence rule runs before provider success observations and again at durable reconciliation settlement.
+Focused behavior tests cover the durable Create downgrade, the normalized missing-confirmation recovery requirement, immutable known supplier confirmation identity, contradictory `NOT_FOUND` evidence, and the active-state requirement that cancelled/unconfirmed Travelport Retrieve evidence cannot become provider-neutral `FOUND`. Dependency-free source contracts verify that the same evidence rule runs before provider success observations, again at durable reconciliation settlement, and that the Travelport recovery adapter invokes the active receipt-state parser boundary.
 
 Database integration coverage distinguishes three negative-recovery outcomes: a durable supplier confirmation keeps the operation ambiguous; a runtime `NOT_FOUND` result that itself carries supplier-confirmation evidence also stays ambiguous even when SF had no stored supplier confirmation; and a clean operation/result pair with no supplier confirmation may still become `PREPARED` after authoritative provider-neutral `NOT_FOUND` evidence. These database-backed scenarios require the explicitly disposable PostgreSQL test target before they can be claimed as executed.
 
@@ -60,6 +62,7 @@ GitHub Actions are not used for validation.
 ## References
 
 - Travelport Create Reservation Reference Payload API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_CreateReservationRefPayload.htm
+- Travelport Retrieve Hotel Reservation API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Retrieve.htm
 - Travelport Cancel Hotel Reservation API Reference: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Cancel.htm
 - `docs/travelport-reservation-response-evidence.md`
 - `docs/travelport-stays-create-outcome-classification.md`

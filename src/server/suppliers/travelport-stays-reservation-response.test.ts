@@ -90,7 +90,7 @@ function response(input: {
   };
 }
 
-test('normalizes only durable locator and correlation evidence from a confirmed create response', () => {
+test('normalizes only durable locator and correlation evidence from a confirmed response', () => {
   const result = parseTravelportStaysReservationResponse(response({ includeSensitiveData: true }), {
     requireConfirmedTravelportReceipt: true,
   });
@@ -122,16 +122,26 @@ test('supplier operational locator types are not confused with the supplier conf
   });
   assert.equal(confirmed.supplierConfirmationReference, '80073065');
 
-  const cancelled = parseTravelportStaysReservationResponse(response({
+  const cancelledResponse = response({
     supplierReferences: ['59824913'],
     supplierLocatorType: 'Cancellation Number',
     supplierStatus: 'Cancelled',
-  }), {
+  });
+  const cancelled = parseTravelportStaysReservationResponse(cancelledResponse, {
     expectedProviderReservationReference: 'D6VBHL',
     expectedReservation,
   });
   assert.equal(cancelled.providerReservationReference, 'D6VBHL');
   assert.equal(cancelled.supplierConfirmationReference, null);
+
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(cancelledResponse, {
+      expectedProviderReservationReference: 'D6VBHL',
+      expectedReservation,
+      requireConfirmedTravelportReceipt: true,
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
 });
 
 test('retrieve verification binds the known locator to the durable property, stay, room, and guest request', () => {
@@ -202,7 +212,7 @@ test('retrieve cannot promote a ReservationResponse that also carries top-level 
   );
 });
 
-test('create evidence fails closed unless provider and supplier confirmation receipts are confirmed', () => {
+test('active confirmation evidence fails closed unless provider and supplier confirmation receipts are confirmed', () => {
   for (const status of ['Pending', 'Rejected', 'Cancelled']) {
     assert.throws(
       () => parseTravelportStaysReservationResponse(response({ travelportStatus: status }), {
@@ -212,12 +222,14 @@ test('create evidence fails closed unless provider and supplier confirmation rec
     );
   }
 
-  assert.throws(
-    () => parseTravelportStaysReservationResponse(response({ supplierStatus: 'Pending' }), {
-      requireConfirmedTravelportReceipt: true,
-    }),
-    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
-  );
+  for (const status of ['Pending', 'Rejected', 'Cancelled']) {
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(response({ supplierStatus: status }), {
+        requireConfirmedTravelportReceipt: true,
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
 });
 
 test('duplicate or conflicting confirmation locator evidence fails closed', () => {
