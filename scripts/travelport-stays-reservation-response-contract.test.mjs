@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('Travelport retrieve and future create share one privacy-minimal reservation response authority parser', async () => {
+test('Travelport retrieve keeps one privacy-minimal reservation response authority parser', async () => {
   const parser = await source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const recovery = await source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
 
@@ -17,6 +17,7 @@ test('Travelport retrieve and future create share one privacy-minimal reservatio
   assert.match(parser, /providerReservationReference/);
   assert.match(parser, /supplierConfirmationReference/);
   assert.match(parser, /providerCorrelationId/);
+  assert.match(parser, /hospitalitySegments !== 1 \|\| matches !== 1/);
   assert.match(parser, /travelportReceipts\[0\]!\.status !== 'Confirmed'/);
   assert.match(parser, /supplierReceipts\.some\(\(receipt\) => receipt\.status !== 'Confirmed'\)/);
   assert.doesNotMatch(parser, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
@@ -33,7 +34,7 @@ test('response evidence durability cannot make Travelport reservation creation r
     assert.doesNotMatch(value, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
   }
   assert.match(schema, /supplierConfirmationReference\s+String\?/);
-  assert.match(docs, /supplier reservation ledger now persists the optional supplier confirmation reference/i);
-  assert.match(docs, /no Travelport reservation POST/i);
-  assert.match(docs, /PCI-safe form-of-payment\/guarantee strategy/i);
+  assert.match(docs, /supplier reservation ledger persists optional provider and supplier confirmation references/i);
+  assert.match(docs, /Travelport `reservation` remains disabled/i);
+  assert.match(docs, /PCI-safe payment source/i);
 });

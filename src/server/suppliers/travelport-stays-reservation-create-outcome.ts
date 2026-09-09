@@ -299,25 +299,28 @@ function productMatchesExpectedReservation(product: RecordValue, expected: Trave
 
 function matchedOfferEvidence(reservation: RecordValue, expected: TravelportStaysCreateExpectedReservation) {
   if (!validExpectedReservation(expected)) {
-    return Object.freeze({ matches: 0, offerAuthority: null as string | null });
+    return Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
   }
   const offers = reservation.Offer;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
-    return Object.freeze({ matches: 0, offerAuthority: null as string | null });
+    return Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
   }
   let matches = 0;
+  let hospitalitySegments = 0;
   let offerAuthority: string | null = null;
   for (const offerValue of offers) {
     const offer = optionalRecord(offerValue);
     if (!offer || !Array.isArray(offer.Product) || offer.Product.length > MAX_PRODUCTS_PER_OFFER) continue;
     for (const productValue of offer.Product) {
       const product = optionalRecord(productValue);
-      if (!product || !productMatchesExpectedReservation(product, expected)) continue;
+      if (!product || product['@type'] !== 'ProductHospitality') continue;
+      hospitalitySegments += 1;
+      if (!productMatchesExpectedReservation(product, expected)) continue;
       matches += 1;
       offerAuthority = boundedText(optionalRecord(offer.Identifier)?.authority, MAX_OFFER_AUTHORITY_LENGTH);
     }
   }
-  return Object.freeze({ matches, offerAuthority });
+  return Object.freeze({ matches, hospitalitySegments, offerAuthority });
 }
 
 function confirmedLocatorEvidence(reservation: RecordValue): ConfirmedLocatorEvidence {
@@ -482,8 +485,8 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   const reservation = reservationRecord(input.body);
   const offerEvidence = reservation
     ? matchedOfferEvidence(reservation, input.expectedReservation)
-    : Object.freeze({ matches: 0, offerAuthority: null as string | null });
-  const reservationMatches = offerEvidence.matches === 1;
+    : Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
+  const reservationMatches = offerEvidence.hospitalitySegments === 1 && offerEvidence.matches === 1;
   const locators = reservation
     ? confirmedLocatorEvidence(reservation)
     : Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });

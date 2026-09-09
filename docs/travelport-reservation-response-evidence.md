@@ -31,6 +31,8 @@ Locator and correlation strings are bounded and must not contain line breaks. On
 
 Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. A malformed relevant PNR or supplier-confirmation receipt also cannot be hidden beside an otherwise valid receipt. This prevents duplicated or structurally unsafe provider evidence from being silently collapsed into one durable fact.
 
+Travelport can return multi-content reservations containing non-hospitality products. SF therefore ignores non-hospitality products for this Stays identity check, but its current single-room reservation workflow requires exactly one `ProductHospitality` segment in the response and that segment must exactly match the durable property, stay dates, room quantity, and guest count. A second, mismatched, or malformed `ProductHospitality` segment is contradictory reservation evidence and fails closed instead of being filtered away because another hotel segment matches.
+
 Traveler data, contact details, form-of-payment fields, card data, payment payloads, comments, offer bodies, and raw provider payloads are discarded from the normalized result.
 
 Known-locator Hotel Retrieve supplies `expectedProviderReservationReference`, so the returned Travelport PNR Locator must equal the requested locator exactly. Retrieve also rebinds property, stay dates, room quantity, and guest count to the durable reservation request.
@@ -44,10 +46,12 @@ Generic HTTP 404 is not treated as authoritative non-existence because the publi
 Create Reservation does not rely on the generic Retrieve parser for commercial success. `classifyTravelportStaysReservationCreateOutcome` independently requires:
 
 - a successful HTTP result;
-- exactly one hospitality segment matching the durable property, dates, room quantity, and guest count;
+- exactly one `ProductHospitality` segment in the response, and that segment must match the durable property, dates, room quantity, and guest count;
 - exactly one confirmed receipt whose locator is `sourceContext=Travelport` and `locatorType=PNR Locator`;
 - structurally valid bounded error/warning evidence; and
 - confirmed supplier receipt state when a supplier confirmation is accepted.
+
+Commercial hotel-segment cardinality is fail-closed in the same way as locator cardinality. A valid matching hotel segment cannot hide a second mismatched or malformed `ProductHospitality` segment. Non-hospitality products may coexist in a Travelport multi-content reservation without being relabeled as Stays evidence.
 
 Commercial locator evidence is validated before confirmation-status filtering. Any recognized Travelport PNR or supplier Confirmation Number receipt with a malformed locator value or a status other than `Confirmed` invalidates the commercial locator set. A confirmed receipt therefore cannot hide a second pending, cancelled, rejected, or malformed receipt from the same durable locator family.
 
@@ -67,11 +71,13 @@ Known-locator reconciliation identity-binds both provider-truth outcomes to the 
 
 For the documented supplier-confirmed/no-PNR warning path, the Create classifier retains Booking.com Sync recovery authority only when the same response proves:
 
-- the exact durable property/stay/occupancy request;
+- exactly one `ProductHospitality` segment exists and it exactly matches the durable property/stay/occupancy request;
 - exactly one confirmed supplier Confirmation Number;
 - supplier source `BO`;
 - one bounded matching-offer authority; and
 - no Travelport PNR Locator receipt at all.
+
+A second, mismatched, or malformed `ProductHospitality` segment prevents the response from granting Sync recovery authority even when another hotel segment matches. Non-hospitality products remain outside Stays segment authority.
 
 An unconfirmed or malformed Travelport PNR receipt is contradictory evidence, not proof that the PNR is absent, and therefore cannot grant Sync recovery authority. A Travelport-context locator of another type is not a PNR and cannot itself grant Sync authority. The remaining required supplier/stay/offer evidence must still be complete.
 
@@ -97,7 +103,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, unique reservation matching, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover PNR-locator identity, supplier locator-type semantics, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, exact hospitality-segment cardinality including contradictory extra/malformed hotel segments while preserving non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 
