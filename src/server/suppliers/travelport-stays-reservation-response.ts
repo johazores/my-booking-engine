@@ -109,6 +109,19 @@ export function parseTravelportStaysReservationResponse(
   }
 
   const response = record(root.ReservationResponse);
+  if (response.Result !== undefined && response.Result !== null) {
+    const result = record(response.Result);
+    if (
+      (result.Error !== undefined && result.Error !== null)
+      || (result.Errors !== undefined && result.Errors !== null)
+    ) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained embedded result error evidence.',
+      );
+    }
+  }
+
   const reservation = record(response.Reservation);
   const receipts = reservation.Receipt;
   if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
