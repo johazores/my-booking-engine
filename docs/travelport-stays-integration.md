@@ -74,13 +74,15 @@ Travelport documents a Booking.com failure where the supplier sell succeeds but 
 
 `TravelportStaysReservationSyncExecutor` implements fixed v11 Sync. It uses retained Availability offer authority, `passiveOfferInd=true`, verified Booking.com supplier confirmation/source, and the complete primary traveler already bound to the reservation payload fingerprint. It accepts no form-of-payment, PAN, CVV, cardholder, arbitrary endpoint, credential, or token input.
 
-`syncTravelportStaysBookingDotComReservation` claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, completes request construction/OAuth, and runs the exact credentialed transport policy against the final serialized Sync request before the provider marker. The actual POST is independently validated again by the shared transport after marking. It confirms only when the exact stay, original supplier confirmation, and one Travelport locator return. Once marked, uncertainty is never automatic retry authority.
+`syncTravelportStaysBookingDotComReservation` claims a tenant-scoped `RECOVERY_WRITE` only from locator-less `AMBIGUOUS` state with complete recovery evidence, completes request construction/OAuth, and runs the exact credentialed transport policy against the final serialized Sync request before the provider marker. The actual POST is independently validated again by the shared transport after marking. It confirms only when the exact stay, original supplier confirmation, and exactly one confirmed Travelport PNR Locator receipt return without duplicate, unconfirmed, or malformed relevant PNR/supplier-confirmation evidence. Once marked, uncertainty is never automatic retry authority.
+
+The Create warning can establish locator-less Sync authority only when no Travelport PNR Locator receipt exists at all. A pending, cancelled, rejected, or malformed relevant PNR receipt is contradictory evidence rather than proof of PNR absence.
 
 See `docs/travelport-booking-sync-recovery-authority.md`.
 
 ## Known-locator reservation recovery
 
-`TravelportStaysReservationRecoveryProvider` implements Hotel Retrieve by Travelport locator using the same tenant integration credentials. `FOUND` requires exactly one matching Travelport locator. Generic HTTP 404 is not treated as authoritative non-existence unless the provider contract proves it.
+`TravelportStaysReservationRecoveryProvider` implements Hotel Retrieve by Travelport locator using the same tenant integration credentials. `FOUND` requires exactly one valid Travelport PNR Locator receipt matching the requested durable locator and expected property/stay/room/guest identity. Repeated identical PNR receipts and malformed relevant PNR evidence fail closed. Generic HTTP 404 is not treated as authoritative non-existence unless the provider contract proves it.
 
 `reconcileHospitalitySupplierReservationWithProvider` claims the tenant-scoped read-only `RECONCILE` attempt before provider I/O. Locator-less ambiguity cannot enter this path.
 
@@ -104,7 +106,7 @@ The write preflight is validation only: its terminal transport performs no netwo
 
 ## Validation boundary
 
-Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, known-locator recovery, initial Create, payment-source isolation, crash-safe provider markers, write-transport preflight ordering, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
+Checked-in source/behavior contracts cover configuration/endpoints, token behavior, SearchComplete pagination, pricing/revalidation, Rules, Availability authority, reservation idempotency/tenant scope, response evidence, relevant receipt cardinality/status/malformed evidence, known-locator recovery, initial Create, payment-source isolation, crash-safe provider markers, write-transport preflight ordering, Sync recovery, review-required settlement, durable review acceptance, accepted-review revalidation, one-time reviewed consumption/history, second-request flag isolation, repeated-review settlement, and privacy/order constraints.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database. Live provider verification still requires provisioned Travelport non-production credentials.
 

@@ -19,6 +19,8 @@ Travelport Stays responses can contain multiple locator families. A Travelport-c
 
 Supplier confirmation is normalized separately only from a confirmed `sourceContext=Supplier` + `locatorType=Confirmation Number` receipt. Booking.com PIN, supplier cancellation-number, agency IATA, and unrelated locator values are not stored under the supplier-confirmation field.
 
+Relevant commercial receipt evidence is inspected before confirmation-status filtering. Once a locator identifies itself as a Travelport PNR or supplier Confirmation Number, its bounded locator value must be valid and its receipt status must be exactly `Confirmed`. A second pending, cancelled, rejected, malformed, or duplicate relevant receipt invalidates the locator evidence instead of being ignored beside a valid receipt.
+
 ## Price and guarantee review outcomes
 
 Travelport Stays source codes `13016`, `13017`, and `13018` indicate a guarantee requirement changed during sell. Source code `13020` indicates the price changed. Travelport documents that the initial request stops without creating the reservation and that a second request is required only when the applicable change is explicitly accepted.
@@ -51,9 +53,9 @@ This is distinct from Travelport's documented supplier-confirmed/no-PNR warning 
 - one confirmed supplier Confirmation Number;
 - Booking.com supplier source `BO`;
 - one bounded matching-offer authority; and
-- no confirmed Travelport PNR Locator.
+- no Travelport PNR Locator receipt at all.
 
-The supplier confirmation and opaque provider recovery authority are staged only after the durable Create provider marker exists. If the process crashes after staging but before settlement, stale-attempt recovery preserves that evidence and keeps another Create blocked.
+An unconfirmed or malformed relevant PNR receipt is contradictory evidence, not proof of a clean locator-less state, and blocks Sync recovery authority. The supplier confirmation and opaque provider recovery authority are staged only after the durable Create provider marker exists. If the process crashes after staging but before settlement, stale-attempt recovery preserves that evidence and keeps another Create blocked.
 
 ## Definitive no-sell validation failures
 
@@ -100,7 +102,7 @@ Structured observations use fixed result names and SF-owned tenant/attempt corre
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, PNR-locator identity, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 

@@ -71,7 +71,7 @@ The recovery adapter returns:
 
 A mismatched `FOUND` or `NOT_FOUND` cannot change retry authority.
 
-The current Travelport Hotel Retrieve adapter does not interpret generic HTTP 404 as authoritative negative evidence because Travelport public documentation does not establish that semantic. Generic 404 therefore remains unknown/invalid, preserving the locator.
+The current Travelport Hotel Retrieve adapter does not interpret generic HTTP 404 as authoritative negative evidence because Travelport public documentation does not establish that semantic. Generic 404 therefore remains unknown/invalid, preserving the locator. Travelport `FOUND` additionally requires exactly one valid PNR Locator receipt matching the durable locator; duplicate identical receipts or malformed relevant PNR evidence fail closed.
 
 ## Supplier confirmation and provider recovery evidence
 
@@ -123,7 +123,9 @@ Any post-marker uncertainty returns to `AMBIGUOUS`, preserves recovery evidence,
 
 - the exact durable property/stay/occupancy;
 - the original Booking.com supplier confirmation; and
-- exactly one Travelport locator.
+- exactly one confirmed Travelport PNR Locator receipt with no duplicate, unconfirmed, or malformed relevant PNR/supplier-confirmation evidence.
+
+The supplier-confirmed/no-PNR Create warning can grant Sync authority only when no Travelport PNR Locator receipt exists at all. A pending, cancelled, rejected, or malformed relevant PNR receipt is contradictory evidence, not locator absence.
 
 The Sync path accepts no payment/card material. It remains server-only and unreachable while `reservation` capability is disabled.
 
@@ -145,7 +147,7 @@ Structured provider observations are similarly allowlisted and do not contain co
 
 ## Validation
 
-Dependency-free tests cover state/kind lease rules, request authority/idempotency, provider marker ordering and live integration revalidation, replay denial, Travelport Sync request construction, exact Sync confirmation matching, and privacy/source contracts.
+Dependency-free tests cover state/kind lease rules, request authority/idempotency, provider marker ordering and live integration revalidation, replay denial, Travelport Sync request construction, exact Sync confirmation matching, relevant receipt cardinality/status/malformed evidence, and privacy/source contracts.
 
 Guarded PostgreSQL scenarios cover create/reconciliation persistence plus `RECOVERY_WRITE` behavior: pre-provider retry, marker-based retry denial, traveler fingerprint binding, exact supplier-confirmation confirmation, durable evidence preservation, and recovery-reference clearing on success.
 
