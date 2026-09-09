@@ -11,6 +11,7 @@ const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_OFFER_AUTHORITY_LENGTH = 64;
+const MAX_PRODUCT_TYPE_LENGTH = 64;
 
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
@@ -110,6 +111,13 @@ type ConfirmedLocatorEvidence = Readonly<{
   provider: string | null;
   supplier: string | null;
   supplierSource: string | null;
+}>;
+
+type MatchedOfferEvidence = Readonly<{
+  valid: boolean;
+  matches: number;
+  hospitalitySegments: number;
+  offerAuthority: string | null;
 }>;
 
 export type TravelportStaysCreateExpectedReservation = Readonly<{
@@ -348,30 +356,46 @@ function productMatchesExpectedReservation(product: RecordValue, expected: Trave
     && product.guests === expected.guests;
 }
 
-function matchedOfferEvidence(reservation: RecordValue, expected: TravelportStaysCreateExpectedReservation) {
-  if (!validExpectedReservation(expected)) {
-    return Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
-  }
+function invalidOfferEvidence(): MatchedOfferEvidence {
+  return Object.freeze({ valid: false, matches: 0, hospitalitySegments: 0, offerAuthority: null });
+}
+
+function matchedOfferEvidence(
+  reservation: RecordValue,
+  expected: TravelportStaysCreateExpectedReservation,
+): MatchedOfferEvidence {
+  if (!validExpectedReservation(expected)) return invalidOfferEvidence();
+
   const offers = reservation.Offer;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
-    return Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
+    return invalidOfferEvidence();
   }
+
   let matches = 0;
   let hospitalitySegments = 0;
   let offerAuthority: string | null = null;
   for (const offerValue of offers) {
     const offer = optionalRecord(offerValue);
-    if (!offer || !Array.isArray(offer.Product) || offer.Product.length > MAX_PRODUCTS_PER_OFFER) continue;
-    for (const productValue of offer.Product) {
+    if (!offer) return invalidOfferEvidence();
+
+    const products = offer.Product;
+    if (!Array.isArray(products) || products.length < 1 || products.length > MAX_PRODUCTS_PER_OFFER) {
+      return invalidOfferEvidence();
+    }
+
+    for (const productValue of products) {
       const product = optionalRecord(productValue);
-      if (!product || product['@type'] !== 'ProductHospitality') continue;
+      const productType = boundedText(product?.['@type'], MAX_PRODUCT_TYPE_LENGTH);
+      if (!product || !productType) return invalidOfferEvidence();
+      if (productType !== 'ProductHospitality') continue;
       hospitalitySegments += 1;
       if (!productMatchesExpectedReservation(product, expected)) continue;
       matches += 1;
       offerAuthority = boundedText(optionalRecord(offer.Identifier)?.authority, MAX_OFFER_AUTHORITY_LENGTH);
     }
   }
-  return Object.freeze({ matches, hospitalitySegments, offerAuthority });
+
+  return Object.freeze({ valid: true, matches, hospitalitySegments, offerAuthority });
 }
 
 function confirmedLocatorEvidence(reservation: RecordValue): ConfirmedLocatorEvidence {
@@ -539,8 +563,10 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   const reservation = reservationRecord(input.body);
   const offerEvidence = reservation
     ? matchedOfferEvidence(reservation, input.expectedReservation)
-    : Object.freeze({ matches: 0, hospitalitySegments: 0, offerAuthority: null as string | null });
-  const reservationMatches = offerEvidence.hospitalitySegments === 1 && offerEvidence.matches === 1;
+    : invalidOfferEvidence();
+  const reservationMatches = offerEvidence.valid
+    && offerEvidence.hospitalitySegments === 1
+    && offerEvidence.matches === 1;
   const locators = reservation
     ? confirmedLocatorEvidence(reservation)
     : Object.freeze({ valid: false, provider: null, supplier: null, supplierSource: null });

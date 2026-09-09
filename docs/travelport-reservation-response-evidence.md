@@ -35,7 +35,7 @@ Travelport's shared `ReservationResponse` contract can also include a `Result` o
 
 Receipt cardinality is evidence, not just reference uniqueness. Two Travelport PNR receipts that repeat the same locator are still ambiguous and fail closed, as do two supplier Confirmation Number receipts that repeat the same confirmation. A malformed relevant PNR or supplier-confirmation receipt also cannot be hidden beside an otherwise valid receipt. This prevents duplicated or structurally unsafe provider evidence from being silently collapsed into one durable fact.
 
-Travelport can return multi-content reservations containing non-hospitality products and can also return an explicit placeholder passive hotel offer alongside the active hotel offer. SF ignores non-hospitality products for Stays identity and excludes only offers explicitly marked `passiveOfferInd=true` from active hotel-segment cardinality. When the passive indicator is present and non-null it must be a boolean; malformed passive-offer evidence fails closed. The current single-room known-locator recovery workflow requires exactly one non-passive `ProductHospitality` segment, and that active segment must exactly match the durable property, stay dates, room quantity, and guest count. A second non-passive or unclassified, mismatched, or malformed `ProductHospitality` segment remains contradictory reservation evidence and fails closed instead of being filtered away because another active hotel segment matches.
+Travelport can return multi-content reservations containing non-hospitality products and can also return an explicit placeholder passive hotel offer alongside the active hotel offer. SF ignores well-formed non-hospitality products for Stays identity and excludes only offers explicitly marked `passiveOfferInd=true` from active hotel-segment cardinality. When the passive indicator is present and non-null it must be a boolean; malformed passive-offer evidence fails closed. An explicitly passive offer is excluded before its intentionally incomplete `Product` body is inspected. Every non-passive or unclassified offer must instead expose a bounded, non-empty `Product` array whose entries are structured objects with a bounded `@type`; structurally unreadable active offer/product evidence fails closed rather than being silently skipped beside one valid hotel segment. The current single-room known-locator recovery workflow then requires exactly one non-passive `ProductHospitality` segment, and that active segment must exactly match the durable property, stay dates, room quantity, and guest count. A second non-passive or unclassified, mismatched, or malformed `ProductHospitality` segment remains contradictory reservation evidence and fails closed instead of being filtered away because another active hotel segment matches.
 
 This Retrieve-only allowance follows Travelport's documented active-plus-placeholder-passive response shape. It does not change Create Reservation or Booking.com Sync success semantics: those write paths continue to use the independent stricter commercial classifier and do not inherit the recovery parser's passive-placeholder exception.
 
@@ -56,6 +56,7 @@ Create Reservation does not rely on the generic Retrieve parser for commercial s
 - exactly one top-level response family that agrees with the HTTP outcome class: `ReservationResponse` on 2xx or `ErrorResponse` on 4xx/5xx;
 - a successful HTTP result for confirmation authority;
 - no embedded `ReservationResponse.Result.Error`/`Errors` evidence;
+- structurally valid bounded active offer/product evidence; malformed offer objects, missing/non-array/empty/oversized product collections, and unstructured/untyped product entries invalidate commercial confirmation authority;
 - exactly one `ProductHospitality` segment in the response, and that segment must match the durable property, dates, room quantity, and guest count;
 - exactly one confirmed receipt whose locator is `sourceContext=Travelport` and `locatorType=PNR Locator`;
 - structurally valid bounded error/warning evidence; and
@@ -63,7 +64,7 @@ Create Reservation does not rely on the generic Retrieve parser for commercial s
 
 A body containing both top-level `ReservationResponse` and `ErrorResponse`, neither envelope, an error envelope on 2xx/3xx, a reservation envelope on non-2xx, or embedded `ReservationResponse.Result` error evidence never grants success, review, definitive failure, or Sync/recovery authority. Contradictory dual-envelope bodies also do not choose one provider trace identifier as durable correlation evidence.
 
-Commercial hotel-segment cardinality is fail-closed in the same way as locator cardinality. A valid matching hotel segment cannot hide a second mismatched or malformed `ProductHospitality` segment. Non-hospitality products may coexist in a Travelport multi-content reservation without being relabeled as Stays evidence.
+Commercial hotel-segment cardinality is fail-closed in the same way as locator cardinality. A valid matching hotel segment cannot hide a second mismatched or malformed `ProductHospitality` segment, and it also cannot hide a structurally unreadable sibling offer/product entry. Well-formed non-hospitality products may coexist in a Travelport multi-content reservation without being relabeled as Stays evidence. Unlike Retrieve recovery, Create/Sync does not discard explicit passive offers before validating the commercial response structure.
 
 Commercial locator evidence is validated before confirmation-status filtering. Any recognized Travelport PNR or supplier Confirmation Number receipt with a malformed locator value or a status other than `Confirmed` invalidates the commercial locator set. A confirmed receipt therefore cannot hide a second pending, cancelled, rejected, or malformed receipt from the same durable locator family.
 
@@ -83,13 +84,14 @@ Known-locator reconciliation identity-binds both provider-truth outcomes to the 
 
 For the documented supplier-confirmed/no-PNR warning path, the Create classifier retains Booking.com Sync recovery authority only when the same response proves:
 
+- structurally valid active offer/product evidence with no unreadable sibling offer/product entries;
 - exactly one `ProductHospitality` segment exists and it exactly matches the durable property/stay/occupancy request;
 - exactly one confirmed supplier Confirmation Number;
 - supplier source `BO`;
 - one bounded matching-offer authority; and
 - no Travelport PNR Locator receipt at all.
 
-A second, mismatched, or malformed `ProductHospitality` segment prevents the response from granting Sync recovery authority even when another hotel segment matches. Non-hospitality products remain outside Stays segment authority.
+A second, mismatched, or malformed `ProductHospitality` segment or structurally unreadable offer/product evidence prevents the response from granting Sync recovery authority even when another hotel segment matches. Well-formed non-hospitality products remain outside Stays segment authority.
 
 An unconfirmed or malformed Travelport PNR receipt is contradictory evidence, not proof that the PNR is absent, and therefore cannot grant Sync recovery authority. A Travelport-context locator of another type is not a PNR and cannot itself grant Sync authority. The remaining required supplier/stay/offer evidence must still be complete.
 
@@ -97,7 +99,7 @@ The opaque `providerRecoveryReference` contains only provider-owned non-secret r
 
 The separate `13034` error remains ambiguous and does not invent a supplier confirmation or Sync authority. SF does not treat the error response alone as proof that either no Booking.com sell occurred or that Sync is safe.
 
-Sync confirms only when its response proves the exact expected property/stay/occupancy, the original supplier confirmation, and exactly one confirmed Travelport PNR Locator. Because Sync reuses the Create commercial-response classifier, contradictory top-level response/error envelopes and embedded `ReservationResponse.Result` errors fail closed before the documented Sync-only missing-`locatorType` normalization can grant confirmation authority. Pre-provider deterministic failure is retryable only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`.
+Sync confirms only when its response proves the exact expected property/stay/occupancy, the original supplier confirmation, and exactly one confirmed Travelport PNR Locator. Because Sync reuses the Create commercial-response classifier, contradictory top-level response/error envelopes, malformed active offer/product structure, and embedded `ReservationResponse.Result` errors fail closed before the documented Sync-only missing-`locatorType` normalization can grant confirmation authority. Pre-provider deterministic failure is retryable only when no Sync provider marker exists; after the marker, uncertainty remains non-retryable `AMBIGUOUS`.
 
 ## Commercial review evidence
 
@@ -115,7 +117,7 @@ Normalized reservation evidence excludes traveler/customer PII, PAN/CVV, cardhol
 
 ## Validation
 
-Focused tests cover top-level envelope exclusivity/HTTP-class coherence, embedded `ReservationResponse.Result` error rejection, malformed/conflicting/oversized warning evidence rejection while preserving bounded warning-only responses, PNR-locator identity, supplier locator-type semantics, active-vs-historical Retrieve state, supplier cancellation evidence, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, known-locator active-hospitality cardinality including the documented active-plus-passive placeholder response and malformed passive indicators, contradictory extra/malformed non-passive hotel segments, preservation of non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
+Focused tests cover top-level envelope exclusivity/HTTP-class coherence, embedded `ReservationResponse.Result` error rejection, malformed/conflicting/oversized warning evidence rejection while preserving bounded warning-only responses, PNR-locator identity, supplier locator-type semantics, active-vs-historical Retrieve state, supplier cancellation evidence, exact receipt cardinality including repeated identical and malformed/unconfirmed relevant provider/supplier receipts, known-locator active-hospitality cardinality including the documented active-plus-passive placeholder response and malformed passive indicators, malformed active/unclassified offer/product structure that cannot be skipped beside valid hotel evidence, contradictory extra/malformed non-passive hotel segments, preservation of well-formed non-hospitality multi-content products, known-locator exact-reference checks, unsafe locator/correlation values, Create success/ambiguity, Booking.com Sync recovery authority, review-required settlement, one-time accepted-review consumption, and privacy minimization.
 
 Guarded PostgreSQL scenarios still require an explicitly disposable database target. Live Create, reviewed Create, Sync, negative lookup, and locator-less correlation behavior still require provisioned Travelport non-production credentials and a concrete reviewed PCI-safe form-of-payment source.
 

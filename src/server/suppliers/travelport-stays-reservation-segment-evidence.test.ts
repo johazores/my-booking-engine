@@ -44,7 +44,7 @@ function reservationResponse(products: unknown[], input: { includeTravelport?: b
           '@type': 'Offer',
           Identifier: { authority: 'BKNG' },
           Product: products,
-        }],
+        }] as unknown[],
         Receipt: [
           {
             Confirmation: {
@@ -71,10 +71,12 @@ function reservationResponse(products: unknown[], input: { includeTravelport?: b
   };
 }
 
-function assertInvalidCreate(products: unknown[]) {
+type ReservationResponseFixture = ReturnType<typeof reservationResponse>;
+
+function assertInvalidCreateBody(body: ReservationResponseFixture) {
   const result = classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,
-    body: reservationResponse(products),
+    body,
     expectedReservation,
   });
   assert.deepEqual(result, {
@@ -85,14 +87,22 @@ function assertInvalidCreate(products: unknown[]) {
   });
 }
 
-function assertInvalidRetrieve(products: unknown[]) {
+function assertInvalidCreate(products: unknown[]) {
+  assertInvalidCreateBody(reservationResponse(products));
+}
+
+function assertInvalidRetrieveBody(body: ReservationResponseFixture) {
   assert.throws(
-    () => parseTravelportStaysReservationResponse(reservationResponse(products), {
+    () => parseTravelportStaysReservationResponse(body, {
       expectedProviderReservationReference: '0GQ9HS',
       expectedReservation,
     }),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
+}
+
+function assertInvalidRetrieve(products: unknown[]) {
+  assertInvalidRetrieveBody(reservationResponse(products));
 }
 
 test('Create fails closed when one matching hotel segment is accompanied by another hospitality segment', () => {
@@ -105,6 +115,36 @@ test('known-locator Retrieve fails closed on additional or malformed hospitality
   assertInvalidRetrieve([exactHospitalityProduct(), malformedHospitalityProduct()]);
 });
 
+test('malformed active offer and product structures cannot hide beside one valid hospitality segment', () => {
+  const malformedOffers: readonly unknown[] = Object.freeze([
+    null,
+    { '@type': 'Offer', Product: 'not-an-array' },
+    { '@type': 'Offer', Product: [] },
+    { '@type': 'Offer', Product: [null] },
+    { '@type': 'Offer', Product: [{}] },
+  ]);
+
+  for (const malformedOffer of malformedOffers) {
+    const body = reservationResponse([exactHospitalityProduct()]);
+    body.ReservationResponse.Reservation.Offer.push(malformedOffer);
+    assertInvalidCreateBody(body);
+    assertInvalidRetrieveBody(body);
+  }
+});
+
+test('Retrieve may skip an explicitly passive placeholder before inspecting its incomplete product body while Create stays strict', () => {
+  const body = reservationResponse([exactHospitalityProduct()]);
+  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', passiveOfferInd: true });
+
+  const retrieve = parseTravelportStaysReservationResponse(body, {
+    expectedProviderReservationReference: '0GQ9HS',
+    expectedReservation,
+  });
+  assert.equal(retrieve.providerReservationReference, '0GQ9HS');
+
+  assertInvalidCreateBody(body);
+});
+
 test('Booking.com Sync recovery authority is withheld when additional hospitality segment evidence exists', () => {
   const warning = 'Hotel sell confirmed from supplier. Travelport PNR processing did not complete. Use SYNC message with confirmation number to complete PNR.';
   const result = classifyTravelportStaysReservationCreateOutcome({
@@ -113,6 +153,27 @@ test('Booking.com Sync recovery authority is withheld when additional hospitalit
       includeTravelport: false,
       warning,
     }),
+    expectedReservation,
+  });
+  assert.equal(result.status, 'AMBIGUOUS');
+  if (result.status === 'AMBIGUOUS') {
+    assert.equal(result.failureCode, 'TRAVELPORT_SYNC_REQUIRED');
+    assert.equal(result.supplierConfirmationReference, null);
+    assert.equal(result.providerRecoveryReference, null);
+  }
+});
+
+test('Booking.com Sync recovery authority is withheld when active offer structure is malformed', () => {
+  const warning = 'Hotel sell confirmed from supplier. Travelport PNR processing did not complete. Use SYNC message with confirmation number to complete PNR.';
+  const body = reservationResponse([exactHospitalityProduct()], {
+    includeTravelport: false,
+    warning,
+  });
+  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', Product: [null] });
+
+  const result = classifyTravelportStaysReservationCreateOutcome({
+    httpStatus: 200,
+    body,
     expectedReservation,
   });
   assert.equal(result.status, 'AMBIGUOUS');

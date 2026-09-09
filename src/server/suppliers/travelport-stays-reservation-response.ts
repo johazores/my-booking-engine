@@ -6,6 +6,7 @@ const MAX_RECEIPTS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
+const MAX_PRODUCT_TYPE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
 
@@ -99,8 +100,7 @@ function assertExpectedReservationMatch(
   let matches = 0;
   let activeHospitalitySegments = 0;
   for (const offerValue of offers) {
-    if (!offerValue || typeof offerValue !== 'object' || Array.isArray(offerValue)) continue;
-    const offer = offerValue as RecordValue;
+    const offer = record(offerValue);
     const passiveOfferInd = offer.passiveOfferInd;
     if (
       passiveOfferInd !== undefined
@@ -113,14 +113,26 @@ function assertExpectedReservationMatch(
       );
     }
 
-    const products = offer.Product;
-    if (!Array.isArray(products) || products.length > MAX_PRODUCTS_PER_OFFER) continue;
     if (passiveOfferInd === true) continue;
 
+    const products = offer.Product;
+    if (!Array.isArray(products) || products.length < 1 || products.length > MAX_PRODUCTS_PER_OFFER) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained malformed active offer product evidence.',
+      );
+    }
+
     for (const productValue of products) {
-      if (!productValue || typeof productValue !== 'object' || Array.isArray(productValue)) continue;
-      const product = productValue as RecordValue;
-      if (product['@type'] !== 'ProductHospitality') continue;
+      const product = record(productValue);
+      const productType = boundedProviderValue(product['@type'], MAX_PRODUCT_TYPE_LENGTH);
+      if (!productType) {
+        throw new HospitalitySupplierProviderError(
+          'INVALID_RESPONSE',
+          'Travelport reservation response contained malformed active product evidence.',
+        );
+      }
+      if (productType !== 'ProductHospitality') continue;
       activeHospitalitySegments += 1;
       if (!product.PropertyKey || !product.DateRange) continue;
       const propertyKey = record(product.PropertyKey);
