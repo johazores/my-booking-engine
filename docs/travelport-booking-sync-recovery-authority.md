@@ -10,11 +10,13 @@ The Sync path remains deliberately unreachable from product routes/actions while
 
 SF records Booking.com Sync recovery authority only from the documented supplier-confirmed/no-PNR warning path and only when all of the following are true:
 
-- the returned hospitality product exactly matches the durable Travelport property, stay dates, single-room quantity, and guest count;
+- exactly one `ProductHospitality` segment exists and it exactly matches the durable Travelport property, stay dates, single-room quantity, and guest count;
 - there is exactly one confirmed supplier locator with `sourceContext=Supplier` and `locatorType=Confirmation Number`;
 - the supplier locator source is exactly `BO`, which Travelport identifies as Booking.com;
 - the matching offer has one bounded `Identifier.authority`; and
 - there is no Travelport PNR Locator receipt at all.
+
+A second, mismatched, or malformed `ProductHospitality` segment is contradictory evidence and blocks Sync recovery authority even when another hotel segment matches. Non-hospitality products may coexist in a Travelport multi-content reservation and do not count as Stays recovery evidence.
 
 A recognized Travelport PNR receipt whose locator is malformed or whose status is not `Confirmed` is contradictory evidence, not proof that PNR processing failed cleanly. It therefore blocks Sync recovery authority rather than being ignored. Likewise, a second relevant supplier Confirmation Number receipt that is malformed, unconfirmed, or duplicated invalidates the commercial locator set.
 
@@ -82,13 +84,13 @@ This compatibility rule is intentionally narrow: an explicit locator type is nev
 Sync is confirmed only when the response proves all of the following:
 
 - exactly one confirmed Travelport PNR receipt, either with explicit `locatorType=PNR Locator` or the documented Sync-only omission with `sourceContext=Travelport`;
-- the exact durable property, dates, room quantity, and guest count;
+- exactly one `ProductHospitality` segment exists and it exactly matches the durable property, dates, room quantity, and guest count;
 - the same original Booking.com supplier confirmation; and
 - a structurally valid successful response.
 
 A Travelport-context locator with an explicit different type cannot satisfy the PNR requirement.
 
-Changed/missing supplier confirmation, mismatched reservation identity, missing/duplicate PNR evidence, malformed or unconfirmed relevant receipt evidence, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
+Changed/missing supplier confirmation, additional/mismatched/malformed hospitality-segment evidence, missing/duplicate PNR evidence, malformed or unconfirmed relevant receipt evidence, malformed response, provider error, non-success response, or transport uncertainty after the marker remains `AMBIGUOUS / INVALID_RESPONSE`.
 
 Successful Sync clears `providerRecoveryReference` and moves the operation to `CONFIRMED` with the verified Travelport PNR Locator. Ambiguous Sync retains supplier/recovery evidence for provider-supported or manual resolution but is not retryable after the marker.
 
@@ -128,7 +130,7 @@ No current route, button, customer action, or staff action can call Sync.
 
 ## Validation
 
-Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed. Shared commercial-receipt coverage additionally proves that pending, cancelled, malformed, or duplicated relevant PNR/supplier receipt evidence cannot be filtered away to create confirmation or Sync authority.
+Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed. Shared commercial-receipt coverage additionally proves that pending, cancelled, malformed, or duplicated relevant PNR/supplier receipt evidence cannot be filtered away to create confirmation or Sync authority. Shared segment-evidence coverage proves that additional, mismatched, or malformed `ProductHospitality` segments cannot grant Sync authority while unrelated non-hospitality multi-content products remain outside Stays evidence.
 
 No source-only or local contract test is claimed as live-provider evidence.
 

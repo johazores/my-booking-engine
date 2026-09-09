@@ -28,6 +28,7 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   assert.match(adapter, /expectedReservation,/);
   assert.match(responseParser, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
   assert.match(responseParser, /exactly one Travelport PNR locator/i);
+  assert.match(responseParser, /hospitalitySegments !== 1 \|\| matches !== 1/);
   assert.match(responseParser, /exactly one hospitality segment matching the durable reservation request/i);
 });
 
@@ -44,7 +45,7 @@ test('Travelport recovery maps durable request correlation into supportable prov
   assert.ok(accessTokenRequest > expectationValidation, 'reservation expectation must be validated before provider I/O');
 });
 
-test('Travelport recovery confirms only one retrieved hospitality segment matching durable property, stay, room, and guest identity', () => {
+test('Travelport recovery confirms only one total hospitality segment matching durable property, stay, room, and guest identity', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   assert.match(parser, /product\['@type'\] !== 'ProductHospitality'/);
   assert.match(parser, /chainCode === expected\.chainCode/);
@@ -53,7 +54,7 @@ test('Travelport recovery confirms only one retrieved hospitality segment matchi
   assert.match(parser, /departureDateLocal === expected\.departureDateLocal/);
   assert.match(parser, /product\.Quantity === expected\.rooms/);
   assert.match(parser, /product\.guests === expected\.guests/);
-  assert.match(parser, /if \(matches !== 1\)/);
+  assert.match(parser, /if \(hospitalitySegments !== 1 \|\| matches !== 1\)/);
   assert.doesNotMatch(parser, /PersonName|CardNumber|PaymentCard|FormOfPayment/);
 });
 
@@ -108,6 +109,7 @@ test('supplier source-of-truth docs describe the implemented server-only write b
   assert.match(recoveryIdentityDoc, /stay dates/i);
   assert.match(recoveryIdentityDoc, /room quantity/i);
   assert.match(recoveryIdentityDoc, /guest count/i);
+  assert.match(recoveryIdentityDoc, /exactly one total `ProductHospitality` segment/i);
   assert.match(recoveryIdentityDoc, /does not enable|does not advertise/i);
 
   assert.doesNotMatch(gdsDoc, /dedicated one-time claim\/consumption boundary[\s\S]*remain intentionally closed/i);

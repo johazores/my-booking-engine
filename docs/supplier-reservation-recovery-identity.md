@@ -22,14 +22,14 @@ No traveler identity, customer contact data, payment/card material, credentials,
 
 ## Travelport matching
 
-Travelport Hotel Retrieve still requires the exact durable aggregator locator. In addition, the Travelport adapter decodes the existing SF property reference and requires the retrieved reservation to contain exactly one `ProductHospitality` segment matching the durable request across:
+Travelport Hotel Retrieve still requires the exact durable aggregator locator. In addition, the Travelport adapter decodes the existing SF property reference and requires the retrieved reservation to contain exactly one `ProductHospitality` segment, and that single segment must match the durable request across:
 
 - Travelport property identity (`chainCode` and `propertyCode`);
 - stay dates (`DateRange.start` and `DateRange.end`);
 - room quantity (`Quantity`); and
 - total guest count (`guests`, derived from adults plus child count).
 
-The response may contain other non-matching segments, including later provider-side additions, but exactly one hospitality segment must match the operation SF is recovering. Zero matches or multiple matches are `INVALID_RESPONSE` and remain fail-closed through the existing `UNKNOWN -> AMBIGUOUS` reconciliation path.
+Travelport can return non-hospitality content in a multi-content PNR, and those products do not count as Stays identity evidence. A second, mismatched, or malformed `ProductHospitality` segment is contradictory evidence and fails closed; it is not ignored merely because another hotel segment matches. Zero hospitality segments, multiple hospitality segments, or one hospitality segment that does not exactly match the durable request are `INVALID_RESPONSE` and remain fail-closed through the existing `UNKNOWN -> AMBIGUOUS` reconciliation path.
 
 The adapter validates the durable expectation before requesting an OAuth token or sending Hotel Retrieve. Invalid SF/provider-reference input therefore cannot cause provider I/O.
 
@@ -47,7 +47,7 @@ Generic Travelport HTTP 404 remains non-authoritative for negative lookup. Locat
 
 ## Validation
 
-Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, duplicate-match, locator, and malformed-input failures. The dependency-free source contract verifies the coordinator supplies the durable expectation, the Travelport adapter validates it before provider I/O, and the response parser requires exactly one matching hospitality segment.
+Focused provider and parser tests cover exact matches plus property, chain, date, room, guest, duplicate/mismatched/malformed hospitality-segment, locator, and malformed-input failures. The dependency-free source contract verifies the coordinator supplies the durable expectation, the Travelport adapter validates it before provider I/O, and the response parser requires exactly one total `ProductHospitality` segment that matches the durable request while leaving unrelated non-hospitality content outside Stays identity authority.
 
 Full Node 24 validation, Prisma/PostgreSQL execution, and live Travelport verification remain separate environment gates. GitHub Actions are not used.
 
