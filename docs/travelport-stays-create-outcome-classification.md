@@ -11,9 +11,11 @@ This module does not collect card data, enable the `reservation` capability, or 
 A Create response can become `CONFIRMED` only when all required evidence agrees:
 
 - HTTP status is successful;
+- exactly one top-level `ReservationResponse` is present and no top-level `ErrorResponse` competes with it;
+- `ReservationResponse.Result` contains no embedded error evidence;
 - exactly one hospitality product matches the durable chain/property, stay dates, single-room quantity, and guest count;
 - exactly one confirmed Travelport receipt carries both `sourceContext=Travelport` and `locatorType=PNR Locator`; and
-- error and warning envelopes are structurally valid and bounded.
+- warning evidence is structurally valid and bounded.
 
 Travelport Stays responses can contain multiple locator families. A Travelport-context locator that is not a `PNR Locator` is not a provider reservation reference. It cannot confirm Create or Sync, and it does not create duplicate-PNR ambiguity when one valid Travelport PNR Locator is present.
 
@@ -63,7 +65,7 @@ Travelport's Stays error contract uses two provisioned formats. The older format
 
 A provider error becomes durable `FAILED` only when:
 
-- the error envelope is structurally valid and bounded;
+- the top-level `ErrorResponse` envelope is structurally valid and bounded;
 - every error includes a numeric `StatusCode` equal to the actual HTTP response status;
 - every error has `category=VALIDATION`;
 - every source code is in SF's reviewed no-sell validation allowlist; and
@@ -81,9 +83,13 @@ Unknown codes, mixed codes, contradictory categories, missing/malformed/mismatch
 
 ## Structural warning and error authority
 
-The presence of an `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed. Source-code decisions require complete newer decision-bearing evidence: numeric HTTP-consistent `StatusCode`, bounded `SourceCode`, and valid `Category`. The older StatusCode/Message-only format does not grant source-code-based retry, review, or recovery authority.
+The top-level response family is exclusive and must agree with the HTTP outcome: `ReservationResponse` is accepted only on 2xx, while `ErrorResponse` is accepted only on 4xx/5xx. A body containing both families, neither family, or a family that contradicts the HTTP result fails closed before any commercial decision.
 
-Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message prevent promotion to success. Bounded non-Sync warnings do not erase otherwise complete confirmation evidence.
+Travelport's shared `ReservationResponse` contract defines `Result` as the carrier for warning and error messages. Because a successful-looking reservation can therefore coexist structurally with embedded result evidence, SF explicitly rejects any non-null `ReservationResponse.Result.Error` evidence. The defensive undocumented plural `Result.Errors` shape is rejected as well. Embedded result errors cannot be reinterpreted as the Stays top-level no-sell error contract and cannot authorize confirmation, review, definitive failure, retry, or Sync recovery.
+
+The presence of a top-level `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed. Source-code decisions require complete newer decision-bearing evidence: numeric HTTP-consistent `StatusCode`, bounded `SourceCode`, and valid `Category`. The older StatusCode/Message-only format does not grant source-code-based retry, review, or recovery authority.
+
+Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message prevent promotion to success. Bounded warning-only `ReservationResponse.Result` data does not erase otherwise complete confirmation evidence.
 
 The durable expected reservation is validated before it can match provider data. The current Create classifier recognizes only the supported single-room, one-to-nine-guest contract with canonical local dates and bounded Travelport chain/property identifiers.
 
@@ -105,7 +111,7 @@ Structured observations use fixed result names and SF-owned tenant/attempt corre
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, top-level envelope exclusivity, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 
@@ -120,6 +126,7 @@ No source-only test is claimed as live-provider evidence.
 - Travelport Stays API Error Messaging.
 - Travelport Stays APIs Guide, including Syncing Reservations after Aggregator Sell Failure.
 - Travelport Create Reservation Reference Payload API Reference.
+- Travelport Reservation Retrieve API Reference (`ReservationResponse.Result` error/warning semantics).
 - Travelport Sync Reservation API Reference.
 - `docs/supplier-reservation-review-acceptance.md`.
 - `docs/travelport-reservation-response-evidence.md`.
