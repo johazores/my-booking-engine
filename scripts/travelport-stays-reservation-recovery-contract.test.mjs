@@ -48,7 +48,8 @@ test('Travelport recovery maps durable request correlation into supportable prov
 test('Travelport recovery confirms one active hospitality segment while excluding explicit passive placeholders', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
-  assert.match(parser, /product\['@type'\] !== 'ProductHospitality'/);
+  assert.match(parser, /const productType = boundedProviderValue\(product\['@type'\], MAX_PRODUCT_TYPE_LENGTH\)/);
+  assert.match(parser, /if \(productType !== 'ProductHospitality'\) continue/);
   assert.match(parser, /const passiveOfferInd = offer\.passiveOfferInd/);
   assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
   assert.match(parser, /if \(passiveOfferInd === true\) continue/);
@@ -60,7 +61,9 @@ test('Travelport recovery confirms one active hospitality segment while excludin
   assert.match(parser, /product\.guests === expected\.guests/);
   assert.match(parser, /if \(activeHospitalitySegments !== 1 \|\| matches !== 1\)/);
   assert.doesNotMatch(parser, /PersonName|CardNumber|PaymentCard|FormOfPayment/);
-  assert.match(createClassifier, /hospitalitySegments !== 1/);
+  assert.match(createClassifier, /offerEvidence\.valid/);
+  assert.match(createClassifier, /offerEvidence\.hospitalitySegments === 1/);
+  assert.match(createClassifier, /offerEvidence\.matches === 1/);
   assert.doesNotMatch(createClassifier, /passiveOfferInd === true/);
 });
 
