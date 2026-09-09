@@ -1,9 +1,11 @@
 const MAX_RECEIPTS = 32;
 const MAX_RECEIPT_TYPE_LENGTH = 64;
+const MAX_CONFIRMATION_TYPE_LENGTH = 64;
 const MAX_REFERENCE_LENGTH = 512;
 const MAX_LOCATOR_CONTEXT_LENGTH = 64;
 const MAX_LOCATOR_TYPE_LENGTH = 64;
 const MAX_LOCATOR_SOURCE_LENGTH = 16;
+const MAX_OFFER_STATUS_TYPE_LENGTH = 64;
 const MAX_STATUS_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
@@ -45,6 +47,12 @@ function normalizedReceipt(
   locator: RecordValue,
   confirmation: RecordValue,
 ): TravelportStaysLocatorReceiptEvidence | null {
+  const rawConfirmationType = confirmation['@type'];
+  if (rawConfirmationType !== undefined && rawConfirmationType !== null) {
+    const confirmationType = boundedProviderValue(rawConfirmationType, MAX_CONFIRMATION_TYPE_LENGTH);
+    if (confirmationType !== 'ConfirmationHold') return null;
+  }
+
   const reference = boundedProviderValue(locator.value, MAX_REFERENCE_LENGTH);
   if (!reference) return null;
 
@@ -59,6 +67,13 @@ function normalizedReceipt(
   if (offerStatus !== undefined && offerStatus !== null) {
     const statusRecord = optionalRecord(offerStatus);
     if (!statusRecord) return null;
+
+    const rawOfferStatusType = statusRecord['@type'];
+    if (rawOfferStatusType !== undefined && rawOfferStatusType !== null) {
+      const offerStatusType = boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
+      if (offerStatusType !== 'OfferStatusHospitality') return null;
+    }
+
     status = boundedProviderValue(statusRecord.Status, MAX_STATUS_LENGTH);
     if (!status) return null;
   }
