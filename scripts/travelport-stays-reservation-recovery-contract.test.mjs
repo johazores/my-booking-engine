@@ -50,9 +50,11 @@ test('Travelport recovery confirms one active hospitality segment while excludin
   const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(parser, /const productType = boundedProviderValue\(product\['@type'\], MAX_PRODUCT_TYPE_LENGTH\)/);
   assert.match(parser, /if \(productType !== 'ProductHospitality'\) continue/);
+  assert.match(parser, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
+  assert.match(parser, /offerIds\.has\(offerId\)/);
   assert.match(parser, /const passiveOfferInd = offer\.passiveOfferInd/);
   assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
-  assert.match(parser, /if \(passiveOfferInd === true\) continue/);
+  assert.match(parser, /if \(passiveOfferInd === true\) \{[\s\S]*?passiveOfferIds\.add\(offerId\);[\s\S]*?continue;/);
   assert.match(parser, /chainCode === expected\.chainCode/);
   assert.match(parser, /propertyCode === expected\.propertyCode/);
   assert.match(parser, /arrivalDateLocal === expected\.arrivalDateLocal/);

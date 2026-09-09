@@ -17,11 +17,11 @@ A Create response can become `CONFIRMED` only when all required evidence agrees:
 - exactly one confirmed Travelport receipt carries both `sourceContext=Travelport` and `locatorType=PNR Locator`; and
 - warning evidence is structurally valid and bounded.
 
-Travelport Stays responses can contain multiple locator families. A Travelport-context locator that is not a `PNR Locator` is not a provider reservation reference. It cannot confirm Create or Sync, and it does not create duplicate-PNR ambiguity when one valid Travelport PNR Locator is present.
+Travelport Stays responses can contain multiple locator families. A confirmation receipt that claims the Stays-owned `sourceContext=Travelport` but pairs it with another locator type is contradictory evidence. It cannot confirm Create or Sync and fails closed even when one otherwise valid Travelport PNR Locator is also present. The same reciprocal pairing rule applies to Supplier and Agency Stays locator families; unrelated shared-model receipt evidence remains outside Stays authority only when it does not claim a recognized Stays source/locator pair.
 
 Supplier confirmation is normalized separately only from a confirmed `sourceContext=Supplier` + `locatorType=Confirmation Number` receipt. Booking.com PIN, supplier cancellation-number, agency IATA, and unrelated locator values are not stored under the supplier-confirmation field.
 
-Relevant commercial receipt evidence is inspected before confirmation-status filtering. Once a locator identifies itself as a Travelport PNR or supplier Confirmation Number, its bounded locator value must be valid and its receipt status must be exactly `Confirmed`. A second pending, cancelled, rejected, malformed, or duplicate relevant receipt invalidates the locator evidence instead of being ignored beside a valid receipt.
+Relevant commercial receipt evidence is inspected before confirmation-status filtering. Once a locator identifies itself as a Travelport PNR or supplier Confirmation Number, its bounded locator value must be valid and its receipt status must be exactly `Confirmed`. A second pending, cancelled, rejected, malformed, contradictorily paired, or duplicate relevant receipt invalidates the locator evidence instead of being ignored beside a valid receipt.
 
 ## Price and guarantee review outcomes
 
@@ -57,7 +57,7 @@ This is distinct from Travelport's documented supplier-confirmed/no-PNR warning 
 - one bounded matching-offer authority; and
 - no Travelport PNR Locator receipt at all.
 
-An unconfirmed or malformed relevant PNR receipt is contradictory evidence, not proof of a clean locator-less state, and blocks Sync recovery authority. The supplier confirmation and opaque provider recovery authority are staged only after the durable Create provider marker exists. If the process crashes after staging but before settlement, stale-attempt recovery preserves that evidence and keeps another Create blocked.
+An unconfirmed, malformed, or contradictorily paired relevant PNR receipt is contradictory evidence, not proof of a clean locator-less state, and blocks Sync recovery authority. The supplier confirmation and opaque provider recovery authority are staged only after the durable Create provider marker exists. If the process crashes after staging but before settlement, stale-attempt recovery preserves that evidence and keeps another Create blocked.
 
 ## Definitive no-sell validation failures
 
@@ -111,7 +111,7 @@ Structured observations use fixed result names and SF-owned tenant/attempt corre
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, top-level envelope exclusivity, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, top-level envelope exclusivity, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, reciprocal Stays locator pairing, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 

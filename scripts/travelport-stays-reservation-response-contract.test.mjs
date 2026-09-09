@@ -19,8 +19,10 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /providerCorrelationId/);
   assert.match(parser, /root\.ErrorResponse !== undefined && root\.ErrorResponse !== null/);
   assert.match(parser, /contradictory top-level error evidence/);
+  assert.match(parser, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
+  assert.match(parser, /offerIds\.has\(offerId\)/);
   assert.match(parser, /activeHospitalitySegments !== 1 \|\| matches !== 1/);
-  assert.match(parser, /if \(passiveOfferInd === true\) continue/);
+  assert.match(parser, /if \(passiveOfferInd === true\) \{[\s\S]*?passiveOfferIds\.add\(offerId\);[\s\S]*?continue;/);
   assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
   assert.match(parser, /travelportReceipts\[0\]!\.status !== 'Confirmed'/);
   assert.match(parser, /supplierReceipts\.some\(\(receipt\) => receipt\.status !== 'Confirmed'\)/);

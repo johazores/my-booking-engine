@@ -23,6 +23,8 @@ function reservationResponse(travelportReceipts: readonly Readonly<{
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          id: 'O1',
+          passiveOfferInd: false,
           Identifier: { authority: 'BKNG' },
           Product: [{
             '@type': 'ProductHospitality',
@@ -34,6 +36,7 @@ function reservationResponse(travelportReceipts: readonly Readonly<{
         }],
         Receipt: [
           {
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: {
                 value: 'T9RY0-WQ842',
@@ -57,7 +60,7 @@ function reservationResponse(travelportReceipts: readonly Readonly<{
   };
 }
 
-test('known-locator response authority requires a Travelport PNR Locator', () => {
+test('known-locator response authority requires a canonical Travelport PNR Locator pair', () => {
   assert.throws(
     () => parseTravelportStaysReservationResponse(reservationResponse([
       { value: 'NOT-A-PNR', locatorType: 'Confirmation Number' },
@@ -66,18 +69,18 @@ test('known-locator response authority requires a Travelport PNR Locator', () =>
   );
 });
 
-test('known-locator response ignores unrelated Travelport locator types when one PNR Locator exists', () => {
-  const result = parseTravelportStaysReservationResponse(reservationResponse([
-    { value: 'AUX-REFERENCE', locatorType: 'Confirmation Number' },
-    { value: '0GQ9HS', locatorType: 'PNR Locator' },
-  ]), {
-    expectedProviderReservationReference: '0GQ9HS',
-    expectedReservation,
-    requireConfirmedTravelportReceipt: true,
-  });
-
-  assert.equal(result.providerReservationReference, '0GQ9HS');
-  assert.equal(result.supplierConfirmationReference, 'T9RY0-WQ842');
+test('known-locator response rejects contradictory Travelport locator-family evidence beside one valid PNR', () => {
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(reservationResponse([
+      { value: 'AUX-REFERENCE', locatorType: 'Confirmation Number' },
+      { value: '0GQ9HS', locatorType: 'PNR Locator' },
+    ]), {
+      expectedProviderReservationReference: '0GQ9HS',
+      expectedReservation,
+      requireConfirmedTravelportReceipt: true,
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
 });
 
 test('Create cannot confirm a Travelport-context locator that is not a PNR Locator', () => {
@@ -95,7 +98,7 @@ test('Create cannot confirm a Travelport-context locator that is not a PNR Locat
   });
 });
 
-test('Create selects the confirmed Travelport PNR Locator without treating other Travelport locators as duplicates', () => {
+test('Create rejects contradictory Travelport locator-family evidence beside one valid PNR', () => {
   const result = classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,
     body: reservationResponse([
@@ -106,9 +109,9 @@ test('Create selects the confirmed Travelport PNR Locator without treating other
   });
 
   assert.deepEqual(result, {
-    status: 'CONFIRMED',
-    providerReservationReference: '0GQ9HS',
-    supplierConfirmationReference: 'T9RY0-WQ842',
+    status: 'AMBIGUOUS',
+    failureCode: 'INVALID_RESPONSE',
+    supplierConfirmationReference: null,
     providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
   });
 });

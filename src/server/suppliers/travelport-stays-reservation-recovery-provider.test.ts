@@ -57,6 +57,8 @@ function reservationResponse(input: {
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          id: 'O1',
+          passiveOfferInd: false,
           Product: [{
             '@type': 'ProductHospitality',
             Quantity: input.rooms ?? 1,
@@ -73,6 +75,7 @@ function reservationResponse(input: {
         }],
         Receipt: [
           {
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: {
                 value: '80073065',

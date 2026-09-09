@@ -20,6 +20,8 @@ function reservationResponse(result?: unknown) {
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          id: 'O1',
+          passiveOfferInd: false,
           Identifier: { authority: 'BKNG' },
           Product: [{
             '@type': 'ProductHospitality',
@@ -31,6 +33,7 @@ function reservationResponse(result?: unknown) {
         }],
         Receipt: [
           {
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: {
                 value: '80073065',

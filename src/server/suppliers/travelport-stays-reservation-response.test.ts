@@ -43,6 +43,8 @@ function response(input: {
         Offer: [
           {
             '@type': 'Offer',
+            id: 'O1',
+            passiveOfferInd: false,
             Product: [
               {
                 '@type': 'ProductHospitality',
@@ -62,6 +64,7 @@ function response(input: {
         ],
         Receipt: [
           ...supplierReferences.map((reference) => ({
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: {
                 value: reference,
@@ -78,6 +81,7 @@ function response(input: {
             },
           },
           {
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: { value: '96120603', locatorType: 'IATA Number', sourceContext: 'Agency' },
               OfferStatus: { Status: 'Confirmed' },
@@ -107,6 +111,7 @@ test('normalizes only durable locator and correlation evidence from a confirmed 
 test('supplier operational locator types are not confused with the supplier confirmation number', () => {
   const booking = response();
   booking.ReservationResponse.Reservation.Receipt.unshift({
+    OfferRef: ['O1'],
     Confirmation: {
       Locator: {
         value: '4619',
@@ -178,6 +183,8 @@ test('retrieve semantic evidence requires exactly one matching active hospitalit
   const duplicate = response();
   duplicate.ReservationResponse.Reservation.Offer.push({
     '@type': 'Offer',
+    id: 'O2',
+    passiveOfferInd: false,
     Product: [{
       '@type': 'ProductHospitality',
       Quantity: 1,
@@ -198,6 +205,7 @@ test('retrieve ignores documented passive hospitality placeholders but rejects m
   activeWithPassiveOffers[0]!.passiveOfferInd = false;
   activeWithPassiveOffers.push({
     '@type': 'Offer',
+    id: 'O2',
     passiveOfferInd: true,
     Product: [{
       '@type': 'ProductHospitality',

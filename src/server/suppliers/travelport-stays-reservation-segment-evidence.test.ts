@@ -42,11 +42,14 @@ function reservationResponse(products: unknown[], input: { includeTravelport?: b
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          id: 'O1',
+          passiveOfferInd: false,
           Identifier: { authority: 'BKNG' },
           Product: products,
         }] as unknown[],
         Receipt: [
           {
+            OfferRef: ['O1'],
             Confirmation: {
               Locator: {
                 value: 'T9RY0-WQ842',
@@ -118,10 +121,10 @@ test('known-locator Retrieve fails closed on additional or malformed hospitality
 test('malformed active offer and product structures cannot hide beside one valid hospitality segment', () => {
   const malformedOffers: readonly unknown[] = Object.freeze([
     null,
-    { '@type': 'Offer', Product: 'not-an-array' },
-    { '@type': 'Offer', Product: [] },
-    { '@type': 'Offer', Product: [null] },
-    { '@type': 'Offer', Product: [{}] },
+    { '@type': 'Offer', id: 'O2', Product: 'not-an-array' },
+    { '@type': 'Offer', id: 'O2', Product: [] },
+    { '@type': 'Offer', id: 'O2', Product: [null] },
+    { '@type': 'Offer', id: 'O2', Product: [{}] },
   ]);
 
   for (const malformedOffer of malformedOffers) {
@@ -134,7 +137,7 @@ test('malformed active offer and product structures cannot hide beside one valid
 
 test('Retrieve may skip an explicitly passive placeholder before inspecting its incomplete product body while Create stays strict', () => {
   const body = reservationResponse([exactHospitalityProduct()]);
-  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', passiveOfferInd: true });
+  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', id: 'O2', passiveOfferInd: true });
 
   const retrieve = parseTravelportStaysReservationResponse(body, {
     expectedProviderReservationReference: '0GQ9HS',
@@ -169,7 +172,7 @@ test('Booking.com Sync recovery authority is withheld when active offer structur
     includeTravelport: false,
     warning,
   });
-  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', Product: [null] });
+  body.ReservationResponse.Reservation.Offer.push({ '@type': 'Offer', id: 'O2', Product: [null] });
 
   const result = classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,

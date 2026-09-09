@@ -44,15 +44,15 @@ The interface is not a concrete PCI-safe implementation. A concrete reviewed PCI
 
 Stays reservation responses contain several locator families. SF treats a durable provider reservation reference as valid only when the receipt locator has both `sourceContext=Travelport` and `locatorType=PNR Locator`.
 
-A Travelport-context locator of another type cannot confirm Create, Sync, or known-locator recovery. It is ignored for provider-reservation authority and does not create false duplicate-PNR ambiguity when one valid Travelport PNR Locator is present.
+A confirmation receipt that claims the Stays-owned Travelport context with another locator type is contradictory evidence. It fails closed for Create, Sync, and known-locator recovery instead of being ignored beside a valid PNR. The same reciprocal pairing rule applies to Supplier and Agency Stays locator families, while unrelated shared-model evidence remains outside Stays authority only when it does not claim a recognized Stays source/locator pair.
 
 Supplier confirmation remains a separate semantic field and is accepted only from `sourceContext=Supplier` plus `locatorType=Confirmation Number`. Supplier PIN, cancellation-number, agency IATA, and other locator families are not relabeled.
 
-Relevant PNR and supplier-confirmation receipt cardinality is evaluated before commercial confirmation authority. A malformed relevant locator, an unconfirmed relevant receipt, or a duplicate relevant receipt cannot be filtered away beside otherwise valid evidence.
+Relevant PNR and supplier-confirmation receipt cardinality is evaluated before commercial confirmation authority. A malformed relevant locator, an unconfirmed relevant receipt, a contradictory Stays locator pairing, or a duplicate relevant receipt cannot be filtered away beside otherwise valid evidence.
 
 ## Booking.com Sync and locator-less ambiguity
 
-For the documented Booking.com supplier-confirmed/no-PNR warning path, SF can stage Sync authority only when the response proves the exact durable stay, one confirmed Booking.com supplier Confirmation Number, source `BO`, matching offer authority, and no Travelport PNR Locator receipt at all. A pending, cancelled, rejected, or malformed relevant PNR receipt is contradictory evidence rather than proof of locator-less state.
+For the documented Booking.com supplier-confirmed/no-PNR warning path, SF can stage Sync authority only when the response proves the exact durable stay, one confirmed Booking.com supplier Confirmation Number, source `BO`, matching offer authority, and no Travelport PNR Locator receipt at all. A pending, cancelled, rejected, malformed, or contradictorily paired relevant PNR receipt is contradictory evidence rather than proof of locator-less state.
 
 Booking.com Sync uses its own `RECOVERY_WRITE` attempt/provider marker and sends no form-of-payment. It confirms only when the exact stay, original supplier confirmation, and exactly one confirmed Travelport PNR Locator receipt return without conflicting relevant receipt evidence.
 
@@ -60,7 +60,7 @@ The separate `13034` error does not invent supplier confirmation or Sync authori
 
 ## Known-locator recovery and negative evidence
 
-Known-locator recovery uses Travelport Hotel `GET book/reservations/{AggregatorLocatorCode}` and requires exactly one valid Travelport PNR Locator receipt matching the durable locator plus the expected property/stay/room/guest identity. Repeated identical PNR receipts and malformed relevant PNR evidence fail closed rather than being silently collapsed.
+Known-locator recovery uses Travelport Hotel `GET book/reservations/{AggregatorLocatorCode}` and requires exactly one valid Travelport PNR Locator receipt matching the durable locator plus the expected property/stay/room/guest identity. Every returned offer in that recovery response must expose a bounded unique ID, and any receipt `OfferRef` must resolve to that returned offer namespace before passive-segment receipt evidence can be excluded. Repeated identical PNR receipts, unknown/malformed offer references, and malformed relevant PNR evidence fail closed rather than being silently collapsed.
 
 Travelport's public Retrieve reference does not establish generic HTTP 404 as authoritative proof that the exact reservation does not exist. Generic HTTP 404 is therefore not authoritative negative evidence in SF; it normalizes to unknown/invalid response and cannot authorize another Create.
 
@@ -72,7 +72,7 @@ Travelport OAuth/Stays endpoints are fixed constants selected from validated int
 
 Provider observations and durable operation state exclude raw request/response bodies, traveler PII, payment-card data, credentials, tokens, provider free text, and secrets.
 
-Checked-in tests cover discovery/pagination, auth-before-credentials, pricing/revalidation, Rules, Availability authority, idempotency/state/privacy, provider-request ordering, Create/Sync outcomes, review acceptance/consumption, PNR-locator identity, known-locator recovery, relevant receipt cardinality/status/malformed evidence, generic-404 fail-closed behavior, redirect suppression, and disabled product reservation capability.
+Checked-in tests cover discovery/pagination, auth-before-credentials, pricing/revalidation, Rules, Availability authority, idempotency/state/privacy, provider-request ordering, Create/Sync outcomes, review acceptance/consumption, reciprocal Stays locator pairing, PNR-locator identity, known-locator offer/receipt scoping, known-locator recovery, relevant receipt cardinality/status/malformed evidence, generic-404 fail-closed behavior, redirect suppression, and disabled product reservation capability.
 
 Live activation remains blocked on:
 

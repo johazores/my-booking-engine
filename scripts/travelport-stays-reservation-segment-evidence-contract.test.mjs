@@ -15,14 +15,20 @@ test('Travelport Create and Retrieve reject malformed active offer structure whi
   assert.match(create, /products\.length < 1 \|\| products\.length > MAX_PRODUCTS_PER_OFFER/);
   assert.match(create, /if \(!product \|\| !productType\) return invalidOfferEvidence\(\)/);
   assert.match(create, /offerEvidence\.valid[\s\S]*?offerEvidence\.hospitalitySegments === 1[\s\S]*?offerEvidence\.matches === 1/);
-  assert.doesNotMatch(create, /if \(passiveOfferInd === true\) continue/);
+  assert.doesNotMatch(create, /if \(passiveOfferInd === true\)/);
 
   assert.match(retrieve, /const offer = record\(offerValue\)/);
+  assert.match(retrieve, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
+  assert.match(retrieve, /offerIds\.has\(offerId\)/);
   assert.match(retrieve, /const passiveOfferInd = offer\.passiveOfferInd/);
   assert.match(retrieve, /typeof passiveOfferInd !== 'boolean'/);
-  const passiveSkip = retrieve.indexOf('if (passiveOfferInd === true) continue');
+  const passiveSkip = retrieve.indexOf('if (passiveOfferInd === true) {');
+  const passiveScope = retrieve.indexOf('passiveOfferIds.add(offerId)', passiveSkip);
   const productInspection = retrieve.indexOf('const products = offer.Product');
-  assert.ok(passiveSkip >= 0 && productInspection > passiveSkip, 'explicit passive placeholders must be excluded before their incomplete product body is inspected');
+  assert.ok(
+    passiveSkip >= 0 && passiveScope > passiveSkip && productInspection > passiveScope,
+    'explicit passive placeholders must be scoped by offer id before their incomplete product body is skipped',
+  );
   assert.match(retrieve, /products\.length < 1 \|\| products\.length > MAX_PRODUCTS_PER_OFFER/);
   assert.match(retrieve, /const product = record\(productValue\)/);
   assert.match(retrieve, /if \(!productType\)/);

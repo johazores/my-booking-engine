@@ -25,6 +25,8 @@ function activeReservationWithoutSupplierConfirmation() {
       Reservation: {
         Offer: [{
           '@type': 'Offer',
+          id: 'O1',
+          passiveOfferInd: false,
           Product: [{
             '@type': 'ProductHospitality',
             Quantity: 1,
