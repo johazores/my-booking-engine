@@ -218,6 +218,30 @@ test('error evidence can never be masked by confirmation-looking data', () => {
   }
 });
 
+test('top-level response envelopes are mutually exclusive and must match the HTTP outcome class', () => {
+  const contradictoryReview = classifyTravelportStaysReservationCreateOutcome({
+    httpStatus: 400,
+    body: hybridResponse(['13020']),
+    expectedReservation,
+  });
+  assert.deepEqual(contradictoryReview, invalidOutcome());
+
+  const contradictorySync = classifyTravelportStaysReservationCreateOutcome({
+    httpStatus: 500,
+    body: { ...confirmedResponse(), ...errorResponse('13034', 500, 'UNKNOWN') },
+    expectedReservation,
+  });
+  assert.deepEqual(contradictorySync, invalidOutcome());
+
+  for (const httpStatus of [200, 302]) {
+    assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
+      httpStatus,
+      body: errorResponse('13020', httpStatus),
+      expectedReservation,
+    }), invalidOutcome('4807ae55-722d-4935-93a9-e9f743625bf5'));
+  }
+});
+
 test('malformed or oversized warning structures can never be ignored on a confirmation-looking response', () => {
   const malformedWarnings = [
     { Result: { Warning: { Message: 'not an array' } } },

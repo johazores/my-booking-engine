@@ -182,6 +182,26 @@ test('retrieve semantic evidence requires exactly one matching hospitality segme
   );
 });
 
+test('retrieve cannot promote a ReservationResponse that also carries top-level error evidence', () => {
+  const hybrid = response();
+  Object.assign(hybrid, {
+    ErrorResponse: {
+      traceId: 'conflicting-provider-trace',
+      Result: {
+        Error: [{ StatusCode: 200, SourceCode: '13020', category: 'VALIDATION' }],
+      },
+    },
+  });
+
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(hybrid, {
+      expectedProviderReservationReference: 'D6VBHL',
+      expectedReservation,
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
 test('create evidence fails closed unless provider and supplier confirmation receipts are confirmed', () => {
   for (const status of ['Pending', 'Rejected', 'Cancelled']) {
     assert.throws(

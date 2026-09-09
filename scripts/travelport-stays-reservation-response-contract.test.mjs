@@ -17,6 +17,8 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /providerReservationReference/);
   assert.match(parser, /supplierConfirmationReference/);
   assert.match(parser, /providerCorrelationId/);
+  assert.match(parser, /root\.ErrorResponse !== undefined && root\.ErrorResponse !== null/);
+  assert.match(parser, /contradictory top-level error evidence/);
   assert.match(parser, /hospitalitySegments !== 1 \|\| matches !== 1/);
   assert.match(parser, /travelportReceipts\[0\]!\.status !== 'Confirmed'/);
   assert.match(parser, /supplierReceipts\.some\(\(receipt\) => receipt\.status !== 'Confirmed'\)/);
@@ -35,6 +37,7 @@ test('response evidence durability cannot make Travelport reservation creation r
   }
   assert.match(schema, /supplierConfirmationReference\s+String\?/);
   assert.match(docs, /supplier reservation ledger persists optional provider and supplier confirmation references/i);
+  assert.match(docs, /top-level `ErrorResponse`.*contradictory provider evidence/is);
   assert.match(docs, /Travelport `reservation` remains disabled/i);
   assert.match(docs, /PCI-safe payment source/i);
 });

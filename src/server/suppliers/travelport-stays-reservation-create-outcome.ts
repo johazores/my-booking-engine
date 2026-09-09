@@ -100,6 +100,11 @@ type ProviderWarningInspection = Readonly<{
   messages: readonly string[];
 }>;
 
+type ProviderResponseEnvelopeInspection = Readonly<{
+  valid: boolean;
+  providerCorrelationId: string | null;
+}>;
+
 type ConfirmedLocatorEvidence = Readonly<{
   valid: boolean;
   provider: string | null;
@@ -153,10 +158,29 @@ function boundedText(value: unknown, max: number) {
   return normalized;
 }
 
-function correlationFromBody(value: unknown) {
+function inspectProviderResponseEnvelope(value: unknown, httpStatus: number): ProviderResponseEnvelopeInspection {
   const root = optionalRecord(value);
-  const response = optionalRecord(root?.ReservationResponse) ?? optionalRecord(root?.ErrorResponse);
-  return boundedText(response?.traceId ?? response?.traceID, MAX_CORRELATION_LENGTH);
+  if (!root) return Object.freeze({ valid: false, providerCorrelationId: null });
+
+  const hasReservationResponse = root.ReservationResponse !== undefined && root.ReservationResponse !== null;
+  const hasErrorResponse = root.ErrorResponse !== undefined && root.ErrorResponse !== null;
+  if (hasReservationResponse === hasErrorResponse) {
+    return Object.freeze({ valid: false, providerCorrelationId: null });
+  }
+
+  const response = optionalRecord(hasReservationResponse ? root.ReservationResponse : root.ErrorResponse);
+  const providerCorrelationId = boundedText(response?.traceId ?? response?.traceID, MAX_CORRELATION_LENGTH);
+  if (!response || !Number.isInteger(httpStatus) || httpStatus < 100 || httpStatus > 599) {
+    return Object.freeze({ valid: false, providerCorrelationId });
+  }
+
+  const isSuccessStatus = httpStatus >= 200 && httpStatus < 300;
+  const isErrorStatus = httpStatus >= 400;
+  if ((hasReservationResponse && !isSuccessStatus) || (hasErrorResponse && !isErrorStatus)) {
+    return Object.freeze({ valid: false, providerCorrelationId });
+  }
+
+  return Object.freeze({ valid: true, providerCorrelationId });
 }
 
 function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErrorInspection {
@@ -451,7 +475,10 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   body: unknown;
   expectedReservation: TravelportStaysCreateExpectedReservation;
 }>): TravelportStaysReservationCreateOutcome {
-  const providerCorrelationId = correlationFromBody(input.body);
+  const envelope = inspectProviderResponseEnvelope(input.body, input.httpStatus);
+  const providerCorrelationId = envelope.providerCorrelationId;
+  if (!envelope.valid) return invalidResponse(providerCorrelationId);
+
   const errors = inspectProviderErrors(input.body, input.httpStatus);
   const warnings = inspectProviderWarnings(input.body);
 

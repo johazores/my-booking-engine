@@ -100,7 +100,15 @@ export function parseTravelportStaysReservationResponse(
     requireConfirmedTravelportReceipt?: boolean;
   }> = {},
 ): TravelportStaysReservationResponseEvidence {
-  const response = record(record(value).ReservationResponse);
+  const root = record(value);
+  if (root.ErrorResponse !== undefined && root.ErrorResponse !== null) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained contradictory top-level error evidence.',
+    );
+  }
+
+  const response = record(root.ReservationResponse);
   const reservation = record(response.Reservation);
   const receipts = reservation.Receipt;
   if (!Array.isArray(receipts) || receipts.length < 1 || receipts.length > MAX_RECEIPTS) {
