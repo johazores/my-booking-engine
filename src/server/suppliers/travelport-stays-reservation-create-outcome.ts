@@ -279,6 +279,12 @@ function inspectProviderWarnings(value: unknown): ProviderWarningInspection {
 
   const result = optionalRecord(response.Result);
   if (!result) return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+  if (
+    (result.Error !== undefined && result.Error !== null)
+    || (result.Errors !== undefined && result.Errors !== null)
+  ) {
+    return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+  }
   const hasWarning = result.Warning !== undefined && result.Warning !== null;
   const hasWarnings = result.Warnings !== undefined && result.Warnings !== null;
   if (hasWarning && hasWarnings) {
