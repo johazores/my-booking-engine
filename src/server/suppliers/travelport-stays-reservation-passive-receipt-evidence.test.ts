@@ -115,7 +115,7 @@ test('receipt evidence cannot mix active and passive offer references', () => {
   );
 });
 
-test('passive offer scoping cannot hide durable locator evidence', () => {
+test('passive offer scoping cannot hide durable PNR evidence', () => {
   const body = response();
   body.ReservationResponse.Reservation.Receipt[1] = {
     '@type': 'ReceiptConfirmation',
@@ -154,4 +154,48 @@ test('malformed passive receipt offer references remain fail closed', () => {
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
     );
   }
+});
+
+test('all receipt offer references must resolve to a returned reservation offer', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt[0]!.OfferRef = ['O3'];
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('reservation offer identifiers must be present, bounded, and unique before receipt scoping', () => {
+  for (const malformedId of [undefined, '', 'O1', 'O2\nsecret']) {
+    const body = response();
+    body.ReservationResponse.Reservation.Offer[1]!.id = malformedId as never;
+    assert.throws(
+      () => parse(body),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
+test('passive supplier confirmation cannot satisfy active reservation supplier authority', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt.splice(1, 1);
+  body.ReservationResponse.Reservation.Receipt[0]!.OfferRef = ['O2'];
+
+  assert.deepEqual(parse(body), {
+    providerReservationReference: 'D6VBHL',
+    supplierConfirmationReference: null,
+    providerCorrelationId: '8c0ff96b-b0d9-493d-83a4-a3fb8cbc943f',
+  });
+});
+
+test('malformed passive supplier confirmation cannot be hidden by passive scoping', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt.splice(1, 1);
+  body.ReservationResponse.Reservation.Receipt[0]!.OfferRef = ['O2'];
+  body.ReservationResponse.Reservation.Receipt[0]!.Confirmation.OfferStatus['@type'] = 'OfferStatusAir';
+
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
 });
