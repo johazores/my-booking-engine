@@ -1,4 +1,7 @@
 import type { HospitalitySupplierReservationSubmissionOutcome } from './hospitality-supplier-reservation-service.ts';
+import {
+  HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
+} from './hospitality-supplier-reservation-confirmation-evidence.ts';
 import type { TravelportStaysReservationCreateOutcome } from './travelport-stays-reservation-create-outcome.ts';
 
 function normalizeTravelportAmbiguousFailureCode(
@@ -21,6 +24,21 @@ export function travelportStaysCreateOutcomeToSubmissionOutcome(
   outcome: TravelportStaysReservationCreateOutcome,
 ): HospitalitySupplierReservationSubmissionOutcome {
   if (outcome.status === 'CONFIRMED') {
+    // Travelport documents the hotel supplier Confirmation Number as part of a
+    // successful booking and requires it for cancellation. A PNR without that
+    // supplier authority is durable evidence that a sell may exist, but it is not a
+    // complete manageable reservation lifecycle. Keep the PNR for reconciliation
+    // while refusing to settle the commercial write as confirmed.
+    if (!outcome.supplierConfirmationReference) {
+      return Object.freeze({
+        status: 'AMBIGUOUS',
+        failureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
+        providerReservationReference: outcome.providerReservationReference,
+        supplierConfirmationReference: null,
+        providerCorrelationId: outcome.providerCorrelationId,
+      });
+    }
+
     return Object.freeze({
       status: 'CONFIRMED',
       providerReservationReference: outcome.providerReservationReference,

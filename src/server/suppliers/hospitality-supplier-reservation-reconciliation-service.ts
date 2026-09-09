@@ -2,6 +2,10 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 import {
   markHospitalitySupplierReservationProviderRequestStarted,
 } from './hospitality-supplier-reservation-attempt-recovery-service.ts';
+import {
+  HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
+  requiresSupplierConfirmationForReservationRecovery,
+} from './hospitality-supplier-reservation-confirmation-evidence.ts';
 import { createHospitalitySupplierReservationProviderObservation } from './hospitality-supplier-reservation-observability.ts';
 import type {
   HospitalitySupplierReservationRecoveryProvider,
@@ -110,6 +114,23 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
 
   if (result.status === 'FOUND') {
     providerObservation.finish({ status: 'SUCCEEDED', providerResult: 'FOUND' });
+    if (
+      requiresSupplierConfirmationForReservationRecovery(claim.reservation.lastFailureCode)
+      && !result.supplierConfirmationReference
+    ) {
+      return settleHospitalitySupplierReservationReconciliation({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        reservationId: input.reservationId,
+        attemptId: claim.attempt.id,
+        outcome: {
+          status: 'UNKNOWN',
+          failureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
+          providerCorrelationId: result.providerCorrelationId,
+        },
+      });
+    }
+
     return settleHospitalitySupplierReservationReconciliation({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,

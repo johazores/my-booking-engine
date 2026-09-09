@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { travelportStaysCreateOutcomeToSubmissionOutcome } from './travelport-stays-reservation-submission-outcome.ts';
 
-test('maps confirmed Travelport evidence into the durable confirmed settlement shape', () => {
+test('maps complete confirmed Travelport evidence into the durable confirmed settlement shape', () => {
   assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
     status: 'CONFIRMED',
     providerReservationReference: '0GQ9HS',
@@ -14,6 +14,21 @@ test('maps confirmed Travelport evidence into the durable confirmed settlement s
     providerReservationReference: '0GQ9HS',
     supplierConfirmationReference: 'T9RY0-WQ842',
     providerCorrelationId: 'trace-1',
+  });
+});
+
+test('keeps a Travelport PNR ambiguous until the supplier confirmation needed for lifecycle operations is present', () => {
+  assert.deepEqual(travelportStaysCreateOutcomeToSubmissionOutcome({
+    status: 'CONFIRMED',
+    providerReservationReference: '0GQ9HS',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-missing-supplier',
+  }), {
+    status: 'AMBIGUOUS',
+    failureCode: 'SUPPLIER_CONFIRMATION_MISSING',
+    providerReservationReference: '0GQ9HS',
+    supplierConfirmationReference: null,
+    providerCorrelationId: 'trace-missing-supplier',
   });
 });
 
