@@ -115,7 +115,7 @@ test('receipt evidence cannot mix active and passive offer references', () => {
   );
 });
 
-test('passive offer scoping cannot hide durable PNR evidence', () => {
+test('passive-scoped PNR evidence does not create duplicate active locator ambiguity', () => {
   const body = response();
   body.ReservationResponse.Reservation.Receipt[1] = {
     '@type': 'ReceiptConfirmation',
@@ -130,10 +130,59 @@ test('passive offer scoping cannot hide durable PNR evidence', () => {
       OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' },
     },
   } as never;
+
+  assert.deepEqual(parse(body), {
+    providerReservationReference: 'D6VBHL',
+    supplierConfirmationReference: '80073065',
+    providerCorrelationId: '8c0ff96b-b0d9-493d-83a4-a3fb8cbc943f',
+  });
+});
+
+test('passive-scoped PNR evidence cannot satisfy active reservation locator authority', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt[1] = {
+    '@type': 'ReceiptConfirmation',
+    OfferRef: ['O2'],
+    Confirmation: {
+      '@type': 'ConfirmationHold',
+      Locator: {
+        value: 'D6VBHL',
+        locatorType: 'PNR Locator',
+        sourceContext: 'Travelport',
+      },
+      OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' },
+    },
+  } as never;
+  body.ReservationResponse.Reservation.Receipt.splice(2, 1);
+
   assert.throws(
     () => parse(body),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
+});
+
+test('passive-scoped cancellation evidence cannot cancel the active reservation', () => {
+  const body = response();
+  body.ReservationResponse.Reservation.Receipt[1] = {
+    '@type': 'ReceiptCancellation',
+    OfferRef: ['O2'],
+    Cancellation: {
+      '@type': 'CancellationHold',
+      Locator: {
+        value: 'PASSIVE-CXL',
+        locatorType: 'Cancellation Number',
+        source: 'XV',
+        sourceContext: 'Supplier',
+      },
+      OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Cancelled' },
+    },
+  } as never;
+
+  assert.deepEqual(parse(body), {
+    providerReservationReference: 'D6VBHL',
+    supplierConfirmationReference: '80073065',
+    providerCorrelationId: '8c0ff96b-b0d9-493d-83a4-a3fb8cbc943f',
+  });
 });
 
 test('only the documented AK locator-less placeholder shape is excluded', () => {
@@ -200,7 +249,7 @@ test('malformed passive supplier confirmation cannot be hidden by passive scopin
   );
 });
 
-test('passive supplier confirmation detection uses the same bounded normalization as the shared receipt inspector', () => {
+test('passive durable receipt detection uses the shared bounded normalization', () => {
   const body = response();
   body.ReservationResponse.Reservation.Receipt.splice(1, 1);
   body.ReservationResponse.Reservation.Receipt[0]!.OfferRef = ['O2'];

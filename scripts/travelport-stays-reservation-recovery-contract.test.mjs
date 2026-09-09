@@ -45,7 +45,7 @@ test('Travelport recovery maps durable request correlation into supportable prov
   assert.ok(accessTokenRequest > expectationValidation, 'reservation expectation must be validated before provider I/O');
 });
 
-test('Travelport recovery confirms one active hospitality segment while excluding explicit passive placeholders', () => {
+test('Travelport recovery confirms one active hospitality segment and binds receipt authority to active offer scope', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(parser, /const productType = boundedProviderValue\(product\['@type'\], MAX_PRODUCT_TYPE_LENGTH\)/);
@@ -62,6 +62,13 @@ test('Travelport recovery confirms one active hospitality segment while excludin
   assert.match(parser, /product\.Quantity === expected\.rooms/);
   assert.match(parser, /product\.guests === expected\.guests/);
   assert.match(parser, /if \(activeHospitalitySegments !== 1 \|\| matches !== 1\)/);
+  assert.match(parser, /const passiveReceiptEvidence = inspectTravelportStaysReservationReceiptEvidence\(\[receipt\]\)/);
+  assert.match(parser, /passiveReceiptEvidence\.travelportPnrReceipts\.length > 0/);
+  assert.match(parser, /passiveReceiptEvidence\.supplierConfirmationReceipts\.length > 0/);
+  assert.match(parser, /passiveReceiptEvidence\.supplierCancellationReceipts\.length > 0/);
+  assert.match(parser, /if \(hasPassiveReservationAuthority\)[\s\S]*?return false;/);
+  assert.match(parser, /malformed passive reservation receipt evidence/i);
+  assert.doesNotMatch(parser, /function isSupplierConfirmationReceipt/);
   assert.doesNotMatch(parser, /PersonName|CardNumber|PaymentCard|FormOfPayment/);
   assert.match(createClassifier, /offerEvidence\.valid/);
   assert.match(createClassifier, /offerEvidence\.hospitalitySegments === 1/);

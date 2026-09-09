@@ -7,9 +7,6 @@ const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
-const MAX_RECEIPT_TYPE_LENGTH = 64;
-const MAX_LOCATOR_CONTEXT_LENGTH = 64;
-const MAX_LOCATOR_TYPE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
 
@@ -197,22 +194,6 @@ function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
     && offerStatus.Status === 'Confirmed';
 }
 
-function isSupplierConfirmationReceipt(receipt: RecordValue) {
-  const rawReceiptType = receipt['@type'];
-  if (rawReceiptType !== undefined && rawReceiptType !== null) {
-    const receiptType = boundedProviderValue(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH);
-    if (receiptType !== 'ReceiptConfirmation') return false;
-  }
-
-  const confirmationValue = receipt.Confirmation;
-  if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
-  const locatorValue = (confirmationValue as RecordValue).Locator;
-  if (!locatorValue || typeof locatorValue !== 'object' || Array.isArray(locatorValue)) return false;
-  const locator = locatorValue as RecordValue;
-  return boundedProviderValue(locator.sourceContext, MAX_LOCATOR_CONTEXT_LENGTH) === 'Supplier'
-    && boundedProviderValue(locator.locatorType, MAX_LOCATOR_TYPE_LENGTH) === 'Confirmation Number';
-}
-
 function activeReservationReceiptEvidence(
   value: unknown,
   offerScope: TravelportStaysReservationOfferScope,
@@ -255,21 +236,28 @@ function activeReservationReceiptEvidence(
     }
 
     if (isDocumentedPassivePlaceholderReceipt(receipt)) return false;
-    if (!isSupplierConfirmationReceipt(receipt)) return true;
 
-    const passiveSupplierEvidence = inspectTravelportStaysReservationReceiptEvidence([receipt]);
-    if (!passiveSupplierEvidence.valid || passiveSupplierEvidence.supplierConfirmationReceipts.length !== 1) {
+    const passiveReceiptEvidence = inspectTravelportStaysReservationReceiptEvidence([receipt]);
+    if (!passiveReceiptEvidence.valid) {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
-        'Travelport reservation response contained malformed passive supplier confirmation evidence.',
+        'Travelport reservation response contained malformed passive reservation receipt evidence.',
       );
     }
 
-    // A supplier Confirmation Number tied exclusively to an explicit passive
-    // offer can describe only that passive segment. Validate it first so
-    // malformed Stays evidence cannot disappear, then exclude it from the
-    // active reservation authority set.
-    return false;
+    const hasPassiveReservationAuthority = passiveReceiptEvidence.travelportPnrReceipts.length > 0
+      || passiveReceiptEvidence.supplierConfirmationReceipts.length > 0
+      || passiveReceiptEvidence.supplierCancellationReceipts.length > 0;
+
+    if (hasPassiveReservationAuthority) {
+      // OfferRef proves this durable locator or lifecycle evidence belongs only
+      // to an explicitly passive segment. Validate it first so malformed Stays
+      // evidence cannot disappear, then exclude it from active reservation
+      // identity/lifecycle authority.
+      return false;
+    }
+
+    return true;
   });
 }
 
