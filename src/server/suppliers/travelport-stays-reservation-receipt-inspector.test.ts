@@ -127,6 +127,20 @@ test('fails closed when a Stays source context is paired with the wrong locator 
       sourceContext: 'Agency',
       status: 'Confirmed',
     })],
+    [confirmation({
+      receiptType: 'ReceiptConfirmation',
+      value: 'D6VBHL',
+      locatorType: 'PNR Locator',
+      sourceContext: 'Other',
+      status: 'Confirmed',
+    })],
+    [confirmation({
+      receiptType: 'ReceiptConfirmation',
+      value: '80073065',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'VendorLocator',
+      status: 'Confirmed',
+    })],
   ]) {
     assert.equal(inspectTravelportStaysReservationReceiptEvidence(receipts).valid, false);
   }

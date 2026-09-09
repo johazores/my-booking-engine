@@ -179,6 +179,18 @@ test('Create and Retrieve reject contradictory Stays source-context and locator-
       sourceContext: 'Agency',
       status: 'Confirmed',
     }),
+    receipt({
+      value: 'WRONG-PNR-CONTEXT',
+      locatorType: 'PNR Locator',
+      sourceContext: 'Other',
+      status: 'Confirmed',
+    }),
+    receipt({
+      value: 'WRONG-CONFIRMATION-CONTEXT',
+      locatorType: 'Confirmation Number',
+      sourceContext: 'VendorLocator',
+      status: 'Confirmed',
+    }),
   ]) {
     const body = reservationResponse();
     body.ReservationResponse.Reservation.Receipt.push(conflictingReceipt);

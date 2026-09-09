@@ -16,7 +16,7 @@ Travelport's current Hotel Create/Retrieve response examples use `ReceiptConfirm
 
 SF normalizes only the first two as durable reservation identifiers. Supplier `Cancellation Number` is tracked separately as lifecycle evidence and cannot be mistaken for the supplier confirmation.
 
-The shared inspector requires the receipt collection to be bounded and every receipt entry to be structurally readable. A Stays confirmation that partially presents `sourceContext`/`locatorType`, has malformed locator/status/source text, omits a required Stays locator field, or pairs a Stays source context with the wrong locator family fails closed. Travelport authority is only `Travelport + PNR Locator`; Supplier authority is only `Supplier + Confirmation Number` or `Supplier + Cancellation Number`; Agency evidence is only `Agency + IATA Number`. This prevents contradictory provider-owned locator metadata from disappearing as if it were unrelated multi-content evidence.
+The shared inspector requires the receipt collection to be bounded and every receipt entry to be structurally readable. A Stays confirmation that partially presents `sourceContext`/`locatorType`, has malformed locator/status/source text, omits a required Stays locator field, or pairs a Stays source context with the wrong locator family fails closed. Travelport authority is only `Travelport + PNR Locator`; Supplier authority is only `Supplier + Confirmation Number` or `Supplier + Cancellation Number`; Agency evidence is only `Agency + IATA Number`. The pairing is reciprocal: a canonical Stays locator type presented under a foreign source context also fails closed. This prevents contradictory provider-owned locator metadata from disappearing as if it were unrelated multi-content evidence.
 
 Create/Sync also rejects any supplier cancellation evidence because a cancelled supplier lifecycle cannot prove an active successful write. Active known-locator recovery applies the same cancellation rejection before returning provider-neutral `FOUND`.
 
@@ -30,7 +30,7 @@ SF therefore distinguishes unrelated bounded multi-content evidence from malform
 - a generic confirmation locator with neither Stays `sourceContext` nor `locatorType` is ignored;
 - a non-Stays source context without `locatorType` can remain outside Stays authority;
 - Travelport, Supplier, or Agency Stays contexts cannot omit `locatorType`, and a locator type cannot be presented without its source context; and
-- recognized Stays source contexts must use their documented locator family rather than being silently ignored when the pair is contradictory.
+- recognized Stays source contexts and recognized Stays locator types must form one of the canonical pairs rather than being silently ignored when either side is contradictory.
 
 This preserves multi-content compatibility without allowing a partial or contradictory hotel locator to disappear silently next to a valid PNR.
 
@@ -48,7 +48,7 @@ Duplicate relevant locator receipts still fail closed at their calling boundary,
 
 ## Validation
 
-Focused tests cover shared normalization, supplier cancellation evidence, malformed/partial Stays receipt rejection, canonical source-context/locator-family pairing, bounded unrelated multi-content compatibility, the documented Sync-only missing-locator-type exception, end-to-end Create/Retrieve malformed sibling rejection, and active Create/Retrieve cancellation rejection.
+Focused tests cover shared normalization, supplier cancellation evidence, malformed/partial Stays receipt rejection, reciprocal canonical source-context/locator-family pairing, bounded unrelated multi-content compatibility, the documented Sync-only missing-locator-type exception, end-to-end Create/Retrieve malformed sibling rejection, and active Create/Retrieve cancellation rejection.
 
 A dependency-free source contract requires Retrieve and Create/Sync to keep using the same inspector, protects the canonical Travelport/Supplier/Agency locator-family allowlist, and checks that payment-card/form-of-payment fields are not part of the normalized receipt module.
 

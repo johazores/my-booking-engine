@@ -133,15 +133,16 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     }
     if (!hasSourceContext) return invalidEvidence();
 
-    if (
-      (sourceContext === 'Travelport' && locatorType !== 'PNR Locator')
-      || (
-        sourceContext === 'Supplier'
-        && locatorType !== 'Confirmation Number'
-        && locatorType !== 'Cancellation Number'
-      )
-      || (sourceContext === 'Agency' && locatorType !== 'IATA Number')
-    ) {
+    const hasStaysSourceContext = sourceContext === 'Travelport' || sourceContext === 'Supplier' || sourceContext === 'Agency';
+    const hasStaysLocatorType = locatorType === 'PNR Locator'
+      || locatorType === 'Confirmation Number'
+      || locatorType === 'Cancellation Number'
+      || locatorType === 'IATA Number';
+    const hasCanonicalStaysPair = (sourceContext === 'Travelport' && locatorType === 'PNR Locator')
+      || (sourceContext === 'Supplier' && locatorType === 'Confirmation Number')
+      || (sourceContext === 'Supplier' && locatorType === 'Cancellation Number')
+      || (sourceContext === 'Agency' && locatorType === 'IATA Number');
+    if ((hasStaysSourceContext || hasStaysLocatorType) && !hasCanonicalStaysPair) {
       return invalidEvidence();
     }
 
