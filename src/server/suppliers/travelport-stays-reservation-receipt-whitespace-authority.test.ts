@@ -97,10 +97,6 @@ function supplierCancellation(): CancellationReceipt {
   };
 }
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
 function expectInvalid(receipt: unknown) {
   assert.equal(inspectTravelportStaysReservationReceiptEvidence([receipt]).valid, false);
 }
@@ -163,12 +159,12 @@ test('rejects padded, duplicate, null, and malformed offer-scope references on S
   duplicate.OfferRef = ['O1', 'O1'];
   expectInvalid(duplicate);
 
-  const explicitNull = supplierConfirmation() as ConfirmationReceipt & { OfferRef: unknown };
-  explicitNull.OfferRef = null;
+  const explicitNull = supplierConfirmation();
+  (explicitNull as unknown as { OfferRef: unknown }).OfferRef = null;
   expectInvalid(explicitNull);
 
-  const malformed = supplierConfirmation() as ConfirmationReceipt & { OfferRef: unknown };
-  malformed.OfferRef = ['O1', 1];
+  const malformed = supplierConfirmation();
+  (malformed as unknown as { OfferRef: unknown }).OfferRef = ['O1', 1];
   expectInvalid(malformed);
 });
 
