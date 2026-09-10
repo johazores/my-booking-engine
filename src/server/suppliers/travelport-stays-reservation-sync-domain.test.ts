@@ -224,6 +224,7 @@ test('does not normalize malformed lookalikes of the documented Sync missing-loc
     (receipt: MutableTravelportReceipt) => { delete receipt.Confirmation.OfferStatus['@type']; },
     (receipt: MutableTravelportReceipt) => { receipt.Confirmation.OfferStatus.Status = 'Pending'; },
     (receipt: MutableTravelportReceipt) => { receipt.OfferRef = ['O1']; },
+    (receipt: MutableTravelportReceipt) => { receipt.OfferRef = null; },
   ];
 
   for (const mutate of mutations) {
