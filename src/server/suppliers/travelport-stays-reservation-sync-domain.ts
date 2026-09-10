@@ -68,12 +68,29 @@ function confirmationReference(value: unknown) {
   return normalized;
 }
 
+function isDocumentedTravelportSyncPnrWithoutLocatorType(
+  receipt: RecordValue,
+  confirmation: RecordValue,
+  locator: RecordValue,
+) {
+  if (receipt['@type'] !== 'ReceiptConfirmation') return false;
+  if (confirmation['@type'] !== 'ConfirmationHold') return false;
+  if (receipt.OfferRef !== undefined && receipt.OfferRef !== null) return false;
+
+  const offerStatus = optionalRecord(confirmation.OfferStatus);
+  return locator.sourceContext === 'Travelport'
+    && locator.locatorType === undefined
+    && offerStatus?.['@type'] === 'OfferStatusHospitality'
+    && offerStatus.Status === 'Confirmed';
+}
+
 /**
- * Travelport's current Sync Reservation example omits locatorType on the confirmed
- * Travelport receipt even though Create responses normally identify that locator as
- * "PNR Locator". Canonicalize only that documented Sync-only omission so the shared
- * strict Create classifier can continue owning all other reservation/receipt checks.
- * Explicit locator types are never rewritten and the provider payload is not mutated.
+ * Travelport's current Sync Reservation example omits locatorType on one confirmed,
+ * reservation-level Travelport ReceiptConfirmation/ConfirmationHold receipt. Keep
+ * that compatibility exception exact: only the documented confirmed hospitality
+ * receipt shape is copied and annotated as "PNR Locator" before the shared strict
+ * Create classifier runs. Explicit locator types and malformed/partial lookalikes
+ * are never rewritten, and the provider payload itself is not mutated.
  */
 function normalizeDocumentedTravelportSyncProviderLocator(value: unknown): unknown {
   const root = optionalRecord(value);
@@ -88,7 +105,9 @@ function normalizeDocumentedTravelportSyncProviderLocator(value: unknown): unkno
     const confirmation = optionalRecord(receipt?.Confirmation);
     const locator = optionalRecord(confirmation?.Locator);
     if (!receipt || !confirmation || !locator) return receiptValue;
-    if (locator.sourceContext !== 'Travelport' || locator.locatorType !== undefined) return receiptValue;
+    if (!isDocumentedTravelportSyncPnrWithoutLocatorType(receipt, confirmation, locator)) {
+      return receiptValue;
+    }
 
     changed = true;
     return {
