@@ -23,13 +23,15 @@ Explicit `null` still counts as a present conflicting branch. This follows the e
 
 Canonical unrelated `ReceiptPayment` objects remain outside Stays locator authority, including payment receipts scoped to another offer. Generic multi-content confirmation/cancellation compatibility otherwise remains unchanged. The existing locator-pair, receipt-token, offer-scope, status, cardinality, active/passive offer, and supplier identity checks continue to run after this branch boundary.
 
+Known-locator Retrieve has one documented exception before normal receipt inspection: Travelport can return an offer-scoped passive `AK` / `Confirmed` placeholder with no locator. That exception now also requires the receipt not to contain any `Cancellation` member. A real or explicit-null cancellation sibling makes the placeholder ineligible for early exclusion, so the shared inspector sees the contradictory Confirmation/Cancellation structure and fails closed. Passive ownership can no longer hide the same branch conflict rejected everywhere else.
+
 ## Security and durability
 
 This rule does not parse or persist payment data. It only prevents a typed receipt from hiding reservation identity or cancellation lifecycle evidence from the shared classifier. No PAN, CVV, form-of-payment data, provider body, or additional supplier secret becomes normalized or logged.
 
 ## Validation
 
-Focused behavior coverage preserves canonical `ReceiptPayment` compatibility and rejects payment receipts containing reservation branches, mixed confirmation/cancellation objects, and explicit-null conflicting branches. A dependency-free source contract pins the branch-exclusivity checks. The existing shared receipt-evidence source contract separately confirms that Create/Sync and Retrieve continue to use the same inspector.
+Focused behavior coverage preserves canonical `ReceiptPayment` compatibility and rejects payment receipts containing reservation branches, mixed confirmation/cancellation objects, explicit-null conflicting branches, and passive-placeholder attempts to hide a cancellation branch. The dependency-free source contract pins both the shared branch-exclusivity checks and the passive-placeholder cancellation guard. The existing shared receipt-evidence source contract separately confirms that Create/Sync and Retrieve continue to use the same inspector.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. PostgreSQL scenarios require an explicitly disposable target, and live Travelport verification requires provisioned non-production credentials and reviewed payment authority.
 
@@ -44,4 +46,5 @@ Travelport `reservation` remains unadvertised. Production activation still requi
 - Travelport Hotel v11 Retrieve Hotel Reservation.
 - Travelport Hotel v11 Cancel Hotel Reservation.
 - `docs/travelport-stays-receipt-evidence.md`.
+- `docs/travelport-known-locator-passive-receipts.md`.
 - `docs/travelport-stays-receipt-token-authority.md`.
