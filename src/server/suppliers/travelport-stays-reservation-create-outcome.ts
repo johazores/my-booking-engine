@@ -177,8 +177,8 @@ function inspectProviderResponseEnvelope(value: unknown, httpStatus: number): Pr
   const root = optionalRecord(value);
   if (!root) return Object.freeze({ valid: false, providerCorrelationId: null });
 
-  const hasReservationResponse = root.ReservationResponse !== undefined && root.ReservationResponse !== null;
-  const hasErrorResponse = root.ErrorResponse !== undefined && root.ErrorResponse !== null;
+  const hasReservationResponse = root.ReservationResponse !== undefined;
+  const hasErrorResponse = root.ErrorResponse !== undefined;
   if (hasReservationResponse === hasErrorResponse) {
     return Object.freeze({ valid: false, providerCorrelationId: null });
   }
@@ -200,7 +200,7 @@ function inspectProviderResponseEnvelope(value: unknown, httpStatus: number): Pr
 
 function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErrorInspection {
   const root = optionalRecord(value);
-  if (!root || root.ErrorResponse === undefined || root.ErrorResponse === null) {
+  if (!root || root.ErrorResponse === undefined) {
     return Object.freeze({
       present: false,
       valid: true,
@@ -282,26 +282,26 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
 
 function inspectProviderWarnings(value: unknown): ProviderWarningInspection {
   const root = optionalRecord(value);
-  if (!root || root.ReservationResponse === undefined || root.ReservationResponse === null) {
+  if (!root || root.ReservationResponse === undefined) {
     return Object.freeze({ valid: true, messages: Object.freeze([] as string[]) });
   }
 
   const response = optionalRecord(root.ReservationResponse);
   if (!response) return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
-  if (response.Result === undefined || response.Result === null) {
+  if (response.Result === undefined) {
     return Object.freeze({ valid: true, messages: Object.freeze([] as string[]) });
   }
 
   const result = optionalRecord(response.Result);
   if (!result) return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
   if (
-    (result.Error !== undefined && result.Error !== null)
-    || (result.Errors !== undefined && result.Errors !== null)
+    result.Error !== undefined
+    || result.Errors !== undefined
   ) {
     return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
   }
-  const hasWarning = result.Warning !== undefined && result.Warning !== null;
-  const hasWarnings = result.Warnings !== undefined && result.Warnings !== null;
+  const hasWarning = result.Warning !== undefined;
+  const hasWarnings = result.Warnings !== undefined;
   if (hasWarning && hasWarnings) {
     return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
   }
