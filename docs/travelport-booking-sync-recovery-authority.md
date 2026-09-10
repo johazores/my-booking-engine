@@ -77,13 +77,13 @@ OAuth and deterministic request construction complete before the durable provide
 
 Travelport documents that Sync returns the reservation response shape used by Create Reservation. SF reuses the hardened Create classifier for property/stay/occupancy, supplier-confirmation, warning/error, and locator evidence, then applies Sync-specific settlement requirements.
 
-The current Travelport Sync Reservation response example omits `locatorType` on the confirmed Travelport receipt while still returning `sourceContext=Travelport` and the Travelport locator value. SF accepts that omission **only inside the Sync response path** by non-mutatingly canonicalizing that documented receipt shape to `PNR Locator` before invoking the strict shared classifier. Create Reservation responses remain strict and still require an explicit `locatorType=PNR Locator`.
+The current Travelport Sync Reservation response example omits `locatorType` on the confirmed Travelport receipt while still returning `sourceContext=Travelport` and the Travelport locator value. SF accepts that omission **only inside the Sync response path** and only when the receipt matches the documented reservation-level hospitality tuple: `ReceiptConfirmation`, `ConfirmationHold`, no `OfferRef`, `sourceContext=Travelport`, and `OfferStatusHospitality` with `Status=Confirmed`. The adapter non-mutatingly copies that exact shape and adds `locatorType=PNR Locator` before invoking the strict shared classifier. Create Reservation responses remain strict and still require an explicit `locatorType=PNR Locator`.
 
-This compatibility rule is intentionally narrow: an explicit locator type is never rewritten. An explicit non-PNR locator type, malformed/missing Travelport context, duplicate Travelport locator evidence, unconfirmed relevant receipt, malformed relevant locator value, or otherwise inconsistent receipt data remains ambiguous.
+This compatibility rule is intentionally narrow: an explicit locator type is never rewritten, and a missing/wrong receipt discriminator, missing/wrong confirmation discriminator, offer-scoped Travelport locator, missing/wrong hospitality status discriminator, or non-confirmed status is not normalized. Those malformed lookalikes therefore reach the shared classifier unchanged and fail closed. Duplicate Travelport locator evidence, malformed relevant locator values, or otherwise inconsistent receipt data remain ambiguous as before.
 
 Sync is confirmed only when the response proves all of the following:
 
-- exactly one confirmed Travelport PNR receipt, either with explicit `locatorType=PNR Locator` or the documented Sync-only omission with `sourceContext=Travelport`;
+- exactly one confirmed Travelport PNR receipt, either with explicit `locatorType=PNR Locator` or the exact documented Sync-only omission described above;
 - exactly one `ProductHospitality` segment exists and it exactly matches the durable property, dates, room quantity, and guest count;
 - the same original Booking.com supplier confirmation; and
 - a structurally valid successful response.
@@ -130,7 +130,7 @@ No current route, button, customer action, or staff action can call Sync.
 
 ## Validation
 
-Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test also proves the provider payload is not mutated, while explicit non-PNR locator types remain fail-closed. Shared commercial-receipt coverage additionally proves that pending, cancelled, malformed, or duplicated relevant PNR/supplier receipt evidence cannot be filtered away to create confirmation or Sync authority. Shared segment-evidence coverage proves that additional, mismatched, or malformed `ProductHospitality` segments cannot grant Sync authority while unrelated non-hospitality multi-content products remain outside Stays evidence.
+Focused Sync-domain coverage includes both the explicit Create-style PNR locator shape and Travelport's documented Sync response omission. The omission test proves the provider payload is not mutated, while dedicated malformed-lookalike cases prove that missing/wrong receipt and confirmation discriminators, offer-scoped PNR evidence, malformed hospitality status typing, and non-confirmed status cannot gain PNR authority through the Sync-only normalization. Explicit non-PNR locator types remain fail-closed. Shared commercial-receipt coverage additionally proves that pending, cancelled, malformed, or duplicated relevant PNR/supplier receipt evidence cannot be filtered away to create confirmation or Sync authority. Shared segment-evidence coverage proves that additional, mismatched, or malformed `ProductHospitality` segments cannot grant Sync authority while unrelated non-hospitality multi-content products remain outside Stays evidence.
 
 No source-only or local contract test is claimed as live-provider evidence.
 
