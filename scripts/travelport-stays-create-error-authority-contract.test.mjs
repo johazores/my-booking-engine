@@ -16,6 +16,8 @@ test('Travelport special create decisions require complete HTTP-consistent provi
   assert.ok(envelopeIndex >= 0 && validityIndex > envelopeIndex && syncIndex > validityIndex && reviewIndex > syncIndex);
 
   assert.match(classifier, /function inspectProviderResponseEnvelope\(value: unknown, httpStatus: number\)/);
+  assert.match(classifier, /const hasReservationResponse = root\.ReservationResponse !== undefined/);
+  assert.match(classifier, /const hasErrorResponse = root\.ErrorResponse !== undefined/);
   assert.match(classifier, /hasReservationResponse === hasErrorResponse/);
   assert.match(classifier, /httpStatus >= 200 && httpStatus < 300/);
   assert.match(classifier, /httpStatus >= 400/);
@@ -26,8 +28,7 @@ test('Travelport special create decisions require complete HTTP-consistent provi
   assert.match(classifier, /const rawCategory = error\.category \?\? error\.Category/);
   assert.match(classifier, /typeof rawCategory !== 'string'/);
   assert.match(classifier, /inspectProviderErrors\(input\.body, input\.httpStatus\)/);
-  assert.match(classifier, /result\.Error !== undefined && result\.Error !== null/);
-  assert.match(classifier, /result\.Errors !== undefined && result\.Errors !== null/);
+  assert.match(classifier, /result\.Error !== undefined\s*\|\| result\.Errors !== undefined/);
   assert.match(classifier, /error\.sourceCode === SYNC_REQUIRED_SOURCE_CODE[\s\S]*?error\.category === 'UNKNOWN'/);
   assert.match(classifier, /error\.category === 'VALIDATION'[\s\S]*?GUARANTEE_CHANGE_SOURCE_CODES\.has\(error\.sourceCode\)[\s\S]*?PRICE_CHANGE_SOURCE_CODE/);
   assert.doesNotMatch(classifier, /error\.category === null/);
@@ -42,10 +43,10 @@ test('Travelport known-locator reservation evidence rejects unsupported embedded
   const reservationIndex = parser.indexOf('const reservation = record(response.Reservation)');
   assert.ok(responseIndex >= 0 && resultGuardIndex > responseIndex && reservationIndex > resultGuardIndex);
   assert.match(parser, /function assertSupportedResultEvidence\(response: RecordValue\)/);
-  assert.match(parser, /result\.Error !== undefined && result\.Error !== null/);
-  assert.match(parser, /result\.Errors !== undefined && result\.Errors !== null/);
-  assert.match(parser, /const hasWarning = result\.Warning !== undefined && result\.Warning !== null/);
-  assert.match(parser, /const hasWarnings = result\.Warnings !== undefined && result\.Warnings !== null/);
+  assert.match(parser, /if \(response\.Result === undefined\) return/);
+  assert.match(parser, /result\.Error !== undefined\s*\|\| result\.Errors !== undefined/);
+  assert.match(parser, /const hasWarning = result\.Warning !== undefined/);
+  assert.match(parser, /const hasWarnings = result\.Warnings !== undefined/);
   assert.match(parser, /if \(hasWarning && hasWarnings\)/);
   assert.match(parser, /!Array\.isArray\(warningValues\) \|\| warningValues\.length > MAX_WARNINGS/);
   assert.match(parser, /boundedProviderValue\(warning\.Message, 512\)/);
