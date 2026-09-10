@@ -26,6 +26,16 @@ const traveler = Object.freeze({
   }),
 });
 
+type MutableTravelportReceipt = {
+  '@type'?: string;
+  OfferRef?: unknown;
+  Confirmation: {
+    '@type'?: string;
+    Locator: { locatorType?: string; value: string; sourceContext: string };
+    OfferStatus: { '@type'?: string; Status: string };
+  };
+};
+
 function syncResponse(input: {
   supplierConfirmation?: string;
   propertyCode?: string;
@@ -48,18 +58,22 @@ function syncResponse(input: {
         }],
         Receipt: [
           {
+            '@type': 'ReceiptConfirmation',
             Confirmation: {
+              '@type': 'ConfirmationHold',
               Locator: {
                 value: input.supplierConfirmation ?? 'T9RY0-WQ842',
                 locatorType: 'Confirmation Number',
                 source: 'BO',
                 sourceContext: 'Supplier',
               },
-              OfferStatus: { Status: 'Confirmed' },
+              OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' },
             },
           },
           {
+            '@type': 'ReceiptConfirmation',
             Confirmation: {
+              '@type': 'ConfirmationHold',
               Locator: {
                 value: '0GQ9HS',
                 ...(input.travelportLocatorType === null
@@ -67,7 +81,7 @@ function syncResponse(input: {
                   : { locatorType: input.travelportLocatorType ?? 'PNR Locator' }),
                 sourceContext: 'Travelport',
               },
-              OfferStatus: { Status: 'Confirmed' },
+              OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Confirmed' },
             },
           },
           {
@@ -182,7 +196,7 @@ test('confirms Sync only when the exact stay and original supplier confirmation 
   });
 });
 
-test('accepts the documented Sync response omission of Travelport locatorType without mutating provider data', () => {
+test('accepts only the documented confirmed hospitality Sync omission of Travelport locatorType without mutating provider data', () => {
   const body = syncResponse({ travelportLocatorType: null });
   const travelportLocator = body.ReservationResponse.Reservation.Receipt[1]!.Confirmation.Locator as {
     locatorType?: string;
@@ -201,6 +215,34 @@ test('accepts the documented Sync response omission of Travelport locatorType wi
     providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
   });
   assert.equal(travelportLocator.locatorType, undefined);
+});
+
+test('does not normalize malformed lookalikes of the documented Sync missing-locatorType receipt', () => {
+  const mutations = [
+    (receipt: MutableTravelportReceipt) => { delete receipt['@type']; },
+    (receipt: MutableTravelportReceipt) => { delete receipt.Confirmation['@type']; },
+    (receipt: MutableTravelportReceipt) => { delete receipt.Confirmation.OfferStatus['@type']; },
+    (receipt: MutableTravelportReceipt) => { receipt.Confirmation.OfferStatus.Status = 'Pending'; },
+    (receipt: MutableTravelportReceipt) => { receipt.OfferRef = ['O1']; },
+  ];
+
+  for (const mutate of mutations) {
+    const body = syncResponse({ travelportLocatorType: null });
+    const receipt = body.ReservationResponse.Reservation.Receipt[1] as MutableTravelportReceipt;
+    mutate(receipt);
+
+    assert.deepEqual(classifyTravelportStaysReservationSyncOutcome({
+      httpStatus: 200,
+      body,
+      expectedReservation,
+      supplierConfirmationReference: 'T9RY0-WQ842',
+    }), {
+      status: 'AMBIGUOUS',
+      failureCode: 'INVALID_RESPONSE',
+      providerCorrelationId: '9457f5be-e648-4cb6-ac1f-1d349d06d6ce',
+    });
+    assert.equal((receipt.Confirmation.Locator as { locatorType?: string }).locatorType, undefined);
+  }
 });
 
 test('does not reinterpret an explicit non-PNR Travelport locator type during Sync', () => {
