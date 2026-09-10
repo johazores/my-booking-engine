@@ -42,7 +42,7 @@ function boundedProviderValue(value: unknown, max: number) {
     !normalized
     || normalized !== value
     || normalized.length > max
-    || /[\r\n]/.test(normalized)
+    || /[\u0000-\u001f\u007f]/.test(normalized)
   ) return null;
   return normalized;
 }

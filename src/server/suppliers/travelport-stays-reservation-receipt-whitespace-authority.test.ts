@@ -150,6 +150,34 @@ test('rejects outer whitespace on Stays confirmation authority tokens', () => {
   for (const variant of variants) expectInvalid(variant);
 });
 
+test('rejects embedded ASCII control characters in Stays receipt authority tokens', () => {
+  for (const control of ['\t', '\u0000', '\u001f', '\u007f']) {
+    const locatorValue = supplierConfirmation();
+    locatorValue.Confirmation.Locator.value = `T9RY0${control}WQ842`;
+    expectInvalid(locatorValue);
+
+    const source = supplierConfirmation();
+    source.Confirmation.Locator.source = `B${control}O`;
+    expectInvalid(source);
+
+    const offerRef = supplierConfirmation();
+    offerRef.OfferRef = [`O${control}1`];
+    expectInvalid(offerRef);
+
+    const cancellationValue = supplierCancellation();
+    cancellationValue.Cancellation.Locator.value = `5982${control}4913`;
+    expectInvalid(cancellationValue);
+
+    const cancellationSource = supplierCancellation();
+    cancellationSource.Cancellation.Locator.source = `T${control}X`;
+    expectInvalid(cancellationSource);
+
+    const cancellationOfferRef = supplierCancellation();
+    cancellationOfferRef.OfferRef = [`O${control}1`];
+    expectInvalid(cancellationOfferRef);
+  }
+});
+
 test('rejects padded, duplicate, null, and malformed offer-scope references on Stays receipts', () => {
   const padded = supplierConfirmation();
   padded.OfferRef = [' O1'];

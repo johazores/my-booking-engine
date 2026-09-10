@@ -166,3 +166,34 @@ test('preserves unrelated air confirmation and cancellation status evidence in m
   assert.deepEqual(evidence.supplierConfirmationReceipts, []);
   assert.deepEqual(evidence.supplierCancellationReceipts, []);
 });
+
+test('preserves the current Travelport NDC VendorLocator OfferStatusAir receipt shape as unrelated multi-content evidence', () => {
+  const evidence = inspectTravelportStaysReservationReceiptEvidence([
+    {
+      '@type': 'ReceiptConfirmation',
+      OfferRef: ['offer_1'],
+      Confirmation: {
+        '@type': 'ConfirmationHold',
+        Locator: {
+          source: 'AA',
+          sourceContext: 'VendorLocator',
+          value: 'IKRWES',
+        },
+        OfferStatus: {
+          '@type': 'OfferStatusAir',
+          StatusAir: [{
+            flightRefs: ['seg_1'],
+            code: 'HK',
+            value: 'Confirmed',
+          }],
+        },
+      },
+    },
+    travelportPnr(),
+  ]);
+
+  assert.equal(evidence.valid, true);
+  assert.equal(evidence.travelportPnrReceipts[0]?.reference, '0GQ9HS');
+  assert.deepEqual(evidence.supplierConfirmationReceipts, []);
+  assert.deepEqual(evidence.supplierCancellationReceipts, []);
+});
