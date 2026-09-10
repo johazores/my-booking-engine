@@ -19,6 +19,9 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /providerCorrelationId/);
   assert.match(parser, /root\.ErrorResponse !== undefined && root\.ErrorResponse !== null/);
   assert.match(parser, /contradictory top-level error evidence/);
+  assert.match(parser, /const reservationType = boundedProviderValue\(reservation\['@type'\], MAX_RESERVATION_TYPE_LENGTH\)/);
+  assert.match(parser, /if \(reservationType !== 'ReservationDetail'\)/);
+  assert.match(parser, /unexpected reservation type evidence/);
   assert.match(parser, /const offerType = boundedProviderValue\(offer\['@type'\], MAX_OFFER_TYPE_LENGTH\)/);
   assert.match(parser, /if \(offerType !== 'Offer'\)/);
   assert.match(parser, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
@@ -28,6 +31,9 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /return Object\.freeze\(\{ offerIds, passiveOfferIds, activeHospitalityOfferId \}\)/);
   assert.match(parser, /if \(passiveOfferInd === true\) \{[\s\S]*?passiveOfferIds\.add\(offerId\);[\s\S]*?continue;/);
   assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
+  const reservationTypeCheck = parser.indexOf("if (reservationType !== 'ReservationDetail')");
+  const expectedMatch = parser.indexOf('const offerScope = assertExpectedReservationMatch(reservation, input.expectedReservation)');
+  assert.ok(reservationTypeCheck >= 0 && expectedMatch > reservationTypeCheck, 'reservation type must be validated before segment authority');
   const offerTypeCheck = parser.indexOf("if (offerType !== 'Offer')");
   const passiveSkip = parser.indexOf('if (passiveOfferInd === true) {');
   assert.ok(offerTypeCheck >= 0 && passiveSkip > offerTypeCheck, 'offer type must be validated before passive scope');

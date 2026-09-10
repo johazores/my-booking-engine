@@ -5,6 +5,7 @@ const MAX_CORRELATION_LENGTH = 512;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
+const MAX_RESERVATION_TYPE_LENGTH = 64;
 const MAX_OFFER_TYPE_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
@@ -349,6 +350,14 @@ export function parseTravelportStaysReservationResponse(
   const reservation = record(response.Reservation);
   let receiptInput = reservation.Receipt;
   if (input.expectedReservation) {
+    const reservationType = boundedProviderValue(reservation['@type'], MAX_RESERVATION_TYPE_LENGTH);
+    if (reservationType !== 'ReservationDetail') {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport known-locator response contained missing, malformed, or unexpected reservation type evidence.',
+      );
+    }
+
     const offerScope = assertExpectedReservationMatch(reservation, input.expectedReservation);
     receiptInput = activeReservationReceiptEvidence(reservation.Receipt, offerScope);
   }

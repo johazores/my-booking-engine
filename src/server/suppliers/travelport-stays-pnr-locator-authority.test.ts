@@ -21,6 +21,7 @@ function reservationResponse(travelportReceipts: readonly Readonly<{
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           id: 'O1',

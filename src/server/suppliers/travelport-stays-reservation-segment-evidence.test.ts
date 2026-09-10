@@ -40,6 +40,7 @@ function reservationResponse(products: unknown[], input: { includeTravelport?: b
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           id: 'O1',

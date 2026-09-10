@@ -68,6 +68,7 @@ function response(input: {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [
           {
             '@type': 'Offer',

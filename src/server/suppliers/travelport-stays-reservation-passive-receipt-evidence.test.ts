@@ -17,6 +17,7 @@ function response(passiveOfferRef: unknown = 'O2') {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [
           {
             '@type': 'Offer',

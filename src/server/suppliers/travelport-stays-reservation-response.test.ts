@@ -36,6 +36,7 @@ function response(input: {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         ...(input.includeSensitiveData ? {
           Traveler: [{ PersonName: { Given: 'Sensitive', Surname: 'Traveler' } }],
           FormOfPayment: [{ PaymentCard: { CardNumber: { PlainText: '4111111111111111' } } }],
@@ -147,6 +148,31 @@ test('supplier operational locator types are not confused with the supplier conf
     }),
     (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
   );
+});
+
+test('known-locator recovery requires the canonical ReservationDetail discriminator before segment authority', () => {
+  const missing = response();
+  delete (missing.ReservationResponse.Reservation as Record<string, unknown>)['@type'];
+  assert.throws(
+    () => parseTravelportStaysReservationResponse(missing, {
+      expectedProviderReservationReference: 'D6VBHL',
+      expectedReservation,
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+
+  for (const malformedType of [null, '', 'Reservation', 'ReservationDetail\nsecret', 'x'.repeat(65), 42]) {
+    const body = response();
+    (body.ReservationResponse.Reservation as Record<string, unknown>)['@type'] = malformedType;
+    assert.throws(
+      () => parseTravelportStaysReservationResponse(body, {
+        expectedProviderReservationReference: 'D6VBHL',
+        expectedReservation,
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+      `reservation type ${String(malformedType)} must fail closed`,
+    );
+  }
 });
 
 test('retrieve verification binds the known locator to the durable property, stay, room, and guest request', () => {

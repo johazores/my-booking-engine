@@ -18,6 +18,7 @@ function reservationResponse(result?: unknown) {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           id: 'O1',

@@ -28,6 +28,8 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   assert.match(adapter, /expectedReservation,/);
   assert.match(responseParser, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
   assert.match(responseParser, /exactly one Travelport PNR locator/i);
+  assert.match(responseParser, /const reservationType = boundedProviderValue\(reservation\['@type'\], MAX_RESERVATION_TYPE_LENGTH\)/);
+  assert.match(responseParser, /reservationType !== 'ReservationDetail'/);
   assert.match(responseParser, /activeHospitalitySegments !== 1 \|\| matches !== 1/);
   assert.match(responseParser, /exactly one active hospitality segment matching the durable reservation request/i);
 });
@@ -48,6 +50,11 @@ test('Travelport recovery maps durable request correlation into supportable prov
 test('Travelport recovery confirms one active hospitality segment and binds receipt authority to active offer scope', () => {
   const parser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
   const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
+  assert.match(parser, /const reservationType = boundedProviderValue\(reservation\['@type'\], MAX_RESERVATION_TYPE_LENGTH\)/);
+  assert.match(parser, /if \(reservationType !== 'ReservationDetail'\)/);
+  const reservationTypeCheck = parser.indexOf("if (reservationType !== 'ReservationDetail')");
+  const offerScopeMatch = parser.indexOf('const offerScope = assertExpectedReservationMatch(reservation, input.expectedReservation)');
+  assert.ok(reservationTypeCheck >= 0 && offerScopeMatch > reservationTypeCheck, 'reservation discriminator must be validated before offer scope');
   assert.match(parser, /const productType = boundedProviderValue\(product\['@type'\], MAX_PRODUCT_TYPE_LENGTH\)/);
   assert.match(parser, /if \(productType !== 'ProductHospitality'\) continue/);
   assert.match(parser, /const offerType = boundedProviderValue\(offer\['@type'\], MAX_OFFER_TYPE_LENGTH\)/);
