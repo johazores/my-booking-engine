@@ -45,11 +45,28 @@ test('Travelport HTTP 500 reservation errors cannot bypass response trace author
   );
 });
 
-test('status-only reservation failures cannot leak uncorrelated body or trace authority downstream', () => {
+test('status-only reservation failures expose only bounded retry metadata', () => {
   const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
   assert.match(reservationTraceFetch, /return rebuildStatusOnlyResponse\(response\)/);
-  assert.match(reservationTraceFetch, /headers\.delete\('traceId'\)/);
+  assert.match(reservationTraceFetch, /const headers = new Headers\(\)/);
+  assert.match(reservationTraceFetch, /boundedStatusOnlyHeader\(response\.headers\.get\('Retry-After'\)\)/);
   assert.match(reservationTraceFetch, /return new Response\(null,/);
+  assert.doesNotMatch(
+    reservationTraceFetch,
+    /function rebuildStatusOnlyResponse[\s\S]*?new Headers\(response\.headers\)/,
+    'status-only responses must not clone arbitrary provider headers',
+  );
+  assert.doesNotMatch(
+    reservationTraceFetch,
+    /function rebuildStatusOnlyResponse[\s\S]*?statusText: response\.statusText/,
+    'provider status text is not status-only authority',
+  );
+});
+
+test('v11 reservation response authority rejects the v12-only trace header', () => {
+  const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(reservationTraceFetch, /response\.headers\.has\('TVP-Trace-Id'\)/);
+  assert.match(reservationTraceFetch, /response\.headers\.get\('traceId'\) !== reservation\.expectedTraceId/);
 });
 
 test('reservation response trace scope uses a path-segment boundary instead of a raw prefix match', () => {

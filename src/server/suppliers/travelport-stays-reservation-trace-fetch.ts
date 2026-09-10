@@ -4,6 +4,7 @@ import { inspectTravelportStaysResponseTrace } from './travelport-stays-response
 const RESERVATION_PATH_PREFIX = '/11/hotel/book/reservations';
 const SF_E2E_PREFIX = 'sf-';
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_STATUS_ONLY_HEADER_VALUE_LENGTH = 256;
 
 type ReservationRequest = Readonly<{
   expectedTraceId: string;
@@ -63,13 +64,23 @@ function rebuildResponse(response: Response, body: BodyInit | null) {
   });
 }
 
+function boundedStatusOnlyHeader(value: string | null) {
+  if (
+    value === null
+    || value.length < 1
+    || value.length > MAX_STATUS_ONLY_HEADER_VALUE_LENGTH
+    || value.trim() !== value
+    || /[\u0000-\u001f\u007f]/.test(value)
+  ) return null;
+  return value;
+}
+
 function rebuildStatusOnlyResponse(response: Response) {
-  const headers = new Headers(response.headers);
-  headers.delete('traceId');
-  headers.delete('TVP-Trace-Id');
+  const headers = new Headers();
+  const retryAfter = boundedStatusOnlyHeader(response.headers.get('Retry-After'));
+  if (retryAfter !== null) headers.set('Retry-After', retryAfter);
   return new Response(null, {
     status: response.status,
-    statusText: response.statusText,
     headers,
   });
 }
@@ -93,9 +104,9 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     if (!reservation) return response;
 
     // Authentication and rate-limit statuses, plus provider/gateway statuses
-    // above 500, are status authority only. Their payload/trace is not bound to
-    // the outbound attempt, so strip both before any reservation consumer can
-    // accidentally promote an uncorrelated body into commercial authority.
+    // above 500, are status authority only. Their body, provider free-text
+    // status, and uncorrelated metadata must not cross this authority boundary.
+    // Preserve only bounded Retry-After metadata for operational backoff.
     // HTTP 500 is intentionally trace-bound because Travelport's current Stays
     // error catalog uses it for structured reservation outcomes, including
     // SourceCode 13034 and validation decisions that affect commercial state.
@@ -108,6 +119,9 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
       return rebuildStatusOnlyResponse(response);
     }
 
+    // Reservation is a v11 Stays API. A v12-only response trace header is
+    // contradictory version evidence rather than a second correlation source.
+    if (response.headers.has('TVP-Trace-Id')) invalidResponse();
     if (response.headers.get('traceId') !== reservation.expectedTraceId) invalidResponse();
 
     let rawBody: string;

@@ -17,12 +17,16 @@ function requestInit(method: 'GET' | 'POST' = 'POST'): RequestInit {
 function reservationResponse(input: Readonly<{
   payloadTrace?: unknown;
   headerTrace?: string | null;
+  v12HeaderTrace?: string | null;
   family?: 'ReservationResponse' | 'ErrorResponse';
   status?: number;
 }> = {}) {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const headerTrace = input.headerTrace === undefined ? traceId : input.headerTrace;
   if (headerTrace !== null) headers.set('traceId', headerTrace);
+  if (input.v12HeaderTrace !== undefined && input.v12HeaderTrace !== null) {
+    headers.set('TVP-Trace-Id', input.v12HeaderTrace);
+  }
   const family = input.family ?? 'ReservationResponse';
   return new Response(JSON.stringify({
     [family]: {
@@ -67,11 +71,7 @@ test('trace-binds HTTP 500 reservation error evidence before it can affect comme
   assert.equal(accepted.headers.get('traceId'), traceId);
   assert.equal((await accepted.json() as { ErrorResponse?: { marker?: string } }).ErrorResponse?.marker, 'preserved');
 
-  await assertInvalidResponse(reservationResponse({
-    family: 'ErrorResponse',
-    status: 500,
-    headerTrace: null,
-  }));
+  await assertInvalidResponse(reservationResponse({ family: 'ErrorResponse', status: 500, headerTrace: null }));
   await assertInvalidResponse(reservationResponse({
     family: 'ErrorResponse',
     status: 500,
@@ -79,12 +79,14 @@ test('trace-binds HTTP 500 reservation error evidence before it can affect comme
   }));
 });
 
-test('fails closed when either provider trace echo is missing or mismatched', async () => {
+test('fails closed when either provider trace echo is missing, mismatched, or uses a v12-only response header', async () => {
   for (const response of [
     reservationResponse({ headerTrace: null }),
     reservationResponse({ headerTrace: '11111111-1111-4111-8111-111111111111' }),
     reservationResponse({ payloadTrace: null }),
     reservationResponse({ payloadTrace: '11111111-1111-4111-8111-111111111111' }),
+    reservationResponse({ v12HeaderTrace: traceId }),
+    reservationResponse({ v12HeaderTrace: '11111111-1111-4111-8111-111111111111' }),
   ]) await assertInvalidResponse(response);
 });
 
@@ -109,7 +111,7 @@ test('passes non-reservation Stays traffic and reservation-prefix lookalikes thr
   }
 });
 
-test('reduces auth, rate-limit, and provider-unavailable responses above 500 to status-only authority', async () => {
+test('reduces auth, rate-limit, and provider-unavailable responses above 500 to bounded status-only authority', async () => {
   for (const status of [401, 403, 429, 503]) {
     const original = new Response(JSON.stringify({
       ErrorResponse: {
@@ -128,10 +130,14 @@ test('reduces auth, rate-limit, and provider-unavailable responses above 500 to 
       },
     }), {
       status,
+      statusText: 'provider supplied detail',
       headers: {
         'Content-Type': 'application/json',
+        'Content-Language': 'en',
         'Retry-After': '7',
+        'X-Provider-Correlation': 'untrusted-provider-correlation',
         traceId: 'untrusted-provider-header-trace',
+        'TVP-Trace-Id': 'untrusted-v12-trace',
       },
     });
     const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);
@@ -141,9 +147,21 @@ test('reduces auth, rate-limit, and provider-unavailable responses above 500 to 
     );
     assert.notEqual(response, original);
     assert.equal(response.status, status);
-    assert.equal(response.headers.get('Retry-After'), '7');
-    assert.equal(response.headers.get('traceId'), null);
+    assert.equal(response.statusText, '');
+    assert.deepEqual([...response.headers.entries()], [['retry-after', '7']]);
     assert.equal(await response.text(), '');
+  }
+});
+
+test('drops malformed or oversized Retry-After metadata from status-only failures', async () => {
+  for (const retryAfter of ['', 'x'.repeat(257)]) {
+    const original = new Response('{}', { status: 429, headers: { 'Retry-After': retryAfter } });
+    const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);
+    const response = await wrapped(
+      'https://api.pp.travelport.net/11/hotel/book/reservations/build',
+      requestInit(),
+    );
+    assert.equal(response.headers.get('Retry-After'), null);
   }
 });
 
