@@ -257,6 +257,7 @@ function assertExpectedReservationMatch(
 
 function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
   if (receipt['@type'] !== 'ReceiptConfirmation') return false;
+  if (receipt.Cancellation !== undefined) return false;
 
   const confirmationValue = receipt.Confirmation;
   if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
