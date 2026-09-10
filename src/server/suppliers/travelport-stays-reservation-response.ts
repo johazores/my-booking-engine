@@ -49,12 +49,12 @@ function boundedProviderValue(value: unknown, max: number) {
 }
 
 function assertSupportedResultEvidence(response: RecordValue) {
-  if (response.Result === undefined || response.Result === null) return;
+  if (response.Result === undefined) return;
 
   const result = record(response.Result);
   if (
-    (result.Error !== undefined && result.Error !== null)
-    || (result.Errors !== undefined && result.Errors !== null)
+    result.Error !== undefined
+    || result.Errors !== undefined
   ) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
@@ -62,8 +62,8 @@ function assertSupportedResultEvidence(response: RecordValue) {
     );
   }
 
-  const hasWarning = result.Warning !== undefined && result.Warning !== null;
-  const hasWarnings = result.Warnings !== undefined && result.Warnings !== null;
+  const hasWarning = result.Warning !== undefined;
+  const hasWarnings = result.Warnings !== undefined;
   if (hasWarning && hasWarnings) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
@@ -211,7 +211,7 @@ function isDocumentedPassivePlaceholderReceipt(receipt: RecordValue) {
   if (!confirmationValue || typeof confirmationValue !== 'object' || Array.isArray(confirmationValue)) return false;
   const confirmation = confirmationValue as RecordValue;
   if (confirmation['@type'] !== 'ConfirmationHold') return false;
-  if (confirmation.Locator !== undefined && confirmation.Locator !== null) return false;
+  if (confirmation.Locator !== undefined) return false;
 
   const offerStatusValue = confirmation.OfferStatus;
   if (!offerStatusValue || typeof offerStatusValue !== 'object' || Array.isArray(offerStatusValue)) return false;
@@ -358,7 +358,7 @@ export function parseTravelportStaysReservationResponse(
   }> = {},
 ): TravelportStaysReservationResponseEvidence {
   const root = record(value);
-  if (root.ErrorResponse !== undefined && root.ErrorResponse !== null) {
+  if (root.ErrorResponse !== undefined) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
       'Travelport reservation response contained contradictory top-level error evidence.',
