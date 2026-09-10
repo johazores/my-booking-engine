@@ -269,12 +269,20 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const receipt = optionalRecord(receiptValue);
     if (!receipt) return invalidEvidence();
 
+    const hasConfirmationBranch = receipt.Confirmation !== undefined;
+    const hasCancellationBranch = receipt.Cancellation !== undefined;
+    if (hasConfirmationBranch && hasCancellationBranch) return invalidEvidence();
+
     const rawReceiptType = receipt['@type'];
     if (rawReceiptType !== undefined) {
       const receiptType = boundedProviderValue(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH);
       if (!receiptType) return invalidEvidence();
-      if (receiptType === 'ReceiptPayment') continue;
+      if (receiptType === 'ReceiptPayment') {
+        if (hasConfirmationBranch || hasCancellationBranch) return invalidEvidence();
+        continue;
+      }
       if (receiptType === 'ReceiptCancellation') {
+        if (hasConfirmationBranch) return invalidEvidence();
         const cancellation = inspectCancellationReceipt(receipt);
         if (!cancellation.valid) return invalidEvidence();
         if (cancellation.relevant && cancellation.receipt) {
@@ -287,7 +295,7 @@ export function inspectTravelportStaysReservationReceiptEvidence(
         }
         continue;
       }
-      if (receiptType !== 'ReceiptConfirmation') return invalidEvidence();
+      if (receiptType !== 'ReceiptConfirmation' || hasCancellationBranch) return invalidEvidence();
     }
 
     const confirmation = optionalRecord(receipt.Confirmation);
