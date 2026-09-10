@@ -96,27 +96,54 @@ test('fails closed for malformed or undocumented response payload correlation', 
   }));
 });
 
-test('passes non-reservation Stays traffic through without consuming or rewriting its response', async () => {
-  const original = new Response(JSON.stringify({ RulesResponse: { traceId: 'provider-generated' } }), { status: 200 });
-  const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);
-  const response = await wrapped(
+test('passes non-reservation Stays traffic and reservation-prefix lookalikes through unchanged', async () => {
+  for (const url of [
     'https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest',
-    requestInit(),
-  );
-  assert.equal(response, original);
-  assert.deepEqual(await response.json(), { RulesResponse: { traceId: 'provider-generated' } });
+    'https://api.pp.travelport.net/11/hotel/book/reservations-legacy',
+  ]) {
+    const original = new Response(JSON.stringify({ marker: 'provider-generated' }), { status: 200 });
+    const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);
+    const response = await wrapped(url, requestInit());
+    assert.equal(response, original);
+    assert.deepEqual(await response.json(), { marker: 'provider-generated' });
+  }
 });
 
-test('preserves auth, rate-limit, and provider-unavailable statuses above 500 without requiring payload authority', async () => {
+test('reduces auth, rate-limit, and provider-unavailable responses above 500 to status-only authority', async () => {
   for (const status of [401, 403, 429, 503]) {
-    const original = new Response('{}', { status });
+    const original = new Response(JSON.stringify({
+      ErrorResponse: {
+        traceId: 'untrusted-provider-body-trace',
+        Result: {
+          '@type': 'Result',
+          Error: [{
+            '@type': 'ErrorDetail',
+            StatusCode: status,
+            SourceCode: '13020',
+            category: 'VALIDATION',
+            SourceID: 'API',
+            Message: 'must not become commercial authority',
+          }],
+        },
+      },
+    }), {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Retry-After': '7',
+        traceId: 'untrusted-provider-header-trace',
+      },
+    });
     const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);
     const response = await wrapped(
       'https://api.pp.travelport.net/11/hotel/book/reservations/build',
       requestInit(),
     );
-    assert.equal(response, original);
+    assert.notEqual(response, original);
     assert.equal(response.status, status);
+    assert.equal(response.headers.get('Retry-After'), '7');
+    assert.equal(response.headers.get('traceId'), null);
+    assert.equal(await response.text(), '');
   }
 });
 

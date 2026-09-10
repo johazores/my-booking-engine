@@ -44,3 +44,19 @@ test('Travelport HTTP 500 reservation errors cannot bypass response trace author
     'HTTP 500 carries documented Stays business error evidence and must remain trace-bound',
   );
 });
+
+test('status-only reservation failures cannot leak uncorrelated body or trace authority downstream', () => {
+  const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(reservationTraceFetch, /return rebuildStatusOnlyResponse\(response\)/);
+  assert.match(reservationTraceFetch, /headers\.delete\('traceId'\)/);
+  assert.match(reservationTraceFetch, /return new Response\(null,/);
+});
+
+test('reservation response trace scope uses a path-segment boundary instead of a raw prefix match', () => {
+  const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(
+    reservationTraceFetch,
+    /pathname === RESERVATION_PATH_PREFIX \|\| pathname\.startsWith\(`\$\{RESERVATION_PATH_PREFIX\}\/`\)/,
+  );
+  assert.doesNotMatch(reservationTraceFetch, /if \(!url\.pathname\.startsWith\(RESERVATION_PATH_PREFIX\)\)/);
+});

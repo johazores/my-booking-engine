@@ -25,6 +25,10 @@ function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
   return new Headers(source);
 }
 
+function isReservationPath(pathname: string) {
+  return pathname === RESERVATION_PATH_PREFIX || pathname.startsWith(`${RESERVATION_PATH_PREFIX}/`);
+}
+
 function reservationRequest(input: RequestInfo | URL, init?: RequestInit): ReservationRequest | null {
   let url: URL;
   try {
@@ -32,7 +36,7 @@ function reservationRequest(input: RequestInfo | URL, init?: RequestInit): Reser
   } catch {
     return null;
   }
-  if (!url.pathname.startsWith(RESERVATION_PATH_PREFIX)) return null;
+  if (!isReservationPath(url.pathname)) return null;
   const method = requestMethod(input, init);
   if (method !== 'POST' && method !== 'GET') return null;
 
@@ -51,11 +55,22 @@ function invalidResponse(): never {
   throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport reservation response correlation is invalid.');
 }
 
-function rebuildResponse(response: Response, body: string) {
+function rebuildResponse(response: Response, body: BodyInit | null) {
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers: new Headers(response.headers),
+  });
+}
+
+function rebuildStatusOnlyResponse(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.delete('traceId');
+  headers.delete('TVP-Trace-Id');
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 
@@ -78,7 +93,9 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     if (!reservation) return response;
 
     // Authentication and rate-limit statuses, plus provider/gateway statuses
-    // above 500, are status authority and must reach the caller unchanged.
+    // above 500, are status authority only. Their payload/trace is not bound to
+    // the outbound attempt, so strip both before any reservation consumer can
+    // accidentally promote an uncorrelated body into commercial authority.
     // HTTP 500 is intentionally trace-bound because Travelport's current Stays
     // error catalog uses it for structured reservation outcomes, including
     // SourceCode 13034 and validation decisions that affect commercial state.
@@ -88,7 +105,7 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
       || response.status === 429
       || response.status > 500
     ) {
-      return response;
+      return rebuildStatusOnlyResponse(response);
     }
 
     if (response.headers.get('traceId') !== reservation.expectedTraceId) invalidResponse();
