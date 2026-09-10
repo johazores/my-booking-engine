@@ -11,6 +11,7 @@ const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_OFFER_AUTHORITY_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
+const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;
 
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
@@ -347,6 +348,12 @@ function productMatchesExpectedReservation(product: RecordValue, expected: Trave
   const property = optionalRecord(product.PropertyKey);
   const dates = optionalRecord(product.DateRange);
   if (!property || !dates) return false;
+  const rawPropertyKeyType = property['@type'];
+  if (
+    rawPropertyKeyType !== undefined
+    && rawPropertyKeyType !== null
+    && boundedText(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH) !== 'PropertyKey'
+  ) return false;
   return boundedText(property.chainCode, 16) === expected.chainCode
     && boundedText(property.propertyCode, 32) === expected.propertyCode
     && boundedText(dates.start, 10) === expected.arrivalDateLocal
