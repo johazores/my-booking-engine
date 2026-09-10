@@ -20,10 +20,13 @@ function errorResponse(errors: readonly Readonly<{
     ErrorResponse: {
       traceId: '4807ae55-722d-4935-93a9-e9f743625bf5',
       Result: {
+        '@type': 'Result',
         Error: errors.map((error) => ({
+          '@type': 'ErrorDetail',
           StatusCode: statusCode,
           SourceCode: error.sourceCode,
           ...(error.category === undefined ? {} : { category: error.category }),
+          SourceID: 'API',
           Message: 'provider message intentionally ignored',
         })),
       },

@@ -69,10 +69,13 @@ function errorResponseCodes(sourceCodes: readonly string[], statusCode = 400, ca
     ErrorResponse: {
       traceId: '4807ae55-722d-4935-93a9-e9f743625bf5',
       Result: {
+        '@type': 'Result',
         Error: sourceCodes.map((SourceCode) => ({
+          '@type': 'ErrorDetail',
           StatusCode: statusCode,
           SourceCode,
           category,
+          SourceID: 'API',
           Message: 'provider message intentionally ignored',
         })),
       },

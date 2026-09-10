@@ -17,6 +17,10 @@ const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;
 const MAX_LOCATOR_CONTEXT_LENGTH = 64;
 const MAX_LOCATOR_TYPE_LENGTH = 64;
+const MAX_RESULT_TYPE_LENGTH = 64;
+const MAX_ERROR_TYPE_LENGTH = 64;
+const MAX_ERROR_SOURCE_LENGTH = 64;
+const MAX_ERROR_MESSAGE_LENGTH = 4096;
 
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
@@ -168,8 +172,9 @@ function optionalRecord(value: unknown): RecordValue | null {
 
 function boundedText(value: unknown, max: number) {
   if (typeof value !== 'string') return null;
+  if (/[\r\n]/.test(value)) return null;
   const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) return null;
+  if (!normalized || normalized.length > max) return null;
   return normalized;
 }
 
@@ -211,10 +216,15 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
 
   const response = optionalRecord(root.ErrorResponse);
   const result = optionalRecord(response?.Result);
+  const resultType = boundedText(result?.['@type'], MAX_RESULT_TYPE_LENGTH);
   const errors = result?.Error;
   if (
     !response
     || !result
+    || resultType !== 'Result'
+    || result.Errors !== undefined
+    || result.Warning !== undefined
+    || result.Warnings !== undefined
     || !Array.isArray(errors)
     || errors.length < 1
     || errors.length > MAX_ERRORS
@@ -239,6 +249,14 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
       continue;
     }
 
+    const errorType = boundedText(error['@type'], MAX_ERROR_TYPE_LENGTH);
+    const sourceId = boundedText(error.SourceID, MAX_ERROR_SOURCE_LENGTH);
+    const message = boundedText(error.Message, MAX_ERROR_MESSAGE_LENGTH);
+    if (errorType !== 'ErrorDetail' || !sourceId || !message) {
+      valid = false;
+      continue;
+    }
+
     const rawStatusCode = error.StatusCode;
     if (
       typeof rawStatusCode !== 'number'
@@ -252,14 +270,22 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
     }
 
     const raw = error.SourceCode;
-    const sourceCode = typeof raw === 'number' && Number.isInteger(raw) ? String(raw) : typeof raw === 'string' ? raw.trim() : '';
+    const sourceCode = typeof raw === 'number' && Number.isInteger(raw)
+      ? String(raw)
+      : typeof raw === 'string' && !/[\r\n]/.test(raw)
+        ? raw.trim()
+        : '';
     if (!/^\d{1,8}$/.test(sourceCode)) {
       valid = false;
       continue;
     }
 
-    const rawCategory = error.category ?? error.Category;
-    if (typeof rawCategory !== 'string') {
+    if (error.Category !== undefined) {
+      valid = false;
+      continue;
+    }
+    const rawCategory = error.category;
+    if (typeof rawCategory !== 'string' || /[\r\n]/.test(rawCategory)) {
       valid = false;
       continue;
     }
@@ -588,9 +614,10 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
 
   if (!errors.valid || !warnings.valid) return invalidResponse(providerCorrelationId);
 
-  // SourceCode is available only in Travelport's newer Stays error envelope,
-  // where Category and StatusCode are also part of the documented evidence.
-  // Partial or HTTP-inconsistent envelopes cannot grant recovery semantics.
+  // SourceCode is available only in Travelport's newer Stays error envelope.
+  // Source-code authority additionally requires the documented Result and
+  // ErrorDetail discriminators, SourceID/Message, lowercase category field,
+  // and an HTTP-consistent StatusCode. Partial/legacy-shaped errors fail closed.
   const syncRequiredErrors = errors.present
     && errors.errors.length > 0
     && errors.errors.every(

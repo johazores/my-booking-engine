@@ -17,10 +17,13 @@ function validationError(sourceCodes: readonly string[], category: string | null
     ErrorResponse: {
       traceId: 'a6bbfb20-dc6f-4d74-b41f-62c714dd04f0',
       Result: {
+        '@type': 'Result',
         Error: sourceCodes.map((SourceCode) => ({
+          '@type': 'ErrorDetail',
           StatusCode: 400,
           SourceCode,
           ...(category === null ? {} : { category }),
+          SourceID: 'API',
           Message: 'provider text is not durable authority',
         })),
       },

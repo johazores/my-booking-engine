@@ -45,7 +45,7 @@ The reviewed request sends only the exact accepted `acceptPriceChangeInd=true` a
 
 Travelport's Stays error reference documents `13034` as an `UNKNOWN` server-side outcome. The Stays guide is more specific about its operational meaning: the same unconfirmed-supplier error can represent either a timeout where no Booking.com sell occurred or a timeout where Booking.com sold the room but Travelport did not receive the response. The branch is determined by whether the traveler receives the Booking.com confirmation email.
 
-That means `13034` by itself proves neither safe retry nor Sync authority. SF's provider classifier recognizes only a structurally valid homogeneous `13034` family from Travelport's newer SourceCode-bearing envelope, with `Category=UNKNOWN` and a numeric body `StatusCode` matching the actual HTTP response. Because that error response contains no verified supplier confirmation or recovery reference, `travelportStaysCreateOutcomeToSubmissionOutcome` normalizes the durable failure code to `TRAVELPORT_SELL_UNCERTAIN` while keeping the operation `AMBIGUOUS`.
+That means `13034` by itself proves neither safe retry nor Sync authority. SF's provider classifier recognizes only a structurally valid homogeneous `13034` family from Travelport's newer SourceCode-bearing envelope. The current documented JSON structure must be present: `Result.@type=Result`, each error must be `@type=ErrorDetail`, `SourceID` and `Message` must be bounded non-empty strings, the serialized lowercase `category` member must normalize to `UNKNOWN`, no competing plural-error or warning family may coexist in that Result, and the numeric body `StatusCode` must match the actual HTTP response. Because that error response contains no verified supplier confirmation or recovery reference, `travelportStaysCreateOutcomeToSubmissionOutcome` normalizes the durable failure code to `TRAVELPORT_SELL_UNCERTAIN` while keeping the operation `AMBIGUOUS`.
 
 SF does not invent a supplier confirmation, Travelport PNR Locator, Booking.com Sync reference, `NOT_FOUND`, or retryability from `13034`. A future product flow that chooses to resolve this branch must authenticate and validate externally obtained supplier confirmation evidence; raw user claims or free-form email text cannot directly authorize Sync.
 
@@ -61,19 +61,22 @@ An unconfirmed, malformed, or contradictorily paired relevant PNR receipt is con
 
 ## Definitive no-sell validation failures
 
-Travelport's Stays error contract uses two provisioned formats. The older format contains only `StatusCode` and `Message`; it cannot provide SourceCode/category authority. The newer format includes `StatusCode`, `SourceCode`, and `Category` in addition to non-authoritative provider text/source metadata. SF uses the newer decision-bearing evidence narrowly.
+Travelport's Stays error contract uses two provisioned formats. The older format contains only `StatusCode` and `Message`; it cannot provide SourceCode/category authority. The newer format adds `SourceID`, `SourceCode`, and `Category` conceptually; Travelport's current JSON example serializes `Result.@type=Result`, each SourceCode-bearing error as `@type=ErrorDetail`, and the field itself as lowercase `category`. SF uses that newer structural and decision-bearing evidence narrowly.
 
 A provider error becomes durable `FAILED` only when:
 
 - the top-level `ErrorResponse` envelope is structurally valid and bounded;
+- `ErrorResponse.Result` is `@type=Result` and contains only the supported singular `Error` family;
+- every decision-bearing error is `@type=ErrorDetail`;
+- every error includes bounded non-empty `SourceID` and `Message` values;
 - every error includes a numeric `StatusCode` equal to the actual HTTP response status;
-- every error has `category=VALIDATION`;
+- every error has the documented lowercase `category=VALIDATION` member;
 - every source code is in SF's reviewed no-sell validation allowlist; and
 - exactly one unique source code is present.
 
-A SourceCode-bearing envelope with missing Category or StatusCode is not treated as a legacy response. It is incomplete newer evidence and remains ambiguous.
+A SourceCode-bearing envelope with missing or malformed discriminator, SourceID, Message, lowercase category, SourceCode, or StatusCode evidence is not treated as a legacy response. It is incomplete newer evidence and remains ambiguous. The same fail-closed rule applies when `Errors`, `Warning`, or `Warnings` competes with the singular `Error` family. SF does not accept an uppercase JSON `Category` alias, so explicit null or contradictory duplicate category members cannot be hidden by fallback parsing.
 
-The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider message text is ignored.
+The normalized durable code is `TRAVELPORT_VALIDATION_<SourceCode>`. Provider message text and SourceID are ignored after structural validation and never become durable business data.
 
 Automatic retry is narrower than the no-sell allowlist. It is restricted to reviewed validation failures that can be corrected entirely in the server-only ephemeral payment-card source without changing durable reservation or traveler authority. Current retryable form-of-payment validation includes card fields, billing address, telephone, and reviewed supplier card-type validation codes `1537` through `1547`, `13050`, `13054`, `13078`, and `13083` already encoded by the classifier.
 
@@ -87,7 +90,7 @@ The top-level response family is exclusive and must agree with the HTTP outcome:
 
 Travelport's shared `ReservationResponse` contract defines `Result` as the carrier for warning and error messages. Because a successful-looking reservation can therefore coexist structurally with embedded result evidence, SF explicitly rejects any non-null `ReservationResponse.Result.Error` evidence. The defensive undocumented plural `Result.Errors` shape is rejected as well. Embedded result errors cannot be reinterpreted as the Stays top-level no-sell error contract and cannot authorize confirmation, review, definitive failure, retry, or Sync recovery.
 
-The presence of a top-level `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed. Source-code decisions require complete newer decision-bearing evidence: numeric HTTP-consistent `StatusCode`, bounded `SourceCode`, and valid `Category`. The older StatusCode/Message-only format does not grant source-code-based retry, review, or recovery authority.
+The presence of a top-level `ErrorResponse` cannot be masked by confirmation-looking data. Malformed or oversized error collections fail closed. Source-code decisions require the complete current newer shape: `Result.@type=Result`, `Error.@type=ErrorDetail`, bounded `SourceID` and `Message`, numeric HTTP-consistent `StatusCode`, bounded `SourceCode`, and the lowercase `category` member, with no competing error/warning family in Result. The older StatusCode/Message-only format does not grant source-code-based retry, review, or recovery authority.
 
 Reservation warning evidence is also bounded. Malformed or oversized warning collections, conflicting `Warning`/`Warnings` shapes, and warning records without a bounded message prevent promotion to success. Bounded warning-only `ReservationResponse.Result` data does not erase otherwise complete confirmation evidence.
 
@@ -105,13 +108,13 @@ For Booking.com supplier-confirmed/no-PNR recovery, `recordHospitalitySupplierRe
 
 ## Privacy and observability
 
-The classifier and settlement mapper return only normalized decision state, bounded provider/supplier/correlation evidence, fixed SF failure/review codes, and the small non-secret Sync recovery reference when its preconditions are proven. They do not return or log provider error messages, traveler data, form-of-payment data, PAN/CVV, credentials, tokens, request bodies, or response bodies.
+The classifier and settlement mapper return only normalized decision state, bounded provider/supplier/correlation evidence, fixed SF failure/review codes, and the small non-secret Sync recovery reference when its preconditions are proven. They do not return or log provider error messages, SourceID, traveler data, form-of-payment data, PAN/CVV, credentials, tokens, request bodies, or response bodies.
 
 Structured observations use fixed result names and SF-owned tenant/attempt correlation. Raw Travelport payloads are excluded.
 
 ## Validation and remaining activation gates
 
-Focused tests cover commercial outcome classification, top-level envelope exclusivity, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, reciprocal Stays locator pairing, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
+Focused tests cover commercial outcome classification, top-level envelope exclusivity, embedded `ReservationResponse.Result` error rejection while preserving warning-only responses, complete SourceCode-bearing error-envelope authority and HTTP StatusCode coherence, current Result/ErrorDetail/SourceID/Message/category structure and mixed-family rejection, reciprocal Stays locator pairing, PNR-locator identity, relevant receipt cardinality/status/malformed evidence, price/guarantee review, payment-correction retry authority, malformed error/warning handling, Booking.com Sync recovery evidence, complete and partial Sync-recovery settlement authority, 13034 sell-uncertain normalization, reviewed second-Create flag isolation, and privacy.
 
 Travelport `reservation` remains disabled. Activation still requires:
 
