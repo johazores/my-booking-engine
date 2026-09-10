@@ -57,6 +57,7 @@ function reservationResponse(input: Readonly<{
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           Identifier: { authority: 'BKNG' },

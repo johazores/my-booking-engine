@@ -34,6 +34,7 @@ function syncResponse(input: {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           Identifier: { authority: 'BKNG' },

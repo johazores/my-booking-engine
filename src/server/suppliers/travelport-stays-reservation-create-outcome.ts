@@ -10,6 +10,8 @@ const MAX_WARNINGS = 32;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_OFFER_AUTHORITY_LENGTH = 64;
+const MAX_RESERVATION_TYPE_LENGTH = 64;
+const MAX_OFFER_TYPE_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;
 
@@ -372,6 +374,9 @@ function matchedOfferEvidence(
 ): MatchedOfferEvidence {
   if (!validExpectedReservation(expected)) return invalidOfferEvidence();
 
+  const reservationType = boundedText(reservation['@type'], MAX_RESERVATION_TYPE_LENGTH);
+  if (reservationType !== 'ReservationDetail') return invalidOfferEvidence();
+
   const offers = reservation.Offer;
   if (!Array.isArray(offers) || offers.length < 1 || offers.length > MAX_OFFERS) {
     return invalidOfferEvidence();
@@ -383,6 +388,9 @@ function matchedOfferEvidence(
   for (const offerValue of offers) {
     const offer = optionalRecord(offerValue);
     if (!offer) return invalidOfferEvidence();
+
+    const offerType = boundedText(offer['@type'], MAX_OFFER_TYPE_LENGTH);
+    if (offerType !== 'Offer') return invalidOfferEvidence();
 
     const products = offer.Product;
     if (!Array.isArray(products) || products.length < 1 || products.length > MAX_PRODUCTS_PER_OFFER) {

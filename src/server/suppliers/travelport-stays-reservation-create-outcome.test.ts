@@ -22,6 +22,7 @@ function confirmedResponse(input: {
   return {
     ReservationResponse: {
       Reservation: {
+        '@type': 'ReservationDetail',
         Offer: [{
           '@type': 'Offer',
           ...(input.offerAuthority === null ? {} : { Identifier: { authority: input.offerAuthority ?? 'BKNG' } }),

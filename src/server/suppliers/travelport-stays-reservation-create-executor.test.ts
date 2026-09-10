@@ -79,13 +79,17 @@ function confirmedResponse() {
   return new Response(JSON.stringify({
     ReservationResponse: {
       Reservation: {
-        Offer: [{ Product: [{
-          '@type': 'ProductHospitality',
-          Quantity: 1,
-          guests: 2,
-          PropertyKey: { chainCode: 'CN', propertyCode: 'B6381' },
-          DateRange: { start: '2026-10-10', end: '2026-10-12' },
-        }] }],
+        '@type': 'ReservationDetail',
+        Offer: [{
+          '@type': 'Offer',
+          Product: [{
+            '@type': 'ProductHospitality',
+            Quantity: 1,
+            guests: 2,
+            PropertyKey: { chainCode: 'CN', propertyCode: 'B6381' },
+            DateRange: { start: '2026-10-10', end: '2026-10-12' },
+          }],
+        }],
         Receipt: [{
           Confirmation: {
             Locator: { value: '0GQ9HS', locatorType: 'PNR Locator', sourceContext: 'Travelport' },
