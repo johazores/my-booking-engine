@@ -8,6 +8,7 @@ const MAX_WARNINGS = 32;
 const MAX_RESERVATION_TYPE_LENGTH = 64;
 const MAX_OFFER_TYPE_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
+const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
@@ -90,6 +91,19 @@ function assertSupportedResultEvidence(response: RecordValue) {
   }
 }
 
+function assertSupportedPropertyKeyType(propertyKey: RecordValue) {
+  const rawPropertyKeyType = propertyKey['@type'];
+  if (rawPropertyKeyType === undefined || rawPropertyKeyType === null) return;
+
+  const propertyKeyType = boundedProviderValue(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH);
+  if (propertyKeyType !== 'PropertyKey') {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained malformed or unexpected property-key type evidence.',
+    );
+  }
+}
+
 function assertExpectedReservationMatch(
   reservation: RecordValue,
   expected: TravelportStaysReservationRecoveryExpectation,
@@ -161,6 +175,7 @@ function assertExpectedReservationMatch(
       activeHospitalitySegments += 1;
       if (!product.PropertyKey || !product.DateRange) continue;
       const propertyKey = record(product.PropertyKey);
+      assertSupportedPropertyKeyType(propertyKey);
       const dateRange = record(product.DateRange);
       const chainCode = boundedProviderValue(propertyKey.chainCode, 16);
       const propertyCode = boundedProviderValue(propertyKey.propertyCode, 32);
