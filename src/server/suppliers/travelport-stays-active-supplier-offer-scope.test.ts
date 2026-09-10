@@ -176,6 +176,22 @@ test('active-hotel supplier cancellation still reaches the active lifecycle reje
   }));
 });
 
+test('rejects supplier confirmation shared across the hotel and another active offer', () => {
+  assertInvalid(() => parseTravelportStaysReservationResponse(response({
+    supplier: supplierReceipt({ offerRefs: ['O1', 'O2'] }),
+    extraOffer: {
+      '@type': 'Offer',
+      id: 'O2',
+      passiveOfferInd: false,
+      Product: [{ '@type': 'ProductAir' }],
+    },
+  }), {
+    expectedProviderReservationReference: 'PNR-123',
+    expectedReservation,
+    requireConfirmedTravelportReceipt: true,
+  }));
+});
+
 test('rejects duplicate receipt offer references rather than collapsing ownership evidence', () => {
   assertInvalid(() => parseTravelportStaysReservationResponse(response({
     supplier: supplierReceipt({ offerRefs: ['O1', 'O1'] }),
