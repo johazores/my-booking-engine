@@ -84,12 +84,14 @@ function normalizedReceipt(
   if (!reference) return null;
 
   const rawSource = locator.source;
+  if (requireHospitalityDiscriminators && rawSource === null) return null;
   const source = rawSource === undefined || rawSource === null
     ? null
     : boundedProviderValue(rawSource, MAX_LOCATOR_SOURCE_LENGTH);
   if (rawSource !== undefined && rawSource !== null && !source) return null;
 
   const offerStatus = confirmation.OfferStatus;
+  if (requireHospitalityDiscriminators && offerStatus === null) return null;
   let status: string | null = null;
   if (offerStatus !== undefined && offerStatus !== null) {
     const statusRecord = optionalRecord(offerStatus);
@@ -142,6 +144,9 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   }
 
   const offerStatus = cancellation.OfferStatus;
+  if (hasCanonicalStaysPair && offerStatus === null) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
   const offerStatusRecord = offerStatus === undefined || offerStatus === null
     ? null
     : optionalRecord(offerStatus);
@@ -197,6 +202,9 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   }
 
   const rawSource = locator.source;
+  if (hasCanonicalStaysPair && rawSource === null) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
   const source = rawSource === undefined || rawSource === null
     ? null
     : boundedProviderValue(rawSource, MAX_LOCATOR_SOURCE_LENGTH);
