@@ -63,7 +63,12 @@ test('Travelport recovery confirms one active hospitality segment and binds rece
   assert.match(parser, /departureDateLocal === expected\.departureDateLocal/);
   assert.match(parser, /product\.Quantity === expected\.rooms/);
   assert.match(parser, /product\.guests === expected\.guests/);
-  assert.match(parser, /if \(activeHospitalitySegments !== 1 \|\| matches !== 1\)/);
+  assert.match(parser, /activeHospitalityOfferId = offerId/);
+  assert.match(parser, /if \(activeHospitalitySegments !== 1 \|\| matches !== 1 \|\| !activeHospitalityOfferId\)/);
+  assert.match(parser, /normalizedOfferRefs\.length !== 1[\s\S]*?normalizedOfferRefs\[0\] !== offerScope\.activeHospitalityOfferId/);
+  assert.match(parser, /supplier receipt evidence without active hotel offer scope/i);
+  assert.match(parser, /supplier receipt evidence outside the active hotel offer/i);
+  assert.match(parser, /new Set\(normalizedOfferRefs\)\.size !== normalizedOfferRefs\.length/);
   assert.match(parser, /const passiveReceiptEvidence = inspectTravelportStaysReservationReceiptEvidence\(\[receipt\]\)/);
   assert.match(parser, /passiveReceiptEvidence\.travelportPnrReceipts\.length > 0/);
   assert.match(parser, /passiveReceiptEvidence\.supplierConfirmationReceipts\.length > 0/);
