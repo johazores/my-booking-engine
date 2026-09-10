@@ -358,7 +358,6 @@ function productMatchesExpectedReservation(product: RecordValue, expected: Trave
   const rawPropertyKeyType = property['@type'];
   if (
     rawPropertyKeyType !== undefined
-    && rawPropertyKeyType !== null
     && boundedText(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH) !== 'PropertyKey'
   ) return false;
   return boundedText(property.chainCode, 16) === expected.chainCode
@@ -407,10 +406,11 @@ function matchedOfferEvidence(
     if (offerType !== 'Offer') return invalidOfferEvidence();
 
     const rawOfferId = offer.id;
-    const offerId = rawOfferId === undefined || rawOfferId === null
-      ? null
-      : boundedText(rawOfferId, MAX_OFFER_REFERENCE_LENGTH);
-    if ((rawOfferId !== undefined && rawOfferId !== null && !offerId) || (offerId && offerIds.has(offerId))) {
+    const hasOfferId = rawOfferId !== undefined;
+    const offerId = hasOfferId
+      ? boundedText(rawOfferId, MAX_OFFER_REFERENCE_LENGTH)
+      : null;
+    if ((hasOfferId && !offerId) || (offerId && offerIds.has(offerId))) {
       return invalidOfferEvidence();
     }
     if (offerId) offerIds.add(offerId);

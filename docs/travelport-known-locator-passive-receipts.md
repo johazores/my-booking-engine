@@ -18,6 +18,8 @@ Known-locator recovery first verifies the durable reservation expectation agains
 
 The offer discriminator is validated before `passiveOfferInd` can establish passive scope. An arbitrary or malformed object therefore cannot gain the ability to skip product validation or suppress offer-scoped durable receipt evidence merely by presenting an `id` plus `passiveOfferInd=true`. Missing, malformed, multiline, or contradictory offer-type evidence fails closed for both active and passive entries.
 
+`passiveOfferInd` is also an authority-bearing scope flag. Genuine omission remains compatible with the existing non-passive interpretation, but any present value must be a Boolean. Explicit JSON `null` is malformed rather than equivalent to omission, so it cannot silently turn a provider-present passive-state field into active scope. Only the literal Boolean `true` establishes passive ownership.
+
 Only after active identity and offer-ID integrity succeed does Retrieve classify explicit passive offers. Before the shared Stays receipt inspector runs, Retrieve excludes the exact documented locator-less placeholder receipt shape when all of that receipt's bounded `OfferRef` values point to explicitly passive offer IDs. The ignored placeholder must be `ReceiptConfirmation` / `ConfirmationHold`, must have no `Locator`, and must carry `OfferStatusHospitality` with `code=AK` and `Status=Confirmed`.
 
 Any other receipt scoped exclusively to explicit passive offers is first passed through the shared Stays receipt inspector. Malformed or contradictory Stays evidence still fails closed and cannot disappear merely because its `OfferRef` points to a passive segment. If the validated receipt contains a Travelport PNR Locator, supplier Confirmation Number, or supplier cancellation lifecycle locator, that durable identity/lifecycle evidence is then excluded from the active reservation evidence set because its ownership is proven to be passive-only.
@@ -34,7 +36,7 @@ The exception remains intentionally narrow:
 
 - every offer used for known-locator receipt scoping must have the canonical bounded `@type=Offer` discriminator and a bounded unique ID;
 - an offer is never considered passive unless `passiveOfferInd === true`;
-- malformed non-boolean passive flags still fail closed in the existing active-segment identity boundary;
+- if `passiveOfferInd` is present it must be Boolean; explicit `null` and other non-Boolean values fail closed, while genuine omission preserves the existing non-passive compatibility;
 - a receipt with malformed, empty, oversized, multiline, non-string, or unknown `OfferRef` evidence fails closed;
 - a receipt that mixes active and passive offer references fails closed instead of being discarded;
 - the exact locator-less passive AK/Confirmed placeholder is excluded;
@@ -59,6 +61,7 @@ Focused behavior coverage verifies:
 - the documented active `O1` plus passive placeholder `O2` response, including the locator-less AK receipt, is accepted for known-locator recovery;
 - active and passive entries must prove the canonical bounded `@type=Offer` discriminator before either can establish recovery scope;
 - missing, malformed, multiline, or contradictory offer-type evidence fails closed before passive product skipping or receipt filtering;
+- explicit-null `passiveOfferInd` fails closed while genuine omission remains compatible with non-passive interpretation;
 - the active Travelport PNR and active supplier Confirmation Number remain the normalized durable evidence;
 - receipt `OfferRef` values must resolve to returned offer IDs;
 - returned offer IDs must be present, bounded, and unique before receipt scoping;
@@ -70,6 +73,6 @@ Focused behavior coverage verifies:
 - locator-less passive evidence outside the documented AK/Confirmed placeholder shape remains invalid; and
 - malformed passive receipt offer references fail closed.
 
-A dependency-free source contract also requires Retrieve to validate the canonical offer discriminator, offer/receipt scoping, and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
+A dependency-free source contract also requires Retrieve to validate the canonical offer discriminator, offer/receipt scoping, absent-not-null passive-state evidence, and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. Live provider behavior remains gated on provisioned Travelport non-production credentials and the reviewed PCI-safe payment/guarantee source. GitHub Actions are not used.

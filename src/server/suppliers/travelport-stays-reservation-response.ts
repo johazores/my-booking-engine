@@ -93,7 +93,7 @@ function assertSupportedResultEvidence(response: RecordValue) {
 
 function assertSupportedPropertyKeyType(propertyKey: RecordValue) {
   const rawPropertyKeyType = propertyKey['@type'];
-  if (rawPropertyKeyType === undefined || rawPropertyKeyType === null) return;
+  if (rawPropertyKeyType === undefined) return;
 
   const propertyKeyType = boundedProviderValue(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH);
   if (propertyKeyType !== 'PropertyKey') {
@@ -140,7 +140,6 @@ function assertExpectedReservationMatch(
     const passiveOfferInd = offer.passiveOfferInd;
     if (
       passiveOfferInd !== undefined
-      && passiveOfferInd !== null
       && typeof passiveOfferInd !== 'boolean'
     ) {
       throw new HospitalitySupplierProviderError(

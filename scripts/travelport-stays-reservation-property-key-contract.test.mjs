@@ -11,9 +11,10 @@ test('Travelport known-locator recovery validates explicit PropertyKey type befo
   assert.match(parser, /const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;/);
   assert.match(parser, /function assertSupportedPropertyKeyType\(propertyKey: RecordValue\)/);
   assert.match(parser, /const rawPropertyKeyType = propertyKey\['@type'\];/);
-  assert.match(parser, /rawPropertyKeyType === undefined \|\| rawPropertyKeyType === null\) return;/);
+  assert.match(parser, /if \(rawPropertyKeyType === undefined\) return;/);
   assert.match(parser, /boundedProviderValue\(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH\)/);
   assert.match(parser, /propertyKeyType !== 'PropertyKey'/);
+  assert.doesNotMatch(parser, /rawPropertyKeyType === undefined \|\| rawPropertyKeyType === null\) return;/);
 
   const propertyRecord = parser.indexOf('const propertyKey = record(product.PropertyKey);');
   const discriminatorCheck = parser.indexOf('assertSupportedPropertyKeyType(propertyKey);');
@@ -21,10 +22,11 @@ test('Travelport known-locator recovery validates explicit PropertyKey type befo
   assert.ok(propertyRecord >= 0 && discriminatorCheck > propertyRecord && chainAuthority > discriminatorCheck);
 });
 
-test('commercial Create and Sync classification applies the same optional explicit PropertyKey contradiction rule', () => {
+test('commercial Create and Sync classification applies the same absent-not-null PropertyKey rule', () => {
   assert.match(createClassifier, /const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;/);
   assert.match(createClassifier, /const rawPropertyKeyType = property\['@type'\];/);
-  assert.match(createClassifier, /rawPropertyKeyType !== undefined[\s\S]*?rawPropertyKeyType !== null[\s\S]*?boundedText\(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH\) !== 'PropertyKey'/);
+  assert.match(createClassifier, /rawPropertyKeyType !== undefined[\s\S]*?boundedText\(rawPropertyKeyType, MAX_PROPERTY_KEY_TYPE_LENGTH\) !== 'PropertyKey'/);
+  assert.doesNotMatch(createClassifier, /rawPropertyKeyType !== undefined[\s\S]{0,120}?rawPropertyKeyType !== null/);
 
   const propertyRecord = createClassifier.indexOf('const property = optionalRecord(product.PropertyKey);');
   const discriminatorCheck = createClassifier.indexOf("const rawPropertyKeyType = property['@type'];");
@@ -32,9 +34,21 @@ test('commercial Create and Sync classification applies the same optional explic
   assert.ok(propertyRecord >= 0 && discriminatorCheck > propertyRecord && chainAuthority > discriminatorCheck);
 });
 
-test('PropertyKey discriminator hardening does not make omission mandatory or entangle payment evidence', () => {
-  assert.match(parser, /rawPropertyKeyType === undefined \|\| rawPropertyKeyType === null\) return;/);
-  assert.match(createClassifier, /rawPropertyKeyType !== undefined[\s\S]*?rawPropertyKeyType !== null/);
+test('commercial optional Offer.id compatibility also distinguishes omission from explicit null', () => {
+  assert.match(createClassifier, /const rawOfferId = offer\.id;/);
+  assert.match(createClassifier, /const hasOfferId = rawOfferId !== undefined;/);
+  assert.match(createClassifier, /const offerId = hasOfferId[\s\S]*?boundedText\(rawOfferId, MAX_OFFER_REFERENCE_LENGTH\)[\s\S]*?: null;/);
+  assert.match(createClassifier, /\(hasOfferId && !offerId\)/);
+});
+
+test('known-locator passive scope treats explicit null as malformed while preserving genuine omission', () => {
+  assert.match(parser, /const passiveOfferInd = offer\.passiveOfferInd;/);
+  assert.match(parser, /passiveOfferInd !== undefined[\s\S]*?typeof passiveOfferInd !== 'boolean'/);
+  assert.doesNotMatch(parser, /passiveOfferInd !== undefined[\s\S]{0,120}?passiveOfferInd !== null/);
+  assert.match(parser, /if \(passiveOfferInd === true\)/);
+});
+
+test('structural discriminator hardening remains isolated from payment evidence', () => {
   assert.doesNotMatch(parser, /PropertyKey.*FormOfPayment|PropertyKey.*PaymentCard/s);
   assert.doesNotMatch(createClassifier, /PropertyKey.*FormOfPayment|PropertyKey.*PaymentCard/s);
 });
