@@ -15,14 +15,5 @@ test('Travelport receipt types cannot hide contradictory reservation branches', 
   assert.match(helper, /receiptType === 'ReceiptPayment'[\s\S]*hasConfirmationBranch \|\| hasCancellationBranch/);
   assert.match(helper, /receiptType === 'ReceiptCancellation'[\s\S]*hasConfirmationBranch/);
   assert.match(helper, /receiptType !== 'ReceiptConfirmation' \|\| hasCancellationBranch/);
-});
-
-test('branch hardening preserves the shared lifecycle boundary and privacy contract', () => {
-  const helper = source('src/server/suppliers/travelport-stays-reservation-receipt-evidence.ts');
-  const create = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
-  const retrieve = source('src/server/suppliers/travelport-stays-reservation-response.ts');
-
-  assert.match(create, /inspectTravelportStaysReservationReceiptEvidence\(reservation\.Receipt\)/);
-  assert.match(retrieve, /inspectTravelportStaysReservationReceiptEvidence\(receiptInput\)/);
   assert.doesNotMatch(helper, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
 });

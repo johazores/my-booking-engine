@@ -22,15 +22,15 @@ Caller-specific rules remain stronger where required. In particular, the commerc
 
 ## Multi-content compatibility
 
-Canonical unrelated `ReceiptPayment` evidence remains outside Stays locator authority. Generic shared-model confirmation/cancellation evidence remains subject to the existing multi-content rules in `docs/travelport-stays-receipt-evidence.md`.
+Canonical unrelated `ReceiptPayment` evidence remains outside Stays locator authority. A receipt that claims `ReceiptPayment` but also presents a `Confirmation` or `Cancellation` reservation branch is contradictory and fails closed; likewise, confirmation and cancellation branches cannot coexist on one receipt or contradict the outer confirmation/cancellation receipt type. Generic shared-model confirmation/cancellation evidence remains subject to the existing multi-content rules in `docs/travelport-stays-receipt-evidence.md`.
 
-This hardening does not reinterpret foreign content as Stays. It only prevents normalization from converting malformed provider-owned receipt tokens into canonical Stays authority.
+This hardening does not reinterpret foreign content as Stays. It prevents malformed provider-owned receipt structure or tokens from being converted into omission or canonical Stays authority.
 
 ## Validation
 
-Focused regression coverage checks canonical confirmations, Travelport PNR evidence, relevant cancellation evidence, every commercially meaningful receipt token family, padded and duplicate `OfferRef` values, explicit-null/malformed offer-scope evidence, and canonical unrelated payment-receipt compatibility.
+Focused regression coverage checks canonical confirmations, Travelport PNR evidence, relevant cancellation evidence, every commercially meaningful receipt token family, padded and duplicate `OfferRef` values, explicit-null/malformed offer-scope evidence, canonical unrelated payment-receipt compatibility, and outer receipt/confirmation/cancellation branch exclusivity.
 
-A dependency-free source contract pins the unpadded-value guard and requires offer-scope validation to remain active for both supported confirmation receipts and relevant Stays cancellation receipts.
+Dependency-free source contracts pin the unpadded-value guard, require offer-scope validation to remain active for supported confirmation and relevant Stays cancellation receipts, and prevent typed payment or mixed reservation branches from bypassing the shared inspector.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. PostgreSQL scenarios require an explicitly disposable target, and live Travelport verification requires provisioned non-production credentials and reviewed payment authority.
 
@@ -45,4 +45,5 @@ Travelport `reservation` remains unadvertised. Production activation still requi
 - Travelport Hotel v11 Sync Reservation.
 - Travelport Hotel v11 Cancel Hotel Reservation.
 - `docs/travelport-stays-receipt-evidence.md`.
+- `docs/travelport-stays-receipt-branch-authority.md`.
 - `docs/travelport-commercial-receipt-scope.md`.

@@ -29,7 +29,7 @@ This rule does not parse or persist payment data. It only prevents a typed recei
 
 ## Validation
 
-Focused behavior coverage preserves canonical `ReceiptPayment` compatibility and rejects payment receipts containing reservation branches, mixed confirmation/cancellation objects, and explicit-null conflicting branches. A dependency-free source contract pins the branch-exclusivity checks and confirms both Create/Sync and Retrieve continue to use the same inspector.
+Focused behavior coverage preserves canonical `ReceiptPayment` compatibility and rejects payment receipts containing reservation branches, mixed confirmation/cancellation objects, and explicit-null conflicting branches. A dependency-free source contract pins the branch-exclusivity checks. The existing shared receipt-evidence source contract separately confirms that Create/Sync and Retrieve continue to use the same inspector.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. PostgreSQL scenarios require an explicitly disposable target, and live Travelport verification requires provisioned non-production credentials and reviewed payment authority.
 
