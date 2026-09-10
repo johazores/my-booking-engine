@@ -75,7 +75,7 @@ function normalizedReceipt(
   requireHospitalityDiscriminators: boolean,
 ): TravelportStaysLocatorReceiptEvidence | null {
   const rawConfirmationType = confirmation['@type'];
-  if (requireHospitalityDiscriminators && rawConfirmationType !== undefined && rawConfirmationType !== null) {
+  if (requireHospitalityDiscriminators && rawConfirmationType !== undefined) {
     const confirmationType = boundedProviderValue(rawConfirmationType, MAX_CONFIRMATION_TYPE_LENGTH);
     if (confirmationType !== 'ConfirmationHold') return null;
   }
@@ -96,7 +96,7 @@ function normalizedReceipt(
     if (!statusRecord) return null;
 
     const rawOfferStatusType = statusRecord['@type'];
-    if (requireHospitalityDiscriminators && rawOfferStatusType !== undefined && rawOfferStatusType !== null) {
+    if (requireHospitalityDiscriminators && rawOfferStatusType !== undefined) {
       const offerStatusType = boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
       if (offerStatusType !== 'OfferStatusHospitality') return null;
     }
@@ -117,8 +117,8 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
 
   const rawSourceContext = locator.sourceContext;
   const rawLocatorType = locator.locatorType;
-  const hasSourceContext = rawSourceContext !== undefined && rawSourceContext !== null;
-  const hasLocatorType = rawLocatorType !== undefined && rawLocatorType !== null;
+  const hasSourceContext = rawSourceContext !== undefined;
+  const hasLocatorType = rawLocatorType !== undefined;
   const sourceContext = hasSourceContext
     ? boundedProviderValue(rawSourceContext, MAX_LOCATOR_CONTEXT_LENGTH)
     : null;
@@ -150,12 +150,11 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   }
 
   const rawOfferStatusType = offerStatusRecord?.['@type'];
-  const offerStatusType = rawOfferStatusType === undefined || rawOfferStatusType === null
+  const offerStatusType = rawOfferStatusType === undefined
     ? null
     : boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
   if (
     rawOfferStatusType !== undefined
-    && rawOfferStatusType !== null
     && !offerStatusType
     && (hasCanonicalStaysPair || hasStaysLocatorType)
   ) {
@@ -181,7 +180,7 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   }
 
   const rawCancellationType = cancellation['@type'];
-  if (rawCancellationType !== undefined && rawCancellationType !== null) {
+  if (rawCancellationType !== undefined) {
     const cancellationType = boundedProviderValue(rawCancellationType, MAX_CANCELLATION_TYPE_LENGTH);
     if (cancellationType !== 'CancellationHold') {
       return Object.freeze({ valid: false, relevant: false, receipt: null });
@@ -244,7 +243,7 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     if (!receipt) return invalidEvidence();
 
     const rawReceiptType = receipt['@type'];
-    if (rawReceiptType !== undefined && rawReceiptType !== null) {
+    if (rawReceiptType !== undefined) {
       const receiptType = boundedProviderValue(rawReceiptType, MAX_RECEIPT_TYPE_LENGTH);
       if (!receiptType) return invalidEvidence();
       if (receiptType === 'ReceiptPayment') continue;
@@ -270,8 +269,8 @@ export function inspectTravelportStaysReservationReceiptEvidence(
 
     const rawSourceContext = locator.sourceContext;
     const rawLocatorType = locator.locatorType;
-    const hasSourceContext = rawSourceContext !== undefined && rawSourceContext !== null;
-    const hasLocatorType = rawLocatorType !== undefined && rawLocatorType !== null;
+    const hasSourceContext = rawSourceContext !== undefined;
+    const hasLocatorType = rawLocatorType !== undefined;
 
     if (!hasSourceContext && !hasLocatorType) {
       // Generic multi-content confirmation locators (for example air content)

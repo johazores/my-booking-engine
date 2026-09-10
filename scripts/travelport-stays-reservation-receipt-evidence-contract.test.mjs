@@ -59,5 +59,24 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(helper, /supplierCancellationReceipts\.push\(cancellation\.receipt\)/);
   assert.match(create, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
   assert.match(retrieve, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
+
+  assert.equal(
+    (helper.match(/const hasSourceContext = rawSourceContext !== undefined;/g) ?? []).length,
+    2,
+    'confirmation and cancellation locators must treat explicit null sourceContext as present malformed evidence',
+  );
+  assert.equal(
+    (helper.match(/const hasLocatorType = rawLocatorType !== undefined;/g) ?? []).length,
+    2,
+    'confirmation and cancellation locators must treat explicit null locatorType as present malformed evidence',
+  );
+  assert.doesNotMatch(helper, /rawSourceContext !== undefined\s*&&\s*rawSourceContext !== null/);
+  assert.doesNotMatch(helper, /rawLocatorType !== undefined\s*&&\s*rawLocatorType !== null/);
+  assert.match(helper, /if \(rawReceiptType !== undefined\)/);
+  assert.match(helper, /requireHospitalityDiscriminators && rawConfirmationType !== undefined/);
+  assert.match(helper, /requireHospitalityDiscriminators && rawOfferStatusType !== undefined/);
+  assert.match(helper, /if \(rawCancellationType !== undefined\)/);
+  assert.match(helper, /const offerStatusType = rawOfferStatusType === undefined/);
+
   assert.doesNotMatch(helper, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
 });
