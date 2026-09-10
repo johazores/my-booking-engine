@@ -8,6 +8,7 @@ const MAX_LOCATOR_TYPE_LENGTH = 64;
 const MAX_LOCATOR_SOURCE_LENGTH = 16;
 const MAX_OFFER_STATUS_TYPE_LENGTH = 64;
 const MAX_STATUS_LENGTH = 64;
+const MAX_OFFER_REFERENCE_LENGTH = 64;
 
 type RecordValue = Record<string, unknown>;
 
@@ -37,8 +38,22 @@ function optionalRecord(value: unknown): RecordValue | null {
 function boundedProviderValue(value: unknown, max: number) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) return null;
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > max
+    || /[\r\n]/.test(normalized)
+  ) return null;
   return normalized;
+}
+
+function hasValidOfferReferences(value: unknown) {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_RECEIPTS) return false;
+
+  const references = value.map((reference) => boundedProviderValue(reference, MAX_OFFER_REFERENCE_LENGTH));
+  if (references.some((reference) => reference === null)) return false;
+  return new Set(references).size === references.length;
 }
 
 function invalidEvidence(): TravelportStaysReservationReceiptEvidence {
@@ -174,6 +189,10 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   const relevant = hasCanonicalStaysPair || hasHospitalityStatus;
   if (!relevant) {
     return Object.freeze({ valid: true, relevant: false, receipt: null });
+  }
+
+  if (!hasValidOfferReferences(receipt.OfferRef)) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
   }
 
   if (
@@ -314,6 +333,10 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const hasSupportedStaysPair = hasCanonicalStaysPair
       || (sourceContext === 'Supplier' && locatorType === 'Pin code');
     if ((hasStaysSourceContext || hasStaysLocatorType) && !hasSupportedStaysPair) {
+      return invalidEvidence();
+    }
+
+    if (hasSupportedStaysPair && !hasValidOfferReferences(receipt.OfferRef)) {
       return invalidEvidence();
     }
 
