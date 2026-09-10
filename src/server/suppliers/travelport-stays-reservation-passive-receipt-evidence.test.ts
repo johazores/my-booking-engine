@@ -195,6 +195,37 @@ test('only the documented AK locator-less placeholder shape is excluded', () => 
   );
 });
 
+test('passive placeholder cannot hide a sibling cancellation branch', () => {
+  const body = response();
+  const placeholder = body.ReservationResponse.Reservation.Receipt[1]! as unknown as Record<string, unknown>;
+  placeholder.Cancellation = {
+    '@type': 'CancellationHold',
+    Locator: {
+      value: 'PASSIVE-CXL',
+      locatorType: 'Cancellation Number',
+      source: 'XV',
+      sourceContext: 'Supplier',
+    },
+    OfferStatus: { '@type': 'OfferStatusHospitality', Status: 'Cancelled' },
+  };
+
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
+test('passive placeholder treats explicit-null cancellation branch as malformed evidence', () => {
+  const body = response();
+  const placeholder = body.ReservationResponse.Reservation.Receipt[1]! as unknown as Record<string, unknown>;
+  placeholder.Cancellation = null;
+
+  assert.throws(
+    () => parse(body),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
 test('malformed passive receipt offer references remain fail closed', () => {
   for (const malformed of [null, [], [null], ['O2\nsecret']]) {
     const body = response();
