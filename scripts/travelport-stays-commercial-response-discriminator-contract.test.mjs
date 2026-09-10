@@ -36,7 +36,8 @@ test('Booking.com Sync missing-locatorType compatibility is limited to the docum
   assert.match(syncDomain, /function isDocumentedTravelportSyncPnrWithoutLocatorType/);
   assert.match(syncDomain, /receipt\['@type'\] !== 'ReceiptConfirmation'/);
   assert.match(syncDomain, /confirmation\['@type'\] !== 'ConfirmationHold'/);
-  assert.match(syncDomain, /receipt\.OfferRef !== undefined && receipt\.OfferRef !== null/);
+  assert.match(syncDomain, /receipt\.OfferRef !== undefined/);
+  assert.doesNotMatch(syncDomain, /receipt\.OfferRef !== undefined && receipt\.OfferRef !== null/);
   assert.match(syncDomain, /locator\.sourceContext === 'Travelport'/);
   assert.match(syncDomain, /locator\.locatorType === undefined/);
   assert.match(syncDomain, /offerStatus\?\.\['@type'\] === 'OfferStatusHospitality'/);
