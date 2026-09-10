@@ -77,11 +77,17 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     const response = await fetchImpl(input, init);
     if (!reservation) return response;
 
-    // Authentication, rate-limit, and provider-unavailable statuses are already
-    // transport/status authority and must reach the caller for token eviction and
-    // bounded retry classification. No reservation payload authority is accepted
-    // from those responses by this boundary.
-    if (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500) {
+    // Authentication and rate-limit statuses, plus provider/gateway statuses
+    // above 500, are status authority and must reach the caller unchanged.
+    // HTTP 500 is intentionally trace-bound because Travelport's current Stays
+    // error catalog uses it for structured reservation outcomes, including
+    // SourceCode 13034 and validation decisions that affect commercial state.
+    if (
+      response.status === 401
+      || response.status === 403
+      || response.status === 429
+      || response.status > 500
+    ) {
       return response;
     }
 

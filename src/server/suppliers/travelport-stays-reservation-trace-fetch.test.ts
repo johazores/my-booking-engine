@@ -18,16 +18,18 @@ function reservationResponse(input: Readonly<{
   payloadTrace?: unknown;
   headerTrace?: string | null;
   family?: 'ReservationResponse' | 'ErrorResponse';
+  status?: number;
 }> = {}) {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const headerTrace = input.headerTrace === undefined ? traceId : input.headerTrace;
   if (headerTrace !== null) headers.set('traceId', headerTrace);
+  const family = input.family ?? 'ReservationResponse';
   return new Response(JSON.stringify({
-    [input.family ?? 'ReservationResponse']: {
+    [family]: {
       traceId: input.payloadTrace === undefined ? traceId : input.payloadTrace,
       marker: 'preserved',
     },
-  }), { status: input.family === 'ErrorResponse' ? 400 : 200, headers });
+  }), { status: input.status ?? (family === 'ErrorResponse' ? 400 : 200), headers });
 }
 
 async function assertInvalidResponse(response: Response) {
@@ -51,6 +53,30 @@ test('accepts exact response-header and payload trace echoes and preserves the r
     assert.equal(response.headers.get('traceId'), traceId);
     assert.equal((await response.json() as { [key: string]: { marker: string } })[family]?.marker, 'preserved');
   }
+});
+
+test('trace-binds HTTP 500 reservation error evidence before it can affect commercial classification', async () => {
+  const wrapped = createTravelportStaysReservationTraceAuthorityFetch(
+    (async () => reservationResponse({ family: 'ErrorResponse', status: 500 })) as typeof fetch,
+  );
+  const accepted = await wrapped(
+    'https://api.pp.travelport.net/11/hotel/book/reservations/build',
+    requestInit(),
+  );
+  assert.equal(accepted.status, 500);
+  assert.equal(accepted.headers.get('traceId'), traceId);
+  assert.equal((await accepted.json() as { ErrorResponse?: { marker?: string } }).ErrorResponse?.marker, 'preserved');
+
+  await assertInvalidResponse(reservationResponse({
+    family: 'ErrorResponse',
+    status: 500,
+    headerTrace: null,
+  }));
+  await assertInvalidResponse(reservationResponse({
+    family: 'ErrorResponse',
+    status: 500,
+    payloadTrace: '11111111-1111-4111-8111-111111111111',
+  }));
 });
 
 test('fails closed when either provider trace echo is missing or mismatched', async () => {
@@ -81,7 +107,7 @@ test('passes non-reservation Stays traffic through without consuming or rewritin
   assert.deepEqual(await response.json(), { RulesResponse: { traceId: 'provider-generated' } });
 });
 
-test('preserves auth, rate-limit, and provider-unavailable status handling without requiring payload authority', async () => {
+test('preserves auth, rate-limit, and provider-unavailable statuses above 500 without requiring payload authority', async () => {
   for (const status of [401, 403, 429, 503]) {
     const original = new Response('{}', { status });
     const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async () => original) as typeof fetch);

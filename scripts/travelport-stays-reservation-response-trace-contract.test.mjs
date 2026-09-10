@@ -30,3 +30,17 @@ test('all implemented reservation executors and recovery provider receive the sa
     assert.notEqual(integration.indexOf('fetchImpl,', constructorIndex), -1, `${constructorName} must receive the protected fetch`);
   }
 });
+
+test('Travelport HTTP 500 reservation errors cannot bypass response trace authority', () => {
+  const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(
+    reservationTraceFetch,
+    /response\.status > 500/,
+    'only provider/gateway statuses above HTTP 500 may bypass payload trace authority',
+  );
+  assert.doesNotMatch(
+    reservationTraceFetch,
+    /response\.status >= 500/,
+    'HTTP 500 carries documented Stays business error evidence and must remain trace-bound',
+  );
+});
