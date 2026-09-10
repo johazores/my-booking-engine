@@ -50,6 +50,8 @@ test('Travelport recovery confirms one active hospitality segment and binds rece
   const createClassifier = source('src/server/suppliers/travelport-stays-reservation-create-outcome.ts');
   assert.match(parser, /const productType = boundedProviderValue\(product\['@type'\], MAX_PRODUCT_TYPE_LENGTH\)/);
   assert.match(parser, /if \(productType !== 'ProductHospitality'\) continue/);
+  assert.match(parser, /const offerType = boundedProviderValue\(offer\['@type'\], MAX_OFFER_TYPE_LENGTH\)/);
+  assert.match(parser, /if \(offerType !== 'Offer'\)/);
   assert.match(parser, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
   assert.match(parser, /offerIds\.has\(offerId\)/);
   assert.match(parser, /const passiveOfferInd = offer\.passiveOfferInd/);

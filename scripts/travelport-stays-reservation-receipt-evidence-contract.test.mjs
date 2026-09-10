@@ -15,6 +15,8 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(retrieve, /const offerScope = assertExpectedReservationMatch\(reservation, input\.expectedReservation\)/);
   assert.match(retrieve, /const offerIds = new Set<string>\(\)/);
   assert.match(retrieve, /const passiveOfferIds = new Set<string>\(\)/);
+  assert.match(retrieve, /const offerType = boundedProviderValue\(offer\['@type'\], MAX_OFFER_TYPE_LENGTH\)/);
+  assert.match(retrieve, /if \(offerType !== 'Offer'\)/);
   assert.match(retrieve, /!offerId \|\| offerIds\.has\(offerId\)/);
   assert.match(retrieve, /offerRefs\.some\(\(offerRef\) => !offerScope\.offerIds\.has\(offerRef!\)\)/);
   assert.match(retrieve, /unknown offer/i);
