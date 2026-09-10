@@ -306,10 +306,20 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const rawLocatorType = locator.locatorType;
     const hasSourceContext = rawSourceContext !== undefined;
     const hasLocatorType = rawLocatorType !== undefined;
+    const offerStatusRecord = optionalRecord(confirmation.OfferStatus);
+    const rawOfferStatusType = offerStatusRecord?.['@type'];
+    const claimsHospitalityStatus = rawOfferStatusType === 'OfferStatusHospitality'
+      || (
+        typeof rawOfferStatusType === 'string'
+        && rawOfferStatusType.trim() === 'OfferStatusHospitality'
+      );
 
     if (!hasSourceContext && !hasLocatorType) {
       // Generic multi-content confirmation locators (for example air content)
-      // do not use the Stays sourceContext + locatorType identity pair.
+      // do not use the Stays sourceContext + locatorType identity pair. A
+      // hospitality status discriminator, however, explicitly claims Stays
+      // semantics and therefore cannot omit the Stays locator identity pair.
+      if (claimsHospitalityStatus) return invalidEvidence();
       continue;
     }
 
@@ -325,10 +335,11 @@ export function inspectTravelportStaysReservationReceiptEvidence(
 
     if (!hasLocatorType) {
       // Air/NDC confirmation contexts such as OrderId and VendorLocator can
-      // coexist in the shared reservation model. Stays authority contexts may
-      // not omit locatorType (the documented Sync-only Travelport omission is
-      // normalized before this helper is called).
-      if (isStaysSourceContext(sourceContext)) {
+      // coexist in the shared reservation model. Stays authority contexts and
+      // explicitly hospitality-typed status evidence may not omit locatorType
+      // (the documented Sync-only Travelport omission is normalized before
+      // this helper is called).
+      if (isStaysSourceContext(sourceContext) || claimsHospitalityStatus) {
         return invalidEvidence();
       }
       continue;
@@ -340,7 +351,10 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const hasCanonicalStaysPair = isCanonicalStaysPair(sourceContext, locatorType);
     const hasSupportedStaysPair = hasCanonicalStaysPair
       || (sourceContext === 'Supplier' && locatorType === 'Pin code');
-    if ((hasStaysSourceContext || hasStaysLocatorType) && !hasSupportedStaysPair) {
+    if (
+      (hasStaysSourceContext || hasStaysLocatorType || claimsHospitalityStatus)
+      && !hasSupportedStaysPair
+    ) {
       return invalidEvidence();
     }
 
