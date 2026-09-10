@@ -17,7 +17,8 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /providerReservationReference/);
   assert.match(parser, /supplierConfirmationReference/);
   assert.match(parser, /providerCorrelationId/);
-  assert.match(parser, /root\.ErrorResponse !== undefined && root\.ErrorResponse !== null/);
+  assert.match(parser, /root\.ErrorResponse !== undefined/);
+  assert.doesNotMatch(parser, /root\.ErrorResponse !== undefined && root\.ErrorResponse !== null/);
   assert.match(parser, /contradictory top-level error evidence/);
   assert.match(parser, /const reservationType = boundedProviderValue\(reservation\['@type'\], MAX_RESERVATION_TYPE_LENGTH\)/);
   assert.match(parser, /if \(reservationType !== 'ReservationDetail'\)/);
