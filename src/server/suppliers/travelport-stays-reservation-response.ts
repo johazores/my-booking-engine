@@ -10,6 +10,10 @@ const MAX_OFFER_TYPE_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_PROPERTY_KEY_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
+const MAX_RESULT_TYPE_LENGTH = 64;
+const MAX_WARNING_TYPE_LENGTH = 64;
+const MAX_WARNING_MESSAGE_LENGTH = 512;
+const MAX_WARNING_STATUS_CODE = 999;
 
 type RecordValue = Record<string, unknown>;
 
@@ -52,6 +56,16 @@ function assertSupportedResultEvidence(response: RecordValue) {
   if (response.Result === undefined) return;
 
   const result = record(response.Result);
+  const rawResultType = result['@type'];
+  if (
+    rawResultType !== undefined
+    && boundedProviderValue(rawResultType, MAX_RESULT_TYPE_LENGTH) !== 'Result'
+  ) {
+    throw new HospitalitySupplierProviderError(
+      'INVALID_RESPONSE',
+      'Travelport reservation response contained malformed or unexpected result type evidence.',
+    );
+  }
   if (
     result.Error !== undefined
     || result.Errors !== undefined
@@ -73,7 +87,11 @@ function assertSupportedResultEvidence(response: RecordValue) {
   if (!hasWarning && !hasWarnings) return;
 
   const warningValues = hasWarning ? result.Warning : result.Warnings;
-  if (!Array.isArray(warningValues) || warningValues.length > MAX_WARNINGS) {
+  if (
+    !Array.isArray(warningValues)
+    || warningValues.length < 1
+    || warningValues.length > MAX_WARNINGS
+  ) {
     throw new HospitalitySupplierProviderError(
       'INVALID_RESPONSE',
       'Travelport reservation response contained malformed or oversized result warning evidence.',
@@ -82,7 +100,40 @@ function assertSupportedResultEvidence(response: RecordValue) {
 
   for (const warningValue of warningValues) {
     const warning = record(warningValue);
-    if (!boundedProviderValue(warning.Message, 512)) {
+    const rawWarningType = warning['@type'];
+    if (
+      rawWarningType !== undefined
+      && boundedProviderValue(rawWarningType, MAX_WARNING_TYPE_LENGTH) !== 'Warning'
+    ) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained malformed or unexpected warning type evidence.',
+      );
+    }
+
+    const rawStatusCode = warning.StatusCode;
+    if (
+      rawStatusCode !== undefined
+      && (
+        typeof rawStatusCode !== 'number'
+        || !Number.isInteger(rawStatusCode)
+        || rawStatusCode < 0
+        || rawStatusCode > MAX_WARNING_STATUS_CODE
+      )
+    ) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained malformed warning status evidence.',
+      );
+    }
+
+    if (typeof warning.Message !== 'string' || /[\u0000-\u001f\u007f]/.test(warning.Message)) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained a malformed result warning message.',
+      );
+    }
+    if (!boundedProviderValue(warning.Message, MAX_WARNING_MESSAGE_LENGTH)) {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
         'Travelport reservation response contained a malformed result warning message.',

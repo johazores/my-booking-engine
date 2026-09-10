@@ -21,6 +21,9 @@ const MAX_RESULT_TYPE_LENGTH = 64;
 const MAX_ERROR_TYPE_LENGTH = 64;
 const MAX_ERROR_SOURCE_LENGTH = 64;
 const MAX_ERROR_MESSAGE_LENGTH = 4096;
+const MAX_WARNING_TYPE_LENGTH = 64;
+const MAX_WARNING_MESSAGE_LENGTH = 512;
+const MAX_WARNING_STATUS_CODE = 999;
 
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
@@ -320,6 +323,13 @@ function inspectProviderWarnings(value: unknown): ProviderWarningInspection {
 
   const result = optionalRecord(response.Result);
   if (!result) return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+  const rawResultType = result['@type'];
+  if (
+    rawResultType !== undefined
+    && boundedText(rawResultType, MAX_RESULT_TYPE_LENGTH) !== 'Result'
+  ) {
+    return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+  }
   if (
     result.Error !== undefined
     || result.Errors !== undefined
@@ -336,18 +346,50 @@ function inspectProviderWarnings(value: unknown): ProviderWarningInspection {
   }
 
   const warningValues = hasWarning ? result.Warning : result.Warnings;
-  if (!Array.isArray(warningValues) || warningValues.length > MAX_WARNINGS) {
+  if (
+    !Array.isArray(warningValues)
+    || warningValues.length < 1
+    || warningValues.length > MAX_WARNINGS
+  ) {
     return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
   }
 
   const messages: string[] = [];
   for (const warningValue of warningValues) {
     const warning = optionalRecord(warningValue);
-    const message = boundedText(warning?.Message, 512);
-    if (!warning || !message) {
+    if (!warning) {
       return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
     }
-    messages.push(message.replace(/\s+/g, ' ').toUpperCase());
+
+    const rawWarningType = warning['@type'];
+    if (
+      rawWarningType !== undefined
+      && boundedText(rawWarningType, MAX_WARNING_TYPE_LENGTH) !== 'Warning'
+    ) {
+      return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+    }
+
+    const rawStatusCode = warning.StatusCode;
+    if (
+      rawStatusCode !== undefined
+      && (
+        typeof rawStatusCode !== 'number'
+        || !Number.isInteger(rawStatusCode)
+        || rawStatusCode < 0
+        || rawStatusCode > MAX_WARNING_STATUS_CODE
+      )
+    ) {
+      return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+    }
+
+    if (typeof warning.Message !== 'string' || /[\u0000-\u001f\u007f]/.test(warning.Message)) {
+      return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+    }
+    const message = boundedText(warning.Message, MAX_WARNING_MESSAGE_LENGTH);
+    if (!message) {
+      return Object.freeze({ valid: false, messages: Object.freeze([] as string[]) });
+    }
+    messages.push(message.toUpperCase());
   }
   return Object.freeze({ valid: true, messages: Object.freeze(messages) });
 }
