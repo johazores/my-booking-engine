@@ -23,7 +23,9 @@ function response(input: Readonly<{
 }> = {}) {
   const reservation: Record<string, unknown> = {
     Offer: [{
-      ...(input.omitOfferType ? {} : { '@type': input.offerType ?? 'Offer' }),
+      ...(input.omitOfferType ? {} : {
+        '@type': input.offerType === undefined ? 'Offer' : input.offerType,
+      }),
       Identifier: { authority: 'BKNG' },
       Product: [{
         '@type': 'ProductHospitality',
@@ -57,7 +59,9 @@ function response(input: Readonly<{
       }]),
     ],
   };
-  if (!input.omitReservationType) reservation['@type'] = input.reservationType ?? 'ReservationDetail';
+  if (!input.omitReservationType) {
+    reservation['@type'] = input.reservationType === undefined ? 'ReservationDetail' : input.reservationType;
+  }
 
   return {
     ReservationResponse: {
