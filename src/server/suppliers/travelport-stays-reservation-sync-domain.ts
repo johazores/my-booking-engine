@@ -75,7 +75,7 @@ function isDocumentedTravelportSyncPnrWithoutLocatorType(
 ) {
   if (receipt['@type'] !== 'ReceiptConfirmation') return false;
   if (confirmation['@type'] !== 'ConfirmationHold') return false;
-  if (receipt.OfferRef !== undefined && receipt.OfferRef !== null) return false;
+  if (receipt.OfferRef !== undefined) return false;
 
   const offerStatus = optionalRecord(confirmation.OfferStatus);
   return locator.sourceContext === 'Travelport'
