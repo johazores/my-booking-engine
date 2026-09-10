@@ -20,15 +20,16 @@ The offer discriminator is validated before `passiveOfferInd` can establish pass
 
 `passiveOfferInd` is also an authority-bearing scope flag. Genuine omission remains compatible with the existing non-passive interpretation, but any present value must be a Boolean. Explicit JSON `null` is malformed rather than equivalent to omission, so it cannot silently turn a provider-present passive-state field into active scope. Only the literal Boolean `true` establishes passive ownership.
 
-Only after active identity and offer-ID integrity succeed does Retrieve classify explicit passive offers. Before the shared Stays receipt inspector runs, Retrieve excludes the exact documented locator-less placeholder receipt shape when all of that receipt's bounded `OfferRef` values point to explicitly passive offer IDs. The ignored placeholder must be `ReceiptConfirmation` / `ConfirmationHold`, must have no `Locator`, and must carry `OfferStatusHospitality` with `code=AK` and `Status=Confirmed`.
+Only after active identity and offer-ID integrity succeed does Retrieve classify explicit passive offers. Before the shared Stays receipt inspector runs, Retrieve excludes the exact documented locator-less placeholder receipt shape when all of that receipt's bounded `OfferRef` values point to explicitly passive offer IDs. The ignored placeholder must be `ReceiptConfirmation` / `ConfirmationHold`, must have no `Locator`, must have no `Cancellation` sibling, and must carry `OfferStatusHospitality` with `code=AK` and `Status=Confirmed`. An explicit-null `Cancellation` member is still present malformed evidence and therefore disqualifies the early placeholder exception.
 
 Any other receipt scoped exclusively to explicit passive offers is first passed through the shared Stays receipt inspector. Malformed or contradictory Stays evidence still fails closed and cannot disappear merely because its `OfferRef` points to a passive segment. If the validated receipt contains a Travelport PNR Locator, supplier Confirmation Number, or supplier cancellation lifecycle locator, that durable identity/lifecycle evidence is then excluded from the active reservation evidence set because its ownership is proven to be passive-only.
 
-This closes three false-authority cases at the same segment boundary:
+This closes four false-authority cases at the same segment boundary:
 
 - a passive supplier Confirmation Number cannot become the active reservation's `supplierConfirmationReference`;
-- a passive Travelport PNR Locator cannot satisfy the known-locator active reservation requirement or create false duplicate-PNR ambiguity beside the real reservation-level PNR; and
-- passive supplier cancellation evidence cannot make an otherwise active reservation appear cancelled.
+- a passive Travelport PNR Locator cannot satisfy the known-locator active reservation requirement or create false duplicate-PNR ambiguity beside the real reservation-level PNR;
+- passive supplier cancellation evidence cannot make an otherwise active reservation appear cancelled; and
+- a locator-less passive placeholder cannot hide a contradictory `Cancellation` branch before shared receipt validation.
 
 If no active or reservation-level Travelport PNR remains after passive-owned evidence is removed, recovery fails closed rather than promoting the passive locator. If no active supplier confirmation remains, the Travelport recovery provider can return only a null supplier confirmation and the provider-neutral reconciliation boundary keeps the operation unresolved because Travelport requires supplier confirmation for `FOUND` settlement.
 
@@ -39,14 +40,14 @@ The exception remains intentionally narrow:
 - if `passiveOfferInd` is present it must be Boolean; explicit `null` and other non-Boolean values fail closed, while genuine omission preserves the existing non-passive compatibility;
 - a receipt with malformed, empty, oversized, multiline, non-string, or unknown `OfferRef` evidence fails closed;
 - a receipt that mixes active and passive offer references fails closed instead of being discarded;
-- the exact locator-less passive AK/Confirmed placeholder is excluded;
+- the exact locator-less passive AK/Confirmed placeholder is excluded only when it has no `Cancellation` member; a real or explicit-null cancellation sibling is forced through the shared fail-closed receipt boundary;
 - passive-only PNR, supplier confirmation, and supplier cancellation lifecycle evidence is structurally revalidated and excluded from active reservation authority;
 - malformed or contradictory passive Stays locator/lifecycle evidence fails closed before exclusion;
 - valid non-authoritative shared-model evidence such as supported Agency IATA, Booking.com PIN, payment, or unrelated multi-content receipt evidence can continue through the shared inspector without being promoted to active Stays authority;
 - reservation-level receipts without `OfferRef`, including the documented Travelport PNR locator, remain in the active evidence set; and
 - active-offer supplier Confirmation Number and cancellation evidence remain subject to the existing shared receipt and lifecycle rules.
 
-This means passive offer scoping can remove only provider evidence whose passive ownership is proven by a canonical returned offer namespace. It cannot turn passive evidence into active reservation authority, and it cannot hide malformed Stays confirmation structure.
+This means passive offer scoping can remove only provider evidence whose passive ownership is proven by a canonical returned offer namespace. It cannot turn passive evidence into active reservation authority, and it cannot hide malformed or contradictory Stays confirmation/cancellation structure.
 
 ## Create and Sync isolation
 
@@ -69,10 +70,11 @@ Focused behavior coverage verifies:
 - a PNR scoped only to a passive offer cannot become active locator authority and does not create false duplicate ambiguity beside a valid active/reservation-level PNR;
 - a supplier Confirmation Number scoped only to a passive offer cannot become the active reservation's supplier confirmation;
 - supplier cancellation evidence scoped only to a passive offer cannot cancel the active reservation;
+- a locator-less passive placeholder with either a real or explicit-null `Cancellation` sibling fails closed instead of being filtered out;
 - malformed passive durable Stays evidence fails closed before exclusion;
 - locator-less passive evidence outside the documented AK/Confirmed placeholder shape remains invalid; and
 - malformed passive receipt offer references fail closed.
 
-A dependency-free source contract also requires Retrieve to validate the canonical offer discriminator, offer/receipt scoping, absent-not-null passive-state evidence, and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
+A dependency-free source contract also requires Retrieve to validate the canonical offer discriminator, offer/receipt scoping, absent-not-null passive-state evidence, passive-placeholder branch exclusivity, and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. Live provider behavior remains gated on provisioned Travelport non-production credentials and the reviewed PCI-safe payment/guarantee source. GitHub Actions are not used.
