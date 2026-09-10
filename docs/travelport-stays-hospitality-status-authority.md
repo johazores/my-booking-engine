@@ -4,7 +4,7 @@
 
 Travelport reservation receipts are shared across multi-content bookings, so SF must preserve unrelated air receipt evidence without allowing malformed hotel evidence to disappear beside an otherwise valid Stays reservation.
 
-The shared Stays receipt inspector now treats `Confirmation.OfferStatus.@type = OfferStatusHospitality` as an explicit hotel-reservation signal. Once that discriminator is present, the receipt must also present a supported Stays locator identity pair. It cannot be reclassified as unrelated multi-content evidence merely because `Locator.sourceContext` and/or `Locator.locatorType` are missing or belong to a foreign locator family.
+The shared Stays receipt inspector treats both `Confirmation.OfferStatus.@type = OfferStatusHospitality` and `Cancellation.OfferStatus.@type = OfferStatusHospitality` as explicit hotel-reservation signals. Once that discriminator is present, the receipt must also present a supported Stays locator identity pair. It cannot be reclassified as unrelated multi-content evidence merely because `Locator.sourceContext` and/or `Locator.locatorType` are missing or belong to a foreign locator family.
 
 ## Authority rules
 
@@ -17,13 +17,23 @@ For confirmation receipts:
 - leading or trailing whitespace around the hospitality discriminator is malformed evidence rather than a way to hide the Stays signal; and
 - unrelated multi-content status families such as `OfferStatusAir` remain outside Stays authority when they do not claim a Stays locator identity.
 
+For shared-model `ReceiptCancellation` records:
+
+- canonical Stays locator pairs continue through the existing strict cancellation type, locator, source, `OfferRef`, status-type, and `Status=Cancelled` validation;
+- an explicit `Cancellation.OfferStatus.@type = OfferStatusHospitality` cannot stand alone without both `sourceContext` and `locatorType`;
+- partial or foreign locator identity paired with the hospitality status discriminator fails closed;
+- leading or trailing whitespace around the hospitality discriminator is malformed evidence and cannot make the cancellation look unrelated; and
+- generic multi-content cancellation evidence such as `OfferStatusAir`, including the documented air `Travelport + Locator` shape, remains outside Stays authority when it does not claim a Stays locator family.
+
 This is a validation boundary only. It does not create a new locator family, normalize a foreign receipt into a hotel receipt, or promote status evidence into provider-neutral reservation identity.
 
 ## Why this matters
 
-Travelport's current Stays Create and Retrieve examples identify sold hotel receipt state with `OfferStatus.@type = OfferStatusHospitality` and pair that state with hotel locator semantics such as `sourceContext=Supplier` plus `locatorType=Confirmation Number`, or `sourceContext=Travelport` plus `locatorType=PNR Locator`. Travelport's shared air reservation examples use a distinct `OfferStatusAir` shape. SF therefore has a provider-specific discriminator that can safely identify malformed Stays status evidence without rejecting unrelated air receipt status.
+Travelport's current Stays Create, Retrieve, and Cancel examples identify hotel receipt state with `OfferStatus.@type = OfferStatusHospitality` and pair that state with hotel locator semantics. The current Hotel Cancel response keeps the supplier cancellation in a `ReceiptConfirmation` with `sourceContext=Supplier`, `locatorType=Cancellation Number`, and `Status=Cancelled`. Travelport's shared Reservation Retrieve model also defines `ReceiptCancellation` with a `Cancellation` object, while unrelated air examples use distinct locator/status shapes such as `OfferStatusAir`.
 
-Without this rule, a receipt could claim `OfferStatusHospitality` while omitting or replacing its Stays locator identity, be skipped as generic multi-content evidence, and allow a sibling valid PNR receipt to grant active reservation authority. The inspector now keeps that malformed evidence inside the fail-closed Stays boundary.
+SF therefore treats the hospitality status discriminator as a provider-specific claim that must remain inside the fail-closed Stays boundary. It is not enough, by itself, to establish which hotel locator family the evidence belongs to. A hospitality-typed cancellation with no Stays locator identity is malformed rather than valid cancellation authority.
+
+Without this rule, a confirmation or cancellation receipt could claim `OfferStatusHospitality` while omitting or replacing its Stays locator identity, be skipped or misclassified as generic multi-content evidence, and allow sibling evidence to grant active reservation authority. The inspector now applies the same discriminator-to-identity rule to both branches.
 
 ## Scope
 
@@ -33,13 +43,14 @@ Travelport `reservation` remains deliberately unadvertised. This hardening does 
 
 ## Validation
 
-Focused dependency-free tests cover canonical Stays status evidence, missing locator identity, partial/foreign locator identity, whitespace-confusable hospitality status tokens, and preservation of unrelated `OfferStatusAir` evidence in a multi-content response. A source contract pins the fail-closed check before the generic multi-content skip path.
+Focused tests cover canonical Stays confirmation and cancellation status evidence, missing locator identity, partial/foreign locator identity, whitespace-confusable hospitality status tokens, and preservation of unrelated `OfferStatusAir` confirmation/cancellation evidence in multi-content responses. A dependency-free source contract pins the shared discriminator claim rule on both confirmation and cancellation branches before either can fall through to generic multi-content handling.
 
 ## References
 
 - Travelport Stays APIs Guide
 - Travelport Create Reservation Reference Payload API Reference
+- Travelport Cancel Hotel Reservation API Reference
 - Travelport Retrieve Hotel Reservation API Reference
-- Travelport shared Air Reservation Retrieve / Workbench response documentation
+- Travelport shared Reservation Retrieve response documentation
 - `docs/travelport-stays-receipt-evidence.md`
 - `docs/travelport-reservation-response-evidence.md`

@@ -54,13 +54,6 @@ test('captures self-identifying Stays ReceiptCancellation as cancellation lifecy
       cancellationType: 'CancellationHold',
       status: 'Cancelled',
     }),
-    cancellation({
-      value: 'GENERIC-HOTEL-CANCEL',
-      source: '1G',
-      cancellationType: 'CancellationHold',
-      offerStatusType: 'OfferStatusHospitality',
-      status: 'Cancelled',
-    }),
   ]) {
     const result = inspectTravelportStaysReservationReceiptEvidence([receipt]);
     assert.equal(result.valid, true);
@@ -156,6 +149,13 @@ test('fails closed on contradictory or malformed Stays ReceiptCancellation evide
       value: 'AA001HGO3HWA4',
       sourceContext: 'OrderId',
       source: 'AA',
+      cancellationType: 'CancellationHold',
+      offerStatusType: 'OfferStatusHospitality',
+      status: 'Cancelled',
+    }),
+    cancellation({
+      value: 'GENERIC-HOTEL-CANCEL',
+      source: '1G',
       cancellationType: 'CancellationHold',
       offerStatusType: 'OfferStatusHospitality',
       status: 'Cancelled',

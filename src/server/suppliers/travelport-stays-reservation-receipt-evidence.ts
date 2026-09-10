@@ -84,6 +84,11 @@ function isCanonicalStaysPair(sourceContext: string | null, locatorType: string 
     || (sourceContext === 'Agency' && locatorType === 'IATA Number');
 }
 
+function claimsHospitalityOfferStatus(value: unknown) {
+  return value === 'OfferStatusHospitality'
+    || (typeof value === 'string' && value.trim() === 'OfferStatusHospitality');
+}
+
 function normalizedReceipt(
   locator: RecordValue,
   confirmation: RecordValue,
@@ -170,19 +175,23 @@ function inspectCancellationReceipt(receipt: RecordValue): TravelportStaysCancel
   }
 
   const rawOfferStatusType = offerStatusRecord?.['@type'];
+  const claimsHospitalityStatus = claimsHospitalityOfferStatus(rawOfferStatusType);
   const offerStatusType = rawOfferStatusType === undefined
     ? null
     : boundedProviderValue(rawOfferStatusType, MAX_OFFER_STATUS_TYPE_LENGTH);
   if (
     rawOfferStatusType !== undefined
     && !offerStatusType
-    && (hasCanonicalStaysPair || hasStaysLocatorType)
+    && (hasCanonicalStaysPair || hasStaysLocatorType || claimsHospitalityStatus)
   ) {
     return Object.freeze({ valid: false, relevant: false, receipt: null });
   }
 
   const hasHospitalityStatus = offerStatusType === 'OfferStatusHospitality';
   if (hasStaysLocatorType && !hasCanonicalStaysPair) {
+    return Object.freeze({ valid: false, relevant: false, receipt: null });
+  }
+  if (claimsHospitalityStatus && (!hasSourceContext || !hasLocatorType)) {
     return Object.freeze({ valid: false, relevant: false, receipt: null });
   }
 
@@ -308,11 +317,7 @@ export function inspectTravelportStaysReservationReceiptEvidence(
     const hasLocatorType = rawLocatorType !== undefined;
     const offerStatusRecord = optionalRecord(confirmation.OfferStatus);
     const rawOfferStatusType = offerStatusRecord?.['@type'];
-    const claimsHospitalityStatus = rawOfferStatusType === 'OfferStatusHospitality'
-      || (
-        typeof rawOfferStatusType === 'string'
-        && rawOfferStatusType.trim() === 'OfferStatusHospitality'
-      );
+    const claimsHospitalityStatus = claimsHospitalityOfferStatus(rawOfferStatusType);
 
     if (!hasSourceContext && !hasLocatorType) {
       // Generic multi-content confirmation locators (for example air content)

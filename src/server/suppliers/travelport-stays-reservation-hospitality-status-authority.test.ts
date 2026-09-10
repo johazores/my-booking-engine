@@ -45,6 +45,30 @@ function genericConfirmation(input: Readonly<{
   };
 }
 
+function genericCancellation(input: Readonly<{
+  statusType: string;
+  sourceContext?: string;
+  locatorType?: string;
+}>) {
+  return {
+    '@type': 'ReceiptCancellation',
+    Cancellation: {
+      '@type': 'CancellationHold',
+      Locator: {
+        value: 'GENERIC-CANCELLATION',
+        ...(input.sourceContext === undefined ? {} : { sourceContext: input.sourceContext }),
+        ...(input.locatorType === undefined ? {} : { locatorType: input.locatorType }),
+      },
+      OfferStatus: {
+        '@type': input.statusType,
+        ...(input.statusType === 'OfferStatusAir'
+          ? { StatusAir: [{ value: 'Cancelled' }] }
+          : { Status: 'Cancelled' }),
+      },
+    },
+  };
+}
+
 test('accepts canonical Travelport Stays hospitality status evidence', () => {
   const evidence = inspectTravelportStaysReservationReceiptEvidence([travelportPnr()]);
 
@@ -52,7 +76,7 @@ test('accepts canonical Travelport Stays hospitality status evidence', () => {
   assert.equal(evidence.travelportPnrReceipts[0]?.reference, '0GQ9HS');
 });
 
-test('does not let hospitality status evidence disappear when Stays locator identity is omitted', () => {
+test('does not let confirmation hospitality status evidence disappear when Stays locator identity is omitted', () => {
   for (const statusType of ['OfferStatusHospitality', ' OfferStatusHospitality', 'OfferStatusHospitality ']) {
     const evidence = inspectTravelportStaysReservationReceiptEvidence([
       genericConfirmation({ statusType }),
@@ -63,7 +87,7 @@ test('does not let hospitality status evidence disappear when Stays locator iden
   }
 });
 
-test('rejects hospitality status evidence paired with a non-Stays locator family', () => {
+test('rejects confirmation hospitality status evidence paired with a non-Stays locator family', () => {
   for (const receipt of [
     genericConfirmation({
       statusType: 'OfferStatusHospitality',
@@ -80,9 +104,60 @@ test('rejects hospitality status evidence paired with a non-Stays locator family
   }
 });
 
-test('preserves unrelated air confirmation status evidence in multi-content reservations', () => {
+test('accepts canonical Stays ReceiptCancellation hospitality status evidence', () => {
+  const evidence = inspectTravelportStaysReservationReceiptEvidence([
+    genericCancellation({
+      statusType: 'OfferStatusHospitality',
+      sourceContext: 'Supplier',
+      locatorType: 'Cancellation Number',
+    }),
+  ]);
+
+  assert.equal(evidence.valid, true);
+  assert.equal(evidence.supplierCancellationReceipts[0]?.reference, 'GENERIC-CANCELLATION');
+  assert.equal(evidence.supplierCancellationReceipts[0]?.status, 'Cancelled');
+});
+
+test('does not let cancellation hospitality status evidence disappear when Stays locator identity is omitted', () => {
+  for (const statusType of ['OfferStatusHospitality', ' OfferStatusHospitality', 'OfferStatusHospitality ']) {
+    const evidence = inspectTravelportStaysReservationReceiptEvidence([
+      genericCancellation({ statusType }),
+      travelportPnr(),
+    ]);
+
+    assert.equal(evidence.valid, false);
+  }
+});
+
+test('rejects cancellation hospitality status evidence paired with a partial or non-Stays locator family', () => {
+  for (const receipt of [
+    genericCancellation({
+      statusType: 'OfferStatusHospitality',
+      sourceContext: 'Carrier',
+      locatorType: 'Vendor Locator',
+    }),
+    genericCancellation({
+      statusType: 'OfferStatusHospitality',
+      sourceContext: 'Carrier',
+    }),
+    genericCancellation({
+      statusType: 'OfferStatusHospitality',
+      locatorType: 'Vendor Locator',
+    }),
+  ]) {
+    const evidence = inspectTravelportStaysReservationReceiptEvidence([receipt, travelportPnr()]);
+    assert.equal(evidence.valid, false);
+  }
+});
+
+test('preserves unrelated air confirmation and cancellation status evidence in multi-content reservations', () => {
   const evidence = inspectTravelportStaysReservationReceiptEvidence([
     genericConfirmation({ statusType: 'OfferStatusAir' }),
+    genericCancellation({
+      statusType: 'OfferStatusAir',
+      sourceContext: 'Travelport',
+      locatorType: 'Locator',
+    }),
     travelportPnr(),
   ]);
 

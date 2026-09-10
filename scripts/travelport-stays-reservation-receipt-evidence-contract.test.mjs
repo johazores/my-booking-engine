@@ -52,7 +52,7 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(helper, /if \(hasStaysLocatorType && !hasCanonicalStaysPair\)/);
   assert.match(helper, /const relevant = hasCanonicalStaysPair \|\| hasHospitalityStatus/);
   assert.match(helper, /const hasSupportedStaysPair = hasCanonicalStaysPair[\s\S]*sourceContext === 'Supplier' && locatorType === 'Pin code'/);
-  assert.match(helper, /if \(\(hasStaysSourceContext \|\| hasStaysLocatorType\) && !hasSupportedStaysPair\)/);
+  assert.match(helper, /\(hasStaysSourceContext \|\| hasStaysLocatorType \|\| claimsHospitalityStatus\)[\s\S]*&& !hasSupportedStaysPair/);
   assert.match(helper, /confirmationType !== 'ConfirmationHold'/);
   assert.match(helper, /offerStatusType !== 'OfferStatusHospitality'/);
   assert.match(helper, /if \(!hasSourceContext && !hasLocatorType\)/);
@@ -60,6 +60,13 @@ test('Travelport reservation lifecycle shares one fail-closed Stays receipt evid
   assert.match(create, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
   assert.match(retrieve, /(?:evidence|receiptEvidence)\.supplierCancellationReceipts\.length > 0/);
 
+  assert.match(helper, /function claimsHospitalityOfferStatus\(value: unknown\)/);
+  assert.equal(
+    (helper.match(/const claimsHospitalityStatus = claimsHospitalityOfferStatus\(rawOfferStatusType\);/g) ?? []).length,
+    2,
+    'confirmation and cancellation evidence must use the same hospitality discriminator claim rule',
+  );
+  assert.match(helper, /if \(claimsHospitalityStatus && \(!hasSourceContext \|\| !hasLocatorType\)\)/);
   assert.equal(
     (helper.match(/const hasSourceContext = rawSourceContext !== undefined;/g) ?? []).length,
     2,
