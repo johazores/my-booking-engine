@@ -24,11 +24,17 @@ test('Travelport retrieve keeps one privacy-minimal reservation response authori
   assert.match(parser, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
   assert.match(parser, /offerIds\.has\(offerId\)/);
   assert.match(parser, /activeHospitalitySegments !== 1 \|\| matches !== 1/);
+  assert.match(parser, /activeHospitalityOfferId = offerId/);
+  assert.match(parser, /return Object\.freeze\(\{ offerIds, passiveOfferIds, activeHospitalityOfferId \}\)/);
   assert.match(parser, /if \(passiveOfferInd === true\) \{[\s\S]*?passiveOfferIds\.add\(offerId\);[\s\S]*?continue;/);
   assert.match(parser, /typeof passiveOfferInd !== 'boolean'/);
   const offerTypeCheck = parser.indexOf("if (offerType !== 'Offer')");
   const passiveSkip = parser.indexOf('if (passiveOfferInd === true) {');
   assert.ok(offerTypeCheck >= 0 && passiveSkip > offerTypeCheck, 'offer type must be validated before passive scope');
+  assert.match(parser, /supplier receipt evidence without active hotel offer scope/);
+  assert.match(parser, /supplier receipt evidence outside the active hotel offer/);
+  assert.match(parser, /normalizedOfferRefs\.length !== 1[\s\S]*?normalizedOfferRefs\[0\] !== offerScope\.activeHospitalityOfferId/);
+  assert.match(parser, /new Set\(normalizedOfferRefs\)\.size !== normalizedOfferRefs\.length/);
   assert.match(parser, /travelportReceipts\[0\]!\.status !== 'Confirmed'/);
   assert.match(parser, /supplierReceipts\.some\(\(receipt\) => receipt\.status !== 'Confirmed'\)/);
   assert.doesNotMatch(parser, /CardNumber|SeriesCode|PaymentCard|FormOfPayment/);
