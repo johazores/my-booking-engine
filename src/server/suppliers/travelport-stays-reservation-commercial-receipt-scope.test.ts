@@ -140,7 +140,7 @@ test('multi-offer commercial responses cannot use unscoped supplier confirmation
   }), invalidCreate);
 });
 
-test('scoped supplier confirmation requires a bounded matching hotel offer id', () => {
+test('multi-offer scoped supplier confirmation requires a bounded matching hotel offer id', () => {
   assert.deepEqual(classifyTravelportStaysReservationCreateOutcome({
     httpStatus: 200,
     body: response({ omitHotelOfferId: true }),
@@ -160,6 +160,14 @@ test('Travelport PNR remains reservation-level and cannot carry OfferRef', () =>
     body: response({ travelportOfferRef: ['O1'] }),
     expectedReservation,
   }), invalidCreate);
+});
+
+test('single-offer scoped supplier confirmation remains ownership-unambiguous when Offer.id is omitted', () => {
+  assert.equal(classifyTravelportStaysReservationCreateOutcome({
+    httpStatus: 200,
+    body: response({ includeSecondOffer: false, omitHotelOfferId: true }),
+    expectedReservation,
+  }).status, 'CONFIRMED');
 });
 
 test('single-offer legacy response remains unambiguous when supplier confirmation has no OfferRef', () => {

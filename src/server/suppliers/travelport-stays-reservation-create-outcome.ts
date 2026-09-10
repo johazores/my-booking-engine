@@ -481,7 +481,15 @@ function commercialReceiptScopeIsValid(
 
     if (!Array.isArray(rawOfferRefs) || rawOfferRefs.length !== 1) return false;
     const offerRef = boundedText(rawOfferRefs[0], MAX_OFFER_REFERENCE_LENGTH);
-    if (!offerRef || !offerEvidence.matchedOfferId || offerRef !== offerEvidence.matchedOfferId) return false;
+    if (!offerRef) return false;
+    if (offerEvidence.matchedOfferId) {
+      if (offerRef !== offerEvidence.matchedOfferId) return false;
+    } else if (offerEvidence.offerCount !== 1) {
+      // Travelport's current Booking.com Sync example scopes the supplier
+      // receipt to O1 while omitting Offer.id from its sole returned offer. A
+      // single offer is still ownership-unambiguous; multi-offer responses are not.
+      return false;
+    }
   }
 
   return true;
