@@ -14,7 +14,19 @@ const expectedReservation = Object.freeze({
   guests: 2,
 });
 
-function activeOffer() {
+type ReservationFixture = Readonly<{
+  ReservationResponse: {
+    Reservation: {
+      '@type': string;
+      Offer: Array<Record<string, unknown>>;
+      Receipt: Array<Record<string, unknown>>;
+    };
+    traceId: string;
+    Result?: unknown;
+  };
+}>;
+
+function activeOffer(): Record<string, unknown> {
   return {
     '@type': 'Offer',
     id: 'O1',
@@ -29,7 +41,7 @@ function activeOffer() {
   };
 }
 
-function activeReceipts() {
+function activeReceipts(): Array<Record<string, unknown>> {
   return [
     {
       '@type': 'ReceiptConfirmation',
@@ -60,7 +72,7 @@ function activeReceipts() {
   ];
 }
 
-function successBody() {
+function successBody(): ReservationFixture {
   return {
     ReservationResponse: {
       Reservation: {
@@ -73,7 +85,11 @@ function successBody() {
   };
 }
 
-function assertInvalidCreate(body: unknown, httpStatus = 200) {
+function assertInvalidCreate(
+  body: unknown,
+  httpStatus = 200,
+  providerCorrelationId: string | null = 'null-envelope-result-evidence',
+) {
   assert.deepEqual(
     classifyTravelportStaysReservationCreateOutcome({
       httpStatus,
@@ -84,7 +100,7 @@ function assertInvalidCreate(body: unknown, httpStatus = 200) {
       status: 'AMBIGUOUS',
       failureCode: 'INVALID_RESPONSE',
       supplierConfirmationReference: null,
-      providerCorrelationId: null,
+      providerCorrelationId,
     },
   );
 }
@@ -117,7 +133,7 @@ test('genuinely omitted response sibling and Result remain valid authority evide
 
 test('explicit null top-level ErrorResponse cannot disappear beside successful reservation evidence', () => {
   const body = { ...successBody(), ErrorResponse: null };
-  assertInvalidCreate(body);
+  assertInvalidCreate(body, 200, null);
   assertInvalidRetrieve(body);
 });
 
@@ -137,7 +153,7 @@ test('explicit null top-level ReservationResponse cannot disappear beside review
     },
   };
 
-  assertInvalidCreate(body, 400);
+  assertInvalidCreate(body, 400, null);
 });
 
 test('explicit null Result and Result members cannot be treated as omitted provider evidence', () => {
@@ -185,7 +201,9 @@ test('passive placeholder requires Locator to be genuinely absent rather than ex
   }).providerReservationReference, 'D6VBHL');
 
   const explicitNullLocator = structuredClone(body);
-  const passiveReceipt = explicitNullLocator.ReservationResponse.Reservation.Receipt[2];
+  const passiveReceipt = explicitNullLocator.ReservationResponse.Reservation.Receipt[2] as {
+    Confirmation: Record<string, unknown>;
+  };
   passiveReceipt.Confirmation.Locator = null;
   assertInvalidRetrieve(explicitNullLocator);
 });
