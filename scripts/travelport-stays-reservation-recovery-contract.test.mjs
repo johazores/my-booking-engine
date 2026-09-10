@@ -10,6 +10,7 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
   const adapter = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
   const responseParser = source('src/server/suppliers/travelport-stays-reservation-response.ts');
+  const receiptEvidence = source('src/server/suppliers/travelport-stays-reservation-receipt-evidence.ts');
   assert.match(contract, /HospitalitySupplierReservationRecoveryProvider/);
   assert.match(contract, /requestCorrelationId: string/);
   assert.match(contract, /expectedReservation: HospitalitySupplierReservationRecoveryExpectation/);
@@ -26,7 +27,8 @@ test('Travelport reservation recovery stays behind a provider-neutral contract w
   assert.match(adapter, /book\/reservations\/\$\{encodeURIComponent\(reference\)\}/);
   assert.match(adapter, /normalizeTravelportStaysReservationExpectation\(input\.expectedReservation\)/);
   assert.match(adapter, /expectedReservation,/);
-  assert.match(responseParser, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
+  assert.match(responseParser, /inspectTravelportStaysReservationReceiptEvidence/);
+  assert.match(receiptEvidence, /sourceContext === 'Travelport' && locatorType === 'PNR Locator'/);
   assert.match(responseParser, /exactly one Travelport PNR locator/i);
   assert.match(responseParser, /const reservationType = boundedProviderValue\(reservation\['@type'\], MAX_RESERVATION_TYPE_LENGTH\)/);
   assert.match(responseParser, /reservationType !== 'ReservationDetail'/);
