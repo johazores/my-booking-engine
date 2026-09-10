@@ -272,6 +272,12 @@ function activeReservationReceiptEvidence(
           'Travelport reservation response contained malformed active reservation receipt evidence.',
         );
       }
+      if (activeReceiptEvidence.travelportPnrReceipts.length > 0) {
+        throw new HospitalitySupplierProviderError(
+          'INVALID_RESPONSE',
+          'Travelport reservation response contained offer-scoped Travelport PNR receipt evidence.',
+        );
+      }
       if (
         activeReceiptEvidence.supplierConfirmationReceipts.length > 0
         || activeReceiptEvidence.supplierCancellationReceipts.length > 0

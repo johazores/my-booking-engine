@@ -40,8 +40,28 @@ function supplierReceipt(input: {
   };
 }
 
+function travelportPnrReceipt(offerRefs: readonly string[] | null = null) {
+  return {
+    ...(offerRefs === null ? {} : { OfferRef: [...offerRefs] }),
+    '@type': 'ReceiptConfirmation',
+    Confirmation: {
+      '@type': 'ConfirmationHold',
+      Locator: {
+        value: 'PNR-123',
+        locatorType: 'PNR Locator',
+        sourceContext: 'Travelport',
+      },
+      OfferStatus: {
+        '@type': 'OfferStatusHospitality',
+        Status: 'Confirmed',
+      },
+    },
+  };
+}
+
 function response(input: {
   supplier?: Record<string, unknown> | null;
+  pnrOfferRefs?: readonly string[] | null;
   extraOffer?: Record<string, unknown> | null;
   extraReceipt?: Record<string, unknown> | null;
 } = {}) {
@@ -65,21 +85,7 @@ function response(input: {
         ],
         Receipt: [
           ...(input.supplier === null ? [] : [input.supplier ?? supplierReceipt()]),
-          {
-            '@type': 'ReceiptConfirmation',
-            Confirmation: {
-              '@type': 'ConfirmationHold',
-              Locator: {
-                value: 'PNR-123',
-                locatorType: 'PNR Locator',
-                sourceContext: 'Travelport',
-              },
-              OfferStatus: {
-                '@type': 'OfferStatusHospitality',
-                Status: 'Confirmed',
-              },
-            },
-          },
+          travelportPnrReceipt(input.pnrOfferRefs ?? null),
           ...(input.extraReceipt ? [input.extraReceipt] : []),
         ],
       },
@@ -103,6 +109,32 @@ test('accepts active-hotel supplier confirmation while preserving unscoped reser
   });
   assert.equal(result.providerReservationReference, 'PNR-123');
   assert.equal(result.supplierConfirmationReference, 'SUP-123');
+});
+
+test('rejects Travelport PNR when it is scoped to the active hotel offer instead of reservation level', () => {
+  assertInvalid(() => parseTravelportStaysReservationResponse(response({
+    pnrOfferRefs: ['O1'],
+  }), {
+    expectedProviderReservationReference: 'PNR-123',
+    expectedReservation,
+    requireConfirmedTravelportReceipt: true,
+  }));
+});
+
+test('rejects Travelport PNR scoped to another active offer from becoming hotel recovery authority', () => {
+  assertInvalid(() => parseTravelportStaysReservationResponse(response({
+    pnrOfferRefs: ['O2'],
+    extraOffer: {
+      '@type': 'Offer',
+      id: 'O2',
+      passiveOfferInd: false,
+      Product: [{ '@type': 'ProductAir' }],
+    },
+  }), {
+    expectedProviderReservationReference: 'PNR-123',
+    expectedReservation,
+    requireConfirmedTravelportReceipt: true,
+  }));
 });
 
 test('rejects supplier confirmation without explicit active-hotel offer ownership', () => {

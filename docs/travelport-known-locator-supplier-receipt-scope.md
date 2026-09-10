@@ -33,7 +33,7 @@ Supplier confirmation and supplier cancellation lifecycle evidence are then acce
 
 A supplier `Confirmation Number` or `Cancellation Number` without `OfferRef` fails closed during known-locator recovery. Supplier evidence scoped to another active non-hospitality offer also fails closed. A receipt that tries to apply one supplier locator to multiple returned offers fails closed rather than being treated as hotel authority.
 
-The Travelport PNR is deliberately different. The documented Stays response presents that locator at reservation level, so SF continues to allow the canonical `Travelport + PNR Locator` without `OfferRef`. This scope rule must not force reservation-level PNR evidence into the segment-specific supplier model.
+The Travelport PNR is deliberately different. The documented Stays response presents that locator at reservation level, so SF requires the canonical `Travelport + PNR Locator` used for known-locator recovery to remain unscoped. A PNR carrying `OfferRef` cannot be promoted into reservation-level hotel authority. See `docs/travelport-known-locator-pnr-receipt-scope.md`. This supplier scope rule must not force reservation-level PNR evidence into the segment-specific supplier model.
 
 ## Passive and multi-content behavior
 
