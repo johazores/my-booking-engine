@@ -464,17 +464,18 @@ function commercialReceiptScopeIsValid(
     if (!travelportPnr && !supplierConfirmation) continue;
 
     const rawOfferRefs = receipt.OfferRef;
+    if (rawOfferRefs === null) return false;
     if (travelportPnr) {
-      // Travelport's Stays PNR is reservation-level. Allowing an OfferRef here
-      // would let an offer-owned locator become durable reservation authority.
-      if (rawOfferRefs !== undefined && rawOfferRefs !== null) return false;
+      // Travelport's Stays PNR is reservation-level. The field must be absent;
+      // explicit null is not equivalent to provider evidence of no offer scope.
+      if (rawOfferRefs !== undefined) return false;
       continue;
     }
 
-    if (rawOfferRefs === undefined || rawOfferRefs === null) {
-      // Legacy/single-offer responses remain unambiguous without OfferRef. As
-      // soon as another offer exists, supplier confirmation must prove which
-      // returned offer owns it before it can contribute commercial authority.
+    if (rawOfferRefs === undefined) {
+      // Legacy/single-offer responses remain unambiguous when OfferRef is
+      // genuinely omitted. Explicit null is malformed and never gains this
+      // compatibility because it does not prove provider omission semantics.
       if (offerEvidence.offerCount !== 1) return false;
       continue;
     }

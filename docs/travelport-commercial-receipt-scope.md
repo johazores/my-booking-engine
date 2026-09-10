@@ -10,16 +10,18 @@ This rule is implemented inside the Travelport Stays commercial response classif
 
 Travelport's current Stays reservation response model uses `OfferRef` on supplier confirmation receipts to identify the offer they belong to, while the Travelport PNR receipt is reservation-level and is returned without `OfferRef`. Current reference-payload Create examples return `Offer.id`, but the current Booking.com Sync response example scopes supplier evidence to `O1` while omitting `Offer.id` from its sole returned offer. The classifier therefore uses explicit ID equality whenever the provider supplies enough offer identity, while preserving the ownership-unambiguous single-offer response shape documented for Sync.
 
+The documented reservation-level PNR shape omits `OfferRef`; it does not present `OfferRef: null`. SF treats field absence as provider evidence of reservation-level scope and does not reinterpret an explicitly present `null` as equivalent omission.
+
 ## Commercial authority rule
 
 For Create and Booking.com Sync response classification:
 
 - every present offer ID must be a bounded single-line value and duplicate present IDs fail closed;
-- a Travelport `PNR Locator` receipt is reservation-level and any `OfferRef` on that PNR fails closed;
-- a Supplier `Confirmation Number` receipt with `OfferRef` must contain exactly one bounded reference;
+- a Travelport `PNR Locator` receipt is reservation-level and any present `OfferRef`, including explicit `null`, fails closed;
+- a Supplier `Confirmation Number` receipt with `OfferRef` must contain exactly one bounded reference, and explicit `null` fails closed rather than entering omission compatibility;
 - when the matching hotel offer has an ID, a scoped supplier receipt must reference exactly that ID;
 - when the matching hotel offer has no ID, scoped supplier evidence is tolerated only when exactly one offer exists, matching Travelport's current single-offer Sync response shape;
-- an unscoped supplier confirmation is likewise tolerated only when exactly one offer exists, because there is no competing offer ownership to confuse; and
+- a genuinely omitted supplier `OfferRef` is likewise tolerated only when exactly one offer exists, because there is no competing offer ownership to confuse; and
 - once multiple offers exist, supplier confirmation must be explicitly bound to the identified matching hotel offer before it can contribute commercial authority.
 
 The shared Stays receipt inspector still owns locator-family, status, receipt-shape, cancellation, and cardinality validation. This layer only adds the offer-ownership proof that requires knowledge of the matched hotel offer.
@@ -32,7 +34,9 @@ The documented supplier-confirmed/no-PNR warning can produce a Sync recovery ref
 
 ## Compatibility boundary
 
-Single-offer responses remain ownership-unambiguous even when `Offer.id` or supplier `OfferRef` is omitted. This narrow compatibility is needed because Travelport's current Sync example returns one hotel offer without an `id` while its supplier receipt refers to `O1`. It does not apply once multiple offers exist, and it does not apply to Travelport PNR scope: the PNR remains reservation-level in every case.
+Single-offer responses remain ownership-unambiguous when `Offer.id` or supplier `OfferRef` is genuinely omitted. This narrow compatibility is needed because Travelport's current Sync example returns one hotel offer without an `id` while its supplier receipt refers to `O1`. Explicit `OfferRef: null` is not treated as omission. The compatibility does not apply once multiple offers exist, and it does not apply to Travelport PNR scope: the PNR remains reservation-level in every case.
+
+The same absent-not-null rule is enforced by known-locator Retrieve before receipt ownership can contribute provider reservation authority. This keeps Create, Sync, and recovery aligned on the meaning of provider field presence.
 
 If SF later supports a materially different Travelport Create request/response mode, its receipt ownership semantics must be reviewed as a separate provider contract rather than weakening this one.
 

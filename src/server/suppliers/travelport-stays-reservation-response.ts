@@ -231,7 +231,14 @@ function activeReservationReceiptEvidence(
   return value.filter((receiptValue) => {
     if (!receiptValue || typeof receiptValue !== 'object' || Array.isArray(receiptValue)) return true;
     const receipt = receiptValue as RecordValue;
-    if (receipt.OfferRef === undefined || receipt.OfferRef === null) {
+    const rawOfferRefs = receipt.OfferRef;
+    if (rawOfferRefs === null) {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained an explicit null receipt offer reference.',
+      );
+    }
+    if (rawOfferRefs === undefined) {
       const unscopedReceiptEvidence = inspectTravelportStaysReservationReceiptEvidence([receipt]);
       if (!unscopedReceiptEvidence.valid) {
         throw new HospitalitySupplierProviderError(
@@ -251,14 +258,14 @@ function activeReservationReceiptEvidence(
       return true;
     }
 
-    if (!Array.isArray(receipt.OfferRef) || receipt.OfferRef.length < 1 || receipt.OfferRef.length > MAX_OFFERS) {
+    if (!Array.isArray(rawOfferRefs) || rawOfferRefs.length < 1 || rawOfferRefs.length > MAX_OFFERS) {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
         'Travelport reservation response contained malformed receipt offer references.',
       );
     }
 
-    const offerRefs = receipt.OfferRef.map((offerRef) => boundedProviderValue(offerRef, MAX_OFFER_REFERENCE_LENGTH));
+    const offerRefs = rawOfferRefs.map((offerRef) => boundedProviderValue(offerRef, MAX_OFFER_REFERENCE_LENGTH));
     const normalizedOfferRefs = offerRefs.filter((offerRef): offerRef is string => offerRef !== null);
     if (normalizedOfferRefs.length !== offerRefs.length) {
       throw new HospitalitySupplierProviderError(
