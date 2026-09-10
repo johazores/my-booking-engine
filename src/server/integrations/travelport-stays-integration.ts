@@ -5,6 +5,7 @@ import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travel
 import { TravelportStaysReservationCreateExecutor } from '../suppliers/travelport-stays-reservation-create-executor.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
 import { TravelportStaysReservationSyncExecutor } from '../suppliers/travelport-stays-reservation-sync-executor.ts';
+import { createTravelportStaysReservationTraceAuthorityFetch } from '../suppliers/travelport-stays-reservation-trace-fetch.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
   probeTravelportStaysIntegrationHealth,
@@ -92,10 +93,12 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
-  const fetchImpl = createTravelportStaysTraceFetch({
-    environment: normalizedCredentials.environment,
-    credentials: normalizedCredentials,
-  });
+  const fetchImpl = createTravelportStaysReservationTraceAuthorityFetch(
+    createTravelportStaysTraceFetch({
+      environment: normalizedCredentials.environment,
+      credentials: normalizedCredentials,
+    }),
+  );
   const provider = new TravelportStaysProvider({
     credentials: normalizedCredentials,
     cacheKey,

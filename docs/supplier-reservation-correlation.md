@@ -64,7 +64,11 @@ Booking.com Sync uses its claimed `RECOVERY_WRITE` attempt UUID for both the dur
 
 ## Response correlation is separate evidence
 
-Travelport response trace/correlation values are normalized separately into bounded provider-correlation evidence where available. They do not replace the outbound SF attempt identity.
+Travelport response correlation remains operational evidence and never replaces supplier reservation authority. For the implemented production v11 reservation paths, however, it is no longer merely optional metadata: current Travelport Stays documentation says a caller-supplied trace is returned in both the response header and payload, so SF requires both echoed values to exactly match the durable attempt UUID before Create, Booking.com Sync, or known-locator Retrieve response evidence reaches its commercial classifier/parser.
+
+A missing, malformed, or mismatched response trace therefore fails closed. For Create and Sync, which may already have crossed an external write boundary, the existing post-marker semantics keep the result ambiguous rather than granting retry authority. For known-locator Retrieve, invalid trace evidence is an invalid provider response and cannot establish `FOUND` or `NOT_FOUND`.
+
+Even an exact trace match proves only which outbound transaction produced the response. It does not prove that a supplier sell occurred, does not replace a Travelport PNR or supplier confirmation, and does not make locator-less ambiguity retryable.
 
 On a timeout with no response correlation, SF still has the attempt UUID and can derive the exact outbound Travelport tracking values. No additional PII or secret field is needed in the database.
 
@@ -84,6 +88,8 @@ Authoritative live locator-less correlation/recovery semantics are still a provi
 ## Validation
 
 Dependency-free/source contracts verify durable correlation and marker ordering across Create, reviewed Create, Sync, and reconciliation. The provider-request marker contract also verifies the live tenant integration/provider/credential/capability recheck occurs before a new marker is written.
+
+Travelport reservation response-trace coverage additionally verifies exact response header/payload echo binding, malformed or mismatched response rejection, non-reservation pass-through, and production integration wiring through the reservation-only correlation wrapper.
 
 Guarded PostgreSQL scenarios cover durable attempts, tenant isolation, provider markers, stale recovery, and reservation-write replay rules when an explicitly disposable database is available. Live Travelport validation remains required before `reservation` is advertised.
 
