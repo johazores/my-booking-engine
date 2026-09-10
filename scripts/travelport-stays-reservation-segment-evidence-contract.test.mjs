@@ -18,16 +18,19 @@ test('Travelport Create and Retrieve reject malformed active offer structure whi
   assert.doesNotMatch(create, /if \(passiveOfferInd === true\)/);
 
   assert.match(retrieve, /const offer = record\(offerValue\)/);
+  assert.match(retrieve, /const offerType = boundedProviderValue\(offer\['@type'\], MAX_OFFER_TYPE_LENGTH\)/);
+  assert.match(retrieve, /if \(offerType !== 'Offer'\)/);
   assert.match(retrieve, /const offerId = boundedProviderValue\(offer\.id, MAX_OFFER_REFERENCE_LENGTH\)/);
   assert.match(retrieve, /offerIds\.has\(offerId\)/);
   assert.match(retrieve, /const passiveOfferInd = offer\.passiveOfferInd/);
   assert.match(retrieve, /typeof passiveOfferInd !== 'boolean'/);
+  const offerTypeCheck = retrieve.indexOf("if (offerType !== 'Offer')");
   const passiveSkip = retrieve.indexOf('if (passiveOfferInd === true) {');
   const passiveScope = retrieve.indexOf('passiveOfferIds.add(offerId)', passiveSkip);
   const productInspection = retrieve.indexOf('const products = offer.Product');
   assert.ok(
-    passiveSkip >= 0 && passiveScope > passiveSkip && productInspection > passiveScope,
-    'explicit passive placeholders must be scoped by offer id before their incomplete product body is skipped',
+    offerTypeCheck >= 0 && passiveSkip > offerTypeCheck && passiveScope > passiveSkip && productInspection > passiveScope,
+    'an offer must prove its canonical discriminator before passive scope can skip its incomplete product body',
   );
   assert.match(retrieve, /products\.length < 1 \|\| products\.length > MAX_PRODUCTS_PER_OFFER/);
   assert.match(retrieve, /const product = record\(productValue\)/);

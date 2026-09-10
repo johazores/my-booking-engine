@@ -6,7 +6,7 @@ SF known-locator Travelport recovery must identify the exact active hotel reserv
 
 ## Provider response shape
 
-Travelport's current Hotel Retrieve documentation includes a reservation with one active hotel offer (`O1`) and one placeholder passive hotel offer (`O2`). The active offer is explicitly `passiveOfferInd=false`; the placeholder is explicitly `passiveOfferInd=true`.
+Travelport's current Hotel Retrieve documentation includes a reservation with one active hotel offer (`O1`) and one placeholder passive hotel offer (`O2`). The active offer is explicitly `passiveOfferInd=false`; the placeholder is explicitly `passiveOfferInd=true`. Both documented entries identify themselves with `@type=Offer` before their IDs, products, and passive state are presented.
 
 The same documented response also includes a placeholder receipt scoped to `OfferRef=["O2"]`. That receipt is `ReceiptConfirmation` / `ConfirmationHold` with `OfferStatusHospitality`, `code=AK`, and `Status=Confirmed`, but it intentionally has no `Locator`. Travelport describes the second offer as a placeholder passive segment and states that information related only to a segment is identified with that offer ID. In the documented examples the supplier confirmation and agency IATA evidence for the active segment carry `OfferRef=["O1"]`, while the reservation-level Travelport PNR locator is not scoped to the passive offer.
 
@@ -14,7 +14,9 @@ Reference: `https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hot
 
 ## SF authority rule
 
-Known-locator recovery first verifies the durable reservation expectation against exactly one non-passive `ProductHospitality` segment. During that same boundary every returned offer must expose one bounded, non-empty, unique `id`. Those IDs become the only valid namespace for receipt `OfferRef` evidence; a receipt that points to an unknown offer fails closed instead of being allowed to contribute supplier authority.
+Known-locator recovery first verifies the durable reservation expectation against exactly one non-passive `ProductHospitality` segment. During that same boundary every returned offer must be a structured object whose bounded discriminator normalizes to the canonical `@type=Offer`, then expose one bounded, non-empty, unique `id`. Those IDs become the only valid namespace for receipt `OfferRef` evidence; a receipt that points to an unknown offer fails closed instead of being allowed to contribute supplier authority.
+
+The offer discriminator is validated before `passiveOfferInd` can establish passive scope. An arbitrary or malformed object therefore cannot gain the ability to skip product validation or suppress offer-scoped durable receipt evidence merely by presenting an `id` plus `passiveOfferInd=true`. Missing, malformed, multiline, or contradictory offer-type evidence fails closed for both active and passive entries.
 
 Only after active identity and offer-ID integrity succeed does Retrieve classify explicit passive offers. Before the shared Stays receipt inspector runs, Retrieve excludes the exact documented locator-less placeholder receipt shape when all of that receipt's bounded `OfferRef` values point to explicitly passive offer IDs. The ignored placeholder must be `ReceiptConfirmation` / `ConfirmationHold`, must have no `Locator`, and must carry `OfferStatusHospitality` with `code=AK` and `Status=Confirmed`.
 
@@ -26,11 +28,11 @@ This closes three false-authority cases at the same segment boundary:
 - a passive Travelport PNR Locator cannot satisfy the known-locator active reservation requirement or create false duplicate-PNR ambiguity beside the real reservation-level PNR; and
 - passive supplier cancellation evidence cannot make an otherwise active reservation appear cancelled.
 
-If no active or reservation-level Travelport PNR remains after passive-owned evidence is removed, recovery fails closed rather than promoting the passive locator. If no active supplier confirmation remains, the recovery provider can return only a null supplier confirmation and the provider-neutral reconciliation boundary keeps the operation unresolved because Travelport requires supplier confirmation for `FOUND` settlement.
+If no active or reservation-level Travelport PNR remains after passive-owned evidence is removed, recovery fails closed rather than promoting the passive locator. If no active supplier confirmation remains, the Travelport recovery provider can return only a null supplier confirmation and the provider-neutral reconciliation boundary keeps the operation unresolved because Travelport requires supplier confirmation for `FOUND` settlement.
 
 The exception remains intentionally narrow:
 
-- every offer used for known-locator receipt scoping must have a bounded unique ID;
+- every offer used for known-locator receipt scoping must have the canonical bounded `@type=Offer` discriminator and a bounded unique ID;
 - an offer is never considered passive unless `passiveOfferInd === true`;
 - malformed non-boolean passive flags still fail closed in the existing active-segment identity boundary;
 - a receipt with malformed, empty, oversized, multiline, non-string, or unknown `OfferRef` evidence fails closed;
@@ -39,10 +41,10 @@ The exception remains intentionally narrow:
 - passive-only PNR, supplier confirmation, and supplier cancellation lifecycle evidence is structurally revalidated and excluded from active reservation authority;
 - malformed or contradictory passive Stays locator/lifecycle evidence fails closed before exclusion;
 - valid non-authoritative shared-model evidence such as supported Agency IATA, Booking.com PIN, payment, or unrelated multi-content receipt evidence can continue through the shared inspector without being promoted to active Stays authority;
-- reservation-level receipts without `OfferRef`, including the documented Travelport PNR locator, remain in the active evidence set;
+- reservation-level receipts without `OfferRef`, including the documented Travelport PNR locator, remain in the active evidence set; and
 - active-offer supplier Confirmation Number and cancellation evidence remain subject to the existing shared receipt and lifecycle rules.
 
-This means passive offer scoping can remove only provider evidence whose passive ownership is proven by the returned offer namespace. It cannot turn passive evidence into active reservation authority, and it cannot hide malformed Stays confirmation structure.
+This means passive offer scoping can remove only provider evidence whose passive ownership is proven by a canonical returned offer namespace. It cannot turn passive evidence into active reservation authority, and it cannot hide malformed Stays confirmation structure.
 
 ## Create and Sync isolation
 
@@ -55,6 +57,8 @@ This separation is important because Booking.com Sync itself uses `passiveOfferI
 Focused behavior coverage verifies:
 
 - the documented active `O1` plus passive placeholder `O2` response, including the locator-less AK receipt, is accepted for known-locator recovery;
+- active and passive entries must prove the canonical bounded `@type=Offer` discriminator before either can establish recovery scope;
+- missing, malformed, multiline, or contradictory offer-type evidence fails closed before passive product skipping or receipt filtering;
 - the active Travelport PNR and active supplier Confirmation Number remain the normalized durable evidence;
 - receipt `OfferRef` values must resolve to returned offer IDs;
 - returned offer IDs must be present, bounded, and unique before receipt scoping;
@@ -66,6 +70,6 @@ Focused behavior coverage verifies:
 - locator-less passive evidence outside the documented AK/Confirmed placeholder shape remains invalid; and
 - malformed passive receipt offer references fail closed.
 
-A dependency-free source contract also requires Retrieve to validate offer/receipt scoping and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
+A dependency-free source contract also requires Retrieve to validate the canonical offer discriminator, offer/receipt scoping, and passive-owned durable authority before the final shared receipt inspection while Create/Sync continues to call the shared inspector directly.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. Live provider behavior remains gated on provisioned Travelport non-production credentials and the reviewed PCI-safe payment/guarantee source. GitHub Actions are not used.

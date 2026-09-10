@@ -5,6 +5,7 @@ const MAX_CORRELATION_LENGTH = 512;
 const MAX_OFFERS = 32;
 const MAX_PRODUCTS_PER_OFFER = 8;
 const MAX_WARNINGS = 32;
+const MAX_OFFER_TYPE_LENGTH = 64;
 const MAX_PRODUCT_TYPE_LENGTH = 64;
 const MAX_OFFER_REFERENCE_LENGTH = 64;
 
@@ -102,6 +103,14 @@ function assertExpectedReservationMatch(
   let activeHospitalitySegments = 0;
   for (const offerValue of offers) {
     const offer = record(offerValue);
+    const offerType = boundedProviderValue(offer['@type'], MAX_OFFER_TYPE_LENGTH);
+    if (offerType !== 'Offer') {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_RESPONSE',
+        'Travelport reservation response contained missing, malformed, or unexpected offer type evidence.',
+      );
+    }
+
     const offerId = boundedProviderValue(offer.id, MAX_OFFER_REFERENCE_LENGTH);
     if (!offerId || offerIds.has(offerId)) {
       throw new HospitalitySupplierProviderError(
