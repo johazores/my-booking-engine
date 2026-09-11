@@ -14,7 +14,7 @@ CHECK (
 
 ALTER TABLE "hospitality_supplier_reservation_operations"
 ADD CONSTRAINT "hospitality_supplier_reservation_operations_provider_machine_reference_control_check"
-CHEK (
+CHECK (
   ("providerReservationReference" IS NULL OR "providerReservationReference" !~ '[[:cntrl:]]')
   AND ("supplierConfirmationReference" IS NULL OR "supplierConfirmationReference" !~ '[[:cntrl:]]')
   AND ("providerRecoveryReference" IS NULL OR "providerRecoveryReference" !~ '[[:cntrl:]]')

@@ -48,6 +48,8 @@ test('database constraints reject control-bearing durable supplier reservation e
   );
 
   assert.match(migration, /selection_machine_reference_check/);
+  assert.doesNotMatch(migration, /\bCHEK\b/);
+  assert.equal((migration.match(/ADD CONSTRAINT/g) ?? []).length, (migration.match(/\nCHECK \(/g) ?? []).length);
   assert.match(migration, /"supplierPropertyReference" !~ '\[\[:cntrl:\]\]'/);
   assert.match(migration, /"supplierOfferReference" !~ '\[\[:cntrl:\]\]'/);
   for (const column of [
