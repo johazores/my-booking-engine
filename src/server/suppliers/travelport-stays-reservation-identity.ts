@@ -1,6 +1,7 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 
 const MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH = 4_096;
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export type TravelportStaysReservationExpectationInput = Readonly<{
   supplierPropertyReference: unknown;
@@ -24,13 +25,17 @@ function invalidRequest(message: string): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', message);
 }
 
-function boundedSingleLine(value: unknown, label: string, max: number) {
-  if (typeof value !== 'string') invalidRequest(`${label} is required.`);
-  const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) {
+function boundedMachineToken(value: unknown, label: string, max: number) {
+  if (
+    typeof value !== 'string'
+    || !value
+    || value.trim() !== value
+    || value.length > max
+    || ASCII_CONTROL_PATTERN.test(value)
+  ) {
     invalidRequest(`${label} is invalid.`);
   }
-  return normalized;
+  return value;
 }
 
 function localDate(value: unknown, label: string) {
@@ -45,7 +50,7 @@ function localDate(value: unknown, label: string) {
 }
 
 export function decodeTravelportStaysPropertyReference(value: unknown) {
-  const encoded = boundedSingleLine(
+  const encoded = boundedMachineToken(
     value,
     'Supplier property reference',
     MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH,
@@ -54,10 +59,16 @@ export function decodeTravelportStaysPropertyReference(value: unknown) {
     invalidRequest('Supplier property reference is invalid.');
   }
 
+  let decodedBytes: Buffer;
   let decoded: unknown;
   try {
-    decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-  } catch {
+    decodedBytes = Buffer.from(encoded, 'base64url');
+    if (decodedBytes.toString('base64url') !== encoded) {
+      invalidRequest('Supplier property reference is invalid.');
+    }
+    decoded = JSON.parse(decodedBytes.toString('utf8'));
+  } catch (error) {
+    if (error instanceof HospitalitySupplierProviderError) throw error;
     invalidRequest('Supplier property reference is invalid.');
   }
   if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
@@ -65,8 +76,8 @@ export function decodeTravelportStaysPropertyReference(value: unknown) {
   }
 
   const identity = decoded as Record<string, unknown>;
-  const chainCode = typeof identity.chainCode === 'string' ? identity.chainCode.trim() : '';
-  const propertyCode = typeof identity.propertyCode === 'string' ? identity.propertyCode.trim() : '';
+  const chainCode = typeof identity.chainCode === 'string' ? identity.chainCode : '';
+  const propertyCode = typeof identity.propertyCode === 'string' ? identity.propertyCode : '';
   if (
     identity.authority !== 'TVPT'
     || !/^[A-Za-z0-9]{1,16}$/.test(chainCode)

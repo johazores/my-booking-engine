@@ -2,23 +2,26 @@
 
 ## Purpose
 
-Travelport reservation creation and recovery cross a commercial provider boundary. Provider-owned identifiers, accepted-card capability codes, supplier confirmation references, and correlation values can influence whether SF is allowed to submit or interpret a reservation write. Those values are machine evidence, not display text, and must never become valid merely because SF trimmed or ignored control characters.
+Travelport reservation creation and recovery cross a commercial provider boundary. Provider-owned identifiers, accepted-card capability codes, supplier confirmation references, correlation values, and SF-carried supplier property references can influence whether SF is allowed to submit or interpret a reservation write. Those values are machine evidence, not display text, and must never become valid merely because SF trimmed, recased, ignored control characters, or accepted an alternate textual encoding.
 
 This hardening does not enable Travelport reservation capability. It strengthens the already-disabled production path while the existing activation gates remain open.
 
 ## Exact machine-token rule
 
-The current reservation write path rejects ASCII control characters `U+0000` through `U+001F` plus `U+007F` from the following same-scope authority surfaces:
+The current reservation path rejects ASCII control characters `U+0000` through `U+001F` plus `U+007F` from the following same-scope authority surfaces:
 
 - bounded Travelport reservation response correlation evidence;
 - normalized accepted-payment-card capability codes used to derive reservation payment authority;
 - the selected provider submission reference used in Create request material;
-- accepted-card codes revalidated again immediately before Create request composition; and
-- the durable supplier confirmation reference used to construct Booking.com Sync recovery.
+- accepted-card codes revalidated again immediately before Create request composition;
+- the durable supplier confirmation reference used to construct Booking.com Sync recovery; and
+- the opaque supplier property reference decoded into the shared reservation expectation used by Create, reviewed Create, Sync, and known-locator recovery.
 
 Where a token must already be canonical, leading or trailing whitespace is rejected rather than trimmed into authority. Duplicate accepted-card codes also remain invalid.
 
 The shared payment-authority boundary intentionally treats accepted-card codes as exact normalized capability evidence. It no longer changes a supplied code such as `" VI"` into `"VI"`. Outbound Create independently repeats the exact-token and control-character checks so malformed commercial authority cannot cross the provider-request boundary even if an upstream caller is incorrectly constructed.
+
+The shared reservation property-reference boundary additionally requires canonical base64url spelling. After decoding, the bytes must encode back to the exact same token, and the embedded Travelport chain/property codes are validated without trimming. See `docs/travelport-reservation-property-reference-authority.md`.
 
 ## Human and sensitive data remain separate
 
@@ -30,6 +33,8 @@ No PAN, CVV, cardholder secret, bearer token, credential, provider body, or supp
 
 Booking.com Sync is a commercial recovery write. The durable supplier confirmation inserted into its provider request must therefore remain exact and control-free before request composition.
 
+Initial Create, reviewed Create, Booking.com Sync, and known-locator Retrieve all construct the same reservation expectation from the durable supplier property reference. The property identity entering those commercial write/recovery boundaries must therefore be one exact canonical SF reference rather than any alternate spelling that happens to decode to the same bytes.
+
 Travelport response correlation is operational evidence. When an SF request correlation UUID is expected, the exact echoed value remains mandatory. When the helper is used without an expected SF correlation for bounded classifier/fixture compatibility, a provider correlation is still rejected if it contains any ASCII control character instead of only CR/LF.
 
 ## Validation
@@ -38,10 +43,11 @@ Focused regression coverage pins:
 
 - exact accepted-card capability codes and rejection of padded, duplicate, oversized, newline, tab, NUL, unit-separator, and DEL forms;
 - rejection of control-bearing outbound Create offer/card tokens;
-- rejection of control-bearing Sync supplier confirmations; and
-- rejection of every ASCII control family from optional provider response correlation evidence.
+- rejection of control-bearing Sync supplier confirmations;
+- rejection of every ASCII control family from optional provider response correlation evidence; and
+- exact canonical reservation supplier property references across the shared expectation boundary, including rejection of padded decoded property identity and non-canonical base64url aliases.
 
-A dependency-free source contract also pins the full-control pattern and ensures the shared payment-authority boundary does not reintroduce card-code trimming.
+A dependency-free source contract pins the full-control pattern, ensures the shared payment-authority boundary does not reintroduce card-code trimming, and pins canonical supplier-property-reference decoding.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. Prisma/PostgreSQL scenarios require an explicitly disposable target. Live Travelport reservation verification requires provisioned non-production credentials and the separately reviewed PCI-safe payment/guarantee source.
 
@@ -56,6 +62,7 @@ Travelport `reservation` remains deliberately unadvertised. This hardening does 
 Related contracts:
 
 - `docs/travelport-stays-integration.md`
+- `docs/travelport-reservation-property-reference-authority.md`
 - `docs/travelport-reservation-response-trace-authority.md`
 - `docs/travelport-stays-receipt-token-authority.md`
 - `docs/travelport-known-locator-machine-token-authority.md`

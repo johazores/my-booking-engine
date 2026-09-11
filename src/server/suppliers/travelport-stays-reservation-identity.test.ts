@@ -13,7 +13,11 @@ const propertyReference = Buffer.from(JSON.stringify({
   propertyCode: 'ABC12',
 }), 'utf8').toString('base64url');
 
-test('decodes only bounded Travelport property identity evidence', () => {
+function encodedPropertyReference(input: Record<string, unknown>) {
+  return Buffer.from(JSON.stringify(input), 'utf8').toString('base64url');
+}
+
+test('decodes only bounded canonical Travelport property identity evidence', () => {
   assert.deepEqual(decodeTravelportStaysPropertyReference(propertyReference), {
     chainCode: 'HI',
     propertyCode: 'ABC12',
@@ -21,11 +25,37 @@ test('decodes only bounded Travelport property identity evidence', () => {
   for (const value of [
     '',
     'not-base64!',
-    Buffer.from(JSON.stringify({ authority: 'OTHER', chainCode: 'HI', propertyCode: 'ABC12' })).toString('base64url'),
-    Buffer.from(JSON.stringify({ authority: 'TVPT', chainCode: 'bad code', propertyCode: 'ABC12' })).toString('base64url'),
+    ` ${propertyReference}`,
+    `${propertyReference} `,
+    `\t${propertyReference}`,
+    `${propertyReference}\n`,
+    encodedPropertyReference({ authority: 'OTHER', chainCode: 'HI', propertyCode: 'ABC12' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: 'bad code', propertyCode: 'ABC12' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: ' HI', propertyCode: 'ABC12' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI\t', propertyCode: 'ABC12' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12 ' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI', propertyCode: '\u0000ABC12' }),
   ]) {
     assert.throws(() => decodeTravelportStaysPropertyReference(value), HospitalitySupplierProviderError);
   }
+});
+
+test('rejects non-canonical base64url aliases for the same supplier property bytes', () => {
+  const bytes = Buffer.from(JSON.stringify({
+    authority: 'TVPT',
+    chainCode: 'HI',
+    propertyCode: 'ABC12',
+    x: '',
+  }), 'utf8');
+  const canonical = bytes.toString('base64url');
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const lastIndex = alphabet.indexOf(canonical.at(-1)!);
+  const alias = `${canonical.slice(0, -1)}${alphabet[lastIndex + 1]}`;
+
+  assert.equal(bytes.length % 3, 1);
+  assert.notEqual(alias, canonical);
+  assert.equal(Buffer.from(alias, 'base64url').toString('utf8'), bytes.toString('utf8'));
+  assert.throws(() => decodeTravelportStaysPropertyReference(alias), HospitalitySupplierProviderError);
 });
 
 test('normalizes the supported single-room reservation expectation', () => {

@@ -12,6 +12,7 @@ test('reservation commercial machine-token boundaries reject the full ASCII cont
     'src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts',
     'src/server/suppliers/travelport-stays-reservation-create-request-material.ts',
     'src/server/suppliers/travelport-stays-reservation-sync-domain.ts',
+    'src/server/suppliers/travelport-stays-reservation-identity.ts',
   ]) {
     assert.match(
       source(path),
@@ -40,4 +41,14 @@ test('outbound Create and Sync retain exact-value checks before composing provid
 
   assert.match(sync, /normalized !== value/);
   assert.match(sync, /ASCII_CONTROL_PATTERN\.test\(normalized\)/);
+});
+
+test('known-locator property references remain exact and canonically encoded', () => {
+  const identity = source('src/server/suppliers/travelport-stays-reservation-identity.ts');
+
+  assert.match(identity, /value\.trim\(\) !== value/);
+  assert.match(identity, /ASCII_CONTROL_PATTERN\.test\(value\)/);
+  assert.match(identity, /decodedBytes\.toString\('base64url'\) !== encoded/);
+  assert.doesNotMatch(identity, /identity\.chainCode\.trim\(\)/);
+  assert.doesNotMatch(identity, /identity\.propertyCode\.trim\(\)/);
 });
