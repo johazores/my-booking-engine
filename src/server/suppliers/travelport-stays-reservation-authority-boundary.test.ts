@@ -16,6 +16,12 @@ function jsonResponse(body: unknown) {
 
 function searchComplete() {
   return {
+    pagination: {
+      page: 1,
+      pageSize: 1,
+      totalPages: 1,
+      totalItems: 1,
+    },
     hotelsResponse: {
       propertyItems: [{
         chainCode: 'HI',
@@ -141,6 +147,46 @@ test('reservation authority request shapes fail closed before provider I/O', asy
     await assert.rejects(() => guarded(url, { method }), isInvalidResponse);
   }
   assert.equal(calls, 0);
+});
+
+test('successful reservation authority responses require valid JSON and complete provider envelopes', async () => {
+  const searchUrl = 'https://api.pp.travelport.net/12/hotel/search/searchcomplete';
+  const availabilityUrl = 'https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality';
+  const malformed = [
+    [searchUrl, new Response('not-json', { status: 200, headers: { 'content-type': 'text/plain' } })],
+    [searchUrl, jsonResponse({})],
+    [searchUrl, jsonResponse({
+      pagination: { page: 1, pageSize: 1, totalPages: 1, totalItems: 1 },
+      hotelsResponse: {},
+    })],
+    [availabilityUrl, jsonResponse({})],
+    [availabilityUrl, jsonResponse({ CatalogOfferingsHospitalityResponse: {} })],
+  ] as const;
+
+  for (const [url, response] of malformed) {
+    const guarded = createTravelportStaysReservationAuthorityResponseFetch(
+      (async () => response.clone()) as typeof fetch,
+    );
+    await assert.rejects(() => guarded(url, { method: 'POST' }), isInvalidResponse);
+  }
+});
+
+test('reservation authority SearchComplete binds exact single-property pagination evidence', async () => {
+  const url = 'https://api.pp.travelport.net/12/hotel/search/searchcomplete';
+  const mutations = [
+    (payload: ReturnType<typeof searchComplete>) => { payload.pagination.page = 2; },
+    (payload: ReturnType<typeof searchComplete>) => { payload.pagination.pageSize = 2; },
+    (payload: ReturnType<typeof searchComplete>) => { payload.pagination.totalPages = 2; },
+    (payload: ReturnType<typeof searchComplete>) => { payload.pagination.totalItems = 2; },
+    (payload: ReturnType<typeof searchComplete>) => { (payload.pagination as typeof payload.pagination & { paginationToken?: string }).paginationToken = 'unexpected-token'; },
+    (payload: ReturnType<typeof searchComplete>) => { payload.hotelsResponse.propertyItems = []; },
+  ];
+
+  for (const mutate of mutations) {
+    const payload = searchComplete();
+    mutate(payload);
+    await assert.rejects(() => guardedResponse(url, payload), isInvalidResponse);
+  }
 });
 
 test('SearchComplete machine evidence cannot gain authority through trimming or control stripping', async () => {

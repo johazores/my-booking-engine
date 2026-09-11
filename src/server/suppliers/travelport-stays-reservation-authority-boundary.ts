@@ -184,10 +184,28 @@ function validateSearchCompleteRate(value: unknown): void {
 
 function validateSearchCompleteResponse(value: unknown): void {
   const root = record(value);
+  const pagination = root ? record(root.pagination) : null;
   const hotelsResponse = root ? record(root.hotelsResponse) : null;
-  if (!hotelsResponse) return;
+  if (!root || !pagination || !hotelsResponse || !Array.isArray(hotelsResponse.propertyItems)) {
+    invalidResponse('Travelport reservation SearchComplete response envelope is invalid.');
+  }
 
-  for (const propertyValue of boundedArray(hotelsResponse.propertyItems, MAX_SEARCH_PROPERTIES)) {
+  if (
+    pagination.page !== 1
+    || pagination.pageSize !== MAX_SEARCH_PROPERTIES
+    || pagination.totalPages !== 1
+    || pagination.totalItems !== MAX_SEARCH_PROPERTIES
+    || pagination.paginationToken !== undefined
+  ) {
+    invalidResponse('Travelport reservation SearchComplete pagination authority is invalid.');
+  }
+
+  const properties = boundedArray(hotelsResponse.propertyItems, MAX_SEARCH_PROPERTIES);
+  if (properties.length !== MAX_SEARCH_PROPERTIES) {
+    invalidResponse('Travelport reservation SearchComplete property authority is invalid.');
+  }
+
+  for (const propertyValue of properties) {
     const property = record(propertyValue);
     if (!property) continue;
     validateExactMachineStringIfPresent(property.chainCode, 16);
@@ -255,7 +273,9 @@ function validateAvailabilityResponse(
   const root = record(value);
   const response = root ? record(root.CatalogOfferingsHospitalityResponse) : null;
   const catalog = response ? record(response.CatalogOfferings) : null;
-  if (!catalog) return;
+  if (!root || !response || !catalog) {
+    invalidResponse('Travelport reservation Availability response envelope is invalid.');
+  }
 
   const total = catalog.totalCatalogOffering;
   const pageSize = catalog.catalogOfferingPerPage;
@@ -334,7 +354,9 @@ export function createTravelportStaysReservationAuthorityResponseFetch(
     if (!response.ok || requestAuthority === null) return response;
 
     const payload = await response.clone().json().catch(() => null);
-    if (payload === null) return response;
+    if (payload === null) {
+      invalidResponse('Travelport reservation authority response is not valid JSON.');
+    }
 
     if (requestAuthority.kind === 'search-complete') validateSearchCompleteResponse(payload);
     if (requestAuthority.kind === 'availability') validateAvailabilityResponse(payload, requestAuthority);
