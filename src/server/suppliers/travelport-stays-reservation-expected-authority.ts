@@ -10,20 +10,26 @@ function validLocalDate(value: unknown) {
  * Copies caller-owned reservation identity into an immutable provider-bound snapshot.
  * Every authoritative property is read once before validation so later caller mutation
  * cannot change the stay identity used after an asynchronous provider boundary.
+ * Hostile/revoked proxies and throwing accessors fail closed as invalid authority.
  */
 export function materializeTravelportStaysCreateExpectedReservation(
   value: unknown,
 ): TravelportStaysCreateExpectedReservation | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const expected = value as Record<string, unknown>;
-  const snapshot = Object.freeze({
-    chainCode: expected.chainCode,
-    propertyCode: expected.propertyCode,
-    arrivalDateLocal: expected.arrivalDateLocal,
-    departureDateLocal: expected.departureDateLocal,
-    rooms: expected.rooms,
-    guests: expected.guests,
-  });
+  let snapshot: Readonly<Record<string, unknown>>;
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const expected = value as Record<string, unknown>;
+    snapshot = Object.freeze({
+      chainCode: expected.chainCode,
+      propertyCode: expected.propertyCode,
+      arrivalDateLocal: expected.arrivalDateLocal,
+      departureDateLocal: expected.departureDateLocal,
+      rooms: expected.rooms,
+      guests: expected.guests,
+    });
+  } catch {
+    return null;
+  }
 
   if (
     typeof snapshot.chainCode !== 'string'

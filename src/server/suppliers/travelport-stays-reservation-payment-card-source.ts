@@ -8,6 +8,7 @@ import type { TravelportStaysSensitiveReservationPaymentCard } from './travelpor
 
 const MAX_INTEGRATION_CREDENTIAL_VERSION = 2_147_483_647;
 const SOURCE_FAILURE_MESSAGE = 'Travelport reservation payment-card source could not provide usable card material.';
+const SOURCE_CONTEXT_FAILURE_MESSAGE = 'Travelport reservation payment-card source context is invalid.';
 const BILLING_ADDRESS_KEYS = Object.freeze([
   'addressLine',
   'city',
@@ -147,39 +148,42 @@ function snapshotPaymentCard(value: unknown): TravelportStaysSensitiveReservatio
   }) as TravelportStaysSensitiveReservationPaymentCard;
 }
 
-export async function acquireTravelportStaysReservationPaymentCard(
-  source: TravelportStaysReservationPaymentCardSource,
-  context: TravelportStaysReservationPaymentCardSourceContext,
-) {
-  if (!source || typeof source !== 'object') {
-    invalidSource('Travelport reservation payment-card source is unavailable.');
-  }
-  let acquirePaymentCard: TravelportStaysReservationPaymentCardSource['acquirePaymentCard'];
+function materializeSourceContext(value: unknown): TravelportStaysReservationPaymentCardSourceContext {
+  let organizationId: unknown;
+  let reservationId: unknown;
+  let integrationId: unknown;
+  let integrationCredentialVersion: unknown;
+  let attemptId: unknown;
+  let purpose: unknown;
+
   try {
-    acquirePaymentCard = source.acquirePaymentCard;
-  } catch (error) {
-    sourceFailure(error);
-  }
-  if (typeof acquirePaymentCard !== 'function') {
-    invalidSource('Travelport reservation payment-card source is unavailable.');
-  }
-  if (!context || typeof context !== 'object' || Array.isArray(context)) {
-    invalidSource('Travelport reservation payment-card source context is invalid.');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      invalidSource(SOURCE_CONTEXT_FAILURE_MESSAGE);
+    }
+    const context = value as Record<string, unknown>;
+    organizationId = context.organizationId;
+    reservationId = context.reservationId;
+    integrationId = context.integrationId;
+    integrationCredentialVersion = context.integrationCredentialVersion;
+    attemptId = context.attemptId;
+    purpose = context.purpose;
+  } catch {
+    invalidSource(SOURCE_CONTEXT_FAILURE_MESSAGE);
   }
 
   const normalizedContext = Object.freeze({
-    organizationId: requiredIdentifier(context.organizationId, 'Travelport payment-card organization ID'),
-    reservationId: requiredIdentifier(context.reservationId, 'Travelport payment-card reservation ID'),
-    integrationId: requiredIdentifier(context.integrationId, 'Travelport payment-card integration ID'),
-    integrationCredentialVersion: context.integrationCredentialVersion,
-    attemptId: requiredIdentifier(context.attemptId, 'Travelport payment-card attempt ID'),
-    purpose: context.purpose,
+    organizationId: requiredIdentifier(organizationId, 'Travelport payment-card organization ID'),
+    reservationId: requiredIdentifier(reservationId, 'Travelport payment-card reservation ID'),
+    integrationId: requiredIdentifier(integrationId, 'Travelport payment-card integration ID'),
+    integrationCredentialVersion,
+    attemptId: requiredIdentifier(attemptId, 'Travelport payment-card attempt ID'),
+    purpose,
   });
 
   if (
     !Number.isSafeInteger(normalizedContext.integrationCredentialVersion)
-    || normalizedContext.integrationCredentialVersion < 1
-    || normalizedContext.integrationCredentialVersion > MAX_INTEGRATION_CREDENTIAL_VERSION
+    || (normalizedContext.integrationCredentialVersion as number) < 1
+    || (normalizedContext.integrationCredentialVersion as number) > MAX_INTEGRATION_CREDENTIAL_VERSION
   ) {
     invalidSource('Travelport payment-card integration credential version is invalid.');
   }
@@ -189,6 +193,38 @@ export async function acquireTravelportStaysReservationPaymentCard(
   ) {
     invalidSource('Travelport reservation payment-card purpose is invalid.');
   }
+
+  return normalizedContext as TravelportStaysReservationPaymentCardSourceContext;
+}
+
+export async function acquireTravelportStaysReservationPaymentCard(
+  source: TravelportStaysReservationPaymentCardSource,
+  context: TravelportStaysReservationPaymentCardSourceContext,
+) {
+  if (!source || typeof source !== 'object') {
+    invalidSource('Travelport reservation payment-card source is unavailable.');
+  }
+  let sourceIsArray: boolean;
+  try {
+    sourceIsArray = Array.isArray(source);
+  } catch (error) {
+    sourceFailure(error);
+  }
+  if (sourceIsArray) {
+    invalidSource('Travelport reservation payment-card source is unavailable.');
+  }
+
+  let acquirePaymentCard: TravelportStaysReservationPaymentCardSource['acquirePaymentCard'];
+  try {
+    acquirePaymentCard = source.acquirePaymentCard;
+  } catch (error) {
+    sourceFailure(error);
+  }
+  if (typeof acquirePaymentCard !== 'function') {
+    invalidSource('Travelport reservation payment-card source is unavailable.');
+  }
+
+  const normalizedContext = materializeSourceContext(context);
 
   let paymentCard: unknown;
   try {

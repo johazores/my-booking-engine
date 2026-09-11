@@ -58,6 +58,24 @@ test('reads each authoritative reservation property exactly once', () => {
   for (const key of Object.keys(values)) assert.equal(reads.get(key), 1, key);
 });
 
+test('fails closed for throwing accessors and revoked proxies', () => {
+  const throwing = {
+    chainCode: 'CN',
+    get propertyCode() {
+      throw new Error('caller-controlled-sensitive-diagnostic');
+    },
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    guests: 2,
+  };
+  assert.equal(materializeTravelportStaysCreateExpectedReservation(throwing), null);
+
+  const revocable = Proxy.revocable({}, {});
+  revocable.revoke();
+  assert.equal(materializeTravelportStaysCreateExpectedReservation(revocable.proxy), null);
+});
+
 test('rejects malformed or unsupported reservation identity', () => {
   for (const expected of [
     null,
