@@ -55,8 +55,8 @@ const paymentCard = Object.freeze({
   cardCode: 'VI',
   cardHolderName: 'Ada Lovelace',
   expireDate: '1227',
-  cardNumber: '4111111111111111',
-  securityCode: '123',
+  cardNumber: '4'.repeat(16),
+  securityCode: '1'.repeat(3),
 });
 
 const expectedReservation = Object.freeze({
@@ -112,13 +112,14 @@ test('builds the exact Travelport reference payload while keeping change-accepta
 
   assert.equal(request.ReservationQueryBuild.ReservationBuild['@type'], 'ReservationBuildFromCatalogOffering');
   assert.equal(request.ReservationQueryBuild.ReservationBuild.FormOfPayment[0].PaymentCard.CardCode, 'VI');
-  assert.equal(request.ReservationQueryBuild.ReservationBuild.FormOfPayment[0].PaymentCard.SeriesCode.PlainText, '123');
+  assert.equal(request.ReservationQueryBuild.ReservationBuild.FormOfPayment[0].PaymentCard.SeriesCode.PlainText, '111');
   assert.deepEqual(request.ReservationQueryBuild.ReservationBuild.Payment, requestMaterial.Payment);
   assert.doesNotMatch(JSON.stringify(request), /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
-test('rejects malformed expected reservation evidence before OAuth, marker, or provider I/O', async () => {
+test('rejects malformed expected reservation evidence before OAuth, card acquisition, marker, or provider I/O', async () => {
   let calls = 0;
+  let cardCalls = 0;
   let marked = false;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
@@ -132,24 +133,27 @@ test('rejects malformed expected reservation evidence before OAuth, marker, or p
       requestCorrelationId: '5723a1b2-313d-4f60-90b7-d52b9582550e',
       requestMaterial,
       paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: async () => { cardCalls += 1; return paymentCard; },
       expectedReservation: { ...expectedReservation, rooms: 2 },
       beforeProviderRequest: async () => { marked = true; },
     }),
     (error) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST',
   );
   assert.equal(calls, 0);
+  assert.equal(cardCalls, 0);
   assert.equal(marked, false);
 });
 
-test('a failed durable provider marker prevents the commercial POST', async () => {
+test('a failed durable provider marker prevents the commercial POST after one authenticated card acquisition', async () => {
+  const order: string[] = [];
   let calls = 0;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
     cacheKey: 'marker-failure',
     fetchImpl: (async (url: RequestInfo | URL) => {
       calls += 1;
-      if (String(url).includes('/oauth/token')) return tokenResponse();
+      if (String(url).includes('/oauth/token')) { order.push('token'); return tokenResponse(); }
+      order.push('create');
       return confirmedResponse();
     }) as typeof fetch,
     now: () => new Date('2026-09-07T00:00:00.000Z'),
@@ -161,17 +165,19 @@ test('a failed durable provider marker prevents the commercial POST', async () =
       requestCorrelationId: '8b6d4370-4b48-4421-9f0b-e0ac97c07c90',
       requestMaterial,
       paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: async () => { order.push('card'); return paymentCard; },
       expectedReservation,
-      beforeProviderRequest: async () => { throw markerFailure; },
+      beforeProviderRequest: async () => { order.push('marker'); throw markerFailure; },
     }),
     (error) => error === markerFailure,
   );
   assert.equal(calls, 1);
+  assert.deepEqual(order, ['token', 'card', 'marker']);
 });
 
-test('rejects non-secret payment material that no longer matches fresh payment authority before any provider call', async () => {
+test('rejects non-secret payment material that no longer matches fresh payment authority before OAuth or card acquisition', async () => {
   let calls = 0;
+  let cardCalls = 0;
   let marked = false;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
@@ -192,7 +198,7 @@ test('rejects non-secret payment material that no longer matches fresh payment a
       requestCorrelationId: '406ca123-8d9c-4cef-b95b-a93c3fb1832b',
       requestMaterial: mismatchedRequestMaterial,
       paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: async () => { cardCalls += 1; return paymentCard; },
       expectedReservation,
       beforeProviderRequest: async () => { marked = true; },
     }),
@@ -201,11 +207,13 @@ test('rejects non-secret payment material that no longer matches fresh payment a
       && /no longer matches fresh supplier authority/i.test(error.message),
   );
   assert.equal(calls, 0);
+  assert.equal(cardCalls, 0);
   assert.equal(marked, false);
 });
 
-test('rejects payment-card material that is not authorized by fresh supplier terms before any provider call', async () => {
+test('rejects payment-card material outside fresh supplier terms after OAuth and before the durable provider marker', async () => {
   let calls = 0;
+  let cardCalls = 0;
   let marked = false;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
@@ -219,17 +227,18 @@ test('rejects payment-card material that is not authorized by fresh supplier ter
       requestCorrelationId: '9f77a0b5-2614-4f6d-9053-f3a6175343f7',
       requestMaterial,
       paymentAuthority,
-      paymentCard: { ...paymentCard, cardCode: 'AX' },
+      acquirePaymentCard: async () => { cardCalls += 1; return { ...paymentCard, cardCode: 'AX' }; },
       expectedReservation,
       beforeProviderRequest: async () => { marked = true; },
     }),
     (error) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST',
   );
-  assert.equal(calls, 0);
+  assert.equal(calls, 1);
+  assert.equal(cardCalls, 1);
   assert.equal(marked, false);
 });
 
-test('acquires OAuth before the durable provider marker and submits only after the marker succeeds', async () => {
+test('acquires OAuth, then sensitive card material, then marks durably before the commercial POST', async () => {
   const order: string[] = [];
   let createInit: RequestInit | undefined;
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -254,12 +263,12 @@ test('acquires OAuth before the durable provider marker and submits only after t
     requestCorrelationId: '9f77a0b5-2614-4f6d-9053-f3a6175343f7',
     requestMaterial,
     paymentAuthority,
-    paymentCard,
+    acquirePaymentCard: async () => { order.push('card'); return paymentCard; },
     expectedReservation,
     beforeProviderRequest: async () => { order.push('marker'); },
   });
 
-  assert.deepEqual(order, ['token', 'marker', 'create']);
+  assert.deepEqual(order, ['token', 'card', 'marker', 'create']);
   assert.equal(createInit?.method, 'POST');
   assert.equal(createInit?.redirect, 'manual');
   assert.equal(new Headers(createInit?.headers).get('E2ETrackingID'), 'sf-9f77a0b5-2614-4f6d-9053-f3a6175343f7');
@@ -267,7 +276,8 @@ test('acquires OAuth before the durable provider marker and submits only after t
   if (outcome.status === 'CONFIRMED') assert.equal(outcome.providerReservationReference, '0GQ9HS');
 });
 
-test('authentication failure happens before the durable provider-request marker', async () => {
+test('authentication failure happens before card acquisition and the durable provider-request marker', async () => {
+  let cardCalls = 0;
   let marked = false;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
@@ -281,17 +291,19 @@ test('authentication failure happens before the durable provider-request marker'
       requestCorrelationId: 'be85e0e0-7689-47aa-9928-589d3732965e',
       requestMaterial,
       paymentAuthority,
-      paymentCard,
+      acquirePaymentCard: async () => { cardCalls += 1; return paymentCard; },
       expectedReservation,
       beforeProviderRequest: async () => { marked = true; },
     }),
     (error) => error instanceof HospitalitySupplierProviderError && error.code === 'AUTHENTICATION_FAILED',
   );
+  assert.equal(cardCalls, 0);
   assert.equal(marked, false);
 });
 
 test('network uncertainty after the durable marker stays ambiguous and cannot become a blind retry', async () => {
   let calls = 0;
+  let cardCalls = 0;
   let marked = false;
   const executor = new TravelportStaysReservationCreateExecutor({
     credentials,
@@ -308,10 +320,12 @@ test('network uncertainty after the durable marker stays ambiguous and cannot be
     requestCorrelationId: 'a690c70a-f3fc-4c2e-b7ce-3cb6fa2b67e0',
     requestMaterial,
     paymentAuthority,
-    paymentCard,
+    acquirePaymentCard: async () => { cardCalls += 1; return paymentCard; },
     expectedReservation,
     beforeProviderRequest: async () => { marked = true; },
   });
+  assert.equal(calls, 2);
+  assert.equal(cardCalls, 1);
   assert.equal(marked, true);
   assert.deepEqual(outcome, {
     status: 'AMBIGUOUS',
@@ -321,7 +335,7 @@ test('network uncertainty after the durable marker stays ambiguous and cannot be
   });
 });
 
-test('requires bounded non-expired card data and a security code before OAuth or provider I/O', () => {
+test('requires bounded non-expired card data and a security code before request serialization', () => {
   for (const card of [
     { ...paymentCard, cardType: 'Debit' as never },
     { ...paymentCard, cardType: 'Gift' as never },
