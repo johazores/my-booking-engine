@@ -28,6 +28,7 @@ test('reservation authority response guard rejects normalization of provider mac
   assert.match(boundary, /validateExactMachineStringIfPresent\(paginationIdentifier\.value, MAX_REFERENCE_LENGTH\)/);
   assert.match(boundary, /validateExactMachineStringIfPresent\(identifier\.value, MAX_REFERENCE_LENGTH\)/);
   assert.match(boundary, /validateLocalDateIfPresent\(dateRange\.start\)/);
+  assert.match(boundary, /boundedArray\(catalog\.CatalogOffering, MAX_AVAILABILITY_OFFERS\)/);
   assert.match(boundary, /url\.includes\('\/availability\/catalogofferingshospitality'\)/);
 });
 

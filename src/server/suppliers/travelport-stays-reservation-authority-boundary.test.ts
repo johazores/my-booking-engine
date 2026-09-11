@@ -131,6 +131,26 @@ test('Availability sell and pagination evidence is exact before it can become su
   }
 });
 
+test('authority response guard rejects oversized collections before compatibility parsing', async () => {
+  const searchPayload = searchComplete();
+  searchPayload.hotelsResponse.propertyItems.push(searchPayload.hotelsResponse.propertyItems[0]!);
+  await assert.rejects(
+    () => guardedResponse('https://api.pp.travelport.net/12/hotel/search/searchcomplete', searchPayload),
+    isInvalidResponse,
+  );
+
+  const availabilityPayload = availability();
+  const template = availabilityPayload.CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[0]!;
+  availabilityPayload.CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering = Array.from(
+    { length: 101 },
+    (_, index) => ({ ...template, id: `offer-${index}`, Identifier: { value: `offer-${index}`, authority: 'TVPT' } }),
+  );
+  await assert.rejects(
+    () => guardedResponse('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', availabilityPayload),
+    isInvalidResponse,
+  );
+});
+
 test('reservation authority cache identity rejects whitespace and the full ASCII control range', () => {
   assert.doesNotThrow(() => assertTravelportStaysReservationAuthorityCacheKey('integration-123:v7'));
   for (const value of [' integration-123:v7', 'integration-123:v7 ', 'integration\t123', 'integration\u0000x', 'integration\u001fx', 'integration\u007fx']) {

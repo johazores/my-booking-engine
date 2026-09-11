@@ -5,6 +5,12 @@ const MAX_CACHE_KEY_LENGTH = 512;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SEARCH_PROPERTIES = 1;
+const MAX_ROOM_TYPES = 128;
+const MAX_RATES = 256;
+const MAX_AVAILABILITY_OFFERS = 100;
+const MAX_PRODUCT_OPTIONS = 16;
+const MAX_PRODUCTS = 16;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -22,8 +28,10 @@ function record(value: unknown): UnknownRecord | null {
     : null;
 }
 
-function array(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
+function boundedArray(value: unknown, max: number): readonly unknown[] {
+  if (!Array.isArray(value)) return [];
+  if (value.length > max) invalidResponse('Travelport returned an oversized reservation authority collection.');
+  return value;
 }
 
 function validateExactMachineStringIfPresent(value: unknown, max: number): void {
@@ -93,16 +101,16 @@ function validateSearchCompleteResponse(value: unknown): void {
   const hotelsResponse = root ? record(root.hotelsResponse) : null;
   if (!hotelsResponse) return;
 
-  for (const propertyValue of array(hotelsResponse.propertyItems)) {
+  for (const propertyValue of boundedArray(hotelsResponse.propertyItems, MAX_SEARCH_PROPERTIES)) {
     const property = record(propertyValue);
     if (!property) continue;
     validateExactMachineStringIfPresent(property.chainCode, 16);
     validateExactMachineStringIfPresent(property.propertyCode, 32);
 
-    for (const roomValue of array(property.roomTypes)) {
+    for (const roomValue of boundedArray(property.roomTypes, MAX_ROOM_TYPES)) {
       const room = record(roomValue);
       if (!room) continue;
-      for (const rateValue of array(room.rates)) validateSearchCompleteRate(rateValue);
+      for (const rateValue of boundedArray(room.rates, MAX_RATES)) validateSearchCompleteRate(rateValue);
     }
   }
 }
@@ -147,10 +155,10 @@ function validateAvailabilityOffering(value: unknown): void {
     validateExactMachineStringIfPresent(rateInfo.rateCategory, 128);
   }
 
-  for (const optionValue of array(offering.ProductOptions)) {
+  for (const optionValue of boundedArray(offering.ProductOptions, MAX_PRODUCT_OPTIONS)) {
     const option = record(optionValue);
     if (!option) continue;
-    for (const productValue of array(option.Product)) validateAvailabilityProduct(productValue);
+    for (const productValue of boundedArray(option.Product, MAX_PRODUCTS)) validateAvailabilityProduct(productValue);
   }
 }
 
@@ -162,7 +170,7 @@ function validateAvailabilityResponse(value: unknown): void {
 
   const paginationIdentifier = record(catalog.Identifier);
   if (paginationIdentifier) validateExactMachineStringIfPresent(paginationIdentifier.value, MAX_REFERENCE_LENGTH);
-  for (const offering of array(catalog.CatalogOffering)) validateAvailabilityOffering(offering);
+  for (const offering of boundedArray(catalog.CatalogOffering, MAX_AVAILABILITY_OFFERS)) validateAvailabilityOffering(offering);
 }
 
 export function assertTravelportStaysReservationAuthorityCacheKey(value: unknown): asserts value is string {

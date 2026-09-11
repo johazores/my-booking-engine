@@ -12,7 +12,7 @@ Provider identifiers used by this boundary are machine evidence, not presentatio
 
 All production imports continue through the public adapter. Before the compatibility core receives a request, the adapter requires the selected property and offer references to pass the canonical base64url authority checks already used by pricing and Rules. The reservation-authority cache identity is also exact, bounded, and rejects the full ASCII control range.
 
-The wrapped provider transport inspects successful Travelport hotel responses before the compatibility core can normalize them.
+The wrapped provider transport inspects successful Travelport hotel responses before the compatibility core can normalize them. It also applies the compatibility path's collection ceilings before traversing SearchComplete and Availability arrays, so malformed oversized provider payloads fail closed without an unbounded authority-validation sweep.
 
 ## SearchComplete authority
 
@@ -52,7 +52,7 @@ No persistence schema change is required. Durable supplier reservation reference
 
 ## Validation
 
-Focused executable coverage checks canonical SearchComplete/Availability responses, padded and control-bearing booking/rate/property identifiers, non-canonical currency and money strings, Availability pagination/sell references, stay dates, cache identity, non-success responses, and unrelated non-hotel traffic.
+Focused executable coverage checks canonical SearchComplete/Availability responses, bounded collection limits, padded and control-bearing booking/rate/property identifiers, non-canonical currency and money strings, Availability pagination/sell references, stay dates, cache identity, non-success responses, and unrelated non-hotel traffic.
 
 A dependency-free source contract pins the public-adapter/core split, canonical property/offer validation, response-guard installation, full ASCII-control rule, exact currency/money handling, Availability identifier coverage, and production integration import path.
 
