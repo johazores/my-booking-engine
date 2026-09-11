@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
+  createTravelportStaysReferenceAuthorityFetch,
   normalizeTravelportStaysConfiguration,
   probeTravelportStaysIntegrationHealth,
   requestTravelportStaysAccessToken,
@@ -151,6 +152,28 @@ test('SearchComplete binds first-page identity and continuation-token presence t
         rooms: 1,
         adults: 2,
       }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
+test('SearchComplete binds initial and continuation HTTP methods to the documented routes', async () => {
+  const guardedFetch = createTravelportStaysReferenceAuthorityFetch(
+    (async () => jsonResponse(searchResponse({
+      page: 1,
+      pageSize: 0,
+      totalPages: 0,
+      totalItems: 0,
+    }))) as typeof fetch,
+  );
+
+  for (const [url, method] of [
+    ['https://api.pp.travelport.net/12/hotel/search/searchcomplete', 'GET'],
+    ['https://api.pp.travelport.net/12/hotel/search/searchcomplete?pageNumber=2', 'POST'],
+    ['https://api.pp.travelport.net/12/hotel/search/searchcomplete/token?pageNumber=2', 'POST'],
+  ] as const) {
+    await assert.rejects(
+      guardedFetch(url, { method }),
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
     );
   }

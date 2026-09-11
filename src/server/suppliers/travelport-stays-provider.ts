@@ -169,6 +169,13 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string {
       : input.url;
 }
 
+function requestMethod(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): string {
+  return init?.method ?? (input instanceof Request ? input.method : 'GET');
+}
+
 function isTravelportOAuthRequest(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -180,16 +187,21 @@ function isTravelportOAuthRequest(url: string): boolean {
   }
 }
 
-function searchCompleteRequestAuthority(url: string): Readonly<{ expectedPage: number; initial: boolean }> {
+function searchCompleteRequestAuthority(
+  url: string,
+  method: string,
+): Readonly<{ expectedPage: number; initial: boolean }> {
   try {
     const parsed = new URL(url);
     const initialPath = '/12/hotel/search/searchcomplete';
     if (parsed.pathname === initialPath) {
-      if (parsed.search) invalidResponse('Travelport SearchComplete request authority is invalid.');
+      if (method !== 'POST' || parsed.search) {
+        invalidResponse('Travelport SearchComplete request authority is invalid.');
+      }
       return Object.freeze({ expectedPage: 1, initial: true });
     }
 
-    if (!parsed.pathname.startsWith(`${initialPath}/`)) {
+    if (method !== 'GET' || !parsed.pathname.startsWith(`${initialPath}/`)) {
       invalidResponse('Travelport SearchComplete request authority is invalid.');
     }
     const identifier = parsed.pathname.slice(initialPath.length + 1);
@@ -337,8 +349,12 @@ function validatePropertyItem(value: unknown): void {
   }
 }
 
-function validateSearchCompleteResponse(value: unknown, url: string): void {
-  const requestAuthority = searchCompleteRequestAuthority(url);
+function validateSearchCompleteResponse(
+  value: unknown,
+  url: string,
+  method: string,
+): void {
+  const requestAuthority = searchCompleteRequestAuthority(url, method);
   const root = record(value);
   if (!root) return;
   validatePagination(root.pagination);
@@ -457,7 +473,7 @@ export function createTravelportStaysReferenceAuthorityFetch(
     if (payload === null) return response;
 
     if (url.includes('/search/searchcomplete')) {
-      validateSearchCompleteResponse(payload, url);
+      validateSearchCompleteResponse(payload, url, requestMethod(input, init));
       assertTravelportStaysSearchCommercialAuthorityResponse(payload);
     }
     if (url.includes('/rules/offershospitality/')) {

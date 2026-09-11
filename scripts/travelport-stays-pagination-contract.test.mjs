@@ -28,10 +28,13 @@ test('Travelport pagination follows the bounded provider contract and keeps opaq
   assert.match(provider, /parsed\.pathname === initialPath/);
   assert.match(provider, /queryEntries\.length !== 1/);
   assert.match(provider, /!\/\^\[2-5\]\$\/\.test\(queryEntries\[0\]\?\.\[1\] \?\? ''\)/);
+  assert.match(provider, /return init\?\.method \?\? \(input instanceof Request \? input\.method : 'GET'\)/);
+  assert.match(provider, /method !== 'POST' \|\| parsed\.search/);
+  assert.match(provider, /method !== 'GET' \|\| !parsed\.pathname\.startsWith/);
   assert.match(provider, /currentPage !== requestAuthority\.expectedPage/);
   assert.match(provider, /requestAuthority\.initial/);
   assert.match(provider, /\(pageCount > 1\) !== \(pagination\.paginationToken !== undefined\)/);
-  assert.match(provider, /validateSearchCompleteResponse\(payload, url\)/);
+  assert.match(provider, /validateSearchCompleteResponse\(payload, url, requestMethod\(input, init\)\)/);
 });
 
 test('Travelport transport authority rejects normalized credentials and OAuth tokens at the public boundary', () => {
