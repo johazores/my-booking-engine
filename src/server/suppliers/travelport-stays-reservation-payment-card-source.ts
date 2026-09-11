@@ -1,9 +1,26 @@
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import {
+  hospitalitySupplierFailureCodes,
+  HospitalitySupplierProviderError,
+  type HospitalitySupplierFailureCode,
+} from './hospitality-supplier-provider.ts';
 import type { TravelportStaysSensitiveReservationPaymentCard } from './travelport-stays-reservation-create-executor.ts';
 
 const MAX_INTEGRATION_CREDENTIAL_VERSION = 2_147_483_647;
 const SOURCE_FAILURE_MESSAGE = 'Travelport reservation payment-card source could not provide usable card material.';
+const BILLING_ADDRESS_KEYS = Object.freeze([
+  'addressLine',
+  'city',
+  'stateProvince',
+  'countryCode',
+  'postalCode',
+] as const);
+const TELEPHONE_KEYS = Object.freeze([
+  'countryAccessCode',
+  'areaCityCode',
+  'phoneNumber',
+  'cityCode',
+] as const);
 
 export type TravelportStaysReservationPaymentCardPurpose =
   | 'INITIAL_CREATE'
@@ -47,8 +64,87 @@ function requiredIdentifier(value: unknown, label: string) {
 }
 
 function sourceFailure(error: unknown): never {
-  const code = error instanceof HospitalitySupplierProviderError ? error.code : 'INVALID_REQUEST';
+  let code: HospitalitySupplierFailureCode = 'INVALID_REQUEST';
+  try {
+    if (
+      error instanceof HospitalitySupplierProviderError
+      && hospitalitySupplierFailureCodes.includes(error.code)
+    ) {
+      code = error.code;
+    }
+  } catch {
+    // Source-controlled thrown values can themselves be hostile proxies. Treat them as untyped.
+  }
   throw new HospitalitySupplierProviderError(code, SOURCE_FAILURE_MESSAGE);
+}
+
+function sourceRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') return null;
+  try {
+    if (Array.isArray(value)) return null;
+  } catch (error) {
+    sourceFailure(error);
+  }
+  return value as Record<string, unknown>;
+}
+
+function snapshotOptionalRecord(
+  value: unknown,
+  keys: readonly string[],
+): unknown {
+  if (value === undefined) return undefined;
+  const record = sourceRecord(value);
+  if (!record) return value;
+
+  const snapshot: Record<string, unknown> = {};
+  try {
+    for (const key of keys) snapshot[key] = record[key];
+  } catch (error) {
+    sourceFailure(error);
+  }
+  return Object.freeze(snapshot);
+}
+
+function snapshotPaymentCard(value: unknown): TravelportStaysSensitiveReservationPaymentCard {
+  const paymentCard = sourceRecord(value);
+  if (!paymentCard) {
+    invalidSource('Travelport reservation payment-card source returned no usable card material.');
+  }
+
+  let cardType: unknown;
+  let cardCode: unknown;
+  let cardHolderName: unknown;
+  let expireDate: unknown;
+  let cardNumber: unknown;
+  let securityCode: unknown;
+  let billingAddress: unknown;
+  let telephone: unknown;
+  try {
+    cardType = paymentCard.cardType;
+    cardCode = paymentCard.cardCode;
+    cardHolderName = paymentCard.cardHolderName;
+    expireDate = paymentCard.expireDate;
+    cardNumber = paymentCard.cardNumber;
+    securityCode = paymentCard.securityCode;
+    billingAddress = paymentCard.billingAddress;
+    telephone = paymentCard.telephone;
+  } catch (error) {
+    sourceFailure(error);
+  }
+
+  const billingAddressSnapshot = snapshotOptionalRecord(billingAddress, BILLING_ADDRESS_KEYS);
+  const telephoneSnapshot = snapshotOptionalRecord(telephone, TELEPHONE_KEYS);
+
+  return Object.freeze({
+    cardType,
+    cardCode,
+    cardHolderName,
+    expireDate,
+    cardNumber,
+    securityCode,
+    ...(billingAddressSnapshot === undefined ? {} : { billingAddress: billingAddressSnapshot }),
+    ...(telephoneSnapshot === undefined ? {} : { telephone: telephoneSnapshot }),
+  }) as TravelportStaysSensitiveReservationPaymentCard;
 }
 
 export async function acquireTravelportStaysReservationPaymentCard(
@@ -100,8 +196,5 @@ export async function acquireTravelportStaysReservationPaymentCard(
   } catch (error) {
     sourceFailure(error);
   }
-  if (!paymentCard || typeof paymentCard !== 'object' || Array.isArray(paymentCard)) {
-    invalidSource('Travelport reservation payment-card source returned no usable card material.');
-  }
-  return paymentCard;
+  return snapshotPaymentCard(paymentCard);
 }
