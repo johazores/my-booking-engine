@@ -12,6 +12,10 @@ Travelport Rules observations carry both commercial reservation terms and observ
 
 Guarantee types and accepted card codes are treated as normalized sets for fingerprinting and are sorted before hashing. Ordered cancellation, deposit, and text-rule arrays remain ordered because their sequence can carry provider meaning.
 
+Before normalization, the public Travelport response authority boundary now rejects normalization-confusable commercial evidence. Provider money/decimal machine values cannot gain authority through trimming or ASCII controls, and provider text that contributes to the fingerprint is rejected if controls or over-bound length would make the compatibility parser silently collapse/truncate distinct terms. This keeps the normalized fingerprint deterministic without allowing the normalization step itself to hide different supplier authority.
+
+See `docs/travelport-stays-commercial-authority.md`.
+
 ## Submission behavior
 
 The reservation authority provider still retrieves fresh Rules, performs final no-cache offer revalidation, and obtains selected-offer Availability authority immediately before the durable commercial-write claim. If any fingerprinted term changes, the fresh fingerprint differs from the prepared operation and submission fails closed for renewed review.

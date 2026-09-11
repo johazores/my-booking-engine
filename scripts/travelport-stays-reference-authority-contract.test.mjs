@@ -10,6 +10,10 @@ const terms = readFileSync(
   new URL('../src/server/suppliers/travelport-stays-booking-terms-provider.ts', import.meta.url),
   'utf8',
 );
+const commercial = readFileSync(
+  new URL('../src/server/suppliers/travelport-stays-commercial-authority.ts', import.meta.url),
+  'utf8',
+);
 
 test('the public Travelport pricing adapter owns canonical supplier-reference authority', () => {
   assert.match(provider, /const ASCII_CONTROL_PATTERN = \/\[\\u0000-\\u001f\\u007f\]\//);
@@ -37,6 +41,22 @@ test('provider responses are checked before the compatibility core can normalize
   assert.match(provider, /validateCurrencyCodeIfPresent\(price\.currencyCode\)/);
   assert.match(provider, /validateCurrencyCodeIfPresent\(currencyAmount\.currency\)/);
   assert.match(provider, /ASCII_CONTROL_PATTERN\.test\(pagination\.paginationToken\)/);
+});
+
+test('commercial authority rejects normalized money and truncated terms before compatibility parsing', () => {
+  assert.match(provider, /assertTravelportStaysSearchCommercialAuthorityResponse\(payload\)/);
+  assert.match(provider, /assertTravelportStaysRulesCommercialAuthorityResponse\(payload\)/);
+  assert.match(commercial, /function exactMoneyIfPresent/);
+  assert.match(commercial, /value\.trim\(\) !== value/);
+  assert.match(commercial, /ASCII_CONTROL_PATTERN\.test\(value\)/);
+  assert.match(commercial, /moneyComponent\(price\.totalPrice\)/);
+  assert.match(commercial, /exactMoneyIfPresent\(price\.TotalPrice\)/);
+  assert.match(commercial, /exactDecimalIfPresent\(penalty\.Percent\)/);
+  assert.match(commercial, /exactDecimalIfPresent\(penalty\.Nights\)/);
+  assert.match(commercial, /commercialTextIfPresent\(cancellation\.Description, MAX_CANCELLATION_DESCRIPTION\)/);
+  assert.match(commercial, /commercialTextIfPresent\(formatted\.value, MAX_RULE_TEXT\)/);
+  assert.match(commercial, /commercial text that would be truncated before authority fingerprinting/);
+  assert.match(commercial, /boundedArray\(block\.DepositPolicy, MAX_DEPOSIT_POLICIES\)/);
 });
 
 test('Rules uses the same public authority boundary before delegating to the compatibility core', () => {

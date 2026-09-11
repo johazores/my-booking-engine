@@ -36,16 +36,19 @@ Successful Travelport hotel responses are inspected before the compatibility cor
 - chain and property codes must be exact bounded machine values;
 - rate-key values must be exact bounded machine values;
 - the booking code and Rules bridge rate code, rate plan ID, and rate category must be exact;
-- pagination tokens reject the full ASCII control range before SF stores or replays them; and
-- provider currency codes used by SearchComplete price/cancellation evidence and Rules authority must already use canonical uppercase three-letter form.
+- pagination tokens reject the full ASCII control range before SF stores or replays them;
+- provider currency codes used by SearchComplete price/cancellation evidence and Rules authority must already use canonical uppercase three-letter form; and
+- commercial money/text values that feed offer or Rules fingerprints are validated before compatibility normalization can trim, control-normalize, or truncate them.
 
-Human-readable hotel names, descriptions, and other presentation text retain their existing text-normalization behavior. Credential normalization is also outside this contract.
+Presentation-only hotel names and property descriptions retain their existing text-normalization behavior. Commercial descriptions/rule text that participate in normalized offer/terms authority are covered separately by `docs/travelport-stays-commercial-authority.md`. Credential normalization is outside this contract.
 
 ## Rules authority
 
-Rules preflight consumes the same exact supplier property and offer references before provider I/O. The response authority guard also rejects padded/control-bearing accepted payment-card codes before they can become reservation capability evidence. Property, booking, and card machine values therefore cannot become trusted merely because the underlying compatibility implementation would have trimmed them.
+Rules preflight consumes the same exact supplier property and offer references before provider I/O. The response authority guard rejects padded/control-bearing accepted payment-card codes and now also validates Rules money, decimals, payment/guarantee tokens, cancellation/deposit evidence, language codes, and bounded commercial rule text before they can become fingerprinted reservation-review authority.
 
-The final Rules flow still performs its existing fresh offer revalidation. This change strengthens evidence spelling; it does not bypass price, offer-fingerprint, cancellation, guarantee, or payment review requirements.
+The final Rules flow still performs its existing fresh offer revalidation. This change strengthens evidence spelling and preservation; it does not bypass price, offer-fingerprint, cancellation, guarantee, or payment review requirements.
+
+See `docs/travelport-stays-commercial-authority.md`.
 
 ## Pre-write Availability authority
 
@@ -59,13 +62,13 @@ See `docs/travelport-reservation-authority-machine-evidence.md`.
 
 ## End-to-end effect
 
-The same property/offer identity and provider machine-token policy is now exact across:
+The same property/offer identity and provider authority policy is now exact/preservation-safe across:
 
 1. SearchComplete property discovery;
-2. SearchComplete offer pricing;
+2. SearchComplete offer pricing and fingerprint inputs;
 3. pagination replay;
 4. offer revalidation;
-5. Rules bridge construction and review;
+5. Rules bridge construction and commercial terms review;
 6. fresh pre-write SearchComplete selection;
 7. v11 Availability pagination and provider submission-reference selection; and
 8. the already-hardened reservation expectation used by initial Create, reviewed Create, Booking.com Sync, and known-locator recovery.
@@ -81,12 +84,17 @@ Focused executable coverage verifies:
 - provider property and rate identity that only becomes valid after trimming is rejected;
 - padded SearchComplete price/cancellation currencies are rejected before money normalization;
 - ASCII-control-bearing rate and pagination tokens are rejected;
+- SearchComplete commercial money cannot gain authority through trimming/controls and fingerprinted commercial text cannot be silently truncated;
 - Rules bridge booking codes cannot gain authority through trimming;
 - padded accepted-card evidence is rejected before Rules review can complete;
+- Rules price/cancellation/deposit money and decimal evidence cannot gain authority through trimming;
+- Rules language/payment/guarantee machine tokens reject normalization-confusable spelling;
+- Rules commercial text that would be control-normalized or truncated fails closed;
+- optional deposit-policy traversal is bounded independently;
 - pre-write SearchComplete booking/rate/currency/money authority cannot gain authority through trimming; and
 - Availability pagination, catalog-offering, rate, property, booking, and stay-date evidence is exact before it can become sell authority.
 
-Dependency-free source contracts pin the public authority adapters, response guards, exact machine-token coverage, and isolation of the compatibility modules.
+Dependency-free source contracts pin the public authority adapters, response guards, commercial authority hooks, exact machine-token coverage, and isolation of the compatibility modules.
 
 Available local validation uses Node type stripping and dependency-free contract execution. Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live verification still requires provisioned Travelport non-production credentials.
 
@@ -100,6 +108,7 @@ Travelport `reservation` remains deliberately unadvertised. The existing activat
 
 Related contracts:
 
+- `docs/travelport-stays-commercial-authority.md`
 - `docs/travelport-reservation-authority-machine-evidence.md`
 - `docs/travelport-reservation-property-reference-authority.md`
 - `docs/travelport-reservation-commercial-machine-token-authority.md`

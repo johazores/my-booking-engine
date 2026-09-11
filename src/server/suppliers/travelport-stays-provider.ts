@@ -8,6 +8,10 @@ import {
   type HospitalitySupplierSearchResult,
 } from './hospitality-supplier-provider.ts';
 import {
+  assertTravelportStaysRulesCommercialAuthorityResponse,
+  assertTravelportStaysSearchCommercialAuthorityResponse,
+} from './travelport-stays-commercial-authority.ts';
+import {
   TravelportStaysProvider as CoreTravelportStaysProvider,
   type TravelportStaysCredentials,
 } from './travelport-stays-provider-core.ts';
@@ -271,8 +275,14 @@ export function createTravelportStaysReferenceAuthorityFetch(
     const payload = await response.clone().json().catch(() => null);
     if (payload === null) return response;
 
-    if (url.includes('/search/searchcomplete')) validateSearchCompleteResponse(payload);
-    if (url.includes('/rules/offershospitality/')) validateRulesResponse(payload);
+    if (url.includes('/search/searchcomplete')) {
+      validateSearchCompleteResponse(payload);
+      assertTravelportStaysSearchCommercialAuthorityResponse(payload);
+    }
+    if (url.includes('/rules/offershospitality/')) {
+      validateRulesResponse(payload);
+      assertTravelportStaysRulesCommercialAuthorityResponse(payload);
+    }
     return response;
   }) as typeof fetch;
 }
