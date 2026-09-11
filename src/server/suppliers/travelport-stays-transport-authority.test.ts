@@ -129,6 +129,33 @@ test('SearchComplete rejects pagination metadata outside the documented page ran
   }
 });
 
+test('SearchComplete binds first-page identity and continuation-token presence to the initial request', async () => {
+  for (const pagination of [
+    { page: 2, pageSize: 100, totalPages: 2, totalItems: 101, paginationToken: 'next-token' },
+    { page: 1, pageSize: 100, totalPages: 2, totalItems: 101 },
+    { page: 1, pageSize: 1, totalPages: 1, totalItems: 1, paginationToken: 'unexpected-token' },
+  ]) {
+    const provider = new TravelportStaysProvider({
+      credentials,
+      cacheKey: `transport-authority:first-page:${JSON.stringify(pagination)}`,
+      fetchImpl: (async (url) => String(url).includes('/oauth/token')
+        ? jsonResponse({ access_token: 'token' })
+        : jsonResponse(searchResponse(pagination))) as typeof fetch,
+    });
+
+    await assert.rejects(
+      provider.searchProperties({
+        cityIataCode: 'SYD',
+        checkInDateLocal: '2026-10-10',
+        checkOutDateLocal: '2026-10-12',
+        rooms: 1,
+        adults: 2,
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
 test('SearchComplete preserves the existing empty first-page compatibility shape', async () => {
   const provider = new TravelportStaysProvider({
     credentials,

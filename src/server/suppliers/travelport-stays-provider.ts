@@ -180,6 +180,36 @@ function isTravelportOAuthRequest(url: string): boolean {
   }
 }
 
+function searchCompleteRequestAuthority(url: string): Readonly<{ expectedPage: number; initial: boolean }> {
+  try {
+    const parsed = new URL(url);
+    const initialPath = '/12/hotel/search/searchcomplete';
+    if (parsed.pathname === initialPath) {
+      if (parsed.search) invalidResponse('Travelport SearchComplete request authority is invalid.');
+      return Object.freeze({ expectedPage: 1, initial: true });
+    }
+
+    if (!parsed.pathname.startsWith(`${initialPath}/`)) {
+      invalidResponse('Travelport SearchComplete request authority is invalid.');
+    }
+    const identifier = parsed.pathname.slice(initialPath.length + 1);
+    const queryEntries = [...parsed.searchParams.entries()];
+    if (
+      !identifier
+      || identifier.includes('/')
+      || queryEntries.length !== 1
+      || queryEntries[0]?.[0] !== 'pageNumber'
+      || !/^[2-5]$/.test(queryEntries[0]?.[1] ?? '')
+    ) {
+      invalidResponse('Travelport SearchComplete request authority is invalid.');
+    }
+    return Object.freeze({ expectedPage: Number(queryEntries[0]?.[1]), initial: false });
+  } catch (error) {
+    if (error instanceof HospitalitySupplierProviderError) throw error;
+    invalidResponse('Travelport SearchComplete request authority is invalid.');
+  }
+}
+
 function validateOAuthExpiresInIfPresent(value: unknown): void {
   if (value === undefined) return;
 
@@ -307,10 +337,25 @@ function validatePropertyItem(value: unknown): void {
   }
 }
 
-function validateSearchCompleteResponse(value: unknown): void {
+function validateSearchCompleteResponse(value: unknown, url: string): void {
+  const requestAuthority = searchCompleteRequestAuthority(url);
   const root = record(value);
   if (!root) return;
   validatePagination(root.pagination);
+
+  const pagination = record(root.pagination);
+  if (!pagination) return;
+  const currentPage = pagination.page as number;
+  const pageCount = pagination.totalPages as number;
+  if (currentPage !== requestAuthority.expectedPage) {
+    invalidResponse('Travelport SearchComplete response page does not match the request.');
+  }
+  if (
+    requestAuthority.initial
+    && (pageCount > 1) !== (pagination.paginationToken !== undefined)
+  ) {
+    invalidResponse('Travelport SearchComplete pagination token authority is inconsistent.');
+  }
 
   const hotelsResponse = record(root.hotelsResponse);
   if (!hotelsResponse || !Array.isArray(hotelsResponse.propertyItems)) return;
@@ -412,7 +457,7 @@ export function createTravelportStaysReferenceAuthorityFetch(
     if (payload === null) return response;
 
     if (url.includes('/search/searchcomplete')) {
-      validateSearchCompleteResponse(payload);
+      validateSearchCompleteResponse(payload, url);
       assertTravelportStaysSearchCommercialAuthorityResponse(payload);
     }
     if (url.includes('/rules/offershospitality/')) {
