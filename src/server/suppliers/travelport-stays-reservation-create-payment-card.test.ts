@@ -112,6 +112,22 @@ test('requires provider-compatible card code, bounded numeric PAN, and expiry th
   }
 });
 
+test('fails closed on ASCII controls in provider-bound cardholder and billing text', () => {
+  for (const card of [
+    { ...paymentCard, cardHolderName: 'Ada\u0000Lovelace' },
+    { ...paymentCard, cardHolderName: 'Ada\tLovelace' },
+    { ...paymentCard, billingAddress: { addressLine: '125 Main\u001fSt', city: 'Sydney', countryCode: 'AU', postalCode: '2000' } },
+    { ...paymentCard, billingAddress: { addressLine: '125 Main St', city: 'Syd\u0000ney', stateProvince: 'NSW', countryCode: 'AU', postalCode: '2000' } },
+    { ...paymentCard, billingAddress: { addressLine: '125 Main St', city: 'Sydney', stateProvince: 'N\u007fSW', countryCode: 'AU', postalCode: '2000' } },
+    { ...paymentCard, billingAddress: { addressLine: '125 Main St', city: 'Sydney', countryCode: 'AU', postalCode: '20\u001f00' } },
+  ]) {
+    assert.throws(
+      () => build(card),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST',
+    );
+  }
+});
+
 test('fails closed on malformed optional billing and payment-phone material', () => {
   for (const card of [
     { ...paymentCard, billingAddress: { addressLine: '125 Main St', city: 'Sydney', countryCode: 'au', postalCode: '2000' } },

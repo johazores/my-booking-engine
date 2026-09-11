@@ -21,7 +21,7 @@ The current supplier write contract is deliberately single-room. The authority s
 - telephone area code; and
 - telephone subscriber number.
 
-Names are whitespace-normalized and bounded to the existing 80-character booking-guest limit. That is the provider-neutral authority limit, not permission to exceed a provider-specific limit. Email is bounded to 320 characters and validated before fingerprinting. Telephone components are bounded decimal strings so later provider mapping cannot reinterpret punctuation or formatting differently.
+Names are whitespace-normalized and bounded to the existing 80-character booking-guest limit. That is the provider-neutral authority limit, not permission to exceed a provider-specific limit. Email is bounded to 320 characters and validated before fingerprinting. Names and email reject the complete ASCII control range `U+0000` through `U+001F` plus `U+007F`; a control-bearing email can therefore neither become durable traveler fingerprint authority nor reach provider request mapping. Telephone components are bounded decimal strings so later provider mapping cannot reinterpret punctuation or formatting differently.
 
 The fingerprint uses a versioned canonical field order and SHA-256. It is identity/retry evidence, not a replacement for the traveler record and not authorization to change traveler details.
 
@@ -49,7 +49,7 @@ A changed name, email, or telephone therefore fails before provider I/O and befo
 
 Travelport documents a 22-character combined limit for `Given` plus `Surname` and says longer names are truncated in the response. SF must not let provider truncation silently change the traveler identity bound into the durable request fingerprint. The shared mapper therefore fails closed when the combined canonical first and last name exceeds 22 characters. It does not truncate the name. The user must review a provider-compatible traveler name and prepare a new authorized request.
 
-The Create request mapper separately carries the freshly selected Availability `CatalogOfferingIdentifier` and exact non-secret `Payment` amount/indicators. It deliberately does **not** construct `FormOfPayment`, `PaymentCard`, card number, CVV/security code, cardholder, or billing-card data. Those fields remain behind the PCI-safe form-of-payment boundary.
+The Create request mapper separately carries the freshly selected Availability `CatalogOfferingIdentifier` and exact non-secret `Payment` amount/indicators. It deliberately does **not** construct `FormOfPayment`, `PaymentCard`, card number, CVV/security code, cardholder, or billing-card data. Those fields remain behind the PCI-safe form-of-payment boundary. The separate provider request-text contract also rejects ASCII controls in ephemeral cardholder and billing text before sensitive Create serialization.
 
 The Booking.com Sync request reuses only the durable recovery authority, original supplier confirmation, and the same traveler identity/contact mapping. It contains no form-of-payment or card material.
 
@@ -72,6 +72,8 @@ Travelport `reservation` capability remains disabled even though server-only Cre
 - complete product/API states only after the provider capability is enabled.
 
 No PAN, CVV/security code, payment-card plaintext, provider access token, or integration credential belongs in traveler authority or the non-secret traveler request material.
+
+See also `docs/travelport-reservation-request-text-authority.md` for the shared provider-bound ASCII-control policy applied to traveler email and sensitive Create single-line text.
 
 ## Provider references
 

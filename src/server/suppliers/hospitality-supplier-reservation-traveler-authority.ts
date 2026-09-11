@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 const PHONE_PART_PATTERN = /^\d+$/;
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_NAME_LENGTH = 80;
 const MAX_EMAIL_LENGTH = 320;
 
@@ -36,7 +37,7 @@ function boundedText(value: unknown, label: string, maxLength: number) {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is required.`);
   }
   const trimmed = value.trim();
-  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+  if (!trimmed || ASCII_CONTROL_PATTERN.test(trimmed)) {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is invalid.`);
   }
   const normalized = trimmed.replace(/ {2,}/g, ' ');
@@ -74,7 +75,12 @@ export function normalizeHospitalitySupplierReservationTravelerPayload(
     throw new HospitalitySupplierReservationTravelerAuthorityError('Primary traveler email is required.');
   }
   const email = input.email.trim().toLowerCase();
-  if (!email || email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(email)) {
+  if (
+    !email
+    || email.length > MAX_EMAIL_LENGTH
+    || ASCII_CONTROL_PATTERN.test(email)
+    || !EMAIL_PATTERN.test(email)
+  ) {
     throw new HospitalitySupplierReservationTravelerAuthorityError('Primary traveler email is invalid.');
   }
 

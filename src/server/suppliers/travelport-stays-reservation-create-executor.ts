@@ -30,6 +30,7 @@ const MAX_PAYMENT_PHONE_AREA_LENGTH = 16;
 const MAX_PAYMENT_PHONE_NUMBER_LENGTH = 32;
 const MAX_PAYMENT_PHONE_CITY_CODE_LENGTH = 8;
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -129,7 +130,12 @@ function normalizeTimeout(value: number | undefined) {
 function boundedSingleLine(value: unknown, label: string, max: number) {
   if (typeof value !== 'string') invalidRequest(`${label} is required.`);
   const normalized = value.trim();
-  if (!normalized || normalized !== value || normalized.length > max || /[\r\n]/.test(normalized)) {
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > max
+    || ASCII_CONTROL_PATTERN.test(normalized)
+  ) {
     invalidRequest(`${label} is invalid.`);
   }
   return normalized;
