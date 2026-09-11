@@ -19,6 +19,12 @@ function jsonResponse(payload: unknown, status = 200) {
 
 test('SearchComplete pagination uses the documented GET endpoint, reuses authentication and sends no request body', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const firstPageProperties = Array.from({ length: 100 }, (_, index) => ({
+    name: `Hotel ${index + 1}`,
+    chainCode: 'HI',
+    propertyCode: `P${index + 1}`,
+    availability: true,
+  }));
   const provider = new TravelportStaysProvider({
     credentials: configuration.credentials,
     cacheKey: 'pagination-tenant:v1',
@@ -27,13 +33,13 @@ test('SearchComplete pagination uses the documented GET endpoint, reuses authent
       if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'cached-access-token', expires_in: 86400 });
       if (String(url).endsWith('/search/searchcomplete')) {
         return jsonResponse({
-          pagination: { page: 1, pageSize: 1, totalPages: 2, totalItems: 2, paginationToken: 'opaque/token+value' },
-          hotelsResponse: { propertyItems: [{ name: 'Hotel One', chainCode: 'HI', propertyCode: 'A1', availability: true }] },
+          pagination: { page: 1, pageSize: 100, totalPages: 2, totalItems: 101, paginationToken: 'opaque/token+value' },
+          hotelsResponse: { propertyItems: firstPageProperties },
         });
       }
       return jsonResponse({
-        pagination: { page: 2, pageSize: 1, totalPages: 2, totalItems: 2, paginationToken: 'opaque/token+value' },
-        hotelsResponse: { propertyItems: [{ name: 'Hotel Two', chainCode: 'UR', propertyCode: 'A2', availability: true }] },
+        pagination: { page: 2, pageSize: 1, totalPages: 2, totalItems: 101, paginationToken: 'opaque/token+value' },
+        hotelsResponse: { propertyItems: [{ name: 'Hotel 101', chainCode: 'UR', propertyCode: 'A101', availability: true }] },
       });
     }) as typeof fetch,
   });
@@ -49,7 +55,8 @@ test('SearchComplete pagination uses the documented GET endpoint, reuses authent
   assert.equal(new Headers(requests[2]?.init?.headers).get('Authorization'), 'Bearer cached-access-token');
   assert.equal(requests.filter((request) => request.url.includes('/oauth/token')).length, 1);
   assert.equal(second.page, 2);
-  assert.equal(second.properties[0]?.name, 'Hotel Two');
+  assert.equal(first.properties.length, 100);
+  assert.equal(second.properties[0]?.name, 'Hotel 101');
 });
 
 test('SearchComplete pagination rejects unsafe tokens, unsupported page numbers and mismatched response pages', async () => {
@@ -58,7 +65,7 @@ test('SearchComplete pagination rejects unsafe tokens, unsupported page numbers 
     cacheKey: 'pagination-tenant:v2',
     fetchImpl: (async (url) => {
       if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token-value' });
-      return jsonResponse({ pagination: { page: 3, pageSize: 0, totalPages: 3, totalItems: 1, paginationToken: 'token' }, hotelsResponse: { propertyItems: [] } });
+      return jsonResponse({ pagination: { page: 3, pageSize: 1, totalPages: 3, totalItems: 201, paginationToken: 'token' }, hotelsResponse: { propertyItems: [] } });
     }) as typeof fetch,
   });
   for (const request of [

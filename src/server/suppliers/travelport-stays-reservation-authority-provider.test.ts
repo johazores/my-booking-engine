@@ -56,12 +56,16 @@ function baseFetch(availability: (url: string) => Response) {
 
 test('maps the selected SearchComplete rate through complete bounded Availability results', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const firstPageOffers = Array.from(
+    { length: 100 },
+    (_, index) => offering(`other-${index}`, 'OTHER'),
+  );
   const fetchImpl = (async (url, init) => {
     const value = String(url); requests.push({ url: value, init });
     if (value.includes('/oauth/token')) return response({ access_token: 'authority-token', expires_in: 3600 });
     if (value.endsWith('/12/hotel/search/searchcomplete')) return response(searchComplete());
-    if (value.includes('?pageNumber=2')) return response(page([offering('match', 'KHATHR')], 2, 2));
-    return response(page([offering('other', 'OTHER')], 2, 2, 'availability-token'));
+    if (value.includes('?pageNumber=2')) return response(page([offering('match', 'KHATHR')], 101, 2));
+    return response(page(firstPageOffers, 101, 2, 'availability-token'));
   }) as typeof fetch;
   const result = await provider(fetchImpl).verifyReservationAuthority(selection);
   assert.equal(result.status, 'READY');
@@ -109,7 +113,8 @@ test('missing match is unavailable while ambiguous or incomplete pagination fail
   assert.equal(missing.status, 'UNAVAILABLE');
   assert.equal(missing.providerSubmissionReference, null);
   await assert.rejects(() => provider(baseFetch(() => response(page([offering('a', 'KHATHR'), offering('b', 'KHATHR')], 2)))).verifyReservationAuthority(selection), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
-  await assert.rejects(() => provider(baseFetch(() => response(page([offering('a', 'OTHER')], 2, 2)))).verifyReservationAuthority(selection), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
+  const incompletePage = Array.from({ length: 100 }, (_, index) => offering(`incomplete-${index}`, 'OTHER'));
+  await assert.rejects(() => provider(baseFetch(() => response(page(incompletePage, 101, 2)))).verifyReservationAuthority(selection), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
 });
 
 test('Travelport authentication rejection stays provider-neutral', async () => {

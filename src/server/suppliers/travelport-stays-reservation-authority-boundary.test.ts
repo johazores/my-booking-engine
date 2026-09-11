@@ -47,7 +47,6 @@ function availability() {
         totalCatalogOffering: 1,
         catalogOfferingPerPage: 1,
         numberOfPages: 1,
-        Identifier: { value: 'availability-page-token' },
         CatalogOffering: [{
           id: 'offer-1',
           Identifier: { value: 'offer-1', authority: 'TVPT' },
@@ -73,11 +72,42 @@ function availability() {
   };
 }
 
-function guardedResponse(url: string, payload: unknown) {
+function paginationOffering(index: number) {
+  return {
+    id: `page-offer-${index}`,
+    Identifier: { value: `page-offer-${index}`, authority: 'TVPT' },
+    ProductOptions: [],
+  };
+}
+
+function availabilityPaginationPage(input: {
+  total: number;
+  pageSize: number;
+  pages: number;
+  identifier?: string;
+  offset?: number;
+}) {
+  return {
+    CatalogOfferingsHospitalityResponse: {
+      CatalogOfferings: {
+        totalCatalogOffering: input.total,
+        catalogOfferingPerPage: input.pageSize,
+        numberOfPages: input.pages,
+        ...(input.identifier ? { Identifier: { value: input.identifier } } : {}),
+        CatalogOffering: Array.from(
+          { length: input.pageSize },
+          (_, index) => paginationOffering((input.offset ?? 0) + index),
+        ),
+      },
+    },
+  };
+}
+
+function guardedResponse(url: string, payload: unknown, method: 'GET' | 'POST' = 'POST') {
   const guarded = createTravelportStaysReservationAuthorityResponseFetch(
     (async () => jsonResponse(payload)) as typeof fetch,
   );
-  return guarded(url);
+  return guarded(url, { method });
 }
 
 function isInvalidResponse(error: unknown) {
@@ -90,6 +120,27 @@ test('canonical reservation authority SearchComplete and Availability evidence i
 
   const available = await guardedResponse('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', availability());
   assert.equal(available.ok, true);
+});
+
+test('reservation authority request shapes fail closed before provider I/O', async () => {
+  let calls = 0;
+  const guarded = createTravelportStaysReservationAuthorityResponseFetch((async () => {
+    calls += 1;
+    return jsonResponse({});
+  }) as typeof fetch);
+
+  for (const [url, method] of [
+    ['https://api.pp.travelport.net/12/hotel/search/searchcomplete', 'GET'],
+    ['https://api.pp.travelport.net/12/hotel/search/searchcomplete/extra', 'POST'],
+    ['https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', 'GET'],
+    ['https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/token?pageNumber=2', 'POST'],
+    ['https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/token?pageNumber=1', 'GET'],
+    ['https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/token?pageNumber=2&pageNumber=3', 'GET'],
+    ['https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/token/nested?pageNumber=2', 'GET'],
+  ] as const) {
+    await assert.rejects(() => guarded(url, { method }), isInvalidResponse);
+  }
+  assert.equal(calls, 0);
 });
 
 test('SearchComplete machine evidence cannot gain authority through trimming or control stripping', async () => {
@@ -111,9 +162,8 @@ test('SearchComplete machine evidence cannot gain authority through trimming or 
   }
 });
 
-test('Availability sell and pagination evidence is exact before it can become submission authority', async () => {
+test('Availability sell evidence is exact before it can become submission authority', async () => {
   const mutations = [
-    (payload: ReturnType<typeof availability>) => { payload.CatalogOfferingsHospitalityResponse.CatalogOfferings.Identifier.value = ' availability-page-token'; },
     (payload: ReturnType<typeof availability>) => { payload.CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[0]!.Identifier.value = 'offer-1 '; },
     (payload: ReturnType<typeof availability>) => { payload.CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[0]!.TermsAndConditions.ProductRateCodeInfo.RateCodeInfo.value = ' THR'; },
     (payload: ReturnType<typeof availability>) => { payload.CatalogOfferingsHospitalityResponse.CatalogOfferings.CatalogOffering[0]!.ProductOptions[0]!.Product[0]!.bookingCode = 'KHATHR\u0000'; },
@@ -129,6 +179,59 @@ test('Availability sell and pagination evidence is exact before it can become su
       isInvalidResponse,
     );
   }
+});
+
+test('Availability pagination metadata is bound to documented page geometry', async () => {
+  const initial = availabilityPaginationPage({
+    total: 101,
+    pageSize: 100,
+    pages: 2,
+    identifier: 'availability-page-token',
+  });
+  assert.equal((await guardedResponse(
+    'https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality',
+    initial,
+  )).ok, true);
+
+  const continuation = availabilityPaginationPage({ total: 101, pageSize: 1, pages: 2, offset: 100 });
+  assert.equal((await guardedResponse(
+    'https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/availability-page-token?pageNumber=2',
+    continuation,
+    'GET',
+  )).ok, true);
+
+  for (const payload of [
+    availabilityPaginationPage({ total: 101, pageSize: 100, pages: 1, identifier: 'availability-page-token' }),
+    availabilityPaginationPage({ total: 101, pageSize: 99, pages: 2, identifier: 'availability-page-token' }),
+    availabilityPaginationPage({ total: 101, pageSize: 100, pages: 2 }),
+    availabilityPaginationPage({ total: 1, pageSize: 1, pages: 1, identifier: 'unexpected-token' }),
+  ]) {
+    await assert.rejects(
+      () => guardedResponse('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', payload),
+      isInvalidResponse,
+    );
+  }
+
+  const wrongFinalPageSize = availabilityPaginationPage({ total: 101, pageSize: 2, pages: 2, offset: 100 });
+  await assert.rejects(
+    () => guardedResponse(
+      'https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality/availability-page-token?pageNumber=2',
+      wrongFinalPageSize,
+      'GET',
+    ),
+    isInvalidResponse,
+  );
+
+  const paddedToken = availabilityPaginationPage({
+    total: 101,
+    pageSize: 100,
+    pages: 2,
+    identifier: ' availability-page-token',
+  });
+  await assert.rejects(
+    () => guardedResponse('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', paddedToken),
+    isInvalidResponse,
+  );
 });
 
 test('authority response guard rejects oversized collections before compatibility parsing', async () => {
@@ -161,13 +264,13 @@ test('reservation authority cache identity rejects whitespace and the full ASCII
   }
 });
 
-test('non-hotel and non-success responses are not reinterpreted by the authority guard', async () => {
+test('non-authority and non-success responses are not reinterpreted by the authority guard', async () => {
   let calls = 0;
   const guarded = createTravelportStaysReservationAuthorityResponseFetch((async () => {
     calls += 1;
     return new Response('{"bookingCode":" padded "}', { status: 503, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch);
-  const response = await guarded('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality');
+  const response = await guarded('https://api.pp.travelport.net/11/hotel/availability/catalogofferingshospitality', { method: 'POST' });
   assert.equal(response.status, 503);
   assert.equal(calls, 1);
 

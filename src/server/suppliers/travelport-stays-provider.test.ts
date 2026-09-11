@@ -94,7 +94,7 @@ test('SearchComplete uses fixed endpoints/headers, bounded input and provider-ne
     requests.push({ url: String(url), init });
     if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'cached-access-token', expires_in: 86400 });
     return jsonResponse({
-      pagination: { page: 1, pageSize: 2, totalPages: 2, totalItems: 3, paginationToken: 'next-token' },
+      pagination: { page: 1, pageSize: 2, totalPages: 1, totalItems: 2 },
       hotelsResponse: { propertyItems: [
         { name: 'Hotel One', chainCode: 'HI', propertyCode: 'ABC12', estimatedPropertyType: 'Hotel', availability: true },
         { name: 'Hotel Two', chainCode: 'UR', propertyCode: 'XYZ99', availability: false },
@@ -125,7 +125,7 @@ test('SearchComplete uses fixed endpoints/headers, bounded input and provider-ne
       { supplierPropertyReference: 'eyJjaGFpbkNvZGUiOiJISSIsInByb3BlcnR5Q29kZSI6IkFCQzEyIiwiYXV0aG9yaXR5IjoiVFZQVCJ9', name: 'Hotel One', propertyType: 'Hotel', available: true },
       { supplierPropertyReference: 'eyJjaGFpbkNvZGUiOiJVUiIsInByb3BlcnR5Q29kZSI6IlhZWjk5IiwiYXV0aG9yaXR5IjoiVFZQVCJ9', name: 'Hotel Two', propertyType: null, available: false },
     ],
-    page: 1, pageSize: 2, totalPages: 2, totalItems: 3, nextPageToken: 'next-token',
+    page: 1, pageSize: 2, totalPages: 1, totalItems: 2, nextPageToken: null,
   });
 
   await provider.searchProperties({ cityIataCode: 'MEL', checkInDateLocal: '2026-11-10', checkOutDateLocal: '2026-11-11', rooms: 1, adults: 1 });

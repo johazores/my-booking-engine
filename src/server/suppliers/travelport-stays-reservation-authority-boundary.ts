@@ -8,11 +8,20 @@ const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SEARCH_PROPERTIES = 1;
 const MAX_ROOM_TYPES = 128;
 const MAX_RATES = 256;
+const MAX_AVAILABILITY_PAGES = 5;
 const MAX_AVAILABILITY_OFFERS = 100;
+const MAX_AVAILABILITY_TOTAL_OFFERS = MAX_AVAILABILITY_PAGES * MAX_AVAILABILITY_OFFERS;
 const MAX_PRODUCT_OPTIONS = 16;
 const MAX_PRODUCTS = 16;
+const SEARCH_COMPLETE_PATH = '/12/hotel/search/searchcomplete';
+const AVAILABILITY_PATH = '/11/hotel/availability/catalogofferingshospitality';
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
+type ReservationAuthorityRequest = Readonly<{
+  kind: 'search-complete' | 'availability';
+  pageNumber: number;
+  initial: boolean;
+}>;
 
 function invalidRequest(message: string): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', message);
@@ -32,6 +41,83 @@ function boundedArray(value: unknown, max: number): readonly unknown[] {
   if (!Array.isArray(value)) return [];
   if (value.length > max) invalidResponse('Travelport returned an oversized reservation authority collection.');
   return value;
+}
+
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+}
+
+function requestMethod(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): string {
+  return (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+}
+
+function hasCanonicalQueryEncoding(url: URL): boolean {
+  return url.search === '' || url.search === `?${url.searchParams.toString()}`;
+}
+
+function hasSingleCanonicalEncodedPathSegment(url: URL, prefix: string): boolean {
+  if (!url.pathname.startsWith(prefix)) return false;
+  const suffix = url.pathname.slice(prefix.length);
+  if (!suffix || suffix.includes('/')) return false;
+  try {
+    return encodeURIComponent(decodeURIComponent(suffix)) === suffix;
+  } catch {
+    return false;
+  }
+}
+
+function reservationAuthorityRequest(
+  rawUrl: string,
+  method: string,
+): ReservationAuthorityRequest | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (url.pathname === SEARCH_COMPLETE_PATH || url.pathname.startsWith(`${SEARCH_COMPLETE_PATH}/`)) {
+    if (url.pathname !== SEARCH_COMPLETE_PATH || method !== 'POST' || url.search !== '') {
+      invalidResponse('Travelport reservation SearchComplete request authority is invalid.');
+    }
+    return Object.freeze({ kind: 'search-complete', pageNumber: 1, initial: true });
+  }
+
+  if (url.pathname === AVAILABILITY_PATH) {
+    if (method !== 'POST' || url.search !== '') {
+      invalidResponse('Travelport reservation Availability request authority is invalid.');
+    }
+    return Object.freeze({ kind: 'availability', pageNumber: 1, initial: true });
+  }
+
+  if (url.pathname.startsWith(`${AVAILABILITY_PATH}/`)) {
+    const queryEntries = [...url.searchParams.entries()];
+    if (
+      method !== 'GET'
+      || !hasSingleCanonicalEncodedPathSegment(url, `${AVAILABILITY_PATH}/`)
+      || !hasCanonicalQueryEncoding(url)
+      || queryEntries.length !== 1
+      || queryEntries[0]?.[0] !== 'pageNumber'
+      || !/^[2-5]$/.test(queryEntries[0]?.[1] ?? '')
+    ) {
+      invalidResponse('Travelport reservation Availability request authority is invalid.');
+    }
+    return Object.freeze({
+      kind: 'availability',
+      pageNumber: Number(queryEntries[0]?.[1]),
+      initial: false,
+    });
+  }
+
+  return null;
 }
 
 function validateExactMachineStringIfPresent(value: unknown, max: number): void {
@@ -162,15 +248,68 @@ function validateAvailabilityOffering(value: unknown): void {
   }
 }
 
-function validateAvailabilityResponse(value: unknown): void {
+function validateAvailabilityResponse(
+  value: unknown,
+  requestAuthority: ReservationAuthorityRequest,
+): void {
   const root = record(value);
   const response = root ? record(root.CatalogOfferingsHospitalityResponse) : null;
   const catalog = response ? record(response.CatalogOfferings) : null;
   if (!catalog) return;
 
+  const total = catalog.totalCatalogOffering;
+  const pageSize = catalog.catalogOfferingPerPage;
+  const pageCount = catalog.numberOfPages;
+  if (
+    !Number.isInteger(total)
+    || !Number.isInteger(pageSize)
+    || !Number.isInteger(pageCount)
+  ) {
+    invalidResponse('Travelport Availability pagination metadata is invalid.');
+  }
+
+  const totalOffers = total as number;
+  const returnedOffers = pageSize as number;
+  const totalPages = pageCount as number;
+  const expectedPages = Math.max(1, Math.ceil(totalOffers / MAX_AVAILABILITY_OFFERS));
+  if (
+    totalOffers < 0
+    || totalOffers > MAX_AVAILABILITY_TOTAL_OFFERS
+    || returnedOffers < 0
+    || returnedOffers > MAX_AVAILABILITY_OFFERS
+    || totalPages < 1
+    || totalPages > MAX_AVAILABILITY_PAGES
+    || totalPages !== expectedPages
+    || requestAuthority.pageNumber > totalPages
+  ) {
+    invalidResponse('Travelport Availability pagination metadata is invalid.');
+  }
+
+  const remainingOffers = Math.max(
+    0,
+    totalOffers - ((requestAuthority.pageNumber - 1) * MAX_AVAILABILITY_OFFERS),
+  );
+  const expectedPageSize = Math.min(MAX_AVAILABILITY_OFFERS, remainingOffers);
+  const offerings = boundedArray(catalog.CatalogOffering, MAX_AVAILABILITY_OFFERS);
+  if (returnedOffers !== expectedPageSize || offerings.length !== expectedPageSize) {
+    invalidResponse('Travelport Availability page size does not match its pagination authority.');
+  }
+
   const paginationIdentifier = record(catalog.Identifier);
-  if (paginationIdentifier) validateExactMachineStringIfPresent(paginationIdentifier.value, MAX_REFERENCE_LENGTH);
-  for (const offering of boundedArray(catalog.CatalogOffering, MAX_AVAILABILITY_OFFERS)) validateAvailabilityOffering(offering);
+  if (requestAuthority.initial) {
+    if (totalPages > 1) {
+      if (!paginationIdentifier) {
+        invalidResponse('Travelport Availability pagination identifier is missing.');
+      }
+      validateExactMachineStringIfPresent(paginationIdentifier.value, MAX_REFERENCE_LENGTH);
+    } else if (catalog.Identifier !== undefined && catalog.Identifier !== null) {
+      invalidResponse('Travelport Availability pagination identifier is unexpected.');
+    }
+  } else if (paginationIdentifier) {
+    validateExactMachineStringIfPresent(paginationIdentifier.value, MAX_REFERENCE_LENGTH);
+  }
+
+  for (const offering of offerings) validateAvailabilityOffering(offering);
 }
 
 export function assertTravelportStaysReservationAuthorityCacheKey(value: unknown): asserts value is string {
@@ -189,21 +328,16 @@ export function createTravelportStaysReservationAuthorityResponseFetch(
   fetchImpl: typeof fetch = fetch,
 ): typeof fetch {
   return (async (input, init) => {
+    const url = requestUrl(input);
+    const requestAuthority = reservationAuthorityRequest(url, requestMethod(input, init));
     const response = await fetchImpl(input, init);
-    if (!response.ok) return response;
-
-    const url = typeof input === 'string'
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
-    if (!url.includes('/hotel/')) return response;
+    if (!response.ok || requestAuthority === null) return response;
 
     const payload = await response.clone().json().catch(() => null);
     if (payload === null) return response;
 
-    if (url.includes('/search/searchcomplete')) validateSearchCompleteResponse(payload);
-    if (url.includes('/availability/catalogofferingshospitality')) validateAvailabilityResponse(payload);
+    if (requestAuthority.kind === 'search-complete') validateSearchCompleteResponse(payload);
+    if (requestAuthority.kind === 'availability') validateAvailabilityResponse(payload, requestAuthority);
     return response;
   }) as typeof fetch;
 }

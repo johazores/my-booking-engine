@@ -187,6 +187,19 @@ function isTravelportOAuthRequest(url: string): boolean {
   }
 }
 
+function hasCanonicalQueryEncoding(url: URL): boolean {
+  return url.search === '' || url.search === `?${url.searchParams.toString()}`;
+}
+
+function hasCanonicalEncodedPathSegment(value: string): boolean {
+  if (!value || value.includes('/')) return false;
+  try {
+    return encodeURIComponent(decodeURIComponent(value)) === value;
+  } catch {
+    return false;
+  }
+}
+
 function searchCompleteRequestAuthority(
   url: string,
   method: string,
@@ -207,8 +220,8 @@ function searchCompleteRequestAuthority(
     const identifier = parsed.pathname.slice(initialPath.length + 1);
     const queryEntries = [...parsed.searchParams.entries()];
     if (
-      !identifier
-      || identifier.includes('/')
+      !hasCanonicalEncodedPathSegment(identifier)
+      || !hasCanonicalQueryEncoding(parsed)
       || queryEntries.length !== 1
       || queryEntries[0]?.[0] !== 'pageNumber'
       || !/^[2-5]$/.test(queryEntries[0]?.[1] ?? '')
@@ -296,11 +309,20 @@ function validatePagination(value: unknown): void {
     || itemCount < 0
     || itemCount > MAX_SEARCH_ITEMS
     || (itemCount > 0 && (currentPageSize < 1 || pageCount < 1))
-    || (pageCount === 0 && currentPage !== 1)
+    || (pageCount === 0 && (currentPage !== 1 || currentPageSize !== 0 || itemCount !== 0))
     || (pageCount > 0 && currentPage > pageCount)
     || (pageCount > 0 && itemCount > pageCount * MAX_SEARCH_PAGE_SIZE)
   ) {
     invalidResponse('Travelport pagination metadata is invalid or oversized.');
+  }
+
+  if (itemCount > 0) {
+    const expectedPages = Math.ceil(itemCount / MAX_SEARCH_PAGE_SIZE);
+    const remainingItems = itemCount - ((currentPage - 1) * MAX_SEARCH_PAGE_SIZE);
+    const expectedPageSize = Math.min(MAX_SEARCH_PAGE_SIZE, Math.max(0, remainingItems));
+    if (pageCount !== expectedPages || currentPageSize !== expectedPageSize) {
+      invalidResponse('Travelport pagination metadata does not match documented page geometry.');
+    }
   }
 
   if (pagination.paginationToken === undefined) return;
@@ -360,6 +382,7 @@ function validateSearchCompleteResponse(
   const pagination = record(root.pagination);
   if (!pagination) return;
   const currentPage = pagination.page as number;
+  const currentPageSize = pagination.pageSize as number;
   const pageCount = pagination.totalPages as number;
   if (currentPage !== requestAuthority.expectedPage) {
     invalidResponse('Travelport SearchComplete response page does not match the request.');
@@ -373,6 +396,9 @@ function validateSearchCompleteResponse(
 
   const hotelsResponse = record(root.hotelsResponse);
   if (!hotelsResponse || !Array.isArray(hotelsResponse.propertyItems)) return;
+  if (hotelsResponse.propertyItems.length !== currentPageSize) {
+    invalidResponse('Travelport SearchComplete page size does not match returned properties.');
+  }
   for (const property of hotelsResponse.propertyItems) validatePropertyItem(property);
 }
 
