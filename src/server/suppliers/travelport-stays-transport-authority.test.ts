@@ -75,7 +75,7 @@ test('SearchComplete rejects normalization-confusable pagination tokens before c
         ? jsonResponse({ access_token: 'token' })
         : jsonResponse(searchResponse({
           page: 1,
-          pageSize: 0,
+          pageSize: 100,
           totalPages: 2,
           totalItems: 101,
           paginationToken: pageToken,
