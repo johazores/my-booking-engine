@@ -59,6 +59,42 @@ test('accepts exact response-header and payload trace echoes and preserves the r
   }
 });
 
+test('trace-bound reservation responses also reject normalization-confusable commercial machine authority', async () => {
+  for (const [status, family, payload] of [
+    [400, 'ErrorResponse', {
+      Result: {
+        '@type': 'Result',
+        Error: [{
+          '@type': 'ErrorDetail',
+          StatusCode: 400,
+          SourceCode: ' 13020',
+          category: 'VALIDATION',
+          SourceID: 'API',
+          Message: 'HOTEL RATE PRICE HAS BECOME',
+        }],
+      },
+    }],
+    [200, 'ReservationResponse', {
+      Reservation: {
+        '@type': 'ReservationDetail',
+        Offer: [{
+          '@type': 'Offer',
+          Product: [{
+            '@type': 'ProductHospitality',
+            PropertyKey: { chainCode: ' CN', propertyCode: 'B6381' },
+            DateRange: { start: '2026-10-10', end: '2026-10-12' },
+          }],
+        }],
+      },
+    }],
+  ] as const) {
+    const response = new Response(JSON.stringify({
+      [family]: { traceId, ...payload },
+    }), { status, headers: { traceId, 'Content-Type': 'application/json' } });
+    await assertInvalidResponse(response);
+  }
+});
+
 test('trace-binds HTTP 500 reservation error evidence before it can affect commercial classification', async () => {
   const wrapped = createTravelportStaysReservationTraceAuthorityFetch(
     (async () => reservationResponse({ family: 'ErrorResponse', status: 500 })) as typeof fetch,

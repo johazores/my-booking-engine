@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { assertTravelportStaysReservationResponseMachineAuthority } from './travelport-stays-reservation-response-authority.ts';
 import { inspectTravelportStaysResponseTrace } from './travelport-stays-response-trace.ts';
 
 const RESERVATION_PATH_PREFIX = '/11/hotel/book/reservations';
@@ -90,8 +91,8 @@ function rebuildStatusOnlyResponse(response: Response) {
  * Travelport transport wrapper. The shared wrapper first fixes the target,
  * outbound TraceId/E2ETrackingID pair, credentials, and response size. This
  * wrapper then requires Travelport to echo that exact caller trace in both the
- * v11 response header and payload before reservation authority reaches an
- * executor or recovery parser.
+ * v11 response header and payload and validates reservation machine authority
+ * before provider evidence reaches an executor or recovery parser.
  */
 export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: typeof fetch): typeof fetch {
   if (typeof fetchImpl !== 'function') {
@@ -138,6 +139,7 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
       expectedRequestCorrelationId: reservation.expectedTraceId,
     });
     if (!evidence.valid) invalidResponse();
+    assertTravelportStaysReservationResponseMachineAuthority(body);
     return rebuildResponse(response, rawBody);
   }) as typeof fetch;
 }

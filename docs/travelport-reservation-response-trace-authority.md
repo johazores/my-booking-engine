@@ -23,29 +23,33 @@ A v11 reservation response carrying the v12-only `TVP-Trace-Id` header is contra
 
 The payload must also expose exactly one supported reservation response family (`ReservationResponse` or `ErrorResponse`) before correlation evidence can be accepted.
 
-The response is rejected as invalid when a required trace is missing, null, empty, padded, line-broken, mismatched, uses the undocumented payload `traceID` casing, includes the v12-only response trace header, or appears beside malformed/competing response families.
+After the exact trace is accepted, the same reservation-only wrapper applies a bounded machine-authority guard before rebuilding the response for downstream Create, Sync, or Retrieve parsing. Provider fields that can influence reservation identity or commercial classification must already be canonical. Reservation/offer/product discriminators, offer identifiers, property and stay identity, receipt/locator authority, structured error source/category evidence, and warning text that can select Sync recovery reject leading/trailing whitespace and the full ASCII control range instead of relying on a later compatibility parser to trim or recase them. Error categories are accepted only in the documented uppercase machine form.
+
+The machine-authority traversal repeats the current classifier/parser collection ceilings for offers, products, receipts, errors, and warnings. This prevents the guard itself from turning an already-bounded transport response into unbounded authority traversal.
+
+The response is rejected as invalid when a required trace is missing, null, empty, padded, line-broken, mismatched, uses the undocumented payload `traceID` casing, includes the v12-only response trace header, appears beside malformed/competing response families, or contains normalization-confusable reservation machine authority.
 
 Authentication (`401`/`403`) and rate-limit (`429`) responses remain status authority so existing token eviction and bounded retry semantics are preserved. Provider/gateway statuses above HTTP 500 likewise remain status-only authority. These responses are not trace-bound, so their body, provider status text, representation headers, trace/correlation headers, and arbitrary provider metadata are not forwarded to reservation consumers. The wrapper creates a fresh bodyless response carrying only the HTTP status plus a bounded `Retry-After` value when one was returned. This prevents uncorrelated metadata from accidentally granting source-code, review, definitive-failure, recovery, provider-correlation, redirect, or representation authority in a current or future consumer.
 
-HTTP 500 is deliberately different: Travelport's current Stays error catalog uses 500 for structured application/business errors, including source code `13034` and several validation outcomes. A 500 reservation response therefore must carry the exact echoed v11 header and payload trace before its `ErrorResponse` can reach the commercial classifier. A generic or malformed 500 without that binding fails closed instead of gaining provider-error authority.
+HTTP 500 is deliberately different: Travelport's current Stays error catalog uses 500 for structured application/business errors, including source code `13034` and several validation outcomes. A 500 reservation response therefore must carry the exact echoed v11 header and payload trace and canonical structured error machine evidence before its `ErrorResponse` can reach the commercial classifier. A generic or malformed 500 without that binding fails closed instead of gaining provider-error authority.
 
 Non-reservation Stays traffic passes through this reservation-only wrapper unchanged; its existing provider-specific parsing and transport policies remain separate.
 
 ## Failure semantics
 
-Create Reservation and Booking.com Sync are external writes. Once their durable provider-request marker exists, a missing or mismatched provider trace cannot prove that no supplier write occurred. The existing executor transport boundary therefore keeps such failures ambiguous rather than making them automatically retryable.
+Create Reservation and Booking.com Sync are external writes. Once their durable provider-request marker exists, a missing/mismatched provider trace or malformed provider machine authority cannot prove that no supplier write occurred. The existing executor transport boundary therefore keeps such failures ambiguous rather than making them automatically retryable.
 
 The status-only `401`/`403`/`429`/>`500` families also cannot use their unverified body or metadata as post-write commercial evidence. For Create and Sync, the sanitized body therefore reaches the existing classifier as no payload authority and settles fail closed. For known-locator Retrieve, the provider adapter continues to map these statuses directly without parsing a reservation body.
 
-Known-locator Retrieve is read-only. Invalid trace evidence remains an `INVALID_RESPONSE`; it cannot prove `FOUND`, `NOT_FOUND`, or reservation identity.
+Known-locator Retrieve is read-only. Invalid trace or machine evidence remains an `INVALID_RESPONSE`; it cannot prove `FOUND`, `NOT_FOUND`, reservation identity, or supplier lifecycle state.
 
-The same rule applies to HTTP 500 provider bodies. Source-coded 500 evidence can influence review, definitive-failure, or recovery classification only after it is bound to the exact outbound attempt. This is especially important for Travelport `13034`, which is documented as HTTP 500 and participates in SF's locator-less sell-uncertainty handling.
+The same rule applies to HTTP 500 provider bodies. Source-coded 500 evidence can influence review, definitive-failure, or recovery classification only after it is bound to the exact outbound attempt and survives the machine-authority guard. This is especially important for Travelport `13034`, which is documented as HTTP 500 and participates in SF's locator-less sell-uncertainty handling.
 
-A valid matching trace is still operational evidence only. It never proves a supplier sell, never substitutes for a Travelport PNR or supplier confirmation, and never turns locator-less ambiguity into retry authority.
+A valid matching trace and structurally canonical machine evidence are still operational/provider evidence only. They never prove a supplier sell by themselves, never substitute for a Travelport PNR or supplier confirmation, and never turn locator-less ambiguity into retry authority.
 
 ## Memory and response handling
 
-The shared Travelport transport already bounds Stays responses before this reservation-only wrapper runs. For trace-bound responses, the wrapper consumes that bounded replay once, validates the JSON trace evidence, and rebuilds a response carrying the same status, status text, and headers for the downstream reservation parser. It does not log or persist provider bodies.
+The shared Travelport transport already bounds Stays responses before this reservation-only wrapper runs. For trace-bound responses, the wrapper consumes that bounded replay once, validates the JSON trace and machine-authority evidence, and rebuilds a response carrying the same status, status text, and headers for the downstream reservation parser. It does not log or persist provider bodies.
 
 For status-only response families, the wrapper deliberately does not consume or expose the provider body downstream. It constructs a new empty response instead of cloning provider response metadata. The only preserved metadata is the numeric HTTP status and a bounded `Retry-After` header when present; malformed or oversized retry metadata is discarded. This keeps the operational signal required for auth/rate/provider-unavailable handling while preventing unrelated provider headers, response representation metadata, unverified traces, and provider status text from crossing the reservation authority boundary.
 
@@ -53,15 +57,20 @@ For status-only response families, the wrapper deliberately does not consume or 
 
 Focused executable tests cover exact success/error-family echoes, HTTP 500 application-error trace binding, response-header omission/mismatch, v12-only response-trace rejection on v11 reservation calls, payload omission/null/mismatch, malformed JSON, undocumented payload trace casing, response preservation, malformed outbound correlation, non-reservation pass-through, reservation-prefix lookalike isolation, and status-only handling for authentication/rate-limit/provider-unavailable responses above 500. Status-only tests use deliberately commercial-looking provider bodies and unrelated correlation/representation metadata and verify that only a bounded `Retry-After` survives beside the numeric status.
 
-The lower-level payload helper separately covers malformed response families and bounded canonical trace parsing. A dependency-free source contract pins production integration wiring so Create, reviewed Create authority, Booking.com Sync, and known-locator recovery continue to receive the response-correlation-protected transport, prevents HTTP 500 from regressing into the status-only bypass, requires bounded allowlisted status-only metadata, rejects v12-only trace headers on v11 reservation responses, and pins the reservation path-segment boundary.
+The response-machine-authority tests additionally cover exact documented success/error fixtures; normalization-confusable reservation, offer, property, stay, receipt, locator, error source/category, and warning evidence; full ASCII controls; error-category recasing; and response collection ceilings. An integration regression proves the trace-bound reservation wrapper rejects that evidence before returning a response to downstream parsers.
 
-Live Travelport non-production verification remains required before reservation activation.
+The lower-level payload helper separately covers malformed response families and bounded canonical trace parsing. Dependency-free source contracts pin production integration wiring so Create, reviewed Create authority, Booking.com Sync, and known-locator recovery continue to receive the response-correlation-protected transport, prevent HTTP 500 from regressing into the status-only bypass, require bounded allowlisted status-only metadata, reject v12-only trace headers on v11 reservation responses, pin the reservation path-segment boundary, and require machine-authority validation after exact trace verification but before the provider body is rebuilt for consumers.
+
+Full repository validation still requires the repository Node 24/TypeScript 6 environment. Database-backed supplier scenarios still require an explicitly disposable PostgreSQL target. Live Travelport non-production verification remains required before reservation activation.
 
 ## References
 
 - Travelport Stays Trace and Transaction IDs: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelTraceTransactionIDs.htm
 - Travelport Common Stays API Headers: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/CommonHotelAPIHeaders.htm
 - Travelport Stays API Error Messaging: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelAPIErrors.htm
+- Travelport Retrieve Hotel Reservation API: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Retrieve.htm
+- Travelport Sync Reservation API: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/APIReferences/APIRef_Sync.htm
 - `docs/supplier-reservation-correlation.md`
 - `docs/travelport-stays-request-tracing.md`
 - `docs/travelport-reservation-response-evidence.md`
+- `docs/travelport-reservation-commercial-machine-token-authority.md`
