@@ -12,9 +12,17 @@ This hardening does not enable the Travelport `reservation` capability.
 
 For implemented Travelport v11 reservation calls, the shared transport derives `TraceId` from the same `E2ETrackingID: sf-<attempt UUID>` used for SF support correlation. The production integration layers a reservation-only response-correlation wrapper over that restricted transport.
 
-The reservation wrapper recognizes only the exact `/11/hotel/book/reservations` path or descendants below `/11/hotel/book/reservations/`. A raw string prefix such as `/11/hotel/book/reservations-legacy` is not reservation authority and passes through this wrapper unchanged. The shared Travelport transport still owns the independent endpoint allowlist.
+The reservation wrapper now owns its own exact request-shape gate instead of relying only on the shared transport allowlist. Inside the `/11/hotel/book/reservations` namespace it accepts only the reservation operations that SF has implemented and reviewed:
 
-For `/11/hotel/book/reservations...` GET/POST responses whose payload can contribute reservation authority, the wrapper requires both:
+- `POST /11/hotel/book/reservations/build` with no query for initial Create, or only unique `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` flags for the one reviewed second Create;
+- `POST /11/hotel/book/reservations/` with no query for Booking.com Sync; and
+- `GET /11/hotel/book/reservations/{AggregatorLocatorCode}` with no query, where the locator is one canonical encoded path segment, for known-locator Retrieve.
+
+Any other method, route, nested path, query parameter, duplicate/false review flag, or non-canonical locator encoding inside that reservation namespace fails as `INVALID_REQUEST` before provider I/O. The exact root path without the Sync trailing slash is not accepted by this wrapper. Travelport's current Stays catalog also exposes other reservation operations in the same namespace, including full-payload Create, modify/cancel, and passive-segment endpoints; those operations are not implemented reservation authority in SF and cannot silently inherit this transport if the shared allowlist changes later.
+
+A raw lookalike such as `/11/hotel/book/reservations-legacy` is outside the reservation namespace and passes through this wrapper unchanged. The shared Travelport transport independently owns the environment/host, credential/header/body, and full Stays endpoint allowlist, so the two layers intentionally fail closed at different boundaries.
+
+For the accepted reservation GET/POST responses whose payload can contribute reservation authority, the wrapper requires both:
 
 - the v11 response header `traceId` to exactly equal the outbound attempt UUID; and
 - the canonical response payload field `traceId` to exactly equal that same UUID.
@@ -43,7 +51,7 @@ The status-only `401`/`403`/`429`/>`500` families also cannot use their unverifi
 
 Known-locator Retrieve is read-only. Invalid trace or machine evidence remains an `INVALID_RESPONSE`; it cannot prove `FOUND`, `NOT_FOUND`, reservation identity, or supplier lifecycle state.
 
-The same rule applies to HTTP 500 provider bodies. Source-coded 500 evidence can influence review, definitive-failure, or recovery classification only after it is bound to the exact outbound attempt and survives the machine-authority guard. This is especially important for Travelport `13034`, which is documented as HTTP 500 and participates in SF's locator-less sell-uncertainty handling.
+The same rule applies to HTTP 500 provider bodies. Source-coded 500 evidence can influence review, definitive-failure, or recovery classification only after it is bound to the exact outbound attempt and survives the machine-authority guard. This is especially important for Travelport `13034`, which the current Stays error catalog documents as HTTP 500 / `UNKNOWN` and which participates in SF's locator-less sell-uncertainty handling.
 
 A valid matching trace and structurally canonical machine evidence are still operational/provider evidence only. They never prove a supplier sell by themselves, never substitute for a Travelport PNR or supplier confirmation, and never turn locator-less ambiguity into retry authority.
 
@@ -55,16 +63,19 @@ For status-only response families, the wrapper deliberately does not consume or 
 
 ## Validation
 
-Focused executable tests cover exact success/error-family echoes, HTTP 500 application-error trace binding, response-header omission/mismatch, v12-only response-trace rejection on v11 reservation calls, payload omission/null/mismatch, malformed JSON, undocumented payload trace casing, response preservation, malformed outbound correlation, non-reservation pass-through, reservation-prefix lookalike isolation, and status-only handling for authentication/rate-limit/provider-unavailable responses above 500. Status-only tests use deliberately commercial-looking provider bodies and unrelated correlation/representation metadata and verify that only a bounded `Retry-After` survives beside the numeric status.
+Focused executable tests cover the exact implemented request route matrix, including initial/reviewed Create, Sync, and known-locator Retrieve, plus pre-I/O rejection of the unsupported reservation root, passive Create, wrong methods, collection GET, locator POST, nested paths, retrieve queries, unknown/false/duplicate review flags, and non-canonical locator encodings. Reservation-prefix lookalikes remain outside this boundary.
+
+Existing response tests cover exact success/error-family echoes, HTTP 500 application-error trace binding, response-header omission/mismatch, v12-only response-trace rejection on v11 reservation calls, payload omission/null/mismatch, malformed JSON, undocumented payload trace casing, response preservation, malformed outbound correlation, non-reservation pass-through, and status-only handling for authentication/rate-limit/provider-unavailable responses above 500. Status-only tests use deliberately commercial-looking provider bodies and unrelated correlation/representation metadata and verify that only a bounded `Retry-After` survives beside the numeric status.
 
 The response-machine-authority tests additionally cover exact documented success/error fixtures; normalization-confusable reservation, offer, property, stay, receipt, locator, error source/category, and warning evidence; full ASCII controls; error-category recasing; and response collection ceilings. An integration regression proves the trace-bound reservation wrapper rejects that evidence before returning a response to downstream parsers.
 
-The lower-level payload helper separately covers malformed response families and bounded canonical trace parsing. Dependency-free source contracts pin production integration wiring so Create, reviewed Create authority, Booking.com Sync, and known-locator recovery continue to receive the response-correlation-protected transport, prevent HTTP 500 from regressing into the status-only bypass, require bounded allowlisted status-only metadata, reject v12-only trace headers on v11 reservation responses, pin the reservation path-segment boundary, and require machine-authority validation after exact trace verification but before the provider body is rebuilt for consumers.
+Dependency-free source contracts pin the exact reservation request method/path/query matrix and canonical review/locator encoding alongside production integration wiring, response trace binding, bounded status-only metadata, and machine-authority validation ordering. This makes a future shared-transport endpoint expansion insufficient by itself to authorize a new reservation operation.
 
 Full repository validation still requires the repository Node 24/TypeScript 6 environment. Database-backed supplier scenarios still require an explicitly disposable PostgreSQL target. Live Travelport non-production verification remains required before reservation activation.
 
 ## References
 
+- Travelport Stays API Endpoints: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelEndpoints.htm
 - Travelport Stays Trace and Transaction IDs: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelTraceTransactionIDs.htm
 - Travelport Common Stays API Headers: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/CommonHotelAPIHeaders.htm
 - Travelport Stays API Error Messaging: https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelAPIErrors.htm

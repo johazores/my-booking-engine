@@ -3,6 +3,8 @@ import { assertTravelportStaysReservationResponseMachineAuthority } from './trav
 import { inspectTravelportStaysResponseTrace } from './travelport-stays-response-trace.ts';
 
 const RESERVATION_PATH_PREFIX = '/11/hotel/book/reservations';
+const RESERVATION_BUILD_PATH = `${RESERVATION_PATH_PREFIX}/build`;
+const RESERVATION_COLLECTION_PATH = `${RESERVATION_PATH_PREFIX}/`;
 const SF_E2E_PREFIX = 'sf-';
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STATUS_ONLY_HEADER_VALUE_LENGTH = 256;
@@ -27,8 +29,61 @@ function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
   return new Headers(source);
 }
 
-function isReservationPath(pathname: string) {
+function isReservationNamespace(pathname: string) {
   return pathname === RESERVATION_PATH_PREFIX || pathname.startsWith(`${RESERVATION_PATH_PREFIX}/`);
+}
+
+function hasCanonicalQueryEncoding(url: URL) {
+  return url.search === '' || url.search === `?${url.searchParams.toString()}`;
+}
+
+function hasAcceptedReservationReviewQuery(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (!hasCanonicalQueryEncoding(url)) return false;
+  if (entries.length === 0) return true;
+  if (entries.length > 2) return false;
+
+  const acceptedKeys = new Set(['acceptPriceChangeInd', 'acceptGuaranteeChangeInd']);
+  const seen = new Set<string>();
+  for (const [key, value] of entries) {
+    if (!acceptedKeys.has(key) || seen.has(key) || value !== 'true') return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+function hasSingleCanonicalEncodedPathSegment(url: URL, prefix: string) {
+  if (!url.pathname.startsWith(prefix)) return false;
+  const suffix = url.pathname.slice(prefix.length);
+  if (!suffix || suffix.includes('/')) return false;
+  try {
+    return encodeURIComponent(decodeURIComponent(suffix)) === suffix;
+  } catch {
+    return false;
+  }
+}
+
+function isSupportedReservationRequest(url: URL, method: string) {
+  if (
+    url.pathname === RESERVATION_BUILD_PATH
+    && method === 'POST'
+    && hasAcceptedReservationReviewQuery(url)
+  ) return true;
+
+  if (
+    url.pathname === RESERVATION_COLLECTION_PATH
+    && method === 'POST'
+    && url.search === ''
+  ) return true;
+
+  if (
+    url.pathname !== RESERVATION_BUILD_PATH
+    && hasSingleCanonicalEncodedPathSegment(url, RESERVATION_COLLECTION_PATH)
+    && method === 'GET'
+    && url.search === ''
+  ) return true;
+
+  return false;
 }
 
 function reservationRequest(input: RequestInfo | URL, init?: RequestInit): ReservationRequest | null {
@@ -38,9 +93,12 @@ function reservationRequest(input: RequestInfo | URL, init?: RequestInit): Reser
   } catch {
     return null;
   }
-  if (!isReservationPath(url.pathname)) return null;
+  if (!isReservationNamespace(url.pathname)) return null;
+
   const method = requestMethod(input, init);
-  if (method !== 'POST' && method !== 'GET') return null;
+  if (!isSupportedReservationRequest(url, method)) {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request target is invalid.');
+  }
 
   const e2eTrackingId = requestHeaders(input, init).get('E2ETrackingID');
   if (!e2eTrackingId?.startsWith(SF_E2E_PREFIX)) {
@@ -90,7 +148,8 @@ function rebuildStatusOnlyResponse(response: Response) {
  * Production reservation-only correlation boundary layered over the shared
  * Travelport transport wrapper. The shared wrapper first fixes the target,
  * outbound TraceId/E2ETrackingID pair, credentials, and response size. This
- * wrapper then requires Travelport to echo that exact caller trace in both the
+ * wrapper independently pins the implemented reservation route/method/query
+ * shapes, then requires Travelport to echo that exact caller trace in both the
  * v11 response header and payload and validates reservation machine authority
  * before provider evidence reaches an executor or recovery parser.
  */
