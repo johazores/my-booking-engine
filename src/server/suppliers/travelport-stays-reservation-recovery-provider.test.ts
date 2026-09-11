@@ -98,6 +98,10 @@ function reservationResponse(input: {
   };
 }
 
+function isInvalidRequest(error: unknown) {
+  return error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST';
+}
+
 test('Travelport recovery retrieves the exact durable active reservation identity with durable outbound correlation', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url, init) => {
@@ -123,6 +127,23 @@ test('Travelport recovery retrieves the exact durable active reservation identit
   assert.equal(headers.get('Content-Type'), 'application/json');
   assert.equal(headers.get('E2ETrackingID'), `sf-${REQUEST_CORRELATION_ID}`);
   assert.equal(headers.get('TraceId'), REQUEST_CORRELATION_ID);
+});
+
+test('Travelport recovery rejects normalized or control-bearing cache keys before provider I/O', () => {
+  for (const cacheKey of [
+    ' recover-cache',
+    'recover-cache ',
+    'recover\tcache',
+    'recover\u0000cache',
+    'recover\u001fcache',
+    'recover\u007fcache',
+  ]) {
+    assert.throws(
+      () => new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey }),
+      isInvalidRequest,
+      cacheKey,
+    );
+  }
 });
 
 test('Travelport recovery does not promote explicit supplier cancellation evidence to FOUND', async () => {
@@ -241,15 +262,42 @@ test('Travelport recovery normalizes retryable provider failures and evicts reje
   assert.equal(authCalls, 2);
 });
 
-test('Travelport recovery rejects unsafe locator, correlation, and reservation expectation before provider transport', async () => {
+test('Travelport recovery rejects unsafe request authority and reservation expectation before provider transport', async () => {
   let calls = 0;
   const fetchImpl = (async () => {
     calls += 1;
     return jsonResponse({});
   }) as typeof fetch;
   const provider = new TravelportStaysReservationRecoveryProvider({ credentials, cacheKey: 'recover-input', fetchImpl });
-  await assert.rejects(provider.retrieveReservation(recoveryRequest('bad\nlocator')));
-  await assert.rejects(provider.retrieveReservation(recoveryRequest('D6VBHL', 'bad\ncorrelation')));
+
+  for (const reference of [
+    ' D6VBHL',
+    'D6VBHL ',
+    'D6V\nBHL',
+    'D6V\tBHL',
+    'D6V\u0000BHL',
+    'D6V\u001fBHL',
+    'D6V\u007fBHL',
+  ]) {
+    await assert.rejects(provider.retrieveReservation(recoveryRequest(reference)), isInvalidRequest, reference);
+  }
+
+  for (const requestCorrelationId of [
+    ` ${REQUEST_CORRELATION_ID}`,
+    `${REQUEST_CORRELATION_ID} `,
+    'bad\ncorrelation',
+    'bad\tcorrelation',
+    'bad\u0000correlation',
+    'bad\u001fcorrelation',
+    'bad\u007fcorrelation',
+  ]) {
+    await assert.rejects(
+      provider.retrieveReservation(recoveryRequest('D6VBHL', requestCorrelationId)),
+      isInvalidRequest,
+      requestCorrelationId,
+    );
+  }
+
   await assert.rejects(provider.retrieveReservation({
     ...recoveryRequest(),
     expectedReservation: { ...recoveryRequest().expectedReservation, supplierPropertyReference: 'not-a-reference' },

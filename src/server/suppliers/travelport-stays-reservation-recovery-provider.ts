@@ -22,8 +22,10 @@ const ENDPOINTS = Object.freeze({
 });
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_CACHE_KEY_LENGTH = 512;
 const MAX_REFERENCE_LENGTH = 512;
 const MAX_REQUEST_CORRELATION_ID_LENGTH = 120;
+const ASCII_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -38,7 +40,12 @@ function normalizeTimeout(value: number | undefined) {
 function boundedSingleLine(value: unknown, label: string, max: number) {
   if (typeof value !== 'string') throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is required.`);
   const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) {
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > max
+    || ASCII_CONTROL_CHARACTER_PATTERN.test(normalized)
+  ) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
   }
   return normalized;
@@ -84,11 +91,12 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     timeoutMs?: number;
     now?: () => Date;
   }) {
-    if (!input.cacheKey || input.cacheKey.length > 512 || /[\r\n]/.test(input.cacheKey)) {
-      throw new HospitalitySupplierProviderError('INVALID_REQUEST');
-    }
     this.#credentials = input.credentials;
-    this.#cacheKey = input.cacheKey;
+    this.#cacheKey = boundedSingleLine(
+      input.cacheKey,
+      'Travelport reservation recovery cache key',
+      MAX_CACHE_KEY_LENGTH,
+    );
     this.#fetchImpl = input.fetchImpl ?? fetch;
     this.#timeoutMs = normalizeTimeout(input.timeoutMs);
     this.#now = input.now ?? (() => new Date());
