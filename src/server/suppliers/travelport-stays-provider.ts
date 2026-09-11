@@ -280,7 +280,9 @@ function exactResponseTokenIfPresent(value: unknown, max: number): void {
 
 function validatePagination(value: unknown): void {
   const pagination = record(value);
-  if (!pagination) return;
+  if (!pagination) {
+    invalidResponse('Travelport SearchComplete pagination metadata is missing.');
+  }
 
   const page = pagination.page;
   const pageSize = pagination.pageSize;
@@ -309,7 +311,7 @@ function validatePagination(value: unknown): void {
     || itemCount < 0
     || itemCount > MAX_SEARCH_ITEMS
     || (itemCount > 0 && (currentPageSize < 1 || pageCount < 1))
-    || (pageCount === 0 && (currentPage !== 1 || currentPageSize !== 0 || itemCount !== 0))
+    || (itemCount === 0 && (currentPage !== 1 || currentPageSize !== 0 || pageCount !== 0))
     || (pageCount > 0 && currentPage > pageCount)
     || (pageCount > 0 && itemCount > pageCount * MAX_SEARCH_PAGE_SIZE)
   ) {
@@ -376,11 +378,15 @@ function validateSearchCompleteResponse(
   requestAuthority: ReturnType<typeof searchCompleteRequestAuthority>,
 ): void {
   const root = record(value);
-  if (!root) return;
+  if (!root) {
+    invalidResponse('Travelport SearchComplete response envelope is invalid.');
+  }
   validatePagination(root.pagination);
 
   const pagination = record(root.pagination);
-  if (!pagination) return;
+  if (!pagination) {
+    invalidResponse('Travelport SearchComplete pagination metadata is missing.');
+  }
   const currentPage = pagination.page as number;
   const currentPageSize = pagination.pageSize as number;
   const pageCount = pagination.totalPages as number;
@@ -395,7 +401,9 @@ function validateSearchCompleteResponse(
   }
 
   const hotelsResponse = record(root.hotelsResponse);
-  if (!hotelsResponse || !Array.isArray(hotelsResponse.propertyItems)) return;
+  if (!hotelsResponse || !Array.isArray(hotelsResponse.propertyItems)) {
+    invalidResponse('Travelport SearchComplete property collection is invalid.');
+  }
   if (hotelsResponse.propertyItems.length !== currentPageSize) {
     invalidResponse('Travelport SearchComplete page size does not match returned properties.');
   }
@@ -497,7 +505,12 @@ export function createTravelportStaysReferenceAuthorityFetch(
     if (!url.includes('/hotel/')) return response;
 
     const payload = await response.clone().json().catch(() => null);
-    if (payload === null) return response;
+    if (payload === null) {
+      if (searchRequestAuthority) {
+        invalidResponse('Travelport SearchComplete response is not valid JSON.');
+      }
+      return response;
+    }
 
     if (searchRequestAuthority) {
       validateSearchCompleteResponse(payload, searchRequestAuthority);

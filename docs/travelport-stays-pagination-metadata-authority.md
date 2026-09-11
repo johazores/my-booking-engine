@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Travelport pagination metadata controls which provider result pages SF trusts and whether a response can become availability, pricing, or reservation authority. SF treats provider page metadata, continuation identifiers, HTTP methods, and continuation routes as bounded machine authority rather than presentation metadata.
+Travelport pagination metadata controls which provider result pages SF trusts and whether a response can become availability, pricing, or reservation authority. SF treats provider page metadata, continuation identifiers, HTTP methods, continuation routes, and successful response envelopes as bounded machine authority rather than presentation metadata.
 
 This contract covers two independent paths:
 
@@ -17,7 +17,7 @@ Travelport documents that the initial SearchComplete response is page 1 and that
 
 Travelport also documents that the initial SearchComplete operation is `POST`, pagination is `GET`, and the pagination identifier is what authorizes retrieval of additional pages: when no identifier is returned there are no additional search results, while searches with additional pages return an identifier for follow-on GET requests.
 
-SF therefore treats the HTTP method, request route/page, `page`, `pageSize`, `totalPages`, `totalItems`, and `paginationToken` presence as bounded machine authority rather than permissive presentation metadata.
+SF therefore treats the HTTP method, request route/page, `page`, `pageSize`, `totalPages`, `totalItems`, `paginationToken` presence, and required successful-response envelope as bounded machine authority rather than permissive presentation metadata.
 
 ### SearchComplete response contract
 
@@ -25,14 +25,15 @@ The public Travelport adapter rejects successful SearchComplete responses when p
 
 The response must satisfy all of the following before the compatibility parser sees it:
 
+- the successful response body is valid JSON with a record root, a `pagination` record, a `hotelsResponse` record, and a `hotelsResponse.propertyItems` array;
 - `page`, `pageSize`, `totalPages`, and `totalItems` are integers;
 - `page` is between 1 and 5 inclusive;
 - `pageSize` is between 0 and 100 inclusive;
 - `totalPages` is between 0 and 5 inclusive;
 - `totalItems` is between 0 and 500 inclusive;
 - a non-empty result set cannot report a zero page size or zero total pages;
+- the only canonical empty result is page 1 with `pageSize: 0`, `totalPages: 0`, `totalItems: 0`, and an empty property collection;
 - the current page cannot exceed `totalPages` when `totalPages` is positive;
-- a zero-page empty-result compatibility shape is valid only as page 1;
 - `totalItems` cannot exceed the maximum capacity represented by `totalPages` at 100 properties per page;
 - for non-empty results, `totalPages` must equal the page count implied by `totalItems` at 100 properties per page;
 - for non-empty results, every non-final page must report `pageSize: 100` and the final page must report the exact remainder;
@@ -41,11 +42,13 @@ The response must satisfy all of the following before the compatibility parser s
 - a continuation operation must be `GET /12/hotel/search/searchcomplete/{SearchIdentifier}?pageNumber={x}` and its response must report the exact requested page; and
 - on the initial response, `paginationToken` must be present exactly when `totalPages` reports that continuation pages exist.
 
-The existing empty first-page shape `{ page: 1, pageSize: 0, totalPages: 0, totalItems: 0 }` remains accepted so this hardening does not invent properties or force a provider result where none exists.
+The canonical empty first-page shape `{ page: 1, pageSize: 0, totalPages: 0, totalItems: 0 }` remains accepted so this hardening does not invent properties or force a provider result where none exists. Zero-item responses that claim a positive page count, a positive page size, or a continuation page are rejected rather than being interpreted as valid empty authority.
 
 Opaque `paginationToken` authority remains exact: no leading/trailing whitespace, no ASCII controls, and a maximum length of 4,096 characters. Follow-on callers remain limited to one canonically percent-encoded opaque SearchComplete identifier path segment plus exactly one canonically encoded `pageNumber` query whose value is 2 through 5. The request method, route, and response page are bound together before the compatibility parser can interpret the provider payload.
 
 For the initial response, token presence is cross-checked against `totalPages`. A response that claims additional pages without the token needed to retrieve them is rejected. A response that claims no continuation pages but still supplies a continuation token is also rejected. SF does not infer a supplier continuation path from contradictory metadata.
+
+A successful SearchComplete HTTP response cannot bypass this boundary by returning non-JSON content or omitting the required pagination/property collection envelope. Those shapes fail closed at the authority adapter even though the compatibility core also validates its own required response structure. The two layers remain deliberately independent.
 
 ## Availability pagination authority
 
@@ -85,7 +88,7 @@ This ordering is intentional. These boundaries do not only validate responses; t
 
 ## Layering
 
-The public SearchComplete adapter enforces provider-specific request-method, route, page, and token authority before delegating to the compatibility core. The provider-neutral complete-search collector continues to independently enforce first-page identity, total-page/item continuity, duplicate-property rejection, exact final item count, bounded page count, and non-exposure of provider pagination tokens.
+The public SearchComplete adapter enforces provider-specific request-method, route, page, token, response-envelope, and zero-result authority before delegating to the compatibility core. The provider-neutral complete-search collector continues to independently enforce first-page identity, total-page/item continuity, duplicate-property rejection, exact final item count, bounded page count, and non-exposure of provider pagination tokens.
 
 The reservation-authority adapter independently validates the exact fresh SearchComplete/Availability machine evidence before its compatibility core can use Availability identifiers as immediate sell authority. The environment-bound Travelport transport remains a separate defense that restricts allowed Travelport hosts, headers, bodies, routes, methods, query shapes, response sizes, redirects, and versioned trace headers.
 
@@ -93,9 +96,9 @@ These layers are intentionally independent. A compatibility parser should never 
 
 ## Validation
 
-Focused SearchComplete regression coverage rejects malformed page counters, mismatched response pages, contradictory initial token/page-count authority, wrong methods, and unreviewed route/query shapes. The method/route regression asserts zero underlying provider calls for rejected request authority.
+Focused SearchComplete regression coverage rejects malformed page counters, mismatched response pages, contradictory initial token/page-count authority, wrong methods, unreviewed route/query shapes, non-canonical zero-item geometries, successful non-JSON responses, and successful responses missing required pagination/property envelopes. The method/route regression asserts zero underlying provider calls for rejected request authority. Coverage preserves the one canonical empty first-page result.
 
-Focused Availability reservation-authority coverage now verifies:
+Focused Availability reservation-authority coverage verifies:
 
 - valid `101`-rate page geometry (`100` on page 1, `1` on page 2);
 - impossible total/page-count combinations;
@@ -110,7 +113,7 @@ Focused Availability reservation-authority coverage now verifies:
 
 The same-scope sweep also corrected a stale SearchComplete mismatched-page fixture so it now uses coherent positive pagination metadata; the regression therefore reaches the response-page mismatch assertion instead of failing earlier on the page-size guard. Existing reservation-authority pagination fixtures were aligned with Travelport's documented rule that a multi-page Availability response begins only after 100 rates.
 
-Dependency-free source coverage pins both preflight ordering and the Availability five-page / 100-rate geometry. Available local validation uses Node type stripping and focused dependency-free execution. Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live Travelport verification still requires provisioned non-production credentials.
+Dependency-free source coverage pins SearchComplete canonical-empty/envelope authority, both preflight orderings, and the Availability five-page / 100-rate geometry. Available local validation uses Node type stripping and focused dependency-free execution. Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live Travelport verification still requires provisioned non-production credentials.
 
 The reservation capability remains disabled pending the reviewed PCI-safe FormOfPayment/guarantee source, live non-production SearchComplete → Rules → Availability → Create → reviewed Create → Sync/recovery verification, and authoritative live `13034` / locator-less recovery semantics.
 

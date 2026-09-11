@@ -40,10 +40,10 @@ test('Availability pagination response authority matches Travelport five-page an
   assert.match(boundary, /Travelport Availability pagination identifier is unexpected/);
 });
 
-
 test('SearchComplete pagination uses exact 100-property geometry and canonical continuation authority', async () => {
   const provider = await source('src/server/suppliers/travelport-stays-provider.ts');
 
+  assert.match(provider, /itemCount === 0 && \(currentPage !== 1 \|\| currentPageSize !== 0 \|\| pageCount !== 0\)/);
   assert.match(provider, /const expectedPages = Math\.ceil\(itemCount \/ MAX_SEARCH_PAGE_SIZE\)/);
   assert.match(provider, /const expectedPageSize = Math\.min\(MAX_SEARCH_PAGE_SIZE, Math\.max\(0, remainingItems\)\)/);
   assert.match(provider, /pageCount !== expectedPages \|\| currentPageSize !== expectedPageSize/);
@@ -52,11 +52,22 @@ test('SearchComplete pagination uses exact 100-property geometry and canonical c
   assert.match(provider, /hasCanonicalQueryEncoding\(parsed\)/);
 });
 
+test('SearchComplete successful responses fail closed on missing JSON or required envelopes', async () => {
+  const provider = await source('src/server/suppliers/travelport-stays-provider.ts');
+
+  assert.match(provider, /Travelport SearchComplete response is not valid JSON/);
+  assert.match(provider, /Travelport SearchComplete response envelope is invalid/);
+  assert.match(provider, /Travelport SearchComplete pagination metadata is missing/);
+  assert.match(provider, /Travelport SearchComplete property collection is invalid/);
+});
+
 test('pagination documentation records the independent SearchComplete and Availability authority boundaries', async () => {
   const docs = await source('docs/travelport-stays-pagination-metadata-authority.md');
 
   assert.match(docs, /SearchComplete pagination authority/);
   assert.match(docs, /Availability pagination authority/);
+  assert.match(docs, /canonical empty result/i);
+  assert.match(docs, /valid JSON/i);
   assert.match(docs, /catalogOfferingPerPage/);
   assert.match(docs, /more than 100 rates/i);
   assert.match(docs, /before provider I\/O/);
