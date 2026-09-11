@@ -1,11 +1,12 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import type { NormalizedHospitalitySupplierReservationTravelerPayload } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
   buildTravelportStaysReservationSyncRequest,
   classifyTravelportStaysReservationSyncOutcome,
   type TravelportStaysReservationSyncOutcome,
 } from './travelport-stays-reservation-sync-domain.ts';
 import type { TravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-create-outcome.ts';
-import type { NormalizedHospitalitySupplierReservationTravelerPayload } from './hospitality-supplier-reservation-traveler-authority.ts';
+import { materializeTravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-expected-authority.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -47,44 +48,6 @@ function normalizeTimeout(value: number | undefined) {
     invalidRequest('Travelport reservation Sync timeout is invalid.');
   }
   return timeoutMs;
-}
-
-function validLocalDate(value: unknown) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function normalizeExpectedReservation(
-  expected: TravelportStaysCreateExpectedReservation,
-): TravelportStaysCreateExpectedReservation {
-  if (
-    !expected
-    || typeof expected !== 'object'
-    || Array.isArray(expected)
-    || typeof expected.chainCode !== 'string'
-    || !/^[A-Za-z0-9]{1,16}$/.test(expected.chainCode)
-    || typeof expected.propertyCode !== 'string'
-    || !/^[A-Za-z0-9]{1,32}$/.test(expected.propertyCode)
-    || !validLocalDate(expected.arrivalDateLocal)
-    || !validLocalDate(expected.departureDateLocal)
-    || expected.departureDateLocal <= expected.arrivalDateLocal
-    || expected.rooms !== 1
-    || !Number.isInteger(expected.guests)
-    || expected.guests < 1
-    || expected.guests > 9
-  ) {
-    invalidRequest('Travelport reservation Sync expected reservation authority is invalid.');
-  }
-
-  return Object.freeze({
-    chainCode: expected.chainCode,
-    propertyCode: expected.propertyCode,
-    arrivalDateLocal: expected.arrivalDateLocal,
-    departureDateLocal: expected.departureDateLocal,
-    rooms: expected.rooms,
-    guests: expected.guests,
-  });
 }
 
 function ambiguousTransportFailure(): TravelportStaysReservationSyncOutcome {
@@ -143,24 +106,36 @@ export class TravelportStaysReservationSyncExecutor {
     expectedReservation: TravelportStaysCreateExpectedReservation;
     beforeProviderRequest: () => Promise<void>;
   }>): Promise<TravelportStaysReservationSyncOutcome> {
-    if (!SF_TRACE_ID_PATTERN.test(input.requestCorrelationId)) {
+    const {
+      requestCorrelationId,
+      providerRecoveryReference,
+      supplierConfirmationReference,
+      traveler,
+      expectedReservation: callerExpectedReservation,
+      beforeProviderRequest,
+    } = input;
+
+    if (!SF_TRACE_ID_PATTERN.test(requestCorrelationId)) {
       invalidRequest('Travelport reservation Sync correlation ID is invalid.');
     }
-    if (typeof input.beforeProviderRequest !== 'function') {
+    if (typeof beforeProviderRequest !== 'function') {
       invalidRequest('Travelport reservation Sync provider-request marker is required.');
     }
 
     // Snapshot the exact identity that must be proved by the Sync response before any OAuth,
     // transport preflight, durable provider marker, or external recovery write can occur.
     // Downstream classification consumes this immutable snapshot rather than caller-owned state.
-    const expectedReservation = normalizeExpectedReservation(input.expectedReservation);
+    const expectedReservation = materializeTravelportStaysCreateExpectedReservation(callerExpectedReservation);
+    if (!expectedReservation) {
+      invalidRequest('Travelport reservation Sync expected reservation authority is invalid.');
+    }
 
     let requestBody;
     try {
       requestBody = buildTravelportStaysReservationSyncRequest({
-        providerRecoveryReference: input.providerRecoveryReference,
-        supplierConfirmationReference: input.supplierConfirmationReference,
-        traveler: input.traveler,
+        providerRecoveryReference,
+        supplierConfirmationReference,
+        traveler,
       });
     } catch {
       invalidRequest('Travelport reservation Sync recovery authority is invalid.');
@@ -176,7 +151,7 @@ export class TravelportStaysReservationSyncExecutor {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-      E2ETrackingID: `sf-${input.requestCorrelationId}`,
+      E2ETrackingID: `sf-${requestCorrelationId}`,
       username: this.#credentials.username,
       password: this.#credentials.password,
       client_id: this.#credentials.clientId,
@@ -200,7 +175,7 @@ export class TravelportStaysReservationSyncExecutor {
     // All deterministic identity/request construction, OAuth, and transport-policy validation complete
     // before the durable marker. After this point any transport uncertainty must remain ambiguous
     // and must not authorize another Sync write automatically.
-    await input.beforeProviderRequest();
+    await beforeProviderRequest();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
@@ -226,7 +201,7 @@ export class TravelportStaysReservationSyncExecutor {
       httpStatus: response.status,
       body,
       expectedReservation,
-      supplierConfirmationReference: input.supplierConfirmationReference,
+      supplierConfirmationReference,
     });
   }
 }

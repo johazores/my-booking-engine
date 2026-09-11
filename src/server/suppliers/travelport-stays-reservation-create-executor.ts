@@ -7,6 +7,7 @@ import {
   type TravelportStaysCreateExpectedReservation,
   type TravelportStaysReservationCreateOutcome,
 } from './travelport-stays-reservation-create-outcome.ts';
+import { materializeTravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-expected-authority.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -150,27 +151,6 @@ function validLocalDate(value: unknown) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function assertExpectedReservation(expected: TravelportStaysCreateExpectedReservation) {
-  if (
-    !expected
-    || typeof expected !== 'object'
-    || Array.isArray(expected)
-    || typeof expected.chainCode !== 'string'
-    || !/^[A-Za-z0-9]{1,16}$/.test(expected.chainCode)
-    || typeof expected.propertyCode !== 'string'
-    || !/^[A-Za-z0-9]{1,32}$/.test(expected.propertyCode)
-    || !validLocalDate(expected.arrivalDateLocal)
-    || !validLocalDate(expected.departureDateLocal)
-    || expected.departureDateLocal <= expected.arrivalDateLocal
-    || expected.rooms !== 1
-    || !Number.isInteger(expected.guests)
-    || expected.guests < 1
-    || expected.guests > 9
-  ) {
-    invalidRequest('Travelport expected reservation authority is invalid.');
-  }
 }
 
 function assertPaymentAuthorityMatchesRequestMaterial(
@@ -426,18 +406,28 @@ export class TravelportStaysReservationCreateExecutor {
     input: TravelportStaysReservationCreateExecutionInput,
     acceptedReview: TravelportStaysReservationAcceptedReview | null,
   ): Promise<TravelportStaysReservationCreateOutcome> {
-    if (!SF_TRACE_ID_PATTERN.test(input.requestCorrelationId)) {
+    const {
+      requestCorrelationId,
+      requestMaterial,
+      paymentAuthority,
+      acquirePaymentCard,
+      expectedReservation: callerExpectedReservation,
+      beforeProviderRequest,
+    } = input;
+
+    if (!SF_TRACE_ID_PATTERN.test(requestCorrelationId)) {
       invalidRequest('Travelport reservation request correlation ID is invalid.');
     }
-    if (typeof input.acquirePaymentCard !== 'function') {
+    if (typeof acquirePaymentCard !== 'function') {
       invalidRequest('Travelport reservation payment-card acquisition callback is required.');
     }
-    if (typeof input.beforeProviderRequest !== 'function') {
+    if (typeof beforeProviderRequest !== 'function') {
       invalidRequest('Travelport reservation provider-request marker is required.');
     }
 
-    assertExpectedReservation(input.expectedReservation);
-    assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
+    const expectedReservation = materializeTravelportStaysCreateExpectedReservation(callerExpectedReservation);
+    if (!expectedReservation) invalidRequest('Travelport expected reservation authority is invalid.');
+    assertPaymentAuthorityMatchesRequestMaterial(requestMaterial, paymentAuthority);
     const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
     const accessToken = await this.#accessToken();
     const requestHeaders = Object.freeze({
@@ -447,7 +437,7 @@ export class TravelportStaysReservationCreateExecutor {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
-      E2ETrackingID: `sf-${input.requestCorrelationId}`,
+      E2ETrackingID: `sf-${requestCorrelationId}`,
       username: this.#credentials.username,
       password: this.#credentials.password,
       client_id: this.#credentials.clientId,
@@ -472,12 +462,12 @@ export class TravelportStaysReservationCreateExecutor {
     // Do not acquire PAN/CVV until provider authentication and non-sensitive transport preflight
     // have succeeded. Sensitive form-of-payment material then exists only for the final request-
     // composition window immediately before the durable provider-request marker and commercial POST.
-    const paymentCard = await input.acquirePaymentCard();
+    const paymentCard = await acquirePaymentCard();
     const requestBody = buildTravelportStaysReservationCreateRequest({
-      requestMaterial: input.requestMaterial,
-      paymentAuthority: input.paymentAuthority,
+      requestMaterial,
+      paymentAuthority,
       paymentCard,
-      validThroughDateLocal: input.expectedReservation.departureDateLocal,
+      validThroughDateLocal: expectedReservation.departureDateLocal,
       now: this.#now(),
     });
     const serializedBody = JSON.stringify(requestBody);
@@ -499,7 +489,7 @@ export class TravelportStaysReservationCreateExecutor {
     // All deterministic validation, reviewed query selection, OAuth, sensitive request composition,
     // and transport-policy validation happen before the durable provider-request marker. Once the
     // marker succeeds, every transport uncertainty must settle as ambiguous instead of allowing a blind retry.
-    await input.beforeProviderRequest();
+    await beforeProviderRequest();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
@@ -524,7 +514,7 @@ export class TravelportStaysReservationCreateExecutor {
     return classifyTravelportStaysReservationCreateOutcome({
       httpStatus: response.status,
       body,
-      expectedReservation: input.expectedReservation,
+      expectedReservation,
     });
   }
 }
