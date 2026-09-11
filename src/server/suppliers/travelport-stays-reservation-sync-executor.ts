@@ -19,6 +19,7 @@ const ENDPOINTS = Object.freeze({
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
@@ -29,7 +30,12 @@ function invalidRequest(message = 'Travelport reservation Sync request is invali
 function boundedSingleLine(value: unknown, label: string, max: number) {
   if (typeof value !== 'string') invalidRequest(`${label} is required.`);
   const normalized = value.trim();
-  if (!normalized || normalized !== value || normalized.length > max || /[\r\n]/.test(normalized)) {
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > max
+    || ASCII_CONTROL_PATTERN.test(normalized)
+  ) {
     invalidRequest(`${label} is invalid.`);
   }
   return normalized;
@@ -41,6 +47,44 @@ function normalizeTimeout(value: number | undefined) {
     invalidRequest('Travelport reservation Sync timeout is invalid.');
   }
   return timeoutMs;
+}
+
+function validLocalDate(value: unknown) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function normalizeExpectedReservation(
+  expected: TravelportStaysCreateExpectedReservation,
+): TravelportStaysCreateExpectedReservation {
+  if (
+    !expected
+    || typeof expected !== 'object'
+    || Array.isArray(expected)
+    || typeof expected.chainCode !== 'string'
+    || !/^[A-Za-z0-9]{1,16}$/.test(expected.chainCode)
+    || typeof expected.propertyCode !== 'string'
+    || !/^[A-Za-z0-9]{1,32}$/.test(expected.propertyCode)
+    || !validLocalDate(expected.arrivalDateLocal)
+    || !validLocalDate(expected.departureDateLocal)
+    || expected.departureDateLocal <= expected.arrivalDateLocal
+    || expected.rooms !== 1
+    || !Number.isInteger(expected.guests)
+    || expected.guests < 1
+    || expected.guests > 9
+  ) {
+    invalidRequest('Travelport reservation Sync expected reservation authority is invalid.');
+  }
+
+  return Object.freeze({
+    chainCode: expected.chainCode,
+    propertyCode: expected.propertyCode,
+    arrivalDateLocal: expected.arrivalDateLocal,
+    departureDateLocal: expected.departureDateLocal,
+    rooms: expected.rooms,
+    guests: expected.guests,
+  });
 }
 
 function ambiguousTransportFailure(): TravelportStaysReservationSyncOutcome {
@@ -106,6 +150,11 @@ export class TravelportStaysReservationSyncExecutor {
       invalidRequest('Travelport reservation Sync provider-request marker is required.');
     }
 
+    // Snapshot the exact identity that must be proved by the Sync response before any OAuth,
+    // transport preflight, durable provider marker, or external recovery write can occur.
+    // Downstream classification consumes this immutable snapshot rather than caller-owned state.
+    const expectedReservation = normalizeExpectedReservation(input.expectedReservation);
+
     let requestBody;
     try {
       requestBody = buildTravelportStaysReservationSyncRequest({
@@ -148,7 +197,7 @@ export class TravelportStaysReservationSyncExecutor {
       },
     });
 
-    // All deterministic request construction, OAuth, and transport-policy validation complete
+    // All deterministic identity/request construction, OAuth, and transport-policy validation complete
     // before the durable marker. After this point any transport uncertainty must remain ambiguous
     // and must not authorize another Sync write automatically.
     await input.beforeProviderRequest();
@@ -176,7 +225,7 @@ export class TravelportStaysReservationSyncExecutor {
     return classifyTravelportStaysReservationSyncOutcome({
       httpStatus: response.status,
       body,
-      expectedReservation: input.expectedReservation,
+      expectedReservation,
       supplierConfirmationReference: input.supplierConfirmationReference,
     });
   }
