@@ -32,6 +32,22 @@ test('reservation authority SearchComplete binds exact one-property page authori
   assert.match(boundary, /properties\.length !== MAX_SEARCH_PROPERTIES/);
 });
 
+test('reservation authority present structural evidence cannot collapse into absence', async () => {
+  const boundary = await source('src/server/suppliers/travelport-stays-reservation-authority-boundary.ts');
+  const docs = await source('docs/travelport-reservation-authority-machine-evidence.md');
+
+  assert.match(boundary, /function optionalRecord\(value: unknown\)/);
+  assert.match(boundary, /function collectionRecord\(value: unknown\)/);
+  assert.match(boundary, /if \(value === undefined \|\| value === null\) return \[\];/);
+  assert.match(boundary, /if \(!Array\.isArray\(value\)\) \{/);
+  assert.match(boundary, /malformed reservation authority collection evidence/);
+  assert.match(boundary, /malformed reservation authority collection item/);
+  assert.match(boundary, /malformed reservation authority object evidence/);
+  assert.match(boundary, /!Number\.isFinite\(value\) \|\| value < 0/);
+  assert.match(docs, /present primitive, array-shaped object field, or object-shaped collection can no longer be reinterpreted as absence/i);
+  assert.match(docs, /present `CatalogOffering`, `ProductOptions`, and `Product` collections must be arrays/i);
+});
+
 test('reservation authority envelope documentation keeps the supplier write disabled', async () => {
   const docs = await source('docs/travelport-reservation-authority-machine-evidence.md');
 

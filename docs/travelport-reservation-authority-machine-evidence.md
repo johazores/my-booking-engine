@@ -4,7 +4,7 @@
 
 SF's disabled Travelport reservation path performs a fresh SearchComplete request and a v11 Availability request immediately before supplier reservation authority can become `READY`. That path is deliberately separate from ordinary property/offer display because it establishes the exact commercial evidence that initial Create and reviewed Create must revalidate before a sell.
 
-Provider identifiers used by this boundary are machine evidence, not presentation text. Successful provider responses also carry structural authority: malformed JSON, missing result envelopes, or contradictory pagination metadata must not reach the compatibility parser and become sell evidence indirectly.
+Provider identifiers used by this boundary are machine evidence, not presentation text. Successful provider responses also carry structural authority: malformed JSON, missing result envelopes, contradictory pagination metadata, or malformed present collections/objects must not reach the compatibility parser and become sell evidence indirectly.
 
 ## Hardened adapter boundary
 
@@ -12,11 +12,11 @@ Provider identifiers used by this boundary are machine evidence, not presentatio
 
 All production imports continue through the public adapter. Before the compatibility core receives a request, the adapter requires the selected property and offer references to pass the canonical base64url authority checks already used by pricing and Rules. The reservation-authority cache identity is also exact, bounded, and rejects the full ASCII control range.
 
-The wrapped provider transport inspects successful Travelport hotel responses before the compatibility core can normalize them. Successful reservation-authority responses must parse as JSON and expose the required provider envelopes before any machine evidence can be accepted. The guard also applies the compatibility path's collection ceilings before traversing SearchComplete and Availability arrays, so malformed oversized provider payloads fail closed without an unbounded authority-validation sweep.
+The wrapped provider transport inspects successful Travelport hotel responses before the compatibility core can normalize them. Successful reservation-authority responses must parse as JSON and expose the required provider envelopes before any machine evidence can be accepted. Present provider collections must be arrays, every traversed collection member must be an object, and present nested authority objects must also be objects. `undefined`/`null` still preserve genuinely absent optional evidence, but a present primitive, array-shaped object field, or object-shaped collection can no longer be reinterpreted as absence. The guard also applies the compatibility path's collection ceilings before traversing SearchComplete and Availability arrays, so malformed oversized provider payloads fail closed without an unbounded authority-validation sweep.
 
 ## SearchComplete authority
 
-The fresh SearchComplete request is an exact-property lookup for the already selected property. The compatibility core already requires exactly one returned property before it can select the reviewed rate. The outer authority guard now independently binds that expectation to the successful provider envelope before compatibility parsing:
+The fresh SearchComplete request is an exact-property lookup for the already selected property. The compatibility core already requires exactly one returned property before it can select the reviewed rate. The outer authority guard independently binds that expectation to the successful provider envelope before compatibility parsing:
 
 - `pagination.page` must be `1`;
 - `pagination.pageSize` must be `1`;
@@ -34,9 +34,11 @@ The fresh SearchComplete response is also checked at the machine fields that can
 - booking code;
 - rate code, rate-plan ID, and rate category;
 - canonical uppercase three-letter price currency; and
-- total-price amount when Travelport returns it as a string.
+- total-price amount when Travelport returns it.
 
-String machine values must already be non-empty, bounded, free of leading/trailing whitespace, and free of ASCII controls `U+0000` through `U+001F` and `U+007F`. Money strings follow the same exact-text rule before the existing exact-money parser sees them. Numeric money remains subject to the existing finite/exact-money validation in the compatibility core.
+When present, `roomTypes` and `rates` must be arrays and their traversed members must be objects. Present `rateKey`, `rateCodeInfo`, `price`, and `totalPrice` values must have object shape rather than being silently treated as missing. Numeric money must be finite and non-negative before the exact-money compatibility parser sees it.
+
+String machine values must already be non-empty, bounded, free of leading/trailing whitespace, and free of ASCII controls `U+0000` through `U+001F` and `U+007F`. Money strings follow the same exact-text rule before the existing exact-money parser sees them. Numeric money remains subject to the existing finite/exact-money validation in the compatibility core as well.
 
 ## Availability authority
 
@@ -51,9 +53,11 @@ The Availability response is then checked before any offer can become the provid
 - property chain/property codes; and
 - stay start/end dates.
 
+Travelport documents `CatalogOffering` and `Product` as arrays. SF applies the same structural rule to the provider collections it traverses here: present `CatalogOffering`, `ProductOptions`, and `Product` collections must be arrays; their traversed members must be objects; and present `Identifier`, `TermsAndConditions`, `ProductRateCodeInfo`, `RateCodeInfo`, `PropertyKey`, and `DateRange` authority objects must be objects. Missing optional collections remain representable when pagination says the page contains zero offers, but malformed present values never collapse into an empty/missing shape.
+
 The stay dates must already be canonical valid local dates. Pagination and catalog-offering identifiers are exact bounded machine tokens. A value such as `" offer-123 "`, `"THR\t"`, or a control-bearing property code is an invalid provider response rather than a value SF trims into sell authority.
 
-This matters because `Identifier.value` can become the ephemeral provider submission reference. The reference remains excluded from the stable authority fingerprint, but its exact spelling must still be trustworthy for the immediate provider write.
+This matters because `Identifier.value` can become the ephemeral provider submission reference. The reference remains excluded from the stable authority fingerprint, but its exact spelling and structural container must still be trustworthy for the immediate provider write.
 
 ## Scope and compatibility
 
@@ -65,9 +69,9 @@ No persistence schema change is required. Durable supplier reservation reference
 
 ## Validation
 
-Focused executable coverage checks canonical SearchComplete/Availability responses, required successful-response JSON/envelopes, exact single-property SearchComplete pagination authority, bounded collection limits, padded and control-bearing booking/rate/property identifiers, non-canonical currency and money strings, Availability pagination/sell references, stay dates, cache identity, non-success responses, and unrelated non-authority traffic.
+Focused executable coverage checks canonical SearchComplete/Availability responses, required successful-response JSON/envelopes, exact single-property SearchComplete pagination authority, bounded collection limits, malformed present collections and collection members, malformed nested authority objects, negative numeric money, padded and control-bearing booking/rate/property identifiers, non-canonical currency and money strings, Availability pagination/sell references, stay dates, cache identity, non-success responses, and unrelated non-authority traffic.
 
-A dependency-free source contract pins the successful-response JSON/envelope guards, exact one-property SearchComplete page authority, Availability envelope requirement, and the documentation/activation boundary. The similar-issue sweep confirms the active SearchComplete adapter already has its independent successful-response envelope guard; Create, Sync, and known-locator recovery parse failures feed strict outcome/recovery classifiers rather than silently authorizing a reservation.
+A dependency-free source contract pins the successful-response JSON/envelope guards, strict present collection/object semantics, exact one-property SearchComplete page authority, Availability envelope requirement, and the documentation/activation boundary. The similar-issue sweep confirms the active SearchComplete commercial-authority layer already rejects present non-array collections and malformed traversed members; Create, Sync, and known-locator recovery parse failures feed strict outcome/recovery classifiers rather than silently authorizing a reservation.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live behavior still requires provisioned Travelport non-production credentials.
 

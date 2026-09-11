@@ -37,8 +37,24 @@ function record(value: unknown): UnknownRecord | null {
     : null;
 }
 
+function optionalRecord(value: unknown): UnknownRecord | null {
+  if (value === undefined || value === null) return null;
+  const result = record(value);
+  if (!result) invalidResponse('Travelport returned malformed reservation authority object evidence.');
+  return result;
+}
+
+function collectionRecord(value: unknown): UnknownRecord {
+  const result = record(value);
+  if (!result) invalidResponse('Travelport returned malformed reservation authority collection item.');
+  return result;
+}
+
 function boundedArray(value: unknown, max: number): readonly unknown[] {
-  if (!Array.isArray(value)) return [];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    invalidResponse('Travelport returned malformed reservation authority collection evidence.');
+  }
   if (value.length > max) invalidResponse('Travelport returned an oversized reservation authority collection.');
   return value;
 }
@@ -143,7 +159,7 @@ function validateCurrencyIfPresent(value: unknown): void {
 function validateMoneyIfPresent(value: unknown): void {
   if (value === undefined || value === null) return;
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) invalidResponse('Travelport returned an invalid money value.');
+    if (!Number.isFinite(value) || value < 0) invalidResponse('Travelport returned an invalid money value.');
     return;
   }
   validateExactMachineStringIfPresent(value, 128);
@@ -157,10 +173,9 @@ function validateLocalDateIfPresent(value: unknown): void {
 }
 
 function validateSearchCompleteRate(value: unknown): void {
-  const rate = record(value);
-  if (!rate) return;
+  const rate = collectionRecord(value);
 
-  const rateKey = record(rate.rateKey);
+  const rateKey = optionalRecord(rate.rateKey);
   if (rateKey) {
     validateExactMachineStringIfPresent(rateKey.value, MAX_REFERENCE_LENGTH);
     validateExactMachineStringIfPresent(rateKey.authority, 16);
@@ -168,17 +183,17 @@ function validateSearchCompleteRate(value: unknown): void {
 
   validateExactMachineStringIfPresent(rate.bookingCode, 512);
 
-  const rateCodeInfo = record(rate.rateCodeInfo);
+  const rateCodeInfo = optionalRecord(rate.rateCodeInfo);
   if (rateCodeInfo) {
     validateExactMachineStringIfPresent(rateCodeInfo.rateCode, 256);
     validateExactMachineStringIfPresent(rateCodeInfo.ratePlanID, 256);
     validateExactMachineStringIfPresent(rateCodeInfo.rateCategory, 128);
   }
 
-  const price = record(rate.price);
+  const price = optionalRecord(rate.price);
   if (price) {
     validateCurrencyIfPresent(price.currencyCode);
-    validateMoneyIfPresent(record(price.totalPrice)?.amount);
+    validateMoneyIfPresent(optionalRecord(price.totalPrice)?.amount);
   }
 }
 
@@ -206,32 +221,29 @@ function validateSearchCompleteResponse(value: unknown): void {
   }
 
   for (const propertyValue of properties) {
-    const property = record(propertyValue);
-    if (!property) continue;
+    const property = collectionRecord(propertyValue);
     validateExactMachineStringIfPresent(property.chainCode, 16);
     validateExactMachineStringIfPresent(property.propertyCode, 32);
 
     for (const roomValue of boundedArray(property.roomTypes, MAX_ROOM_TYPES)) {
-      const room = record(roomValue);
-      if (!room) continue;
+      const room = collectionRecord(roomValue);
       for (const rateValue of boundedArray(room.rates, MAX_RATES)) validateSearchCompleteRate(rateValue);
     }
   }
 }
 
 function validateAvailabilityProduct(value: unknown): void {
-  const product = record(value);
-  if (!product) return;
+  const product = collectionRecord(value);
 
   validateExactMachineStringIfPresent(product.bookingCode, 512);
 
-  const propertyKey = record(product.PropertyKey);
+  const propertyKey = optionalRecord(product.PropertyKey);
   if (propertyKey) {
     validateExactMachineStringIfPresent(propertyKey.chainCode, 16);
     validateExactMachineStringIfPresent(propertyKey.propertyCode, 32);
   }
 
-  const dateRange = record(product.DateRange);
+  const dateRange = optionalRecord(product.DateRange);
   if (dateRange) {
     validateLocalDateIfPresent(dateRange.start);
     validateLocalDateIfPresent(dateRange.end);
@@ -239,20 +251,19 @@ function validateAvailabilityProduct(value: unknown): void {
 }
 
 function validateAvailabilityOffering(value: unknown): void {
-  const offering = record(value);
-  if (!offering) return;
+  const offering = collectionRecord(value);
 
   validateExactMachineStringIfPresent(offering.id, MAX_REFERENCE_LENGTH);
 
-  const identifier = record(offering.Identifier);
+  const identifier = optionalRecord(offering.Identifier);
   if (identifier) {
     validateExactMachineStringIfPresent(identifier.value, MAX_REFERENCE_LENGTH);
     validateExactMachineStringIfPresent(identifier.authority, 16);
   }
 
-  const terms = record(offering.TermsAndConditions);
-  const rateInfoContainer = terms ? record(terms.ProductRateCodeInfo) : null;
-  const rateInfo = rateInfoContainer ? record(rateInfoContainer.RateCodeInfo) : null;
+  const terms = optionalRecord(offering.TermsAndConditions);
+  const rateInfoContainer = terms ? optionalRecord(terms.ProductRateCodeInfo) : null;
+  const rateInfo = rateInfoContainer ? optionalRecord(rateInfoContainer.RateCodeInfo) : null;
   if (rateInfo) {
     validateExactMachineStringIfPresent(rateInfo.value, 256);
     validateExactMachineStringIfPresent(rateInfo.rateID, 256);
@@ -260,8 +271,7 @@ function validateAvailabilityOffering(value: unknown): void {
   }
 
   for (const optionValue of boundedArray(offering.ProductOptions, MAX_PRODUCT_OPTIONS)) {
-    const option = record(optionValue);
-    if (!option) continue;
+    const option = collectionRecord(optionValue);
     for (const productValue of boundedArray(option.Product, MAX_PRODUCTS)) validateAvailabilityProduct(productValue);
   }
 }
@@ -315,7 +325,7 @@ function validateAvailabilityResponse(
     invalidResponse('Travelport Availability page size does not match its pagination authority.');
   }
 
-  const paginationIdentifier = record(catalog.Identifier);
+  const paginationIdentifier = optionalRecord(catalog.Identifier);
   if (requestAuthority.initial) {
     if (totalPages > 1) {
       if (!paginationIdentifier) {
