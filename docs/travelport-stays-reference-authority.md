@@ -8,13 +8,15 @@ This contract applies before Travelport reservation activation. It does not adve
 
 ## Public authority boundary
 
-The public `travelport-stays-provider.ts` and `travelport-stays-booking-terms-provider.ts` modules are now narrow authority adapters. The previous implementations are preserved behind kebab-case `*-core.ts` compatibility modules so existing provider behavior stays stable while every existing import continues through the hardened public boundary.
+The public `travelport-stays-provider.ts` and `travelport-stays-booking-terms-provider.ts` modules are narrow authority adapters. Their previous implementations are preserved behind kebab-case `*-core.ts` compatibility modules so existing provider behavior stays stable while every existing import continues through the hardened public boundary.
+
+The pre-write `travelport-stays-reservation-authority-provider.ts` now follows the same pattern. Its prior SearchComplete-to-Availability implementation is isolated behind `travelport-stays-reservation-authority-provider-core.ts`, while the public adapter owns canonical selected references and exact provider response evidence before compatibility parsing.
 
 The compatibility modules are implementation details. Production code, tests, reservation services, and future integrations should keep importing the public provider modules rather than bypassing the authority adapters.
 
 ## Canonical supplier references
 
-Both the SearchComplete/pricing provider and the Rules booking-terms provider require supplier property and offer references to use canonical base64url spelling.
+Both the SearchComplete/pricing provider and the Rules booking-terms provider require supplier property and offer references to use canonical base64url spelling. The reservation-authority adapter rechecks those same canonical references before its fresh SearchComplete and Availability calls.
 
 A reference must:
 
@@ -29,7 +31,7 @@ Decoded Travelport property identity is exact. `chainCode` and `propertyCode` mu
 
 ## Provider response authority
 
-Successful Travelport hotel responses are inspected before the compatibility core can normalize them. SearchComplete provider responses are hardened at the point where SF creates or replays supplier authority:
+Successful Travelport hotel responses are inspected before the compatibility cores can normalize them. SearchComplete provider responses are hardened at the point where SF creates or replays supplier authority:
 
 - chain and property codes must be exact bounded machine values;
 - rate-key values must be exact bounded machine values;
@@ -45,16 +47,28 @@ Rules preflight consumes the same exact supplier property and offer references b
 
 The final Rules flow still performs its existing fresh offer revalidation. This change strengthens evidence spelling; it does not bypass price, offer-fingerprint, cancellation, guarantee, or payment review requirements.
 
+## Pre-write Availability authority
+
+The reservation-authority provider performs its own fresh no-cache SearchComplete and v11 Availability requests immediately before reservation authority can become `READY`. Because that implementation directly consumes provider responses, it has an independent exact-evidence guard rather than relying on the display/pricing compatibility path.
+
+Before the compatibility core sees a successful response, SF rejects normalization-confusable machine evidence across the selected SearchComplete rate and the Availability catalog. This includes booking/rate identifiers, canonical uppercase price currency, string money totals, Availability pagination and catalog-offering identifiers, provider submission references, property identity, booking code, and stay dates. All bounded machine strings reject leading/trailing whitespace and ASCII controls `U+0000` through `U+001F` plus `U+007F`.
+
+The Availability `Identifier.value` is ephemeral and stays outside the stable authority fingerprint, but it can become the immediate provider submission reference used by Create. Its spelling therefore must be exact even though it is not durable commercial identity.
+
+See `docs/travelport-reservation-authority-machine-evidence.md`.
+
 ## End-to-end effect
 
-The same property/offer identity is now exact across:
+The same property/offer identity and provider machine-token policy is now exact across:
 
 1. SearchComplete property discovery;
 2. SearchComplete offer pricing;
 3. pagination replay;
 4. offer revalidation;
-5. Rules bridge construction and review; and
-6. the already-hardened reservation expectation used by initial Create, reviewed Create, Booking.com Sync, and known-locator recovery.
+5. Rules bridge construction and review;
+6. fresh pre-write SearchComplete selection;
+7. v11 Availability pagination and provider submission-reference selection; and
+8. the already-hardened reservation expectation used by initial Create, reviewed Create, Booking.com Sync, and known-locator recovery.
 
 This closes the upstream normalization inconsistency without moving tenant authorization into provider adapters. Tenant, integration, permission, and durable reservation ownership remain enforced by the provider-neutral server-side services.
 
@@ -67,10 +81,12 @@ Focused executable coverage verifies:
 - provider property and rate identity that only becomes valid after trimming is rejected;
 - padded SearchComplete price/cancellation currencies are rejected before money normalization;
 - ASCII-control-bearing rate and pagination tokens are rejected;
-- Rules bridge booking codes cannot gain authority through trimming; and
-- padded accepted-card evidence is rejected before Rules review can complete.
+- Rules bridge booking codes cannot gain authority through trimming;
+- padded accepted-card evidence is rejected before Rules review can complete;
+- pre-write SearchComplete booking/rate/currency/money authority cannot gain authority through trimming; and
+- Availability pagination, catalog-offering, rate, property, booking, and stay-date evidence is exact before it can become sell authority.
 
-A dependency-free source contract pins the public authority adapters, response guard, exact machine-token coverage, and isolation of the compatibility modules.
+Dependency-free source contracts pin the public authority adapters, response guards, exact machine-token coverage, and isolation of the compatibility modules.
 
 Available local validation uses Node type stripping and dependency-free contract execution. Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live verification still requires provisioned Travelport non-production credentials.
 
@@ -84,6 +100,7 @@ Travelport `reservation` remains deliberately unadvertised. The existing activat
 
 Related contracts:
 
+- `docs/travelport-reservation-authority-machine-evidence.md`
 - `docs/travelport-reservation-property-reference-authority.md`
 - `docs/travelport-reservation-commercial-machine-token-authority.md`
 - `docs/travelport-reservation-create-coordinator.md`

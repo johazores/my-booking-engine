@@ -8,21 +8,32 @@ async function source(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('reservation authority review stays read-only, bounded, and exact-offer scoped', async () => {
+test('reservation authority review stays read-only, bounded, exact-offer scoped, and guarded before compatibility parsing', async () => {
   const provider = await source('src/server/suppliers/travelport-stays-reservation-authority-provider.ts');
+  const core = await source('src/server/suppliers/travelport-stays-reservation-authority-provider-core.ts');
+  const boundary = await source('src/server/suppliers/travelport-stays-reservation-authority-boundary.ts');
 
-  assert.match(provider, /MAX_PAGE_COUNT = 5/);
-  assert.match(provider, /MAX_PAGE_SIZE = 100/);
-  assert.match(provider, /availability\/catalogofferingshospitality/);
-  assert.match(provider, /verboseResponseInd: true/);
-  assert.match(provider, /TVP-Cache-Control': 'no-cache'/);
-  assert.match(provider, /expectedTermsFingerprint/);
-  assert.match(provider, /completeForReservationReview/);
-  assert.match(provider, /authorityFingerprint/);
-  assert.match(provider, /identifiers\.size !== first\.total/);
-  assert.match(provider, /matches\.length > 1/);
-  assert.doesNotMatch(provider, /book\/reservations(?:\/build)?/);
-  assert.doesNotMatch(provider, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+  assert.match(provider, /CoreTravelportStaysReservationAuthorityProvider/);
+  assert.match(provider, /assertTravelportStaysPropertyReference\(input\.supplierPropertyReference\)/);
+  assert.match(provider, /assertTravelportStaysOfferReference\(input\.supplierOfferReference\)/);
+  assert.match(provider, /createTravelportStaysReservationAuthorityResponseFetch/);
+
+  assert.match(core, /MAX_PAGE_COUNT = 5/);
+  assert.match(core, /MAX_PAGE_SIZE = 100/);
+  assert.match(core, /availability\/catalogofferingshospitality/);
+  assert.match(core, /verboseResponseInd: true/);
+  assert.match(core, /TVP-Cache-Control': 'no-cache'/);
+  assert.match(core, /expectedTermsFingerprint/);
+  assert.match(core, /completeForReservationReview/);
+  assert.match(core, /authorityFingerprint/);
+  assert.match(core, /identifiers\.size !== first\.total/);
+  assert.match(core, /matches\.length > 1/);
+  assert.doesNotMatch(core, /book\/reservations(?:\/build)?/);
+  assert.doesNotMatch(core, /acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+
+  assert.match(boundary, /ASCII_CONTROL_PATTERN/);
+  assert.match(boundary, /validateSearchCompleteResponse/);
+  assert.match(boundary, /validateAvailabilityResponse/);
 });
 
 test('reservation authority credentials load only after tenant product permissions', async () => {
@@ -44,16 +55,17 @@ test('Travelport integration exposes review authority only as a server-side adap
   assert.match(integration, /TravelportStaysReservationAuthorityProvider/);
   assert.match(integration, /reservationAuthorityProvider:/);
   assert.match(integration, /bookingTermsProvider,/);
+  assert.doesNotMatch(integration, /reservation-authority-provider-core/);
   assert.doesNotMatch(integration, /capabilities\s*:/);
 });
 
 test('documentation keeps create capability closed and records the payment-card boundary', async () => {
   const docs = await source('docs/travelport-stays-integration.md');
 
-  assert.match(docs, /Availability authority bridge/);
-  assert.match(docs, /never accepts raw card data/);
-  assert.match(docs, /PlainText/);
-  assert.match(docs, /reservation.*not advertised/i);
+  assert.match(docs, /SearchComplete, Rules, and Availability authority/);
+  assert.match(docs, /raw card data is no longer accepted/);
+  assert.match(docs, /PAN\/CVV/);
+  assert.match(docs, /not advertised/);
   assert.match(docs, /locator-less/i);
   assert.match(docs, /non-production/i);
 });
