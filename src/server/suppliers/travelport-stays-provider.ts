@@ -351,10 +351,8 @@ function validatePropertyItem(value: unknown): void {
 
 function validateSearchCompleteResponse(
   value: unknown,
-  url: string,
-  method: string,
+  requestAuthority: ReturnType<typeof searchCompleteRequestAuthority>,
 ): void {
-  const requestAuthority = searchCompleteRequestAuthority(url, method);
   const root = record(value);
   if (!root) return;
   validatePagination(root.pagination);
@@ -459,10 +457,13 @@ export function createTravelportStaysReferenceAuthorityFetch(
   fetchImpl: typeof fetch = fetch,
 ): typeof fetch {
   return (async (input, init) => {
+    const url = requestUrl(input);
+    const searchRequestAuthority = url.includes('/hotel/') && url.includes('/search/searchcomplete')
+      ? searchCompleteRequestAuthority(url, requestMethod(input, init))
+      : null;
     const response = await fetchImpl(input, init);
     if (!response.ok) return response;
 
-    const url = requestUrl(input);
     if (isTravelportOAuthRequest(url)) {
       await validateOAuthAccessTokenResponse(response);
       return response;
@@ -472,8 +473,8 @@ export function createTravelportStaysReferenceAuthorityFetch(
     const payload = await response.clone().json().catch(() => null);
     if (payload === null) return response;
 
-    if (url.includes('/search/searchcomplete')) {
-      validateSearchCompleteResponse(payload, url, requestMethod(input, init));
+    if (searchRequestAuthority) {
+      validateSearchCompleteResponse(payload, searchRequestAuthority);
       assertTravelportStaysSearchCommercialAuthorityResponse(payload);
     }
     if (url.includes('/rules/offershospitality/')) {

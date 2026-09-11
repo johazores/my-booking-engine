@@ -157,14 +157,18 @@ test('SearchComplete binds first-page identity and continuation-token presence t
   }
 });
 
-test('SearchComplete binds initial and continuation HTTP methods to the documented routes', async () => {
+test('SearchComplete rejects unreviewed method and route authority before provider I/O', async () => {
+  let calls = 0;
   const guardedFetch = createTravelportStaysReferenceAuthorityFetch(
-    (async () => jsonResponse(searchResponse({
-      page: 1,
-      pageSize: 0,
-      totalPages: 0,
-      totalItems: 0,
-    }))) as typeof fetch,
+    (async () => {
+      calls += 1;
+      return jsonResponse(searchResponse({
+        page: 1,
+        pageSize: 0,
+        totalPages: 0,
+        totalItems: 0,
+      }));
+    }) as typeof fetch,
   );
 
   for (const [url, method] of [
@@ -176,6 +180,7 @@ test('SearchComplete binds initial and continuation HTTP methods to the document
       guardedFetch(url, { method }),
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
     );
+    assert.equal(calls, 0);
   }
 });
 

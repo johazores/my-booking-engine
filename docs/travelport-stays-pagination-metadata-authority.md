@@ -33,6 +33,12 @@ Opaque `paginationToken` authority remains exact: no leading/trailing whitespace
 
 For the initial response, token presence is cross-checked against `totalPages`. A response that claims additional pages without the token needed to retrieve them is rejected. A response that claims no continuation pages but still supplies a continuation token is also rejected. SF does not infer a supplier continuation path from contradictory metadata.
 
+## Provider I/O ordering
+
+SearchComplete method and route authority is materialized before the wrapped provider transport is invoked. An initial request using the wrong method, a continuation using the wrong method, an initial route carrying a query, or an unreviewed nested/query shape fails before `fetchImpl` can perform provider I/O.
+
+This ordering is intentional. The boundary is not only a response validator: it prevents malformed or accidentally broadened SearchComplete operations from reaching Travelport in the first place. Once the request authority has passed preflight, the resulting immutable page expectation is reused to validate the successful response.
+
 ## Layering
 
 The public Travelport adapter enforces provider-specific request-method, route, page, and token authority before delegating to the compatibility core. The provider-neutral complete-search collector continues to independently enforce first-page identity, total-page/item continuity, duplicate-property rejection, exact final item count, bounded page count, and non-exposure of provider pagination tokens.
@@ -58,7 +64,9 @@ Focused regression coverage rejects:
 - `POST` used for a continuation route; and
 - query-bearing or nested route shapes outside the reviewed initial/continuation contracts.
 
-Coverage also preserves the existing valid empty first-page compatibility shape. The dependency-free pagination contract pins the bounded metadata, exact HTTP method/route/page binding, and first-page token/page-count invariants at the public adapter boundary.
+The method/route regression also asserts zero underlying provider calls for rejected request authority, and the dependency-free source contract pins the preflight ordering ahead of `fetchImpl`.
+
+Coverage preserves the existing valid empty first-page compatibility shape. The dependency-free pagination contract also pins the bounded metadata, exact HTTP method/route/page binding, and first-page token/page-count invariants at the public adapter boundary.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live Travelport verification still requires provisioned non-production credentials.
 
