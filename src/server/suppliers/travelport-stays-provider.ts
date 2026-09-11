@@ -31,12 +31,14 @@ export {
 
 const MAX_REFERENCE_LENGTH = 4_096;
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
+const DOCUMENTED_ACCESS_TOKEN_LIFETIME_SECONDS = 86_400;
 const MAX_CONFIGURATION_IDENTIFIER_LENGTH = 512;
 const MAX_CONFIGURATION_SECRET_LENGTH = 4_096;
 const MAX_SEARCH_PAGE_SIZE = 100;
 const MAX_SEARCH_PAGES = 5;
 const MAX_SEARCH_ITEMS = MAX_SEARCH_PAGE_SIZE * MAX_SEARCH_PAGES;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
+const CANONICAL_OAUTH_EXPIRY_PATTERN = /^[1-9]\d{0,4}$/;
 const TRAVELPORT_OAUTH_HOSTS = new Set(['auth.pp.travelport.net', 'auth.travelport.net']);
 
 type ReferenceRecord = Readonly<Record<string, unknown>>;
@@ -178,11 +180,43 @@ function isTravelportOAuthRequest(url: string): boolean {
   }
 }
 
+function validateOAuthExpiresInIfPresent(value: unknown): void {
+  if (value === undefined) return;
+
+  if (typeof value === 'number') {
+    if (
+      !Number.isSafeInteger(value)
+      || value < 1
+      || value > DOCUMENTED_ACCESS_TOKEN_LIFETIME_SECONDS
+    ) {
+      invalidResponse('Travelport OAuth token expiry metadata is invalid.');
+    }
+    return;
+  }
+
+  if (
+    typeof value !== 'string'
+    || !CANONICAL_OAUTH_EXPIRY_PATTERN.test(value)
+  ) {
+    invalidResponse('Travelport OAuth token expiry metadata is invalid.');
+  }
+  const seconds = Number(value);
+  if (
+    !Number.isSafeInteger(seconds)
+    || seconds < 1
+    || seconds > DOCUMENTED_ACCESS_TOKEN_LIFETIME_SECONDS
+    || String(seconds) !== value
+  ) {
+    invalidResponse('Travelport OAuth token expiry metadata is invalid.');
+  }
+}
+
 async function validateOAuthAccessTokenResponse(response: Response): Promise<void> {
   const payload = await response.clone().json().catch(() => null);
   const object = record(payload);
   if (!object) return;
   exactMachineToken(object.access_token, MAX_ACCESS_TOKEN_LENGTH, 'response');
+  validateOAuthExpiresInIfPresent(object.expires_in);
 }
 
 function exactResponseTokenIfPresent(value: unknown, max: number): void {
