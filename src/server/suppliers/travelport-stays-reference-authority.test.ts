@@ -63,7 +63,7 @@ const offerSearchInput = {
   currency: 'USD',
 } as const;
 
-function offerResponse(rateValue = 'rate-key-1', bookingCode = 'KHATHR') {
+function offerResponse(rateValue = 'rate-key-1', bookingCode = 'KHATHR', currencyCode = 'USD') {
   return {
     pagination: { page: 1, pageSize: 1, totalPages: 1, totalItems: 1 },
     hotelsResponse: {
@@ -79,7 +79,7 @@ function offerResponse(rateValue = 'rate-key-1', bookingCode = 'KHATHR') {
             bookingCode,
             quantity: 1,
             price: {
-              currencyCode: 'USD',
+              currencyCode,
               base: { amount: 100 },
               totalTaxes: { amount: 10 },
               totalPrice: { amount: 110 },
@@ -182,6 +182,37 @@ test('offer pricing rejects provider rate identity with padding or ASCII control
         ? jsonResponse({ access_token: 'token' })
         : jsonResponse(offerResponse(rateValue))) as typeof fetch,
     });
+    await assert.rejects(
+      provider.searchPropertyOffers(offerSearchInput),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+    );
+  }
+});
+
+test('SearchComplete rejects non-canonical offer and cancellation currencies before pricing normalization', async () => {
+  for (const scenario of ['price-currency', 'penalty-currency'] as const) {
+    const provider = new TravelportStaysProvider({
+      credentials,
+      cacheKey: `reference-authority:${scenario}`,
+      fetchImpl: (async (url) => {
+        if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token' });
+        const payload = offerResponse('rate-key-1', 'KHATHR', scenario === 'price-currency' ? ' USD' : 'USD');
+        if (scenario === 'penalty-currency') {
+          const rate = payload.hotelsResponse.propertyItems[0]!.roomTypes[0]!.rates[0]!;
+          Object.assign(rate, {
+            terms: {
+              cancelPenalties: [{
+                penalty: {
+                  currencyAmount: { currency: 'USD ', amount: 10 },
+                },
+              }],
+            },
+          });
+        }
+        return jsonResponse(payload);
+      }) as typeof fetch,
+    });
+
     await assert.rejects(
       provider.searchPropertyOffers(offerSearchInput),
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',

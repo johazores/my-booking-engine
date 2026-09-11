@@ -34,6 +34,8 @@ test('provider responses are checked before the compatibility core can normalize
   assert.match(provider, /exactResponseTokenIfPresent\(rateCodeInfo\.rateCode, 256\)/);
   assert.match(provider, /exactResponseTokenIfPresent\(rateCodeInfo\.ratePlanID, 256\)/);
   assert.match(provider, /exactResponseTokenIfPresent\(rateCodeInfo\.rateCategory, 128\)/);
+  assert.match(provider, /validateCurrencyCodeIfPresent\(price\.currencyCode\)/);
+  assert.match(provider, /validateCurrencyCodeIfPresent\(currencyAmount\.currency\)/);
   assert.match(provider, /ASCII_CONTROL_PATTERN\.test\(pagination\.paginationToken\)/);
 });
 

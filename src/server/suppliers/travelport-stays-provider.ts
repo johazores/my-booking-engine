@@ -138,6 +138,19 @@ function validateRate(value: unknown): void {
     exactResponseTokenIfPresent(rateCodeInfo.ratePlanID, 256);
     exactResponseTokenIfPresent(rateCodeInfo.rateCategory, 128);
   }
+
+  const price = record(rate.price);
+  if (price) validateCurrencyCodeIfPresent(price.currencyCode);
+
+  const terms = record(rate.terms);
+  if (terms && Array.isArray(terms.cancelPenalties)) {
+    for (const penaltyValue of terms.cancelPenalties) {
+      const penalty = record(penaltyValue);
+      const providerPenalty = penalty ? record(penalty.penalty) : null;
+      const currencyAmount = providerPenalty ? record(providerPenalty.currencyAmount) : null;
+      if (currencyAmount) validateCurrencyCodeIfPresent(currencyAmount.currency);
+    }
+  }
 }
 
 function validatePropertyItem(value: unknown): void {

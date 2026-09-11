@@ -35,7 +35,7 @@ Successful Travelport hotel responses are inspected before the compatibility cor
 - rate-key values must be exact bounded machine values;
 - the booking code and Rules bridge rate code, rate plan ID, and rate category must be exact;
 - pagination tokens reject the full ASCII control range before SF stores or replays them; and
-- provider currency codes used by Rules authority must already use canonical uppercase three-letter form.
+- provider currency codes used by SearchComplete price/cancellation evidence and Rules authority must already use canonical uppercase three-letter form.
 
 Human-readable hotel names, descriptions, and other presentation text retain their existing text-normalization behavior. Credential normalization is also outside this contract.
 
@@ -65,6 +65,7 @@ Focused executable coverage verifies:
 - non-canonical base64url aliases fail before provider I/O;
 - decoded padded property and offer-rate identity fails before provider I/O;
 - provider property and rate identity that only becomes valid after trimming is rejected;
+- padded SearchComplete price/cancellation currencies are rejected before money normalization;
 - ASCII-control-bearing rate and pagination tokens are rejected;
 - Rules bridge booking codes cannot gain authority through trimming; and
 - padded accepted-card evidence is rejected before Rules review can complete.
