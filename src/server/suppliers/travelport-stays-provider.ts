@@ -12,23 +12,32 @@ import {
   assertTravelportStaysSearchCommercialAuthorityResponse,
 } from './travelport-stays-commercial-authority.ts';
 import {
-  TravelportStaysProvider as CoreTravelportStaysProvider,
-  type TravelportStaysCredentials,
-} from './travelport-stays-provider-core.ts';
-
-export {
-  normalizeTravelportStaysConfiguration,
-  probeTravelportStaysIntegrationHealth,
-  readTravelportStaysCredentials,
-  requestTravelportStaysAccessToken,
+  normalizeTravelportStaysConfiguration as normalizeTravelportStaysConfigurationCore,
+  probeTravelportStaysIntegrationHealth as probeTravelportStaysIntegrationHealthCore,
+  requestTravelportStaysAccessToken as requestTravelportStaysAccessTokenCore,
   travelportStaysEnvironments,
   TravelportStaysConfigurationError,
+  TravelportStaysProvider as CoreTravelportStaysProvider,
   type TravelportStaysCredentials,
   type TravelportStaysEnvironment,
 } from './travelport-stays-provider-core.ts';
 
+export {
+  travelportStaysEnvironments,
+  TravelportStaysConfigurationError,
+  type TravelportStaysCredentials,
+  type TravelportStaysEnvironment,
+};
+
 const MAX_REFERENCE_LENGTH = 4_096;
+const MAX_ACCESS_TOKEN_LENGTH = 16_384;
+const MAX_CONFIGURATION_IDENTIFIER_LENGTH = 512;
+const MAX_CONFIGURATION_SECRET_LENGTH = 4_096;
+const MAX_SEARCH_PAGE_SIZE = 100;
+const MAX_SEARCH_PAGES = 5;
+const MAX_SEARCH_ITEMS = MAX_SEARCH_PAGE_SIZE * MAX_SEARCH_PAGES;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
+const TRAVELPORT_OAUTH_HOSTS = new Set(['auth.pp.travelport.net', 'auth.travelport.net']);
 
 type ReferenceRecord = Readonly<Record<string, unknown>>;
 
@@ -56,6 +65,43 @@ function exactMachineToken(
     invalidResponse();
   }
   return value;
+}
+
+function exactConfigurationValue(value: unknown, label: string, max: number): string {
+  if (
+    typeof value !== 'string'
+    || !value
+    || value.trim() !== value
+    || value.length > max
+    || ASCII_CONTROL_PATTERN.test(value)
+  ) {
+    throw new TravelportStaysConfigurationError(`${label} is invalid.`);
+  }
+  return value;
+}
+
+export function normalizeTravelportStaysConfiguration(
+  input: Parameters<typeof normalizeTravelportStaysConfigurationCore>[0],
+): ReturnType<typeof normalizeTravelportStaysConfigurationCore> {
+  exactConfigurationValue(input.username, 'Travelport username', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  exactConfigurationValue(input.password, 'Travelport password', MAX_CONFIGURATION_SECRET_LENGTH);
+  exactConfigurationValue(input.clientId, 'Travelport client ID', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  exactConfigurationValue(input.clientSecret, 'Travelport client secret', MAX_CONFIGURATION_SECRET_LENGTH);
+  exactConfigurationValue(input.accessGroup, 'Travelport access group', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  return normalizeTravelportStaysConfigurationCore(input);
+}
+
+export function readTravelportStaysCredentials(
+  credentials: Readonly<Record<string, string>>,
+): TravelportStaysCredentials {
+  return normalizeTravelportStaysConfiguration({
+    environment: credentials.environment,
+    username: credentials.username,
+    password: credentials.password,
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
+    accessGroup: credentials.accessGroup,
+  }).credentials;
 }
 
 function canonicalReference(value: unknown): ReferenceRecord {
@@ -113,20 +159,63 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+}
+
+function isTravelportOAuthRequest(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:'
+      && TRAVELPORT_OAUTH_HOSTS.has(parsed.hostname)
+      && parsed.pathname === '/oauth/token';
+  } catch {
+    return false;
+  }
+}
+
+async function validateOAuthAccessTokenResponse(response: Response): Promise<void> {
+  const payload = await response.clone().json().catch(() => null);
+  const object = record(payload);
+  if (!object) return;
+  exactMachineToken(object.access_token, MAX_ACCESS_TOKEN_LENGTH, 'response');
+}
+
 function exactResponseTokenIfPresent(value: unknown, max: number): void {
   if (typeof value === 'string') exactMachineToken(value, max, 'response');
 }
 
 function validatePagination(value: unknown): void {
   const pagination = record(value);
-  if (!pagination || pagination.paginationToken === undefined) return;
-  if (typeof pagination.paginationToken !== 'string') return;
+  if (!pagination) return;
+
+  const page = pagination.page;
+  const pageSize = pagination.pageSize;
+  const totalPages = pagination.totalPages;
+  const totalItems = pagination.totalItems;
   if (
-    pagination.paginationToken.length > MAX_REFERENCE_LENGTH
-    || ASCII_CONTROL_PATTERN.test(pagination.paginationToken)
+    !Number.isInteger(page)
+    || !Number.isInteger(pageSize)
+    || !Number.isInteger(totalPages)
+    || !Number.isInteger(totalItems)
+    || (page as number) < 0
+    || (pageSize as number) < 0
+    || (totalPages as number) < 0
+    || (totalItems as number) < 0
+    || (page as number) > MAX_SEARCH_PAGES
+    || (pageSize as number) > MAX_SEARCH_PAGE_SIZE
+    || (totalPages as number) > MAX_SEARCH_PAGES
+    || (totalItems as number) > MAX_SEARCH_ITEMS
   ) {
-    invalidResponse('Travelport pagination token is invalid.');
+    invalidResponse('Travelport pagination metadata is invalid or oversized.');
   }
+
+  if (pagination.paginationToken === undefined) return;
+  exactMachineToken(pagination.paginationToken, MAX_REFERENCE_LENGTH, 'response');
 }
 
 function validateRate(value: unknown): void {
@@ -265,11 +354,11 @@ export function createTravelportStaysReferenceAuthorityFetch(
     const response = await fetchImpl(input, init);
     if (!response.ok) return response;
 
-    const url = typeof input === 'string'
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
+    const url = requestUrl(input);
+    if (isTravelportOAuthRequest(url)) {
+      await validateOAuthAccessTokenResponse(response);
+      return response;
+    }
     if (!url.includes('/hotel/')) return response;
 
     const payload = await response.clone().json().catch(() => null);
@@ -285,6 +374,24 @@ export function createTravelportStaysReferenceAuthorityFetch(
     }
     return response;
   }) as typeof fetch;
+}
+
+export function requestTravelportStaysAccessToken(
+  input: Parameters<typeof requestTravelportStaysAccessTokenCore>[0],
+): ReturnType<typeof requestTravelportStaysAccessTokenCore> {
+  return requestTravelportStaysAccessTokenCore({
+    ...input,
+    fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+  });
+}
+
+export function probeTravelportStaysIntegrationHealth(
+  input: Parameters<typeof probeTravelportStaysIntegrationHealthCore>[0],
+): ReturnType<typeof probeTravelportStaysIntegrationHealthCore> {
+  return probeTravelportStaysIntegrationHealthCore({
+    ...input,
+    fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+  });
 }
 
 export class TravelportStaysProvider extends CoreTravelportStaysProvider {
@@ -304,14 +411,7 @@ export class TravelportStaysProvider extends CoreTravelportStaysProvider {
   override async searchPropertiesPage(
     input: HospitalitySupplierSearchPageInput,
   ): Promise<HospitalitySupplierSearchResult> {
-    if (
-      typeof input.pageToken !== 'string'
-      || !input.pageToken
-      || input.pageToken.length > MAX_REFERENCE_LENGTH
-      || ASCII_CONTROL_PATTERN.test(input.pageToken)
-    ) {
-      invalidRequest('Search page token is invalid.');
-    }
+    exactMachineToken(input.pageToken, MAX_REFERENCE_LENGTH, 'request');
     return super.searchPropertiesPage(input);
   }
 

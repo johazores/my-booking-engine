@@ -7,13 +7,31 @@ const source = (path) => readFileSync(new URL(path, root), 'utf8');
 
 test('Travelport pagination follows the bounded provider contract and keeps opaque page authority server-side', () => {
   const provider = source('src/server/suppliers/travelport-stays-provider.ts');
+  const providerCore = source('src/server/suppliers/travelport-stays-provider-core.ts');
   const contract = source('src/server/suppliers/hospitality-supplier-provider.ts');
   assert.match(contract, /HospitalitySupplierSearchPageInput/);
   assert.match(contract, /searchPropertiesPage\(input: HospitalitySupplierSearchPageInput\)/);
-  assert.match(provider, /pageNumber < 2 \|\| input\.pageNumber > MAX_PAGE_NUMBER/);
-  assert.match(provider, /search\/searchcomplete\/\$\{encodeURIComponent\(page\.pageToken\)\}\?pageNumber=\$\{page\.pageNumber\}/);
-  assert.match(provider, /init: \{ method: 'GET' \}/);
-  assert.match(provider, /if \(result\.page !== page\.pageNumber\) throw new HospitalitySupplierProviderError\('INVALID_RESPONSE'\)/);
+  assert.match(providerCore, /pageNumber < 2 \|\| input\.pageNumber > MAX_PAGE_NUMBER/);
+  assert.match(providerCore, /search\/searchcomplete\/\$\{encodeURIComponent\(page\.pageToken\)\}\?pageNumber=\$\{page\.pageNumber\}/);
+  assert.match(providerCore, /init: \{ method: 'GET' \}/);
+  assert.match(providerCore, /if \(result\.page !== page\.pageNumber\) throw new HospitalitySupplierProviderError\('INVALID_RESPONSE'\)/);
+  assert.match(provider, /exactMachineToken\(input\.pageToken, MAX_REFERENCE_LENGTH, 'request'\)/);
+  assert.match(provider, /exactMachineToken\(pagination\.paginationToken, MAX_REFERENCE_LENGTH, 'response'\)/);
+  assert.match(provider, /MAX_SEARCH_PAGES = 5/);
+  assert.match(provider, /MAX_SEARCH_ITEMS = MAX_SEARCH_PAGE_SIZE \* MAX_SEARCH_PAGES/);
+});
+
+test('Travelport transport authority rejects normalized credentials and OAuth tokens at the public boundary', () => {
+  const provider = source('src/server/suppliers/travelport-stays-provider.ts');
+  assert.match(provider, /exactConfigurationValue\(input\.username/);
+  assert.match(provider, /exactConfigurationValue\(input\.password/);
+  assert.match(provider, /exactConfigurationValue\(input\.clientId/);
+  assert.match(provider, /exactConfigurationValue\(input\.clientSecret/);
+  assert.match(provider, /exactConfigurationValue\(input\.accessGroup/);
+  assert.match(provider, /TRAVELPORT_OAUTH_HOSTS/);
+  assert.match(provider, /exactMachineToken\(object\.access_token, MAX_ACCESS_TOKEN_LENGTH, 'response'\)/);
+  assert.match(provider, /requestTravelportStaysAccessTokenCore/);
+  assert.match(provider, /probeTravelportStaysIntegrationHealthCore/);
 });
 
 test('supplier read operations authorize the active tenant before loading encrypted provider configuration', () => {
@@ -40,15 +58,16 @@ test('supplier read operations authorize the active tenant before loading encryp
 test('pricing contract is exact-money, observed-only and requires fresh revalidation plus rules before reservation', () => {
   const contract = source('src/server/suppliers/hospitality-supplier-provider.ts');
   const provider = source('src/server/suppliers/travelport-stays-provider.ts');
+  const providerCore = source('src/server/suppliers/travelport-stays-provider-core.ts');
   assert.match(contract, /HospitalitySupplierPricingProvider/);
   assert.match(contract, /amountMinor: bigint/);
   assert.match(contract, /validUntil: null/);
   assert.match(contract, /expectedOfferFingerprint: string/);
   assert.match(contract, /'OFFER_CHANGED'/);
-  assert.match(provider, /'TVP-Cache-Control': 'no-cache'/);
-  assert.match(provider, /parseMoneyMajorToMinor/);
-  assert.match(provider, /offerFingerprint: fingerprintOffer/);
-  assert.match(provider, /rulesRequiredBeforeReservation: true/);
+  assert.match(providerCore, /'TVP-Cache-Control': 'no-cache'/);
+  assert.match(providerCore, /parseMoneyMajorToMinor/);
+  assert.match(providerCore, /offerFingerprint: fingerprintOffer/);
+  assert.match(providerCore, /rulesRequiredBeforeReservation: true/);
   assert.doesNotMatch(provider, /createReservation|book\/reservations/);
 });
 
@@ -74,18 +93,21 @@ test('complete supplier search consumes at most five pages and does not return t
 test('Travelport Rules adapter retrieves full rate-rule evidence but never opens a reservation write boundary', () => {
   const contract = source('src/server/suppliers/hospitality-supplier-booking-terms.ts');
   const adapter = source('src/server/suppliers/travelport-stays-booking-terms-provider.ts');
+  const adapterCore = source('src/server/suppliers/travelport-stays-booking-terms-provider-core.ts');
   assert.match(contract, /HospitalitySupplierBookingTermsProvider/);
   assert.match(contract, /completeForReservationReview: boolean/);
   assert.match(contract, /termsFingerprint: string/);
   assert.match(contract, /revalidationRequired: true/);
-  assert.match(adapter, /11\/hotel\//);
-  assert.match(adapter, /rules\/offershospitality\/buildfromrequest/);
-  assert.match(adapter, /bookingCode: bridge\.bookingCode/);
-  assert.match(adapter, /storedAmount: moneyMinorToMajorString/);
-  assert.match(adapter, /RoomStayCandidates/);
-  assert.match(adapter, /await this\.#pricingProvider\.revalidatePropertyOffer\(input\)/);
-  assert.match(adapter, /'TVP-Cache-Control': 'no-cache'/);
-  assert.doesNotMatch(adapter, /book\/reservations|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
+  assert.match(adapter, /extends CoreTravelportStaysBookingTermsProvider/);
+  assert.match(adapter, /createTravelportStaysReferenceAuthorityFetch/);
+  assert.match(adapterCore, /11\/hotel\//);
+  assert.match(adapterCore, /rules\/offershospitality\/buildfromrequest/);
+  assert.match(adapterCore, /bookingCode: bridge\.bookingCode/);
+  assert.match(adapterCore, /storedAmount: moneyMinorToMajorString/);
+  assert.match(adapterCore, /RoomStayCandidates/);
+  assert.match(adapterCore, /await this\.#pricingProvider\.revalidatePropertyOffer\(input\)/);
+  assert.match(adapterCore, /'TVP-Cache-Control': 'no-cache'/);
+  assert.doesNotMatch(adapterCore, /book\/reservations|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
 test('Rules authority remains provider-specific and is wired through the existing tenant-authorized integration loader', () => {

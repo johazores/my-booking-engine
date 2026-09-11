@@ -24,7 +24,7 @@ test('the public Travelport pricing adapter owns canonical supplier-reference au
   assert.match(provider, /exactMachineToken\(offer\.rateValue, MAX_REFERENCE_LENGTH, 'request'\)/);
   assert.match(provider, /assertTravelportStaysPropertyReference\(input\.supplierPropertyReference\)/);
   assert.match(provider, /assertTravelportStaysOfferReference\(input\.supplierOfferReference\)/);
-  assert.match(provider, /ASCII_CONTROL_PATTERN\.test\(input\.pageToken\)/);
+  assert.match(provider, /exactMachineToken\(input\.pageToken, MAX_REFERENCE_LENGTH, 'request'\)/);
 });
 
 test('provider responses are checked before the compatibility core can normalize machine evidence', () => {
@@ -40,7 +40,19 @@ test('provider responses are checked before the compatibility core can normalize
   assert.match(provider, /exactResponseTokenIfPresent\(rateCodeInfo\.rateCategory, 128\)/);
   assert.match(provider, /validateCurrencyCodeIfPresent\(price\.currencyCode\)/);
   assert.match(provider, /validateCurrencyCodeIfPresent\(currencyAmount\.currency\)/);
-  assert.match(provider, /ASCII_CONTROL_PATTERN\.test\(pagination\.paginationToken\)/);
+  assert.match(provider, /exactMachineToken\(pagination\.paginationToken, MAX_REFERENCE_LENGTH, 'response'\)/);
+});
+
+test('transport authority protects configured credentials and OAuth bearer tokens before provider use', () => {
+  assert.match(provider, /exactConfigurationValue\(input\.username/);
+  assert.match(provider, /exactConfigurationValue\(input\.password/);
+  assert.match(provider, /exactConfigurationValue\(input\.clientId/);
+  assert.match(provider, /exactConfigurationValue\(input\.clientSecret/);
+  assert.match(provider, /exactConfigurationValue\(input\.accessGroup/);
+  assert.match(provider, /isTravelportOAuthRequest/);
+  assert.match(provider, /exactMachineToken\(object\.access_token, MAX_ACCESS_TOKEN_LENGTH, 'response'\)/);
+  assert.match(provider, /requestTravelportStaysAccessTokenCore/);
+  assert.match(provider, /probeTravelportStaysIntegrationHealthCore/);
 });
 
 test('commercial authority rejects normalized money and truncated terms before compatibility parsing', () => {
