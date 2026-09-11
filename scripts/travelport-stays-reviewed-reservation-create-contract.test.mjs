@@ -114,12 +114,12 @@ test('reviewed executor authenticates before acquiring card and sends only expli
   assert.doesNotMatch(executor, /acceptPriceChangeInd[^\n]*false|acceptGuaranteeChangeInd[^\n]*false/);
   assert.match(executor, /\(!acceptedReview\.acceptPriceChange && !acceptedReview\.acceptGuaranteeChange\)/);
 
-  const authorityIndex = executor.indexOf('assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority)', commonStart);
+  const authorityIndex = executor.indexOf('assertPaymentAuthorityMatchesRequestMaterial(requestMaterial, paymentAuthority)', commonStart);
   const urlIndex = executor.indexOf('const reservationUrl = reviewedReservationBuildUrl', authorityIndex);
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()', urlIndex);
-  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  const sourceIndex = executor.indexOf('const paymentCard = await acquirePaymentCard()', tokenIndex);
   const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest', sourceIndex);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', requestIndex);
+  const markerIndex = executor.indexOf('await beforeProviderRequest()', requestIndex);
   const fetchIndex = executor.indexOf('response = await this.#fetchImpl(reservationUrl', markerIndex);
   assert.ok(
     authorityIndex >= 0

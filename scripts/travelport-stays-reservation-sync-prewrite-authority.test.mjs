@@ -12,11 +12,11 @@ test('Travelport Sync snapshots response identity authority before external work
   assert.notEqual(syncStart, -1, 'Sync executor entry point must remain present');
   const syncBody = executor.slice(syncStart);
 
-  const identitySnapshot = syncBody.indexOf('const expectedReservation = normalizeExpectedReservation(input.expectedReservation);');
+  const identitySnapshot = syncBody.indexOf('const expectedReservation = materializeTravelportStaysCreateExpectedReservation(callerExpectedReservation);');
   const requestConstruction = syncBody.indexOf('buildTravelportStaysReservationSyncRequest({');
   const oauth = syncBody.indexOf('await this.#accessToken()');
   const preflight = syncBody.indexOf('await assertTravelportStaysTransportRequestReady({');
-  const marker = syncBody.indexOf('await input.beforeProviderRequest();');
+  const marker = syncBody.indexOf('await beforeProviderRequest();');
   const providerCall = syncBody.indexOf('response = await this.#fetchImpl(');
   const settlement = syncBody.indexOf('expectedReservation,');
 
@@ -28,25 +28,26 @@ test('Travelport Sync snapshots response identity authority before external work
   assert.ok(providerCall > marker, 'commercial provider I/O must remain after the durable marker');
   assert.ok(settlement > providerCall, 'response classification must reuse the snapshotted identity');
   assert.doesNotMatch(
-    syncBody.slice(providerCall),
-    /expectedReservation:\s*input\.expectedReservation/,
-    'post-I/O classification must not return to caller-owned expected-reservation state',
+    syncBody.slice(oauth),
+    /input\.(requestCorrelationId|providerRecoveryReference|supplierConfirmationReference|traveler|expectedReservation|beforeProviderRequest)/,
+    'post-OAuth execution must not return to caller-owned Sync authority',
   );
 });
 
-test('Travelport Sync expected reservation snapshot is exact, bounded, and immutable', () => {
-  const executor = source('src/server/suppliers/travelport-stays-reservation-sync-executor.ts');
+test('Travelport shared expected-reservation snapshot is exact, bounded, and immutable', () => {
+  const authority = source('src/server/suppliers/travelport-stays-reservation-expected-authority.ts');
 
-  assert.match(executor, /function normalizeExpectedReservation\(/);
-  assert.match(executor, /\^\[A-Za-z0-9\]\{1,16\}\$/);
-  assert.match(executor, /\^\[A-Za-z0-9\]\{1,32\}\$/);
-  assert.match(executor, /!validLocalDate\(expected\.arrivalDateLocal\)/);
-  assert.match(executor, /!validLocalDate\(expected\.departureDateLocal\)/);
-  assert.match(executor, /expected\.departureDateLocal <= expected\.arrivalDateLocal/);
-  assert.match(executor, /expected\.rooms !== 1/);
-  assert.match(executor, /expected\.guests < 1/);
-  assert.match(executor, /expected\.guests > 9/);
-  assert.match(executor, /return Object\.freeze\(\{[\s\S]*?chainCode: expected\.chainCode,[\s\S]*?guests: expected\.guests,/);
+  assert.match(authority, /function materializeTravelportStaysCreateExpectedReservation\(/);
+  assert.match(authority, /\^\[A-Za-z0-9\]\{1,16\}\$/);
+  assert.match(authority, /\^\[A-Za-z0-9\]\{1,32\}\$/);
+  assert.match(authority, /!validLocalDate\(snapshot\.arrivalDateLocal\)/);
+  assert.match(authority, /!validLocalDate\(snapshot\.departureDateLocal\)/);
+  assert.match(authority, /snapshot\.departureDateLocal <= snapshot\.arrivalDateLocal/);
+  assert.match(authority, /snapshot\.rooms !== 1/);
+  assert.match(authority, /\(snapshot\.guests as number\) < 1/);
+  assert.match(authority, /\(snapshot\.guests as number\) > 9/);
+  assert.match(authority, /const snapshot = Object\.freeze\(\{[\s\S]*?chainCode: expected\.chainCode,[\s\S]*?guests: expected\.guests,/);
+  assert.match(authority, /return snapshot as TravelportStaysCreateExpectedReservation/);
 });
 
 test('Travelport Sync cache authority rejects the full ASCII control range', () => {

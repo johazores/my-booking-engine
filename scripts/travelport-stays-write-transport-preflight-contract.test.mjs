@@ -24,10 +24,10 @@ test('initial and reviewed Create finish transport preflight before card acquisi
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()', commonStart);
   const headersIndex = executor.indexOf('const requestHeaders = Object.freeze', tokenIndex);
   const nonSensitivePreflightIndex = executor.indexOf('await assertTravelportStaysTransportRequestReady', headersIndex);
-  const cardIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', nonSensitivePreflightIndex);
+  const cardIndex = executor.indexOf('const paymentCard = await acquirePaymentCard()', nonSensitivePreflightIndex);
   const serializedIndex = executor.indexOf('const serializedBody = JSON.stringify(requestBody)', cardIndex);
   const finalPreflightIndex = executor.indexOf('await assertTravelportStaysTransportRequestReady', nonSensitivePreflightIndex + 1);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', finalPreflightIndex);
+  const markerIndex = executor.indexOf('await beforeProviderRequest()', finalPreflightIndex);
   const fetchIndex = executor.indexOf('response = await this.#fetchImpl(reservationUrl', markerIndex);
 
   assert.ok(
@@ -53,7 +53,7 @@ test('Booking.com Sync preflights the exact serialized write before durable prov
   const urlIndex = executor.indexOf('const reservationUrl =', serializedIndex);
   const headersIndex = executor.indexOf('const requestHeaders = Object.freeze', urlIndex);
   const preflightIndex = executor.indexOf('await assertTravelportStaysTransportRequestReady', headersIndex);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', preflightIndex);
+  const markerIndex = executor.indexOf('await beforeProviderRequest()', preflightIndex);
   const fetchIndex = executor.indexOf('response = await this.#fetchImpl(reservationUrl', markerIndex);
 
   assert.ok(

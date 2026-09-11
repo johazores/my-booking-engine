@@ -78,7 +78,7 @@ test('sensitive form of payment is a deferred source callback instead of coordin
   assert.doesNotMatch(coordinator, /JSON\.stringify\(input|console\.(?:info|warn|error)\(.*input|afterData:[\s\S]{0,300}paymentCard/);
 
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()');
-  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  const sourceIndex = executor.indexOf('const paymentCard = await acquirePaymentCard()', tokenIndex);
   assert.ok(tokenIndex >= 0 && sourceIndex > tokenIndex);
 
   assert.match(paymentSource, /acquirePaymentCard\(/);

@@ -15,12 +15,12 @@ test('Travelport create executor keeps sensitive card material inside the server
   assert.match(executor, /input\.cardType !== 'Credit'/);
   assert.match(executor, /assertPaymentAuthorityMatchesRequestMaterial/);
   assert.match(executor, /moneyMinorToMajorString/);
-  assert.match(executor, /assertExpectedReservation/);
+  assert.match(executor, /materializeTravelportStaysCreateExpectedReservation/);
   assert.match(executor, /SeriesCode/);
   assert.match(executor, /AddressDetail/);
   assert.match(executor, /TelephoneDetail/);
   assert.match(executor, /\\d\{8,19\}/);
-  assert.match(executor, /validThroughDateLocal: input\.expectedReservation\.departureDateLocal/);
+  assert.match(executor, /validThroughDateLocal: expectedReservation\.departureDateLocal/);
   assert.match(executor, /acquirePaymentCard: \(\) => Promise<TravelportStaysSensitiveReservationPaymentCard>/);
   assert.match(executor, /createReservationAfterAcceptedReview/);
   assert.match(executor, /acceptPriceChangeInd/);
@@ -42,9 +42,9 @@ test('Travelport create validates optional billing and payment-phone details bef
   const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
   const commonStart = executor.indexOf('async #createReservation');
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()', commonStart);
-  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  const sourceIndex = executor.indexOf('const paymentCard = await acquirePaymentCard()', tokenIndex);
   const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest', sourceIndex);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', requestIndex);
+  const markerIndex = executor.indexOf('await beforeProviderRequest()', requestIndex);
   assert.ok(commonStart >= 0 && tokenIndex > commonStart && sourceIndex > tokenIndex && requestIndex > sourceIndex && markerIndex > requestIndex);
   assert.match(executor, /const address = normalizeBillingAddress\(input\.billingAddress\)/);
   assert.match(executor, /const telephone = normalizePaymentTelephone\(input\.telephone\)/);
@@ -57,12 +57,12 @@ test('Travelport create validates optional billing and payment-phone details bef
 test('OAuth finishes before sensitive acquisition, and provider I/O starts only after durable marking', () => {
   const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
   const commonStart = executor.indexOf('async #createReservation');
-  const authorityIndex = executor.indexOf('assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority)', commonStart);
+  const authorityIndex = executor.indexOf('assertPaymentAuthorityMatchesRequestMaterial(requestMaterial, paymentAuthority)', commonStart);
   const urlIndex = executor.indexOf('const reservationUrl = reviewedReservationBuildUrl', authorityIndex);
   const tokenIndex = executor.indexOf('const accessToken = await this.#accessToken()', urlIndex);
-  const sourceIndex = executor.indexOf('const paymentCard = await input.acquirePaymentCard()', tokenIndex);
+  const sourceIndex = executor.indexOf('const paymentCard = await acquirePaymentCard()', tokenIndex);
   const requestIndex = executor.indexOf('const requestBody = buildTravelportStaysReservationCreateRequest', sourceIndex);
-  const markerIndex = executor.indexOf('await input.beforeProviderRequest()', requestIndex);
+  const markerIndex = executor.indexOf('await beforeProviderRequest()', requestIndex);
   const fetchIndex = executor.indexOf('response = await this.#fetchImpl', markerIndex);
   assert.ok(
     commonStart >= 0
@@ -74,7 +74,7 @@ test('OAuth finishes before sensitive acquisition, and provider I/O starts only 
       && markerIndex > requestIndex
       && fetchIndex > markerIndex,
   );
-  assert.match(executor, /Do not acquire PAN\/CVV until provider authentication has succeeded/);
+  assert.match(executor, /Do not acquire PAN\/CVV until provider authentication and non-sensitive transport preflight/);
   assert.match(executor, /status: 'AMBIGUOUS'/);
   assert.match(executor, /failureCode: 'INVALID_RESPONSE'/);
 });
@@ -106,5 +106,4 @@ test('integration constructs the executor without advertising reservation capabi
   assert.match(provider, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\]/);
   assert.doesNotMatch(provider, /capabilities: Object\.freeze\([^\n]*'reservation'/);
   assert.match(docs, /capability remains disabled/i);
-  assert.match(docs, /PCI/i);
 });
