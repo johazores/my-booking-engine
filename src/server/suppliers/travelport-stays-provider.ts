@@ -236,14 +236,27 @@ function validatePagination(value: unknown): void {
     || !Number.isInteger(pageSize)
     || !Number.isInteger(totalPages)
     || !Number.isInteger(totalItems)
-    || (page as number) < 0
-    || (pageSize as number) < 0
-    || (totalPages as number) < 0
-    || (totalItems as number) < 0
-    || (page as number) > MAX_SEARCH_PAGES
-    || (pageSize as number) > MAX_SEARCH_PAGE_SIZE
-    || (totalPages as number) > MAX_SEARCH_PAGES
-    || (totalItems as number) > MAX_SEARCH_ITEMS
+  ) {
+    invalidResponse('Travelport pagination metadata is invalid or oversized.');
+  }
+
+  const currentPage = page as number;
+  const currentPageSize = pageSize as number;
+  const pageCount = totalPages as number;
+  const itemCount = totalItems as number;
+  if (
+    currentPage < 1
+    || currentPage > MAX_SEARCH_PAGES
+    || currentPageSize < 0
+    || currentPageSize > MAX_SEARCH_PAGE_SIZE
+    || pageCount < 0
+    || pageCount > MAX_SEARCH_PAGES
+    || itemCount < 0
+    || itemCount > MAX_SEARCH_ITEMS
+    || (itemCount > 0 && (currentPageSize < 1 || pageCount < 1))
+    || (pageCount === 0 && currentPage !== 1)
+    || (pageCount > 0 && currentPage > pageCount)
+    || (pageCount > 0 && itemCount > pageCount * MAX_SEARCH_PAGE_SIZE)
   ) {
     invalidResponse('Travelport pagination metadata is invalid or oversized.');
   }

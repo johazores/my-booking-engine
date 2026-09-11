@@ -95,12 +95,18 @@ test('SearchComplete rejects normalization-confusable pagination tokens before c
   }
 });
 
-test('SearchComplete rejects provider pagination metadata outside the documented five-page boundary', async () => {
+test('SearchComplete rejects pagination metadata outside the documented page range and bounded collection shape', async () => {
   for (const pagination of [
+    { page: 0, pageSize: 0, totalPages: 0, totalItems: 0 },
     { page: 1, pageSize: 100, totalPages: 6, totalItems: 500, paginationToken: 'next-token' },
     { page: 1, pageSize: 100, totalPages: 5, totalItems: 501, paginationToken: 'next-token' },
     { page: 6, pageSize: 100, totalPages: 5, totalItems: 500, paginationToken: 'next-token' },
     { page: 1, pageSize: 101, totalPages: 5, totalItems: 500, paginationToken: 'next-token' },
+    { page: 1, pageSize: 0, totalPages: 1, totalItems: 1 },
+    { page: 1, pageSize: 1, totalPages: 0, totalItems: 1 },
+    { page: 2, pageSize: 1, totalPages: 1, totalItems: 1 },
+    { page: 1, pageSize: 100, totalPages: 1, totalItems: 101 },
+    { page: 2, pageSize: 100, totalPages: 2, totalItems: 201, paginationToken: 'next-token' },
   ]) {
     const provider = new TravelportStaysProvider({
       credentials,
@@ -121,6 +127,37 @@ test('SearchComplete rejects provider pagination metadata outside the documented
       (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
     );
   }
+});
+
+test('SearchComplete preserves the existing empty first-page compatibility shape', async () => {
+  const provider = new TravelportStaysProvider({
+    credentials,
+    cacheKey: 'transport-authority:empty-first-page',
+    fetchImpl: (async (url) => String(url).includes('/oauth/token')
+      ? jsonResponse({ access_token: 'token' })
+      : jsonResponse(searchResponse({
+        page: 1,
+        pageSize: 0,
+        totalPages: 0,
+        totalItems: 0,
+      }))) as typeof fetch,
+  });
+
+  const result = await provider.searchProperties({
+    cityIataCode: 'SYD',
+    checkInDateLocal: '2026-10-10',
+    checkOutDateLocal: '2026-10-12',
+    rooms: 1,
+    adults: 2,
+  });
+  assert.deepEqual(result, {
+    properties: [],
+    page: 1,
+    pageSize: 0,
+    totalPages: 0,
+    totalItems: 0,
+    nextPageToken: null,
+  });
 });
 
 test('pagination replay rejects padded and controlled identifiers before any provider request', async () => {

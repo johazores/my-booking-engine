@@ -19,6 +19,11 @@ test('Travelport pagination follows the bounded provider contract and keeps opaq
   assert.match(provider, /exactMachineToken\(pagination\.paginationToken, MAX_REFERENCE_LENGTH, 'response'\)/);
   assert.match(provider, /MAX_SEARCH_PAGES = 5/);
   assert.match(provider, /MAX_SEARCH_ITEMS = MAX_SEARCH_PAGE_SIZE \* MAX_SEARCH_PAGES/);
+  assert.match(provider, /currentPage < 1/);
+  assert.match(provider, /itemCount > 0 && \(currentPageSize < 1 \|\| pageCount < 1\)/);
+  assert.match(provider, /pageCount === 0 && currentPage !== 1/);
+  assert.match(provider, /pageCount > 0 && currentPage > pageCount/);
+  assert.match(provider, /itemCount > pageCount \* MAX_SEARCH_PAGE_SIZE/);
 });
 
 test('Travelport transport authority rejects normalized credentials and OAuth tokens at the public boundary', () => {
