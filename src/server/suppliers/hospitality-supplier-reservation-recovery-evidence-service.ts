@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-machine-token.ts';
 import {
   HospitalitySupplierReservationConflictError,
   normalizeHospitalitySupplierReservationSupplierConfirmationReference,
@@ -14,19 +15,10 @@ function supplierReservationOperationLockKey(organizationId: string, reservation
 }
 
 function normalizeProviderRecoveryReference(value: unknown) {
-  if (typeof value !== 'string') {
+  if (!isExactHospitalitySupplierMachineToken(value, MAX_PROVIDER_RECOVERY_REFERENCE_LENGTH)) {
     throw new HospitalitySupplierReservationConflictError('Supplier reservation provider recovery authority is invalid.');
   }
-  const normalized = value.trim();
-  if (
-    !normalized
-    || normalized !== value
-    || normalized.length > MAX_PROVIDER_RECOVERY_REFERENCE_LENGTH
-    || /[\r\n]/.test(normalized)
-  ) {
-    throw new HospitalitySupplierReservationConflictError('Supplier reservation provider recovery authority is invalid.');
-  }
-  return normalized;
+  return value;
 }
 
 /**

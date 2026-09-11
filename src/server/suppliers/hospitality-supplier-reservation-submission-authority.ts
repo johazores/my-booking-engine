@@ -3,6 +3,7 @@ import type {
   HospitalitySupplierRuleGuaranteeType,
 } from './hospitality-supplier-booking-terms.ts';
 import type { HospitalitySupplierPaymentTiming } from './hospitality-supplier-provider.ts';
+import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-machine-token.ts';
 import {
   HospitalitySupplierReservationConflictError,
   hospitalitySupplierReservationRequestFingerprint,
@@ -72,12 +73,10 @@ function operationDate(value: Date, label: string) {
 }
 
 function providerSubmissionReference(value: unknown) {
-  if (typeof value !== 'string') throw authorityConflict();
-  const normalized = value.trim();
-  if (!normalized || normalized.length > MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH || /[\r\n]/.test(normalized)) {
+  if (!isExactHospitalitySupplierMachineToken(value, MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH)) {
     throw authorityConflict();
   }
-  return normalized;
+  return value;
 }
 
 export function hospitalitySupplierReservationAuthorityInputFromOperation(

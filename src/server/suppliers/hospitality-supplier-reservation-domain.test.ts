@@ -33,10 +33,12 @@ const selectionInput = {
   childAges: [7],
 } as const;
 
-test('normalizes a bounded supplier reservation selection and produces a stable fingerprint', () => {
+test('normalizes bounded platform fields while preserving exact supplier reservation references', () => {
   const normalized = normalizeHospitalitySupplierReservationSelection(selectionInput);
   assert.equal(normalized.providerCode, 'travelport-stays');
   assert.equal(normalized.currency, 'USD');
+  assert.equal(normalized.supplierPropertyReference, 'property_ref');
+  assert.equal(normalized.supplierOfferReference, 'offer_ref');
   assert.equal(normalized.reservationAuthorityFingerprint, 'd'.repeat(64));
   assert.deepEqual(normalized.childAges, [7]);
 
@@ -57,16 +59,20 @@ test('normalizes a bounded supplier reservation selection and produces a stable 
   assert.notEqual(authorityChanged, fingerprint);
 });
 
-test('idempotency exact retries require the same complete request fingerprint', () => {
+test('idempotency exact retries require the same complete request fingerprint and exact key spelling', () => {
   const fingerprint = hospitalitySupplierReservationRequestFingerprint(
-    normalizeHospitalitySupplierReservationSelection(selectionInput),
+    normalizeHospitalitySupplierReservation(selectionInput),
   );
   assert.doesNotThrow(() => assertHospitalitySupplierReservationExactRetry({ requestFingerprint: fingerprint }, fingerprint));
   assert.throws(
     () => assertHospitalitySupplierReservationExactRetry({ requestFingerprint: fingerprint }, 'c'.repeat(64)),
     HospitalitySupplierReservationConflictError,
   );
-  assert.equal(normalizeHospitalitySupplierReservationIdempotencyKey(' supplier:create:0001 '), 'supplier:create:0001');
+  assert.equal(normalizeHospitalitySupplierReservationIdempotencyKey('supplier:create:0001'), 'supplier:create:0001');
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationIdempotencyKey(' supplier:create:0001 '),
+    HospitalitySupplierReservationValidationError,
+  );
   assert.throws(() => normalizeHospitalitySupplierReservationIdempotencyKey('short'), HospitalitySupplierReservationValidationError);
 });
 
@@ -85,16 +91,35 @@ test('create submission requires reviewed reservation authority while ambiguity 
   assert.throws(() => assertHospitalitySupplierReservationCanReconcile('FAILED'), HospitalitySupplierReservationConflictError);
 });
 
-test('provider operational metadata is bounded and normalized without accepting raw multiline values', () => {
-  assert.equal(normalizeHospitalitySupplierReservationProviderReference(' ABC-123 '), 'ABC-123');
-  assert.equal(normalizeHospitalitySupplierReservationSupplierConfirmationReference(' supplier-1 '), 'supplier-1');
+test('provider operational metadata remains exact, bounded and control-free', () => {
+  assert.equal(normalizeHospitalitySupplierReservationProviderReference('ABC-123'), 'ABC-123');
+  assert.equal(normalizeHospitalitySupplierReservationSupplierConfirmationReference('supplier-1'), 'supplier-1');
   assert.equal(normalizeHospitalitySupplierReservationSupplierConfirmationReference(null), null);
-  assert.equal(normalizeHospitalitySupplierReservationCorrelationId(' trace-1 '), 'trace-1');
+  assert.equal(normalizeHospitalitySupplierReservationCorrelationId('trace-1'), 'trace-1');
   assert.equal(normalizeHospitalitySupplierReservationCorrelationId(null), null);
   assert.equal(normalizeHospitalitySupplierReservationFailureCode(' provider_unavailable '), 'PROVIDER_UNAVAILABLE');
-  assert.throws(() => normalizeHospitalitySupplierReservationProviderReference('bad\nvalue'), HospitalitySupplierReservationValidationError);
-  assert.throws(() => normalizeHospitalitySupplierReservationSupplierConfirmationReference('bad\rvalue'), HospitalitySupplierReservationValidationError);
+
+  for (const value of [' ABC-123', 'ABC-123 ', 'bad\nvalue', 'bad\tvalue', 'bad\u0000value', 'bad\u007fvalue']) {
+    assert.throws(() => normalizeHospitalitySupplierReservationProviderReference(value), HospitalitySupplierReservationValidationError);
+    assert.throws(() => normalizeHospitalitySupplierReservationSupplierConfirmationReference(value), HospitalitySupplierReservationValidationError);
+    assert.throws(() => normalizeHospitalitySupplierReservationCorrelationId(value), HospitalitySupplierReservationValidationError);
+  }
   assert.throws(() => normalizeHospitalitySupplierReservationFailureCode('raw provider error with spaces'), HospitalitySupplierReservationValidationError);
+});
+
+test('selection rejects malformed or normalized supplier identity before persistence', () => {
+  for (const supplierPropertyReference of [' property_ref', 'property_ref ', 'property\tref', 'property\u0000ref', 'property\u007fref']) {
+    assert.throws(
+      () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, supplierPropertyReference }),
+      HospitalitySupplierReservationValidationError,
+    );
+  }
+  for (const supplierOfferReference of [' offer_ref', 'offer_ref ', 'offer\u001fref']) {
+    assert.throws(
+      () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, supplierOfferReference }),
+      HospitalitySupplierReservationValidationError,
+    );
+  }
 });
 
 test('selection rejects malformed authority, dates, money and occupancy before persistence', () => {
@@ -103,7 +128,7 @@ test('selection rejects malformed authority, dates, money and occupancy before p
     HospitalitySupplierReservationValidationError,
   );
   assert.throws(
-    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, departureDateLocal: '2026-10-10' }),
+    () => normalizeHospitalitySupplierReservation({ ...selectionInput, departureDateLocal: '2026-10-10' }),
     HospitalitySupplierReservationValidationError,
   );
   assert.throws(

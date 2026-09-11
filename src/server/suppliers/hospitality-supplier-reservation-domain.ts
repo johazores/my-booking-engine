@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { normalizeIntegrationProviderCode } from '../integrations/integration-domain.ts';
 import { normalizeCurrency } from '../pricing/money.ts';
+import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-machine-token.ts';
 
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
@@ -74,12 +75,10 @@ export type NormalizedHospitalitySupplierReservationSelection = Readonly<{
 }>;
 
 function normalizeOpaqueReference(value: unknown, label: string) {
-  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError(`${label} is required.`);
-  const normalized = value.trim();
-  if (!normalized || normalized.length > MAX_REFERENCE_LENGTH || /[\r\n]/.test(normalized)) {
+  if (!isExactHospitalitySupplierMachineToken(value, MAX_REFERENCE_LENGTH)) {
     throw new HospitalitySupplierReservationValidationError(`${label} is invalid.`);
   }
-  return normalized;
+  return value;
 }
 
 function normalizeFingerprint(value: unknown, label: string) {
@@ -109,21 +108,17 @@ function normalizeCount(value: unknown, label: string, min: number, max: number)
 
 function normalizeOptionalOperationalReference(value: unknown, label: string) {
   if (value === null || value === undefined || value === '') return null;
-  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError(`${label} is invalid.`);
-  const normalized = value.trim();
-  if (!normalized || normalized.length > MAX_CORRELATION_LENGTH || /[\r\n]/.test(normalized)) {
+  if (!isExactHospitalitySupplierMachineToken(value, MAX_CORRELATION_LENGTH)) {
     throw new HospitalitySupplierReservationValidationError(`${label} is invalid.`);
   }
-  return normalized;
+  return value;
 }
 
 export function normalizeHospitalitySupplierReservationIdempotencyKey(value: unknown) {
-  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError('Reservation idempotency key is required.');
-  const normalized = value.trim();
-  if (!IDEMPOTENCY_KEY_PATTERN.test(normalized)) {
+  if (typeof value !== 'string' || !IDEMPOTENCY_KEY_PATTERN.test(value)) {
     throw new HospitalitySupplierReservationValidationError('Reservation idempotency key is invalid.');
   }
-  return normalized;
+  return value;
 }
 
 export function normalizeHospitalitySupplierReservationSelection(
@@ -264,12 +259,10 @@ export function assertHospitalitySupplierReservationCanReconcile(
 }
 
 export function normalizeHospitalitySupplierReservationProviderReference(value: unknown) {
-  if (typeof value !== 'string') throw new HospitalitySupplierReservationValidationError('Provider reservation reference is required.');
-  const normalized = value.trim();
-  if (!normalized || normalized.length > MAX_CORRELATION_LENGTH || /[\r\n]/.test(normalized)) {
+  if (!isExactHospitalitySupplierMachineToken(value, MAX_CORRELATION_LENGTH)) {
     throw new HospitalitySupplierReservationValidationError('Provider reservation reference is invalid.');
   }
-  return normalized;
+  return value;
 }
 
 export function normalizeHospitalitySupplierReservationSupplierConfirmationReference(value: unknown) {

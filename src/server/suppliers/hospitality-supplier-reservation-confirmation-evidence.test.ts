@@ -21,14 +21,16 @@ test('supplier confirmation recovery requirement is limited to the normalized mi
   }
 });
 
-test('known durable supplier confirmation cannot be silently replaced during recovery', () => {
+test('known durable supplier confirmation cannot be silently replaced or normalized during recovery', () => {
   assert.equal(supplierConfirmationMatchesDurableReservation(null, null), true);
   assert.equal(supplierConfirmationMatchesDurableReservation(null, 'SUP-200'), true);
   assert.equal(supplierConfirmationMatchesDurableReservation('SUP-100', 'SUP-100'), true);
   assert.equal(supplierConfirmationMatchesDurableReservation('SUP-100', null), false);
   assert.equal(supplierConfirmationMatchesDurableReservation('SUP-100', 'SUP-200'), false);
-  assert.equal(supplierConfirmationMatchesDurableReservation(' SUP-100', ' SUP-100'), false);
-  assert.equal(supplierConfirmationMatchesDurableReservation('SUP-100\n', 'SUP-100\n'), false);
+  for (const value of [' SUP-100', 'SUP-100 ', 'SUP-100\n', 'SUP\t100', 'SUP\u0000100', 'SUP\u001f100', 'SUP\u007f100']) {
+    assert.equal(supplierConfirmationMatchesDurableReservation(value, value), false, JSON.stringify(value));
+    assert.equal(supplierConfirmationMatchesDurableReservation(null, value), false, JSON.stringify(value));
+  }
   assert.equal(HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE, 'SUPPLIER_CONFIRMATION_MISMATCH');
 });
 
@@ -68,6 +70,15 @@ test('recovery confirmation evidence fails closed before durable found or not-fo
       recoveredSupplierConfirmationReference: 'SUP-200',
     }),
     null,
+  );
+  assert.equal(
+    hospitalitySupplierReservationRecoveryConfirmationFailureCode({
+      status: 'FOUND',
+      lastFailureCode: HOSPITALITY_SUPPLIER_CONFIRMATION_MISSING_FAILURE_CODE,
+      durableSupplierConfirmationReference: null,
+      recoveredSupplierConfirmationReference: 'SUP\u0000200',
+    }),
+    HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE,
   );
   assert.equal(
     hospitalitySupplierReservationRecoveryConfirmationFailureCode({
