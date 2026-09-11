@@ -48,7 +48,19 @@ function record(value: unknown): RecordValue {
 function boundedProviderValue(value: unknown, max: number) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
-  if (!normalized || normalized.length > max || /[\r\n]/.test(normalized)) return null;
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > max
+    || /[\u0000-\u001f\u007f]/.test(normalized)
+  ) return null;
+  return normalized;
+}
+
+function boundedProviderText(value: unknown, max: number) {
+  if (typeof value !== 'string' || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > max) return null;
   return normalized;
 }
 
@@ -127,13 +139,7 @@ function assertSupportedResultEvidence(response: RecordValue) {
       );
     }
 
-    if (typeof warning.Message !== 'string' || /[\u0000-\u001f\u007f]/.test(warning.Message)) {
-      throw new HospitalitySupplierProviderError(
-        'INVALID_RESPONSE',
-        'Travelport reservation response contained a malformed result warning message.',
-      );
-    }
-    if (!boundedProviderValue(warning.Message, MAX_WARNING_MESSAGE_LENGTH)) {
+    if (!boundedProviderText(warning.Message, MAX_WARNING_MESSAGE_LENGTH)) {
       throw new HospitalitySupplierProviderError(
         'INVALID_RESPONSE',
         'Travelport reservation response contained a malformed result warning message.',

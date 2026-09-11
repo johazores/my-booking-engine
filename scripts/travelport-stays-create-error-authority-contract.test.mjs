@@ -61,7 +61,9 @@ test('Travelport known-locator reservation evidence rejects unsupported embedded
   assert.match(parser, /const hasWarnings = result\.Warnings !== undefined/);
   assert.match(parser, /if \(hasWarning && hasWarnings\)/);
   assert.match(parser, /!Array\.isArray\(warningValues\) \|\| warningValues\.length > MAX_WARNINGS/);
-  assert.match(parser, /boundedProviderValue\(warning\.Message, 512\)/);
+  assert.match(parser, /boundedProviderText\(warning\.Message, MAX_WARNING_MESSAGE_LENGTH\)/);
+  assert.match(parser, /normalized !== value/);
+  assert.match(parser, /\[\\u0000-\\u001f\\u007f\]/);
   assert.match(parser, /embedded result error evidence/);
   assert.match(parser, /conflicting result warning evidence/);
 });
