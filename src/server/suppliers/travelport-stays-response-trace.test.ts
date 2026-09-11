@@ -81,3 +81,17 @@ test('without an expected request trace, bounded canonical provider correlation 
   });
   assert.equal(inspectTravelportStaysResponseTrace({ body: body(null) }).valid, false);
 });
+
+test('rejects every ASCII control family from provider correlation evidence', () => {
+  for (const traceId of [
+    'provider\u0000trace',
+    'provider\ttrace',
+    'provider\u001ftrace',
+    'provider\u007ftrace',
+  ]) {
+    assert.deepEqual(inspectTravelportStaysResponseTrace({ body: body(traceId) }), {
+      valid: false,
+      providerCorrelationId: null,
+    });
+  }
+});

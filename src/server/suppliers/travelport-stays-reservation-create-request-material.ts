@@ -7,6 +7,7 @@ import {
   type TravelportStaysReservationTravelerRequest,
 } from './travelport-stays-reservation-traveler-request.ts';
 
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
 const MAX_PAYMENT_CARD_CODES = 32;
 const MAX_PAYMENT_CARD_CODE_LENGTH = 16;
@@ -39,7 +40,7 @@ function providerSubmissionReference(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH
-    || /[\r\n]/.test(normalized)
+    || ASCII_CONTROL_PATTERN.test(normalized)
   ) {
     invalidRequest('Travelport reservation offer reference is invalid.');
   }
@@ -68,7 +69,7 @@ function paymentPayload(authority: HospitalitySupplierReservationPaymentAuthorit
       || !code
       || code !== code.trim()
       || code.length > MAX_PAYMENT_CARD_CODE_LENGTH
-      || /[\r\n]/.test(code)
+      || ASCII_CONTROL_PATTERN.test(code)
       || seenCardCodes.has(code)
     ) {
       invalidRequest('Travelport reservation accepted-card authority is invalid.');

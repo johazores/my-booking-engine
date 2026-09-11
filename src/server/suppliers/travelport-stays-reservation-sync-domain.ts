@@ -11,6 +11,7 @@ import {
   parseTravelportStaysSyncRecoveryReference,
 } from './travelport-stays-sync-recovery-reference.ts';
 
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_CONFIRMATION_LENGTH = 512;
 
 type RecordValue = Record<string, unknown>;
@@ -61,7 +62,7 @@ function confirmationReference(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_CONFIRMATION_LENGTH
-    || /[\r\n]/.test(normalized)
+    || ASCII_CONTROL_PATTERN.test(normalized)
   ) {
     throw new Error('Travelport Sync supplier confirmation is invalid.');
   }

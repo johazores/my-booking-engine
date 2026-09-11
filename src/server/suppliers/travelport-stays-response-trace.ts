@@ -1,4 +1,5 @@
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_TRACE_ID_LENGTH = 120;
 
 type RecordValue = Record<string, unknown>;
@@ -18,7 +19,7 @@ function hasOwn(record: RecordValue, key: string) {
 
 function validBoundedTrace(value: unknown) {
   if (typeof value !== 'string') return null;
-  if (!value || value.length > MAX_TRACE_ID_LENGTH || value.trim() !== value || /[\r\n]/.test(value)) return null;
+  if (!value || value.length > MAX_TRACE_ID_LENGTH || value.trim() !== value || ASCII_CONTROL_PATTERN.test(value)) return null;
   return value;
 }
 
@@ -27,9 +28,9 @@ function validBoundedTrace(value: unknown) {
  *
  * When SF sent a request trace, current Travelport Stays documentation says the
  * same value is returned in the payload as `traceId`. Reservation I/O therefore
- * treats a missing, malformed, legacy-cased, duplicated, or mismatched echo as
- * invalid response evidence. With no expected SF trace, this helper remains a
- * bounded parser for classifier-level/provider-fixture use.
+ * treats a missing, malformed, legacy-cased, duplicated, mismatched, or
+ * control-bearing echo as invalid response evidence. With no expected SF trace,
+ * this helper remains a bounded parser for classifier-level/provider-fixture use.
  */
 export function inspectTravelportStaysResponseTrace(input: Readonly<{
   body: unknown;

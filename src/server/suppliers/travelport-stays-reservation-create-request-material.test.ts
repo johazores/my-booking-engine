@@ -120,6 +120,30 @@ test('rejects forged provider references and contradictory payment authority bef
   }
 });
 
+test('rejects ASCII controls in outbound Travelport offer and accepted-card machine tokens', () => {
+  for (const providerSubmissionReference of ['offer\u0000-123', 'offer\t123', 'offer-123\u007f']) {
+    assert.throws(
+      () => buildTravelportStaysReservationCreateRequestMaterial({
+        providerSubmissionReference,
+        traveler,
+        paymentAuthority: paymentAuthority('PREPAY'),
+      }),
+      (error) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST',
+    );
+  }
+
+  for (const code of ['V\u0000I', 'V\tI', 'VI\u007f']) {
+    assert.throws(
+      () => buildTravelportStaysReservationCreateRequestMaterial({
+        providerSubmissionReference: 'offer-123',
+        traveler,
+        paymentAuthority: { ...paymentAuthority('PREPAY'), acceptedPaymentCardCodes: [code] },
+      }),
+      (error) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_REQUEST',
+    );
+  }
+});
+
 test('request material never contains form-of-payment card secrets', () => {
   const serialized = JSON.stringify(buildTravelportStaysReservationCreateRequestMaterial({
     providerSubmissionReference: 'offer-123',
