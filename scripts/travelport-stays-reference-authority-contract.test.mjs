@@ -59,12 +59,12 @@ test('commercial authority rejects normalized money and truncated terms before c
   assert.match(provider, /assertTravelportStaysSearchCommercialAuthorityResponse\(payload\)/);
   assert.match(provider, /assertTravelportStaysRulesCommercialAuthorityResponse\(payload\)/);
   assert.match(commercial, /function exactMoneyIfPresent/);
-  assert.match(commercial, /value\.trim\(\) !== value/);
-  assert.match(commercial, /ASCII_CONTROL_PATTERN\.test\(value\)/);
+  assert.match(commercial, /MONEY_TEXT_PATTERN/);
+  assert.match(commercial, /ASCII_CONTROL_PATTERN\.test\(text\)/);
   assert.match(commercial, /moneyComponent\(price\.totalPrice\)/);
   assert.match(commercial, /exactMoneyIfPresent\(price\.TotalPrice\)/);
-  assert.match(commercial, /exactDecimalIfPresent\(penalty\.Percent\)/);
-  assert.match(commercial, /exactDecimalIfPresent\(penalty\.Nights\)/);
+  assert.match(commercial, /requiredDecimal\(penalty\.Percent, 'percent-penalty'\)/);
+  assert.match(commercial, /requiredDecimal\(penalty\.Nights, 'nights-penalty'\)/);
   assert.match(commercial, /commercialTextIfPresent\(cancellation\.Description, MAX_CANCELLATION_DESCRIPTION\)/);
   assert.match(commercial, /commercialTextIfPresent\(formatted\.value, MAX_RULE_TEXT\)/);
   assert.match(commercial, /commercial text that would be truncated before authority fingerprinting/);
