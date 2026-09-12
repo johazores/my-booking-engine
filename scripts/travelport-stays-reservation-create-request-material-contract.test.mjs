@@ -63,8 +63,8 @@ test('Travelport Create material and executor require exact two-character accept
   assert.match(executor, /acceptedPaymentCardCodes\.some\(\(code\) =>/);
   assert.match(executor, /code\.length !== MAX_CARD_CODE_LENGTH/);
   assert.match(executor, /new Set\(acceptedPaymentCardCodes\)\.size !== acceptedPaymentCardCodes\.length/);
-  assert.match(executor, /\/\^\[A-Z0-9\]\{2\}\$\//);
-  assert.doesNotMatch(executor, /\/\^\[A-Z0-9\]\{1,2\}\$\//);
+  assert.ok(executor.includes('/^[A-Z0-9]{2}$/'));
+  assert.ok(!executor.includes('/^[A-Z0-9]{1,2}$/'));
 
   assert.match(rulesMemberAuthority, /PAYMENT_CARD_CODE_LENGTH = 2/);
   assert.match(rulesMemberAuthority, /value\.length !== PAYMENT_CARD_CODE_LENGTH/);
