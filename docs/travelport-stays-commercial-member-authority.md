@@ -18,7 +18,7 @@ SF therefore distinguishes a truly absent optional collection from a malformed p
 - each present text block must contain at least one `TextFormatted` member; and
 - each present formatted-text member must contain non-empty retained text that fits the existing commercial text bound without control normalization or truncation.
 
-Titles and language codes remain optional because Travelport examples can omit them. The existing commercial authority layer continues to validate those values when they are present.
+Titles and language codes remain optional under the existing SF compatibility contract. The established commercial authority layer continues to validate those values when they are present.
 
 ## Why fail closed
 
@@ -42,7 +42,7 @@ The high-confidence silent-drop defect is therefore limited to accepted-card cod
 
 Focused behavior coverage verifies canonical Rules members, optional collection absence, incomplete accepted-card members, incomplete/empty text blocks, missing/empty/oversized formatted text, and successful unrelated JSON used by the composed fetch boundary.
 
-A dependency-free source contract pins the wrapper ordering, required member-value checks, the exact compatibility-core silent-drop sites being protected, and the continued absence of reservation/card-write behavior from this authority module.
+A dependency-free source contract pins the wrapper ordering, required member-value checks, exact two-character card-code semantics, and the continued absence of reservation/card-write behavior from this authority module.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live provider verification still requires provisioned Travelport non-production credentials.
 
