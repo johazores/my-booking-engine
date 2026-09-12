@@ -105,7 +105,7 @@ test('reconciliation marks provider-request evidence immediately before provider
   const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
   const markIndex = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted');
   const markerFailureSettlementIndex = coordinator.indexOf('settleHospitalitySupplierReservationReconciliation', markIndex);
-  const providerIndex = coordinator.indexOf('await input.provider.retrieveReservation');
+  const providerIndex = coordinator.indexOf('rawResult = await provider.retrieveReservation');
   assert.ok(markIndex >= 0 && markerFailureSettlementIndex > markIndex && providerIndex > markerFailureSettlementIndex);
   assert.match(coordinator, /try \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted[\s\S]*?catch \(error\) \{[\s\S]*?status: 'UNKNOWN',[\s\S]*?failureCode: error instanceof HospitalitySupplierProviderError \? error\.code : 'INVALID_REQUEST'/);
   assert.match(coordinator, /attemptId: claim\.attempt\.id/);

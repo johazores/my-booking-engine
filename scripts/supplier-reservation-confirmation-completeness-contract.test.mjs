@@ -34,7 +34,7 @@ test('fresh supplier confirmation completeness is preserved through durable sett
     foundIndex,
   );
   const providerCompletenessIndex = reconciliation.indexOf(
-    'input.provider.requiresSupplierConfirmationForFound === true',
+    'provider.requiresSupplierConfirmationForFound',
     confirmationCheckIndex,
   );
   const foundSuccessIndex = reconciliation.indexOf("providerResult: 'FOUND'", providerCompletenessIndex);

@@ -52,8 +52,9 @@ test('confirmed supplier evidence is normalized and settled atomically without e
 });
 
 test('provider-neutral coordinator authorizes, persists correlation, and claims before provider I/O', async () => {
-  const [coordinator, recoveryContract, runner, operationsDoc, responseDoc, travelportDoc, correlationDoc] = await Promise.all([
+  const [coordinator, reconciliationAuthority, recoveryContract, runner, operationsDoc, responseDoc, travelportDoc, correlationDoc] = await Promise.all([
     source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts'),
+    source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-authority.ts'),
     source('src/server/suppliers/hospitality-supplier-reservation-recovery-provider.ts'),
     source('scripts/run-database-tests.mjs'),
     source('docs/supplier-reservation-operations.md'),
@@ -66,10 +67,14 @@ test('provider-neutral coordinator authorizes, persists correlation, and claims 
   assert.match(recoveryContract, /requestCorrelationId: string/);
   assert.doesNotMatch(recoveryContract, /Travelport|credentials|accessToken|ReservationResponse/);
   const claimIndex = coordinator.indexOf('claimHospitalitySupplierReservationReconciliation');
-  const providerIoIndex = coordinator.indexOf('input.provider.retrieveReservation');
+  const providerIoIndex = coordinator.indexOf('rawResult = await provider.retrieveReservation');
   assert.ok(claimIndex >= 0 && providerIoIndex > claimIndex);
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
-  assert.match(coordinator, /input\.provider\.code !== claim\.reservation\.providerCode/);
+  assert.match(coordinator, /provider\.code !== claim\.reservation\.providerCode/);
+  assert.match(coordinator, /materializeHospitalitySupplierReservationReconciliationInput\(input\)/);
+  assert.match(coordinator, /materializeHospitalitySupplierReservationRecoveryProvider\(authority\.provider\)/);
+  assert.match(coordinator, /materializeHospitalitySupplierReservationRecoveryResult\(rawResult\)/);
+  assert.match(reconciliationAuthority, /Reflect\.apply\(retrieveReservation, provider/);
   assert.match(coordinator, /error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE'/);
   assert.match(coordinator, /const rawSupplierConfirmationReference =/);
   assert.match(coordinator, /status: 'FOUND'/);

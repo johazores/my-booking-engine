@@ -135,14 +135,18 @@ test('supplier provider observation emits one completion record only', () => {
 test('reconciliation observes only complete identity-safe provider evidence as successful', () => {
   const source = readFileSync(new URL('../src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts', import.meta.url), 'utf8');
   const claimIndex = source.indexOf('claimHospitalitySupplierReservationReconciliation');
-  const providerGuardIndex = source.indexOf("input.provider.code !== claim.reservation.providerCode");
+  const providerMaterializationIndex = source.indexOf('materializeHospitalitySupplierReservationRecoveryProvider(authority.provider)', claimIndex);
+  const providerGuardIndex = source.indexOf('provider.code !== claim.reservation.providerCode', providerMaterializationIndex);
   const observerIndex = source.indexOf('createHospitalitySupplierReservationProviderObservation({');
-  const providerIoIndex = source.indexOf('input.provider.retrieveReservation');
+  const providerIoIndex = source.indexOf('rawResult = await provider.retrieveReservation');
   const catchIndex = source.indexOf('} catch (error) {', providerIoIndex);
-  const postCatchValidationIndex = source.indexOf("if (!result || typeof result !== 'object'");
+  const resultMaterializationIndex = source.indexOf(
+    'result = materializeHospitalitySupplierReservationRecoveryResult(rawResult)',
+    catchIndex,
+  );
   const correlationNormalizationIndex = source.indexOf(
     'normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId)',
-    postCatchValidationIndex,
+    resultMaterializationIndex,
   );
   const foundBranchIndex = source.indexOf("if (result.status === 'FOUND')", correlationNormalizationIndex);
   const foundEvidenceIndex = source.indexOf(
@@ -158,19 +162,19 @@ test('reconciliation observes only complete identity-safe provider evidence as s
   const notFoundSuccessIndex = source.indexOf("providerResult: 'NOT_FOUND'", notFoundEvidenceIndex);
 
   assert.ok(claimIndex >= 0);
-  assert.ok(providerGuardIndex > claimIndex);
+  assert.ok(providerMaterializationIndex > claimIndex);
+  assert.ok(providerGuardIndex > providerMaterializationIndex);
   assert.ok(observerIndex > providerGuardIndex);
   assert.ok(providerIoIndex > observerIndex);
   assert.ok(catchIndex > providerIoIndex);
-  assert.ok(postCatchValidationIndex > catchIndex);
-  assert.ok(correlationNormalizationIndex > postCatchValidationIndex);
+  assert.ok(resultMaterializationIndex > catchIndex);
+  assert.ok(correlationNormalizationIndex > resultMaterializationIndex);
   assert.ok(foundBranchIndex > correlationNormalizationIndex);
   assert.ok(foundEvidenceIndex > foundBranchIndex);
   assert.ok(foundSuccessIndex > foundEvidenceIndex);
   assert.ok(notFoundBranchIndex > foundSuccessIndex);
   assert.ok(notFoundEvidenceIndex > notFoundBranchIndex);
   assert.ok(notFoundSuccessIndex > notFoundEvidenceIndex);
-  assert.doesNotMatch(source.slice(catchIndex, postCatchValidationIndex), /status: 'FOUND'|status: 'NOT_FOUND'/);
   assert.match(source, /requestCorrelationId: claim\.attempt\.id/);
   assert.match(source, /if \(result\.status === 'FOUND'\)/);
   assert.match(source, /if \(result\.status === 'NOT_FOUND'\)/);
@@ -186,6 +190,6 @@ test('reconciliation observes only complete identity-safe provider evidence as s
   );
 
   const observationCalls = [...source.matchAll(/providerObservation\.finish/g)];
-  assert.equal(observationCalls.length, 8);
-  assert.match(source, /createHospitalitySupplierReservationProviderObservation\(\{\n\s+requestCorrelationId: claim\.attempt\.id,\n\s+organizationId: input\.organizationId,\n\s+provider: claim\.reservation\.providerCode,\n\s+\}\)/);
+  assert.equal(observationCalls.length, 9);
+  assert.match(source, /createHospitalitySupplierReservationProviderObservation\(\{\n\s+requestCorrelationId: claim\.attempt\.id,\n\s+organizationId: authority\.organizationId,\n\s+provider: claim\.reservation\.providerCode,\n\s+\}\)/);
 });

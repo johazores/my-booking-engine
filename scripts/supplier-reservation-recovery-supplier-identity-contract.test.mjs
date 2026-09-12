@@ -19,10 +19,14 @@ test('recovery normalizes provider evidence and never replaces or erases a known
     /status === 'NOT_FOUND'[\s\S]*?recoveredSupplierConfirmationReference !== null[\s\S]*?HOSPITALITY_SUPPLIER_CONFIRMATION_MISMATCH_FAILURE_CODE/,
   );
 
-  const providerCall = reconciliation.indexOf('await input.provider.retrieveReservation');
+  const providerCall = reconciliation.indexOf('rawResult = await provider.retrieveReservation');
+  const resultMaterialization = reconciliation.indexOf(
+    'result = materializeHospitalitySupplierReservationRecoveryResult(rawResult)',
+    providerCall,
+  );
   const rawSupplierEvidence = reconciliation.indexOf(
     'const rawSupplierConfirmationReference =',
-    providerCall,
+    resultMaterialization,
   );
   const correlationNormalization = reconciliation.indexOf(
     'normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId)',
@@ -47,7 +51,8 @@ test('recovery normalizes provider evidence and never replaces or erases a known
   const notFoundSuccess = reconciliation.indexOf("providerResult: 'NOT_FOUND'", notFoundConfirmationCheck);
 
   assert.ok(providerCall >= 0);
-  assert.ok(rawSupplierEvidence > providerCall);
+  assert.ok(resultMaterialization > providerCall);
+  assert.ok(rawSupplierEvidence > resultMaterialization);
   assert.ok(correlationNormalization > rawSupplierEvidence);
   assert.ok(supplierNormalization > correlationNormalization);
   assert.ok(foundBranch > supplierNormalization);

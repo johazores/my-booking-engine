@@ -53,7 +53,7 @@ test('Travelport Create and Sync require a fresh marker before each commercial p
 test('known-locator reconciliation also refuses to replay provider I/O on an existing marker', () => {
   const markerIndex = reconciliationCoordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted');
   const freshIndex = reconciliationCoordinator.indexOf('requireFreshProviderRequest: true', markerIndex);
-  const providerIndex = reconciliationCoordinator.indexOf('await input.provider.retrieveReservation', freshIndex);
+  const providerIndex = reconciliationCoordinator.indexOf('rawResult = await provider.retrieveReservation', freshIndex);
   assert.ok(markerIndex >= 0 && freshIndex > markerIndex && providerIndex > freshIndex);
 });
 
