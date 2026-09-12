@@ -87,6 +87,78 @@ test('provider result fields are read once and later caller mutation cannot chan
   assert.equal(offerReads, 1);
 });
 
+test('nested commercial authority fields are read once before validation and freezing', () => {
+  const reads = new Map<string, number>();
+  const once = <T>(name: string, value: T) => ({
+    get value() {
+      reads.set(name, (reads.get(name) ?? 0) + 1);
+      return value;
+    },
+  });
+  const property = once('property', 'property');
+  const offerReference = once('offer', 'offer');
+  const offerFingerprint = once('offerFingerprint', 'a'.repeat(64));
+  const offerCurrency = once('offerCurrency', 'AUD');
+  const offerTotal = once('offerTotal', 12345n);
+  const termsProperty = once('termsProperty', 'property');
+  const termsOffer = once('termsOffer', 'offer');
+  const termsFingerprint = once('termsFingerprint', 'b'.repeat(64));
+  const complete = once('complete', true);
+  const revalidation = once('termsRevalidation', true);
+  const paymentTiming = once('paymentTiming', 'PREPAY');
+  const guaranteeTypes = once('guaranteeTypes', ['PREPAY_REQUIRED']);
+  const loyalty = once('loyalty', false);
+  const deposits = once('deposits', []);
+  const cards = once('cards', ['VI']);
+  const termsCurrency = once('termsCurrency', 'AUD');
+  const termsTotal = once('termsTotal', 12345n);
+  const authorityFingerprint = once('authorityFingerprint', 'c'.repeat(64));
+  const submissionReference = once('submissionReference', 'submission');
+  const observedAt = once('observedAt', '2026-09-13T00:00:00.000Z');
+  const resultRevalidation = once('resultRevalidation', true);
+
+  const snapshot = materializeHospitalitySupplierReservationAuthorityResult({
+    status: 'READY',
+    offer: {
+      get supplierPropertyReference() { return property.value; },
+      get supplierOfferReference() { return offerReference.value; },
+      get offerFingerprint() { return offerFingerprint.value; },
+      get price() {
+        return {
+          get currency() { return offerCurrency.value; },
+          get totalMinor() { return offerTotal.value; },
+        };
+      },
+    },
+    bookingTerms: {
+      get supplierPropertyReference() { return termsProperty.value; },
+      get supplierOfferReference() { return termsOffer.value; },
+      get termsFingerprint() { return termsFingerprint.value; },
+      get completeForReservationReview() { return complete.value; },
+      get revalidationRequired() { return revalidation.value; },
+      get paymentTiming() { return paymentTiming.value; },
+      get guaranteeTypes() { return guaranteeTypes.value; },
+      get customerLoyaltyRequiredAtReservation() { return loyalty.value; },
+      get deposits() { return deposits.value; },
+      get acceptedPaymentCardCodes() { return cards.value; },
+      get price() {
+        return {
+          get currency() { return termsCurrency.value; },
+          get totalMinor() { return termsTotal.value; },
+        };
+      },
+    },
+    get authorityFingerprint() { return authorityFingerprint.value; },
+    get providerSubmissionReference() { return submissionReference.value; },
+    get observedAt() { return observedAt.value; },
+    get revalidationRequired() { return resultRevalidation.value; },
+  });
+
+  assert.equal(snapshot.offer?.price.totalMinor, 12345n);
+  assert.equal(snapshot.bookingTerms?.termsFingerprint, 'b'.repeat(64));
+  for (const [name, count] of reads) assert.equal(count, 1, `${name} must be read once`);
+});
+
 test('booking terms snapshot freezes payment arrays and deposit money', () => {
   const result = materializeHospitalitySupplierBookingTermsResult({
     status: 'READY',

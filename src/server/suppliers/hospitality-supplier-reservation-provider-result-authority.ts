@@ -102,8 +102,10 @@ function guaranteeTypes(value: unknown) {
 function money(value: unknown) {
   if (value === null) return null;
   const input = record(value);
-  if (typeof input.currency !== 'string' || typeof input.amountMinor !== 'bigint') invalidResult();
-  return Object.freeze({ currency: input.currency, amountMinor: input.amountMinor });
+  const currency = input.currency;
+  const amountMinor = input.amountMinor;
+  if (typeof currency !== 'string' || typeof amountMinor !== 'bigint') invalidResult();
+  return Object.freeze({ currency, amountMinor });
 }
 
 function deposits(value: unknown) {
@@ -115,16 +117,19 @@ function deposits(value: unknown) {
   }>> = [];
   for (let index = 0; index < array.length; index += 1) {
     const input = record(array.value[index]);
+    const remainder = input.remainder;
+    const dueDateLocal = input.dueDateLocal;
+    const depositMoney = input.money;
     if (
-      (input.remainder !== null && typeof input.remainder !== 'boolean')
-      || (input.dueDateLocal !== null && typeof input.dueDateLocal !== 'string')
+      (remainder !== null && typeof remainder !== 'boolean')
+      || (dueDateLocal !== null && typeof dueDateLocal !== 'string')
     ) {
       invalidResult();
     }
     snapshot.push(Object.freeze({
-      remainder: input.remainder,
-      dueDateLocal: input.dueDateLocal,
-      money: money(input.money),
+      remainder,
+      dueDateLocal,
+      money: money(depositMoney),
     }) as (typeof snapshot)[number]);
   }
   return Object.freeze(snapshot);
@@ -133,53 +138,70 @@ function deposits(value: unknown) {
 function commercialOffer(value: unknown): CommercialOfferSnapshot | null {
   if (value === null) return null;
   const input = record(value);
+  const supplierPropertyReference = input.supplierPropertyReference;
+  const supplierOfferReference = input.supplierOfferReference;
+  const offerFingerprint = input.offerFingerprint;
   const price = record(input.price);
+  const currency = price.currency;
+  const totalMinor = price.totalMinor;
   if (
-    typeof input.supplierPropertyReference !== 'string'
-    || typeof input.supplierOfferReference !== 'string'
-    || typeof input.offerFingerprint !== 'string'
-    || typeof price.currency !== 'string'
-    || typeof price.totalMinor !== 'bigint'
+    typeof supplierPropertyReference !== 'string'
+    || typeof supplierOfferReference !== 'string'
+    || typeof offerFingerprint !== 'string'
+    || typeof currency !== 'string'
+    || typeof totalMinor !== 'bigint'
   ) {
     invalidResult();
   }
   return Object.freeze({
-    supplierPropertyReference: input.supplierPropertyReference,
-    supplierOfferReference: input.supplierOfferReference,
-    offerFingerprint: input.offerFingerprint,
-    price: Object.freeze({ currency: price.currency, totalMinor: price.totalMinor }),
+    supplierPropertyReference,
+    supplierOfferReference,
+    offerFingerprint,
+    price: Object.freeze({ currency, totalMinor }),
   });
 }
 
 function commercialBookingTerms(value: unknown): CommercialBookingTermsSnapshot | null {
   if (value === null) return null;
   const input = record(value);
+  const supplierPropertyReference = input.supplierPropertyReference;
+  const supplierOfferReference = input.supplierOfferReference;
+  const termsFingerprint = input.termsFingerprint;
+  const completeForReservationReview = input.completeForReservationReview;
+  const revalidationRequired = input.revalidationRequired;
+  const paymentTiming = input.paymentTiming;
+  const guaranteeTypeValues = input.guaranteeTypes;
+  const customerLoyaltyRequiredAtReservation = input.customerLoyaltyRequiredAtReservation;
+  const depositValues = input.deposits;
+  const acceptedPaymentCardCodeValues = input.acceptedPaymentCardCodes;
   const price = record(input.price);
+  const currency = price.currency;
+  const totalMinor = price.totalMinor;
   if (
-    typeof input.supplierPropertyReference !== 'string'
-    || typeof input.supplierOfferReference !== 'string'
-    || typeof input.termsFingerprint !== 'string'
-    || typeof input.completeForReservationReview !== 'boolean'
-    || input.revalidationRequired !== true
-    || (input.paymentTiming !== 'PREPAY' && input.paymentTiming !== 'POSTPAY' && input.paymentTiming !== 'UNKNOWN')
-    || (input.customerLoyaltyRequiredAtReservation !== null && typeof input.customerLoyaltyRequiredAtReservation !== 'boolean')
-    || typeof price.currency !== 'string'
-    || typeof price.totalMinor !== 'bigint'
+    typeof supplierPropertyReference !== 'string'
+    || typeof supplierOfferReference !== 'string'
+    || typeof termsFingerprint !== 'string'
+    || typeof completeForReservationReview !== 'boolean'
+    || revalidationRequired !== true
+    || (paymentTiming !== 'PREPAY' && paymentTiming !== 'POSTPAY' && paymentTiming !== 'UNKNOWN')
+    || (customerLoyaltyRequiredAtReservation !== null && typeof customerLoyaltyRequiredAtReservation !== 'boolean')
+    || typeof currency !== 'string'
+    || typeof totalMinor !== 'bigint'
   ) {
     invalidResult();
   }
   return Object.freeze({
-    supplierPropertyReference: input.supplierPropertyReference,
-    supplierOfferReference: input.supplierOfferReference,
-    termsFingerprint: input.termsFingerprint,
-    completeForReservationReview: input.completeForReservationReview,
+    supplierPropertyReference,
+    supplierOfferReference,
+    termsFingerprint,
+    completeForReservationReview,
     revalidationRequired: true,
-    paymentTiming: input.paymentTiming,
-    guaranteeTypes: guaranteeTypes(input.guaranteeTypes),
-    customerLoyaltyRequiredAtReservation: input.customerLoyaltyRequiredAtReservation,
-    deposits: deposits(input.deposits),
-    acceptedPaymentCardCodes: stringArray(input.acceptedPaymentCardCodes, MAX_PAYMENT_CARD_CODES),
-    price: Object.freeze({ currency: price.currency, totalMinor: price.totalMinor }),
+    paymentTiming,
+    guaranteeTypes: guaranteeTypes(guaranteeTypeValues),
+    customerLoyaltyRequiredAtReservation,
+    deposits: deposits(depositValues),
+    acceptedPaymentCardCodes: stringArray(acceptedPaymentCardCodeValues, MAX_PAYMENT_CARD_CODES),
+    price: Object.freeze({ currency, totalMinor }),
   });
 }
 
@@ -212,21 +234,28 @@ export function materializeHospitalitySupplierBookingTermsResult(value: unknown)
 export function materializeHospitalitySupplierReservationAuthorityResult(value: unknown) {
   return materialize(() => {
     const input = record(value);
+    const resultStatus = input.status;
+    const offer = input.offer;
+    const bookingTerms = input.bookingTerms;
+    const authorityFingerprint = input.authorityFingerprint;
+    const providerSubmissionReference = input.providerSubmissionReference;
+    const observedAt = input.observedAt;
+    const revalidationRequired = input.revalidationRequired;
     if (
-      (input.authorityFingerprint !== null && typeof input.authorityFingerprint !== 'string')
-      || (input.providerSubmissionReference !== null && typeof input.providerSubmissionReference !== 'string')
-      || typeof input.observedAt !== 'string'
-      || input.revalidationRequired !== true
+      (authorityFingerprint !== null && typeof authorityFingerprint !== 'string')
+      || (providerSubmissionReference !== null && typeof providerSubmissionReference !== 'string')
+      || typeof observedAt !== 'string'
+      || revalidationRequired !== true
     ) {
       invalidResult();
     }
     return Object.freeze({
-      status: status(input.status, reservationAuthorityStatuses),
-      offer: commercialOffer(input.offer),
-      bookingTerms: commercialBookingTerms(input.bookingTerms),
-      authorityFingerprint: input.authorityFingerprint,
-      providerSubmissionReference: input.providerSubmissionReference,
-      observedAt: input.observedAt,
+      status: status(resultStatus, reservationAuthorityStatuses),
+      offer: commercialOffer(offer),
+      bookingTerms: commercialBookingTerms(bookingTerms),
+      authorityFingerprint,
+      providerSubmissionReference,
+      observedAt,
       revalidationRequired: true as const,
     });
   });
