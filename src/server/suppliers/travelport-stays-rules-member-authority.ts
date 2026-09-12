@@ -5,7 +5,7 @@ const MAX_TERMS_BLOCKS = 8;
 const MAX_PAYMENT_CARDS = 32;
 const MAX_TEXT_BLOCKS = 64;
 const MAX_TEXT_FORMATTED = 8;
-const MAX_PAYMENT_CARD_CODE = 16;
+const PAYMENT_CARD_CODE_LENGTH = 2;
 const MAX_RULE_TEXT = 2_000;
 const MAX_RAW_TEXT_MULTIPLIER = 4;
 
@@ -39,6 +39,13 @@ function requiredMachineString(value: unknown, max: number, label: string): void
   }
 }
 
+function requiredPaymentCardCode(value: unknown): void {
+  requiredMachineString(value, PAYMENT_CARD_CODE_LENGTH, 'accepted-card code');
+  if (typeof value !== 'string' || value.length !== PAYMENT_CARD_CODE_LENGTH) {
+    invalidResponse('Travelport returned invalid accepted-card code authority evidence.');
+  }
+}
+
 function requiredCommercialText(value: unknown, max: number, label: string): void {
   if (typeof value !== 'string' || ASCII_CONTROL_PATTERN.test(value)) {
     invalidResponse(`Travelport returned incomplete ${label} authority evidence.`);
@@ -62,7 +69,7 @@ function validateTermsMemberAuthority(value: unknown): void {
   for (const cardValue of boundedArray(terms.AcceptedCreditCard, MAX_PAYMENT_CARDS)) {
     const card = record(cardValue);
     if (!card) invalidResponse();
-    requiredMachineString(card.value, MAX_PAYMENT_CARD_CODE, 'accepted-card code');
+    requiredPaymentCardCode(card.value);
   }
 
   for (const textBlockValue of boundedArray(terms.TextBlock, MAX_TEXT_BLOCKS)) {

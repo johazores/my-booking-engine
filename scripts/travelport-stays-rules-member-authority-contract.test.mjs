@@ -22,7 +22,8 @@ test('Rules member authority runs after the existing public reference/commercial
 });
 
 test('present accepted-card and formatted-text members require primary commercial values', () => {
-  assert.match(authority, /requiredMachineString\(card\.value, MAX_PAYMENT_CARD_CODE, 'accepted-card code'\)/);
+  assert.match(authority, /requiredPaymentCardCode\(card\.value\)/);
+  assert.match(authority, /value\.length !== PAYMENT_CARD_CODE_LENGTH/);
   assert.match(authority, /textBlock\.TextFormatted\.length < 1/);
   assert.match(authority, /requiredCommercialText\(formatted\.value, MAX_RULE_TEXT, 'Rules formatted-text'\)/);
   assert.match(authority, /if \(!normalized\)/);

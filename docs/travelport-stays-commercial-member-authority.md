@@ -13,7 +13,7 @@ Current Travelport Stays Rules documentation describes `AcceptedCreditCard` as a
 SF therefore distinguishes a truly absent optional collection from a malformed present member:
 
 - absent or `null` `AcceptedCreditCard` remains compatible with no accepted-card evidence;
-- each present accepted-card object must contain a non-empty exact bounded `value`;
+- each present accepted-card object must contain an exact two-character `value`;
 - absent or `null` `TextBlock` remains compatible with no formatted-text evidence;
 - each present text block must contain at least one `TextFormatted` member; and
 - each present formatted-text member must contain non-empty retained text that fits the existing commercial text bound without control normalization or truncation.

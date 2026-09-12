@@ -44,7 +44,7 @@ test('canonical Rules collection members remain accepted', () => {
 });
 
 test('present accepted-card members require a non-empty exact code', () => {
-  for (const value of [undefined, null, '', ' VI', 'VI ', 'V\tI']) {
+  for (const value of [undefined, null, '', 'V', 'VISA', ' VI', 'VI ', 'V\tI']) {
     const payload = rulesResponse();
     payload.OfferHospitalityResponse.Offer.TermsAndConditionsFull[0]!.AcceptedCreditCard = [{
       ...(value !== undefined ? { value } : {}),
