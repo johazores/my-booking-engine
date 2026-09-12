@@ -8,6 +8,11 @@ import {
   type HospitalitySupplierReservationSelectionInput,
 } from './hospitality-supplier-reservation-domain.ts';
 import type { HospitalitySupplierReservationAuthorityInput } from './hospitality-supplier-reservation-authority.ts';
+import {
+  materializeHospitalitySupplierReservationAuthorityReviewInput,
+  materializeHospitalitySupplierReservationPreparationWithTravelerInput,
+  materializeHospitalitySupplierReservationReviewAndClaimInput,
+} from './hospitality-supplier-reservation-input-authority.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
   assertHospitalitySupplierReservationSubmissionAuthority,
@@ -55,6 +60,7 @@ export async function reviewHospitalitySupplierReservationAuthority(input: {
   actorUserId: string;
   selection: HospitalitySupplierReservationAuthorityInput;
 }) {
+  input = materializeHospitalitySupplierReservationAuthorityReviewInput(input) as typeof input;
   await requireSupplierReservationReviewAuthority(input);
   const { reservationAuthorityProvider } = await loadTravelportStaysIntegration(input.organizationId);
   const review = await reservationAuthorityProvider.verifyReservationAuthority(input.selection);
@@ -76,6 +82,7 @@ export async function prepareHospitalitySupplierReservationWithTravelerAuthority
   selection: Omit<HospitalitySupplierReservationSelectionInput, 'reservationPayloadFingerprint'>;
   traveler: HospitalitySupplierReservationTravelerPayloadInput;
 }) {
+  input = materializeHospitalitySupplierReservationPreparationWithTravelerInput(input) as typeof input;
   await requireSupplierReservationReviewAuthority(input);
   const traveler = normalizeHospitalitySupplierReservationTravelerPayload(input.traveler);
   const reservationPayloadFingerprint = hospitalitySupplierReservationTravelerPayloadFingerprint(traveler);
@@ -98,6 +105,7 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
   reservationId: string;
   traveler: HospitalitySupplierReservationTravelerPayloadInput;
 }) {
+  input = materializeHospitalitySupplierReservationReviewAndClaimInput(input) as typeof input;
   await requireSupplierReservationReviewAuthority(input);
   assertUuidIdentifier(input.reservationId, 'reservationId');
 

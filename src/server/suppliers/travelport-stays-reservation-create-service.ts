@@ -7,6 +7,7 @@ import {
 import {
   reviewAndClaimHospitalitySupplierReservationSubmission,
 } from './hospitality-supplier-reservation-authority-service.ts';
+import { materializeHospitalitySupplierReservationReviewAndClaimInput } from './hospitality-supplier-reservation-input-authority.ts';
 import {
   classifyHospitalitySupplierPreProviderFailure,
 } from './hospitality-supplier-pre-provider-failure.ts';
@@ -121,6 +122,7 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
   }>,
   paymentCardSource: TravelportStaysReservationPaymentCardSource,
 ) {
+  input = materializeHospitalitySupplierReservationReviewAndClaimInput(input) as typeof input;
   const reviewed = await reviewAndClaimHospitalitySupplierReservationSubmission({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,

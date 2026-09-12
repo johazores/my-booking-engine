@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { loadTravelportStaysIntegration } from '../integrations/travelport-stays-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
+import { materializeHospitalitySupplierReservationCommercialReviewAcceptanceInput } from './hospitality-supplier-reservation-input-authority.ts';
 import { createHospitalitySupplierReservationReviewAcceptance } from './hospitality-supplier-reservation-review-acceptance.ts';
 import { assertHospitalitySupplierReservationReviewAttemptAuthority } from './hospitality-supplier-reservation-review-attempt-authority.ts';
 import { hospitalitySupplierReservationAuthorityInputFromOperation } from './hospitality-supplier-reservation-submission-authority.ts';
@@ -118,6 +119,7 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
   acceptPriceChange: unknown;
   acceptGuaranteeChange: unknown;
 }>) {
+  input = materializeHospitalitySupplierReservationCommercialReviewAcceptanceInput(input) as typeof input;
   await requireReviewAcceptanceAuthority(input);
   assertUuidIdentifier(input.reservationId, 'reservationId');
 

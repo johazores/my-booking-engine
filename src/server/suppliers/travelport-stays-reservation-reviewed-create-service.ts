@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { loadTravelportStaysIntegration } from '../integrations/travelport-stays-integration.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { HospitalitySupplierReservationConflictError } from './hospitality-supplier-reservation-domain.ts';
+import { materializeHospitalitySupplierReservationAcceptedReviewInput } from './hospitality-supplier-reservation-input-authority.ts';
 import {
   consumeHospitalitySupplierReservationReviewAcceptanceForProviderRequest,
 } from './hospitality-supplier-reservation-review-consumption-service.ts';
@@ -106,6 +107,7 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
   }>,
   paymentCardSource: TravelportStaysReservationPaymentCardSource,
 ) {
+  input = materializeHospitalitySupplierReservationAcceptedReviewInput(input) as typeof input;
   const reviewed = await reviewTravelportStaysReservationAcceptedCommercialAuthority({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,

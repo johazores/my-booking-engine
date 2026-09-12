@@ -6,6 +6,7 @@ import {
   normalizeHospitalitySupplierReservationCorrelationId,
   normalizeHospitalitySupplierReservationFailureCode,
 } from './hospitality-supplier-reservation-domain.ts';
+import { materializeHospitalitySupplierReservationReviewRequiredInput } from './hospitality-supplier-reservation-input-authority.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
 
 const REVIEW_FAILURE_CODES = new Set([
@@ -39,6 +40,7 @@ export async function settleHospitalitySupplierReservationReviewRequired(input: 
   failureCode: unknown;
   providerCorrelationId?: unknown;
 }>) {
+  input = materializeHospitalitySupplierReservationReviewRequiredInput(input) as typeof input;
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.reservationId, 'reservationId');

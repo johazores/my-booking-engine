@@ -16,6 +16,12 @@ import {
   type HospitalitySupplierReservationSelectionInput,
 } from './hospitality-supplier-reservation-domain.ts';
 import {
+  materializeHospitalitySupplierReservationPreparationInput,
+  materializeHospitalitySupplierReservationReconciliationSettlementInput,
+  materializeHospitalitySupplierReservationScope,
+  materializeHospitalitySupplierReservationSubmissionSettlementInput,
+} from './hospitality-supplier-reservation-input-authority.ts';
+import {
   hospitalitySupplierReservationRecoveryConfirmationFailureCode,
 } from './hospitality-supplier-reservation-confirmation-evidence.ts';
 
@@ -63,6 +69,7 @@ export async function prepareHospitalitySupplierReservation(input: {
   idempotencyKey: unknown;
   selection: HospitalitySupplierReservationSelectionInput;
 }) {
+  input = materializeHospitalitySupplierReservationPreparationInput(input) as typeof input;
   await requireSupplierReservationAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.integrationId, 'integrationId');
   const idempotencyKey = normalizeHospitalitySupplierReservationIdempotencyKey(input.idempotencyKey);
@@ -157,6 +164,7 @@ export async function claimHospitalitySupplierReservationSubmission(input: {
   actorUserId: string;
   reservationId: string;
 }) {
+  input = materializeHospitalitySupplierReservationScope(input) as typeof input;
   await requireSupplierReservationAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.reservationId, 'reservationId');
 
@@ -263,6 +271,7 @@ export async function settleHospitalitySupplierReservationSubmission(input: {
   attemptId: string;
   outcome: HospitalitySupplierReservationSubmissionOutcome;
 }) {
+  input = materializeHospitalitySupplierReservationSubmissionSettlementInput(input) as typeof input;
   await requireSupplierReservationAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.reservationId, 'reservationId');
   assertUuidIdentifier(input.attemptId, 'attemptId');
@@ -381,6 +390,7 @@ export async function claimHospitalitySupplierReservationReconciliation(input: {
   actorUserId: string;
   reservationId: string;
 }) {
+  input = materializeHospitalitySupplierReservationScope(input) as typeof input;
   await requireSupplierReservationAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.reservationId, 'reservationId');
 
@@ -487,6 +497,7 @@ export async function settleHospitalitySupplierReservationReconciliation(input: 
   attemptId: string;
   outcome: HospitalitySupplierReservationReconciliationOutcome;
 }) {
+  input = materializeHospitalitySupplierReservationReconciliationSettlementInput(input) as typeof input;
   await requireSupplierReservationAuthority(input.organizationId, input.actorUserId);
   assertUuidIdentifier(input.reservationId, 'reservationId');
   assertUuidIdentifier(input.attemptId, 'attemptId');

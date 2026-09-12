@@ -2,6 +2,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { HospitalitySupplierReservationConflictError } from './hospitality-supplier-reservation-domain.ts';
+import { materializeHospitalitySupplierReservationReviewConsumptionInput } from './hospitality-supplier-reservation-input-authority.ts';
 import { assertHospitalitySupplierReservationStoredReviewAcceptance } from './hospitality-supplier-reservation-review-acceptance.ts';
 import { assertHospitalitySupplierReservationReviewAttemptAuthority } from './hospitality-supplier-reservation-review-attempt-authority.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
@@ -72,6 +73,7 @@ export async function consumeHospitalitySupplierReservationReviewAcceptanceForPr
   attemptId: string;
   expectedAcceptanceFingerprint: unknown;
 }>) {
+  input = materializeHospitalitySupplierReservationReviewConsumptionInput(input) as typeof input;
   await requireReviewConsumptionAuthority(input);
   assertUuidIdentifier(input.reservationId, 'reservationId');
   assertUuidIdentifier(input.attemptId, 'attemptId');

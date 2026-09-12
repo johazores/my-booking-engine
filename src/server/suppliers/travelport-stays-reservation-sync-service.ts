@@ -4,6 +4,7 @@ import {
   HospitalitySupplierReservationProviderRequestAlreadyStartedError,
   markHospitalitySupplierReservationProviderRequestStarted,
 } from './hospitality-supplier-reservation-attempt-recovery-service.ts';
+import { materializeHospitalitySupplierReservationReviewAndClaimInput } from './hospitality-supplier-reservation-input-authority.ts';
 import {
   classifyHospitalitySupplierPreProviderFailure,
 } from './hospitality-supplier-pre-provider-failure.ts';
@@ -87,6 +88,7 @@ export async function syncTravelportStaysBookingDotComReservation(input: Readonl
   reservationId: string;
   traveler: HospitalitySupplierReservationTravelerPayloadInput;
 }>) {
+  input = materializeHospitalitySupplierReservationReviewAndClaimInput(input) as typeof input;
   const traveler = normalizeHospitalitySupplierReservationTravelerPayload(input.traveler);
   const reservationPayloadFingerprint = hospitalitySupplierReservationTravelerPayloadFingerprint(traveler);
 
