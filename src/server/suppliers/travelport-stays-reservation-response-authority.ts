@@ -25,6 +25,7 @@ const MAX_ERROR_STATUS_CODE = 599;
 const MAX_WARNING_STATUS_CODE = 999;
 
 type RecordValue = Readonly<Record<string, unknown>>;
+type ReservationResponseFamily = 'ReservationResponse' | 'ErrorResponse';
 
 function invalidResponse(message = 'Travelport reservation response contained invalid machine authority evidence.'): never {
   throw new HospitalitySupplierProviderError('INVALID_RESPONSE', message);
@@ -87,8 +88,11 @@ function assertCategoryIfPresent(value: unknown): void {
   if (!/^[A-Z_]{2,32}$/.test(value as string)) invalidResponse();
 }
 
-function validateResult(response: RecordValue): void {
-  if (response.Result === undefined || response.Result === null) return;
+function validateResult(response: RecordValue, responseFamily: ReservationResponseFamily): void {
+  if (response.Result === undefined || response.Result === null) {
+    if (responseFamily === 'ErrorResponse') invalidResponse();
+    return;
+  }
   const result = record(response.Result);
   if (!result) invalidResponse();
 
@@ -98,8 +102,13 @@ function validateResult(response: RecordValue): void {
     if (resultType !== 'Result') invalidResponse();
   }
   if (result.Errors !== undefined) invalidResponse();
+  if (responseFamily === 'ReservationResponse' && result.Error !== undefined) invalidResponse();
 
   const errorValues = boundedArray(result.Error, MAX_RESULT_ITEMS);
+  if (
+    responseFamily === 'ErrorResponse'
+    && (result.Error === undefined || errorValues.length < 1 || resultType !== 'Result')
+  ) invalidResponse();
   if (result.Error !== undefined && (errorValues.length < 1 || resultType !== 'Result')) invalidResponse();
   for (const errorValue of errorValues) {
     const error = record(errorValue);
@@ -130,6 +139,7 @@ function validateResult(response: RecordValue): void {
   const hasWarning = result.Warning !== undefined;
   const hasWarnings = result.Warnings !== undefined;
   if (hasWarning && hasWarnings) invalidResponse();
+  if (responseFamily === 'ErrorResponse' && (hasWarning || hasWarnings)) invalidResponse();
   if (errorValues.length > 0 && (hasWarning || hasWarnings)) invalidResponse();
   const warnings = hasWarning ? result.Warning : result.Warnings;
   const warningValues = boundedArray(warnings, MAX_RESULT_ITEMS);
@@ -260,9 +270,11 @@ export function assertTravelportStaysReservationResponseMachineAuthority(value: 
   const hasErrorResponse = Object.prototype.hasOwnProperty.call(root, 'ErrorResponse');
   if (hasReservationResponse === hasErrorResponse) invalidResponse();
 
-  const response = record(hasReservationResponse ? root.ReservationResponse : root.ErrorResponse);
+  const responseFamily: ReservationResponseFamily = hasReservationResponse ? 'ReservationResponse' : 'ErrorResponse';
+  const response = record(root[responseFamily]);
   if (!response || Object.prototype.hasOwnProperty.call(response, 'traceID')) invalidResponse();
+  if (responseFamily === 'ErrorResponse' && response.Reservation !== undefined) invalidResponse();
   assertExactMachineStringIfPresent(response.traceId, 120);
-  validateResult(response);
-  if (hasReservationResponse) validateReservation(response);
+  validateResult(response, responseFamily);
+  if (responseFamily === 'ReservationResponse') validateReservation(response);
 }

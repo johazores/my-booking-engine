@@ -204,6 +204,25 @@ test('rejects malformed error discriminators, status authority, and category ali
   assertInvalid(emptyErrors);
 });
 
+test('rejects result authority that conflicts with the top-level response family', () => {
+  const successWithError = successResponse();
+  delete (successWithError.ReservationResponse.Result as Record<string, unknown>).Warning;
+  (successWithError.ReservationResponse.Result as Record<string, unknown>).Error = errorResponse().ErrorResponse.Result.Error;
+  assertInvalid(successWithError);
+
+  const missingErrorResult = errorResponse();
+  delete (missingErrorResult.ErrorResponse as Record<string, unknown>).Result;
+  assertInvalid(missingErrorResult);
+
+  const missingErrorCollection = errorResponse();
+  delete (missingErrorCollection.ErrorResponse.Result as Record<string, unknown>).Error;
+  assertInvalid(missingErrorCollection);
+
+  const errorWithReservation = errorResponse();
+  (errorWithReservation.ErrorResponse as Record<string, unknown>).Reservation = successResponse().ReservationResponse.Reservation;
+  assertInvalid(errorWithReservation);
+});
+
 test('rejects malformed warning discriminators, status authority, and empty warning collections', () => {
   const alternateWarningType = successResponse();
   alternateWarningType.ReservationResponse.Result.Warning[0]!['@type'] = 'OtherWarning';

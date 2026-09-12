@@ -115,14 +115,6 @@ function invalidResponse(): never {
   throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport reservation response correlation is invalid.');
 }
 
-function rebuildResponse(response: Response, body: BodyInit | null) {
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: new Headers(response.headers),
-  });
-}
-
 function boundedStatusOnlyHeader(value: string | null) {
   if (
     value === null
@@ -134,6 +126,14 @@ function boundedStatusOnlyHeader(value: string | null) {
   return value;
 }
 
+function rebuildResponse(response: Response, body: BodyInit | null) {
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: new Headers(response.headers),
+  });
+}
+
 function rebuildStatusOnlyResponse(response: Response) {
   const headers = new Headers();
   const retryAfter = boundedStatusOnlyHeader(response.headers.get('Retry-After'));
@@ -142,6 +142,21 @@ function rebuildStatusOnlyResponse(response: Response) {
     status: response.status,
     headers,
   });
+}
+
+function assertStructuredResponseFamilyForStatus(value: unknown, status: number) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalidResponse();
+  const root = value as Readonly<Record<string, unknown>>;
+  const hasReservationResponse = Object.prototype.hasOwnProperty.call(root, 'ReservationResponse');
+  const hasErrorResponse = Object.prototype.hasOwnProperty.call(root, 'ErrorResponse');
+  if (hasReservationResponse === hasErrorResponse) invalidResponse();
+
+  const isSuccessStatus = status >= 200 && status < 300;
+  const isStructuredErrorStatus = status >= 400 && status <= 500;
+  if (
+    (hasReservationResponse && !isSuccessStatus)
+    || (hasErrorResponse && !isStructuredErrorStatus)
+  ) invalidResponse();
 }
 
 /**
@@ -198,6 +213,7 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
       expectedRequestCorrelationId: reservation.expectedTraceId,
     });
     if (!evidence.valid) invalidResponse();
+    assertStructuredResponseFamilyForStatus(body, response.status);
     assertTravelportStaysReservationResponseMachineAuthority(body);
     return rebuildResponse(response, rawBody);
   }) as typeof fetch;
