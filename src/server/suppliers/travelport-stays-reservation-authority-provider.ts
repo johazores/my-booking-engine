@@ -1,6 +1,9 @@
 import type { HospitalitySupplierBookingTermsProvider } from './hospitality-supplier-booking-terms.ts';
 import type { HospitalitySupplierReservationAuthorityInput } from './hospitality-supplier-reservation-authority.ts';
 import {
+  materializeTravelportStaysReservationAuthorityInput,
+} from './travelport-stays-input-materialization.ts';
+import {
   assertTravelportStaysOfferReference,
   assertTravelportStaysPropertyReference,
   type TravelportStaysCredentials,
@@ -35,8 +38,9 @@ export class TravelportStaysReservationAuthorityProvider extends CoreTravelportS
   override async verifyReservationAuthority(
     input: HospitalitySupplierReservationAuthorityInput,
   ): Promise<TravelportStaysReservationAuthorityResult> {
-    assertTravelportStaysPropertyReference(input.supplierPropertyReference);
-    assertTravelportStaysOfferReference(input.supplierOfferReference);
-    return super.verifyReservationAuthority(input);
+    const authority = materializeTravelportStaysReservationAuthorityInput(input);
+    assertTravelportStaysPropertyReference(authority.supplierPropertyReference);
+    assertTravelportStaysOfferReference(authority.supplierOfferReference);
+    return super.verifyReservationAuthority(authority);
   }
 }

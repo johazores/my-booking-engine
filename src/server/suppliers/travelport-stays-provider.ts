@@ -12,6 +12,11 @@ import {
   assertTravelportStaysSearchCommercialAuthorityResponse,
 } from './travelport-stays-commercial-authority.ts';
 import {
+  materializeTravelportStaysOfferRevalidationInput,
+  materializeTravelportStaysOfferSearchInput,
+  materializeTravelportStaysSearchPageInput,
+} from './travelport-stays-input-materialization.ts';
+import {
   normalizeTravelportStaysConfiguration as normalizeTravelportStaysConfigurationCore,
   probeTravelportStaysIntegrationHealth as probeTravelportStaysIntegrationHealthCore,
   requestTravelportStaysAccessToken as requestTravelportStaysAccessTokenCore,
@@ -559,22 +564,25 @@ export class TravelportStaysProvider extends CoreTravelportStaysProvider {
   override async searchPropertiesPage(
     input: HospitalitySupplierSearchPageInput,
   ): Promise<HospitalitySupplierSearchResult> {
-    exactMachineToken(input.pageToken, MAX_REFERENCE_LENGTH, 'request');
-    return super.searchPropertiesPage(input);
+    const authority = materializeTravelportStaysSearchPageInput(input);
+    exactMachineToken(authority.pageToken, MAX_REFERENCE_LENGTH, 'request');
+    return super.searchPropertiesPage(authority);
   }
 
   override async searchPropertyOffers(
     input: HospitalitySupplierOfferSearchInput,
   ): Promise<HospitalitySupplierOfferSearchResult> {
-    assertTravelportStaysPropertyReference(input.supplierPropertyReference);
-    return super.searchPropertyOffers(input);
+    const authority = materializeTravelportStaysOfferSearchInput(input);
+    assertTravelportStaysPropertyReference(authority.supplierPropertyReference);
+    return super.searchPropertyOffers(authority);
   }
 
   override async revalidatePropertyOffer(
     input: HospitalitySupplierOfferRevalidationInput,
   ): Promise<HospitalitySupplierOfferRevalidationResult> {
-    assertTravelportStaysPropertyReference(input.supplierPropertyReference);
-    assertTravelportStaysOfferReference(input.supplierOfferReference);
-    return super.revalidatePropertyOffer(input);
+    const authority = materializeTravelportStaysOfferRevalidationInput(input);
+    assertTravelportStaysPropertyReference(authority.supplierPropertyReference);
+    assertTravelportStaysOfferReference(authority.supplierOfferReference);
+    return super.revalidatePropertyOffer(authority);
   }
 }
