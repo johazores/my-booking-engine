@@ -8,6 +8,7 @@ import {
 import type { TravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-create-outcome.ts';
 import { materializeTravelportStaysReservationIoConstructorAuthority } from './travelport-stays-constructor-authority.ts';
 import { materializeTravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-expected-authority.ts';
+import { materializeTravelportStaysReservationOperationInput } from './travelport-stays-reservation-operation-input-authority.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -20,10 +21,19 @@ const ENDPOINTS = Object.freeze({
 });
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
-const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
+const SYNC_OPERATION_FIELDS = Object.freeze([
+  'requestCorrelationId',
+  'providerRecoveryReference',
+  'supplierConfirmationReference',
+  'traveler',
+  'expectedReservation',
+  'beforeProviderRequest',
+] as const);
+const SYNC_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reservation Sync operation authority could not be materialized safely.';
 
 function invalidRequest(message = 'Travelport reservation Sync request is invalid.'): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', message);
@@ -108,6 +118,11 @@ export class TravelportStaysReservationSyncExecutor {
     expectedReservation: TravelportStaysCreateExpectedReservation;
     beforeProviderRequest: () => Promise<void>;
   }>): Promise<TravelportStaysReservationSyncOutcome> {
+    const authority = materializeTravelportStaysReservationOperationInput(
+      input,
+      SYNC_OPERATION_FIELDS,
+      SYNC_OPERATION_MATERIALIZATION_FAILURE,
+    );
     const {
       requestCorrelationId,
       providerRecoveryReference,
@@ -115,7 +130,7 @@ export class TravelportStaysReservationSyncExecutor {
       traveler,
       expectedReservation: callerExpectedReservation,
       beforeProviderRequest,
-    } = input;
+    } = authority;
 
     if (!SF_TRACE_ID_PATTERN.test(requestCorrelationId)) {
       invalidRequest('Travelport reservation Sync correlation ID is invalid.');

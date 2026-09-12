@@ -9,6 +9,7 @@ import {
 } from './travelport-stays-reservation-create-outcome.ts';
 import { materializeTravelportStaysReservationIoConstructorAuthority } from './travelport-stays-constructor-authority.ts';
 import { materializeTravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-expected-authority.ts';
+import { materializeTravelportStaysReservationOperationInput } from './travelport-stays-reservation-operation-input-authority.ts';
 import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
@@ -35,6 +36,25 @@ const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
+const CREATE_OPERATION_FIELDS = Object.freeze([
+  'requestCorrelationId',
+  'requestMaterial',
+  'paymentAuthority',
+  'acquirePaymentCard',
+  'expectedReservation',
+  'beforeProviderRequest',
+] as const);
+const REVIEWED_CREATE_OPERATION_FIELDS = Object.freeze([
+  ...CREATE_OPERATION_FIELDS,
+  'acceptedReview',
+] as const);
+const ACCEPTED_REVIEW_FIELDS = Object.freeze([
+  'acceptPriceChange',
+  'acceptGuaranteeChange',
+] as const);
+const CREATE_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reservation create operation authority could not be materialized safely.';
+const REVIEWED_CREATE_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reviewed reservation create operation authority could not be materialized safely.';
+const ACCEPTED_REVIEW_MATERIALIZATION_FAILURE = 'Travelport reviewed reservation acceptance authority could not be materialized safely.';
 
 export type TravelportStaysSensitiveReservationPaymentCard = Readonly<{
   cardType: 'Credit';
@@ -115,6 +135,10 @@ type TravelportStaysReservationCreateExecutionInput = Readonly<{
   acquirePaymentCard: () => Promise<TravelportStaysSensitiveReservationPaymentCard>;
   expectedReservation: TravelportStaysCreateExpectedReservation;
   beforeProviderRequest: () => Promise<void>;
+}>;
+
+type TravelportStaysReservationReviewedCreateExecutionInput = TravelportStaysReservationCreateExecutionInput & Readonly<{
+  acceptedReview: TravelportStaysReservationAcceptedReview;
 }>;
 
 function invalidRequest(message = 'Travelport reservation create request is invalid.'): never {
@@ -393,15 +417,28 @@ export class TravelportStaysReservationCreateExecutor {
   }
 
   async createReservation(input: TravelportStaysReservationCreateExecutionInput): Promise<TravelportStaysReservationCreateOutcome> {
-    return this.#createReservation(input, null);
+    const authority = materializeTravelportStaysReservationOperationInput(
+      input,
+      CREATE_OPERATION_FIELDS,
+      CREATE_OPERATION_MATERIALIZATION_FAILURE,
+    );
+    return this.#createReservation(authority, null);
   }
 
   async createReservationAfterAcceptedReview(
-    input: TravelportStaysReservationCreateExecutionInput & Readonly<{
-      acceptedReview: TravelportStaysReservationAcceptedReview;
-    }>,
+    input: TravelportStaysReservationReviewedCreateExecutionInput,
   ): Promise<TravelportStaysReservationCreateOutcome> {
-    return this.#createReservation(input, input.acceptedReview);
+    const authority = materializeTravelportStaysReservationOperationInput(
+      input,
+      REVIEWED_CREATE_OPERATION_FIELDS,
+      REVIEWED_CREATE_OPERATION_MATERIALIZATION_FAILURE,
+    );
+    const acceptedReview = materializeTravelportStaysReservationOperationInput(
+      authority.acceptedReview,
+      ACCEPTED_REVIEW_FIELDS,
+      ACCEPTED_REVIEW_MATERIALIZATION_FAILURE,
+    );
+    return this.#createReservation(authority, acceptedReview);
   }
 
   async #createReservation(

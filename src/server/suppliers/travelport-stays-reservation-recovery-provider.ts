@@ -9,6 +9,7 @@ import { materializeTravelportStaysReservationIoConstructorAuthority } from './t
 import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
+import { materializeTravelportStaysReservationOperationInput } from './travelport-stays-reservation-operation-input-authority.ts';
 import {
   parseTravelportStaysReservationResponse,
 } from './travelport-stays-reservation-response.ts';
@@ -29,6 +30,12 @@ const MAX_REQUEST_CORRELATION_ID_LENGTH = 120;
 const ASCII_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
+const RECOVERY_OPERATION_FIELDS = Object.freeze([
+  'providerReservationReference',
+  'requestCorrelationId',
+  'expectedReservation',
+] as const);
+const RECOVERY_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reservation recovery operation authority could not be materialized safely.';
 
 function normalizeTimeout(value: number | undefined) {
   const timeoutMs = value ?? DEFAULT_TIMEOUT_MS;
@@ -141,17 +148,22 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
   }
 
   async retrieveReservation(input: HospitalitySupplierReservationRecoveryRequest): Promise<HospitalitySupplierReservationRecoveryResult> {
+    const authority = materializeTravelportStaysReservationOperationInput(
+      input,
+      RECOVERY_OPERATION_FIELDS,
+      RECOVERY_OPERATION_MATERIALIZATION_FAILURE,
+    );
     const reference = boundedSingleLine(
-      input.providerReservationReference,
+      authority.providerReservationReference,
       'Provider reservation reference',
       MAX_REFERENCE_LENGTH,
     );
     const requestCorrelationId = boundedSingleLine(
-      input.requestCorrelationId,
+      authority.requestCorrelationId,
       'Request correlation ID',
       MAX_REQUEST_CORRELATION_ID_LENGTH,
     );
-    const expectedReservation = normalizeTravelportStaysReservationExpectation(input.expectedReservation);
+    const expectedReservation = normalizeTravelportStaysReservationExpectation(authority.expectedReservation);
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
       url: `${ENDPOINTS[this.#credentials.environment]}book/reservations/${encodeURIComponent(reference)}`,
