@@ -76,6 +76,106 @@ test('normalizes the supported single-room reservation expectation', () => {
   });
 });
 
+test('reservation expectation authority is a one-read immutable snapshot', () => {
+  const reads = new Map<string, number>();
+  const values: Record<string, unknown> = {
+    supplierPropertyReference: propertyReference,
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    adults: 2,
+    childAges: [7],
+  };
+  const input = {} as Record<string, unknown>;
+  for (const [key, value] of Object.entries(values)) {
+    Object.defineProperty(input, key, {
+      enumerable: true,
+      get() {
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return value;
+      },
+    });
+  }
+
+  assert.deepEqual(normalizeTravelportStaysReservationExpectation(input as never), {
+    chainCode: 'HI',
+    propertyCode: 'ABC12',
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    guests: 3,
+  });
+  for (const key of Object.keys(values)) {
+    assert.equal(reads.get(key), 1, `${key} should be read exactly once`);
+  }
+});
+
+test('reservation expectation materialization sanitizes hostile caller objects', () => {
+  assert.throws(
+    () => normalizeTravelportStaysReservationExpectation({
+      get supplierPropertyReference() {
+        throw new Error('do not leak reservation expectation accessor text');
+      },
+      arrivalDateLocal: '2026-10-10',
+      departureDateLocal: '2026-10-12',
+      rooms: 1,
+      adults: 1,
+      childAges: [],
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'Expected reservation evidence could not be materialized safely.'
+      && !error.message.includes('do not leak'),
+  );
+
+  const { proxy, revoke } = Proxy.revocable({
+    supplierPropertyReference: propertyReference,
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    adults: 1,
+    childAges: [],
+  }, {});
+  revoke();
+  assert.throws(
+    () => normalizeTravelportStaysReservationExpectation(proxy as never),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'Expected reservation evidence could not be materialized safely.',
+  );
+});
+
+test('reservation expectation snapshots child ages before occupancy validation', () => {
+  let reads = 0;
+  const childAges: unknown[] = [];
+  Object.defineProperty(childAges, 0, {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads += 1;
+      return reads === 1 ? 7 : 99;
+    },
+  });
+  childAges.length = 1;
+
+  assert.deepEqual(normalizeTravelportStaysReservationExpectation({
+    supplierPropertyReference: propertyReference,
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    adults: 2,
+    childAges,
+  }), {
+    chainCode: 'HI',
+    propertyCode: 'ABC12',
+    arrivalDateLocal: '2026-10-10',
+    departureDateLocal: '2026-10-12',
+    rooms: 1,
+    guests: 3,
+  });
+  assert.equal(reads, 1);
+});
+
 test('rejects unsupported occupancy and date evidence', () => {
   for (const input of [
     { arrivalDateLocal: '2026-10-12', departureDateLocal: '2026-10-10', rooms: 1, adults: 1, childAges: [] },

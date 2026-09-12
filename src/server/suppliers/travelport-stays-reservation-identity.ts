@@ -21,6 +21,15 @@ export type TravelportStaysReservationExpectation = Readonly<{
   guests: number;
 }>;
 
+type MaterializedTravelportStaysReservationExpectationInput = Readonly<{
+  supplierPropertyReference: unknown;
+  arrivalDateLocal: unknown;
+  departureDateLocal: unknown;
+  rooms: unknown;
+  adults: unknown;
+  childAges: readonly unknown[];
+}>;
+
 function invalidRequest(message: string): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', message);
 }
@@ -47,6 +56,39 @@ function localDate(value: unknown, label: string) {
     invalidRequest(`${label} is invalid.`);
   }
   return value;
+}
+
+function materializeReservationExpectationInput(
+  input: TravelportStaysReservationExpectationInput | undefined,
+): MaterializedTravelportStaysReservationExpectationInput {
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      invalidRequest('Expected reservation evidence is required.');
+    }
+
+    const supplierPropertyReference = input.supplierPropertyReference;
+    const arrivalDateLocal = input.arrivalDateLocal;
+    const departureDateLocal = input.departureDateLocal;
+    const rooms = input.rooms;
+    const adults = input.adults;
+    const childAgesValue = input.childAges;
+    if (!Array.isArray(childAgesValue)) {
+      invalidRequest('Expected reservation child ages are invalid.');
+    }
+    const childAges = Object.freeze([...childAgesValue]) as readonly unknown[];
+
+    return Object.freeze({
+      supplierPropertyReference,
+      arrivalDateLocal,
+      departureDateLocal,
+      rooms,
+      adults,
+      childAges,
+    });
+  } catch (error) {
+    if (error instanceof HospitalitySupplierProviderError) throw error;
+    invalidRequest('Expected reservation evidence could not be materialized safely.');
+  }
 }
 
 export function decodeTravelportStaysPropertyReference(value: unknown) {
@@ -92,25 +134,20 @@ export function decodeTravelportStaysPropertyReference(value: unknown) {
 export function normalizeTravelportStaysReservationExpectation(
   input: TravelportStaysReservationExpectationInput | undefined,
 ): TravelportStaysReservationExpectation {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    invalidRequest('Expected reservation evidence is required.');
-  }
-
-  const property = decodeTravelportStaysPropertyReference(input.supplierPropertyReference);
-  const arrivalDateLocal = localDate(input.arrivalDateLocal, 'Arrival date');
-  const departureDateLocal = localDate(input.departureDateLocal, 'Departure date');
-  if (!Array.isArray(input.childAges)) {
-    invalidRequest('Expected reservation child ages are invalid.');
-  }
-  const childAges = [...input.childAges];
+  const authority = materializeReservationExpectationInput(input);
+  const property = decodeTravelportStaysPropertyReference(authority.supplierPropertyReference);
+  const arrivalDateLocal = localDate(authority.arrivalDateLocal, 'Arrival date');
+  const departureDateLocal = localDate(authority.departureDateLocal, 'Departure date');
+  const childAges = authority.childAges;
+  const adults = authority.adults;
   if (
     departureDateLocal <= arrivalDateLocal
-    || input.rooms !== 1
-    || !Number.isInteger(input.adults)
-    || (input.adults as number) < 1
+    || authority.rooms !== 1
+    || !Number.isInteger(adults)
+    || (adults as number) < 1
     || childAges.length > 8
     || childAges.some((age) => !Number.isInteger(age) || (age as number) < 0 || (age as number) > 17)
-    || (input.adults as number) + childAges.length > 9
+    || (adults as number) + childAges.length > 9
   ) {
     invalidRequest('Travelport reservation supports the current single-room one-to-nine-guest contract only.');
   }
@@ -120,6 +157,6 @@ export function normalizeTravelportStaysReservationExpectation(
     arrivalDateLocal,
     departureDateLocal,
     rooms: 1,
-    guests: (input.adults as number) + childAges.length,
+    guests: (adults as number) + childAges.length,
   });
 }
