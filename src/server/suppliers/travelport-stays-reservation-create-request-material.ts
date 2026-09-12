@@ -11,6 +11,8 @@ const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
 const MAX_PAYMENT_CARD_CODES = 32;
 const PAYMENT_CARD_CODE_LENGTH = 2;
+const PAYMENT_CARD_CODE_PATTERN = /^[A-Z0-9]{2}$/;
+const MATERIALIZATION_FAILURE = 'Travelport reservation create request material authority could not be materialized safely.';
 
 export type TravelportStaysReservationCreateRequestMaterial = Readonly<{
   BuildFromCatalogOfferingHospitality: Readonly<{
@@ -31,6 +33,158 @@ export type TravelportStaysReservationCreateRequestMaterial = Readonly<{
 
 function invalidRequest(message: string): never {
   throw new HospitalitySupplierProviderError('INVALID_REQUEST', message);
+}
+
+function materializationFailure(): never {
+  invalidRequest(MATERIALIZATION_FAILURE);
+}
+
+function snapshotTraveler(
+  value: unknown,
+): NormalizedHospitalitySupplierReservationTravelerPayload {
+  if (!value || typeof value !== 'object') return value as NormalizedHospitalitySupplierReservationTravelerPayload;
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    materializationFailure();
+  }
+  if (isArray) return value as NormalizedHospitalitySupplierReservationTravelerPayload;
+
+  let firstName: unknown;
+  let lastName: unknown;
+  let email: unknown;
+  let telephone: unknown;
+  try {
+    const traveler = value as Record<string, unknown>;
+    firstName = traveler.firstName;
+    lastName = traveler.lastName;
+    email = traveler.email;
+    telephone = traveler.telephone;
+  } catch {
+    materializationFailure();
+  }
+
+  let telephoneSnapshot = telephone;
+  if (telephone && typeof telephone === 'object') {
+    let telephoneIsArray: boolean;
+    try {
+      telephoneIsArray = Array.isArray(telephone);
+    } catch {
+      materializationFailure();
+    }
+    if (!telephoneIsArray) {
+      try {
+        const telephoneRecord = telephone as Record<string, unknown>;
+        telephoneSnapshot = Object.freeze({
+          countryCallingCode: telephoneRecord.countryCallingCode,
+          areaCode: telephoneRecord.areaCode,
+          subscriberNumber: telephoneRecord.subscriberNumber,
+        });
+      } catch {
+        materializationFailure();
+      }
+    }
+  }
+
+  return Object.freeze({
+    firstName,
+    lastName,
+    email,
+    telephone: telephoneSnapshot,
+  }) as NormalizedHospitalitySupplierReservationTravelerPayload;
+}
+
+function snapshotAcceptedPaymentCardCodes(value: unknown): unknown {
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    materializationFailure();
+  }
+  if (!isArray) return value;
+
+  let length: number;
+  try {
+    length = (value as unknown[]).length;
+  } catch {
+    materializationFailure();
+  }
+  if (!Number.isSafeInteger(length) || length < 1 || length > MAX_PAYMENT_CARD_CODES) {
+    return Object.freeze([]);
+  }
+
+  const snapshot: unknown[] = [];
+  try {
+    for (let index = 0; index < length; index += 1) {
+      snapshot.push((value as unknown[])[index]);
+    }
+  } catch {
+    materializationFailure();
+  }
+  return Object.freeze(snapshot);
+}
+
+function snapshotPaymentAuthority(
+  value: unknown,
+): HospitalitySupplierReservationPaymentAuthority {
+  if (!value || typeof value !== 'object') return value as HospitalitySupplierReservationPaymentAuthority;
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    materializationFailure();
+  }
+  if (isArray) return value as HospitalitySupplierReservationPaymentAuthority;
+
+  let kind: unknown;
+  let collectionTiming: unknown;
+  let currency: unknown;
+  let amountMinor: unknown;
+  let acceptedPaymentCardCodes: unknown;
+  try {
+    const authority = value as Record<string, unknown>;
+    kind = authority.kind;
+    collectionTiming = authority.collectionTiming;
+    currency = authority.currency;
+    amountMinor = authority.amountMinor;
+    acceptedPaymentCardCodes = authority.acceptedPaymentCardCodes;
+  } catch {
+    materializationFailure();
+  }
+
+  return Object.freeze({
+    kind,
+    collectionTiming,
+    currency,
+    amountMinor,
+    acceptedPaymentCardCodes: snapshotAcceptedPaymentCardCodes(acceptedPaymentCardCodes),
+  }) as HospitalitySupplierReservationPaymentAuthority;
+}
+
+function materializeInput(input: unknown) {
+  let providerSubmissionReferenceValue: unknown;
+  let travelerValue: unknown;
+  let paymentAuthorityValue: unknown;
+  try {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      materializationFailure();
+    }
+    const record = input as Record<string, unknown>;
+    providerSubmissionReferenceValue = record.providerSubmissionReference;
+    travelerValue = record.traveler;
+    paymentAuthorityValue = record.paymentAuthority;
+  } catch {
+    materializationFailure();
+  }
+
+  return Object.freeze({
+    providerSubmissionReference: providerSubmissionReferenceValue,
+    traveler: snapshotTraveler(travelerValue),
+    paymentAuthority: snapshotPaymentAuthority(paymentAuthorityValue),
+  });
 }
 
 function providerSubmissionReference(value: unknown) {
@@ -67,6 +221,7 @@ function paymentPayload(authority: HospitalitySupplierReservationPaymentAuthorit
     if (
       typeof code !== 'string'
       || code.length !== PAYMENT_CARD_CODE_LENGTH
+      || !PAYMENT_CARD_CODE_PATTERN.test(code)
       || code !== code.trim()
       || ASCII_CONTROL_PATTERN.test(code)
       || seenCardCodes.has(code)
@@ -109,9 +264,10 @@ export function buildTravelportStaysReservationCreateRequestMaterial(input: Read
   traveler: NormalizedHospitalitySupplierReservationTravelerPayload;
   paymentAuthority: HospitalitySupplierReservationPaymentAuthority;
 }>): TravelportStaysReservationCreateRequestMaterial {
-  const submissionReference = providerSubmissionReference(input.providerSubmissionReference);
-  const traveler = buildTravelportStaysReservationTravelerRequest(input.traveler);
-  const payment = paymentPayload(input.paymentAuthority);
+  const authority = materializeInput(input);
+  const submissionReference = providerSubmissionReference(authority.providerSubmissionReference);
+  const traveler = buildTravelportStaysReservationTravelerRequest(authority.traveler);
+  const payment = paymentPayload(authority.paymentAuthority);
 
   return Object.freeze({
     BuildFromCatalogOfferingHospitality: Object.freeze({
