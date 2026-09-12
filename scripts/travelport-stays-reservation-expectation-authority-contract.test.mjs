@@ -11,25 +11,30 @@ async function source(path) {
 test('shared reservation expectation establishes a one-read frozen authority snapshot', async () => {
   const identity = await source('src/server/suppliers/travelport-stays-reservation-identity.ts');
   assert.match(identity, /function materializeReservationExpectationInput/);
-  for (const field of [
-    'supplierPropertyReference',
-    'arrivalDateLocal',
-    'departureDateLocal',
-    'rooms',
-    'adults',
-    'childAges',
+  for (const [field, localName] of [
+    ['supplierPropertyReference', 'supplierPropertyReference'],
+    ['arrivalDateLocal', 'arrivalDateLocal'],
+    ['departureDateLocal', 'departureDateLocal'],
+    ['rooms', 'rooms'],
+    ['adults', 'adults'],
+    ['childAges', 'childAgesValue'],
   ]) {
-    assert.match(identity, new RegExp(`const ${field === 'childAges' ? 'childAgesValue' : field} = input\\.${field};`));
+    assert.match(identity, new RegExp(`${localName}: input\\.${field},`));
   }
-  assert.match(identity, /const childAges = Object\.freeze\(\[\.\.\.childAgesValue\]\)/);
-  assert.match(identity, /return Object\.freeze\(\{[\s\S]*?supplierPropertyReference,[\s\S]*?childAges,[\s\S]*?\}\);/);
+  assert.match(identity, /Object\.freeze\(\[\.\.\.\(values\.childAgesValue as unknown\[\]\)\]\)/);
+  assert.match(identity, /return Object\.freeze\(\{[\s\S]*?supplierPropertyReference: values\.supplierPropertyReference,[\s\S]*?childAges,[\s\S]*?\}\);/);
   assert.match(identity, /const authority = materializeReservationExpectationInput\(input\);/);
   assert.doesNotMatch(identity, /const property = decodeTravelportStaysPropertyReference\(input\.supplierPropertyReference\)/);
 });
 
 test('reservation expectation materialization fails closed without caller exception leakage', async () => {
   const identity = await source('src/server/suppliers/travelport-stays-reservation-identity.ts');
-  assert.match(identity, /catch \(error\) \{\s*if \(error instanceof HospitalitySupplierProviderError\) throw error;\s*invalidRequest\('Expected reservation evidence could not be materialized safely\.'\);\s*\}/s);
+  const helperStart = identity.indexOf('function safelyMaterialize');
+  const materializerStart = identity.indexOf('function materializeReservationExpectationInput');
+  assert.ok(helperStart >= 0 && materializerStart > helperStart);
+  const helper = identity.slice(helperStart, materializerStart);
+  assert.match(helper, /catch \{\s*invalidRequest\('Expected reservation evidence could not be materialized safely\.'\);\s*\}/);
+  assert.doesNotMatch(helper, /throw error|instanceof HospitalitySupplierProviderError/);
   assert.match(identity, /const adults = authority\.adults;/);
   assert.match(identity, /const childAges = authority\.childAges;/);
   assert.doesNotMatch(identity, /input\.adults as number/);

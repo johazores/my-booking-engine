@@ -58,37 +58,47 @@ function localDate(value: unknown, label: string) {
   return value;
 }
 
+function safelyMaterialize<T>(reader: () => T): T {
+  try {
+    return reader();
+  } catch {
+    invalidRequest('Expected reservation evidence could not be materialized safely.');
+  }
+}
+
 function materializeReservationExpectationInput(
   input: TravelportStaysReservationExpectationInput | undefined,
 ): MaterializedTravelportStaysReservationExpectationInput {
-  try {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      invalidRequest('Expected reservation evidence is required.');
-    }
-
-    const supplierPropertyReference = input.supplierPropertyReference;
-    const arrivalDateLocal = input.arrivalDateLocal;
-    const departureDateLocal = input.departureDateLocal;
-    const rooms = input.rooms;
-    const adults = input.adults;
-    const childAgesValue = input.childAges;
-    if (!Array.isArray(childAgesValue)) {
-      invalidRequest('Expected reservation child ages are invalid.');
-    }
-    const childAges = Object.freeze([...childAgesValue]) as readonly unknown[];
-
-    return Object.freeze({
-      supplierPropertyReference,
-      arrivalDateLocal,
-      departureDateLocal,
-      rooms,
-      adults,
-      childAges,
-    });
-  } catch (error) {
-    if (error instanceof HospitalitySupplierProviderError) throw error;
-    invalidRequest('Expected reservation evidence could not be materialized safely.');
+  if (!input || typeof input !== 'object') {
+    invalidRequest('Expected reservation evidence is required.');
   }
+  if (safelyMaterialize(() => Array.isArray(input))) {
+    invalidRequest('Expected reservation evidence is required.');
+  }
+
+  const values = safelyMaterialize(() => ({
+    supplierPropertyReference: input.supplierPropertyReference,
+    arrivalDateLocal: input.arrivalDateLocal,
+    departureDateLocal: input.departureDateLocal,
+    rooms: input.rooms,
+    adults: input.adults,
+    childAgesValue: input.childAges,
+  }));
+  if (!safelyMaterialize(() => Array.isArray(values.childAgesValue))) {
+    invalidRequest('Expected reservation child ages are invalid.');
+  }
+  const childAges = safelyMaterialize(
+    () => Object.freeze([...(values.childAgesValue as unknown[])]),
+  ) as readonly unknown[];
+
+  return Object.freeze({
+    supplierPropertyReference: values.supplierPropertyReference,
+    arrivalDateLocal: values.arrivalDateLocal,
+    departureDateLocal: values.departureDateLocal,
+    rooms: values.rooms,
+    adults: values.adults,
+    childAges,
+  });
 }
 
 export function decodeTravelportStaysPropertyReference(value: unknown) {

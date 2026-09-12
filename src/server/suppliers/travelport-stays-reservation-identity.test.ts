@@ -128,6 +128,23 @@ test('reservation expectation materialization sanitizes hostile caller objects',
       && !error.message.includes('do not leak'),
   );
 
+  assert.throws(
+    () => normalizeTravelportStaysReservationExpectation({
+      get supplierPropertyReference() {
+        throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'caller-controlled supplier error');
+      },
+      arrivalDateLocal: '2026-10-10',
+      departureDateLocal: '2026-10-12',
+      rooms: 1,
+      adults: 1,
+      childAges: [],
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'Expected reservation evidence could not be materialized safely.'
+      && !error.message.includes('caller-controlled'),
+  );
+
   const { proxy, revoke } = Proxy.revocable({
     supplierPropertyReference: propertyReference,
     arrivalDateLocal: '2026-10-10',
