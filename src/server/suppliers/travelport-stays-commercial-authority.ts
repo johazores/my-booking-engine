@@ -3,6 +3,7 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;
 const DECIMAL_TEXT_PATTERN = /^\d+(?:\.\d{1,6})?$/;
+const MONEY_TEXT_PATTERN = /^\d+(?:\.\d+)?$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 const MAX_MONEY_TEXT_LENGTH = 128;
@@ -34,6 +35,11 @@ const SEARCH_GUARANTEE_TYPES = new Set([
   'PrepayRequired',
 ]);
 const RULE_SUBJECT_TO_TAX = new Set(['Yes', 'No', 'Unknown']);
+const RULE_PENALTY_TYPES = new Set([
+  'HotelPenaltyAmount',
+  'HotelPenaltyPercent',
+  'HotelPenaltyNights',
+]);
 
 type RecordValue = Readonly<Record<string, unknown>>;
 
@@ -117,36 +123,57 @@ function canonicalCurrencyIfPresent(value: unknown): void {
   }
 }
 
+function exactDecimalText(
+  value: unknown,
+  pattern: RegExp,
+  max: number,
+  message = 'Travelport returned invalid decimal authority evidence.',
+): void {
+  if (value === undefined || value === null) return;
+  const text = typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : typeof value === 'string'
+      ? value
+      : '';
+  if (
+    !text
+    || text.length > max
+    || ASCII_CONTROL_PATTERN.test(text)
+    || !pattern.test(text)
+  ) {
+    invalidResponse(message);
+  }
+}
+
 function exactMoneyIfPresent(value: unknown): void {
   if (value === undefined || value === null) return;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value < 0) invalidResponse('Travelport returned an invalid money value.');
-    return;
-  }
-  if (
-    typeof value !== 'string'
-    || !value
-    || value.trim() !== value
-    || value.length > MAX_MONEY_TEXT_LENGTH
-    || ASCII_CONTROL_PATTERN.test(value)
-  ) {
+  if (typeof value === 'number' && value < 0) {
     invalidResponse('Travelport returned an invalid money value.');
   }
+  exactDecimalText(
+    value,
+    MONEY_TEXT_PATTERN,
+    MAX_MONEY_TEXT_LENGTH,
+    'Travelport returned an invalid money value.',
+  );
 }
 
 function exactDecimalIfPresent(value: unknown): void {
   if (value === undefined || value === null) return;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value < 0) invalidResponse();
-    return;
+  if (typeof value === 'number' && value < 0) invalidResponse();
+  exactDecimalText(value, DECIMAL_TEXT_PATTERN, MAX_DECIMAL_TEXT_LENGTH);
+}
+
+function requiredDecimal(value: unknown, label: string): void {
+  if (value === undefined || value === null) {
+    invalidResponse(`Travelport returned incomplete ${label} authority evidence.`);
   }
-  if (
-    typeof value !== 'string'
-    || !DECIMAL_TEXT_PATTERN.test(value)
-    || value.length > MAX_DECIMAL_TEXT_LENGTH
-    || ASCII_CONTROL_PATTERN.test(value)
-  ) {
-    invalidResponse();
+  exactDecimalIfPresent(value);
+}
+
+function penaltyFieldAbsent(penalty: RecordValue, field: string, label: string): void {
+  if (penalty[field] !== undefined && penalty[field] !== null) {
+    invalidResponse(`Travelport returned contradictory ${label} authority evidence.`);
   }
 }
 
@@ -261,16 +288,44 @@ function rulesMoney(value: unknown): void {
 function rulesPenalty(value: unknown): void {
   const penalty = record(value);
   if (!penalty) invalidResponse();
-  exactMachineStringIfPresent(penalty['@type'], 64);
+  const penaltyType = penalty['@type'];
+  if (typeof penaltyType !== 'string' || !RULE_PENALTY_TYPES.has(penaltyType)) {
+    invalidResponse('Travelport returned an unsupported Rules cancellation penalty type.');
+  }
+
+  if (penaltyType === 'HotelPenaltyAmount') {
+    penaltyFieldAbsent(penalty, 'Percent', 'amount-penalty');
+    penaltyFieldAbsent(penalty, 'Nights', 'amount-penalty');
+    penaltyFieldAbsent(penalty, 'subjectToTax', 'amount-penalty');
+    penaltyFieldAbsent(penalty, 'appliesTo', 'amount-penalty');
+    const amounts = Array.isArray(penalty.Amount)
+      ? boundedArray(penalty.Amount, 1)
+      : penalty.Amount === undefined || penalty.Amount === null
+        ? []
+        : [penalty.Amount];
+    if (amounts.length !== 1) {
+      invalidResponse('Travelport returned incomplete amount-penalty authority evidence.');
+    }
+    rulesMoney(amounts[0]);
+    return;
+  }
+
+  if (penaltyType === 'HotelPenaltyPercent') {
+    penaltyFieldAbsent(penalty, 'Amount', 'percent-penalty');
+    penaltyFieldAbsent(penalty, 'Nights', 'percent-penalty');
+    penaltyFieldAbsent(penalty, 'subjectToTax', 'percent-penalty');
+    requiredDecimal(penalty.Percent, 'percent-penalty');
+    if (penalty.appliesTo !== undefined && penalty.appliesTo !== null && penalty.appliesTo !== 'Amount') {
+      invalidResponse('Travelport returned unsupported percent-penalty appliesTo authority evidence.');
+    }
+    return;
+  }
+
+  penaltyFieldAbsent(penalty, 'Amount', 'nights-penalty');
+  penaltyFieldAbsent(penalty, 'Percent', 'nights-penalty');
+  penaltyFieldAbsent(penalty, 'appliesTo', 'nights-penalty');
+  requiredDecimal(penalty.Nights, 'nights-penalty');
   enumStringIfPresent(penalty.subjectToTax, RULE_SUBJECT_TO_TAX, 'Rules cancellation tax treatment');
-  exactDecimalIfPresent(penalty.Percent);
-  exactDecimalIfPresent(penalty.Nights);
-  const amounts = Array.isArray(penalty.Amount)
-    ? boundedArray(penalty.Amount, 1)
-    : penalty.Amount === undefined || penalty.Amount === null
-      ? []
-      : [penalty.Amount];
-  for (const amount of amounts) rulesMoney(amount);
 }
 
 function rulesCancellation(value: unknown): void {
