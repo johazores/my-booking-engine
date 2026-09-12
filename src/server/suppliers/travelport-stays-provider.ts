@@ -12,6 +12,14 @@ import {
   assertTravelportStaysSearchCommercialAuthorityResponse,
 } from './travelport-stays-commercial-authority.ts';
 import {
+  materializeTravelportStaysProviderConstructorAuthority,
+} from './travelport-stays-constructor-authority.ts';
+import {
+  materializeTravelportStaysAccessTokenAuthority,
+  materializeTravelportStaysConfigurationAuthority,
+  materializeTravelportStaysHealthProbeAuthority,
+} from './travelport-stays-entry-authority.ts';
+import {
   materializeTravelportStaysOfferRevalidationInput,
   materializeTravelportStaysOfferSearchInput,
   materializeTravelportStaysSearchPageInput,
@@ -90,25 +98,21 @@ function exactConfigurationValue(value: unknown, label: string, max: number): st
 export function normalizeTravelportStaysConfiguration(
   input: Parameters<typeof normalizeTravelportStaysConfigurationCore>[0],
 ): ReturnType<typeof normalizeTravelportStaysConfigurationCore> {
-  exactConfigurationValue(input.username, 'Travelport username', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
-  exactConfigurationValue(input.password, 'Travelport password', MAX_CONFIGURATION_SECRET_LENGTH);
-  exactConfigurationValue(input.clientId, 'Travelport client ID', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
-  exactConfigurationValue(input.clientSecret, 'Travelport client secret', MAX_CONFIGURATION_SECRET_LENGTH);
-  exactConfigurationValue(input.accessGroup, 'Travelport access group', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
-  return normalizeTravelportStaysConfigurationCore(input);
+  const authority = materializeTravelportStaysConfigurationAuthority(input);
+  exactConfigurationValue(authority.username, 'Travelport username', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  exactConfigurationValue(authority.password, 'Travelport password', MAX_CONFIGURATION_SECRET_LENGTH);
+  exactConfigurationValue(authority.clientId, 'Travelport client ID', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  exactConfigurationValue(authority.clientSecret, 'Travelport client secret', MAX_CONFIGURATION_SECRET_LENGTH);
+  exactConfigurationValue(authority.accessGroup, 'Travelport access group', MAX_CONFIGURATION_IDENTIFIER_LENGTH);
+  return normalizeTravelportStaysConfigurationCore(authority);
 }
 
 export function readTravelportStaysCredentials(
   credentials: Readonly<Record<string, string>>,
 ): TravelportStaysCredentials {
-  return normalizeTravelportStaysConfiguration({
-    environment: credentials.environment,
-    username: credentials.username,
-    password: credentials.password,
-    clientId: credentials.clientId,
-    clientSecret: credentials.clientSecret,
-    accessGroup: credentials.accessGroup,
-  }).credentials;
+  return normalizeTravelportStaysConfiguration(
+    materializeTravelportStaysConfigurationAuthority(credentials),
+  ).credentials;
 }
 
 function canonicalReference(value: unknown): ReferenceRecord {
@@ -532,18 +536,23 @@ export function createTravelportStaysReferenceAuthorityFetch(
 export function requestTravelportStaysAccessToken(
   input: Parameters<typeof requestTravelportStaysAccessTokenCore>[0],
 ): ReturnType<typeof requestTravelportStaysAccessTokenCore> {
+  const authority = materializeTravelportStaysAccessTokenAuthority(input);
   return requestTravelportStaysAccessTokenCore({
-    ...input,
-    fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+    credentials: authority.credentials,
+    fetchImpl: createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch),
+    timeoutMs: authority.timeoutMs,
+    nowMs: authority.nowMs,
   });
 }
 
 export function probeTravelportStaysIntegrationHealth(
   input: Parameters<typeof probeTravelportStaysIntegrationHealthCore>[0],
 ): ReturnType<typeof probeTravelportStaysIntegrationHealthCore> {
+  const authority = materializeTravelportStaysHealthProbeAuthority(input);
   return probeTravelportStaysIntegrationHealthCore({
-    ...input,
-    fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+    credentials: authority.credentials,
+    fetchImpl: createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch),
+    timeoutMs: authority.timeoutMs,
   });
 }
 
@@ -555,9 +564,13 @@ export class TravelportStaysProvider extends CoreTravelportStaysProvider {
     timeoutMs?: number;
     now?: () => Date;
   }) {
+    const authority = materializeTravelportStaysProviderConstructorAuthority(input);
     super({
-      ...input,
-      fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+      credentials: authority.credentials,
+      cacheKey: authority.cacheKey,
+      fetchImpl: createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch),
+      timeoutMs: authority.timeoutMs,
+      now: authority.now,
     });
   }
 

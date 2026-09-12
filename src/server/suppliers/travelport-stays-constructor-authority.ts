@@ -35,6 +35,24 @@ function credentialsSnapshot(value: unknown): TravelportStaysCredentials {
   }) as TravelportStaysCredentials;
 }
 
+export function materializeTravelportStaysProviderConstructorAuthority(
+  input: Readonly<{
+    credentials: TravelportStaysCredentials;
+    cacheKey: string;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    now?: () => Date;
+  }>,
+) {
+  return materialize(() => Object.freeze({
+    credentials: credentialsSnapshot(input.credentials),
+    cacheKey: input.cacheKey,
+    fetchImpl: input.fetchImpl,
+    timeoutMs: input.timeoutMs,
+    now: input.now,
+  }));
+}
+
 export function materializeTravelportStaysBookingTermsConstructorAuthority(
   input: Readonly<{
     credentials: TravelportStaysCredentials;

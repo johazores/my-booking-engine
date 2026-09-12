@@ -14,27 +14,28 @@ The resulting snapshot is then used for canonical Travelport property/offer-refe
 
 Search pagination receives the same treatment so the page token validated by the public adapter is the page token consumed by the core request builder.
 
-The connected Rules and reservation-authority provider constructors now apply the same principle to long-lived adapter authority. Credentials are copied into a frozen six-field snapshot, each top-level constructor field is read once, and the wrappers forward explicit materialized fields instead of spreading the original caller object. The reservation-authority cache key that is validated is therefore the exact value used by its compatibility core and token-cache partition.
+The connected pricing, Rules, and reservation-authority provider constructors apply the same principle to long-lived adapter authority. Credentials are copied into a frozen six-field snapshot, each top-level constructor field is read once, and the wrappers forward explicit materialized fields instead of spreading the original caller object. Cache-key validation and token-cache use therefore observe the same stable value.
+
+Public configuration normalization, stored credential reads, direct access-token requests, and health probes now establish equivalent one-read snapshots before validation or provider I/O. See `docs/travelport-stays-entry-authority.md`.
 
 ## Fail-closed behavior
 
 Materialization happens before adapter validation. A throwing accessor, malformed child-age container, oversized child-age array, or revoked proxy becomes a fixed `INVALID_REQUEST` supplier error. Caller-controlled exception text is not propagated.
 
-Constructor materialization follows the same rule: hostile accessors or revoked proxies cannot escape with caller-controlled errors, and later mutations of the original credential object cannot change the credential snapshot held by the Rules or reservation-authority adapter.
+Constructor and authentication-entry materialization follow the same rule: hostile accessors or revoked proxies cannot escape with caller-controlled errors, and later mutations of the original credential object cannot change the credential snapshot held by a provider or used for OAuth. Configuration entry failures use a fixed `TravelportStaysConfigurationError` instead of a supplier-operation error.
 
-The materializer does not replace the existing semantic validators. Canonical reference validation, exact dates and currency, room/guest limits, exact money, fingerprints, cache-key validation, and provider-specific request/response rules remain owned by the existing Travelport adapters and cores. The snapshots only guarantee that those validators and later provider work operate on stable authority.
+The materializers do not replace the existing semantic validators. Canonical reference validation, exact dates and currency, room/guest limits, exact money, fingerprints, cache-key validation, timeout validation, and provider-specific request/response rules remain owned by the existing Travelport adapters and cores. The snapshots only guarantee that those validators and later provider work operate on stable authority.
 
 ## Similar-issue sweep
 
-The same caller-reread pattern existed at three connected public request boundaries:
+The same caller-reread pattern existed at the connected public request boundaries and provider entry surfaces:
 
-- `TravelportStaysProvider` validated search-page/property/offer authority and then passed the original caller object to the core;
-- `TravelportStaysBookingTermsProvider` validated references and then passed the original revalidation input into the Rules flow, whose core later reused it for final pricing revalidation; and
-- `TravelportStaysReservationAuthorityProvider` validated references and then passed the original reservation-authority input into the Rules → SearchComplete → Availability chain.
+- `TravelportStaysProvider` request methods validated search-page/property/offer authority and then passed caller-owned request objects to the core;
+- `TravelportStaysBookingTermsProvider` and `TravelportStaysReservationAuthorityProvider` previously forwarded caller-owned request/constructor state into their compatibility cores;
+- the public pricing-provider constructor still spread caller-owned constructor state after those two wrappers were hardened; and
+- configuration normalization, stored credential reads, direct access-token requests, and health probes could validate or copy one value and later reread the caller-owned object.
 
-All three request paths now forward materialized snapshots.
-
-The final review of the same Rules → reservation-authority composition found a constructor-level version of the issue: the wrappers spread caller-owned constructor objects after reading or validating individual fields. Those two connected wrappers now use explicit one-read constructor snapshots as documented in `docs/travelport-stays-constructor-authority.md`. The production integration loader already provides frozen normalized credentials and a primitive integration-id/credential-version cache key; the wrapper boundary is nevertheless independent and fail closed.
+All of these connected read/authentication paths now operate on frozen allowlisted snapshots before semantic validation or provider work. The separate commercial write/recovery executors keep their existing reviewed pre-write materialization and ambiguity contracts.
 
 ## Activation boundary
 
@@ -42,6 +43,7 @@ Travelport `reservation` remains deliberately disabled. This hardening does not 
 
 Related documentation:
 
+- `docs/travelport-stays-entry-authority.md`
 - `docs/travelport-stays-constructor-authority.md`
 - `docs/travelport-reservation-prewrite-authority.md`
 - `docs/travelport-reservation-authority-machine-evidence.md`

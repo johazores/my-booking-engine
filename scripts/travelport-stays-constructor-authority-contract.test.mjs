@@ -8,6 +8,15 @@ async function source(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
+test('pricing wrapper forwards only materialized constructor authority', async () => {
+  const sourceText = await source('src/server/suppliers/travelport-stays-provider.ts');
+  assert.match(sourceText, /materializeTravelportStaysProviderConstructorAuthority\(input\)/);
+  assert.match(sourceText, /credentials: authority\.credentials/);
+  assert.match(sourceText, /cacheKey: authority\.cacheKey/);
+  assert.match(sourceText, /authority\.fetchImpl \?\? fetch/);
+  assert.doesNotMatch(sourceText, /super\(\{\s*\.\.\.input/s);
+});
+
 test('Rules wrapper forwards only materialized constructor authority', async () => {
   const sourceText = await source('src/server/suppliers/travelport-stays-booking-terms-provider.ts');
   assert.match(sourceText, /materializeTravelportStaysBookingTermsConstructorAuthority\(input\)/);
@@ -35,8 +44,9 @@ test('shared constructor materializer copies and freezes credential authority an
   for (const field of ['environment', 'username', 'password', 'clientId', 'clientSecret', 'accessGroup']) {
     assert.match(authority, new RegExp(`${field}: credentials\\.${field}`));
   }
+  assert.match(authority, /materializeTravelportStaysProviderConstructorAuthority/);
   assert.match(authority, /Object\.freeze\(\{\s*credentials: credentialsSnapshot\(input\.credentials\)/s);
   assert.match(authority, /catch \{\s*invalidConstructorAuthority\(\);\s*\}/s);
-  assert.match(docs, /cache key validated by the reservation-authority wrapper is the exact cache key forwarded to the compatibility core/i);
+  assert.match(docs, /pricing.*Rules.*reservation-authority adapters are long-lived provider objects/is);
   assert.match(docs, /does not enable.*reservation/i);
 });

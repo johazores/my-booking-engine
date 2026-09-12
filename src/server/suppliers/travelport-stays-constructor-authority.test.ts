@@ -4,6 +4,7 @@ import test from 'node:test';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
   materializeTravelportStaysBookingTermsConstructorAuthority,
+  materializeTravelportStaysProviderConstructorAuthority,
   materializeTravelportStaysReservationAuthorityConstructorAuthority,
 } from './travelport-stays-constructor-authority.ts';
 
@@ -41,9 +42,58 @@ function trackedConstructorInput(dependencyKey: 'pricingProvider' | 'bookingTerm
   return { input, reads, credentials, dependency, fetchImpl, now };
 }
 
+function trackedProviderConstructorInput() {
+  const reads = new Map<string, number>();
+  const credentials = {
+    environment: 'pre-production',
+    username: 'user',
+    password: 'password',
+    clientId: 'client',
+    clientSecret: 'secret',
+    accessGroup: 'group',
+  };
+  const fetchImpl = (async () => new Response(null, { status: 204 })) as typeof fetch;
+  const now = () => new Date('2026-09-12T00:00:00.000Z');
+  const values: Record<string, unknown> = {
+    credentials,
+    cacheKey: 'tenant-a:v1',
+    fetchImpl,
+    timeoutMs: 15_000,
+    now,
+  };
+  const input = {} as Record<string, unknown>;
+  for (const [key, value] of Object.entries(values)) {
+    Object.defineProperty(input, key, {
+      enumerable: true,
+      get() {
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return value;
+      },
+    });
+  }
+  return { input, reads, credentials, fetchImpl, now };
+}
+
 function assertOneRead(reads: Map<string, number>, keys: readonly string[]) {
   for (const key of keys) assert.equal(reads.get(key), 1, `${key} should be read exactly once`);
 }
+
+test('pricing provider constructor authority is one-read and isolates credential mutation', () => {
+  const { input, reads, credentials, fetchImpl, now } = trackedProviderConstructorInput();
+  const authority = materializeTravelportStaysProviderConstructorAuthority(input as never);
+
+  assertOneRead(reads, ['credentials', 'cacheKey', 'fetchImpl', 'timeoutMs', 'now']);
+  assert.ok(Object.isFrozen(authority));
+  assert.ok(Object.isFrozen(authority.credentials));
+  assert.equal(authority.fetchImpl, fetchImpl);
+  assert.equal(authority.now, now);
+  assert.equal(authority.cacheKey, 'tenant-a:v1');
+
+  credentials.username = 'mutated-user';
+  credentials.clientSecret = 'mutated-secret';
+  assert.equal(authority.credentials.username, 'user');
+  assert.equal(authority.credentials.clientSecret, 'secret');
+});
 
 test('booking terms constructor authority is one-read and isolates credential mutation', () => {
   const { input, reads, credentials, dependency, fetchImpl, now } = trackedConstructorInput('pricingProvider');
@@ -75,6 +125,19 @@ test('reservation authority constructor materializes the exact dependency and ca
 });
 
 test('constructor materialization sanitizes hostile accessors and revoked proxies', () => {
+  assert.throws(
+    () => materializeTravelportStaysProviderConstructorAuthority({
+      get credentials() {
+        throw new Error('do not leak this provider caller text');
+      },
+      cacheKey: 'tenant-a:v1',
+    } as never),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'Travelport provider constructor authority could not be materialized safely.'
+      && !error.message.includes('do not leak'),
+  );
+
   assert.throws(
     () => materializeTravelportStaysBookingTermsConstructorAuthority({
       get credentials() {
