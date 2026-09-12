@@ -6,6 +6,7 @@ const MAX_PAYMENT_CARDS = 32;
 const MAX_TEXT_BLOCKS = 64;
 const MAX_TEXT_FORMATTED = 8;
 const PAYMENT_CARD_CODE_LENGTH = 2;
+const PAYMENT_CARD_CODE_PATTERN = /^[A-Z0-9]{2}$/;
 const MAX_RULE_TEXT = 2_000;
 const MAX_RAW_TEXT_MULTIPLIER = 4;
 
@@ -41,7 +42,11 @@ function requiredMachineString(value: unknown, max: number, label: string): void
 
 function requiredPaymentCardCode(value: unknown): void {
   requiredMachineString(value, PAYMENT_CARD_CODE_LENGTH, 'accepted-card code');
-  if (typeof value !== 'string' || value.length !== PAYMENT_CARD_CODE_LENGTH) {
+  if (
+    typeof value !== 'string'
+    || value.length !== PAYMENT_CARD_CODE_LENGTH
+    || !PAYMENT_CARD_CODE_PATTERN.test(value)
+  ) {
     invalidResponse('Travelport returned invalid accepted-card code authority evidence.');
   }
 }
