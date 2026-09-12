@@ -1,3 +1,4 @@
+import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-machine-token.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type {
   HospitalitySupplierReservationRecoveryProvider,
@@ -8,6 +9,8 @@ import type {
 const INPUT_FAILURE_MESSAGE = 'Supplier reservation reconciliation input authority could not be materialized safely.';
 const PROVIDER_FAILURE_MESSAGE = 'Supplier reservation recovery provider authority could not be materialized safely.';
 const RESULT_FAILURE_MESSAGE = 'Supplier reservation recovery result authority could not be materialized safely.';
+const MAX_PROVIDER_CODE_LENGTH = 64;
+const MAX_OPERATIONAL_REFERENCE_LENGTH = 512;
 
 export type HospitalitySupplierReservationReconciliationInput = Readonly<{
   organizationId: string;
@@ -35,6 +38,26 @@ function objectRecord(value: unknown, code: 'INVALID_REQUEST' | 'INVALID_RESPONS
     fail(code, message);
   }
   return value as Record<string, unknown>;
+}
+
+function exactMachineToken(
+  value: unknown,
+  maxLength: number,
+  code: 'INVALID_REQUEST' | 'INVALID_RESPONSE',
+  message: string,
+) {
+  if (!isExactHospitalitySupplierMachineToken(value, maxLength)) fail(code, message);
+  return value;
+}
+
+function nullableMachineToken(
+  value: unknown,
+  maxLength: number,
+  code: 'INVALID_REQUEST' | 'INVALID_RESPONSE',
+  message: string,
+) {
+  if (value === null) return null;
+  return exactMachineToken(value, maxLength, code, message);
 }
 
 export function materializeHospitalitySupplierReservationReconciliationInput(
@@ -69,7 +92,7 @@ export function materializeHospitalitySupplierReservationRecoveryProvider(
   }
 
   if (
-    typeof code !== 'string'
+    !isExactHospitalitySupplierMachineToken(code, MAX_PROVIDER_CODE_LENGTH)
     || typeof retrieveReservation !== 'function'
     || (
       requiresSupplierConfirmationForFound !== undefined
@@ -92,14 +115,67 @@ export function materializeHospitalitySupplierReservationRecoveryResult(
   result: HospitalitySupplierReservationRecoveryResult,
 ): HospitalitySupplierReservationRecoveryResult {
   const record = objectRecord(result, 'INVALID_RESPONSE', RESULT_FAILURE_MESSAGE);
+  let status: unknown;
+  let providerReservationReference: unknown;
+  let supplierConfirmationReference: unknown;
+  let providerCorrelationId: unknown;
   try {
-    return Object.freeze({
-      status: record.status,
-      providerReservationReference: record.providerReservationReference,
-      supplierConfirmationReference: record.supplierConfirmationReference,
-      providerCorrelationId: record.providerCorrelationId,
-    }) as HospitalitySupplierReservationRecoveryResult;
+    status = record.status;
+    providerReservationReference = record.providerReservationReference;
+    supplierConfirmationReference = record.supplierConfirmationReference;
+    providerCorrelationId = record.providerCorrelationId;
   } catch {
     fail('INVALID_RESPONSE', RESULT_FAILURE_MESSAGE);
   }
+
+  if (status !== 'FOUND' && status !== 'NOT_FOUND') {
+    fail('INVALID_RESPONSE', RESULT_FAILURE_MESSAGE);
+  }
+
+  const normalizedProviderReservationReference = exactMachineToken(
+    providerReservationReference,
+    MAX_OPERATIONAL_REFERENCE_LENGTH,
+    'INVALID_RESPONSE',
+    RESULT_FAILURE_MESSAGE,
+  );
+  const normalizedProviderCorrelationId = nullableMachineToken(
+    providerCorrelationId,
+    MAX_OPERATIONAL_REFERENCE_LENGTH,
+    'INVALID_RESPONSE',
+    RESULT_FAILURE_MESSAGE,
+  );
+
+  if (status === 'FOUND') {
+    const normalizedSupplierConfirmationReference = nullableMachineToken(
+      supplierConfirmationReference,
+      MAX_OPERATIONAL_REFERENCE_LENGTH,
+      'INVALID_RESPONSE',
+      RESULT_FAILURE_MESSAGE,
+    );
+    return Object.freeze({
+      status,
+      providerReservationReference: normalizedProviderReservationReference,
+      supplierConfirmationReference: normalizedSupplierConfirmationReference,
+      providerCorrelationId: normalizedProviderCorrelationId,
+    });
+  }
+
+  // A NOT_FOUND result does not own supplier confirmation authority. We still
+  // read and preserve any non-null contradictory value so the coordinator can
+  // keep its existing durable-confirmation continuity check, but it must be a
+  // bounded exact machine token before it crosses this runtime boundary.
+  const normalizedContradictorySupplierConfirmationReference = supplierConfirmationReference === undefined
+    ? undefined
+    : nullableMachineToken(
+        supplierConfirmationReference,
+        MAX_OPERATIONAL_REFERENCE_LENGTH,
+        'INVALID_RESPONSE',
+        RESULT_FAILURE_MESSAGE,
+      );
+  return Object.freeze({
+    status,
+    providerReservationReference: normalizedProviderReservationReference,
+    supplierConfirmationReference: normalizedContradictorySupplierConfirmationReference,
+    providerCorrelationId: normalizedProviderCorrelationId,
+  }) as HospitalitySupplierReservationRecoveryResult;
 }

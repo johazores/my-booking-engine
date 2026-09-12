@@ -59,7 +59,7 @@ test('reconciliation input is a one-read frozen allowlist with sanitized accesso
   );
 });
 
-test('recovery provider capability is snapshotted once and preserves its receiver', async () => {
+test('recovery provider capability is snapshotted once, bounded, and preserves its receiver', async () => {
   let codeReads = 0;
   let methodReads = 0;
   let confirmationReads = 0;
@@ -107,6 +107,21 @@ test('recovery provider capability is snapshotted once and preserves its receive
     },
   });
   assert.equal(result.status, 'FOUND');
+
+  for (const code of ['', ' travelport-stays', 'travelport-stays\n', 'x'.repeat(65)]) {
+    assert.throws(
+      () => materializeHospitalitySupplierReservationRecoveryProvider({
+        code,
+        async retrieveReservation() {
+          return { status: 'NOT_FOUND' as const, providerReservationReference: 'ABC123', providerCorrelationId: null };
+        },
+      }),
+      fixedFailure(
+        'INVALID_REQUEST',
+        'Supplier reservation recovery provider authority could not be materialized safely.',
+      ),
+    );
+  }
 });
 
 test('recovery provider capability sanitizes hostile getters', () => {
@@ -126,28 +141,79 @@ test('recovery provider capability sanitizes hostile getters', () => {
   );
 });
 
-test('recovery result is a one-read frozen allowlist and cannot mutate after validation', () => {
-  let statusReads = 0;
-  const raw = {
-    get status() {
-      statusReads += 1;
-      return 'FOUND' as const;
-    },
+test('recovery result is a one-read frozen semantic allowlist and cannot mutate after validation', () => {
+  const reads = new Map<string, number>();
+  const values: Record<string, unknown> = {
+    status: 'FOUND',
     providerReservationReference: 'ABC123',
     supplierConfirmationReference: 'SUP123',
     providerCorrelationId: 'CORR123',
-    secretMetadata: 'discard-me',
   };
+  const once = (name: string) => ({
+    enumerable: true,
+    get() {
+      reads.set(name, (reads.get(name) ?? 0) + 1);
+      return values[name];
+    },
+  });
+  const raw = Object.defineProperties({ secretMetadata: 'discard-me' }, {
+    status: once('status'),
+    providerReservationReference: once('providerReservationReference'),
+    supplierConfirmationReference: once('supplierConfirmationReference'),
+    providerCorrelationId: once('providerCorrelationId'),
+  });
 
-  const snapshot = materializeHospitalitySupplierReservationRecoveryResult(raw);
-  assert.equal(statusReads, 1);
+  const snapshot = materializeHospitalitySupplierReservationRecoveryResult(raw as never);
+  assert.deepEqual(Object.fromEntries(reads), {
+    status: 1,
+    providerReservationReference: 1,
+    supplierConfirmationReference: 1,
+    providerCorrelationId: 1,
+  });
   assert.equal(Object.isFrozen(snapshot), true);
   assert.deepEqual(
     Object.keys(snapshot).sort(),
     ['providerCorrelationId', 'providerReservationReference', 'status', 'supplierConfirmationReference'],
   );
-  raw.providerReservationReference = 'MUTATED';
+  values.providerReservationReference = 'MUTATED';
+  values.status = 'NOT_FOUND';
   assert.equal(snapshot.providerReservationReference, 'ABC123');
+  assert.equal(snapshot.status, 'FOUND');
+});
+
+test('recovery result rejects malformed status and operational references before settlement', () => {
+  const invalidResults = [
+    { status: 'UNKNOWN', providerReservationReference: 'ABC123', supplierConfirmationReference: null, providerCorrelationId: null },
+    { status: 'FOUND', providerReservationReference: '', supplierConfirmationReference: null, providerCorrelationId: null },
+    { status: 'FOUND', providerReservationReference: ' ABC123', supplierConfirmationReference: null, providerCorrelationId: null },
+    { status: 'FOUND', providerReservationReference: 'ABC123', supplierConfirmationReference: ' SUP123', providerCorrelationId: null },
+    { status: 'FOUND', providerReservationReference: 'ABC123', supplierConfirmationReference: null, providerCorrelationId: 'corr\n1' },
+    { status: 'NOT_FOUND', providerReservationReference: 'ABC123', supplierConfirmationReference: ' '.repeat(2), providerCorrelationId: null },
+    { status: 'NOT_FOUND', providerReservationReference: 'x'.repeat(513), providerCorrelationId: null },
+    { status: 'NOT_FOUND', providerReservationReference: 'ABC123', providerCorrelationId: undefined },
+  ];
+
+  for (const value of invalidResults) {
+    assert.throws(
+      () => materializeHospitalitySupplierReservationRecoveryResult(value as never),
+      fixedFailure(
+        'INVALID_RESPONSE',
+        'Supplier reservation recovery result authority could not be materialized safely.',
+      ),
+    );
+  }
+});
+
+test('not-found recovery preserves only bounded contradictory confirmation evidence for continuity checks', () => {
+  const snapshot = materializeHospitalitySupplierReservationRecoveryResult({
+    status: 'NOT_FOUND',
+    providerReservationReference: 'ABC123',
+    providerCorrelationId: 'CORR123',
+    supplierConfirmationReference: 'SUP123',
+  } as never) as unknown as Readonly<{ supplierConfirmationReference?: unknown }>;
+
+  assert.equal(snapshot.supplierConfirmationReference, 'SUP123');
+  assert.equal(Object.isFrozen(snapshot), true);
 });
 
 test('recovery result sanitizes throwing and revoked provider-owned evidence', () => {
