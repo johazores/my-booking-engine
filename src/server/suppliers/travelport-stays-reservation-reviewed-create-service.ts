@@ -18,6 +18,9 @@ import {
   type HospitalitySupplierReservationSubmissionOutcome,
 } from './hospitality-supplier-reservation-service.ts';
 import {
+  materializeTravelportStaysReservationCreateOutcome,
+} from './travelport-stays-reservation-create-outcome-authority.ts';
+import {
   createTravelportStaysReservationCreateProviderObservation,
   type TravelportStaysReservationCreateProviderResult,
 } from './travelport-stays-reservation-create-observability.ts';
@@ -148,9 +151,9 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
   const observationState: {
     current: ReturnType<typeof createTravelportStaysReservationCreateProviderObservation> | null;
   } = { current: null };
-  let createOutcome;
+  let rawCreateOutcome;
   try {
-    createOutcome = await execution.reservationCreateExecutor.createReservationAfterAcceptedReview({
+    rawCreateOutcome = await execution.reservationCreateExecutor.createReservationAfterAcceptedReview({
       requestCorrelationId: attemptId,
       requestMaterial: createRequestMaterial,
       paymentAuthority: reviewed.paymentAuthority,
@@ -196,6 +199,20 @@ export async function createTravelportStaysReservationAfterAcceptedCommercialRev
 
   if (!providerRequestStarted) {
     conflict('Travelport reviewed Create returned without durable reviewed provider-request evidence.');
+  }
+
+  let createOutcome;
+  try {
+    createOutcome = materializeTravelportStaysReservationCreateOutcome(rawCreateOutcome);
+  } catch {
+    observationState.current?.finish('AMBIGUOUS');
+    return settleHospitalitySupplierReservationSubmission({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId,
+      outcome: postProviderUnexpectedOutcome(),
+    });
   }
 
   if (

@@ -19,6 +19,9 @@ import {
   normalizeHospitalitySupplierReservationTravelerPayload,
 } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
+  materializeTravelportStaysReservationSyncOutcome,
+} from './travelport-stays-reservation-create-outcome-authority.ts';
+import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
 import {
@@ -159,9 +162,9 @@ export async function syncTravelportStaysBookingDotComReservation(input: Readonl
 
   let providerRequestStarted = false;
   let observation: ReturnType<typeof createTravelportStaysReservationSyncProviderObservation> | null = null;
-  let outcome;
+  let rawOutcome;
   try {
-    outcome = await execution.reservationSyncExecutor.syncReservation({
+    rawOutcome = await execution.reservationSyncExecutor.syncReservation({
       requestCorrelationId: claim.attempt.id,
       providerRecoveryReference,
       supplierConfirmationReference,
@@ -222,6 +225,23 @@ export async function syncTravelportStaysBookingDotComReservation(input: Readonl
       organizationId: input.organizationId,
     });
     observation.finish('AMBIGUOUS');
+    return settleHospitalitySupplierReservationRecoveryWrite({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: {
+        status: 'AMBIGUOUS',
+        failureCode: 'INVALID_RESPONSE',
+      },
+    });
+  }
+
+  let outcome;
+  try {
+    outcome = materializeTravelportStaysReservationSyncOutcome(rawOutcome);
+  } catch {
+    observation?.finish('AMBIGUOUS');
     return settleHospitalitySupplierReservationRecoveryWrite({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,

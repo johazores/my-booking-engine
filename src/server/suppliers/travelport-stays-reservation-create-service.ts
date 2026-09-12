@@ -23,6 +23,9 @@ import {
 } from './hospitality-supplier-reservation-service.ts';
 import type { HospitalitySupplierReservationTravelerPayloadInput } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
+  materializeTravelportStaysReservationCreateOutcome,
+} from './travelport-stays-reservation-create-outcome-authority.ts';
+import {
   createTravelportStaysReservationCreateProviderObservation,
   type TravelportStaysReservationCreateProviderResult,
 } from './travelport-stays-reservation-create-observability.ts';
@@ -157,9 +160,9 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
 
   let providerRequestStarted = false;
   const observationState: { current: ReturnType<typeof createTravelportStaysReservationCreateProviderObservation> | null } = { current: null };
-  let createOutcome;
+  let rawCreateOutcome;
   try {
-    createOutcome = await execution.reservationCreateExecutor.createReservation({
+    rawCreateOutcome = await execution.reservationCreateExecutor.createReservation({
       requestCorrelationId: claim.attempt.id,
       requestMaterial: reviewed.createRequestMaterial,
       paymentAuthority: reviewed.submissionAuthority.paymentAuthority,
@@ -224,6 +227,20 @@ export async function createTravelportStaysReservationWithSensitivePaymentCard(
       organizationId: input.organizationId,
     });
     observationState.current.finish('AMBIGUOUS');
+    return settleHospitalitySupplierReservationSubmission({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      reservationId: input.reservationId,
+      attemptId: claim.attempt.id,
+      outcome: postProviderUnexpectedOutcome(),
+    });
+  }
+
+  let createOutcome;
+  try {
+    createOutcome = materializeTravelportStaysReservationCreateOutcome(rawCreateOutcome);
+  } catch {
+    observationState.current?.finish('AMBIGUOUS');
     return settleHospitalitySupplierReservationSubmission({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
