@@ -36,6 +36,13 @@ function record(value: unknown): RecordValue | null {
     : null;
 }
 
+function optionalRecord(value: unknown): RecordValue | null {
+  if (value === undefined || value === null) return null;
+  const object = record(value);
+  if (!object) invalidResponse('Travelport returned malformed commercial authority structure.');
+  return object;
+}
+
 function boundedArray(value: unknown, max: number): readonly unknown[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) invalidResponse();
@@ -120,9 +127,9 @@ function searchCancellationPenalty(value: unknown): void {
   if (!penalty) invalidResponse();
   commercialTextIfPresent(penalty.deadlineLocal, 100);
   commercialTextIfPresent(penalty.cancelShortDescription, MAX_SEARCH_TEXT);
-  const providerPenalty = record(penalty.penalty);
+  const providerPenalty = optionalRecord(penalty.penalty);
   if (!providerPenalty) return;
-  const amount = record(providerPenalty.currencyAmount);
+  const amount = optionalRecord(providerPenalty.currencyAmount);
   if (!amount) return;
   canonicalCurrencyIfPresent(amount.currency);
   exactMoneyIfPresent(amount.amount);
@@ -134,7 +141,7 @@ function searchRate(value: unknown): void {
   commercialTextIfPresent(rate.rateDescription, 500);
   commercialTextIfPresent(rate.roomDescription, 500);
 
-  const price = record(rate.price);
+  const price = optionalRecord(rate.price);
   if (price) {
     canonicalCurrencyIfPresent(price.currencyCode);
     moneyComponent(price.base);
@@ -144,7 +151,7 @@ function searchRate(value: unknown): void {
     moneyComponent(price.totalFeesDueAtProperty);
   }
 
-  const terms = record(rate.terms);
+  const terms = optionalRecord(rate.terms);
   if (!terms) return;
   commercialTextIfPresent(terms.cancelNote, MAX_SEARCH_TEXT);
   for (const penalty of boundedArray(terms.cancelPenalties, MAX_CANCELLATION_PENALTIES)) {
@@ -272,9 +279,9 @@ export function assertTravelportStaysRulesCommercialAuthorityResponse(value: unk
   for (const offerValue of offers) {
     const offer = record(offerValue);
     if (!offer) invalidResponse();
-    const price = record(offer.Price);
+    const price = optionalRecord(offer.Price);
     if (price) {
-      const currencyCode = record(price.CurrencyCode);
+      const currencyCode = optionalRecord(price.CurrencyCode);
       if (currencyCode) canonicalCurrencyIfPresent(currencyCode.value);
       exactMoneyIfPresent(price.Base);
       exactMoneyIfPresent(price.TotalTaxes);
@@ -286,7 +293,7 @@ export function assertTravelportStaysRulesCommercialAuthorityResponse(value: unk
       const product = record(productValue);
       if (!product) invalidResponse();
       exactMachineStringIfPresent(product.bookingCode, 512);
-      const propertyKey = record(product.PropertyKey);
+      const propertyKey = optionalRecord(product.PropertyKey);
       if (propertyKey) {
         exactMachineStringIfPresent(propertyKey.chainCode, 16);
         exactMachineStringIfPresent(propertyKey.propertyCode, 32);

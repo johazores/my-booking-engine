@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Travelport SearchComplete and Rules responses contain values that SF turns into price, cancellation, guarantee, deposit, payment-card, and legal-text authority. Those normalized values contribute to offer fingerprints, Rules fingerprints, reservation review, and the disabled reservation write path. Provider compatibility parsing must therefore not silently trim, control-normalize, or truncate distinct commercial evidence into the same SF authority.
+Travelport SearchComplete and Rules responses contain values that SF turns into price, cancellation, guarantee, deposit, payment-card, and legal-text authority. Those normalized values contribute to offer fingerprints, Rules fingerprints, reservation review, and the disabled reservation write path. Provider compatibility parsing must therefore not silently trim, control-normalize, truncate, or discard malformed structures in distinct commercial evidence before it becomes SF authority.
 
 This contract strengthens the existing read/review path only. It does not advertise Travelport `reservation`, add a customer/staff booking action, collect payment-card data, or relax any Phase 15 activation gate.
 
@@ -12,6 +12,14 @@ Travelport's current JSON API model represents hotel offer pricing with currency
 
 The public Travelport adapters now validate the authority-bearing parts of those successful responses before the compatibility cores can normalize them.
 
+## Structural fail-closed rule
+
+Optional commercial evidence may be absent or explicitly `null` where the compatibility layer already treats it as unavailable. Once an optional authority-bearing value is present, however, it must have the documented object/collection shape. A primitive or array cannot be reinterpreted as if the field were absent.
+
+The active SearchComplete boundary applies that rule to rate `price`, rate `terms`, cancellation `penalty`, and penalty `currencyAmount` objects. The Rules boundary applies it to offer `Price`, nested `CurrencyCode`, and product `PropertyKey` objects. Present malformed structures fail with `INVALID_RESPONSE` before compatibility normalization or fingerprinting.
+
+This mirrors the fail-closed structural rule already used by the disabled reservation-authority boundary while keeping the active read/review path independently protected.
+
 ## SearchComplete commercial boundary
 
 Successful SearchComplete responses are checked before offer normalization for the fields that can enter price/offer fingerprints:
@@ -19,7 +27,8 @@ Successful SearchComplete responses are checked before offer normalization for t
 - base, tax, total, included-fee, and due-at-property money values;
 - cancellation-penalty money values and canonical currency;
 - room/rate descriptions used by the normalized offer;
-- cancellation notes, deadlines, and short descriptions used by the normalized cancellation evidence; and
+- cancellation notes, deadlines, and short descriptions used by the normalized cancellation evidence;
+- exact object shape for present price, terms, penalty, and penalty-currency evidence; and
 - existing bounded room/rate collection limits.
 
 Numeric money remains supported when it is finite and non-negative. A string money value is compatibility evidence and must already be exact: it cannot contain leading/trailing whitespace or ASCII controls `U+0000` through `U+001F` or `U+007F`.
@@ -34,6 +43,7 @@ The guard covers:
 
 - offer price base, taxes, fees, and total;
 - canonical currency evidence;
+- exact object shape for present offer price, currency-code, and product property-key evidence;
 - payment-timing and guarantee machine tokens;
 - cancellation amount, percent, nights, tax-subject, and description evidence;
 - deposit currency and amount evidence;
@@ -58,12 +68,14 @@ Focused executable coverage verifies that:
 - canonical SearchComplete and Rules fixtures remain accepted;
 - padded/control-bearing SearchComplete money fails before price normalization;
 - padded cancellation money and control-bearing/oversized commercial SearchComplete text fail closed;
+- present malformed SearchComplete price, terms, penalty, and penalty-currency objects fail closed while absent/null optional structures remain compatible;
 - padded/control-bearing Rules price, cancellation, and deposit values fail before terms fingerprinting;
+- present malformed Rules price, currency-code, and property-key objects fail closed while absent/null optional structures remain compatible;
 - padded/control-bearing Rules machine tokens such as language, payment timing, and guarantee type fail closed;
 - Rules cancellation/text evidence that would previously be truncated is rejected; and
 - oversized deposit-policy traversal is rejected before compatibility normalization.
 
-The dependency-free supplier-reference source contract also pins the public adapter calls into this commercial authority boundary.
+A dependency-free structural authority contract pins every new fail-closed object boundary. The existing supplier-reference source contract continues to pin the public adapter calls into this commercial authority layer.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live behavior still requires provisioned Travelport non-production credentials.
 
