@@ -191,6 +191,14 @@ test('rejects malformed error discriminators, status authority, and category ali
     }
   }
 
+  const conflictingWarning = errorResponse();
+  (conflictingWarning.ErrorResponse.Result as Record<string, unknown>).Warning = [{
+    '@type': 'Warning',
+    StatusCode: 99,
+    Message: 'Conflicting result evidence.',
+  }];
+  assertInvalid(conflictingWarning);
+
   const emptyErrors = errorResponse();
   emptyErrors.ErrorResponse.Result.Error = [];
   assertInvalid(emptyErrors);

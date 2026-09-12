@@ -130,6 +130,7 @@ function validateResult(response: RecordValue): void {
   const hasWarning = result.Warning !== undefined;
   const hasWarnings = result.Warnings !== undefined;
   if (hasWarning && hasWarnings) invalidResponse();
+  if (errorValues.length > 0 && (hasWarning || hasWarnings)) invalidResponse();
   const warnings = hasWarning ? result.Warning : result.Warnings;
   const warningValues = boundedArray(warnings, MAX_RESULT_ITEMS);
   if ((hasWarning || hasWarnings) && warningValues.length < 1) invalidResponse();

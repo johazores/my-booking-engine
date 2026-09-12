@@ -37,6 +37,7 @@ test('reservation response guard rejects normalization-confusable commercial mac
   assert.ok(guard.includes('MIN_ERROR_STATUS_CODE = 100'));
   assert.ok(guard.includes('MAX_ERROR_STATUS_CODE = 599'));
   assert.ok(guard.includes('MAX_WARNING_STATUS_CODE = 999'));
+  assert.ok(guard.includes('errorValues.length > 0 && (hasWarning || hasWarnings)'));
   assert.ok(guard.includes("warningType !== 'Warning'"));
   assert.ok(guard.includes('warning.Message === undefined || warning.Message === null'));
   assert.ok(guard.includes("Object.prototype.hasOwnProperty.call(response, 'traceID')"));
