@@ -13,8 +13,9 @@ test('SearchComplete scalar authority fails closed before compatibility normaliz
   assert.match(commercial, /booleanIfPresent\(terms\[field\]\)/);
   assert.match(commercial, /booleanIfPresent\(penalty\.estimatedDeadlineLocal\)/);
   assert.match(commercial, /booleanIfPresent\(providerPenalty\.estimatedAmount\)/);
-  assert.match(commercial, /exactMachineStringIfPresent\(terms\.ratePaymentInfo, 32\)/);
-  assert.match(commercial, /exactMachineStringIfPresent\(terms\.guaranteeType, 64\)/);
+  assert.match(commercial, /enumStringIfPresent\(rate\.priceChangeProbability, SEARCH_PRICE_CHANGE_PROBABILITIES/);
+  assert.match(commercial, /enumStringIfPresent\(terms\.ratePaymentInfo, SEARCH_PAYMENT_TIMINGS/);
+  assert.match(commercial, /enumStringIfPresent\(terms\.guaranteeType, SEARCH_GUARANTEE_TYPES/);
 });
 
 test('Rules scalar authority fails closed before compatibility normalization', () => {
@@ -28,6 +29,14 @@ test('Rules scalar authority fails closed before compatibility normalization', (
   assert.match(commercial, /optionalRecord\(block\.CheckInOutPolicy\)/);
   assert.match(commercial, /localTimeIfPresent\(checkInOutPolicy\.checkInTime\)/);
   assert.match(commercial, /localTimeIfPresent\(checkInOutPolicy\.checkOutTime\)/);
+  assert.match(commercial, /enumStringIfPresent\(penalty\.subjectToTax, RULE_SUBJECT_TO_TAX/);
+});
+
+test('documented enum allowlists are explicit and dependency-free', () => {
+  assert.match(commercial, /SEARCH_PRICE_CHANGE_PROBABILITIES = new Set\(\['High', 'Medium', 'Low'\]\)/);
+  assert.match(commercial, /SEARCH_PAYMENT_TIMINGS = new Set\(\['PrePay', 'PostPay', 'Unknown'\]\)/);
+  assert.match(commercial, /'GuaranteeRequired',[\s\S]*'NoGuaranteesAccepted',[\s\S]*'DepositRequired',[\s\S]*'PrepayRequired'/);
+  assert.match(commercial, /RULE_SUBJECT_TO_TAX = new Set\(\['Yes', 'No', 'Unknown'\]\)/);
 });
 
 test('local date and time authority is canonical and calendar-aware', () => {

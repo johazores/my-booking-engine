@@ -25,6 +25,15 @@ const MAX_RULE_TEXT = 2_000;
 const MAX_TEXT_TITLE = 120;
 const MAX_LANGUAGE_CODE = 16;
 const MAX_RAW_TEXT_MULTIPLIER = 4;
+const SEARCH_PRICE_CHANGE_PROBABILITIES = new Set(['High', 'Medium', 'Low']);
+const SEARCH_PAYMENT_TIMINGS = new Set(['PrePay', 'PostPay', 'Unknown']);
+const SEARCH_GUARANTEE_TYPES = new Set([
+  'GuaranteeRequired',
+  'NoGuaranteesAccepted',
+  'DepositRequired',
+  'PrepayRequired',
+]);
+const RULE_SUBJECT_TO_TAX = new Set(['Yes', 'No', 'Unknown']);
 
 type RecordValue = Readonly<Record<string, unknown>>;
 
@@ -62,6 +71,13 @@ function exactMachineStringIfPresent(value: unknown, max = MAX_MACHINE_TOKEN_LEN
     || ASCII_CONTROL_PATTERN.test(value)
   ) {
     invalidResponse();
+  }
+}
+
+function enumStringIfPresent(value: unknown, allowed: ReadonlySet<string>, label: string): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string' || !allowed.has(value)) {
+    invalidResponse(`Travelport returned unsupported ${label} authority evidence.`);
   }
 }
 
@@ -183,7 +199,7 @@ function searchRate(value: unknown): void {
   ] as const) {
     booleanIfPresent(rate[field]);
   }
-  exactMachineStringIfPresent(rate.priceChangeProbability, 32);
+  enumStringIfPresent(rate.priceChangeProbability, SEARCH_PRICE_CHANGE_PROBABILITIES, 'price-change probability');
 
   const price = optionalRecord(rate.price);
   if (price) {
@@ -200,8 +216,8 @@ function searchRate(value: unknown): void {
 
   const terms = optionalRecord(rate.terms);
   if (!terms) return;
-  exactMachineStringIfPresent(terms.ratePaymentInfo, 32);
-  exactMachineStringIfPresent(terms.guaranteeType, 64);
+  enumStringIfPresent(terms.ratePaymentInfo, SEARCH_PAYMENT_TIMINGS, 'SearchComplete payment timing');
+  enumStringIfPresent(terms.guaranteeType, SEARCH_GUARANTEE_TYPES, 'SearchComplete guarantee type');
   for (const field of [
     'partialTermsCache',
     'fullTermsCache',
@@ -246,7 +262,7 @@ function rulesPenalty(value: unknown): void {
   const penalty = record(value);
   if (!penalty) invalidResponse();
   exactMachineStringIfPresent(penalty['@type'], 64);
-  exactMachineStringIfPresent(penalty.subjectToTax, 16);
+  enumStringIfPresent(penalty.subjectToTax, RULE_SUBJECT_TO_TAX, 'Rules cancellation tax treatment');
   exactDecimalIfPresent(penalty.Percent);
   exactDecimalIfPresent(penalty.Nights);
   const amounts = Array.isArray(penalty.Amount)
