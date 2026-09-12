@@ -20,6 +20,9 @@ import {
 import {
   createTravelportStaysRulesMemberAuthorityFetch,
 } from './travelport-stays-rules-member-authority.ts';
+import {
+  createTravelportStaysRulesSelectionAuthorityFetch,
+} from './travelport-stays-rules-selection-authority.ts';
 import type { HospitalitySupplierPricingProvider } from './hospitality-supplier-provider.ts';
 
 export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBookingTermsProvider {
@@ -33,11 +36,12 @@ export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBook
   }) {
     const authority = materializeTravelportStaysBookingTermsConstructorAuthority(input);
     const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch);
+    const memberAuthorityFetch = createTravelportStaysRulesMemberAuthorityFetch(referenceAuthorityFetch);
     super({
       credentials: authority.credentials,
       cacheKey: authority.cacheKey,
       pricingProvider: authority.pricingProvider,
-      fetchImpl: createTravelportStaysRulesMemberAuthorityFetch(referenceAuthorityFetch),
+      fetchImpl: createTravelportStaysRulesSelectionAuthorityFetch(memberAuthorityFetch),
       timeoutMs: authority.timeoutMs,
       now: authority.now,
     });
