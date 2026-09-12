@@ -7,6 +7,7 @@ import {
   type TravelportStaysCreateExpectedReservation,
   type TravelportStaysReservationCreateOutcome,
 } from './travelport-stays-reservation-create-outcome.ts';
+import { materializeTravelportStaysReservationIoConstructorAuthority } from './travelport-stays-constructor-authority.ts';
 import { materializeTravelportStaysCreateExpectedReservation } from './travelport-stays-reservation-expected-authority.ts';
 import {
   requestTravelportStaysAccessToken,
@@ -364,11 +365,12 @@ export class TravelportStaysReservationCreateExecutor {
     timeoutMs?: number;
     now?: () => Date;
   }>) {
-    this.#cacheKey = boundedSingleLine(input.cacheKey, 'Travelport reservation create cache key', MAX_CACHE_KEY_LENGTH);
-    this.#credentials = input.credentials;
-    this.#fetchImpl = input.fetchImpl ?? fetch;
-    this.#timeoutMs = normalizeTimeout(input.timeoutMs);
-    this.#now = input.now ?? (() => new Date());
+    const authority = materializeTravelportStaysReservationIoConstructorAuthority(input);
+    this.#cacheKey = boundedSingleLine(authority.cacheKey, 'Travelport reservation create cache key', MAX_CACHE_KEY_LENGTH);
+    this.#credentials = authority.credentials;
+    this.#fetchImpl = authority.fetchImpl ?? fetch;
+    this.#timeoutMs = normalizeTimeout(authority.timeoutMs);
+    this.#now = authority.now ?? (() => new Date());
   }
 
   async #accessToken() {

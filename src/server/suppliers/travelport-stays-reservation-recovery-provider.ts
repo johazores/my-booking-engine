@@ -5,6 +5,7 @@ import type {
   HospitalitySupplierReservationRecoveryRequest,
   HospitalitySupplierReservationRecoveryResult,
 } from './hospitality-supplier-reservation-recovery-provider.ts';
+import { materializeTravelportStaysReservationIoConstructorAuthority } from './travelport-stays-constructor-authority.ts';
 import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
@@ -91,15 +92,16 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     timeoutMs?: number;
     now?: () => Date;
   }) {
-    this.#credentials = input.credentials;
+    const authority = materializeTravelportStaysReservationIoConstructorAuthority(input);
+    this.#credentials = authority.credentials;
     this.#cacheKey = boundedSingleLine(
-      input.cacheKey,
+      authority.cacheKey,
       'Travelport reservation recovery cache key',
       MAX_CACHE_KEY_LENGTH,
     );
-    this.#fetchImpl = input.fetchImpl ?? fetch;
-    this.#timeoutMs = normalizeTimeout(input.timeoutMs);
-    this.#now = input.now ?? (() => new Date());
+    this.#fetchImpl = authority.fetchImpl ?? fetch;
+    this.#timeoutMs = normalizeTimeout(authority.timeoutMs);
+    this.#now = authority.now ?? (() => new Date());
   }
 
   async #accessToken() {

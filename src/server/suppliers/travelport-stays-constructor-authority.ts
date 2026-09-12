@@ -92,3 +92,21 @@ export function materializeTravelportStaysReservationAuthorityConstructorAuthori
     now: input.now,
   }));
 }
+
+export function materializeTravelportStaysReservationIoConstructorAuthority(
+  input: Readonly<{
+    credentials: TravelportStaysCredentials;
+    cacheKey: string;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    now?: () => Date;
+  }>,
+) {
+  return materialize(() => Object.freeze({
+    credentials: credentialsSnapshot(input.credentials),
+    cacheKey: input.cacheKey,
+    fetchImpl: input.fetchImpl,
+    timeoutMs: input.timeoutMs,
+    now: input.now,
+  }));
+}
