@@ -43,14 +43,18 @@ test('canonical Rules collection members remain accepted', () => {
   assert.doesNotThrow(() => assertTravelportStaysRulesMemberAuthorityResponse(optional));
 });
 
-test('present accepted-card members require a non-empty exact code', () => {
-  for (const value of [undefined, null, '', 'V', 'VISA', ' VI', 'VI ', 'V\tI']) {
+test('present accepted-card members require an exact two-character machine code', () => {
+  for (const value of [undefined, null, '', 'V', 'VISA', ' VI', 'VI ', 'V\tI', 'vi', 'V!', '_V', 'ÅV']) {
     const payload = rulesResponse();
     payload.OfferHospitalityResponse.Offer.TermsAndConditionsFull[0]!.AcceptedCreditCard = [{
       ...(value !== undefined ? { value } : {}),
     }] as never;
     assert.throws(() => assertTravelportStaysRulesMemberAuthorityResponse(payload), invalidResponse);
   }
+
+  const alphanumeric = rulesResponse();
+  alphanumeric.OfferHospitalityResponse.Offer.TermsAndConditionsFull[0]!.AcceptedCreditCard = [{ value: '1A' }];
+  assert.doesNotThrow(() => assertTravelportStaysRulesMemberAuthorityResponse(alphanumeric));
 });
 
 test('present text blocks require at least one formatted-text member', () => {
