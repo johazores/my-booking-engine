@@ -13,6 +13,7 @@ import {
   materializeHospitalitySupplierReservationPreparationWithTravelerInput,
   materializeHospitalitySupplierReservationReviewAndClaimInput,
 } from './hospitality-supplier-reservation-input-authority.ts';
+import { materializeHospitalitySupplierReservationAuthorityResult } from './hospitality-supplier-reservation-provider-result-authority.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
   assertHospitalitySupplierReservationSubmissionAuthority,
@@ -157,7 +158,9 @@ export async function reviewAndClaimHospitalitySupplierReservationSubmission(inp
     );
   }
 
-  const review = await reservationAuthorityProvider.verifyReservationAuthority(authorityInput);
+  const review = materializeHospitalitySupplierReservationAuthorityResult(
+    await reservationAuthorityProvider.verifyReservationAuthority(authorityInput),
+  );
   const submissionAuthority = assertHospitalitySupplierReservationSubmissionAuthority(reservation, review);
   let createRequestMaterial;
   try {

@@ -4,6 +4,11 @@ import { loadTravelportStaysIntegration } from '../integrations/travelport-stays
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
 import { materializeHospitalitySupplierReservationCommercialReviewAcceptanceInput } from './hospitality-supplier-reservation-input-authority.ts';
+import {
+  materializeHospitalitySupplierBookingTermsResult,
+  materializeHospitalitySupplierOfferRevalidationResult,
+  materializeHospitalitySupplierReservationAuthorityResult,
+} from './hospitality-supplier-reservation-provider-result-authority.ts';
 import { createHospitalitySupplierReservationReviewAcceptance } from './hospitality-supplier-reservation-review-acceptance.ts';
 import { assertHospitalitySupplierReservationReviewAttemptAuthority } from './hospitality-supplier-reservation-review-attempt-authority.ts';
 import { hospitalitySupplierReservationAuthorityInputFromOperation } from './hospitality-supplier-reservation-submission-authority.ts';
@@ -163,8 +168,10 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
   assertIntegrationMatches(current.integration, reservation);
 
   const priorAuthorityInput = hospitalitySupplierReservationAuthorityInputFromOperation(reservation);
-  const offerReview = await current.provider.revalidatePropertyOffer(priorAuthorityInput);
-  if (!offerReview.offer || offerReview.status === 'UNAVAILABLE') {
+  const offerReview = materializeHospitalitySupplierOfferRevalidationResult(
+    await current.provider.revalidatePropertyOffer(priorAuthorityInput),
+  );
+  if (!offerReview.offer || offerReview.status === 'UNAVAILABLE' || offerReview.status === 'OFFER_CHANGED') {
     throw reviewConflict('Supplier offer is no longer available for the pending commercial review.');
   }
   assertCurrentCommercialAuthority({ reservation, requirements, offer: offerReview.offer });
@@ -182,13 +189,20 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
     childAges: Object.freeze([...reservation.childAges]),
   });
 
-  const termsReview = await current.bookingTermsProvider.retrieveBookingTerms(refreshedOfferInput);
+  const termsReview = materializeHospitalitySupplierBookingTermsResult(
+    await current.bookingTermsProvider.retrieveBookingTerms(refreshedOfferInput),
+  );
   if (
     termsReview.status !== 'READY'
     || !termsReview.offer
     || !termsReview.bookingTerms
     || termsReview.bookingTerms.completeForReservationReview !== true
+    || termsReview.bookingTerms.revalidationRequired !== true
     || termsReview.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || termsReview.bookingTerms.supplierPropertyReference !== reservation.supplierPropertyReference
+    || termsReview.bookingTerms.supplierOfferReference !== reservation.supplierOfferReference
+    || termsReview.bookingTerms.price.currency !== reservation.currency
+    || termsReview.bookingTerms.price.totalMinor !== offerReview.offer.price.totalMinor
     || termsReview.offer.supplierPropertyReference !== reservation.supplierPropertyReference
     || termsReview.offer.supplierOfferReference !== reservation.supplierOfferReference
     || termsReview.offer.offerFingerprint !== offerReview.offer.offerFingerprint
@@ -198,16 +212,24 @@ export async function acceptTravelportStaysReservationCommercialReview(input: Re
     throw reviewConflict('Fresh supplier Rules authority is not stable enough to accept the pending commercial change.');
   }
 
-  const finalAuthority = await current.reservationAuthorityProvider.verifyReservationAuthority({
-    ...refreshedOfferInput,
-    expectedTermsFingerprint: termsReview.bookingTerms.termsFingerprint,
-  });
+  const finalAuthority = materializeHospitalitySupplierReservationAuthorityResult(
+    await current.reservationAuthorityProvider.verifyReservationAuthority({
+      ...refreshedOfferInput,
+      expectedTermsFingerprint: termsReview.bookingTerms.termsFingerprint,
+    }),
+  );
   if (
     finalAuthority.status !== 'READY'
+    || finalAuthority.revalidationRequired !== true
     || !finalAuthority.offer
     || !finalAuthority.bookingTerms
     || finalAuthority.bookingTerms.completeForReservationReview !== true
+    || finalAuthority.bookingTerms.revalidationRequired !== true
     || finalAuthority.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || finalAuthority.bookingTerms.supplierPropertyReference !== reservation.supplierPropertyReference
+    || finalAuthority.bookingTerms.supplierOfferReference !== reservation.supplierOfferReference
+    || finalAuthority.bookingTerms.price.currency !== reservation.currency
+    || finalAuthority.bookingTerms.price.totalMinor !== termsReview.offer.price.totalMinor
     || finalAuthority.offer.supplierPropertyReference !== reservation.supplierPropertyReference
     || finalAuthority.offer.supplierOfferReference !== reservation.supplierOfferReference
     || finalAuthority.offer.offerFingerprint !== termsReview.offer.offerFingerprint

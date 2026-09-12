@@ -4,6 +4,11 @@ import { loadTravelportStaysIntegration } from '../integrations/travelport-stays
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
 import { materializeHospitalitySupplierReservationAcceptedReviewInput } from './hospitality-supplier-reservation-input-authority.ts';
+import {
+  materializeHospitalitySupplierBookingTermsResult,
+  materializeHospitalitySupplierOfferRevalidationResult,
+  materializeHospitalitySupplierReservationAuthorityResult,
+} from './hospitality-supplier-reservation-provider-result-authority.ts';
 import { assertHospitalitySupplierReservationStoredReviewAcceptance } from './hospitality-supplier-reservation-review-acceptance.ts';
 import { assertHospitalitySupplierReservationReviewAttemptAuthority } from './hospitality-supplier-reservation-review-attempt-authority.ts';
 import { hospitalitySupplierReservationAuthorityInputFromOperation } from './hospitality-supplier-reservation-submission-authority.ts';
@@ -130,9 +135,11 @@ export async function reviewTravelportStaysReservationAcceptedCommercialAuthorit
   assertIntegrationMatches(current.integration, reservation);
   const priorAuthorityInput = hospitalitySupplierReservationAuthorityInputFromOperation(reservation);
 
-  const offerReview = await current.provider.revalidatePropertyOffer(priorAuthorityInput);
+  const offerReview = materializeHospitalitySupplierOfferRevalidationResult(
+    await current.provider.revalidatePropertyOffer(priorAuthorityInput),
+  );
   if (
-    offerReview.status === 'UNAVAILABLE'
+    offerReview.status !== 'UNCHANGED'
     || !offerReview.offer
     || offerReview.offer.supplierPropertyReference !== reservation.supplierPropertyReference
     || offerReview.offer.supplierOfferReference !== reservation.supplierOfferReference
@@ -156,13 +163,20 @@ export async function reviewTravelportStaysReservationAcceptedCommercialAuthorit
     childAges: Object.freeze([...reservation.childAges]),
   });
 
-  const termsReview = await current.bookingTermsProvider.retrieveBookingTerms(refreshedOfferInput);
+  const termsReview = materializeHospitalitySupplierBookingTermsResult(
+    await current.bookingTermsProvider.retrieveBookingTerms(refreshedOfferInput),
+  );
   if (
     termsReview.status !== 'READY'
     || !termsReview.offer
     || !termsReview.bookingTerms
     || termsReview.bookingTerms.completeForReservationReview !== true
+    || termsReview.bookingTerms.revalidationRequired !== true
     || termsReview.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || termsReview.bookingTerms.supplierPropertyReference !== reservation.supplierPropertyReference
+    || termsReview.bookingTerms.supplierOfferReference !== reservation.supplierOfferReference
+    || termsReview.bookingTerms.price.currency !== stored.acceptance.currency
+    || termsReview.bookingTerms.price.totalMinor !== stored.acceptance.acceptedTotalMinor
     || termsReview.offer.supplierPropertyReference !== reservation.supplierPropertyReference
     || termsReview.offer.supplierOfferReference !== reservation.supplierOfferReference
     || termsReview.offer.offerFingerprint !== stored.acceptance.acceptedOfferFingerprint
@@ -173,16 +187,24 @@ export async function reviewTravelportStaysReservationAcceptedCommercialAuthorit
     conflict('Fresh supplier Rules authority no longer matches the accepted commercial review.');
   }
 
-  const finalAuthority = await current.reservationAuthorityProvider.verifyReservationAuthority({
-    ...refreshedOfferInput,
-    expectedTermsFingerprint: stored.acceptance.acceptedTermsFingerprint,
-  });
+  const finalAuthority = materializeHospitalitySupplierReservationAuthorityResult(
+    await current.reservationAuthorityProvider.verifyReservationAuthority({
+      ...refreshedOfferInput,
+      expectedTermsFingerprint: stored.acceptance.acceptedTermsFingerprint,
+    }),
+  );
   if (
     finalAuthority.status !== 'READY'
+    || finalAuthority.revalidationRequired !== true
     || !finalAuthority.offer
     || !finalAuthority.bookingTerms
     || finalAuthority.bookingTerms.completeForReservationReview !== true
+    || finalAuthority.bookingTerms.revalidationRequired !== true
     || finalAuthority.bookingTerms.customerLoyaltyRequiredAtReservation !== false
+    || finalAuthority.bookingTerms.supplierPropertyReference !== reservation.supplierPropertyReference
+    || finalAuthority.bookingTerms.supplierOfferReference !== reservation.supplierOfferReference
+    || finalAuthority.bookingTerms.price.currency !== stored.acceptance.currency
+    || finalAuthority.bookingTerms.price.totalMinor !== stored.acceptance.acceptedTotalMinor
     || finalAuthority.offer.supplierPropertyReference !== reservation.supplierPropertyReference
     || finalAuthority.offer.supplierOfferReference !== reservation.supplierOfferReference
     || finalAuthority.offer.offerFingerprint !== stored.acceptance.acceptedOfferFingerprint
