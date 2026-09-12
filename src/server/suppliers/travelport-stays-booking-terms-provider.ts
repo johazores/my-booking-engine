@@ -6,6 +6,9 @@ import type {
 } from './hospitality-supplier-booking-terms.ts';
 import { TravelportStaysBookingTermsProvider as CoreTravelportStaysBookingTermsProvider } from './travelport-stays-booking-terms-provider-core.ts';
 import {
+  materializeTravelportStaysBookingTermsConstructorAuthority,
+} from './travelport-stays-constructor-authority.ts';
+import {
   materializeTravelportStaysOfferRevalidationInput,
 } from './travelport-stays-input-materialization.ts';
 import {
@@ -25,9 +28,14 @@ export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBook
     timeoutMs?: number;
     now?: () => Date;
   }) {
+    const authority = materializeTravelportStaysBookingTermsConstructorAuthority(input);
     super({
-      ...input,
-      fetchImpl: createTravelportStaysReferenceAuthorityFetch(input.fetchImpl ?? fetch),
+      credentials: authority.credentials,
+      cacheKey: authority.cacheKey,
+      pricingProvider: authority.pricingProvider,
+      fetchImpl: createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch),
+      timeoutMs: authority.timeoutMs,
+      now: authority.now,
     });
   }
 
