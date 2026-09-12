@@ -6,6 +6,9 @@ import {
   HospitalitySupplierReservationConflictError,
   normalizeHospitalitySupplierReservationSupplierConfirmationReference,
 } from './hospitality-supplier-reservation-domain.ts';
+import {
+  materializeHospitalitySupplierReservationRecoveryEvidenceInput,
+} from './hospitality-supplier-reservation-recovery-input-authority.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
 
 const MAX_PROVIDER_RECOVERY_REFERENCE_LENGTH = 1_024;
@@ -34,33 +37,34 @@ export async function recordHospitalitySupplierReservationProviderRecoveryEviden
   supplierConfirmationReference: unknown;
   providerRecoveryReference: unknown;
 }>) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  assertUuidIdentifier(input.reservationId, 'reservationId');
-  assertUuidIdentifier(input.attemptId, 'attemptId');
+  const authority = materializeHospitalitySupplierReservationRecoveryEvidenceInput(input);
+  assertUuidIdentifier(authority.organizationId, 'organizationId');
+  assertUuidIdentifier(authority.actorUserId, 'actorUserId');
+  assertUuidIdentifier(authority.reservationId, 'reservationId');
+  assertUuidIdentifier(authority.attemptId, 'attemptId');
   await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
+    organizationId: authority.organizationId,
+    userId: authority.actorUserId,
     permission: 'booking:manage',
   });
 
   const supplierConfirmationReference = normalizeHospitalitySupplierReservationSupplierConfirmationReference(
-    input.supplierConfirmationReference,
+    authority.supplierConfirmationReference,
   );
   if (!supplierConfirmationReference) {
     throw new HospitalitySupplierReservationConflictError(
       'Supplier reservation recovery authority requires a verified supplier confirmation.',
     );
   }
-  const providerRecoveryReference = normalizeProviderRecoveryReference(input.providerRecoveryReference);
+  const providerRecoveryReference = normalizeProviderRecoveryReference(authority.providerRecoveryReference);
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(input.organizationId, input.reservationId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(authority.organizationId, authority.reservationId)}, 0))`;
 
     const reservation = await transaction.hospitalitySupplierReservationOperation.findFirst({
       where: {
-        id: input.reservationId,
-        organizationId: input.organizationId,
+        id: authority.reservationId,
+        organizationId: authority.organizationId,
       },
       select: {
         id: true,
@@ -85,8 +89,8 @@ export async function recordHospitalitySupplierReservationProviderRecoveryEviden
 
     const attempt = await transaction.hospitalitySupplierReservationAttempt.findFirst({
       where: {
-        id: input.attemptId,
-        organizationId: input.organizationId,
+        id: authority.attemptId,
+        organizationId: authority.organizationId,
         reservationId: reservation.id,
         sequence: reservation.attemptCount,
         kind: 'CREATE',
@@ -120,7 +124,7 @@ export async function recordHospitalitySupplierReservationProviderRecoveryEviden
     }
 
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id, organizationId: input.organizationId },
+      where: { id: reservation.id, organizationId: authority.organizationId },
       data: {
         supplierConfirmationReference,
         providerRecoveryReference,
@@ -129,8 +133,8 @@ export async function recordHospitalitySupplierReservationProviderRecoveryEviden
 
     await transaction.auditEvent.create({
       data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
         action: 'supplier.reservation-recovery-evidence-recorded',
         resourceType: 'supplier-reservation-operation',
         resourceId: reservation.id,

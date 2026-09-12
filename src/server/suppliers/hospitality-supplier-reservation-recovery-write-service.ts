@@ -8,6 +8,10 @@ import {
   normalizeHospitalitySupplierReservationProviderReference,
   normalizeHospitalitySupplierReservationSupplierConfirmationReference,
 } from './hospitality-supplier-reservation-domain.ts';
+import {
+  materializeHospitalitySupplierReservationRecoveryWriteClaimInput,
+  materializeHospitalitySupplierReservationRecoveryWriteSettlementInput,
+} from './hospitality-supplier-reservation-recovery-input-authority.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
 
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
@@ -48,19 +52,20 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
   reservationId: string;
   reservationPayloadFingerprint: string;
 }) {
-  await requireRecoveryWriteAuthority(input.organizationId, input.actorUserId);
-  assertUuidIdentifier(input.reservationId, 'reservationId');
-  if (!FINGERPRINT_PATTERN.test(input.reservationPayloadFingerprint)) {
+  const authority = materializeHospitalitySupplierReservationRecoveryWriteClaimInput(input);
+  await requireRecoveryWriteAuthority(authority.organizationId, authority.actorUserId);
+  assertUuidIdentifier(authority.reservationId, 'reservationId');
+  if (!FINGERPRINT_PATTERN.test(authority.reservationPayloadFingerprint)) {
     throw new HospitalitySupplierReservationConflictError(
       'Supplier reservation recovery traveler authority is invalid.',
     );
   }
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(input.organizationId, input.reservationId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(authority.organizationId, authority.reservationId)}, 0))`;
 
     const reservation = await transaction.hospitalitySupplierReservationOperation.findFirst({
-      where: { id: input.reservationId, organizationId: input.organizationId },
+      where: { id: authority.reservationId, organizationId: authority.organizationId },
     });
     if (!reservation) {
       throw new HospitalitySupplierReservationUnavailableError(
@@ -77,7 +82,7 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
         'Supplier reservation does not have complete locator-less recovery-write authority.',
       );
     }
-    if (reservation.reservationPayloadFingerprint !== input.reservationPayloadFingerprint) {
+    if (reservation.reservationPayloadFingerprint !== authority.reservationPayloadFingerprint) {
       throw new HospitalitySupplierReservationConflictError(
         'Primary traveler details changed after the supplier reservation request was prepared.',
       );
@@ -86,7 +91,7 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
     const latestAttempt = reservation.attemptCount > 0
       ? await transaction.hospitalitySupplierReservationAttempt.findFirst({
           where: {
-            organizationId: input.organizationId,
+            organizationId: authority.organizationId,
             reservationId: reservation.id,
             sequence: reservation.attemptCount,
           },
@@ -109,7 +114,7 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
     const integration = await transaction.integration.findFirst({
       where: {
         id: reservation.integrationId,
-        organizationId: input.organizationId,
+        organizationId: authority.organizationId,
         status: 'ACTIVE',
       },
       select: {
@@ -129,7 +134,7 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
     const attemptedAt = databaseClock.currentTime;
     const sequence = reservation.attemptCount + 1;
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id, organizationId: input.organizationId },
+      where: { id: reservation.id, organizationId: authority.organizationId },
       data: {
         status: 'SUBMITTING',
         attemptCount: sequence,
@@ -141,7 +146,7 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
     });
     const attempt = await transaction.hospitalitySupplierReservationAttempt.create({
       data: {
-        organizationId: input.organizationId,
+        organizationId: authority.organizationId,
         reservationId: reservation.id,
         sequence,
         kind: 'RECOVERY_WRITE',
@@ -152,8 +157,8 @@ export async function claimHospitalitySupplierReservationRecoveryWrite(input: {
 
     await transaction.auditEvent.create({
       data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
         action: 'supplier.reservation-recovery-write-claimed',
         resourceType: 'supplier-reservation-operation',
         resourceId: reservation.id,
@@ -195,30 +200,32 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
   attemptId: string;
   outcome: HospitalitySupplierReservationRecoveryWriteOutcome;
 }) {
-  await requireRecoveryWriteAuthority(input.organizationId, input.actorUserId);
-  assertUuidIdentifier(input.reservationId, 'reservationId');
-  assertUuidIdentifier(input.attemptId, 'attemptId');
+  const authority = materializeHospitalitySupplierReservationRecoveryWriteSettlementInput(input);
+  const outcome = authority.outcome;
+  await requireRecoveryWriteAuthority(authority.organizationId, authority.actorUserId);
+  assertUuidIdentifier(authority.reservationId, 'reservationId');
+  assertUuidIdentifier(authority.attemptId, 'attemptId');
 
   const providerCorrelationId = normalizeHospitalitySupplierReservationCorrelationId(
-    input.outcome.providerCorrelationId,
+    outcome.providerCorrelationId,
   );
-  const providerReservationReference = input.outcome.status === 'CONFIRMED'
-    ? normalizeHospitalitySupplierReservationProviderReference(input.outcome.providerReservationReference)
+  const providerReservationReference = outcome.status === 'CONFIRMED'
+    ? normalizeHospitalitySupplierReservationProviderReference(outcome.providerReservationReference)
     : null;
-  const supplierConfirmationReference = input.outcome.status === 'CONFIRMED'
-    ? normalizeHospitalitySupplierReservationSupplierConfirmationReference(input.outcome.supplierConfirmationReference)
+  const supplierConfirmationReference = outcome.status === 'CONFIRMED'
+    ? normalizeHospitalitySupplierReservationSupplierConfirmationReference(outcome.supplierConfirmationReference)
     : null;
-  const failureCode = input.outcome.status === 'FAILED'
-    ? normalizeHospitalitySupplierReservationFailureCode(input.outcome.failureCode)
-    : input.outcome.status === 'AMBIGUOUS' && input.outcome.failureCode !== undefined
-      ? normalizeHospitalitySupplierReservationFailureCode(input.outcome.failureCode)
+  const failureCode = outcome.status === 'FAILED'
+    ? normalizeHospitalitySupplierReservationFailureCode(outcome.failureCode)
+    : outcome.status === 'AMBIGUOUS' && outcome.failureCode !== undefined
+      ? normalizeHospitalitySupplierReservationFailureCode(outcome.failureCode)
       : null;
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(input.organizationId, input.reservationId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(authority.organizationId, authority.reservationId)}, 0))`;
 
     const reservation = await transaction.hospitalitySupplierReservationOperation.findFirst({
-      where: { id: input.reservationId, organizationId: input.organizationId },
+      where: { id: authority.reservationId, organizationId: authority.organizationId },
     });
     if (!reservation) {
       throw new HospitalitySupplierReservationUnavailableError(
@@ -233,9 +240,9 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
 
     const attempt = await transaction.hospitalitySupplierReservationAttempt.findFirst({
       where: {
-        id: input.attemptId,
+        id: authority.attemptId,
         reservationId: reservation.id,
-        organizationId: input.organizationId,
+        organizationId: authority.organizationId,
         kind: 'RECOVERY_WRITE',
         status: 'STARTED',
       },
@@ -246,7 +253,7 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
       );
     }
     if (
-      (input.outcome.status === 'CONFIRMED' || input.outcome.status === 'AMBIGUOUS')
+      (outcome.status === 'CONFIRMED' || outcome.status === 'AMBIGUOUS')
       && !attempt.providerRequestStartedAt
     ) {
       throw new HospitalitySupplierReservationConflictError(
@@ -259,7 +266,7 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
       );
     }
     if (
-      input.outcome.status === 'CONFIRMED'
+      outcome.status === 'CONFIRMED'
       && supplierConfirmationReference !== reservation.supplierConfirmationReference
     ) {
       throw new HospitalitySupplierReservationConflictError(
@@ -267,8 +274,8 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
       );
     }
     if (
-      input.outcome.status === 'FAILED'
-      && input.outcome.retryable
+      outcome.status === 'FAILED'
+      && outcome.retryable
       && attempt.providerRequestStartedAt !== null
     ) {
       throw new HospitalitySupplierReservationConflictError(
@@ -283,9 +290,9 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
       );
     }
     const completedAt = databaseClock.currentTime;
-    const confirmed = input.outcome.status === 'CONFIRMED';
+    const confirmed = outcome.status === 'CONFIRMED';
     const updated = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id, organizationId: input.organizationId },
+      where: { id: reservation.id, organizationId: authority.organizationId },
       data: {
         status: confirmed ? 'CONFIRMED' : 'AMBIGUOUS',
         providerReservationReference: confirmed ? providerReservationReference : null,
@@ -293,16 +300,16 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
         providerRecoveryReference: confirmed ? null : reservation.providerRecoveryReference,
         lastProviderCorrelationId: providerCorrelationId,
         lastFailureCode: failureCode,
-        lastFailureRetryable: input.outcome.status === 'FAILED' ? input.outcome.retryable : null,
+        lastFailureRetryable: outcome.status === 'FAILED' ? outcome.retryable : null,
         reconciledAt: null,
       },
     });
     await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id, organizationId: input.organizationId },
+      where: { id: attempt.id, organizationId: authority.organizationId },
       data: {
         status: confirmed
           ? 'SUCCEEDED'
-          : input.outcome.status === 'FAILED'
+          : outcome.status === 'FAILED'
             ? 'FAILED'
             : 'AMBIGUOUS',
         providerCorrelationId,
@@ -313,11 +320,11 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
 
     await transaction.auditEvent.create({
       data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
         action: confirmed
           ? 'supplier.reservation-recovery-write-confirmed'
-          : input.outcome.status === 'FAILED'
+          : outcome.status === 'FAILED'
             ? 'supplier.reservation-recovery-write-failed'
             : 'supplier.reservation-recovery-write-ambiguous',
         resourceType: 'supplier-reservation-operation',
@@ -326,7 +333,7 @@ export async function settleHospitalitySupplierReservationRecoveryWrite(input: {
           providerCode: reservation.providerCode,
           status: updated.status,
           attemptSequence: attempt.sequence,
-          retryable: input.outcome.status === 'FAILED' ? input.outcome.retryable : false,
+          retryable: outcome.status === 'FAILED' ? outcome.retryable : false,
           failureCode,
         },
       },

@@ -10,6 +10,10 @@ import {
   deriveHospitalitySupplierReservationExpiredAttemptRecovery,
   type HospitalitySupplierReservationAttemptKind,
 } from './hospitality-supplier-reservation-attempt-lease.ts';
+import {
+  materializeHospitalitySupplierReservationProviderRequestInput,
+  materializeHospitalitySupplierReservationRecoveryScope,
+} from './hospitality-supplier-reservation-recovery-input-authority.ts';
 import { HospitalitySupplierReservationUnavailableError } from './hospitality-supplier-reservation-service.ts';
 
 function supplierReservationOperationLockKey(organizationId: string, reservationId: string) {
@@ -74,17 +78,18 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
   attemptId: string;
   requireFreshProviderRequest?: boolean;
 }) {
-  await requireSupplierReservationRecoveryAuthority(input.organizationId, input.actorUserId);
-  assertUuidIdentifier(input.reservationId, 'reservationId');
-  assertUuidIdentifier(input.attemptId, 'attemptId');
+  const authority = materializeHospitalitySupplierReservationProviderRequestInput(input);
+  await requireSupplierReservationRecoveryAuthority(authority.organizationId, authority.actorUserId);
+  assertUuidIdentifier(authority.reservationId, 'reservationId');
+  assertUuidIdentifier(authority.attemptId, 'attemptId');
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(input.organizationId, input.reservationId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(authority.organizationId, authority.reservationId)}, 0))`;
 
     const reservation = await transaction.hospitalitySupplierReservationOperation.findFirst({
       where: {
-        id: input.reservationId,
-        organizationId: input.organizationId,
+        id: authority.reservationId,
+        organizationId: authority.organizationId,
       },
       select: {
         id: true,
@@ -108,8 +113,8 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
 
     const attempt = await transaction.hospitalitySupplierReservationAttempt.findFirst({
       where: {
-        id: input.attemptId,
-        organizationId: input.organizationId,
+        id: authority.attemptId,
+        organizationId: authority.organizationId,
         reservationId: reservation.id,
         sequence: reservation.attemptCount,
         status: 'STARTED',
@@ -124,7 +129,7 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
     const integration = await transaction.integration.findFirst({
       where: {
         id: reservation.integrationId,
-        organizationId: input.organizationId,
+        organizationId: authority.organizationId,
         status: 'ACTIVE',
       },
       select: {
@@ -134,7 +139,7 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
       },
     });
     assertProviderRequestIntegrationStillMatches(integration, reservation);
-    if (attempt.providerRequestStartedAt && input.requireFreshProviderRequest) {
+    if (attempt.providerRequestStartedAt && authority.requireFreshProviderRequest) {
       throw new HospitalitySupplierReservationProviderRequestAlreadyStartedError();
     }
     if (attempt.providerRequestStartedAt) return attempt;
@@ -147,7 +152,7 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
     }
 
     const updatedAttempt = await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id, organizationId: input.organizationId },
+      where: { id: attempt.id, organizationId: authority.organizationId },
       data: {
         providerRequestStartedAt: databaseClock.currentTime,
         leaseStartedAt: databaseClock.currentTime,
@@ -156,8 +161,8 @@ export async function markHospitalitySupplierReservationProviderRequestStarted(i
 
     await transaction.auditEvent.create({
       data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
         action: 'supplier.reservation-provider-request-started',
         resourceType: 'supplier-reservation-operation',
         resourceId: reservation.id,
@@ -178,16 +183,17 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
   actorUserId: string;
   reservationId: string;
 }) {
-  await requireSupplierReservationRecoveryAuthority(input.organizationId, input.actorUserId);
-  assertUuidIdentifier(input.reservationId, 'reservationId');
+  const authority = materializeHospitalitySupplierReservationRecoveryScope(input);
+  await requireSupplierReservationRecoveryAuthority(authority.organizationId, authority.actorUserId);
+  assertUuidIdentifier(authority.reservationId, 'reservationId');
 
   return db.$transaction(async (transaction) => {
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(input.organizationId, input.reservationId)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${supplierReservationOperationLockKey(authority.organizationId, authority.reservationId)}, 0))`;
 
     const reservation = await transaction.hospitalitySupplierReservationOperation.findFirst({
       where: {
-        id: input.reservationId,
-        organizationId: input.organizationId,
+        id: authority.reservationId,
+        organizationId: authority.organizationId,
       },
     });
     if (!reservation) {
@@ -203,7 +209,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
 
     const attempt = await transaction.hospitalitySupplierReservationAttempt.findFirst({
       where: {
-        organizationId: input.organizationId,
+        organizationId: authority.organizationId,
         reservationId: reservation.id,
         sequence: reservation.attemptCount,
         status: 'STARTED',
@@ -249,7 +255,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
       providerRequestStarted: attempt.providerRequestStartedAt !== null,
     });
     const updatedReservation = await transaction.hospitalitySupplierReservationOperation.update({
-      where: { id: reservation.id, organizationId: input.organizationId },
+      where: { id: reservation.id, organizationId: authority.organizationId },
       data: {
         status: recovery.operationStatus,
         lastFailureCode: recovery.failureCode,
@@ -258,7 +264,7 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
       },
     });
     const updatedAttempt = await transaction.hospitalitySupplierReservationAttempt.update({
-      where: { id: attempt.id, organizationId: input.organizationId },
+      where: { id: attempt.id, organizationId: authority.organizationId },
       data: {
         status: recovery.attemptStatus,
         normalizedFailureCode: recovery.failureCode,
@@ -274,8 +280,8 @@ export async function recoverStaleHospitalitySupplierReservationAttempt(input: {
 
     await transaction.auditEvent.create({
       data: {
-        organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
         action: expiryAction,
         resourceType: 'supplier-reservation-operation',
         resourceId: reservation.id,

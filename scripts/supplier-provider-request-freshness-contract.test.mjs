@@ -14,16 +14,18 @@ const reviewedCreateCoordinator = source('src/server/suppliers/travelport-stays-
 
 test('provider-request marker preserves evidence replay but can require a fresh external-I/O permit', () => {
   const markerIndex = markerService.indexOf('export async function markHospitalitySupplierReservationProviderRequestStarted');
-  const integrationIndex = markerService.indexOf('const integration = await transaction.integration.findFirst', markerIndex);
+  const authorityIndex = markerService.indexOf('materializeHospitalitySupplierReservationProviderRequestInput(input)', markerIndex);
+  const integrationIndex = markerService.indexOf('const integration = await transaction.integration.findFirst', authorityIndex);
   const integrationAuthorityIndex = markerService.indexOf('assertProviderRequestIntegrationStillMatches(integration, reservation)', integrationIndex);
-  const freshIndex = markerService.indexOf('if (attempt.providerRequestStartedAt && input.requireFreshProviderRequest)', integrationAuthorityIndex);
+  const freshIndex = markerService.indexOf('if (attempt.providerRequestStartedAt && authority.requireFreshProviderRequest)', integrationAuthorityIndex);
   const replayErrorIndex = markerService.indexOf('throw new HospitalitySupplierReservationProviderRequestAlreadyStartedError()', freshIndex);
   const replayIndex = markerService.indexOf('if (attempt.providerRequestStartedAt) return attempt', replayErrorIndex);
   const clockIndex = markerService.indexOf('SELECT clock_timestamp() AS "currentTime"', replayIndex);
 
   assert.ok(
     markerIndex >= 0
-    && integrationIndex > markerIndex
+    && authorityIndex > markerIndex
+    && integrationIndex > authorityIndex
     && integrationAuthorityIndex > integrationIndex
     && freshIndex > integrationAuthorityIndex
     && replayErrorIndex > freshIndex
@@ -35,6 +37,7 @@ test('provider-request marker preserves evidence replay but can require a fresh 
     /export class HospitalitySupplierReservationProviderRequestAlreadyStartedError[\s\S]*?extends HospitalitySupplierReservationConflictError/,
   );
   assert.match(markerService, /requireFreshProviderRequest\?: boolean/);
+  assert.doesNotMatch(markerService, /input\.requireFreshProviderRequest/);
 });
 
 test('Travelport Create and Sync require a fresh marker before each commercial provider write', () => {
