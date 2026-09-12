@@ -20,6 +20,12 @@ The same sanitization boundary covers source-result materialization. The card re
 
 The snapshot is still ephemeral. Fresh accepted-card authority, card shape, expiry-through-stay, billing-address, and payment-telephone checks remain adapter-owned and execute before the durable provider-request marker. Snapshotting does not make malformed card material valid and does not persist or log the card.
 
+## Accepted-card authority continuity
+
+Travelport Rules defines accepted card evidence as an exact two-character provider code. The Rules response authority boundary already enforces that provider-specific shape. The non-secret Create request-material boundary now rechecks every accepted-card code immediately before the durable supplier Create claim: the collection must be bounded and non-empty, every code must be exactly two characters with no surrounding whitespace or ASCII controls, and duplicates fail closed.
+
+The provider-neutral payment-authority layer intentionally remains provider-agnostic and keeps card codes opaque but bounded. Travelport-specific syntax is enforced only at the Travelport response and request boundaries. The Create executor still requires the ephemeral source card code to belong to the freshly validated accepted-card set, so malformed one-character or oversized authority cannot become a production Travelport POST through the implemented coordinator path.
+
 ## Regression correction
 
 The Create executor regression fixture had retained the obsolete direct `paymentCard` execution input after production orchestration moved to deferred `acquirePaymentCard`. That stale fixture no longer represented the actual server contract and could not validate the intended secret-lifetime ordering. The fixture now uses the deferred callback throughout and asserts the real OAuth → card acquisition → durable marker → commercial POST sequence, including the rule that invalid card material is acquired only after successful OAuth and still fails before the commercial provider request.

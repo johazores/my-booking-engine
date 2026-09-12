@@ -120,6 +120,27 @@ test('rejects forged provider references and contradictory payment authority bef
   }
 });
 
+test('requires exact two-character Travelport accepted-card authority before the durable create claim', () => {
+  for (const code of ['V', 'VISA', ' VI', 'VI ', '', 'V\u0000']) {
+    assert.throws(
+      () => buildTravelportStaysReservationCreateRequestMaterial({
+        providerSubmissionReference: 'offer-123',
+        traveler,
+        paymentAuthority: { ...paymentAuthority('PREPAY'), acceptedPaymentCardCodes: [code] },
+      }),
+      (error) => error instanceof HospitalitySupplierProviderError
+        && error.code === 'INVALID_REQUEST'
+        && /accepted-card authority/i.test(error.message),
+    );
+  }
+
+  assert.doesNotThrow(() => buildTravelportStaysReservationCreateRequestMaterial({
+    providerSubmissionReference: 'offer-123',
+    traveler,
+    paymentAuthority: { ...paymentAuthority('PREPAY'), acceptedPaymentCardCodes: ['VI', 'AX'] },
+  }));
+});
+
 test('rejects ASCII controls in outbound Travelport offer and accepted-card machine tokens', () => {
   for (const providerSubmissionReference of ['offer\u0000-123', 'offer\t123', 'offer-123\u007f']) {
     assert.throws(

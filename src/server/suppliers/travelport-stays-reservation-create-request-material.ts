@@ -10,7 +10,7 @@ import {
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH = 4_096;
 const MAX_PAYMENT_CARD_CODES = 32;
-const MAX_PAYMENT_CARD_CODE_LENGTH = 16;
+const PAYMENT_CARD_CODE_LENGTH = 2;
 
 export type TravelportStaysReservationCreateRequestMaterial = Readonly<{
   BuildFromCatalogOfferingHospitality: Readonly<{
@@ -66,9 +66,8 @@ function paymentPayload(authority: HospitalitySupplierReservationPaymentAuthorit
   for (const code of cardCodes) {
     if (
       typeof code !== 'string'
-      || !code
+      || code.length !== PAYMENT_CARD_CODE_LENGTH
       || code !== code.trim()
-      || code.length > MAX_PAYMENT_CARD_CODE_LENGTH
       || ASCII_CONTROL_PATTERN.test(code)
       || seenCardCodes.has(code)
     ) {

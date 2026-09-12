@@ -47,6 +47,23 @@ test('Travelport request material maps only the non-secret reference, shared tra
   }
 });
 
+test('Travelport Create material requires exact two-character accepted-card authority before claiming the supplier write', () => {
+  const material = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+  const rulesMemberAuthority = source('src/server/suppliers/travelport-stays-rules-member-authority.ts');
+  const paymentAuthority = source('src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts');
+
+  assert.match(material, /PAYMENT_CARD_CODE_LENGTH = 2/);
+  assert.match(material, /code\.length !== PAYMENT_CARD_CODE_LENGTH/);
+  assert.match(material, /seenCardCodes\.has\(code\)/);
+  assert.doesNotMatch(material, /MAX_PAYMENT_CARD_CODE_LENGTH = 16/);
+  assert.match(rulesMemberAuthority, /PAYMENT_CARD_CODE_LENGTH = 2/);
+  assert.match(rulesMemberAuthority, /value\.length !== PAYMENT_CARD_CODE_LENGTH/);
+
+  // The provider-neutral layer intentionally keeps card-code syntax opaque and bounded. The exact
+  // Travelport shape belongs at the provider response/request boundaries, not in shared authority.
+  assert.match(paymentAuthority, /MAX_PAYMENT_CARD_CODE_LENGTH = 16/);
+});
+
 test('shared Travelport traveler mapping rejects truncation rather than changing durable traveler authority', () => {
   const traveler = source('src/server/suppliers/travelport-stays-reservation-traveler-request.ts');
   const createMaterial = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
@@ -65,11 +82,16 @@ test('shared Travelport traveler mapping rejects truncation rather than changing
 test('documentation keeps the material ephemeral and reservation capability disabled pending PCI-safe form of payment', () => {
   const readiness = source('docs/supplier-reservation-create-readiness.md');
   const travelerDoc = source('docs/supplier-reservation-traveler-authority.md');
+  const paymentCardBoundary = source('docs/travelport-reservation-payment-card-boundary.md');
 
-  for (const doc of [readiness, travelerDoc]) {
+  for (const doc of [readiness, travelerDoc, paymentCardBoundary]) {
     assert.match(doc, /PCI-safe/i);
+  }
+  for (const doc of [readiness, travelerDoc]) {
     assert.match(doc, /Travelport `reservation` capability remains disabled/);
   }
+  assert.match(paymentCardBoundary, /remains deliberately disabled/);
+  assert.match(paymentCardBoundary, /exact two-character/i);
   assert.match(readiness, /request material/i);
   assert.match(readiness, /FormOfPayment/);
   assert.match(readiness, /not persisted|must not be persisted/i);
