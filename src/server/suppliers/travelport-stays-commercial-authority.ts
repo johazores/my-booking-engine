@@ -3,6 +3,8 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;
 const DECIMAL_TEXT_PATTERN = /^\d+(?:\.\d{1,6})?$/;
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 const MAX_MONEY_TEXT_LENGTH = 128;
 const MAX_DECIMAL_TEXT_LENGTH = 64;
 const MAX_MACHINE_TOKEN_LENGTH = 128;
@@ -60,6 +62,35 @@ function exactMachineStringIfPresent(value: unknown, max = MAX_MACHINE_TOKEN_LEN
     || ASCII_CONTROL_PATTERN.test(value)
   ) {
     invalidResponse();
+  }
+}
+
+function booleanIfPresent(value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'boolean') {
+    invalidResponse('Travelport returned malformed boolean commercial authority evidence.');
+  }
+}
+
+function yesNoIfPresent(value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (value === true || value === false || value === 'Yes' || value === 'No') return;
+  invalidResponse('Travelport returned malformed refundable authority evidence.');
+}
+
+function localDateIfPresent(value: unknown): void {
+  if (value === undefined || value === null || value === '') return;
+  if (typeof value !== 'string' || !LOCAL_DATE_PATTERN.test(value)) invalidResponse();
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    invalidResponse('Travelport returned an invalid local date.');
+  }
+}
+
+function localTimeIfPresent(value: unknown): void {
+  if (value === undefined || value === null || value === '') return;
+  if (typeof value !== 'string' || !LOCAL_TIME_PATTERN.test(value)) {
+    invalidResponse('Travelport returned an invalid local time.');
   }
 }
 
@@ -126,9 +157,11 @@ function searchCancellationPenalty(value: unknown): void {
   const penalty = record(value);
   if (!penalty) invalidResponse();
   commercialTextIfPresent(penalty.deadlineLocal, 100);
+  booleanIfPresent(penalty.estimatedDeadlineLocal);
   commercialTextIfPresent(penalty.cancelShortDescription, MAX_SEARCH_TEXT);
   const providerPenalty = optionalRecord(penalty.penalty);
   if (!providerPenalty) return;
+  booleanIfPresent(providerPenalty.estimatedAmount);
   const amount = optionalRecord(providerPenalty.currencyAmount);
   if (!amount) return;
   canonicalCurrencyIfPresent(amount.currency);
@@ -140,6 +173,17 @@ function searchRate(value: unknown): void {
   if (!rate) invalidResponse();
   commercialTextIfPresent(rate.rateDescription, 500);
   commercialTextIfPresent(rate.roomDescription, 500);
+  for (const field of [
+    'wifiIncluded',
+    'breakfastIncluded',
+    'lunchIncluded',
+    'dinnerIncluded',
+    'freeParkingIncluded',
+    'valetParkingIncluded',
+  ] as const) {
+    booleanIfPresent(rate[field]);
+  }
+  exactMachineStringIfPresent(rate.priceChangeProbability, 32);
 
   const price = optionalRecord(rate.price);
   if (price) {
@@ -149,10 +193,26 @@ function searchRate(value: unknown): void {
     moneyComponent(price.totalPrice);
     moneyComponent(price.totalIncludedFees);
     moneyComponent(price.totalFeesDueAtProperty);
+    booleanIfPresent(price.taxesIncludedInBase);
+    booleanIfPresent(price.resortFeeIncluded);
+    booleanIfPresent(price.predictedPriceChangeDuringStay);
   }
 
   const terms = optionalRecord(rate.terms);
   if (!terms) return;
+  exactMachineStringIfPresent(terms.ratePaymentInfo, 32);
+  exactMachineStringIfPresent(terms.guaranteeType, 64);
+  for (const field of [
+    'partialTermsCache',
+    'fullTermsCache',
+    'paymentTypeEstimated',
+    'freeCancellationWithin24Hours',
+    'customerLoyaltyIDRequiredAtReservation',
+    'rateQualificationIDRequiredAtCheckIn',
+    'refundable',
+  ] as const) {
+    booleanIfPresent(terms[field]);
+  }
   commercialTextIfPresent(terms.cancelNote, MAX_SEARCH_TEXT);
   for (const penalty of boundedArray(terms.cancelPenalties, MAX_CANCELLATION_PENALTIES)) {
     searchCancellationPenalty(penalty);
@@ -200,7 +260,18 @@ function rulesPenalty(value: unknown): void {
 function rulesCancellation(value: unknown): void {
   const cancellation = record(value);
   if (!cancellation) invalidResponse();
+  yesNoIfPresent(cancellation.Refundable);
   commercialTextIfPresent(cancellation.Description, MAX_CANCELLATION_DESCRIPTION);
+  const deadline = optionalRecord(cancellation.Deadline);
+  if (deadline) {
+    const specificDate = optionalRecord(deadline.SpecificDate);
+    if (specificDate) {
+      localDateIfPresent(specificDate.specific);
+      localDateIfPresent(specificDate.start);
+      localDateIfPresent(specificDate.end);
+    }
+    localTimeIfPresent(deadline.Time);
+  }
   const penalty = cancellation.HotelPenalty;
   if (penalty !== undefined && penalty !== null) rulesPenalty(penalty);
 }
@@ -208,6 +279,8 @@ function rulesCancellation(value: unknown): void {
 function rulesDeposit(value: unknown): void {
   const deposit = record(value);
   if (!deposit) invalidResponse();
+  booleanIfPresent(deposit.remainderInd);
+  localDateIfPresent(deposit.Date);
   const amount = deposit.CurrencyAmount;
   if (amount !== undefined && amount !== null) rulesMoney(amount);
 }
@@ -228,6 +301,8 @@ function rulesTerms(value: unknown): void {
   const block = record(value);
   if (!block) invalidResponse();
   exactMachineStringIfPresent(block.RatePaymentInfo, 32);
+  booleanIfPresent(block.CustomerLoyaltyIDRequiredAtReservation);
+  booleanIfPresent(block.RateQualificationIDRequiredAtCheckIn);
 
   for (const guaranteeValue of boundedArray(block.Guarantee, MAX_GUARANTEES)) {
     const guarantee = record(guaranteeValue);
@@ -263,6 +338,12 @@ function rulesTerms(value: unknown): void {
     exactMachineStringIfPresent(card.value, 16);
   }
   for (const textBlock of boundedArray(block.TextBlock, MAX_TEXT_BLOCKS)) rulesTextBlock(textBlock);
+
+  const checkInOutPolicy = optionalRecord(block.CheckInOutPolicy);
+  if (checkInOutPolicy) {
+    localTimeIfPresent(checkInOutPolicy.checkInTime);
+    localTimeIfPresent(checkInOutPolicy.checkOutTime);
+  }
 }
 
 export function assertTravelportStaysRulesCommercialAuthorityResponse(value: unknown): void {
