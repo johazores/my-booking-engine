@@ -47,8 +47,9 @@ test('Travelport request material maps only the non-secret reference, shared tra
   }
 });
 
-test('Travelport Create material requires exact two-character accepted-card authority before claiming the supplier write', () => {
+test('Travelport Create material and executor require exact two-character accepted-card authority', () => {
   const material = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
   const rulesMemberAuthority = source('src/server/suppliers/travelport-stays-rules-member-authority.ts');
   const paymentAuthority = source('src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts');
 
@@ -56,6 +57,15 @@ test('Travelport Create material requires exact two-character accepted-card auth
   assert.match(material, /code\.length !== PAYMENT_CARD_CODE_LENGTH/);
   assert.match(material, /seenCardCodes\.has\(code\)/);
   assert.doesNotMatch(material, /MAX_PAYMENT_CARD_CODE_LENGTH = 16/);
+
+  assert.match(executor, /MAX_CARD_CODE_LENGTH = 2/);
+  assert.match(executor, /MAX_PAYMENT_CARD_CODES = 32/);
+  assert.match(executor, /acceptedPaymentCardCodes\.some\(\(code\) =>/);
+  assert.match(executor, /code\.length !== MAX_CARD_CODE_LENGTH/);
+  assert.match(executor, /new Set\(acceptedPaymentCardCodes\)\.size !== acceptedPaymentCardCodes\.length/);
+  assert.match(executor, /\/\^\[A-Z0-9\]\{2\}\$\//);
+  assert.doesNotMatch(executor, /\/\^\[A-Z0-9\]\{1,2\}\$\//);
+
   assert.match(rulesMemberAuthority, /PAYMENT_CARD_CODE_LENGTH = 2/);
   assert.match(rulesMemberAuthority, /value\.length !== PAYMENT_CARD_CODE_LENGTH/);
 

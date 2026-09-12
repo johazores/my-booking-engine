@@ -25,6 +25,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
 const MAX_CARD_HOLDER_NAME_LENGTH = 160;
 const MAX_CARD_CODE_LENGTH = 2;
+const MAX_PAYMENT_CARD_CODES = 32;
 const MAX_BILLING_ADDRESS_LINE_LENGTH = 256;
 const MAX_BILLING_CITY_LENGTH = 128;
 const MAX_BILLING_STATE_LENGTH = 64;
@@ -191,6 +192,21 @@ function assertPaymentAuthorityMatchesRequestMaterial(
   if (!/^[A-Z]{3}$/.test(authority.currency) || typeof authority.amountMinor !== 'bigint' || authority.amountMinor < 0n) {
     invalidRequest('Travelport reservation payment authority is invalid.');
   }
+  const acceptedPaymentCardCodes = authority.acceptedPaymentCardCodes;
+  if (
+    !Array.isArray(acceptedPaymentCardCodes)
+    || acceptedPaymentCardCodes.length < 1
+    || acceptedPaymentCardCodes.length > MAX_PAYMENT_CARD_CODES
+    || acceptedPaymentCardCodes.some((code) => (
+      typeof code !== 'string'
+      || code.length !== MAX_CARD_CODE_LENGTH
+      || code !== code.trim()
+      || ASCII_CONTROL_PATTERN.test(code)
+    ))
+    || new Set(acceptedPaymentCardCodes).size !== acceptedPaymentCardCodes.length
+  ) {
+    invalidRequest('Travelport reservation accepted-card authority is invalid.');
+  }
   if (!Array.isArray(requestMaterial.Payment) || requestMaterial.Payment.length !== 1) {
     invalidRequest('Travelport reservation payment request material is invalid.');
   }
@@ -276,7 +292,7 @@ function normalizePaymentCard(
   }
 
   const cardCode = boundedSingleLine(input.cardCode, 'Travelport payment card code', MAX_CARD_CODE_LENGTH);
-  if (!/^[A-Z0-9]{1,2}$/.test(cardCode)) invalidRequest('Travelport payment card code is invalid.');
+  if (!/^[A-Z0-9]{2}$/.test(cardCode)) invalidRequest('Travelport payment card code is invalid.');
   if (!Array.isArray(authority.acceptedPaymentCardCodes) || !authority.acceptedPaymentCardCodes.includes(cardCode)) {
     invalidRequest('Travelport payment card is not accepted by the freshly reviewed supplier terms.');
   }

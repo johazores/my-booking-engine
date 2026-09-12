@@ -112,6 +112,29 @@ test('requires provider-compatible card code, bounded numeric PAN, and expiry th
   }
 });
 
+test('rejects malformed direct accepted-card authority even when the selected card matches it', () => {
+  for (const acceptedPaymentCardCodes of [
+    ['V'],
+    ['VISA'],
+    ['VI', 'V'],
+    ['VI', 'VI'],
+    [' VI'],
+  ]) {
+    assert.throws(
+      () => buildTravelportStaysReservationCreateRequest({
+        requestMaterial,
+        paymentAuthority: { ...paymentAuthority, acceptedPaymentCardCodes },
+        paymentCard: { ...paymentCard, cardCode: acceptedPaymentCardCodes[0] ?? 'VI' },
+        validThroughDateLocal: '2026-10-12',
+        now: new Date('2026-09-07T00:00:00.000Z'),
+      }),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError
+        && error.code === 'INVALID_REQUEST'
+        && /accepted-card authority/i.test(error.message),
+    );
+  }
+});
+
 test('fails closed on ASCII controls in provider-bound cardholder and billing text', () => {
   for (const card of [
     { ...paymentCard, cardHolderName: 'Ada\u0000Lovelace' },
