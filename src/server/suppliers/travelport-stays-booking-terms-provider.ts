@@ -17,6 +17,9 @@ import {
   createTravelportStaysReferenceAuthorityFetch,
   type TravelportStaysCredentials,
 } from './travelport-stays-provider.ts';
+import {
+  createTravelportStaysRulesMemberAuthorityFetch,
+} from './travelport-stays-rules-member-authority.ts';
 import type { HospitalitySupplierPricingProvider } from './hospitality-supplier-provider.ts';
 
 export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBookingTermsProvider {
@@ -29,11 +32,12 @@ export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBook
     now?: () => Date;
   }) {
     const authority = materializeTravelportStaysBookingTermsConstructorAuthority(input);
+    const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch);
     super({
       credentials: authority.credentials,
       cacheKey: authority.cacheKey,
       pricingProvider: authority.pricingProvider,
-      fetchImpl: createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch),
+      fetchImpl: createTravelportStaysRulesMemberAuthorityFetch(referenceAuthorityFetch),
       timeoutMs: authority.timeoutMs,
       now: authority.now,
     });
