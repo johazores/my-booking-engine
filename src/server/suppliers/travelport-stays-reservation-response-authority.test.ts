@@ -141,6 +141,87 @@ test('rejects warning text aliases before warning text can become Sync recovery 
   }
 });
 
+test('rejects alternate result and response trace aliases before commercial classification', () => {
+  const alternateSuccessResult = successResponse();
+  alternateSuccessResult.ReservationResponse.Result['@type'] = 'OtherResult';
+  assertInvalid(alternateSuccessResult);
+
+  const alternateErrorResult = errorResponse();
+  alternateErrorResult.ErrorResponse.Result['@type'] = 'OtherResult';
+  assertInvalid(alternateErrorResult);
+
+  const nullSuccessResultType = successResponse();
+  (nullSuccessResultType.ReservationResponse.Result as Record<string, unknown>)['@type'] = null;
+  assertInvalid(nullSuccessResultType);
+
+  const pluralErrors = errorResponse();
+  (pluralErrors.ErrorResponse.Result as Record<string, unknown>).Errors = [];
+  assertInvalid(pluralErrors);
+
+  const legacySuccessTrace = successResponse();
+  (legacySuccessTrace.ReservationResponse as Record<string, unknown>).traceID = traceId;
+  assertInvalid(legacySuccessTrace);
+
+  const legacyErrorTrace = errorResponse();
+  (legacyErrorTrace.ErrorResponse as Record<string, unknown>).traceID = traceId;
+  assertInvalid(legacyErrorTrace);
+});
+
+test('rejects malformed error discriminators, status authority, and category aliases', () => {
+  const invalidStatusCodes: readonly unknown[] = [undefined, 99, 600, 400.5, '400'];
+  for (const statusCode of invalidStatusCodes) {
+    const body = errorResponse();
+    (body.ErrorResponse.Result.Error[0] as Record<string, unknown>).StatusCode = statusCode;
+    assertInvalid(body);
+  }
+
+  const alternateErrorType = errorResponse();
+  alternateErrorType.ErrorResponse.Result.Error[0]!['@type'] = 'OtherError';
+  assertInvalid(alternateErrorType);
+
+  const categoryAlias = errorResponse();
+  (categoryAlias.ErrorResponse.Result.Error[0] as Record<string, unknown>).Category = 'VALIDATION';
+  assertInvalid(categoryAlias);
+
+  for (const field of ['SourceID', 'SourceCode', 'category', 'Message'] as const) {
+    for (const missingValue of [undefined, null]) {
+      const body = errorResponse();
+      (body.ErrorResponse.Result.Error[0] as Record<string, unknown>)[field] = missingValue;
+      assertInvalid(body);
+    }
+  }
+
+  const emptyErrors = errorResponse();
+  emptyErrors.ErrorResponse.Result.Error = [];
+  assertInvalid(emptyErrors);
+});
+
+test('rejects malformed warning discriminators, status authority, and empty warning collections', () => {
+  const alternateWarningType = successResponse();
+  alternateWarningType.ReservationResponse.Result.Warning[0]!['@type'] = 'OtherWarning';
+  assertInvalid(alternateWarningType);
+
+  const nullWarningType = successResponse();
+  (nullWarningType.ReservationResponse.Result.Warning[0] as Record<string, unknown>)['@type'] = null;
+  assertInvalid(nullWarningType);
+
+  for (const statusCode of [-1, 1_000, 1.5, '99'] as readonly unknown[]) {
+    const body = successResponse();
+    (body.ReservationResponse.Result.Warning[0] as Record<string, unknown>).StatusCode = statusCode;
+    assertInvalid(body);
+  }
+
+  for (const missingMessage of [undefined, null]) {
+    const body = successResponse();
+    (body.ReservationResponse.Result.Warning[0] as Record<string, unknown>).Message = missingMessage;
+    assertInvalid(body);
+  }
+
+  const emptyWarnings = successResponse();
+  emptyWarnings.ReservationResponse.Result.Warning = [];
+  assertInvalid(emptyWarnings);
+});
+
 test('bounds commercial authority collections before downstream traversal', () => {
   const tooManyOffers = successResponse();
   tooManyOffers.ReservationResponse.Reservation.Offer = Array.from({ length: 33 }, () => ({

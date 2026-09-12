@@ -26,6 +26,20 @@ test('reservation response guard rejects normalization-confusable commercial mac
   assert.match(guard, /MAX_RESULT_ITEMS = 32/);
   assert.match(guard, /validateReservation\(response\)/);
   assert.match(guard, /assertBoundedProviderTextIfPresent\(warning\.Message/);
+  assert.ok(guard.includes("result.Errors !== undefined"));
+  assert.ok(guard.includes("resultType !== 'Result'"));
+  assert.ok(guard.includes("error['@type'] !== 'ErrorDetail'"));
+  assert.ok(guard.includes('error.Category !== undefined'));
+  assert.ok(guard.includes('error.SourceID === undefined'));
+  assert.ok(guard.includes('error.SourceCode === undefined'));
+  assert.ok(guard.includes('error.category === undefined'));
+  assert.ok(guard.includes('error.Message === undefined'));
+  assert.ok(guard.includes('MIN_ERROR_STATUS_CODE = 100'));
+  assert.ok(guard.includes('MAX_ERROR_STATUS_CODE = 599'));
+  assert.ok(guard.includes('MAX_WARNING_STATUS_CODE = 999'));
+  assert.ok(guard.includes("warningType !== 'Warning'"));
+  assert.ok(guard.includes('warning.Message === undefined || warning.Message === null'));
+  assert.ok(guard.includes("Object.prototype.hasOwnProperty.call(response, 'traceID')"));
 });
 
 test('production integration keeps all reservation executors behind the trace and machine-authority wrapper', async () => {

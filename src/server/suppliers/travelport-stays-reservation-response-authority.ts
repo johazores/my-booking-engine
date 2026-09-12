@@ -20,6 +20,9 @@ const MAX_LOCATOR_SOURCE_LENGTH = 16;
 const MAX_LOCATOR_CONTEXT_LENGTH = 64;
 const MAX_LOCATOR_TYPE_LENGTH = 64;
 const MAX_STATUS_LENGTH = 64;
+const MIN_ERROR_STATUS_CODE = 100;
+const MAX_ERROR_STATUS_CODE = 599;
+const MAX_WARNING_STATUS_CODE = 999;
 
 type RecordValue = Readonly<Record<string, unknown>>;
 
@@ -89,12 +92,35 @@ function validateResult(response: RecordValue): void {
   const result = record(response.Result);
   if (!result) invalidResponse();
 
-  assertExactMachineStringIfPresent(result['@type'], MAX_TYPE_LENGTH);
+  const resultType = result['@type'];
+  if (resultType !== undefined) {
+    assertExactMachineStringIfPresent(resultType, MAX_TYPE_LENGTH);
+    if (resultType !== 'Result') invalidResponse();
+  }
+  if (result.Errors !== undefined) invalidResponse();
 
-  for (const errorValue of boundedArray(result.Error, MAX_RESULT_ITEMS)) {
+  const errorValues = boundedArray(result.Error, MAX_RESULT_ITEMS);
+  if (result.Error !== undefined && (errorValues.length < 1 || resultType !== 'Result')) invalidResponse();
+  for (const errorValue of errorValues) {
     const error = record(errorValue);
-    if (!error) invalidResponse();
-    assertExactMachineStringIfPresent(error['@type'], MAX_TYPE_LENGTH);
+    if (!error || error['@type'] !== 'ErrorDetail' || error.Category !== undefined) invalidResponse();
+    const statusCode = error.StatusCode;
+    if (
+      typeof statusCode !== 'number'
+      || !Number.isInteger(statusCode)
+      || statusCode < MIN_ERROR_STATUS_CODE
+      || statusCode > MAX_ERROR_STATUS_CODE
+    ) invalidResponse();
+    if (
+      error.SourceID === undefined
+      || error.SourceID === null
+      || error.SourceCode === undefined
+      || error.SourceCode === null
+      || error.category === undefined
+      || error.category === null
+      || error.Message === undefined
+      || error.Message === null
+    ) invalidResponse();
     assertExactMachineStringIfPresent(error.SourceID, MAX_SOURCE_ID_LENGTH);
     assertSourceCodeIfPresent(error.SourceCode);
     assertCategoryIfPresent(error.category);
@@ -105,10 +131,27 @@ function validateResult(response: RecordValue): void {
   const hasWarnings = result.Warnings !== undefined;
   if (hasWarning && hasWarnings) invalidResponse();
   const warnings = hasWarning ? result.Warning : result.Warnings;
-  for (const warningValue of boundedArray(warnings, MAX_RESULT_ITEMS)) {
+  const warningValues = boundedArray(warnings, MAX_RESULT_ITEMS);
+  if ((hasWarning || hasWarnings) && warningValues.length < 1) invalidResponse();
+  for (const warningValue of warningValues) {
     const warning = record(warningValue);
     if (!warning) invalidResponse();
-    assertExactMachineStringIfPresent(warning['@type'], MAX_TYPE_LENGTH);
+    const warningType = warning['@type'];
+    if (warningType !== undefined) {
+      assertExactMachineStringIfPresent(warningType, MAX_TYPE_LENGTH);
+      if (warningType !== 'Warning') invalidResponse();
+    }
+    const statusCode = warning.StatusCode;
+    if (
+      statusCode !== undefined
+      && (
+        typeof statusCode !== 'number'
+        || !Number.isInteger(statusCode)
+        || statusCode < 0
+        || statusCode > MAX_WARNING_STATUS_CODE
+      )
+    ) invalidResponse();
+    if (warning.Message === undefined || warning.Message === null) invalidResponse();
     assertBoundedProviderTextIfPresent(warning.Message, MAX_WARNING_MESSAGE_LENGTH);
   }
 }
@@ -217,7 +260,7 @@ export function assertTravelportStaysReservationResponseMachineAuthority(value: 
   if (hasReservationResponse === hasErrorResponse) invalidResponse();
 
   const response = record(hasReservationResponse ? root.ReservationResponse : root.ErrorResponse);
-  if (!response) invalidResponse();
+  if (!response || Object.prototype.hasOwnProperty.call(response, 'traceID')) invalidResponse();
   assertExactMachineStringIfPresent(response.traceId, 120);
   validateResult(response);
   if (hasReservationResponse) validateReservation(response);
