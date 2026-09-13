@@ -8,6 +8,7 @@ const RESERVATION_COLLECTION_PATH = `${RESERVATION_PATH_PREFIX}/`;
 const SF_E2E_PREFIX = 'sf-';
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STATUS_ONLY_HEADER_VALUE_LENGTH = 256;
+const MAX_STRUCTURED_RESPONSE_CONTENT_TYPE_LENGTH = 128;
 
 type ReservationRequest = Readonly<{
   expectedTraceId: string;
@@ -126,6 +127,24 @@ function boundedStatusOnlyHeader(value: string | null) {
   return value;
 }
 
+function hasStructuredJsonContentType(headers: Headers) {
+  const value = headers.get('Content-Type');
+  if (
+    value === null
+    || value.length < 1
+    || value.length > MAX_STRUCTURED_RESPONSE_CONTENT_TYPE_LENGTH
+    || /[\u0000-\u001f\u007f]/.test(value)
+  ) return false;
+
+  const parts = value.split(';');
+  const mediaType = parts.shift()?.trim().toLowerCase();
+  if (mediaType !== 'application/json' || parts.length > 1) return false;
+  if (parts.length === 0) return true;
+
+  const parameter = parts[0]?.trim().toLowerCase();
+  return parameter === 'charset=utf-8' || parameter === 'charset="utf-8"';
+}
+
 function rebuildResponse(response: Response, body: BodyInit | null) {
   return new Response(body, {
     status: response.status,
@@ -198,6 +217,7 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     // contradictory version evidence rather than a second correlation source.
     if (response.headers.has('TVP-Trace-Id')) invalidResponse();
     if (response.headers.get('traceId') !== reservation.expectedTraceId) invalidResponse();
+    if (!hasStructuredJsonContentType(response.headers)) invalidResponse();
 
     let rawBody: string;
     let body: unknown;
