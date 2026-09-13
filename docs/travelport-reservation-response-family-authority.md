@@ -12,9 +12,12 @@ After the exact v11 response-header and payload trace have been bound to the dur
 
 - `ReservationResponse` is accepted only with HTTP 2xx status authority.
 - `ErrorResponse` is accepted only with structured HTTP 4xx through HTTP 500 status authority.
-- redirects, success/error family inversions, and competing/missing response families fail as `INVALID_RESPONSE` before any Create, Sync, or Retrieve classifier receives the body.
+- every canonical `ErrorDetail.StatusCode` in a structured `ErrorResponse` must exactly equal the trace-bound HTTP response status;
+- redirects, success/error family inversions, nested HTTP-status contradictions, and competing/missing response families fail as `INVALID_RESPONSE` before any Create, Sync, or Retrieve classifier receives the body.
 
 The existing status-only path remains separate. HTTP `401`, `403`, `429`, and provider/gateway statuses above `500` do not expose provider body authority downstream. HTTP `500` stays trace-bound because current Travelport Stays error evidence, including `13034`, can use that status.
+
+The downstream Create classifier retains its own `ErrorDetail.StatusCode` equality check as defense in depth. The trace-bound shared transport is now the first production boundary that rejects a body claiming a different HTTP status, so recovery and known-locator paths cannot accidentally receive contradictory structured error authority.
 
 ## Nested result contract
 
@@ -25,6 +28,7 @@ The shared response-machine guard also prevents nested commercial evidence from 
 - `ErrorResponse` cannot carry warning authority.
 - `ErrorResponse` cannot also carry reservation authority.
 - one result cannot carry both error and warning authority.
+- when the production transport supplies HTTP context, each `ErrorDetail.StatusCode` must equal that HTTP status.
 
 Existing exact-token, status-code, category, source-code, trace-alias, collection-bound, reservation identity, receipt, and locator validation continues to apply after the family gate.
 
@@ -38,9 +42,9 @@ This contract deliberately does not invent live semantics for `13034`, locator-l
 
 ## Validation
 
-Focused behavior tests cover valid 2xx `ReservationResponse`, valid structured 4xx/500 `ErrorResponse`, redirect rejection, and success/error family inversions. Response-machine tests separately cover missing structured error evidence and nested error/warning/reservation family conflicts.
+Focused behavior tests cover valid 2xx `ReservationResponse`, valid structured 4xx/500 `ErrorResponse`, redirect rejection, success/error family inversions, and mismatched nested `ErrorDetail.StatusCode` values. Response-machine tests separately cover missing structured error evidence and nested error/warning/reservation family conflicts.
 
-A dependency-free source contract pins validation ordering so trace binding happens first, family/status authority is checked second, and the existing machine-authority guard runs before the response is rebuilt for downstream provider-specific parsing.
+A dependency-free source contract pins validation ordering so trace binding happens first, family/status authority is checked second, the machine-authority guard receives the actual HTTP status, and the response is rebuilt only after those checks succeed.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 environment. Live Travelport reservation verification still requires provisioned non-production credentials and the separately reviewed PCI-safe FormOfPayment/guarantee source.
 

@@ -20,6 +20,7 @@ function reservationResponse(input: Readonly<{
   v12HeaderTrace?: string | null;
   family?: 'ReservationResponse' | 'ErrorResponse';
   status?: number;
+  errorStatusCode?: number;
 }> = {}) {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const headerTrace = input.headerTrace === undefined ? traceId : input.headerTrace;
@@ -28,12 +29,31 @@ function reservationResponse(input: Readonly<{
     headers.set('TVP-Trace-Id', input.v12HeaderTrace);
   }
   const family = input.family ?? 'ReservationResponse';
+  const status = input.status ?? (family === 'ErrorResponse' ? 400 : 200);
+  const structuredError = family === 'ErrorResponse'
+    ? {
+        Result: {
+          '@type': 'Result',
+          Error: [{
+            '@type': 'ErrorDetail',
+            StatusCode: input.errorStatusCode ?? status,
+            SourceCode: status === 500 ? '13034' : '13020',
+            category: status === 500 ? 'UNKNOWN' : 'VALIDATION',
+            SourceID: 'API',
+            Message: status === 500
+              ? 'UNKNOWN ERROR RECEIVED FROM BOOKING.COM'
+              : 'HOTEL RATE PRICE HAS BECOME',
+          }],
+        },
+      }
+    : {};
   return new Response(JSON.stringify({
     [family]: {
       traceId: input.payloadTrace === undefined ? traceId : input.payloadTrace,
       marker: 'preserved',
+      ...structuredError,
     },
-  }), { status: input.status ?? (family === 'ErrorResponse' ? 400 : 200), headers });
+  }), { status, headers });
 }
 
 async function assertInvalidResponse(response: Response) {
@@ -93,6 +113,19 @@ test('trace-bound reservation responses also reject normalization-confusable com
     }), { status, headers: { traceId, 'Content-Type': 'application/json' } });
     await assertInvalidResponse(response);
   }
+});
+
+test('requires every structured error status to match the trace-bound HTTP response status', async () => {
+  await assertInvalidResponse(reservationResponse({
+    family: 'ErrorResponse',
+    status: 400,
+    errorStatusCode: 500,
+  }));
+  await assertInvalidResponse(reservationResponse({
+    family: 'ErrorResponse',
+    status: 500,
+    errorStatusCode: 400,
+  }));
 });
 
 test('trace-binds HTTP 500 reservation error evidence before it can affect commercial classification', async () => {

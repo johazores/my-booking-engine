@@ -88,7 +88,11 @@ function assertCategoryIfPresent(value: unknown): void {
   if (!/^[A-Z_]{2,32}$/.test(value as string)) invalidResponse();
 }
 
-function validateResult(response: RecordValue, responseFamily: ReservationResponseFamily): void {
+function validateResult(
+  response: RecordValue,
+  responseFamily: ReservationResponseFamily,
+  httpStatus?: number,
+): void {
   if (response.Result === undefined || response.Result === null) {
     if (responseFamily === 'ErrorResponse') invalidResponse();
     return;
@@ -119,6 +123,7 @@ function validateResult(response: RecordValue, responseFamily: ReservationRespon
       || !Number.isInteger(statusCode)
       || statusCode < MIN_ERROR_STATUS_CODE
       || statusCode > MAX_ERROR_STATUS_CODE
+      || (httpStatus !== undefined && statusCode !== httpStatus)
     ) invalidResponse();
     if (
       error.SourceID === undefined
@@ -263,7 +268,11 @@ function validateReservation(response: RecordValue): void {
  * recovery must arrive in one exact spelling; it may not gain authority through trimming,
  * recasing of error categories, or ignored ASCII control characters.
  */
-export function assertTravelportStaysReservationResponseMachineAuthority(value: unknown): void {
+export function assertTravelportStaysReservationResponseMachineAuthority(value: unknown, httpStatus?: number): void {
+  if (
+    httpStatus !== undefined
+    && (!Number.isInteger(httpStatus) || httpStatus < 100 || httpStatus > 599)
+  ) invalidResponse();
   const root = record(value);
   if (!root) invalidResponse();
   const hasReservationResponse = Object.prototype.hasOwnProperty.call(root, 'ReservationResponse');
@@ -275,6 +284,6 @@ export function assertTravelportStaysReservationResponseMachineAuthority(value: 
   if (!response || Object.prototype.hasOwnProperty.call(response, 'traceID')) invalidResponse();
   if (responseFamily === 'ErrorResponse' && response.Reservation !== undefined) invalidResponse();
   assertExactMachineStringIfPresent(response.traceId, 120);
-  validateResult(response, responseFamily);
+  validateResult(response, responseFamily, httpStatus);
   if (responseFamily === 'ReservationResponse') validateReservation(response);
 }

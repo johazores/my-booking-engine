@@ -214,7 +214,7 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     });
     if (!evidence.valid) invalidResponse();
     assertStructuredResponseFamilyForStatus(body, response.status);
-    assertTravelportStaysReservationResponseMachineAuthority(body);
+    assertTravelportStaysReservationResponseMachineAuthority(body, response.status);
     return rebuildResponse(response, rawBody);
   }) as typeof fetch;
 }

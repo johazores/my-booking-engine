@@ -9,7 +9,10 @@ test('trace-bound reservation transport validates machine authority before rebui
   const wrapper = await source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
   assert.match(wrapper, /assertTravelportStaysReservationResponseMachineAuthority/);
   const traceCheck = wrapper.indexOf('if (!evidence.valid) invalidResponse()');
-  const authorityCheck = wrapper.indexOf('assertTravelportStaysReservationResponseMachineAuthority(body)', traceCheck);
+  const authorityCheck = wrapper.indexOf(
+    'assertTravelportStaysReservationResponseMachineAuthority(body, response.status)',
+    traceCheck,
+  );
   const rebuild = wrapper.indexOf('return rebuildResponse(response, rawBody)', authorityCheck);
   assert.ok(traceCheck >= 0 && authorityCheck > traceCheck && rebuild > authorityCheck);
 });
@@ -37,6 +40,7 @@ test('reservation response guard rejects normalization-confusable commercial mac
   assert.ok(guard.includes('MIN_ERROR_STATUS_CODE = 100'));
   assert.ok(guard.includes('MAX_ERROR_STATUS_CODE = 599'));
   assert.ok(guard.includes('MAX_WARNING_STATUS_CODE = 999'));
+  assert.ok(guard.includes('httpStatus !== undefined && statusCode !== httpStatus'));
   assert.ok(guard.includes('errorValues.length > 0 && (hasWarning || hasWarnings)'));
   assert.ok(guard.includes("warningType !== 'Warning'"));
   assert.ok(guard.includes('warning.Message === undefined || warning.Message === null'));
