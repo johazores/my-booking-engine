@@ -10,6 +10,7 @@ import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
 import { materializeTravelportStaysReservationOperationInput } from './travelport-stays-reservation-operation-input-authority.ts';
+import { normalizeTravelportStaysReservationReference } from './travelport-stays-reservation-reference.ts';
 import {
   parseTravelportStaysReservationResponse,
 } from './travelport-stays-reservation-response.ts';
@@ -25,7 +26,6 @@ const ENDPOINTS = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
-const MAX_REFERENCE_LENGTH = 512;
 const MAX_REQUEST_CORRELATION_ID_LENGTH = 120;
 const ASCII_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
@@ -153,11 +153,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       RECOVERY_OPERATION_FIELDS,
       RECOVERY_OPERATION_MATERIALIZATION_FAILURE,
     );
-    const reference = boundedSingleLine(
-      authority.providerReservationReference,
-      'Provider reservation reference',
-      MAX_REFERENCE_LENGTH,
-    );
+    const reference = normalizeTravelportStaysReservationReference(authority.providerReservationReference);
     const requestCorrelationId = boundedSingleLine(
       authority.requestCorrelationId,
       'Request correlation ID',

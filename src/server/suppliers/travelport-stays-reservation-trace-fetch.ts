@@ -1,6 +1,9 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { assertTravelportStaysReservationResponseMachineAuthority } from './travelport-stays-reservation-response-authority.ts';
 import {
+  isCanonicalTravelportStaysReservationReferencePathSegment,
+} from './travelport-stays-reservation-reference.ts';
+import {
   isTravelportStaysReservationStatusOnlyResponse,
   rebuildTravelportStaysReservationStatusOnlyResponse,
 } from './travelport-stays-reservation-status-only-response-fetch.ts';
@@ -58,15 +61,10 @@ function hasAcceptedReservationReviewQuery(url: URL) {
   return true;
 }
 
-function hasSingleCanonicalEncodedPathSegment(url: URL, prefix: string) {
-  if (!url.pathname.startsWith(prefix)) return false;
-  const suffix = url.pathname.slice(prefix.length);
-  if (!suffix || suffix.includes('/')) return false;
-  try {
-    return encodeURIComponent(decodeURIComponent(suffix)) === suffix;
-  } catch {
-    return false;
-  }
+function hasCanonicalReservationReferencePath(url: URL) {
+  if (!url.pathname.startsWith(RESERVATION_COLLECTION_PATH)) return false;
+  const suffix = url.pathname.slice(RESERVATION_COLLECTION_PATH.length);
+  return isCanonicalTravelportStaysReservationReferencePathSegment(suffix);
 }
 
 function isSupportedReservationRequest(url: URL, method: string) {
@@ -84,7 +82,7 @@ function isSupportedReservationRequest(url: URL, method: string) {
 
   if (
     url.pathname !== RESERVATION_BUILD_PATH
-    && hasSingleCanonicalEncodedPathSegment(url, RESERVATION_COLLECTION_PATH)
+    && hasCanonicalReservationReferencePath(url)
     && method === 'GET'
     && url.search === ''
   ) return true;

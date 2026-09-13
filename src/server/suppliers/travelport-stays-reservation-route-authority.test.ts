@@ -45,6 +45,11 @@ test('reservation authority rejects unsupported namespace shapes before provider
     ['https://api.pp.travelport.net/11/hotel/book/reservations/D6VBHL?detail=true', requestInit('GET')],
     ['https://api.pp.travelport.net/11/hotel/book/reservations/D6VBHL/history', requestInit('GET')],
     ['https://api.pp.travelport.net/11/hotel/book/reservations/%44%36VBHL', requestInit('GET')],
+    ['https://api.pp.travelport.net/11/hotel/book/reservations/%20D6VBHL', requestInit('GET')],
+    ['https://api.pp.travelport.net/11/hotel/book/reservations/D6VBHL%20', requestInit('GET')],
+    ['https://api.pp.travelport.net/11/hotel/book/reservations/%C2%A0D6VBHL', requestInit('GET')],
+    ['https://api.pp.travelport.net/11/hotel/book/reservations/D6%00VBHL', requestInit('GET')],
+    [`https://api.pp.travelport.net/11/hotel/book/reservations/${'A'.repeat(513)}`, requestInit('GET')],
   ];
 
   for (const [url, init] of unsupported) {
@@ -53,7 +58,7 @@ test('reservation authority rejects unsupported namespace shapes before provider
   assert.equal(providerCalls, 0);
 });
 
-test('reservation authority accepts only the implemented Create, Sync, and Retrieve route shapes', async () => {
+test('reservation authority accepts only the implemented Create, Sync, and bounded Retrieve route shapes', async () => {
   const providerCalls: string[] = [];
   const wrapped = createTravelportStaysReservationTraceAuthorityFetch((async (input, init) => {
     providerCalls.push(`${init?.method ?? 'GET'} ${String(input)}`);
@@ -66,6 +71,8 @@ test('reservation authority accepts only the implemented Create, Sync, and Retri
     ['https://api.pp.travelport.net/11/hotel/book/reservations/build?acceptGuaranteeChangeInd=true&acceptPriceChangeInd=true', requestInit('POST')],
     ['https://api.pp.travelport.net/11/hotel/book/reservations/', requestInit('POST')],
     ['https://api.pp.travelport.net/11/hotel/book/reservations/D6VBHL', requestInit('GET')],
+    ['https://api.pp.travelport.net/11/hotel/book/reservations/D6%20VBHL', requestInit('GET')],
+    [`https://api.pp.travelport.net/11/hotel/book/reservations/${'A'.repeat(512)}`, requestInit('GET')],
   ];
 
   for (const [url, init] of supported) {
