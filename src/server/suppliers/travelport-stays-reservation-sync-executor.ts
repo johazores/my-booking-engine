@@ -21,7 +21,7 @@ const ENDPOINTS = Object.freeze({
 });
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_CACHE_KEY_LENGTH = 512;
-const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
