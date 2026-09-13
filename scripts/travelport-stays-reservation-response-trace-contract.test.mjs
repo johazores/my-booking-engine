@@ -17,6 +17,21 @@ test('production Travelport integration wraps the shared transport with reservat
   );
 });
 
+test('production Travelport transport strips reservation status-only bodies before shared replay buffering', () => {
+  const integration = source('src/server/integrations/travelport-stays-integration.ts');
+  const statusOnlyBoundary = source('src/server/suppliers/travelport-stays-reservation-status-only-response-fetch.ts');
+  assert.match(integration, /createTravelportStaysReservationStatusOnlyResponseFetch/);
+  assert.match(
+    integration,
+    /const reservationStatusOnlyFetch = createTravelportStaysReservationStatusOnlyResponseFetch\(fetch\);[\s\S]*?createTravelportStaysTraceFetch\(\{[\s\S]*?fetchImpl: reservationStatusOnlyFetch,/,
+    'status-only reservation response minimization must run inside the shared replay-buffer transport',
+  );
+  assert.match(statusOnlyBoundary, /status === 401 \|\| status === 403 \|\| status === 429 \|\| status > 500/);
+  assert.match(statusOnlyBoundary, /cancelResponseBody\(response\.body\)/);
+  assert.match(statusOnlyBoundary, /return new Response\(null,/);
+  assert.doesNotMatch(statusOnlyBoundary, /status >= 500/);
+});
+
 test('all implemented reservation executors and recovery provider receive the same protected transport', () => {
   const integration = source('src/server/integrations/travelport-stays-integration.ts');
   for (const constructorName of [
@@ -47,10 +62,12 @@ test('Travelport HTTP 500 reservation errors cannot bypass response trace author
 
 test('status-only reservation failures expose only bounded retry metadata', () => {
   const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  const statusOnlyBoundary = source('src/server/suppliers/travelport-stays-reservation-status-only-response-fetch.ts');
   assert.match(reservationTraceFetch, /return rebuildStatusOnlyResponse\(response\)/);
   assert.match(reservationTraceFetch, /const headers = new Headers\(\)/);
-  assert.match(reservationTraceFetch, /boundedStatusOnlyHeader\(response\.headers\.get\('Retry-After'\)\)/);
+  assert.match(reservationTraceFetch, /boundedRetryAfterHeader\(response\.headers\.get\('Retry-After'\)\)/);
   assert.match(reservationTraceFetch, /return new Response\(null,/);
+  assert.match(statusOnlyBoundary, /boundedTravelportStaysReservationRetryAfter\(response\.headers\.get\('Retry-After'\)\)/);
   assert.doesNotMatch(
     reservationTraceFetch,
     /function rebuildStatusOnlyResponse[\s\S]*?new Headers\(response\.headers\)/,

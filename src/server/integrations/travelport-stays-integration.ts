@@ -4,6 +4,7 @@ import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-sta
 import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
 import { TravelportStaysReservationCreateExecutor } from '../suppliers/travelport-stays-reservation-create-executor.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
+import { createTravelportStaysReservationStatusOnlyResponseFetch } from '../suppliers/travelport-stays-reservation-status-only-response-fetch.ts';
 import { TravelportStaysReservationSyncExecutor } from '../suppliers/travelport-stays-reservation-sync-executor.ts';
 import { createTravelportStaysReservationTraceAuthorityFetch } from '../suppliers/travelport-stays-reservation-trace-fetch.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
@@ -93,10 +94,12 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
+  const reservationStatusOnlyFetch = createTravelportStaysReservationStatusOnlyResponseFetch(fetch);
   const fetchImpl = createTravelportStaysReservationTraceAuthorityFetch(
     createTravelportStaysTraceFetch({
       environment: normalizedCredentials.environment,
       credentials: normalizedCredentials,
+      fetchImpl: reservationStatusOnlyFetch,
     }),
   );
   const provider = new TravelportStaysProvider({
