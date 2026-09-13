@@ -38,13 +38,13 @@ function record(value: unknown): RecordValue | null {
 }
 
 function boundedArray(value: unknown, max: number): readonly unknown[] {
-  if (value === undefined || value === null) return [];
+  if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > max) invalidResponse();
   return value;
 }
 
 function assertExactMachineStringIfPresent(value: unknown, max: number): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   if (
     typeof value !== 'string'
     || !value
@@ -55,7 +55,7 @@ function assertExactMachineStringIfPresent(value: unknown, max: number): void {
 }
 
 function assertBoundedProviderTextIfPresent(value: unknown, max: number): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   if (
     typeof value !== 'string'
     || !value
@@ -66,14 +66,14 @@ function assertBoundedProviderTextIfPresent(value: unknown, max: number): void {
 }
 
 function assertLocalDateIfPresent(value: unknown): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) invalidResponse();
   const parsed = new Date(`${value}T00:00:00.000Z`);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) invalidResponse();
 }
 
 function assertSourceCodeIfPresent(value: unknown): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   if (typeof value === 'number') {
     if (!Number.isInteger(value) || value < 0 || value > 99_999_999) invalidResponse();
     return;
@@ -83,7 +83,7 @@ function assertSourceCodeIfPresent(value: unknown): void {
 }
 
 function assertCategoryIfPresent(value: unknown): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   assertExactMachineStringIfPresent(value, MAX_CATEGORY_LENGTH);
   if (!/^[A-Z_]{2,32}$/.test(value as string)) invalidResponse();
 }
@@ -93,7 +93,7 @@ function validateResult(
   responseFamily: ReservationResponseFamily,
   httpStatus?: number,
 ): void {
-  if (response.Result === undefined || response.Result === null) {
+  if (response.Result === undefined) {
     if (responseFamily === 'ErrorResponse') invalidResponse();
     return;
   }
@@ -222,7 +222,7 @@ function validateLocator(value: unknown): void {
 }
 
 function validateOfferStatus(value: unknown): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   const offerStatus = record(value);
   if (!offerStatus) invalidResponse();
   assertExactMachineStringIfPresent(offerStatus['@type'], MAX_TYPE_LENGTH);
@@ -231,11 +231,11 @@ function validateOfferStatus(value: unknown): void {
 }
 
 function validateReceiptBranch(value: unknown): void {
-  if (value === undefined || value === null) return;
+  if (value === undefined) return;
   const branch = record(value);
   if (!branch) invalidResponse();
   assertExactMachineStringIfPresent(branch['@type'], MAX_TYPE_LENGTH);
-  if (branch.Locator !== undefined && branch.Locator !== null) validateLocator(branch.Locator);
+  if (branch.Locator !== undefined) validateLocator(branch.Locator);
   validateOfferStatus(branch.OfferStatus);
 }
 
@@ -251,7 +251,7 @@ function validateReceipt(value: unknown): void {
 }
 
 function validateReservation(response: RecordValue): void {
-  if (response.Reservation === undefined || response.Reservation === null) return;
+  if (response.Reservation === undefined) return;
   const reservation = record(response.Reservation);
   if (!reservation) invalidResponse();
   assertExactMachineStringIfPresent(reservation['@type'], MAX_TYPE_LENGTH);
@@ -266,7 +266,8 @@ function validateReservation(response: RecordValue): void {
  * The compatibility classifiers intentionally remain isolated behind this boundary. Provider
  * machine evidence that can influence reservation identity, review/retry decisions, or Sync
  * recovery must arrive in one exact spelling; it may not gain authority through trimming,
- * recasing of error categories, or ignored ASCII control characters.
+ * recasing of error categories, ignored ASCII control characters, or explicit null values
+ * standing in for omitted optional machine evidence.
  */
 export function assertTravelportStaysReservationResponseMachineAuthority(value: unknown, httpStatus?: number): void {
   if (

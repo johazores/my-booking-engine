@@ -21,6 +21,12 @@ For commercial Create and Booking.com Sync classification:
 
 The known-locator Retrieve parser applies the same absent-not-null rules before it can normalize provider reservation authority. `ErrorResponse: null` cannot be ignored beside `ReservationResponse`, and present `Result`/error/warning fields must be structurally valid.
 
+## Shared machine-authority enforcement
+
+The reservation response machine-authority guard now applies the same omission-versus-null rule before Create, Sync, or known-locator compatibility parsing. Optional machine evidence is optional only when the property is genuinely absent. If the provider includes the property with JSON `null`, the shared boundary rejects it as `INVALID_RESPONSE` rather than converting it to an empty collection or letting it pass as an omitted machine token.
+
+This shared rule covers `Result`, `Reservation`, reservation offer/product/receipt collections, machine strings and dates, receipt branches, locator evidence, offer status, and offer-reference collections. Object-shaped fields such as `Identifier`, `PropertyKey`, and `DateRange` already rejected explicit null and continue to do so. The downstream classifiers still decide whether a genuinely omitted field is commercially sufficient for the specific Create, Sync, or Retrieve result being proven.
+
 ## Passive placeholder compatibility
 
 Known-locator Retrieve has one narrow Travelport-specific allowance for the documented passive placeholder receipt associated with a passive hotel offer. That placeholder has no locator. SF now requires `Confirmation.Locator` to be genuinely absent for this exception. `Locator: null` does not prove the documented placeholder shape; it falls through to normal receipt validation and fails closed.
@@ -49,15 +55,17 @@ Focused regression coverage verifies:
 - `ErrorResponse: null` cannot disappear beside a valid success response;
 - `ReservationResponse: null` cannot disappear beside a price-change error that would otherwise produce review authority;
 - explicit-null `Result`, `Result.Error`, `Result.Errors`, `Result.Warning`, and `Result.Warnings` are rejected consistently by commercial Create/Sync classification and known-locator Retrieve;
+- the shared machine-authority layer rejects explicit null across reservation collections, discriminators, identifiers, stay/property evidence, receipt branches, locators, and offer status while preserving genuine omission where structurally optional;
 - conflicting warning families still fail closed; and
 - a passive placeholder is accepted only when `Confirmation.Locator` is genuinely omitted, while explicit `Locator: null` is rejected.
 
-A dependency-free source contract locks the response-family and Result presence semantics so future refactoring does not accidentally restore null-as-omission behavior.
+A dependency-free source contract locks the response-family, Result, and shared machine-evidence presence semantics so future refactoring does not accidentally restore null-as-omission behavior.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 dependency environment. Live provider behavior remains gated on provisioned Travelport non-production credentials and the reviewed PCI-safe payment/guarantee source. GitHub Actions are not used.
 
 ## Related documentation
 
+- `docs/travelport-reservation-null-machine-authority.md`
 - `docs/travelport-reservation-response-evidence.md`
 - `docs/travelport-stays-create-outcome-classification.md`
 - `docs/travelport-create-error-authority.md`
