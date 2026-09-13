@@ -33,7 +33,14 @@ type AvailabilitySelectionAuthority = Readonly<{
 }>;
 type PaginationSelectionAuthority = Readonly<{
   authority: AvailabilitySelectionAuthority;
+  totalCatalogOffering: number | null;
+  numberOfPages: number;
   expiresAtMs: number;
+}>;
+
+type AvailabilityPaginationMetadata = Readonly<{
+  totalCatalogOffering: number | null;
+  numberOfPages: number;
 }>;
 
 function invalidRequest(message = 'Travelport Availability request authority is invalid.'): never {
@@ -371,19 +378,44 @@ function availabilityResponseCatalog(payload: unknown): RecordValue {
   return record(response.CatalogOfferings, false);
 }
 
-function availabilityResponsePageCount(payload: unknown): number {
-  const pages = availabilityResponseCatalog(payload).numberOfPages;
-  if (!Number.isSafeInteger(pages) || (pages as number) < 1 || (pages as number) > 5) invalidResponse();
-  return pages as number;
+function availabilityResponsePaginationMetadata(payload: unknown): AvailabilityPaginationMetadata {
+  const catalog = availabilityResponseCatalog(payload);
+  const totalCatalogOffering = catalog.totalCatalogOffering;
+  const numberOfPages = catalog.numberOfPages;
+  if (
+    !Number.isSafeInteger(numberOfPages)
+    || (numberOfPages as number) < 1
+    || (numberOfPages as number) > 5
+  ) invalidResponse();
+  if (
+    totalCatalogOffering !== undefined
+    && totalCatalogOffering !== null
+    && (
+      !Number.isSafeInteger(totalCatalogOffering)
+      || (totalCatalogOffering as number) < 0
+      || (totalCatalogOffering as number) > 500
+    )
+  ) invalidResponse();
+  return Object.freeze({
+    totalCatalogOffering: totalCatalogOffering === undefined || totalCatalogOffering === null
+      ? null
+      : totalCatalogOffering as number,
+    numberOfPages: numberOfPages as number,
+  });
 }
 
-function paginationResponseAuthority(payload: unknown): Readonly<{ token: string; pages: number }> | null {
+function paginationResponseAuthority(
+  payload: unknown,
+): Readonly<{ token: string; totalCatalogOffering: number | null; numberOfPages: number }> | null {
   const catalog = availabilityResponseCatalog(payload);
-  const pages = availabilityResponsePageCount(payload);
-  if (pages <= 1) return null;
+  const metadata = availabilityResponsePaginationMetadata(payload);
+  if (metadata.numberOfPages <= 1) return null;
   const identifier = presentResponseRecord(catalog.Identifier);
   if (!identifier) invalidResponse('Travelport Availability pagination identifier is missing.');
-  return Object.freeze({ token: responseMachineString(identifier.value, 4_096), pages });
+  return Object.freeze({
+    token: responseMachineString(identifier.value, 4_096),
+    ...metadata,
+  });
 }
 
 export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
@@ -410,14 +442,26 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
       prunePaginationAuthorities(nowMs);
       const stored = paginationAuthorities.get(continuation.token);
       if (!stored) invalidRequest('Travelport Availability pagination token is not bound to an active selection authority.');
+      if (continuation.pageNumber > stored.numberOfPages) {
+        invalidRequest('Travelport Availability pagination page exceeds the active result set.');
+      }
 
       const response = await fetchImpl(input, init);
       if (!response.ok) return response;
       const payload = await response.clone().json().catch(() => null);
       if (payload === null) invalidResponse('Travelport Availability response is not valid JSON.');
       assertAvailabilityResponseSelection(payload, stored.authority);
-      const pages = availabilityResponsePageCount(payload);
-      if (continuation.pageNumber >= pages) paginationAuthorities.delete(continuation.token);
+      const observed = availabilityResponsePaginationMetadata(payload);
+      if (observed.numberOfPages !== stored.numberOfPages) {
+        invalidResponse('Travelport Availability pagination metadata changed across the active result set.');
+      }
+      if (
+        stored.totalCatalogOffering !== null
+        && observed.totalCatalogOffering !== stored.totalCatalogOffering
+      ) {
+        invalidResponse('Travelport Availability pagination metadata changed across the active result set.');
+      }
+      if (continuation.pageNumber >= stored.numberOfPages) paginationAuthorities.delete(continuation.token);
       return response;
     }
 
@@ -447,11 +491,16 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
     if (pagination) {
       const nowMs = Date.now();
       prunePaginationAuthorities(nowMs);
-      if (!paginationAuthorities.has(pagination.token) && paginationAuthorities.size >= MAX_ACTIVE_PAGINATION_AUTHORITIES) {
+      if (paginationAuthorities.has(pagination.token)) {
+        invalidResponse('Travelport Availability pagination token was reused for an active result set.');
+      }
+      if (paginationAuthorities.size >= MAX_ACTIVE_PAGINATION_AUTHORITIES) {
         invalidResponse('Travelport Availability pagination authority capacity was exceeded.');
       }
       paginationAuthorities.set(pagination.token, Object.freeze({
         authority,
+        totalCatalogOffering: pagination.totalCatalogOffering,
+        numberOfPages: pagination.numberOfPages,
         expiresAtMs: nowMs + PAGINATION_AUTHORITY_TTL_MS,
       }));
     }

@@ -2,28 +2,19 @@
 
 ## Purpose
 
-Travelport Availability is the final read-only sell-authority step used by SF immediately before supplier reservation preparation. The reservation authority core already revalidates the selected SearchComplete offer, retrieves fresh Rules, parses bounded Availability pages, and requires a single selected booking-code/property/stay match. This additional provider-specific boundary pins the initial Availability request itself and rejects contradictory response evidence before it can be considered a provider submission reference.
+Travelport Availability is the final read-only sell-authority step used by SF immediately before supplier reservation preparation. The reservation authority core already revalidates the selected SearchComplete offer, retrieves fresh Rules, parses bounded Availability pages, and requires a single selected booking-code/property/stay match. This provider-specific boundary pins the initial request, continuation result-set geometry, and contradictory response evidence before any offer can be considered a provider submission reference.
 
 This hardening does not advertise Travelport `reservation`, create a supplier booking, collect payment-card data, or relax any activation gate.
 
 ## Provider contract
 
-Travelport's current v11 Hotel Availability API documents:
+Travelport's current v11 Hotel Availability documentation defines the initial Availability request as `POST /11/hotel/availability/catalogofferingshospitality` and the dedicated Availability Pagination reference defines continuation retrieval as `GET /11/hotel/availability/catalogofferingshospitality/{AvailabilityIdentifier}?pageNumber={x}`. The pagination reference says page 1 comes from the initial response, continuation page numbers are 2 through 5, pages do not need to be retrieved consecutively, and cached Availability results expire after 30 minutes.
 
-- `POST /11/hotel/availability/catalogofferingshospitality` for the initial Availability request;
-- `StayDates.start` and `.end` as the requested check-in/check-out dates;
-- `HotelSearchCriterion.numberOfRooms` as 1 through 9;
-- `AggregatorList` values `TVPT` (Travelport) and `BKNG` (Booking.com);
-- one or more `PropertyRequest` values identifying the requested property;
-- `RoomStayCandidates` / `GuestCount` as the occupancy request;
-- optional `RateCandidates` used to constrain negotiated/category rate selection;
-- `CatalogOffering.Identifier.authority` as the supplier system that returned the rate, either `TVPT` or `BKNG`;
-- `Product.guests` as the number of guests and `Product.Quantity` as rooms available for the rate; and
-- product `PropertyKey` and `DateRange` as property and stay evidence.
+The current Stays guide also defines `totalCatalogOffering` as the total number of rates across the result set, `catalogOfferingPerPage` as the number returned on the page, and `numberOfPages` as the total page count. When more than 100 rates exist, the initial response carries `CatalogOfferings.Identifier.value` for subsequent pagination.
 
-SF's reservation path intentionally issues a narrower request than the provider's general capability: exactly one room, one property, one aggregator, one room-stay candidate, one to nine total guests, and at most one rate candidate derived from the freshly selected SearchComplete rate.
+SF's reservation path intentionally issues a narrower Availability request than the provider's general capability: exactly one room, one property, one aggregator, one room-stay candidate, one to nine total guests, and at most one rate candidate derived from the freshly selected SearchComplete rate.
 
-## SF authority rule
+## SF selection authority rule
 
 Before provider I/O, the Availability selection wrapper parses the exact serialized request body and requires:
 
@@ -38,7 +29,7 @@ Before provider I/O, the Availability selection wrapper parses the exact seriali
 
 Malformed request authority fails before network I/O. This is intentionally stricter than accepting arbitrary provider-valid Availability requests because the reservation authority core generates only this single-property/single-room shape.
 
-For a successful initial Availability response, before the core can use an offer identifier as submission authority:
+For a successful Availability response, before the core can use an offer identifier as submission authority:
 
 - every returned offer must identify the same supplier authority that SF requested;
 - present rate-code, rate-ID, or rate-category evidence cannot contradict the requested rate candidate;
@@ -48,32 +39,43 @@ For a successful initial Availability response, before the core can use an offer
 
 Optional response fields are not made mandatory when Travelport documentation or checked-in provider evidence does not prove universal presence. Missing optional evidence therefore does not invent authority; contradictory present evidence fails closed.
 
-## Pagination boundary
+## Pagination continuity boundary
 
-Travelport documents Availability pagination as a separate GET using the identifier from page one and `pageNumber=2..5`, with Availability offers cached for 30 minutes. The existing reservation-authority response boundary validates that path, canonical pagination token encoding, page geometry, collection ceilings, and page-one identifier rules. The compatibility core additionally requires stable total/page counts across continuation pages, rejects duplicate offer identifiers, and allows only one selected sell match across the complete result set.
+The reservation-authority response guard validates each successful Availability page independently: page geometry, collection ceilings, exact machine evidence, the page-one identifier rule, and the requested page being inside the page count reported by that response. The compatibility core also compares page totals/page counts after it receives the response.
 
-The selection wrapper now carries the initial single-selection authority across continuation pages as bounded, in-memory token state. A page-one pagination token is associated only with the exact initial aggregator/property/stay/occupancy/rate authority, expires after the provider's documented 30-minute cache window, and the wrapper caps active token authorities at 64. A continuation request with an unknown, expired, malformed, or already-completed token fails closed before provider I/O. Successful continuation responses are checked against the same supplier, rate, occupancy, quantity, property, and stay authority before the compatibility core can use them. The token binding is deleted after the final page.
+The selection wrapper previously stored only the selected aggregator/property/stay/occupancy/rate authority against the page-one pagination token. A continuation could therefore report a different but individually valid `totalCatalogOffering` or `numberOfPages`; the compatibility core would eventually reject that contradiction, but the wrapper could already have consumed or retained its token state using the continuation's contradictory page count. A caller could also ask for page 4 or 5 even when page one had established a smaller result set, causing unnecessary provider I/O before the downstream parser rejected it.
+
+The same token state now also binds page-one pagination geometry:
+
+- `numberOfPages` is stored with the exact selection authority for every active multi-page token;
+- `totalCatalogOffering` is stored when the production response-authority layer supplies it, which it requires for every successful Availability response;
+- a continuation page above the page-one result-set page count fails before provider I/O;
+- every successful continuation must keep the exact page-one `numberOfPages`, and production responses must keep the exact page-one `totalCatalogOffering`;
+- contradictory continuation metadata fails before the active token can be consumed, so a later valid continuation can still be evaluated;
+- the token is deleted only after selection evidence and pagination continuity both pass for the final page;
+- an already-active pagination token cannot be rebound by a second initial result set, even if its reported geometry is identical; and
+- non-consecutive page retrieval remains supported inside the established result set, matching Travelport's documented pagination behavior.
+
+The token still expires after the provider's documented 30-minute cache window and active pagination authority remains capped at 64 entries. The production response guard remains responsible for full per-page geometry (`catalogOfferingPerPage`, expected page size, collection ceilings, and page-one identifier presence); this selection layer adds cross-page continuity rather than duplicating that complete parser.
 
 ## Similar-issue sweep
 
-The surrounding SearchComplete → Rules → Availability path was reviewed for the same "requested one authority, silently ignore contradictory provider evidence" pattern. Rules now binds its response source and exact selected product to the outbound request. Availability previously filtered non-matching supplier/rate evidence while searching for one usable offer, which meant contradictory entries could coexist with an accepted match. This wrapper closes that ambiguity across both the initial page and token-bound continuation pages and also binds present occupancy, room-quantity, property, stay, and rate-candidate evidence.
+The surrounding fresh SearchComplete → Rules → Availability path was reviewed for the same pagination-state problem. The pre-write SearchComplete authority is intentionally pinned to one exact property on page 1 with `totalPages=1` and no continuation token, so there is no equivalent active continuation state to harden there. Repository search found no second reservation-authority pagination-state map; the Availability selection flow is the only current stateful continuation boundary in this path.
 
-Create, reviewed Create, Sync, and known-locator recovery keep their separate pre-write, receipt, identity, and ambiguity contracts. No reservation-write behavior moved into this read-only module.
+Rules continues to bind its response source and exact selected product to the outbound request. Create, reviewed Create, Sync, and known-locator recovery keep their separate pre-write, receipt, identity, and ambiguity contracts. No reservation-write behavior moved into this read-only module.
 
 ## Validation
 
-Focused dependency-free behavior coverage verifies:
+Focused behavior coverage verifies:
 
-- canonical TVPT and BKNG request/response authority;
-- malformed request rejection before provider I/O;
-- supplier-authority mismatch rejection;
-- guest-count, room-quantity, property, and stay contradiction rejection;
-- rate-candidate contradiction rejection;
-- compatibility for absent optional response evidence;
-- token-bound continuation-page authority and rejection of unbound/reused tokens; and
-- passthrough of unrelated/non-success traffic.
+- continuation pages above the initial result-set page count fail before delegated provider I/O;
+- `totalCatalogOffering` and `numberOfPages` remain exact across production continuations;
+- rejected contradictory continuation metadata does not consume active token authority;
+- non-consecutive continuation remains supported when it is inside the page-one result set;
+- successful final-page retrieval consumes the token; and
+- an active token cannot be rebound while its authority is still live.
 
-A source contract pins composition after the existing reservation response guard and confirms the module remains read-only.
+The existing selection-authority coverage continues to verify canonical TVPT/BKNG selection, malformed-request rejection, supplier/rate/occupancy/property/stay contradiction handling, optional-evidence behavior, token expiry, final-page consumption, and unrelated/non-success passthrough. A dependency-free source contract pins stored pagination geometry, fail-before-I/O range checking, fail-before-mutation response comparison, active-token collision rejection, bounded TTL/capacity, and this documentation boundary.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live provider verification still requires provisioned Travelport non-production credentials.
 
