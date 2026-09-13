@@ -161,6 +161,7 @@ function boundedSingleLine(value: unknown, label: string, max: number) {
     !normalized
     || normalized !== value
     || normalized.length > max
+    || !normalized.isWellFormed()
     || ASCII_CONTROL_PATTERN.test(normalized)
   ) {
     invalidRequest(`${label} is invalid.`);
@@ -200,6 +201,7 @@ function assertPaymentAuthorityMatchesRequestMaterial(
     || acceptedPaymentCardCodes.some((code) => (
       typeof code !== 'string'
       || code.length !== MAX_CARD_CODE_LENGTH
+      || !code.isWellFormed()
       || code !== code.trim()
       || ASCII_CONTROL_PATTERN.test(code)
     ))

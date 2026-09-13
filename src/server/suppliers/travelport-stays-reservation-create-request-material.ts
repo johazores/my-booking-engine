@@ -194,6 +194,7 @@ function providerSubmissionReference(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_PROVIDER_SUBMISSION_REFERENCE_LENGTH
+    || !normalized.isWellFormed()
     || ASCII_CONTROL_PATTERN.test(normalized)
   ) {
     invalidRequest('Travelport reservation offer reference is invalid.');
@@ -221,6 +222,7 @@ function paymentPayload(authority: HospitalitySupplierReservationPaymentAuthorit
     if (
       typeof code !== 'string'
       || code.length !== PAYMENT_CARD_CODE_LENGTH
+      || !code.isWellFormed()
       || !PAYMENT_CARD_CODE_PATTERN.test(code)
       || code !== code.trim()
       || ASCII_CONTROL_PATTERN.test(code)

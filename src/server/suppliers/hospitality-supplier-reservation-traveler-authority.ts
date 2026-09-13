@@ -37,7 +37,7 @@ function boundedText(value: unknown, label: string, maxLength: number) {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is required.`);
   }
   const trimmed = value.trim();
-  if (!trimmed || ASCII_CONTROL_PATTERN.test(trimmed)) {
+  if (!trimmed || !trimmed.isWellFormed() || ASCII_CONTROL_PATTERN.test(trimmed)) {
     throw new HospitalitySupplierReservationTravelerAuthorityError(`${label} is invalid.`);
   }
   const normalized = trimmed.replace(/ {2,}/g, ' ');
@@ -78,6 +78,7 @@ export function normalizeHospitalitySupplierReservationTravelerPayload(
   if (
     !email
     || email.length > MAX_EMAIL_LENGTH
+    || !email.isWellFormed()
     || ASCII_CONTROL_PATTERN.test(email)
     || !EMAIL_PATTERN.test(email)
   ) {

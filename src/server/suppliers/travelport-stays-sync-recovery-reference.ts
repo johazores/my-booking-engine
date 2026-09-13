@@ -23,6 +23,7 @@ function offerAuthority(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_OFFER_AUTHORITY_LENGTH
+    || !normalized.isWellFormed()
     || /[\u0000-\u001f\u007f:]/.test(normalized)
   ) {
     throw new TravelportStaysSyncRecoveryReferenceError('Travelport Sync offer authority is invalid.');
@@ -49,7 +50,12 @@ export function createTravelportStaysSyncRecoveryReference(input: Readonly<{
 export function parseTravelportStaysSyncRecoveryReference(
   value: unknown,
 ): TravelportStaysSyncRecoveryAuthority {
-  if (typeof value !== 'string' || value !== value.trim() || /[\r\n]/.test(value)) {
+  if (
+    typeof value !== 'string'
+    || !value.isWellFormed()
+    || value !== value.trim()
+    || /[\r\n]/.test(value)
+  ) {
     throw new TravelportStaysSyncRecoveryReferenceError('Travelport Sync recovery reference is invalid.');
   }
   const parts = value.split(':');

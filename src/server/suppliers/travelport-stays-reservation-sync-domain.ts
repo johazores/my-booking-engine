@@ -62,6 +62,7 @@ function confirmationReference(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_CONFIRMATION_LENGTH
+    || !normalized.isWellFormed()
     || ASCII_CONTROL_PATTERN.test(normalized)
   ) {
     throw new Error('Travelport Sync supplier confirmation is invalid.');

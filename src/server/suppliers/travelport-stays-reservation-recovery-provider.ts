@@ -52,6 +52,7 @@ function boundedSingleLine(value: unknown, label: string, max: number) {
     !normalized
     || normalized !== value
     || normalized.length > max
+    || !normalized.isWellFormed()
     || ASCII_CONTROL_CHARACTER_PATTERN.test(normalized)
   ) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', `${label} is invalid.`);
