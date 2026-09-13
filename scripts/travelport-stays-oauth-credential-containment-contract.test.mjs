@@ -34,24 +34,42 @@ test('containment consumes exact long-lived credential headers instead of forwar
   assert.match(containment, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
 });
 
-test('terminal containment independently pins Stays authority to the secure configured origin', () => {
+test('terminal containment pins Stays authority to the secure configured Hotel namespace', () => {
   assert.match(containment, /TRAVELPORT_STAYS_AUTHORITY_HEADERS[\s\S]*'authorization'[\s\S]*'xauth_travelport_accessgroup'/);
-  assert.match(containment, /function carriesTravelportStaysAuthority\(/);
+  assert.match(containment, /TRAVELPORT_STAYS_PATH_PREFIXES[\s\S]*'\/11\/hotel\/'[\s\S]*'\/12\/hotel\/'/);
+  assert.match(containment, /function isSecureTravelportOrigin\(/);
   assert.match(containment, /url\.protocol === 'https:'/);
-  assert.match(containment, /url\.hostname === staysHost/);
+  assert.match(containment, /url\.hostname === host/);
   assert.match(containment, /url\.username === ''/);
   assert.match(containment, /url\.password === ''/);
   assert.match(containment, /url\.hash === ''/);
-  assert.match(containment, /url\.hostname !== staysHost[\s\S]*carriesStaysAuthority[\s\S]*invalidCredentialContainment/);
-  assert.match(containment, /!isSecureTravelportStaysTarget\(url, staysHost\)[\s\S]*invalidCredentialContainment/);
+  assert.match(containment, /function isTravelportStaysPath\(/);
+  assert.match(containment, /TRAVELPORT_STAYS_PATH_PREFIXES\.some\(\(prefix\) => url\.pathname\.startsWith\(prefix\)\)/);
+  assert.match(containment, /url\.hostname !== targets\.staysHost\) invalidCredentialContainment\(\)/);
+  assert.match(containment, /!isSecureTravelportStaysTarget\(url, targets\.staysHost\)\) invalidCredentialContainment\(\)/);
 });
 
-test('documentation keeps OAuth credential exchange separate from downstream Stays authorization', () => {
+test('terminal containment independently pins OAuth credentials to the configured token endpoint', () => {
+  assert.match(containment, /authenticationHost: 'auth\.pp\.travelport\.net'/);
+  assert.match(containment, /authenticationHost: 'auth\.travelport\.net'/);
+  assert.match(containment, /url\.pathname === '\/oauth\/token'/);
+  assert.match(containment, /url\.search === ''/);
+  assert.match(containment, /requestMethod\(requestInput, init\) !== 'POST'/);
+  assert.match(containment, /carriesTravelportStaysAuthority\(headers\)/);
+  assert.match(containment, /body instanceof URLSearchParams/);
+  assert.match(containment, /entries\.length !== 5/);
+  assert.match(containment, /values\.get\('grant_type'\) !== 'password'/);
+  assert.match(containment, /values\.get\(name\) !== expected\[name\]/);
+  assert.match(containment, /values\.size !== TRAVELPORT_OAUTH_CREDENTIAL_FIELDS\.length \+ 1/);
+});
+
+test('documentation keeps OAuth exchange and Stays product authority narrowly separated', () => {
   assert.match(docs, /Authorization: Bearer <token>/);
   assert.match(docs, /XAUTH_TRAVELPORT_ACCESSGROUP/);
-  assert.match(docs, /removes all four headers before network I\/O/);
-  assert.match(docs, /secure configured HTTPS origin/);
-  assert.match(docs, /bearer, or access-group authority/);
+  assert.match(docs, /same environment API hosts under `\/11\/air\/`/);
+  assert.match(docs, /restricts Stays authority to `\/11\/hotel\/` or `\/12\/hotel\/`/);
+  assert.match(docs, /exact five-field `URLSearchParams` password grant/);
+  assert.match(docs, /same-host `\/11\/air\/` and other non-Hotel targets cannot receive Stays authority/);
   assert.match(docs, /does not enable Travelport `reservation`/);
   assert.match(tracingDocs, /not provider request headers/);
   assert.match(tracingDocs, /removes all four before terminal Stays network I\/O/);

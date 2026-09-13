@@ -13,6 +13,11 @@ const credentials = Object.freeze({
   accessGroup: 'test-access-group',
 });
 
+const preProductionCredentials = Object.freeze({
+  ...credentials,
+  environment: 'pre-production' as const,
+});
+
 function requestHeaders(overrides: Readonly<Record<string, string>> = {}) {
   return {
     Accept: 'application/json',
@@ -36,6 +41,17 @@ function cleanRequestHeaders() {
     ...cleanHeaders
   } = requestHeaders();
   return cleanHeaders;
+}
+
+function oauthBody(overrides: Readonly<Record<string, string>> = {}) {
+  return new URLSearchParams({
+    grant_type: 'password',
+    username: credentials.username,
+    password: credentials.password,
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    ...overrides,
+  });
 }
 
 function assertInvalidRequest(error: unknown) {
@@ -75,7 +91,7 @@ test('removes long-lived OAuth credential headers before Travelport Stays networ
   assert.equal(sourceHeaders.client_secret, credentials.clientSecret);
 });
 
-test('accepts future Stays builders that already omit long-lived OAuth credential headers', async () => {
+test('containment accepts a clean Stays header shape when invoked directly', async () => {
   let calls = 0;
   const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     calls += 1;
@@ -146,7 +162,33 @@ test('rejects a Stays access-group mismatch before network I/O', async () => {
   assert.equal(calls, 0);
 });
 
-test('never forwards long-lived credential headers to a foreign host', async () => {
+test('never forwards Travelport requests to a foreign or malformed target', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+
+  for (const target of ['https://example.com/hotel', 'not-a-valid-url']) {
+    await assert.rejects(containedFetch(target, { headers: cleanRequestHeaders() }), assertInvalidRequest);
+  }
+  await assert.rejects(
+    containedFetch('https://example.com/oauth/token', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  assert.equal(calls, 0);
+});
+
+
+test('normalizes malformed header input as a provider request failure before network I/O', async () => {
   let calls = 0;
   const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: 'production',
@@ -158,27 +200,13 @@ test('never forwards long-lived credential headers to a foreign host', async () 
   });
 
   await assert.rejects(
-    containedFetch('https://example.com/hotel', { headers: requestHeaders() }),
+    containedFetch('https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token\nother' },
+      body: '{}',
+    }),
     assertInvalidRequest,
   );
-  assert.equal(calls, 0);
-});
-
-test('never forwards bearer or access-group Stays authority to a foreign or malformed target', async () => {
-  let calls = 0;
-  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
-    environment: 'production',
-    credentials,
-    fetchImpl: (async () => {
-      calls += 1;
-      return new Response('{}', { status: 200 });
-    }) as typeof fetch,
-  });
-  const headers = cleanRequestHeaders();
-
-  for (const target of ['https://example.com/hotel', 'not-a-valid-url']) {
-    await assert.rejects(containedFetch(target, { headers }), assertInvalidRequest);
-  }
   assert.equal(calls, 0);
 });
 
@@ -206,23 +234,74 @@ test('requires the configured Stays host to use a secure canonical HTTPS origin 
   assert.equal(calls, 0);
 });
 
-test('leaves the OAuth token request body path unchanged when credentials are not headers', async () => {
+test('pins Stays authority to the Hotel product namespace on the shared Travelport API host', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+
+  for (const target of [
+    'https://api.travelport.net/11/air/book/reservation/reservations/ABC123',
+    'https://api.travelport.net/11/air/catalog/search/catalogproductofferings',
+    'https://api.travelport.net/oauth/token',
+  ]) {
+    await assert.rejects(
+      containedFetch(target, { method: 'GET', headers: cleanRequestHeaders() }),
+      assertInvalidRequest,
+    );
+  }
+  assert.equal(calls, 0);
+});
+
+test('applies the same Hotel namespace boundary in pre-production', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'pre-production',
+    credentials: preProductionCredentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+
+  await containedFetch('https://api.pp.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+    method: 'POST',
+    headers: cleanRequestHeaders(),
+    body: '{}',
+  });
+  await containedFetch('https://auth.pp.travelport.net/oauth/token', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: oauthBody(),
+  });
+  await assert.rejects(
+    containedFetch('https://api.pp.travelport.net/11/air/book/reservation/reservations/ABC123', {
+      method: 'GET',
+      headers: cleanRequestHeaders(),
+    }),
+    assertInvalidRequest,
+  );
+  assert.equal(calls, 2);
+});
+
+test('keeps the OAuth credential exchange on the exact configured authentication target', async () => {
+  let calls = 0;
   let observedBody: BodyInit | null | undefined;
   const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: 'production',
     credentials,
     fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
       observedBody = init?.body;
       return new Response('{}', { status: 200 });
     }) as typeof fetch,
   });
-  const body = new URLSearchParams({
-    grant_type: 'password',
-    username: credentials.username,
-    password: credentials.password,
-    client_id: credentials.clientId,
-    client_secret: credentials.clientSecret,
-  });
+  const body = oauthBody();
 
   await containedFetch('https://auth.travelport.net/oauth/token', {
     method: 'POST',
@@ -230,4 +309,79 @@ test('leaves the OAuth token request body path unchanged when credentials are no
     body,
   });
   assert.equal(observedBody, body);
+  assert.equal(calls, 1);
+
+  const invalidTargets = [
+    'http://auth.travelport.net/oauth/token',
+    'https://auth.travelport.net:444/oauth/token',
+    'https://user@auth.travelport.net/oauth/token',
+    'https://auth.travelport.net/oauth/token?scope=other',
+    'https://auth.travelport.net/oauth/token#fragment',
+    'https://auth.travelport.net/other',
+    'https://auth.pp.travelport.net/oauth/token',
+  ];
+  for (const target of invalidTargets) {
+    await assert.rejects(
+      containedFetch(target, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: oauthBody(),
+      }),
+      assertInvalidRequest,
+    );
+  }
+  assert.equal(calls, 1);
+});
+
+test('requires exact active OAuth credential authority at the terminal boundary', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' };
+
+  for (const body of [
+    oauthBody({ client_secret: 'other-secret' }),
+    new URLSearchParams({
+      grant_type: 'password',
+      username: credentials.username,
+      password: credentials.password,
+      client_id: credentials.clientId,
+    }),
+    new URLSearchParams({
+      grant_type: 'client_credentials',
+      username: credentials.username,
+      password: credentials.password,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+    }),
+  ]) {
+    await assert.rejects(
+      containedFetch('https://auth.travelport.net/oauth/token', { method: 'POST', headers, body }),
+      assertInvalidRequest,
+    );
+  }
+
+  await assert.rejects(
+    containedFetch('https://auth.travelport.net/oauth/token', {
+      method: 'GET',
+      headers,
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch('https://auth.travelport.net/oauth/token', {
+      method: 'POST',
+      headers: { ...headers, Authorization: 'Bearer not-valid-on-oauth' },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  assert.equal(calls, 0);
 });
