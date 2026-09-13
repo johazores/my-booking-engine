@@ -7,6 +7,7 @@ import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelp
 import { createTravelportStaysReservationStatusOnlyResponseFetch } from '../suppliers/travelport-stays-reservation-status-only-response-fetch.ts';
 import { TravelportStaysReservationSyncExecutor } from '../suppliers/travelport-stays-reservation-sync-executor.ts';
 import { createTravelportStaysReservationTraceAuthorityFetch } from '../suppliers/travelport-stays-reservation-trace-fetch.ts';
+import { createTravelportStaysOAuthCredentialContainmentFetch } from '../suppliers/travelport-stays-oauth-credential-containment-fetch.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
   probeTravelportStaysIntegrationHealth,
@@ -41,10 +42,15 @@ export async function testTravelportStaysIntegrationConnection(input: {
     providerCode: 'travelport-stays',
   });
   const normalizedCredentials = readTravelportStaysCredentials(credentials);
-  const fetchImpl = createTravelportStaysTraceFetch({
+  const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: normalizedCredentials.environment,
     credentials: normalizedCredentials,
     fetchImpl: input.fetchImpl,
+  });
+  const fetchImpl = createTravelportStaysTraceFetch({
+    environment: normalizedCredentials.environment,
+    credentials: normalizedCredentials,
+    fetchImpl: credentialContainedFetch,
   });
   const result = await probeTravelportStaysIntegrationHealth({
     credentials: normalizedCredentials,
@@ -94,7 +100,12 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
-  const reservationStatusOnlyFetch = createTravelportStaysReservationStatusOnlyResponseFetch(fetch);
+  const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: normalizedCredentials.environment,
+    credentials: normalizedCredentials,
+    fetchImpl: fetch,
+  });
+  const reservationStatusOnlyFetch = createTravelportStaysReservationStatusOnlyResponseFetch(credentialContainedFetch);
   const fetchImpl = createTravelportStaysReservationTraceAuthorityFetch(
     createTravelportStaysTraceFetch({
       environment: normalizedCredentials.environment,
