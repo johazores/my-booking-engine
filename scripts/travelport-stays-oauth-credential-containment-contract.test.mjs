@@ -53,6 +53,7 @@ test('terminal containment pins Stays authority to the secure configured operati
   assert.match(containment, /hasSingleCanonicalEncodedPathSegment\(url,/);
   assert.match(containment, /url\.hostname !== targets\.staysHost\) invalidCredentialContainment\(\)/);
   assert.match(containment, /!isSecureTravelportStaysTarget\(url, targets\.staysHost, method\)\) invalidCredentialContainment\(\)/);
+  assert.doesNotMatch(containment, /TRAVELPORT_STAYS_PATH_PREFIXES|isTravelportStaysPath/);
 });
 
 test('terminal containment independently pins OAuth credentials to the configured token endpoint', () => {
@@ -97,11 +98,11 @@ test('documentation keeps OAuth exchange and exact Stays operation authority nar
   assert.match(docs, /XAUTH_TRAVELPORT_ACCESSGROUP/);
   assert.match(docs, /same environment API hosts under `\/11\/air\/`/);
   assert.match(docs, /exact implemented Stays operation matrix/);
-  assert.match(docs, /SearchComplete, Rules, Availability, Create\/reviewed Create, Sync, and known-locator Retrieve/);
+  assert.match(docs, /SearchComplete plus continuation, Rules, Availability plus continuation, Create\/reviewed Create, reservation Sync, and known-locator Retrieve/);
   assert.match(docs, /exact five-field `URLSearchParams` password grant/);
   assert.match(docs, /fresh terminal `RequestInit` instead of spreading arbitrary caller metadata/);
   assert.match(docs, /network-visible header allowlist after internal long-lived Stays credential headers are consumed/);
-  assert.match(docs, /same-host `\/11\/air\/` and other non-Hotel targets cannot receive Stays authority/);
+  assert.match(docs, /same-host `\/11\/air\/`, unrelated Hotel operations, wrong methods, unsupported pagination\/query shapes, and unimplemented reservation subresources cannot receive Stays authority/);
   assert.match(docs, /does not enable Travelport `reservation`/);
   assert.match(tracingDocs, /not provider request headers/);
   assert.match(tracingDocs, /removes all four before terminal Stays network I\/O/);
