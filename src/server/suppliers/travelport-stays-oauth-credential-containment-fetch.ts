@@ -15,6 +15,11 @@ const LONG_LIVED_OAUTH_CREDENTIAL_HEADERS = Object.freeze([
   'client_id',
   'client_secret',
 ] as const);
+const TRAVELPORT_STAYS_AUTHORITY_HEADERS = Object.freeze([
+  'authorization',
+  'xauth_travelport_accessgroup',
+  ...LONG_LIVED_OAUTH_CREDENTIAL_HEADERS,
+] as const);
 
 type LongLivedOAuthCredentialHeader = (typeof LONG_LIVED_OAUTH_CREDENTIAL_HEADERS)[number];
 
@@ -64,6 +69,19 @@ function containedStaysHeaders(
   return headers;
 }
 
+function carriesTravelportStaysAuthority(headers: Headers) {
+  return TRAVELPORT_STAYS_AUTHORITY_HEADERS.some((name) => headers.has(name));
+}
+
+function isSecureTravelportStaysTarget(url: URL, staysHost: string) {
+  return url.protocol === 'https:'
+    && url.hostname === staysHost
+    && (url.port === '' || url.port === '443')
+    && url.username === ''
+    && url.password === ''
+    && url.hash === '';
+}
+
 export function createTravelportStaysOAuthCredentialContainmentFetch(input: Readonly<{
   environment: TravelportStaysEnvironment;
   credentials: TravelportStaysCredentials;
@@ -77,20 +95,21 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
     const sourceHeaders = init?.headers
       ?? (typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined);
     const headers = new Headers(sourceHeaders);
-    const hasLongLivedCredentialHeader = LONG_LIVED_OAUTH_CREDENTIAL_HEADERS.some((name) => headers.has(name));
+    const carriesStaysAuthority = carriesTravelportStaysAuthority(headers);
 
     let url: URL;
     try {
       url = new URL(requestUrl(requestInput));
     } catch {
-      if (hasLongLivedCredentialHeader) invalidCredentialContainment();
+      if (carriesStaysAuthority) invalidCredentialContainment();
       return fetchImpl(requestInput, init);
     }
 
     if (url.hostname !== staysHost) {
-      if (hasLongLivedCredentialHeader) invalidCredentialContainment();
+      if (carriesStaysAuthority) invalidCredentialContainment();
       return fetchImpl(requestInput, init);
     }
+    if (!isSecureTravelportStaysTarget(url, staysHost)) invalidCredentialContainment();
 
     containedStaysHeaders(headers, input.credentials);
     return fetchImpl(requestInput, { ...init, headers });

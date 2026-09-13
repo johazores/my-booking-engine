@@ -32,13 +32,26 @@ test('containment consumes exact long-lived credential headers instead of forwar
   assert.match(containment, /headers\.get\(name\) !== expected\[name\]/);
   assert.match(containment, /headers\.delete\(name\)/);
   assert.match(containment, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
-  assert.match(containment, /url\.hostname !== staysHost[\s\S]*hasLongLivedCredentialHeader[\s\S]*invalidCredentialContainment/);
+});
+
+test('terminal containment independently pins Stays authority to the secure configured origin', () => {
+  assert.match(containment, /TRAVELPORT_STAYS_AUTHORITY_HEADERS[\s\S]*'authorization'[\s\S]*'xauth_travelport_accessgroup'/);
+  assert.match(containment, /function carriesTravelportStaysAuthority\(/);
+  assert.match(containment, /url\.protocol === 'https:'/);
+  assert.match(containment, /url\.hostname === staysHost/);
+  assert.match(containment, /url\.username === ''/);
+  assert.match(containment, /url\.password === ''/);
+  assert.match(containment, /url\.hash === ''/);
+  assert.match(containment, /url\.hostname !== staysHost[\s\S]*carriesStaysAuthority[\s\S]*invalidCredentialContainment/);
+  assert.match(containment, /!isSecureTravelportStaysTarget\(url, staysHost\)[\s\S]*invalidCredentialContainment/);
 });
 
 test('documentation keeps OAuth credential exchange separate from downstream Stays authorization', () => {
   assert.match(docs, /Authorization: Bearer <token>/);
   assert.match(docs, /XAUTH_TRAVELPORT_ACCESSGROUP/);
   assert.match(docs, /removes all four headers before network I\/O/);
+  assert.match(docs, /secure configured HTTPS origin/);
+  assert.match(docs, /bearer, or access-group authority/);
   assert.match(docs, /does not enable Travelport `reservation`/);
   assert.match(tracingDocs, /not provider request headers/);
   assert.match(tracingDocs, /removes all four before terminal Stays network I\/O/);

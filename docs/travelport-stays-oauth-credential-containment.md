@@ -26,10 +26,11 @@ For a Stays target, the containment boundary:
 - permits either none of the four long-lived OAuth credential headers or all four together;
 - when all four are present, requires exact equality with the active normalized integration credentials;
 - rejects partial or mismatched long-lived credential evidence before network I/O;
-- removes `username`, `password`, `client_id`, and `client_secret` from the forwarded Stays request; and
+- removes `username`, `password`, `client_id`, and `client_secret` from the forwarded Stays request;
+- independently requires the secure configured HTTPS origin, rejecting plaintext HTTP, non-default ports, URL userinfo, and fragments before network I/O; and
 - clones request headers instead of mutating the caller-owned header object.
 
-If any of those long-lived credential headers appear on a foreign host, the boundary fails closed rather than forwarding them. The OAuth token request is unaffected because its credentials remain in the reviewed form body and not in headers.
+If any long-lived credential, bearer, or access-group authority is attached to a foreign or malformed target, the boundary fails closed rather than forwarding it. This terminal check is intentionally independent of the outer trace transport so a future composition mistake cannot turn the containment wrapper into a credential-leak path. The OAuth token request is unaffected because its credentials remain in the reviewed form body and not in headers.
 
 ## Production composition
 
@@ -44,13 +45,15 @@ For normal product traffic the order is:
 5. OAuth credential containment; and
 6. the actual server Fetch implementation.
 
-Because the containment layer is inside the shared trace transport, the trace transport can still verify the internal identity-binding values while the network terminal never receives them.
+Because the containment layer is inside the shared trace transport, the trace transport can still verify the internal identity-binding values while the network terminal never receives them. The containment layer now also reasserts the secure configured Stays origin immediately before the terminal network call, so the secret boundary remains safe if the composition changes later.
 
 The integration remains tenant-scoped through the existing integration loader and credential-version cache key. This change does not alter provider capability advertisement, reservation authorization, payment/PAN handling, or durable supplier-write semantics.
 
 ## Similar-issue sweep
 
 The current Travelport request builders for SearchComplete/pricing, Rules, Availability, Create/reviewed Create, Booking.com Sync, and known-locator Retrieve were reviewed for the same long-lived header pattern. They all enter the canonical `loadTravelportStaysIntegration` transport composed above, so the one terminal containment boundary covers the entire implemented Stays surface consistently instead of relying on six independent header-removal implementations.
+
+The terminal boundary also now treats bearer `Authorization` and `XAUTH_TRAVELPORT_ACCESSGROUP` as Stays authority when deciding whether a foreign or malformed target can pass through. This closes the same credential-leak class for clean future builders that no longer carry the four long-lived internal headers.
 
 The authenticated connection test uses the same containment boundary even though its current operation is OAuth-only, preventing a future health request from accidentally bypassing the policy.
 
@@ -59,14 +62,16 @@ The authenticated connection test uses the same containment boundary even though
 Focused behavior coverage verifies that:
 
 - all four long-lived OAuth credential headers are absent at terminal Stays network I/O;
-- bearer authorization and access-group authority remain present;
+- bearer authorization and access-group authority remain present only on the configured Stays origin;
 - caller-owned headers are not mutated;
 - clean future builder headers remain accepted;
-- partial, mismatched, or foreign-host long-lived credentials fail before network I/O;
+- partial or mismatched long-lived credentials fail before network I/O;
+- long-lived, bearer, or access-group Stays authority cannot be forwarded to a foreign or malformed target;
+- plaintext, alternate-port, userinfo, and fragment variants of the configured Stays host fail before network I/O;
 - a mismatched access group fails before network I/O; and
 - the OAuth token body path remains unchanged.
 
-A dependency-free source contract also pins the production integration composition so both connection testing and normal Travelport loading place containment inside the trace transport.
+A dependency-free source contract also pins the production integration composition and the containment layer's independent secure-origin/authority checks.
 
 ## Capability boundary
 

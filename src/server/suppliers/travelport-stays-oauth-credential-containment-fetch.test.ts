@@ -27,6 +27,17 @@ function requestHeaders(overrides: Readonly<Record<string, string>> = {}) {
   };
 }
 
+function cleanRequestHeaders() {
+  const {
+    username: _username,
+    password: _password,
+    client_id: _clientId,
+    client_secret: _clientSecret,
+    ...cleanHeaders
+  } = requestHeaders();
+  return cleanHeaders;
+}
+
 function assertInvalidRequest(error: unknown) {
   if (!(error instanceof HospitalitySupplierProviderError)) return false;
   assert.equal(error.code, 'INVALID_REQUEST');
@@ -74,11 +85,10 @@ test('accepts future Stays builders that already omit long-lived OAuth credentia
     return new Response('{}', { status: 200 });
   }) as typeof fetch;
   const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({ environment: 'production', credentials, fetchImpl });
-  const { username: _username, password: _password, client_id: _clientId, client_secret: _clientSecret, ...cleanHeaders } = requestHeaders();
 
   await containedFetch('https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
     method: 'POST',
-    headers: cleanHeaders,
+    headers: cleanRequestHeaders(),
     body: '{}',
   });
   assert.equal(calls, 1);
@@ -151,6 +161,48 @@ test('never forwards long-lived credential headers to a foreign host', async () 
     containedFetch('https://example.com/hotel', { headers: requestHeaders() }),
     assertInvalidRequest,
   );
+  assert.equal(calls, 0);
+});
+
+test('never forwards bearer or access-group Stays authority to a foreign or malformed target', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+  const headers = cleanRequestHeaders();
+
+  for (const target of ['https://example.com/hotel', 'not-a-valid-url']) {
+    await assert.rejects(containedFetch(target, { headers }), assertInvalidRequest);
+  }
+  assert.equal(calls, 0);
+});
+
+test('requires the configured Stays host to use a secure canonical HTTPS origin before network I/O', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+  const headers = cleanRequestHeaders();
+  const invalidTargets = [
+    'http://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest',
+    'https://api.travelport.net:444/11/hotel/rules/offershospitality/buildfromrequest',
+    'https://user@api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest',
+    'https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest#fragment',
+  ];
+
+  for (const target of invalidTargets) {
+    await assert.rejects(containedFetch(target, { method: 'POST', headers, body: '{}' }), assertInvalidRequest);
+  }
   assert.equal(calls, 0);
 });
 
