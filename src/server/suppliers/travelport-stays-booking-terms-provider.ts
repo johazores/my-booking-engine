@@ -12,6 +12,9 @@ import {
   materializeTravelportStaysOfferRevalidationInput,
 } from './travelport-stays-input-materialization.ts';
 import {
+  createTravelportStaysPreWriteUnicodeAuthorityFetch,
+} from './travelport-stays-json-unicode-authority.ts';
+import {
   assertTravelportStaysOfferReference,
   assertTravelportStaysPropertyReference,
   createTravelportStaysReferenceAuthorityFetch,
@@ -35,7 +38,10 @@ export class TravelportStaysBookingTermsProvider extends CoreTravelportStaysBook
     now?: () => Date;
   }) {
     const authority = materializeTravelportStaysBookingTermsConstructorAuthority(input);
-    const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch(authority.fetchImpl ?? fetch);
+    const unicodeAuthorityFetch = createTravelportStaysPreWriteUnicodeAuthorityFetch(
+      authority.fetchImpl ?? fetch,
+    );
+    const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch(unicodeAuthorityFetch);
     const memberAuthorityFetch = createTravelportStaysRulesMemberAuthorityFetch(referenceAuthorityFetch);
     super({
       credentials: authority.credentials,

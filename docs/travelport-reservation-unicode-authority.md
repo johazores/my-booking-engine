@@ -8,6 +8,10 @@ SF therefore rejects ill-formed Unicode at the provider-specific reservation aut
 
 This hardening does not enable the Travelport `reservation` capability and does not change the accepted supplier locator alphabet.
 
+## Pre-write authority
+
+The fresh SearchComplete -> Rules -> Availability chain now applies the same Unicode scalar-value invariant to materialized request JSON and successful provider JSON before field-specific selection/commercial authority consumes it. This shared pre-write guard rejects escaped lone surrogate values or object keys without narrowing well-formed non-BMP text. See `docs/travelport-stays-prewrite-unicode-authority.md` for the route scope and composition contract.
+
 ## Request authority
 
 The durable Travelport `providerReservationReference` must be a well-formed JavaScript string in addition to the existing non-empty, already-trimmed, 512-code-unit, and ASCII-control restrictions.
@@ -37,12 +41,13 @@ The compatibility parsers remain behind this production machine-authority bounda
 
 Focused tests prove that valid non-BMP Unicode remains accepted while lone high and low surrogates are rejected at both durable-reference and response-machine boundaries. The request test also demonstrates the concrete runtime hazard: `encodeURIComponent` throws `URIError` for an ill-formed reference, while SF now classifies that input before serialization.
 
-Dependency-free source contracts pin `String.prototype.isWellFormed()` checks into both the reservation reference boundary and the structured response machine-authority guard. The response contract also pins the current trace -> family/status -> machine authority -> SF serialization -> rebuild ordering so future refactors cannot move replay ahead of validation.
+Dependency-free source contracts pin `String.prototype.isWellFormed()` checks into both the reservation reference boundary and the structured response machine-authority guard. The response contract also pins the current trace -> family/status -> machine authority -> SF serialization -> rebuild ordering so future refactors cannot move replay ahead of validation. Separate pre-write coverage pins the SearchComplete/Rules/Availability JSON boundary and both provider-wrapper compositions.
 
 Full repository validation still requires the repository Node 24/TypeScript 6 toolchain. Live Travelport non-production verification remains an independent activation gate.
 
 ## References
 
+- `docs/travelport-stays-prewrite-unicode-authority.md`
 - `docs/travelport-reservation-reference-route-authority.md`
 - `docs/travelport-reservation-response-trace-authority.md`
 - `docs/travelport-reservation-structured-replay-authority.md`

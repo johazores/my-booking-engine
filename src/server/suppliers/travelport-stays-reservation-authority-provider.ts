@@ -10,6 +10,9 @@ import {
   materializeTravelportStaysReservationAuthorityInput,
 } from './travelport-stays-input-materialization.ts';
 import {
+  createTravelportStaysPreWriteUnicodeAuthorityFetch,
+} from './travelport-stays-json-unicode-authority.ts';
+import {
   assertTravelportStaysOfferReference,
   assertTravelportStaysPropertyReference,
   type TravelportStaysCredentials,
@@ -36,8 +39,11 @@ export class TravelportStaysReservationAuthorityProvider extends CoreTravelportS
   }) {
     const authority = materializeTravelportStaysReservationAuthorityConstructorAuthority(input);
     assertTravelportStaysReservationAuthorityCacheKey(authority.cacheKey);
-    const responseAuthorityFetch = createTravelportStaysReservationAuthorityResponseFetch(
+    const unicodeAuthorityFetch = createTravelportStaysPreWriteUnicodeAuthorityFetch(
       authority.fetchImpl ?? fetch,
+    );
+    const responseAuthorityFetch = createTravelportStaysReservationAuthorityResponseFetch(
+      unicodeAuthorityFetch,
     );
     super({
       credentials: authority.credentials,
