@@ -116,7 +116,7 @@ function invalidResponse(): never {
   throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport reservation response correlation is invalid.');
 }
 
-function boundedStatusOnlyHeader(value: string | null) {
+function boundedRetryAfterHeader(value: string | null) {
   if (
     value === null
     || value.length < 1
@@ -124,38 +124,51 @@ function boundedStatusOnlyHeader(value: string | null) {
     || value.trim() !== value
     || /[\u0000-\u001f\u007f]/.test(value)
   ) return null;
+
+  if (/^\d+$/.test(value)) return value;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || new Date(parsed).toUTCString() !== value) return null;
   return value;
 }
 
-function hasStructuredJsonContentType(headers: Headers) {
+function structuredJsonContentType(headers: Headers) {
   const value = headers.get('Content-Type');
   if (
     value === null
     || value.length < 1
     || value.length > MAX_STRUCTURED_RESPONSE_CONTENT_TYPE_LENGTH
     || /[\u0000-\u001f\u007f]/.test(value)
-  ) return false;
+  ) return null;
 
   const parts = value.split(';');
   const mediaType = parts.shift()?.trim().toLowerCase();
-  if (mediaType !== 'application/json' || parts.length > 1) return false;
-  if (parts.length === 0) return true;
+  if (mediaType !== 'application/json' || parts.length > 1) return null;
+  if (parts.length === 0) return value;
 
   const parameter = parts[0]?.trim().toLowerCase();
-  return parameter === 'charset=utf-8' || parameter === 'charset="utf-8"';
+  return parameter === 'charset=utf-8' || parameter === 'charset="utf-8"'
+    ? value
+    : null;
 }
 
-function rebuildResponse(response: Response, body: BodyInit | null) {
+function rebuildStructuredResponse(
+  response: Response,
+  body: BodyInit | null,
+  traceId: string,
+  contentType: string,
+) {
+  const headers = new Headers();
+  headers.set('Content-Type', contentType);
+  headers.set('traceId', traceId);
   return new Response(body, {
     status: response.status,
-    statusText: response.statusText,
-    headers: new Headers(response.headers),
+    headers,
   });
 }
 
 function rebuildStatusOnlyResponse(response: Response) {
   const headers = new Headers();
-  const retryAfter = boundedStatusOnlyHeader(response.headers.get('Retry-After'));
+  const retryAfter = boundedRetryAfterHeader(response.headers.get('Retry-After'));
   if (retryAfter !== null) headers.set('Retry-After', retryAfter);
   return new Response(null, {
     status: response.status,
@@ -200,7 +213,8 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     // Authentication and rate-limit statuses, plus provider/gateway statuses
     // above 500, are status authority only. Their body, provider free-text
     // status, and uncorrelated metadata must not cross this authority boundary.
-    // Preserve only bounded Retry-After metadata for operational backoff.
+    // Preserve only syntactically valid bounded Retry-After metadata for
+    // operational backoff.
     // HTTP 500 is intentionally trace-bound because Travelport's current Stays
     // error catalog uses it for structured reservation outcomes, including
     // SourceCode 13034 and validation decisions that affect commercial state.
@@ -217,7 +231,8 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     // contradictory version evidence rather than a second correlation source.
     if (response.headers.has('TVP-Trace-Id')) invalidResponse();
     if (response.headers.get('traceId') !== reservation.expectedTraceId) invalidResponse();
-    if (!hasStructuredJsonContentType(response.headers)) invalidResponse();
+    const contentType = structuredJsonContentType(response.headers);
+    if (contentType === null) invalidResponse();
 
     let rawBody: string;
     let body: unknown;
@@ -235,6 +250,11 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     if (!evidence.valid) invalidResponse();
     assertStructuredResponseFamilyForStatus(body, response.status);
     assertTravelportStaysReservationResponseMachineAuthority(body, response.status);
-    return rebuildResponse(response, rawBody);
+    return rebuildStructuredResponse(
+      response,
+      rawBody,
+      reservation.expectedTraceId,
+      contentType,
+    );
   }) as typeof fetch;
 }

@@ -7,14 +7,16 @@ const source = (path) => readFile(new URL(path, root), 'utf8');
 
 test('reservation response family authority is bound before downstream machine parsing', async () => {
   const wrapper = await source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
-  const mediaTypeCheck = wrapper.indexOf('if (!hasStructuredJsonContentType(response.headers)) invalidResponse()');
+  const mediaTypeRead = wrapper.indexOf('const contentType = structuredJsonContentType(response.headers)');
+  const mediaTypeCheck = wrapper.indexOf('if (contentType === null) invalidResponse()', mediaTypeRead);
   const bodyRead = wrapper.indexOf('rawBody = await response.text()', mediaTypeCheck);
   const traceCheck = wrapper.indexOf('if (!evidence.valid) invalidResponse()', bodyRead);
   const familyCheck = wrapper.indexOf('assertStructuredResponseFamilyForStatus(body, response.status)', traceCheck);
   const machineCheck = wrapper.indexOf('assertTravelportStaysReservationResponseMachineAuthority(body, response.status)', familyCheck);
-  const rebuild = wrapper.indexOf('return rebuildResponse(response, rawBody)', machineCheck);
+  const rebuild = wrapper.indexOf('return rebuildStructuredResponse(', machineCheck);
   assert.ok(
-    mediaTypeCheck >= 0
+    mediaTypeRead >= 0
+    && mediaTypeCheck > mediaTypeRead
     && bodyRead > mediaTypeCheck
     && traceCheck > bodyRead
     && familyCheck > traceCheck
@@ -25,6 +27,17 @@ test('reservation response family authority is bound before downstream machine p
   assert.match(wrapper, /charset=utf-8/);
   assert.match(wrapper, /hasReservationResponse && !isSuccessStatus/);
   assert.match(wrapper, /hasErrorResponse && !isStructuredErrorStatus/);
+});
+
+test('reservation replay exposes only reviewed structured and status-only metadata', async () => {
+  const wrapper = await source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(wrapper, /function rebuildStructuredResponse/);
+  assert.match(wrapper, /headers\.set\('Content-Type', contentType\)/);
+  assert.match(wrapper, /headers\.set\('traceId', traceId\)/);
+  assert.doesNotMatch(wrapper, /headers: new Headers\(response\.headers\)/);
+  assert.match(wrapper, /function boundedRetryAfterHeader/);
+  assert.match(wrapper, /\/\^\\d\+\$\//);
+  assert.match(wrapper, /new Date\(parsed\)\.toUTCString\(\) !== value/);
 });
 
 test('reservation machine authority rejects nested evidence that conflicts with the response family and HTTP status', async () => {

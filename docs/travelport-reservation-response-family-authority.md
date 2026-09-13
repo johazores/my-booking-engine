@@ -17,9 +17,22 @@ After JSON parsing and exact payload-trace binding, the reservation transport re
 - every canonical `ErrorDetail.StatusCode` in a structured `ErrorResponse` must exactly equal the trace-bound HTTP response status;
 - redirects, success/error family inversions, nested HTTP-status contradictions, and competing/missing response families fail as `INVALID_RESPONSE` before any Create, Sync, or Retrieve classifier receives the body.
 
-The existing status-only path remains separate. HTTP `401`, `403`, `429`, and provider/gateway statuses above `500` do not expose provider body or media-type authority downstream. Their body and representation metadata are discarded, with only bounded `Retry-After` retained for operational backoff. HTTP `500` stays trace-bound because current Travelport Stays error evidence, including `13034`, can use that status.
+The existing status-only path remains separate. HTTP `401`, `403`, `429`, and provider/gateway statuses above `500` do not expose provider body or representation metadata downstream. Their body and unreviewed headers are discarded. `Retry-After` is retained only when it is bounded and syntactically valid as either decimal delay-seconds or a canonical IMF-fixdate HTTP date; malformed, non-canonical, or oversized values are dropped. HTTP `500` stays trace-bound because current Travelport Stays error evidence, including `13034`, can use that status.
 
 The downstream Create classifier retains its own `ErrorDetail.StatusCode` equality check as defense in depth. The trace-bound shared transport is now the first production boundary that rejects a body claiming a different HTTP status, so recovery and known-locator paths cannot accidentally receive contradictory structured error authority.
+
+## Structured response metadata contract
+
+After structured response trace, media type, family/status, and machine evidence have passed, SF rebuilds the downstream reservation response instead of forwarding the provider response object or cloning its full header set.
+
+Only the reviewed metadata required by the downstream reservation parser crosses this boundary:
+
+- the HTTP status;
+- the validated JSON response body;
+- the validated `Content-Type`; and
+- the exact SF-bound v11 `traceId`.
+
+Provider `statusText`, `Retry-After` on structured bodies, language headers, cache metadata, correlation aliases, cookies, and arbitrary extension headers are not copied. They cannot become accidental commercial or recovery authority in a current or future reservation consumer.
 
 ## Nested result contract
 
@@ -46,7 +59,9 @@ This contract deliberately does not invent live semantics for `13034`, locator-l
 
 Focused behavior tests cover valid `application/json` responses with no charset or UTF-8 charset, missing/contradictory media types, the media-type-independent status-only path, valid 2xx `ReservationResponse`, valid structured 4xx/500 `ErrorResponse`, redirect rejection, success/error family inversions, and mismatched nested `ErrorDetail.StatusCode` values. Response-machine tests separately cover missing structured error evidence and nested error/warning/reservation family conflicts.
 
-A dependency-free source contract pins validation ordering so structured media type is checked before body parsing, trace binding happens before family/status authority, the machine-authority guard receives the actual HTTP status, and the response is rebuilt only after those checks succeed.
+Focused metadata-authority tests verify that structured responses expose only validated `Content-Type` plus `traceId`, drop provider status text and arbitrary headers, preserve valid delay-seconds/IMF-fixdate `Retry-After` on status-only failures, and discard malformed retry metadata.
+
+A dependency-free source contract pins validation ordering so structured media type is checked before body parsing, trace binding happens before family/status authority, the machine-authority guard receives the actual HTTP status, and the sanitized response is rebuilt only after those checks succeed.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 environment. Live Travelport reservation verification still requires provisioned non-production credentials and the separately reviewed PCI-safe FormOfPayment/guarantee source.
 
