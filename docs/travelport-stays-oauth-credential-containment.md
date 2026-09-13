@@ -36,6 +36,10 @@ For a Stays target, the containment boundary:
 
 The same terminal boundary now owns the OAuth destination as well. An OAuth exchange is accepted only as `POST https://<configured-auth-host>/oauth/token` with no query, fragment, alternate port, URL userinfo, or Stays bearer/access-group authority. The body must remain the exact five-field `URLSearchParams` password grant for the active normalized username, password, client ID, and client secret. Mismatched, partial, duplicated, extra, or alternate-grant credential material fails before network I/O.
 
+Because this is the final SF-owned secret boundary, it also projects a fresh terminal `RequestInit` instead of spreading arbitrary caller metadata into the actual Fetch implementation. Both OAuth and Stays terminal calls force `cache: 'no-store'`, `credentials: 'omit'`, `redirect: 'manual'`, an empty referrer with `referrerPolicy: 'no-referrer'`, `keepalive: false`, and empty integrity metadata. Only the effective method, reviewed body, caller abort signal, and contained headers are carried forward. Framework/runtime extensions such as proxy/dispatcher or `next` metadata therefore cannot become a hidden terminal routing, caching, redirect, or background-lifetime authority if the outer transport composition changes.
+
+The terminal boundary also applies a network-visible header allowlist after internal long-lived Stays credential headers are consumed. OAuth may forward only `Accept` and form `Content-Type`; Stays may forward only the reviewed content/cache headers, bearer authorization, access group, SF/provider trace identifiers, and SearchComplete cache-control header. Explicit `Cookie`, `Proxy-Authorization`, forwarding/routing metadata, internal API keys, or other unreviewed headers therefore fail before the actual Fetch call even if the outer trace layer were accidentally bypassed. Runtime-generated HTTP framing remains the Fetch implementation's responsibility.
+
 Foreign hosts and malformed targets fail closed for this Travelport-specific transport even when a future caller omits Stays headers. This prevents the terminal wrapper from becoming a generic network escape hatch around the environment-bound Travelport transport.
 
 ## Production composition
@@ -51,17 +55,17 @@ For normal product traffic the order is:
 5. OAuth credential containment; and
 6. the actual server Fetch implementation.
 
-Because the containment layer is inside the shared trace transport, the trace transport remains the exact operation/method/query/body policy while the terminal layer independently reasserts the secret-bearing destination. Stays credentials are limited to the configured Hotel namespace, and OAuth credentials are limited to the configured authentication host and exact token path. A future composition mistake therefore cannot silently widen credential authority to another Travelport product or arbitrary host.
+Because the containment layer is inside the shared trace transport, the trace transport remains the exact operation/method/query/body policy while the terminal layer independently reasserts the secret-bearing destination and network-safe Fetch metadata. Stays credentials are limited to the configured Hotel namespace, OAuth credentials are limited to the configured authentication host and exact token path, and neither terminal path can automatically follow redirects, opt into ambient credentials, publish a referrer, become keepalive work, or retain caller/runtime Fetch extensions. A future composition mistake therefore cannot silently widen credential authority to another Travelport product, arbitrary host, or alternate transport policy.
 
 The integration remains tenant-scoped through the existing integration loader and credential-version cache key. This change does not alter provider capability advertisement, reservation authorization, payment/PAN handling, or durable supplier-write semantics.
 
 ## Similar-issue sweep
 
-The current Travelport request builders for SearchComplete/pricing, Rules, Availability, Create/reviewed Create, Booking.com Sync, and known-locator Retrieve were reviewed for the same credential-target pattern. They all enter the canonical `loadTravelportStaysIntegration` transport composed above, so the one terminal containment boundary covers the entire implemented Stays surface consistently instead of relying on independent destination checks in each adapter.
+The current Travelport request builders for SearchComplete/pricing, Rules, Availability, Create/reviewed Create, Booking.com Sync, and known-locator Retrieve were reviewed for the same credential-target, explicit-header, and terminal Fetch-policy pattern. They all enter the canonical `loadTravelportStaysIntegration` transport composed above, so the one terminal containment boundary covers the entire implemented Stays surface consistently instead of relying on independent destination, header, or network-metadata checks in each adapter.
 
-The authenticated connection test uses the same containment boundary for its OAuth exchange. OAuth username/password/client credentials therefore receive the same terminal environment/target binding as downstream Stays bearer/access-group authority.
+The authenticated connection test uses the same containment boundary for its OAuth exchange. OAuth username/password/client credentials therefore receive the same terminal environment/target and Fetch-policy binding as downstream Stays bearer/access-group authority.
 
-The shared Travelport API hostname also serves Flights under `/11/air/`. Same-origin non-Hotel paths are now explicitly rejected by the terminal Stays boundary; the outer trace transport continues to enforce the narrower exact Stays endpoint/method/query shapes.
+The shared Travelport API hostname also serves Flights under `/11/air/`. Same-origin non-Hotel paths are explicitly rejected by the terminal Stays boundary; the outer trace transport continues to enforce the narrower exact Stays endpoint/method/query shapes. The outer trace transport also applies the same no-store/manual/no-referrer/no-ambient-credential policy, so the terminal projection is deliberate defense in depth rather than a replacement for operation-level transport validation.
 
 ## Validation
 
@@ -76,10 +80,12 @@ Focused behavior coverage verifies that:
 - same-host `/11/air/` and other non-Hotel targets cannot receive Stays authority;
 - production and pre-production apply the same Hotel namespace rule;
 - OAuth credentials can reach only the exact configured secure `/oauth/token` endpoint with `POST`;
-- OAuth form authority must exactly match the active normalized credential set; and
-- Stays-only bearer/access-group authority is rejected on the OAuth endpoint.
+- OAuth form authority must exactly match the active normalized credential set;
+- Stays-only bearer/access-group authority is rejected on the OAuth endpoint;
+- caller-supplied redirect/cache/credentials/referrer/keepalive/integrity settings and unreviewed Fetch extensions are replaced or dropped before terminal OAuth and Stays network I/O while body and abort authority are preserved; and
+- explicit unreviewed OAuth/Stays headers such as application cookies, proxy credentials, or internal API keys are rejected before terminal network I/O.
 
-A dependency-free source contract also pins the production integration composition, Hotel namespace restriction, exact OAuth terminal target, active-credential body validation, and documentation boundary.
+A dependency-free source contract also pins the production integration composition, Hotel namespace restriction, exact OAuth terminal target, active-credential body validation, terminal Fetch metadata projection, and documentation boundary.
 
 ## Capability boundary
 

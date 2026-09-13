@@ -54,7 +54,7 @@ test('terminal containment independently pins OAuth credentials to the configure
   assert.match(containment, /authenticationHost: 'auth\.travelport\.net'/);
   assert.match(containment, /url\.pathname === '\/oauth\/token'/);
   assert.match(containment, /url\.search === ''/);
-  assert.match(containment, /requestMethod\(requestInput, init\) !== 'POST'/);
+  assert.match(containment, /method !== 'POST'/);
   assert.match(containment, /carriesTravelportStaysAuthority\(headers\)/);
   assert.match(containment, /body instanceof URLSearchParams/);
   assert.match(containment, /entries\.length !== 5/);
@@ -63,15 +63,43 @@ test('terminal containment independently pins OAuth credentials to the configure
   assert.match(containment, /values\.size !== TRAVELPORT_OAUTH_CREDENTIAL_FIELDS\.length \+ 1/);
 });
 
+test('terminal containment projects network-safe Fetch metadata without spreading caller init', () => {
+  assert.match(containment, /function effectiveRequestSignal\(/);
+  assert.match(containment, /TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS[\s\S]*'accept'[\s\S]*'content-type'/);
+  assert.match(containment, /TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS[\s\S]*'authorization'[\s\S]*'xauth_travelport_accessgroup'/);
+  assert.match(containment, /function assertAllowedTerminalHeaders\(/);
+  assert.match(containment, /function terminalTravelportRequestInit\(/);
+  assert.match(containment, /method: string/);
+  assert.match(containment, /body: BodyInit \| null/);
+  assert.match(containment, /signal: AbortSignal \| null \| undefined/);
+  assert.match(containment, /cache: 'no-store'/);
+  assert.match(containment, /credentials: 'omit'/);
+  assert.match(containment, /redirect: 'manual'/);
+  assert.match(containment, /referrer: ''/);
+  assert.match(containment, /referrerPolicy: 'no-referrer'/);
+  assert.match(containment, /keepalive: false/);
+  assert.match(containment, /integrity: ''/);
+  assert.match(containment, /if \(body !== null\) requestInit\.body = body/);
+  assert.match(containment, /if \(signal !== undefined\) requestInit\.signal = signal/);
+  assert.equal((containment.match(/assertAllowedTerminalHeaders\(headers, TRAVELPORT_[A-Z_]+_TERMINAL_ALLOWED_HEADERS\)/g) ?? []).length, 2);
+  assert.equal((containment.match(/terminalTravelportRequestInit\(method, body, signal, headers\)/g) ?? []).length, 2);
+  assert.doesNotMatch(containment, /fetchImpl\(requestInput, \{ \.\.\.init/);
+});
+
 test('documentation keeps OAuth exchange and Stays product authority narrowly separated', () => {
   assert.match(docs, /Authorization: Bearer <token>/);
   assert.match(docs, /XAUTH_TRAVELPORT_ACCESSGROUP/);
   assert.match(docs, /same environment API hosts under `\/11\/air\/`/);
   assert.match(docs, /restricts Stays authority to `\/11\/hotel\/` or `\/12\/hotel\/`/);
   assert.match(docs, /exact five-field `URLSearchParams` password grant/);
+  assert.match(docs, /fresh terminal `RequestInit` instead of spreading arbitrary caller metadata/);
+  assert.match(docs, /network-visible header allowlist after internal long-lived Stays credential headers are consumed/);
   assert.match(docs, /same-host `\/11\/air\/` and other non-Hotel targets cannot receive Stays authority/);
   assert.match(docs, /does not enable Travelport `reservation`/);
   assert.match(tracingDocs, /not provider request headers/);
   assert.match(tracingDocs, /removes all four before terminal Stays network I\/O/);
+  assert.match(tracingDocs, /terminal credential-containment layer now repeats that network-safe projection/);
+  assert.match(tracingDocs, /independently reapplies the network-visible OAuth\/Stays header allowlists/);
+  assert.doesNotMatch(tracingDocs, /shared environment-bound transport is the final redirect-suppression authority/);
   assert.doesNotMatch(tracingDocs, /Stays may carry only the documented common Travelport credential\/content headers used by SF/);
 });

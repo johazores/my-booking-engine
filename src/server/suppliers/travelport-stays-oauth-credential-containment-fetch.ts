@@ -39,6 +39,22 @@ const TRAVELPORT_STAYS_PATH_PREFIXES = Object.freeze([
   '/11/hotel/',
   '/12/hotel/',
 ] as const);
+const TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS = Object.freeze(new Set([
+  'accept',
+  'content-type',
+]));
+const TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS = Object.freeze(new Set([
+  'accept',
+  'accept-encoding',
+  'authorization',
+  'cache-control',
+  'content-type',
+  'e2etrackingid',
+  'traceid',
+  'tvp-cache-control',
+  'tvp-trace-id',
+  'xauth_travelport_accessgroup',
+]));
 
 type LongLivedOAuthCredentialHeader = (typeof LONG_LIVED_OAUTH_CREDENTIAL_HEADERS)[number];
 type OAuthCredentialField = (typeof TRAVELPORT_OAUTH_CREDENTIAL_FIELDS)[number];
@@ -66,6 +82,34 @@ function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): Bod
   if (init?.body != null) return init.body;
   if (typeof Request !== 'undefined' && input instanceof Request) return input.body;
   return null;
+}
+
+function effectiveRequestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null | undefined {
+  if (init?.signal !== undefined) return init.signal;
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.signal;
+  return undefined;
+}
+
+function terminalTravelportRequestInit(
+  method: string,
+  body: BodyInit | null,
+  signal: AbortSignal | null | undefined,
+  headers: Headers,
+): RequestInit {
+  const requestInit: RequestInit = {
+    method,
+    cache: 'no-store',
+    credentials: 'omit',
+    redirect: 'manual',
+    referrer: '',
+    referrerPolicy: 'no-referrer',
+    keepalive: false,
+    integrity: '',
+    headers,
+  };
+  if (body !== null) requestInit.body = body;
+  if (signal !== undefined) requestInit.signal = signal;
+  return requestInit;
 }
 
 function expectedCredentialHeaderValues(
@@ -114,6 +158,12 @@ function containedStaysHeaders(
 
 function carriesTravelportStaysAuthority(headers: Headers) {
   return TRAVELPORT_STAYS_AUTHORITY_HEADERS.some((name) => headers.has(name));
+}
+
+function assertAllowedTerminalHeaders(headers: Headers, allowed: ReadonlySet<string>) {
+  for (const name of headers.keys()) {
+    if (!allowed.has(name.toLowerCase())) invalidCredentialContainment();
+  }
 }
 
 function isSecureTravelportOrigin(url: URL, host: string) {
@@ -193,25 +243,28 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
       invalidCredentialContainment();
     }
 
+    const method = requestMethod(requestInput, init);
+    const body = effectiveRequestBody(requestInput, init);
+    const signal = effectiveRequestSignal(requestInput, init);
+
     if (url.hostname === targets.authenticationHost) {
       if (
         !isSecureTravelportOAuthTarget(url, targets.authenticationHost)
-        || requestMethod(requestInput, init) !== 'POST'
+        || method !== 'POST'
         || carriesTravelportStaysAuthority(headers)
       ) {
         invalidCredentialContainment();
       }
-      assertTravelportOAuthCredentialBody(
-        effectiveRequestBody(requestInput, init),
-        input.credentials,
-      );
-      return fetchImpl(requestInput, { ...init, headers });
+      assertAllowedTerminalHeaders(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS);
+      assertTravelportOAuthCredentialBody(body, input.credentials);
+      return fetchImpl(requestInput, terminalTravelportRequestInit(method, body, signal, headers));
     }
 
     if (url.hostname !== targets.staysHost) invalidCredentialContainment();
     if (!isSecureTravelportStaysTarget(url, targets.staysHost)) invalidCredentialContainment();
 
     containedStaysHeaders(headers, input.credentials);
-    return fetchImpl(requestInput, { ...init, headers });
+    assertAllowedTerminalHeaders(headers, TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS);
+    return fetchImpl(requestInput, terminalTravelportRequestInit(method, body, signal, headers));
   }) as typeof fetch;
 }

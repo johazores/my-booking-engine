@@ -385,3 +385,108 @@ test('requires exact active OAuth credential authority at the terminal boundary'
   );
   assert.equal(calls, 0);
 });
+
+test('terminal containment reasserts network-safe fetch metadata for OAuth and Stays', async () => {
+  const calls: RequestInit[] = [];
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    assert.ok(init);
+    calls.push(init);
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl,
+  });
+  const controller = new AbortController();
+  const unsafeCommon = {
+    cache: 'force-cache',
+    credentials: 'include',
+    redirect: 'follow',
+    referrer: 'https://internal.example/private',
+    referrerPolicy: 'unsafe-url',
+    keepalive: true,
+    integrity: 'sha256-not-provider-authority',
+    dispatcher: { route: 'unreviewed-proxy' },
+    next: { revalidate: 60 },
+  } as RequestInit & { dispatcher: unknown; next: unknown };
+
+  await containedFetch('https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+    ...unsafeCommon,
+    method: 'post',
+    signal: controller.signal,
+    headers: requestHeaders(),
+    body: '{}',
+  });
+  await containedFetch('https://auth.travelport.net/oauth/token', {
+    ...unsafeCommon,
+    method: 'post',
+    signal: controller.signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: oauthBody(),
+  });
+
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.method, 'POST');
+    assert.equal(call.cache, 'no-store');
+    assert.equal(call.credentials, 'omit');
+    assert.equal(call.redirect, 'manual');
+    assert.equal(call.referrer, '');
+    assert.equal(call.referrerPolicy, 'no-referrer');
+    assert.equal(call.keepalive, false);
+    assert.equal(call.integrity, '');
+    assert.equal(call.signal, controller.signal);
+    assert.equal('dispatcher' in call, false);
+    assert.equal('next' in call, false);
+  }
+  assert.equal(calls[0]?.body, '{}');
+  assert.ok(calls[1]?.body instanceof URLSearchParams);
+  const staysHeaders = new Headers(calls[0]?.headers);
+  assert.equal(staysHeaders.get('username'), null);
+  assert.equal(staysHeaders.get('password'), null);
+  assert.equal(staysHeaders.get('client_id'), null);
+  assert.equal(staysHeaders.get('client_secret'), null);
+});
+
+test('terminal containment rejects unreviewed explicit headers before OAuth or Stays network I/O', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+
+  await assert.rejects(
+    containedFetch('https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+      method: 'POST',
+      headers: { ...cleanRequestHeaders(), Cookie: 'sf_session=must-not-leak' },
+      body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch('https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', {
+      method: 'POST',
+      headers: { ...cleanRequestHeaders(), 'X-Internal-Api-Key': 'must-not-leak' },
+      body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch('https://auth.travelport.net/oauth/token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Proxy-Authorization': 'Basic must-not-leak',
+      },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  assert.equal(calls, 0);
+});
