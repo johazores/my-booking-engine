@@ -72,6 +72,7 @@ function exactMachineToken(
   if (
     typeof value !== 'string'
     || !value
+    || !value.isWellFormed()
     || value.trim() !== value
     || value.length > max
     || ASCII_CONTROL_PATTERN.test(value)
@@ -86,6 +87,7 @@ function exactConfigurationValue(value: unknown, label: string, max: number): st
   if (
     typeof value !== 'string'
     || !value
+    || !value.isWellFormed()
     || value.trim() !== value
     || value.length > max
     || ASCII_CONTROL_PATTERN.test(value)
@@ -293,7 +295,8 @@ async function validateOAuthAccessTokenResponse(response: Response): Promise<voi
 }
 
 function exactResponseTokenIfPresent(value: unknown, max: number): void {
-  if (typeof value === 'string') exactMachineToken(value, max, 'response');
+  if (value === undefined || value === null) return;
+  exactMachineToken(value, max, 'response');
 }
 
 function validatePagination(value: unknown): void {
