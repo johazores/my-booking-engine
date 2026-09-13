@@ -20,6 +20,7 @@ const CANONICAL_JSON_UTF8_CONTENT_TYPE = 'application/json; charset=utf-8';
 
 type ReservationRequest = Readonly<{
   expectedTraceId: string;
+  headers: Headers;
 }>;
 
 function requestUrl(input: RequestInfo | URL) {
@@ -104,7 +105,8 @@ function reservationRequest(input: RequestInfo | URL, init?: RequestInit): Reser
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request target is invalid.');
   }
 
-  const e2eTrackingId = requestHeaders(input, init).get('E2ETrackingID');
+  const headers = requestHeaders(input, init);
+  const e2eTrackingId = headers.get('E2ETrackingID');
   if (!e2eTrackingId?.startsWith(SF_E2E_PREFIX)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request correlation ID is required.');
   }
@@ -112,7 +114,14 @@ function reservationRequest(input: RequestInfo | URL, init?: RequestInit): Reser
   if (!SF_TRACE_ID_PATTERN.test(expectedTraceId)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request correlation ID is invalid.');
   }
-  return Object.freeze({ expectedTraceId });
+
+  // Reservation operations are v11 Stays calls. Materialize the exact request
+  // trace pair here as well as in the shared transport so this authority layer
+  // cannot delegate a reservation request with a missing/stale v11 TraceId or
+  // a contradictory v12-only TVP-Trace-Id header.
+  headers.set('TraceId', expectedTraceId);
+  headers.delete('TVP-Trace-Id');
+  return Object.freeze({ expectedTraceId, headers });
 }
 
 function invalidResponse(): never {
@@ -177,12 +186,13 @@ function serializeStructuredResponseBody(value: unknown) {
 
 /**
  * Production reservation-only correlation boundary layered over the shared
- * Travelport transport wrapper. The shared wrapper first fixes the target,
- * outbound TraceId/E2ETrackingID pair, credentials, and response size. This
- * wrapper independently pins the implemented reservation route/method/query
- * shapes, then requires Travelport to echo that exact caller trace in both the
- * v11 response header and payload and validates reservation machine authority
- * before provider evidence reaches an executor or recovery parser.
+ * Travelport transport wrapper. This wrapper independently pins the implemented
+ * reservation route/method/query shapes and materializes the exact v11
+ * TraceId/E2ETrackingID pair before delegation. The shared transport repeats
+ * the target/header/body authority checks and response-size bound. The response
+ * boundary then requires Travelport to echo the caller trace in both the v11
+ * response header and payload and validates reservation machine authority before
+ * provider evidence reaches an executor or recovery parser.
  */
 export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: typeof fetch): typeof fetch {
   if (typeof fetchImpl !== 'function') {
@@ -191,7 +201,10 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
 
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const reservation = reservationRequest(input, init);
-    const response = await fetchImpl(input, init);
+    const response = await fetchImpl(
+      input,
+      reservation ? { ...init, headers: reservation.headers } : init,
+    );
     if (!reservation) return response;
 
     // Authentication and rate-limit statuses, plus provider/gateway statuses
