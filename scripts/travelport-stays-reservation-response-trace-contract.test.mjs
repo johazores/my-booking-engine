@@ -48,34 +48,48 @@ test('all implemented reservation executors and recovery provider receive the sa
 
 test('Travelport HTTP 500 reservation errors cannot bypass response trace authority', () => {
   const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  const statusOnlyBoundary = source('src/server/suppliers/travelport-stays-reservation-status-only-response-fetch.ts');
   assert.match(
-    reservationTraceFetch,
-    /response\.status > 500/,
+    statusOnlyBoundary,
+    /status > 500/,
     'only provider/gateway statuses above HTTP 500 may bypass payload trace authority',
   );
   assert.doesNotMatch(
-    reservationTraceFetch,
-    /response\.status >= 500/,
+    statusOnlyBoundary,
+    /status >= 500/,
     'HTTP 500 carries documented Stays business error evidence and must remain trace-bound',
+  );
+  assert.match(
+    reservationTraceFetch,
+    /isTravelportStaysReservationStatusOnlyResponse\(response\.status\)/,
+    'the outer trace boundary must use the shared exact status-family predicate',
   );
 });
 
-test('status-only reservation failures expose only bounded retry metadata', () => {
+test('status-only reservation failures use one shared minimization authority at both transport layers', () => {
   const reservationTraceFetch = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
   const statusOnlyBoundary = source('src/server/suppliers/travelport-stays-reservation-status-only-response-fetch.ts');
-  assert.match(reservationTraceFetch, /return rebuildStatusOnlyResponse\(response\)/);
-  assert.match(reservationTraceFetch, /const headers = new Headers\(\)/);
-  assert.match(reservationTraceFetch, /boundedRetryAfterHeader\(response\.headers\.get\('Retry-After'\)\)/);
-  assert.match(reservationTraceFetch, /return new Response\(null,/);
-  assert.match(statusOnlyBoundary, /boundedTravelportStaysReservationRetryAfter\(response\.headers\.get\('Retry-After'\)\)/);
-  assert.doesNotMatch(
+  assert.match(
     reservationTraceFetch,
-    /function rebuildStatusOnlyResponse[\s\S]*?new Headers\(response\.headers\)/,
+    /rebuildTravelportStaysReservationStatusOnlyResponse\(response\)/,
+  );
+  assert.match(
+    statusOnlyBoundary,
+    /boundedTravelportStaysReservationRetryAfter\(response\.headers\.get\('Retry-After'\)\)/,
+  );
+  assert.match(statusOnlyBoundary, /cancelResponseBody\(response\.body\)/);
+  assert.match(statusOnlyBoundary, /const headers = new Headers\(\)/);
+  assert.match(statusOnlyBoundary, /return new Response\(null,/);
+  assert.doesNotMatch(reservationTraceFetch, /function boundedRetryAfterHeader/);
+  assert.doesNotMatch(reservationTraceFetch, /function rebuildStatusOnlyResponse/);
+  assert.doesNotMatch(
+    statusOnlyBoundary,
+    /function rebuildTravelportStaysReservationStatusOnlyResponse[\s\S]*?new Headers\(response\.headers\)/,
     'status-only responses must not clone arbitrary provider headers',
   );
   assert.doesNotMatch(
-    reservationTraceFetch,
-    /function rebuildStatusOnlyResponse[\s\S]*?statusText: response\.statusText/,
+    statusOnlyBoundary,
+    /function rebuildTravelportStaysReservationStatusOnlyResponse[\s\S]*?statusText: response\.statusText/,
     'provider status text is not status-only authority',
   );
 });
@@ -93,4 +107,12 @@ test('reservation response trace scope uses a path-segment boundary instead of a
     /pathname === RESERVATION_PATH_PREFIX \|\| pathname\.startsWith\(`\$\{RESERVATION_PATH_PREFIX\}\/`\)/,
   );
   assert.doesNotMatch(reservationTraceFetch, /if \(!url\.pathname\.startsWith\(RESERVATION_PATH_PREFIX\)\)/);
+});
+
+test('status-only response documentation preserves the shared minimizer and activation boundary', () => {
+  const doc = source('docs/travelport-reservation-status-only-response-authority.md');
+  assert.match(doc, /same provider-specific status predicate and rebuilding function/);
+  assert.match(doc, /cancels an unread provider body best-effort/);
+  assert.match(doc, /HTTP `500` is not status-only/);
+  assert.match(doc, /does not advertise or enable Travelport `reservation`/);
 });

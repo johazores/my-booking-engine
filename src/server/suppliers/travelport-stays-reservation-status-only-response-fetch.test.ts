@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   boundedTravelportStaysReservationRetryAfter,
   createTravelportStaysReservationStatusOnlyResponseFetch,
+  isTravelportStaysReservationStatusOnlyResponse,
+  rebuildTravelportStaysReservationStatusOnlyResponse,
 } from './travelport-stays-reservation-status-only-response-fetch.ts';
 
 const TRACE_ID = '9f77a0b5-2614-4f6d-9053-f3a6175343f7';
@@ -60,6 +62,22 @@ test('reservation status-only responses are bodyless and metadata-minimized befo
     assert.equal(await response.text(), '');
     assert.equal(fixture.cancelled(), true);
   }
+});
+
+test('shared status-only response authority stays exact and cancels bodies for defense-in-depth callers', async () => {
+  for (const status of [401, 403, 429, 501, 503, 599]) {
+    assert.equal(isTravelportStaysReservationStatusOnlyResponse(status), true);
+  }
+  for (const status of [200, 302, 400, 404, 500]) {
+    assert.equal(isTravelportStaysReservationStatusOnlyResponse(status), false);
+  }
+
+  const fixture = providerResponse(503);
+  const response = rebuildTravelportStaysReservationStatusOnlyResponse(fixture.response);
+  await Promise.resolve();
+  assert.equal(response.status, 503);
+  assert.equal(await response.text(), '');
+  assert.equal(fixture.cancelled(), true);
 });
 
 test('HTTP 500 stays structured and is not consumed by the status-only boundary', async () => {

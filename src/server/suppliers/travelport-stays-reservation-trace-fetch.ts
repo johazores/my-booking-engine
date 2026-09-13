@@ -1,5 +1,9 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { assertTravelportStaysReservationResponseMachineAuthority } from './travelport-stays-reservation-response-authority.ts';
+import {
+  isTravelportStaysReservationStatusOnlyResponse,
+  rebuildTravelportStaysReservationStatusOnlyResponse,
+} from './travelport-stays-reservation-status-only-response-fetch.ts';
 import { inspectTravelportStaysResponseTrace } from './travelport-stays-response-trace.ts';
 
 const RESERVATION_PATH_PREFIX = '/11/hotel/book/reservations';
@@ -7,7 +11,6 @@ const RESERVATION_BUILD_PATH = `${RESERVATION_PATH_PREFIX}/build`;
 const RESERVATION_COLLECTION_PATH = `${RESERVATION_PATH_PREFIX}/`;
 const SF_E2E_PREFIX = 'sf-';
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_STATUS_ONLY_HEADER_VALUE_LENGTH = 256;
 const MAX_STRUCTURED_RESPONSE_CONTENT_TYPE_LENGTH = 128;
 
 type ReservationRequest = Readonly<{
@@ -116,21 +119,6 @@ function invalidResponse(): never {
   throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport reservation response correlation is invalid.');
 }
 
-function boundedRetryAfterHeader(value: string | null) {
-  if (
-    value === null
-    || value.length < 1
-    || value.length > MAX_STATUS_ONLY_HEADER_VALUE_LENGTH
-    || value.trim() !== value
-    || /[\u0000-\u001f\u007f]/.test(value)
-  ) return null;
-
-  if (/^\d+$/.test(value)) return value;
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || new Date(parsed).toUTCString() !== value) return null;
-  return value;
-}
-
 function structuredJsonContentType(headers: Headers) {
   const value = headers.get('Content-Type');
   if (
@@ -161,16 +149,6 @@ function rebuildStructuredResponse(
   headers.set('Content-Type', contentType);
   headers.set('traceId', traceId);
   return new Response(body, {
-    status: response.status,
-    headers,
-  });
-}
-
-function rebuildStatusOnlyResponse(response: Response) {
-  const headers = new Headers();
-  const retryAfter = boundedRetryAfterHeader(response.headers.get('Retry-After'));
-  if (retryAfter !== null) headers.set('Retry-After', retryAfter);
-  return new Response(null, {
     status: response.status,
     headers,
   });
@@ -213,18 +191,13 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     // Authentication and rate-limit statuses, plus provider/gateway statuses
     // above 500, are status authority only. Their body, provider free-text
     // status, and uncorrelated metadata must not cross this authority boundary.
-    // Preserve only syntactically valid bounded Retry-After metadata for
-    // operational backoff.
+    // The shared status-only minimizer is reused here so both transport layers
+    // keep identical Retry-After and body-cancellation behavior.
     // HTTP 500 is intentionally trace-bound because Travelport's current Stays
     // error catalog uses it for structured reservation outcomes, including
     // SourceCode 13034 and validation decisions that affect commercial state.
-    if (
-      response.status === 401
-      || response.status === 403
-      || response.status === 429
-      || response.status > 500
-    ) {
-      return rebuildStatusOnlyResponse(response);
+    if (isTravelportStaysReservationStatusOnlyResponse(response.status)) {
+      return rebuildTravelportStaysReservationStatusOnlyResponse(response);
     }
 
     // Reservation is a v11 Stays API. A v12-only response trace header is

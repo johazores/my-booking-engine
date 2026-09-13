@@ -19,7 +19,7 @@ function isReservationNamespace(input: RequestInfo | URL) {
   }
 }
 
-function isStatusOnlyReservationResponse(status: number) {
+export function isTravelportStaysReservationStatusOnlyResponse(status: number) {
   return status === 401 || status === 403 || status === 429 || status > 500;
 }
 
@@ -47,7 +47,7 @@ function cancelResponseBody(body: ReadableStream<Uint8Array> | null) {
   }
 }
 
-function rebuildStatusOnlyResponse(response: Response) {
+export function rebuildTravelportStaysReservationStatusOnlyResponse(response: Response) {
   const headers = new Headers();
   const retryAfter = boundedTravelportStaysReservationRetryAfter(response.headers.get('Retry-After'));
   if (retryAfter !== null) headers.set('Retry-After', retryAfter);
@@ -62,8 +62,8 @@ function rebuildStatusOnlyResponse(response: Response) {
  * Runs inside the shared Travelport transport so reservation authentication,
  * rate-limit, and provider/gateway status-only responses are stripped before
  * generic response replay buffering inspects or consumes an irrelevant body.
- * The outer reservation trace boundary repeats the same minimization as
- * defense in depth before provider evidence reaches an executor.
+ * The outer reservation trace boundary reuses the same status predicate and
+ * rebuilding function as defense in depth before evidence reaches an executor.
  */
 export function createTravelportStaysReservationStatusOnlyResponseFetch(fetchImpl: typeof fetch): typeof fetch {
   if (typeof fetchImpl !== 'function') {
@@ -72,9 +72,9 @@ export function createTravelportStaysReservationStatusOnlyResponseFetch(fetchImp
 
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await fetchImpl(input, init);
-    if (!isReservationNamespace(input) || !isStatusOnlyReservationResponse(response.status)) {
+    if (!isReservationNamespace(input) || !isTravelportStaysReservationStatusOnlyResponse(response.status)) {
       return response;
     }
-    return rebuildStatusOnlyResponse(response);
+    return rebuildTravelportStaysReservationStatusOnlyResponse(response);
   }) as typeof fetch;
 }
