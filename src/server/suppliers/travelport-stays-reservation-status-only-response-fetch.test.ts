@@ -114,7 +114,20 @@ test('Retry-After authority accepts only bounded canonical delay or IMF-fixdate 
   for (const value of ['0', '7', '4294967295', 'Sun, 13 Sep 2026 03:45:00 GMT']) {
     assert.equal(boundedTravelportStaysReservationRetryAfter(value), value);
   }
-  for (const value of [null, '', ' 7', '+7', '7.5', 'Sun, 13-Sep-26 03:45:00 GMT', 'bad-date', 'x'.repeat(257)]) {
+  for (const value of [
+    null,
+    '',
+    ' 7',
+    '+7',
+    '00',
+    '0007',
+    '7.5',
+    '4294967296',
+    '9999999999',
+    'Sun, 13-Sep-26 03:45:00 GMT',
+    'bad-date',
+    'x'.repeat(257),
+  ]) {
     assert.equal(boundedTravelportStaysReservationRetryAfter(value), null);
   }
 });

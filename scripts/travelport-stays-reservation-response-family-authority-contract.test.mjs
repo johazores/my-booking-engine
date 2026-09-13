@@ -47,7 +47,10 @@ test('reservation replay exposes only SF-owned structured and status-only metada
   assert.match(wrapper, /headers\.set\('traceId', traceId\)/);
   assert.doesNotMatch(wrapper, /headers: new Headers\(response\.headers\)/);
   assert.match(statusOnly, /function boundedTravelportStaysReservationRetryAfter/);
-  assert.match(statusOnly, /\/\^\\d\+\$\//);
+  assert.match(statusOnly, /MAX_RETRY_AFTER_DELAY_SECONDS = 4_294_967_295/);
+  assert.match(statusOnly, /CANONICAL_DELAY_SECONDS_PATTERN = \/\^\(\?:0\|\[1-9\]\\d\*\)\$\//);
+  assert.match(statusOnly, /Number\.isSafeInteger\(delaySeconds\)/);
+  assert.match(statusOnly, /delaySeconds > MAX_RETRY_AFTER_DELAY_SECONDS/);
   assert.match(statusOnly, /new Date\(parsed\)\.toUTCString\(\) !== value/);
 
   const replayDoc = await source('docs/travelport-reservation-structured-replay-authority.md');

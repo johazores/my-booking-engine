@@ -2,6 +2,8 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 
 const RESERVATION_PATH_PREFIX = '/11/hotel/book/reservations';
 const MAX_RETRY_AFTER_LENGTH = 256;
+const MAX_RETRY_AFTER_DELAY_SECONDS = 4_294_967_295;
+const CANONICAL_DELAY_SECONDS_PATTERN = /^(?:0|[1-9]\d*)$/;
 const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 
 function requestUrl(input: RequestInfo | URL) {
@@ -32,7 +34,13 @@ export function boundedTravelportStaysReservationRetryAfter(value: string | null
     || ASCII_CONTROL_PATTERN.test(value)
   ) return null;
 
-  if (/^\d+$/.test(value)) return value;
+  if (CANONICAL_DELAY_SECONDS_PATTERN.test(value)) {
+    if (value.length > 10) return null;
+    const delaySeconds = Number(value);
+    if (!Number.isSafeInteger(delaySeconds) || delaySeconds > MAX_RETRY_AFTER_DELAY_SECONDS) return null;
+    return value;
+  }
+
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed) || new Date(parsed).toUTCString() !== value) return null;
   return value;

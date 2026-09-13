@@ -66,11 +66,11 @@ test('structured reservation replay exposes only validated trace and representat
   });
 });
 
-test('status-only reservation failures preserve only syntactically valid Retry-After authority', async () => {
+test('status-only reservation failures preserve only bounded canonical Retry-After authority', async () => {
   for (const retryAfter of [
     '0',
     '7',
-    '0007',
+    '4294967295',
     'Sun, 06 Nov 1994 08:49:37 GMT',
   ]) {
     const response = await statusOnlyResponse(retryAfter);
@@ -79,8 +79,11 @@ test('status-only reservation failures preserve only syntactically valid Retry-A
 
   for (const retryAfter of [
     '+7',
+    '0007',
     '7.5',
     '1e3',
+    '4294967296',
+    '9999999999',
     'tomorrow',
     'sun, 06 Nov 1994 08:49:37 GMT',
     'Sun, 32 Nov 1994 08:49:37 GMT',

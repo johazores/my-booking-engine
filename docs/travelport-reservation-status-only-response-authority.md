@@ -18,6 +18,8 @@ For a status-only response the shared minimizer:
 - cancels an unread provider body best-effort; and
 - returns a fresh bodyless response.
 
+Canonical delay-seconds are now limited to the exact decimal spelling `0` or a non-zero value without leading zeroes, with a maximum value of `4,294,967,295` seconds. This gives the provider operational backoff authority without forwarding arbitrary-width integers that downstream retry code could parse inconsistently or overflow. The limit is an SF metadata-safety bound; it does not grant blind reservation-write retry authority. IMF-fixdate values continue to be accepted only when JavaScript parses them and canonical UTC serialization reproduces the exact original header value.
+
 The inner raw-response wrapper runs before generic Stays `Content-Length` inspection and replay buffering, so an irrelevant malformed or oversized error entity cannot consume the 32 MiB structured-response budget or replace already-established auth/rate/provider-unavailable status authority with a body-framing error. The outer trace wrapper repeats the same shared minimizer as defense in depth when used with any compatible fetch implementation.
 
 ## Structured HTTP 500 remains separate
@@ -28,7 +30,7 @@ No `500` response gains retry or recovery authority merely because it contains s
 
 ## Validation
 
-Focused executable coverage verifies the exact status-only family, early body cancellation, metadata minimization, `Retry-After` validation, HTTP `500` exclusion, non-reservation pass-through, and reservation-prefix lookalike behavior. A dependency-free source contract additionally pins production wrapper ordering and requires the outer trace boundary to reuse the same shared status predicate and rebuilding function rather than maintaining a second copy.
+Focused executable coverage verifies the exact status-only family, early body cancellation, metadata minimization, canonical bounded `Retry-After` delay-seconds and IMF-fixdate validation, HTTP `500` exclusion, non-reservation pass-through, and reservation-prefix lookalike behavior. The outer reservation trace regression also verifies that the same bounded `Retry-After` policy survives defense-in-depth rebuilding. A dependency-free source contract pins the decimal bound and canonical grammar, production wrapper ordering, and reuse of the same shared status predicate and rebuilding function rather than a second copy.
 
 Full repository validation still requires the repository-supported Node 24 / TypeScript 6 environment. Database-backed supplier scenarios require an explicitly disposable PostgreSQL target. Live Travelport non-production verification remains required before reservation activation.
 
