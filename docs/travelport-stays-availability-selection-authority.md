@@ -45,10 +45,13 @@ The reservation-authority response guard validates each successful Availability 
 
 The selection wrapper previously stored only the selected aggregator/property/stay/occupancy/rate authority against the page-one pagination token. A continuation could therefore report a different but individually valid `totalCatalogOffering` or `numberOfPages`; the compatibility core would eventually reject that contradiction, but the wrapper could already have consumed or retained its token state using the continuation's contradictory page count. A caller could also ask for page 4 or 5 even when page one had established a smaller result set, causing unnecessary provider I/O before the downstream parser rejected it.
 
-The same token state now also binds page-one pagination geometry:
+The same token state now also binds page-one pagination geometry and the exact Travelport API origin that issued the token:
 
+- each active token is keyed by the exact canonical Travelport API origin plus the opaque token, so pre-production and production continuation authority cannot cross;
+- the same opaque token value may exist independently in pre-production and production without rebinding either environment's authority;
 - `numberOfPages` is stored with the exact selection authority for every active multi-page token;
 - `totalCatalogOffering` is stored when the production response-authority layer supplies it, which it requires for every successful Availability response;
+- a continuation presented to the other Travelport environment has no matching active authority and fails before provider I/O;
 - a continuation page above the page-one result-set page count fails before provider I/O;
 - every successful continuation must keep the exact page-one `numberOfPages`, and production responses must keep the exact page-one `totalCatalogOffering`;
 - contradictory continuation metadata fails before the active token can be consumed, so a later valid continuation can still be evaluated;
@@ -60,7 +63,7 @@ The token still expires after the provider's documented 30-minute cache window a
 
 ## Similar-issue sweep
 
-The surrounding fresh SearchComplete → Rules → Availability path was reviewed for the same pagination-state problem. The pre-write SearchComplete authority is intentionally pinned to one exact property on page 1 with `totalPages=1` and no continuation token, so there is no equivalent active continuation state to harden there. Repository search found no second reservation-authority pagination-state map; the Availability selection flow is the only current stateful continuation boundary in this path.
+The surrounding fresh SearchComplete → Rules → Availability path was reviewed for the same pagination-state problem and provider-environment drift. The pre-write SearchComplete authority is intentionally pinned to one exact property on page 1 with `totalPages=1` and no continuation token, so there is no equivalent active continuation state to harden there. The reservation authority core also derives SearchComplete and Availability endpoints from one validated credential environment, while the shared Travelport transport independently restricts credential-bearing I/O to that environment. Repository search found no second reservation-authority pagination-state map; the Availability selection flow is the only current stateful continuation boundary in this path.
 
 Rules continues to bind its response source and exact selected product to the outbound request. Create, reviewed Create, Sync, and known-locator recovery keep their separate pre-write, receipt, identity, and ambiguity contracts. No reservation-write behavior moved into this read-only module.
 
@@ -68,6 +71,8 @@ Rules continues to bind its response source and exact selected product to the ou
 
 Focused behavior coverage verifies:
 
+- a pre-production pagination token cannot be used against production, or vice versa, and the rejected cross-environment attempt performs no delegated provider I/O;
+- identical opaque token values can remain independently active on the two fixed Travelport API origins;
 - continuation pages above the initial result-set page count fail before delegated provider I/O;
 - `totalCatalogOffering` and `numberOfPages` remain exact across production continuations;
 - rejected contradictory continuation metadata does not consume active token authority;
@@ -75,7 +80,7 @@ Focused behavior coverage verifies:
 - successful final-page retrieval consumes the token; and
 - an active token cannot be rebound while its authority is still live.
 
-The existing selection-authority coverage continues to verify canonical TVPT/BKNG selection, malformed-request rejection, supplier/rate/occupancy/property/stay contradiction handling, optional-evidence behavior, token expiry, final-page consumption, and unrelated/non-success passthrough. A dependency-free source contract pins stored pagination geometry, fail-before-I/O range checking, fail-before-mutation response comparison, active-token collision rejection, bounded TTL/capacity, and this documentation boundary.
+The existing selection-authority coverage continues to verify canonical TVPT/BKNG selection, malformed-request rejection, supplier/rate/occupancy/property/stay contradiction handling, optional-evidence behavior, token expiry, final-page consumption, and unrelated/non-success passthrough. A dependency-free source contract pins origin-scoped token keys, stored pagination geometry, fail-before-I/O range checking, fail-before-mutation response comparison, same-origin active-token collision rejection, bounded TTL/capacity, and this documentation boundary.
 
 Full repository validation still requires the repository-supported Node 24.20+ / TypeScript 6 dependency environment. Live provider verification still requires provisioned Travelport non-production credentials.
 

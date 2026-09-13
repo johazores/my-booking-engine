@@ -404,6 +404,10 @@ function availabilityResponsePaginationMetadata(payload: unknown): AvailabilityP
   });
 }
 
+function paginationAuthorityKey(url: URL, token: string): string {
+  return `${url.origin}\u001f${token}`;
+}
+
 function paginationResponseAuthority(
   payload: unknown,
 ): Readonly<{ token: string; totalCatalogOffering: number | null; numberOfPages: number }> | null {
@@ -424,8 +428,8 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
   const paginationAuthorities = new Map<string, PaginationSelectionAuthority>();
 
   function prunePaginationAuthorities(nowMs: number): void {
-    for (const [token, stored] of paginationAuthorities) {
-      if (stored.expiresAtMs <= nowMs) paginationAuthorities.delete(token);
+    for (const [key, stored] of paginationAuthorities) {
+      if (stored.expiresAtMs <= nowMs) paginationAuthorities.delete(key);
     }
   }
 
@@ -440,7 +444,8 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
     if (continuation) {
       const nowMs = Date.now();
       prunePaginationAuthorities(nowMs);
-      const stored = paginationAuthorities.get(continuation.token);
+      const paginationKey = paginationAuthorityKey(url!, continuation.token);
+      const stored = paginationAuthorities.get(paginationKey);
       if (!stored) invalidRequest('Travelport Availability pagination token is not bound to an active selection authority.');
       if (continuation.pageNumber > stored.numberOfPages) {
         invalidRequest('Travelport Availability pagination page exceeds the active result set.');
@@ -461,7 +466,7 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
       ) {
         invalidResponse('Travelport Availability pagination metadata changed across the active result set.');
       }
-      if (continuation.pageNumber >= stored.numberOfPages) paginationAuthorities.delete(continuation.token);
+      if (continuation.pageNumber >= stored.numberOfPages) paginationAuthorities.delete(paginationKey);
       return response;
     }
 
@@ -491,13 +496,14 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
     if (pagination) {
       const nowMs = Date.now();
       prunePaginationAuthorities(nowMs);
-      if (paginationAuthorities.has(pagination.token)) {
+      const paginationKey = paginationAuthorityKey(url, pagination.token);
+      if (paginationAuthorities.has(paginationKey)) {
         invalidResponse('Travelport Availability pagination token was reused for an active result set.');
       }
       if (paginationAuthorities.size >= MAX_ACTIVE_PAGINATION_AUTHORITIES) {
         invalidResponse('Travelport Availability pagination authority capacity was exceeded.');
       }
-      paginationAuthorities.set(pagination.token, Object.freeze({
+      paginationAuthorities.set(paginationKey, Object.freeze({
         authority,
         totalCatalogOffering: pagination.totalCatalogOffering,
         numberOfPages: pagination.numberOfPages,

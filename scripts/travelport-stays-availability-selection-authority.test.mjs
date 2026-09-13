@@ -38,6 +38,19 @@ test('Availability request and response authority is pinned to the generated sin
   assert.match(authority, /PAGINATION_AUTHORITY_TTL_MS = 30 \* 60 \* 1_000/);
 });
 
+test('Availability pagination authority is scoped to the exact Travelport API origin', () => {
+  assert.match(authority, /function paginationAuthorityKey\(url: URL, token: string\): string/);
+  assert.match(authority, /return `\$\{url\.origin\}\\u001f\$\{token\}`/);
+  assert.match(authority, /const paginationKey = paginationAuthorityKey\(url!, continuation\.token\)/);
+  assert.match(authority, /paginationAuthorities\.get\(paginationKey\)/);
+  assert.match(authority, /paginationAuthorities\.delete\(paginationKey\)/);
+  assert.match(authority, /const paginationKey = paginationAuthorityKey\(url, pagination\.token\)/);
+  assert.match(authority, /paginationAuthorities\.has\(paginationKey\)/);
+  assert.match(authority, /paginationAuthorities\.set\(paginationKey/);
+  assert.match(docs, /exact canonical Travelport API origin plus the opaque token/);
+  assert.match(docs, /pre-production pagination token cannot be used against production/);
+});
+
 test('Availability selection authority stays read-only and preserves activation gates', () => {
   assert.doesNotMatch(authority, /CardNumber|SeriesCode|FormOfPayment|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
   assert.match(docs, /does not advertise Travelport `reservation`/);
