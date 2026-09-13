@@ -12,6 +12,8 @@ const RESERVATION_COLLECTION_PATH = `${RESERVATION_PATH_PREFIX}/`;
 const SF_E2E_PREFIX = 'sf-';
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STRUCTURED_RESPONSE_CONTENT_TYPE_LENGTH = 128;
+const CANONICAL_JSON_CONTENT_TYPE = 'application/json';
+const CANONICAL_JSON_UTF8_CONTENT_TYPE = 'application/json; charset=utf-8';
 
 type ReservationRequest = Readonly<{
   expectedTraceId: string;
@@ -130,12 +132,12 @@ function structuredJsonContentType(headers: Headers) {
 
   const parts = value.split(';');
   const mediaType = parts.shift()?.trim().toLowerCase();
-  if (mediaType !== 'application/json' || parts.length > 1) return null;
-  if (parts.length === 0) return value;
+  if (mediaType !== CANONICAL_JSON_CONTENT_TYPE || parts.length > 1) return null;
+  if (parts.length === 0) return CANONICAL_JSON_CONTENT_TYPE;
 
   const parameter = parts[0]?.trim().toLowerCase();
   return parameter === 'charset=utf-8' || parameter === 'charset="utf-8"'
-    ? value
+    ? CANONICAL_JSON_UTF8_CONTENT_TYPE
     : null;
 }
 
@@ -167,6 +169,12 @@ function assertStructuredResponseFamilyForStatus(value: unknown, status: number)
     (hasReservationResponse && !isSuccessStatus)
     || (hasErrorResponse && !isStructuredErrorStatus)
   ) invalidResponse();
+}
+
+function serializeStructuredResponseBody(value: unknown) {
+  const serialized = JSON.stringify(value);
+  if (typeof serialized !== 'string') invalidResponse();
+  return serialized;
 }
 
 /**
@@ -207,11 +215,9 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     const contentType = structuredJsonContentType(response.headers);
     if (contentType === null) invalidResponse();
 
-    let rawBody: string;
     let body: unknown;
     try {
-      rawBody = await response.text();
-      body = JSON.parse(rawBody);
+      body = JSON.parse(await response.text());
     } catch {
       invalidResponse();
     }
@@ -223,9 +229,10 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
     if (!evidence.valid) invalidResponse();
     assertStructuredResponseFamilyForStatus(body, response.status);
     assertTravelportStaysReservationResponseMachineAuthority(body, response.status);
+    const replayBody = serializeStructuredResponseBody(body);
     return rebuildStructuredResponse(
       response,
-      rawBody,
+      replayBody,
       reservation.expectedTraceId,
       contentType,
     );
