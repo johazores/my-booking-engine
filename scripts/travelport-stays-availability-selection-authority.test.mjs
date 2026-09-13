@@ -16,7 +16,8 @@ const docs = readFileSync(
 );
 
 test('Availability selection authority composes around the existing reservation response guard', () => {
-  assert.match(wrapper, /const responseAuthorityFetch = createTravelportStaysReservationAuthorityResponseFetch\([\s\S]*authority\.fetchImpl \?\? fetch/);
+  assert.match(wrapper, /const unicodeAuthorityFetch = createTravelportStaysPreWriteUnicodeAuthorityFetch\([\s\S]*authority\.fetchImpl \?\? fetch/);
+  assert.match(wrapper, /const responseAuthorityFetch = createTravelportStaysReservationAuthorityResponseFetch\([\s\S]*unicodeAuthorityFetch/);
   assert.match(wrapper, /fetchImpl: createTravelportStaysAvailabilitySelectionAuthorityFetch\(responseAuthorityFetch\)/);
   assert.match(wrapper, /extends CoreTravelportStaysReservationAuthorityProvider/);
 });

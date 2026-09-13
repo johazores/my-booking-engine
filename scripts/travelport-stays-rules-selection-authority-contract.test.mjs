@@ -16,7 +16,8 @@ const docs = readFileSync(
 );
 
 test('Rules selection authority composes after existing public response guards and before the compatibility core', () => {
-  assert.match(wrapper, /const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch\(authority\.fetchImpl \?\? fetch\)/);
+  assert.match(wrapper, /const unicodeAuthorityFetch = createTravelportStaysPreWriteUnicodeAuthorityFetch\([\s\S]*authority\.fetchImpl \?\? fetch/);
+  assert.match(wrapper, /const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch\(unicodeAuthorityFetch\)/);
   assert.match(wrapper, /const memberAuthorityFetch = createTravelportStaysRulesMemberAuthorityFetch\(referenceAuthorityFetch\)/);
   assert.match(wrapper, /fetchImpl: createTravelportStaysRulesSelectionAuthorityFetch\(memberAuthorityFetch\)/);
   assert.match(wrapper, /extends CoreTravelportStaysBookingTermsProvider/);
