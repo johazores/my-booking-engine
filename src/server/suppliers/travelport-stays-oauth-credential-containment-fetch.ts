@@ -35,10 +35,13 @@ const TRAVELPORT_OAUTH_CREDENTIAL_FIELDS = Object.freeze([
   'client_id',
   'client_secret',
 ] as const);
-const TRAVELPORT_STAYS_PATH_PREFIXES = Object.freeze([
-  '/11/hotel/',
-  '/12/hotel/',
-] as const);
+const TRAVELPORT_STAYS_ENDPOINTS = Object.freeze({
+  searchComplete: '/12/hotel/search/searchcomplete',
+  rules: '/11/hotel/rules/offershospitality/buildfromrequest',
+  availability: '/11/hotel/availability/catalogofferingshospitality',
+  reservationBuild: '/11/hotel/book/reservations/build',
+  reservationCollection: '/11/hotel/book/reservations/',
+});
 const TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS = Object.freeze(new Set([
   'accept',
   'content-type',
@@ -175,13 +178,96 @@ function isSecureTravelportOrigin(url: URL, host: string) {
     && url.hash === '';
 }
 
-function isTravelportStaysPath(url: URL) {
-  return TRAVELPORT_STAYS_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
+function hasCanonicalQueryEncoding(url: URL) {
+  return url.search === '' || url.search === `?${url.searchParams.toString()}`;
 }
 
-function isSecureTravelportStaysTarget(url: URL, staysHost: string) {
+function hasExactPaginationQuery(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  return hasCanonicalQueryEncoding(url)
+    && entries.length === 1
+    && entries[0]?.[0] === 'pageNumber'
+    && /^[2-5]$/.test(entries[0]?.[1] ?? '');
+}
+
+function hasAcceptedReservationReviewQuery(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (!hasCanonicalQueryEncoding(url)) return false;
+  if (entries.length === 0) return true;
+  if (entries.length > 2) return false;
+
+  const acceptedKeys = new Set(['acceptPriceChangeInd', 'acceptGuaranteeChangeInd']);
+  const seen = new Set<string>();
+  for (const [key, value] of entries) {
+    if (!acceptedKeys.has(key) || seen.has(key) || value !== 'true') return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+function hasSingleCanonicalEncodedPathSegment(url: URL, prefix: string) {
+  if (!url.pathname.startsWith(prefix)) return false;
+  const suffix = url.pathname.slice(prefix.length);
+  if (!suffix || suffix.includes('/')) return false;
+  try {
+    return encodeURIComponent(decodeURIComponent(suffix)) === suffix;
+  } catch {
+    return false;
+  }
+}
+
+function isSupportedTravelportStaysOperation(url: URL, method: string) {
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.searchComplete
+    && method === 'POST'
+    && url.search === ''
+  ) return true;
+
+  if (
+    hasSingleCanonicalEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.searchComplete}/`)
+    && method === 'GET'
+    && hasExactPaginationQuery(url)
+  ) return true;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.rules
+    && method === 'POST'
+    && url.search === ''
+  ) return true;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.availability
+    && method === 'POST'
+    && url.search === ''
+  ) return true;
+
+  if (
+    hasSingleCanonicalEncodedPathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.availability}/`)
+    && method === 'GET'
+    && hasExactPaginationQuery(url)
+  ) return true;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationBuild
+    && method === 'POST'
+    && hasAcceptedReservationReviewQuery(url)
+  ) return true;
+
+  if (
+    url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationCollection
+    && method === 'POST'
+    && url.search === ''
+  ) return true;
+
+  return hasSingleCanonicalEncodedPathSegment(url, TRAVELPORT_STAYS_ENDPOINTS.reservationCollection)
+    && url.pathname !== TRAVELPORT_STAYS_ENDPOINTS.reservationBuild
+    && method === 'GET'
+    && url.search === '';
+}
+
+function isSecureTravelportStaysTarget(url: URL, staysHost: string, method: string) {
   return isSecureTravelportOrigin(url, staysHost)
-    && isTravelportStaysPath(url);
+    && isSupportedTravelportStaysOperation(url, method);
 }
 
 function isSecureTravelportOAuthTarget(url: URL, authenticationHost: string) {
@@ -261,7 +347,7 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
     }
 
     if (url.hostname !== targets.staysHost) invalidCredentialContainment();
-    if (!isSecureTravelportStaysTarget(url, targets.staysHost)) invalidCredentialContainment();
+    if (!isSecureTravelportStaysTarget(url, targets.staysHost, method)) invalidCredentialContainment();
 
     containedStaysHeaders(headers, input.credentials);
     assertAllowedTerminalHeaders(headers, TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS);
