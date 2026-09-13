@@ -404,6 +404,11 @@ function availabilityResponsePaginationMetadata(payload: unknown): AvailabilityP
   });
 }
 
+function availabilityResponsePaginationIdentifier(payload: unknown): string | null {
+  const identifier = presentResponseRecord(availabilityResponseCatalog(payload).Identifier);
+  return identifier ? responseMachineString(identifier.value, 4_096) : null;
+}
+
 function paginationAuthorityKey(url: URL, token: string): string {
   return `${url.origin}\u001f${token}`;
 }
@@ -411,13 +416,12 @@ function paginationAuthorityKey(url: URL, token: string): string {
 function paginationResponseAuthority(
   payload: unknown,
 ): Readonly<{ token: string; totalCatalogOffering: number | null; numberOfPages: number }> | null {
-  const catalog = availabilityResponseCatalog(payload);
   const metadata = availabilityResponsePaginationMetadata(payload);
   if (metadata.numberOfPages <= 1) return null;
-  const identifier = presentResponseRecord(catalog.Identifier);
-  if (!identifier) invalidResponse('Travelport Availability pagination identifier is missing.');
+  const token = availabilityResponsePaginationIdentifier(payload);
+  if (!token) invalidResponse('Travelport Availability pagination identifier is missing.');
   return Object.freeze({
-    token: responseMachineString(identifier.value, 4_096),
+    token,
     ...metadata,
   });
 }
@@ -456,6 +460,10 @@ export function createTravelportStaysAvailabilitySelectionAuthorityFetch(
       const payload = await response.clone().json().catch(() => null);
       if (payload === null) invalidResponse('Travelport Availability response is not valid JSON.');
       assertAvailabilityResponseSelection(payload, stored.authority);
+      const observedIdentifier = availabilityResponsePaginationIdentifier(payload);
+      if (observedIdentifier !== null && observedIdentifier !== continuation.token) {
+        invalidResponse('Travelport Availability pagination identifier changed across the active result set.');
+      }
       const observed = availabilityResponsePaginationMetadata(payload);
       if (observed.numberOfPages !== stored.numberOfPages) {
         invalidResponse('Travelport Availability pagination metadata changed across the active result set.');

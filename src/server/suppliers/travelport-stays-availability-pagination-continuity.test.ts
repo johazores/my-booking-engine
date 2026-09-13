@@ -48,13 +48,14 @@ function requestBody() {
   };
 }
 
-function responseBody(input: { total: number; pages: number; token?: string }) {
+function responseBody(input: { total: number; pages: number; token?: string; includeIdentifier?: boolean }) {
+  const includeIdentifier = input.includeIdentifier ?? input.pages > 1;
   return {
     CatalogOfferingsHospitalityResponse: {
       CatalogOfferings: {
         totalCatalogOffering: input.total,
         numberOfPages: input.pages,
-        ...(input.pages > 1 ? { Identifier: { value: input.token ?? 'page-token' } } : {}),
+        ...(includeIdentifier ? { Identifier: { value: input.token ?? 'page-token' } } : {}),
         CatalogOffering: [{
           Identifier: { authority: 'TVPT', value: 'offer-1' },
           TermsAndConditions: {
@@ -123,6 +124,23 @@ test('continuation total and page count stay bound without consuming state on co
 
   await assert.rejects(() => fetchImpl(`${availabilityUrl}/page-token?pageNumber=2`, { method: 'GET' }), isInvalidRequest);
   assert.equal(calls, 3);
+});
+
+test('continuation identifier cannot contradict the active token and omission stays optional', async () => {
+  const responses = [
+    responseBody({ total: 250, pages: 3 }),
+    responseBody({ total: 250, pages: 3, token: 'different-token' }),
+    responseBody({ total: 250, pages: 3, includeIdentifier: false }),
+  ];
+  let calls = 0;
+  const fetchImpl = createTravelportStaysAvailabilitySelectionAuthorityFetch((async () => jsonResponse(responses[calls++]!)) as typeof fetch);
+
+  await fetchImpl(availabilityUrl, { method: 'POST', body: JSON.stringify(requestBody()) });
+  await assert.rejects(() => fetchImpl(`${availabilityUrl}/page-token?pageNumber=2`, { method: 'GET' }), isInvalidResponse);
+  await assert.doesNotReject(() => fetchImpl(`${availabilityUrl}/page-token?pageNumber=3`, { method: 'GET' }));
+  assert.equal(calls, 3);
+
+  await assert.rejects(() => fetchImpl(`${availabilityUrl}/page-token?pageNumber=2`, { method: 'GET' }), isInvalidRequest);
 });
 
 test('non-consecutive continuation remains valid inside the page-one result set', async () => {

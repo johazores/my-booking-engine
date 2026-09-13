@@ -78,3 +78,38 @@ test('SearchComplete pagination rejects unsafe tokens, unsupported page numbers 
   }
   await assert.rejects(provider.searchPropertiesPage({ pageToken: 'token', pageNumber: 2 }), (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE');
 });
+
+test('SearchComplete continuation token evidence cannot contradict the replayed token', async () => {
+  const changedTokenProvider = new TravelportStaysProvider({
+    credentials: configuration.credentials,
+    cacheKey: 'pagination-tenant:v3',
+    fetchImpl: (async (url) => {
+      if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token-value' });
+      return jsonResponse({
+        pagination: { page: 2, pageSize: 1, totalPages: 2, totalItems: 101, paginationToken: 'different-token' },
+        hotelsResponse: { propertyItems: [{ name: 'Hotel 101', chainCode: 'UR', propertyCode: 'A101', availability: true }] },
+      });
+    }) as typeof fetch,
+  });
+
+  await assert.rejects(
+    changedTokenProvider.searchPropertiesPage({ pageToken: 'original-token', pageNumber: 2 }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'INVALID_RESPONSE',
+  );
+
+  const omittedTokenProvider = new TravelportStaysProvider({
+    credentials: configuration.credentials,
+    cacheKey: 'pagination-tenant:v4',
+    fetchImpl: (async (url) => {
+      if (String(url).includes('/oauth/token')) return jsonResponse({ access_token: 'token-value' });
+      return jsonResponse({
+        pagination: { page: 2, pageSize: 1, totalPages: 2, totalItems: 101 },
+        hotelsResponse: { propertyItems: [{ name: 'Hotel 101', chainCode: 'UR', propertyCode: 'A101', availability: true }] },
+      });
+    }) as typeof fetch,
+  });
+
+  const result = await omittedTokenProvider.searchPropertiesPage({ pageToken: 'original-token', pageNumber: 2 });
+  assert.equal(result.page, 2);
+  assert.equal(result.nextPageToken, null);
+});

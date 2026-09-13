@@ -212,7 +212,7 @@ function hasCanonicalEncodedPathSegment(value: string): boolean {
 function searchCompleteRequestAuthority(
   url: string,
   method: string,
-): Readonly<{ expectedPage: number; initial: boolean }> {
+): Readonly<{ expectedPage: number; initial: boolean; paginationToken: string | null }> {
   try {
     const parsed = new URL(url);
     const initialPath = '/12/hotel/search/searchcomplete';
@@ -220,7 +220,7 @@ function searchCompleteRequestAuthority(
       if (method !== 'POST' || parsed.search) {
         invalidResponse('Travelport SearchComplete request authority is invalid.');
       }
-      return Object.freeze({ expectedPage: 1, initial: true });
+      return Object.freeze({ expectedPage: 1, initial: true, paginationToken: null });
     }
 
     if (method !== 'GET' || !parsed.pathname.startsWith(`${initialPath}/`)) {
@@ -237,7 +237,16 @@ function searchCompleteRequestAuthority(
     ) {
       invalidResponse('Travelport SearchComplete request authority is invalid.');
     }
-    return Object.freeze({ expectedPage: Number(queryEntries[0]?.[1]), initial: false });
+    const paginationToken = exactMachineToken(
+      decodeURIComponent(identifier),
+      MAX_REFERENCE_LENGTH,
+      'response',
+    );
+    return Object.freeze({
+      expectedPage: Number(queryEntries[0]?.[1]),
+      initial: false,
+      paginationToken,
+    });
   } catch (error) {
     if (error instanceof HospitalitySupplierProviderError) throw error;
     invalidResponse('Travelport SearchComplete request authority is invalid.');
@@ -407,6 +416,13 @@ function validateSearchCompleteResponse(
     && (pageCount > 1) !== (pagination.paginationToken !== undefined)
   ) {
     invalidResponse('Travelport SearchComplete pagination token authority is inconsistent.');
+  }
+  if (
+    !requestAuthority.initial
+    && pagination.paginationToken !== undefined
+    && exactMachineToken(pagination.paginationToken, MAX_REFERENCE_LENGTH, 'response') !== requestAuthority.paginationToken
+  ) {
+    invalidResponse('Travelport SearchComplete pagination token changed across the active result set.');
   }
 
   const hotelsResponse = record(root.hotelsResponse);
