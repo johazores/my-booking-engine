@@ -6,6 +6,7 @@ export function isExactHospitalitySupplierMachineToken(value: unknown, maxLength
     && maxLength > 0
     && value.length >= 1
     && value.length <= maxLength
+    && value.isWellFormed()
     && value.trim() === value
     && !ASCII_CONTROL_PATTERN.test(value);
 }

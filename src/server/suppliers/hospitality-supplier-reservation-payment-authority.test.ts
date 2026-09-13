@@ -113,6 +113,8 @@ test('fails closed for missing, conflicting, or unsafe create-payment evidence',
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['V\tI'] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['V\u0000I'] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['VI\u007f'] }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['V\uD800I'] }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: ['V\uDC00I'] }),
     bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], acceptedPaymentCardCodes: Array.from({ length: 33 }, (_, index) => `C${index}`) }),
     bookingTerms({ guaranteeTypes: Array.from({ length: 17 }, () => 'GUARANTEE_REQUIRED') }),
   ]) {

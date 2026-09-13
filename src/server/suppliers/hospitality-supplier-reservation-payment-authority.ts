@@ -2,8 +2,8 @@ import type {
   HospitalitySupplierBookingTerms,
   HospitalitySupplierRuleGuaranteeType,
 } from './hospitality-supplier-booking-terms.ts';
+import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-machine-token.ts';
 
-const ASCII_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 const DECISIVE_GUARANTEE_TYPES = new Set(['PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'] as const);
 const MAX_PAYMENT_CARD_CODE_LENGTH = 16;
 const MAX_PAYMENT_CARD_CODES = 32;
@@ -24,13 +24,7 @@ function acceptedPaymentCardCodes(values: readonly string[]) {
 
   const normalized: string[] = [];
   for (const value of values) {
-    if (
-      typeof value !== 'string'
-      || !value
-      || value.trim() !== value
-      || value.length > MAX_PAYMENT_CARD_CODE_LENGTH
-      || ASCII_CONTROL_PATTERN.test(value)
-    ) {
+    if (!isExactHospitalitySupplierMachineToken(value, MAX_PAYMENT_CARD_CODE_LENGTH)) {
       return null;
     }
     normalized.push(value);

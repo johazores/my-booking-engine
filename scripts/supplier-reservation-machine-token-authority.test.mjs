@@ -6,16 +6,25 @@ function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('provider-neutral reservation machine tokens use one exact bounded control-free guard', () => {
+test('provider-neutral reservation machine tokens use one exact bounded control-free well-formed guard', () => {
   const helper = source('src/server/suppliers/hospitality-supplier-machine-token.ts');
+  const behavior = source('src/server/suppliers/hospitality-supplier-machine-token.test.ts');
   const domain = source('src/server/suppliers/hospitality-supplier-reservation-domain.ts');
   const submission = source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts');
   const recovery = source('src/server/suppliers/hospitality-supplier-reservation-recovery-evidence-service.ts');
   const confirmation = source('src/server/suppliers/hospitality-supplier-reservation-confirmation-evidence.ts');
+  const payment = source('src/server/suppliers/hospitality-supplier-reservation-payment-authority.ts');
+  const docs = source('docs/supplier-reservation-machine-token-authority.md');
 
   assert.match(helper, /\[\\u0000-\\u001f\\u007f\]/);
+  assert.match(helper, /value\.isWellFormed\(\)/);
   assert.match(helper, /value\.trim\(\) === value/);
   assert.match(helper, /value\.length <= maxLength/);
+  assert.match(behavior, /ABC\\uD800-123/);
+  assert.match(behavior, /ABC\\uDC00-123/);
+  assert.match(docs, /well-formed Unicode/i);
+  assert.match(payment, /isExactHospitalitySupplierMachineToken\(value, MAX_PAYMENT_CARD_CODE_LENGTH\)/);
+  assert.doesNotMatch(payment, /ASCII_CONTROL_PATTERN/);
 
   for (const text of [domain, submission, recovery, confirmation]) {
     assert.match(text, /isExactHospitalitySupplierMachineToken/);

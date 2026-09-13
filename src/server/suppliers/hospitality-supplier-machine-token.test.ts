@@ -6,10 +6,11 @@ import { isExactHospitalitySupplierMachineToken } from './hospitality-supplier-m
 test('accepts bounded exact supplier machine tokens without normalizing them', () => {
   assert.equal(isExactHospitalitySupplierMachineToken('ABC-123', 32), true);
   assert.equal(isExactHospitalitySupplierMachineToken('ABC 123', 32), true);
+  assert.equal(isExactHospitalitySupplierMachineToken('ROOM-😀', 32), true);
   assert.equal(isExactHospitalitySupplierMachineToken('x'.repeat(32), 32), true);
 });
 
-test('rejects padding, controls, empties and overlong supplier machine tokens', () => {
+test('rejects padding, controls, ill-formed Unicode, empties and overlong supplier machine tokens', () => {
   for (const value of [
     '',
     ' ABC-123',
@@ -20,6 +21,8 @@ test('rejects padding, controls, empties and overlong supplier machine tokens', 
     'ABC\u001f-123',
     'ABC\u007f-123',
     '\u00a0ABC-123',
+    'ABC\uD800-123',
+    'ABC\uDC00-123',
   ]) {
     assert.equal(isExactHospitalitySupplierMachineToken(value, 32), false, JSON.stringify(value));
   }
