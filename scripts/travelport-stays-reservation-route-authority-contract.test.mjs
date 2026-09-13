@@ -33,6 +33,7 @@ test('reservation retrieve route authority shares the durable provider-reference
   assert.match(reference, /const ASCII_CONTROL_CHARACTER_PATTERN = \/\[\\u0000-\\u001f\\u007f\]\//);
   assert.match(reference, /normalized !== value/);
   assert.match(reference, /normalized\.length > MAX_RESERVATION_REFERENCE_LENGTH/);
+  assert.match(reference, /!normalized\.isWellFormed\(\)/);
   assert.match(reference, /ASCII_CONTROL_CHARACTER_PATTERN\.test\(normalized\)/);
   assert.match(reference, /reference = decodeURIComponent\(value\)/);
   assert.match(reference, /encodeURIComponent\(reference\) === value/);
@@ -52,6 +53,7 @@ test('reservation route authority keeps review flags and locator paths canonical
 test('reservation route documentation records the fail-closed namespace and bounded reference boundary', () => {
   const traceDoc = source('docs/travelport-reservation-response-trace-authority.md');
   const referenceDoc = source('docs/travelport-reservation-reference-route-authority.md');
+  const unicodeDoc = source('docs/travelport-reservation-unicode-authority.md');
 
   assert.match(traceDoc, /`POST \/11\/hotel\/book\/reservations\/build`/);
   assert.match(traceDoc, /`POST \/11\/hotel\/book\/reservations\/`/);
@@ -60,6 +62,10 @@ test('reservation route documentation records the fail-closed namespace and boun
   assert.match(referenceDoc, /512/);
   assert.match(referenceDoc, /leading\/trailing whitespace/i);
   assert.match(referenceDoc, /ASCII control/i);
+  assert.match(referenceDoc, /well-formed UTF-16/i);
   assert.match(referenceDoc, /before provider I\/O/i);
   assert.match(referenceDoc, /shared reference authority/i);
+  assert.match(unicodeDoc, /lone surrogate/i);
+  assert.match(unicodeDoc, /INVALID_REQUEST/);
+  assert.match(unicodeDoc, /INVALID_RESPONSE/);
 });

@@ -8,21 +8,22 @@ This hardening does not enable the Travelport `reservation` capability.
 
 ## Production rule
 
-The durable Travelport reservation reference and the reservation-only transport route gate now share one provider-specific authority helper.
+The durable Travelport reservation reference and the reservation-only transport route gate share one provider-specific authority helper.
 
 A provider reservation reference is accepted only when it is:
 
 - a string;
 - non-empty after trimming;
 - already trimmed, with no leading/trailing whitespace;
-- at most 512 JavaScript string code units, matching the existing recovery-provider boundary; and
+- at most 512 JavaScript string code units, matching the existing recovery-provider boundary;
+- well-formed UTF-16, so lone high or low surrogate code units cannot cross into URL serialization; and
 - free of ASCII control characters (`U+0000` through `U+001F`, plus `U+007F`).
 
-The recovery provider validates the durable `providerReservationReference` with that helper before it constructs `GET /11/hotel/book/reservations/{AggregatorLocatorCode}`.
+The recovery provider validates the durable `providerReservationReference` with that helper before it constructs `GET /11/hotel/book/reservations/{AggregatorLocatorCode}`. Because a reference must be well-formed before that point, `encodeURIComponent` cannot surface a native `URIError` for malformed Unicode outside SF's provider failure taxonomy.
 
-The outer reservation transport independently applies the same authority to the encoded path segment before provider I/O. It requires exactly one path segment, successful percent decoding, the shared bounded reference rule above, and exact canonical round-trip encoding with `encodeURIComponent`. Non-canonical percent encodings, malformed escapes, padded references, control-bearing references, and references over 512 code units therefore fail as `INVALID_REQUEST` before the provider fetch is invoked.
+The outer reservation transport independently applies the same authority to the encoded path segment before provider I/O. It requires exactly one path segment, successful percent decoding, the shared bounded reference rule above, and exact canonical round-trip encoding with `encodeURIComponent`. Non-canonical percent encodings, malformed escapes, padded references, control-bearing references, ill-formed Unicode, and references over 512 code units therefore fail as `INVALID_REQUEST` before the provider fetch is invoked.
 
-Internal characters that the existing recovery provider already permits remain permitted. For example, an internal space or slash is valid only when represented by the exact `encodeURIComponent` form in the single raw path segment. This change does not invent a narrower supplier locator alphabet that Travelport has not established.
+Internal characters that the existing recovery provider already permits remain permitted. For example, an internal space or slash is valid only when represented by the exact `encodeURIComponent` form in the single raw path segment. Valid non-BMP Unicode represented by a well-formed surrogate pair is also preserved. This change does not invent a narrower supplier locator alphabet that Travelport has not established.
 
 The general Travelport transport keeps its broader single-segment logic because that layer also serves SearchComplete and Availability continuation identifiers with different acceptance criteria. Reservation Retrieve is narrowed by the reservation-specific outer authority before delegation, so unrelated pagination semantics are not changed.
 
@@ -39,6 +40,8 @@ Focused tests cover:
 - ordinary and maximum-length (512) references;
 - exact canonical encoding;
 - canonical encoded internal spaces and slashes that preserve the existing recovery contract;
+- valid non-BMP Unicode;
+- lone high and low surrogate rejection;
 - leading/trailing ASCII and Unicode whitespace;
 - ASCII control characters;
 - malformed and non-canonical percent encodings;
@@ -51,6 +54,7 @@ Full repository validation still requires the repository Node 24/TypeScript 6 en
 
 ## References
 
+- `docs/travelport-reservation-unicode-authority.md`
 - `docs/travelport-reservation-response-trace-authority.md`
 - `docs/supplier-reservation-correlation.md`
 - `docs/travelport-known-locator-reservation-type.md`

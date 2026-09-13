@@ -49,6 +49,7 @@ function assertExactMachineStringIfPresent(value: unknown, max: number): void {
     typeof value !== 'string'
     || !value
     || value.length > max
+    || !value.isWellFormed()
     || value.trim() !== value
     || ASCII_CONTROL_PATTERN.test(value)
   ) invalidResponse();
@@ -60,6 +61,7 @@ function assertBoundedProviderTextIfPresent(value: unknown, max: number): void {
     typeof value !== 'string'
     || !value
     || value.length > max
+    || !value.isWellFormed()
     || value.trim() !== value
     || ASCII_CONTROL_PATTERN.test(value)
   ) invalidResponse();
@@ -266,8 +268,8 @@ function validateReservation(response: RecordValue): void {
  * The compatibility classifiers intentionally remain isolated behind this boundary. Provider
  * machine evidence that can influence reservation identity, review/retry decisions, or Sync
  * recovery must arrive in one exact spelling; it may not gain authority through trimming,
- * recasing of error categories, ignored ASCII control characters, or explicit null values
- * standing in for omitted optional machine evidence.
+ * recasing of error categories, ignored ASCII control characters, ill-formed Unicode, or
+ * explicit null values standing in for omitted optional machine evidence.
  */
 export function assertTravelportStaysReservationResponseMachineAuthority(value: unknown, httpStatus?: number): void {
   if (

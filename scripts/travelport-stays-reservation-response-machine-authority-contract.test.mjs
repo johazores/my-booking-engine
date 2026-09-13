@@ -9,17 +9,29 @@ test('trace-bound reservation transport validates machine authority before rebui
   const wrapper = await source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
   assert.match(wrapper, /assertTravelportStaysReservationResponseMachineAuthority/);
   const traceCheck = wrapper.indexOf('if (!evidence.valid) invalidResponse()');
-  const authorityCheck = wrapper.indexOf(
-    'assertTravelportStaysReservationResponseMachineAuthority(body, response.status)',
+  const familyCheck = wrapper.indexOf(
+    'assertStructuredResponseFamilyForStatus(body, response.status)',
     traceCheck,
   );
-  const rebuild = wrapper.indexOf('return rebuildResponse(response, rawBody)', authorityCheck);
-  assert.ok(traceCheck >= 0 && authorityCheck > traceCheck && rebuild > authorityCheck);
+  const authorityCheck = wrapper.indexOf(
+    'assertTravelportStaysReservationResponseMachineAuthority(body, response.status)',
+    familyCheck,
+  );
+  const serialize = wrapper.indexOf('const replayBody = serializeStructuredResponseBody(body)', authorityCheck);
+  const rebuild = wrapper.indexOf('return rebuildStructuredResponse(', serialize);
+  assert.ok(
+    traceCheck >= 0
+    && familyCheck > traceCheck
+    && authorityCheck > familyCheck
+    && serialize > authorityCheck
+    && rebuild > serialize,
+  );
 });
 
 test('reservation response guard rejects normalization-confusable commercial machine evidence', async () => {
   const guard = await source('src/server/suppliers/travelport-stays-reservation-response-authority.ts');
   assert.match(guard, /ASCII_CONTROL_PATTERN = \/\[\\u0000-\\u001f\\u007f\]\//);
+  assert.match(guard, /!value\.isWellFormed\(\)/);
   assert.match(guard, /value\.trim\(\) !== value/);
   assert.match(guard, /\^\[A-Z_\]\{2,32\}\$/);
   assert.match(guard, /\^\\d\{1,8\}\$/);

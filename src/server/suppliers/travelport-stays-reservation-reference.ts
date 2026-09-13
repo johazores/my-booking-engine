@@ -16,6 +16,7 @@ export function normalizeTravelportStaysReservationReference(value: unknown) {
     !normalized
     || normalized !== value
     || normalized.length > MAX_RESERVATION_REFERENCE_LENGTH
+    || !normalized.isWellFormed()
     || ASCII_CONTROL_CHARACTER_PATTERN.test(normalized)
   ) {
     invalidReference();
