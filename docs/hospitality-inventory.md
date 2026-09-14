@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the hospitality inventory foundation end to end: tenant-owned properties, room types, physical rooms, amenities, image galleries, rate plans, and restrictions. Availability and pricing remain later platform phases; restrictions establish commercial stay/arrival rules without embedding inventory counts or money into inventory records.
+SF implements the hospitality inventory foundation end to end: tenant-owned properties, room types, physical rooms, amenities, image galleries, rate plans, and restrictions. Hospitality availability, allocation, pricing, and booking are now implemented as separate modules that consume these stable inventory identities rather than embedding capacity, holds, money, or booking state into the inventory records.
 
 ## Domain hierarchy
 
@@ -76,7 +76,7 @@ A `HospitalityRestriction` belongs to one property rate plan and optionally one 
 
 The end date cannot precede the start date, minimum stay cannot exceed maximum stay, and a rule cannot be empty. PostgreSQL mirrors these invariants with check constraints.
 
-Active date windows may not overlap within the same exact scope (same tenant/property/rate plan and same property-wide or room-type scope). Creation runs in a serializable transaction and rejects overlap before persistence. A property-wide rule and a room-specific rule may overlap intentionally; later availability evaluation can combine those scopes deterministically rather than treating them as duplicate rules.
+Active date windows may not overlap within the same exact scope (same tenant/property/rate plan and same property-wide or room-type scope). Creation runs in a serializable transaction and rejects overlap before persistence. A property-wide rule and a room-specific rule may overlap intentionally; availability evaluation can combine those scopes deterministically rather than treating them as duplicate rules.
 
 Restrictions do not store prices, taxes, fees, capacity, holds, or booking state. Those remain in pricing, availability, and booking modules.
 
