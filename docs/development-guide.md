@@ -40,7 +40,9 @@ npm run db:status
 npm run db:drift
 ```
 
-`db:status` verifies that the checked-in migration history matches the database migration table. `db:drift` compares the Prisma schema to the configured database and exits non-zero when Prisma-supported schema drift exists.
+`db:status` verifies that the checked-in migration history matches the database migration table. `db:drift` compares the complete multi-file Prisma schema to the configured database and exits non-zero when Prisma-supported schema drift exists. SF configures `schema: 'prisma'`, so drift validation must point at the `prisma` directory rather than only `prisma/schema.prisma`; otherwise domain fragments such as inventory and supplier persistence can be omitted from the comparison.
+
+Prisma schema diffing covers Prisma-supported database features only. Raw SQL constraints that Prisma does not model are verified by the guarded PostgreSQL integration scenarios and their direct database assertions; a clean `db:drift` result alone is not evidence that those custom constraints exist.
 
 For an isolated development database where Prisma should manage development migration state:
 
@@ -52,7 +54,7 @@ After applying the migration, verify migration status and drift before marking t
 
 ## Database integration tests
 
-Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The runner requires an explicit safety acknowledgement, validates the target before making any database-backed call, validates the Prisma schema, applies checked-in migrations, verifies migration status and Prisma-supported schema drift, then runs the real tenant repositories against two separate tenants.
+Database isolation tests must use a dedicated disposable PostgreSQL database through `TEST_DATABASE_URL`. The runner requires an explicit safety acknowledgement, validates the target before making any database-backed call, validates the complete multi-file Prisma schema, regenerates the current Prisma client, applies checked-in migrations, verifies migration status and Prisma-supported schema drift, then runs the real tenant repositories against two separate tenants.
 
 ```bash
 # example only; use your own disposable local test database
@@ -72,12 +74,15 @@ The tenant isolation integration test creates Tenant A and Tenant B with separat
 Before considering a coherent slice complete, run the relevant available checks:
 
 ```bash
+npm run prisma:validate
+npm run prisma:generate
 npm run typecheck
 npm run lint
 npm run test
-npm run prisma:validate
 npm run build
 ```
+
+`npm run validate` executes that schema-first sequence so TypeScript and the production build cannot silently consume a stale generated Prisma client after a multi-file schema change.
 
 When a disposable PostgreSQL test database is available, also run:
 

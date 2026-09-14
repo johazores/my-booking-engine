@@ -26,6 +26,7 @@ function run(command, args) {
 }
 
 run(npmCommand, ['run', 'prisma:validate']);
+run(npmCommand, ['run', 'prisma:generate']);
 run(npmCommand, ['run', 'db:deploy']);
 run(npmCommand, ['run', 'db:status']);
 run(npmCommand, ['run', 'db:drift']);
