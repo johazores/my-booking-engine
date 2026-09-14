@@ -20,9 +20,12 @@ model PaymentCheckoutSession {
   createdAt                DateTime                     @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime                     @updatedAt @db.Timestamptz(6)
 
-  @@unique([organizationId, providerCode, providerReference])
-  @@unique([organizationId, paymentTransactionId])
-  @@index([organizationId, bookingId, status])
-  @@index([organizationId, expiresAt])
+  publicPrincipal    PublicBookingPrincipal @relation(fields: [publicPrincipalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_checkout_sessions_principal_fkey")
+  paymentTransaction PaymentTransaction      @relation(fields: [paymentTransactionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_checkout_sessions_payment_transaction_fkey")
+
+  @@unique([organizationId, providerCode, providerReference], map: "payment_checkout_sessions_org_provider_reference_key")
+  @@unique([organizationId, paymentTransactionId], map: "payment_checkout_sessions_org_payment_transaction_key")
+  @@index([organizationId, bookingId, status], map: "payment_checkout_sessions_org_booking_status_idx")
+  @@index([organizationId, expiresAt], map: "payment_checkout_sessions_org_expiry_idx")
   @@map("payment_checkout_sessions")
 }

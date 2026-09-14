@@ -8,9 +8,12 @@ model InvoiceIssuerProfile {
   createdByUserId String   @db.Uuid
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([id, organizationId])
-  @@unique([organizationId, version])
-  @@index([organizationId, createdAt])
+  invoicePreparations HospitalityInvoicePreparation[]
+  issuedInvoices      HospitalityIssuedInvoice[]
+
+  @@unique([id, organizationId], map: "invoice_issuer_profiles_id_org_key")
+  @@unique([organizationId, version], map: "invoice_issuer_profiles_org_version_key")
+  @@index([organizationId, createdAt], map: "invoice_issuer_profiles_org_created_idx")
   @@map("invoice_issuer_profiles")
 }
 
@@ -35,12 +38,16 @@ model HospitalityInvoicePreparation {
   createdByUserId            String   @db.Uuid
   createdAt                  DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([id, organizationId])
-  @@unique([id, bookingId, organizationId])
-  @@unique([organizationId, preparationKey])
-  @@unique([organizationId, documentFingerprint])
-  @@index([organizationId, bookingId, createdAt])
-  @@index([organizationId, issuerProfileId, createdAt])
+  pricingEvidence HospitalityBookingPricingEvidence @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_pricing_evidence_fkey")
+  issuerProfile   InvoiceIssuerProfile               @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_issuer_profile_fkey")
+  issuedInvoices  HospitalityIssuedInvoice[]
+
+  @@unique([id, organizationId], map: "hospitality_invoice_preparations_id_org_key")
+  @@unique([id, bookingId, organizationId], map: "hospitality_invoice_preparations_id_booking_org_key")
+  @@unique([organizationId, preparationKey], map: "hospitality_invoice_preparations_org_key")
+  @@unique([organizationId, documentFingerprint], map: "hospitality_invoice_preparations_org_fingerprint_key")
+  @@index([organizationId, bookingId, createdAt], map: "hospitality_invoice_preparations_org_booking_created_idx")
+  @@index([organizationId, issuerProfileId, createdAt], map: "hospitality_invoice_preparations_org_issuer_created_idx")
   @@map("hospitality_invoice_preparations")
 }
 
@@ -51,7 +58,7 @@ model HospitalityInvoiceNumberSequence {
   nextValue        BigInt   @default(1) @db.BigInt
   updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
-  @@id([organizationId, jurisdictionCode, documentType])
+  @@id([organizationId, jurisdictionCode, documentType], map: "hospitality_invoice_number_sequences_pkey")
   @@map("hospitality_invoice_number_sequences")
 }
 
@@ -82,14 +89,19 @@ model HospitalityIssuedInvoice {
   documentSnapshot           Json
   createdAt                  DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([id, organizationId])
-  @@unique([id, bookingId, organizationId])
-  @@unique([organizationId, preparationId])
-  @@unique([organizationId, jurisdictionCode, documentNumber])
-  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
-  @@unique([organizationId, documentFingerprint])
-  @@index([organizationId, bookingId, issuedAt])
-  @@index([organizationId, issuerProfileId, issuedAt])
+  preparation     HospitalityInvoicePreparation     @relation(fields: [preparationId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_preparation_fkey")
+  pricingEvidence HospitalityBookingPricingEvidence @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_pricing_evidence_fkey")
+  issuerProfile   InvoiceIssuerProfile               @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_issuer_profile_fkey")
+  adjustmentNotes HospitalityIssuedAdjustmentNote[]
+
+  @@unique([id, organizationId], map: "hospitality_issued_invoices_id_org_key")
+  @@unique([id, bookingId, organizationId], map: "hospitality_issued_invoices_id_booking_org_key")
+  @@unique([organizationId, preparationId], map: "hospitality_issued_invoices_org_preparation_key")
+  @@unique([organizationId, jurisdictionCode, documentNumber], map: "hospitality_issued_invoices_org_jurisdiction_number_key")
+  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue], map: "hospitality_issued_invoices_org_jurisdiction_type_sequence_key")
+  @@unique([organizationId, documentFingerprint], map: "hospitality_issued_invoices_org_fingerprint_key")
+  @@index([organizationId, bookingId, issuedAt], map: "hospitality_issued_invoices_org_booking_issued_idx")
+  @@index([organizationId, issuerProfileId, issuedAt], map: "hospitality_issued_invoices_org_issuer_issued_idx")
   @@map("hospitality_issued_invoices")
 }
 
@@ -126,15 +138,22 @@ model HospitalityIssuedAdjustmentNote {
   documentSnapshot                   Json
   createdAt                          DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([id, organizationId])
+  sourceInvoice            HospitalityIssuedInvoice               @relation(fields: [sourceInvoiceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_source_invoice_booking_fkey")
+  refundTransaction        PaymentTransaction?                     @relation(fields: [refundTransactionId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_refund_booking_fkey")
+  commercialAmendment      HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_commercial_amendment_fkey")
+  targetPricingEvidence    HospitalityBookingPricingEvidence?     @relation(fields: [targetPricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_target_pricing_fkey")
+  predecessorAdjustmentNote HospitalityIssuedAdjustmentNote?      @relation("HospitalityIssuedAdjustmentNotePredecessor", fields: [predecessorAdjustmentNoteId, bookingId, organizationId, sourceInvoiceId, predecessorSourceAdjustmentOrdinal], references: [id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_predecessor_fkey")
+  successorAdjustmentNotes  HospitalityIssuedAdjustmentNote[]      @relation("HospitalityIssuedAdjustmentNotePredecessor")
+
+  @@unique([id, organizationId], map: "hospitality_issued_adjustment_notes_id_org_key")
   @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_adj_notes_chain_reference_any_reason_key")
   @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal, adjustmentReason], map: "hospitality_adj_notes_chain_reference_key")
-  @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal])
-  @@unique([organizationId, jurisdictionCode, documentNumber])
-  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue])
-  @@unique([organizationId, documentFingerprint])
-  @@index([organizationId, bookingId, issuedAt])
-  @@index([organizationId, sourceInvoiceId, issuedAt])
-  @@index([organizationId, commercialAmendmentId, issuedAt])
+  @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_adj_notes_org_source_ordinal_key")
+  @@unique([organizationId, jurisdictionCode, documentNumber], map: "hospitality_issued_adjustment_notes_org_jurisdiction_number_key")
+  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue], map: "hospitality_issued_adjustment_notes_org_jurisdiction_type_sequence_key")
+  @@unique([organizationId, documentFingerprint], map: "hospitality_issued_adjustment_notes_org_fingerprint_key")
+  @@index([organizationId, bookingId, issuedAt], map: "hospitality_issued_adjustment_notes_org_booking_issued_idx")
+  @@index([organizationId, sourceInvoiceId, issuedAt], map: "hospitality_issued_adjustment_notes_org_source_issued_idx")
+  @@index([organizationId, commercialAmendmentId, issuedAt], map: "hospitality_adj_notes_org_commercial_issued_idx")
   @@map("hospitality_issued_adjustment_notes")
 }

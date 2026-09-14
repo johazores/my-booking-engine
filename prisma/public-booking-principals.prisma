@@ -5,8 +5,13 @@ model PublicBookingPrincipal {
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @db.Timestamptz(6)
 
+  holdOwnerships    PublicBookingHoldOwnership[]
+  bookingOwnerships PublicBookingBookingOwnership[]
+  auditEvents        PublicBookingAuditEvent[]
+  checkoutSessions   PaymentCheckoutSession[]
+
   @@unique([id, organizationId])
-  @@index([organizationId, expiresAt])
+  @@index([organizationId, expiresAt], map: "public_booking_principals_org_expiry_idx")
   @@map("public_booking_principals")
 }
 
@@ -16,8 +21,10 @@ model PublicBookingHoldOwnership {
   principalId    String   @db.Uuid
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
+  principal PublicBookingPrincipal @relation(fields: [principalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_hold_owner_principal_fkey")
+
   @@id([organizationId, holdId])
-  @@index([organizationId, principalId])
+  @@index([organizationId, principalId], map: "public_booking_hold_owner_principal_idx")
   @@map("public_booking_hold_ownership")
 }
 
@@ -28,8 +35,10 @@ model PublicBookingBookingOwnership {
   requestFingerprint String   @db.Char(64)
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
+  principal PublicBookingPrincipal @relation(fields: [principalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_principal_fkey")
+
   @@id([organizationId, bookingId])
-  @@index([organizationId, principalId])
+  @@index([organizationId, principalId], map: "public_booking_booking_owner_principal_idx")
   @@map("public_booking_booking_ownership")
 }
 
@@ -44,8 +53,10 @@ model PublicBookingAuditEvent {
   afterData        Json?
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([organizationId, createdAt])
-  @@index([organizationId, actorPrincipalId, createdAt])
-  @@index([resourceType, resourceId])
+  actorPrincipal PublicBookingPrincipal @relation(fields: [actorPrincipalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_audit_principal_fkey")
+
+  @@index([organizationId, createdAt], map: "public_booking_audit_org_created_idx")
+  @@index([organizationId, actorPrincipalId, createdAt], map: "public_booking_audit_actor_created_idx")
+  @@index([resourceType, resourceId], map: "public_booking_audit_resource_idx")
   @@map("public_booking_audit_events")
 }

@@ -31,10 +31,15 @@ model HospitalityBookingPricingEvidence {
   pricingBreakdown            Json
   createdAt                   DateTime                                 @default(now()) @db.Timestamptz(6)
 
-  @@unique([id, organizationId])
-  @@unique([id, bookingId, organizationId])
-  @@unique([organizationId, evidenceKey])
-  @@index([organizationId, bookingId, createdAt])
-  @@index([organizationId, commercialAmendmentId, source])
+  commercialAmendment HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_pricing_evidence_amendment_fkey")
+  invoicePreparations  HospitalityInvoicePreparation[]
+  issuedInvoices       HospitalityIssuedInvoice[]
+  issuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
+
+  @@unique([id, organizationId], map: "hospitality_booking_pricing_evidence_id_org_key")
+  @@unique([id, bookingId, organizationId], map: "hospitality_booking_pricing_evidence_id_booking_org_key")
+  @@unique([organizationId, evidenceKey], map: "hospitality_booking_pricing_evidence_org_key")
+  @@index([organizationId, bookingId, createdAt], map: "hospitality_booking_pricing_evidence_org_booking_created_idx")
+  @@index([organizationId, commercialAmendmentId, source], map: "hospitality_booking_pricing_evidence_org_amendment_source_idx")
   @@map("hospitality_booking_pricing_evidence")
 }

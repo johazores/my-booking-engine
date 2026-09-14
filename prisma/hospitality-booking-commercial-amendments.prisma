@@ -52,13 +52,15 @@ model HospitalityBookingCommercialAmendment {
   createdAt                         DateTime                                       @default(now()) @db.Timestamptz(6)
   updatedAt                         DateTime                                       @updatedAt @db.Timestamptz(6)
 
-  paymentTransactions PaymentTransaction[]
+  paymentTransactions  PaymentTransaction[]
+  pricingEvidence      HospitalityBookingPricingEvidence[]
+  issuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
 
-  @@unique([id, organizationId])
-  @@unique([id, bookingId, organizationId])
-  @@unique([organizationId, idempotencyKey])
-  @@unique([organizationId, targetHoldId])
-  @@index([organizationId, bookingId, status, expiresAt])
-  @@index([organizationId, status, expiresAt])
+  @@unique([id, organizationId], map: "hospitality_booking_commercial_amendments_id_org_key")
+  @@unique([id, bookingId, organizationId], map: "hospitality_booking_commercial_amendments_id_booking_org_key")
+  @@unique([organizationId, idempotencyKey], map: "hospitality_booking_commercial_amendments_org_idempotency_key")
+  @@unique([organizationId, targetHoldId], map: "hospitality_booking_commercial_amendments_org_target_hold_key")
+  @@index([organizationId, bookingId, status, expiresAt], map: "hospitality_booking_commercial_amendments_org_booking_status_expiry_idx")
+  @@index([organizationId, status, expiresAt], map: "hospitality_booking_commercial_amendments_org_status_expiry_idx")
   @@map("hospitality_booking_commercial_amendments")
 }

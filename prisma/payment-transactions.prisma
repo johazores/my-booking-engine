@@ -28,17 +28,19 @@ model PaymentTransaction {
   amountMinor             BigInt
   createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
 
-  organization        Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_organization_fkey")
-  booking             HospitalityBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_booking_fkey")
-  commercialAmendment HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_commercial_amendment_fkey")
+  organization          Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_organization_fkey")
+  booking               HospitalityBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_booking_fkey")
+  commercialAmendment   HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_commercial_amendment_fkey")
+  checkoutSessions      PaymentCheckoutSession[]
+  issuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
 
-  @@unique([id, organizationId])
-  @@unique([id, bookingId, organizationId])
-  @@unique([organizationId, idempotencyKey])
-  @@index([organizationId, providerCode, providerReference])
-  @@index([organizationId, providerCode, sourceProviderReference])
-  @@index([organizationId, bookingId, createdAt])
-  @@index([organizationId, commercialAmendmentId, createdAt])
-  @@index([organizationId, status, createdAt])
+  @@unique([id, organizationId], map: "payment_transactions_id_organizationId_key")
+  @@unique([id, bookingId, organizationId], map: "payment_transactions_id_booking_org_key")
+  @@unique([organizationId, idempotencyKey], map: "payment_transactions_org_idempotency_key")
+  @@index([organizationId, providerCode, providerReference], map: "payment_transactions_org_provider_reference_idx")
+  @@index([organizationId, providerCode, sourceProviderReference], map: "payment_transactions_org_provider_source_reference_idx")
+  @@index([organizationId, bookingId, createdAt], map: "payment_transactions_booking_created_idx")
+  @@index([organizationId, commercialAmendmentId, createdAt], map: "payment_transactions_org_commercial_amendment_created_idx")
+  @@index([organizationId, status, createdAt], map: "payment_transactions_status_created_idx")
   @@map("payment_transactions")
 }
