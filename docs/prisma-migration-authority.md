@@ -4,7 +4,7 @@ SF uses a multi-file Prisma schema under `prisma/`, while checked-in PostgreSQL 
 
 ## Current reconciliation rule
 
-When a checked-in migration creates a Prisma-supported unique index, normal index, or foreign key with an explicit production name, the Prisma model must preserve the same database name with `map:` where Prisma would otherwise derive a different name. Tenant-bound composite foreign keys must keep the same tenant/resource tuple; replacing them with an ID-only relation would weaken the schema contract even when application repositories already scope queries correctly.
+When a checked-in migration creates a Prisma-supported unique index, normal index, or foreign key with an explicit production name, the Prisma model must preserve the same database name with `map:` where Prisma would otherwise derive a different name. Tenant-bound composite foreign keys must keep the same tenant/resource tuple; replacing them with an ID-only relation would weaken the schema contract even when application repositories already scope queries correctly. Prisma relation cardinality must also preserve database uniqueness, including one-to-one checkout/payment, invoice-preparation/issued-invoice, adjustment/payment, adjustment/amendment, adjustment/target-pricing, and predecessor/successor links.
 
 The current reconciliation pass covers migration-backed names and cross-fragment relations that can be expressed entirely inside the existing domain fragments for:
 

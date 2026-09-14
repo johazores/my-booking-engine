@@ -144,7 +144,7 @@ test('public booking and checkout cross-fragment relations preserve tenant-bound
   assert.match(publicSchema, /bookingOwnerships\s+PublicBookingBookingOwnership\[\]/);
   assert.match(publicSchema, /auditEvents\s+PublicBookingAuditEvent\[\]/);
   assert.match(publicSchema, /checkoutSessions\s+PaymentCheckoutSession\[\]/);
-  assert.match(paymentSchema, /checkoutSessions\s+PaymentCheckoutSession\[\]/);
+  assert.match(paymentSchema, /checkoutSession\s+PaymentCheckoutSession\?/);
   assert.match(checkoutSchema, /@@unique\(\[organizationId, paymentTransactionId\], map: "payment_checkout_sessions_org_payment_transaction_key"\)/);
 });
 
@@ -209,10 +209,12 @@ test('invoice and adjustment-note cross-fragment relations preserve immutable ev
   assert.match(adjustmentMigration, /"hospitality_issued_adjustment_notes_issued_by_fkey"/);
   assert.match(invoiceSchema, /invoicePreparations\s+HospitalityInvoicePreparation\[\]/);
   assert.match(invoiceSchema, /issuedInvoices\s+HospitalityIssuedInvoice\[\]/);
+  assert.match(invoiceSchema, /issuedInvoice\s+HospitalityIssuedInvoice\?/);
   assert.match(invoiceSchema, /adjustmentNotes\s+HospitalityIssuedAdjustmentNote\[\]/);
-  assert.match(pricingSchema, /issuedAdjustmentNotes\s+HospitalityIssuedAdjustmentNote\[\]/);
-  assert.match(paymentSchema, /issuedAdjustmentNotes\s+HospitalityIssuedAdjustmentNote\[\]/);
-  assert.match(amendmentSchema, /issuedAdjustmentNotes\s+HospitalityIssuedAdjustmentNote\[\]/);
+  assert.match(invoiceSchema, /successorAdjustmentNote\s+HospitalityIssuedAdjustmentNote\?/);
+  assert.match(pricingSchema, /issuedAdjustmentNote\s+HospitalityIssuedAdjustmentNote\?/);
+  assert.match(paymentSchema, /issuedAdjustmentNote\s+HospitalityIssuedAdjustmentNote\?/);
+  assert.match(amendmentSchema, /issuedAdjustmentNote\s+HospitalityIssuedAdjustmentNote\?/);
   assert.match(
     invoiceSchema,
     /predecessorAdjustmentNote\s+HospitalityIssuedAdjustmentNote\?\s+@relation\("HospitalityIssuedAdjustmentNotePredecessor", fields: \[predecessorAdjustmentNoteId, bookingId, organizationId, sourceInvoiceId, predecessorSourceAdjustmentOrdinal\], references: \[id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal\], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_predecessor_fkey"\)/,

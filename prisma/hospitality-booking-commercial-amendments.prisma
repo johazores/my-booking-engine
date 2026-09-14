@@ -54,7 +54,7 @@ model HospitalityBookingCommercialAmendment {
 
   paymentTransactions  PaymentTransaction[]
   pricingEvidence      HospitalityBookingPricingEvidence[]
-  issuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
+  issuedAdjustmentNote  HospitalityIssuedAdjustmentNote?
 
   @@unique([id, organizationId], map: "hospitality_booking_commercial_amendments_id_org_key")
   @@unique([id, bookingId, organizationId], map: "hospitality_booking_commercial_amendments_id_booking_org_key")

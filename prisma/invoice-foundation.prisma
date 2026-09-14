@@ -40,7 +40,7 @@ model HospitalityInvoicePreparation {
 
   pricingEvidence HospitalityBookingPricingEvidence @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_pricing_evidence_fkey")
   issuerProfile   InvoiceIssuerProfile               @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_issuer_profile_fkey")
-  issuedInvoices  HospitalityIssuedInvoice[]
+  issuedInvoice   HospitalityIssuedInvoice?
 
   @@unique([id, organizationId], map: "hospitality_invoice_preparations_id_org_key")
   @@unique([id, bookingId, organizationId], map: "hospitality_invoice_preparations_id_booking_org_key")
@@ -143,7 +143,7 @@ model HospitalityIssuedAdjustmentNote {
   commercialAmendment      HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_commercial_amendment_fkey")
   targetPricingEvidence    HospitalityBookingPricingEvidence?     @relation(fields: [targetPricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_target_pricing_fkey")
   predecessorAdjustmentNote HospitalityIssuedAdjustmentNote?      @relation("HospitalityIssuedAdjustmentNotePredecessor", fields: [predecessorAdjustmentNoteId, bookingId, organizationId, sourceInvoiceId, predecessorSourceAdjustmentOrdinal], references: [id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_predecessor_fkey")
-  successorAdjustmentNotes  HospitalityIssuedAdjustmentNote[]      @relation("HospitalityIssuedAdjustmentNotePredecessor")
+  successorAdjustmentNote   HospitalityIssuedAdjustmentNote?       @relation("HospitalityIssuedAdjustmentNotePredecessor")
 
   @@unique([id, organizationId], map: "hospitality_issued_adjustment_notes_id_org_key")
   @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_adj_notes_chain_reference_any_reason_key")

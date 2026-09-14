@@ -34,7 +34,7 @@ model HospitalityBookingPricingEvidence {
   commercialAmendment HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_pricing_evidence_amendment_fkey")
   invoicePreparations  HospitalityInvoicePreparation[]
   issuedInvoices       HospitalityIssuedInvoice[]
-  issuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
+  issuedAdjustmentNote  HospitalityIssuedAdjustmentNote?
 
   @@unique([id, organizationId], map: "hospitality_booking_pricing_evidence_id_org_key")
   @@unique([id, bookingId, organizationId], map: "hospitality_booking_pricing_evidence_id_booking_org_key")
