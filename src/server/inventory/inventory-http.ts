@@ -17,6 +17,12 @@ import {
   HospitalityInventoryDependencyError,
   HospitalityInventoryUnavailableError,
 } from './hospitality-service.ts';
+import { TourInventoryValidationError } from './tour-domain.ts';
+import {
+  TourInventoryConflictError,
+  TourInventoryDependencyError,
+  TourInventoryUnavailableError,
+} from './tour-service.ts';
 
 export function formField(formData: FormData, name: string) {
   const value = formData.get(name);
@@ -33,10 +39,10 @@ export async function readInventoryFormData(request: Request) {
 
 export function inventoryErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'permission';
-  if (error instanceof HospitalityInventoryConflictError) return 'conflict';
-  if (error instanceof HospitalityInventoryDependencyError) return 'dependency';
-  if (error instanceof HospitalityInventoryUnavailableError) return 'unavailable';
-  if (error instanceof HospitalityInventoryValidationError) return 'validation';
+  if (error instanceof HospitalityInventoryConflictError || error instanceof TourInventoryConflictError) return 'conflict';
+  if (error instanceof HospitalityInventoryDependencyError || error instanceof TourInventoryDependencyError) return 'dependency';
+  if (error instanceof HospitalityInventoryUnavailableError || error instanceof TourInventoryUnavailableError) return 'unavailable';
+  if (error instanceof HospitalityInventoryValidationError || error instanceof TourInventoryValidationError) return 'validation';
   return 'server';
 }
 

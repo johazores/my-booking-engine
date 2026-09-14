@@ -1,0 +1,68 @@
+enum TourProductKind {
+  TOUR
+  PACKAGE
+}
+
+model TourProduct {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  kind           TourProductKind          @default(TOUR)
+  name           String                   @db.VarChar(160)
+  code           String                   @db.VarChar(32)
+  description    String?                  @db.VarChar(1000)
+  timezone       String                   @db.VarChar(80)
+  meetingPoint   String?                  @db.VarChar(300)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  departures TourDeparture[]
+  addons     TourAddon[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status, name])
+  @@map("tour_products")
+}
+
+model TourDeparture {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  tourProductId  String                   @db.Uuid
+  startsAt       DateTime                 @db.Timestamptz(6)
+  endsAt         DateTime                 @db.Timestamptz(6)
+  capacity       Int
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([tourProductId, startsAt])
+  @@index([organizationId, tourProductId, status, startsAt])
+  @@map("tour_departures")
+}
+
+model TourAddon {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  organizationId        String                   @db.Uuid
+  tourProductId         String                   @db.Uuid
+  name                  String                   @db.VarChar(120)
+  code                  String                   @db.VarChar(32)
+  description           String?                  @db.VarChar(500)
+  maxQuantityPerBooking Int                      @default(1)
+  status                InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt            DateTime?                @db.Timestamptz(6)
+  createdAt             DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime                 @updatedAt @db.Timestamptz(6)
+
+  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([tourProductId, code])
+  @@index([organizationId, tourProductId, status, name])
+  @@map("tour_addons")
+}
