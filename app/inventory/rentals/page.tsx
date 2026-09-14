@@ -83,7 +83,7 @@ export default async function RentalInventoryPage({
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
       <div><p className="sf-eyebrow">Rental inventory</p><h1>Products, locations, and pricing</h1><p>Manage rentable unit types, operating locations, physical units, daily pricing, and unavailable dates for {activeContext.organization.name}.</p></div>
-      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory">Hospitality</Link><Link className="sf-button sf-button--secondary" href="/inventory/tours">Tours</Link><Link className="sf-button sf-button--secondary" href="/inventory/appointments">Appointments</Link></div>
+      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--primary" href="/inventory/rentals/availability">Availability preview</Link><Link className="sf-button sf-button--secondary" href="/inventory">Hospitality</Link><Link className="sf-button sf-button--secondary" href="/inventory/tours">Tours</Link><Link className="sf-button sf-button--secondary" href="/inventory/appointments">Appointments</Link></div>
     </header>
 
     {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}

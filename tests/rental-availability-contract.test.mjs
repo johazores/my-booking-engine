@@ -24,6 +24,7 @@ test('rental availability service is tenant-scoped, authorized, bounded, and blo
 
 test('rental availability UI is a real protected preview and not booking authority', async () => {
   const page = await source('app/inventory/rentals/availability/page.tsx');
+  const hub = await source('app/inventory/rentals/page.tsx');
   assert.match(page, /readAuthSessionState/);
   assert.match(page, /readActiveOrganizationContext/);
   assert.match(page, /organizationRoleHasPermission\(authorization\.role, 'inventory:read'\)/);
@@ -32,6 +33,8 @@ test('rental availability UI is a real protected preview and not booking authori
   assert.match(page, /does not create a hold or booking/i);
   assert.match(page, /must not be used as customer booking confirmation/i);
   assert.match(page, /Maximum 90 days/);
+  assert.match(hub, /href="\/inventory\/rentals\/availability"/);
+  assert.match(hub, />Availability preview</);
 });
 
 test('rental availability documentation preserves the production boundary', async () => {
