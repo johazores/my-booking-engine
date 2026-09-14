@@ -42,9 +42,9 @@ model HospitalityInvoicePreparation {
 
   organization    Organization                       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_organization_fkey")
   booking         HospitalityBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_booking_fkey")
-  pricingEvidence HospitalityBookingPricingEvidence  @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_pricing_evidence_fkey")
-  issuerProfile   InvoiceIssuerProfile                @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_issuer_profile_fkey")
-  createdBy       User                                @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_created_by_fkey")
+  pricingEvidence HospitalityBookingPricingEvidence @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_pricing_evidence_fkey")
+  issuerProfile   InvoiceIssuerProfile               @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_issuer_profile_fkey")
+  createdBy       User                               @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_invoice_preparations_created_by_fkey")
   issuedInvoice   HospitalityIssuedInvoice?
 
   @@unique([id, organizationId], map: "hospitality_invoice_preparations_id_org_key")
@@ -98,10 +98,10 @@ model HospitalityIssuedInvoice {
 
   organization    Organization                       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_organization_fkey")
   booking         HospitalityBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_booking_fkey")
-  preparation     HospitalityInvoicePreparation      @relation(fields: [preparationId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_preparation_fkey")
-  pricingEvidence HospitalityBookingPricingEvidence  @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_pricing_evidence_fkey")
-  issuerProfile   InvoiceIssuerProfile                @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_issuer_profile_fkey")
-  issuedBy        User                                @relation(fields: [issuedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_issued_by_fkey")
+  preparation     HospitalityInvoicePreparation     @relation(fields: [preparationId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_preparation_fkey")
+  pricingEvidence HospitalityBookingPricingEvidence @relation(fields: [pricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_pricing_evidence_fkey")
+  issuerProfile   InvoiceIssuerProfile               @relation(fields: [issuerProfileId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_issuer_profile_fkey")
+  issuedBy        User                               @relation(fields: [issuedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_invoices_issued_by_fkey")
   adjustmentNotes HospitalityIssuedAdjustmentNote[]
 
   @@unique([id, organizationId], map: "hospitality_issued_invoices_id_org_key")
@@ -150,11 +150,11 @@ model HospitalityIssuedAdjustmentNote {
 
   organization              Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_adjustment_notes_organization_fkey")
   booking                   HospitalityBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_adjustment_notes_booking_fkey")
-  sourceInvoice             HospitalityIssuedInvoice                @relation(fields: [sourceInvoiceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_source_invoice_booking_fkey")
-  refundTransaction         PaymentTransaction?                     @relation(fields: [refundTransactionId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_refund_booking_fkey")
-  commercialAmendment       HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_commercial_amendment_fkey")
-  targetPricingEvidence     HospitalityBookingPricingEvidence?     @relation(fields: [targetPricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_target_pricing_fkey")
-  predecessorAdjustmentNote HospitalityIssuedAdjustmentNote?       @relation("HospitalityIssuedAdjustmentNotePredecessor", fields: [predecessorAdjustmentNoteId, bookingId, organizationId, sourceInvoiceId, predecessorSourceAdjustmentOrdinal], references: [id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_predecessor_fkey")
+  sourceInvoice            HospitalityIssuedInvoice               @relation(fields: [sourceInvoiceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_source_invoice_booking_fkey")
+  refundTransaction        PaymentTransaction?                     @relation(fields: [refundTransactionId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_refund_booking_fkey")
+  commercialAmendment      HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_commercial_amendment_fkey")
+  targetPricingEvidence    HospitalityBookingPricingEvidence?     @relation(fields: [targetPricingEvidenceId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_target_pricing_fkey")
+  predecessorAdjustmentNote HospitalityIssuedAdjustmentNote?      @relation("HospitalityIssuedAdjustmentNotePredecessor", fields: [predecessorAdjustmentNoteId, bookingId, organizationId, sourceInvoiceId, predecessorSourceAdjustmentOrdinal], references: [id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_adj_notes_predecessor_fkey")
   successorAdjustmentNote   HospitalityIssuedAdjustmentNote?       @relation("HospitalityIssuedAdjustmentNotePredecessor")
   issuedBy                  User                                    @relation(fields: [issuedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_issued_adjustment_notes_issued_by_fkey")
 

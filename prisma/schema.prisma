@@ -106,57 +106,57 @@ enum HospitalityAddonPricingModel {
 }
 
 model Organization {
-  id                                  String                                   @id @default(uuid()) @db.Uuid
-  slug                                String                                   @unique @db.VarChar(63)
-  name                                String                                   @db.VarChar(160)
-  kind                                OrganizationKind
-  status                              OrganizationStatus                       @default(ACTIVE)
-  timezone                            String                                   @default("UTC") @db.VarChar(80)
-  currency                            String                                   @default("USD") @db.VarChar(3)
-  logoUrl                             String?                                  @db.VarChar(2048)
-  faviconUrl                          String?                                  @db.VarChar(2048)
-  primaryColor                        String                                   @default("#2563eb") @db.Char(7)
-  secondaryColor                      String                                   @default("#0d1626") @db.Char(7)
-  accentColor                         String                                   @default("#20c997") @db.Char(7)
-  fontFamily                          String                                   @default("INTER") @db.VarChar(20)
-  contactEmail                        String?                                  @db.VarChar(320)
-  contactPhone                        String?                                  @db.VarChar(40)
-  websiteUrl                          String?                                  @db.VarChar(2048)
-  emailFromName                       String?                                  @db.VarChar(160)
-  emailReplyTo                        String?                                  @db.VarChar(320)
-  publicBookingTitle                  String?                                  @db.VarChar(160)
-  publicBookingDescription            String?                                  @db.VarChar(500)
-  customDomain                        String?                                  @unique @db.VarChar(253)
-  createdAt                           DateTime                                 @default(now()) @db.Timestamptz(6)
-  updatedAt                           DateTime                                 @updatedAt @db.Timestamptz(6)
-  deletedAt                           DateTime?                                @db.Timestamptz(6)
-  memberships                         OrganizationMembership[]
-  customers                           Customer[]
-  tourProducts                        TourProduct[]
-  appointmentServices                 AppointmentService[]
-  appointmentStaff                    AppointmentStaff[]
-  rentalLocations                     RentalLocation[]
-  rentalUnitTypes                     RentalUnitType[]
-  hospitalityProperties               HospitalityProperty[]
-  hospitalityAmenities                HospitalityAmenity[]
-  hospitalityAvailabilityWindows      HospitalityAvailabilityWindow[]
-  hospitalityAvailabilityHolds        HospitalityAvailabilityHold[]
-  hospitalityBaseRates                HospitalityBaseRate[]
-  hospitalityChargeRules              HospitalityChargeRule[]
-  hospitalityAddons                   HospitalityAddon[]
-  hospitalityBookings                 HospitalityBooking[]
-  publicBookingPrincipals              PublicBookingPrincipal[]
-  paymentCheckoutSessions             PaymentCheckoutSession[]
-  paymentTransactions                 PaymentTransaction[]
-  hospitalityCommercialAmendments     HospitalityBookingCommercialAmendment[]
-  hospitalityBookingPricingEvidence   HospitalityBookingPricingEvidence[]
-  invoiceIssuerProfiles               InvoiceIssuerProfile[]
-  hospitalityInvoicePreparations      HospitalityInvoicePreparation[]
-  hospitalityInvoiceNumberSequences   HospitalityInvoiceNumberSequence[]
-  hospitalityIssuedInvoices           HospitalityIssuedInvoice[]
-  hospitalityIssuedAdjustmentNotes    HospitalityIssuedAdjustmentNote[]
-  integrations                        Integration[]
-  auditEvents                         AuditEvent[]
+  id                              String                          @id @default(uuid()) @db.Uuid
+  slug                            String                          @unique @db.VarChar(63)
+  name                            String                          @db.VarChar(160)
+  kind                            OrganizationKind
+  status                          OrganizationStatus              @default(ACTIVE)
+  timezone                        String                          @default("UTC") @db.VarChar(80)
+  currency                        String                          @default("USD") @db.VarChar(3)
+  logoUrl                         String?                         @db.VarChar(2048)
+  faviconUrl                      String?                         @db.VarChar(2048)
+  primaryColor                    String                          @default("#2563eb") @db.Char(7)
+  secondaryColor                  String                          @default("#0d1626") @db.Char(7)
+  accentColor                     String                          @default("#20c997") @db.Char(7)
+  fontFamily                      String                          @default("INTER") @db.VarChar(20)
+  contactEmail                    String?                         @db.VarChar(320)
+  contactPhone                    String?                         @db.VarChar(40)
+  websiteUrl                      String?                         @db.VarChar(2048)
+  emailFromName                   String?                         @db.VarChar(160)
+  emailReplyTo                    String?                         @db.VarChar(320)
+  publicBookingTitle              String?                         @db.VarChar(160)
+  publicBookingDescription        String?                         @db.VarChar(500)
+  customDomain                    String?                         @unique @db.VarChar(253)
+  createdAt                       DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                       DateTime                        @updatedAt @db.Timestamptz(6)
+  deletedAt                       DateTime?                       @db.Timestamptz(6)
+  memberships                     OrganizationMembership[]
+  customers                       Customer[]
+  tourProducts                    TourProduct[]
+  appointmentServices             AppointmentService[]
+  appointmentStaff                AppointmentStaff[]
+  rentalLocations                 RentalLocation[]
+  rentalUnitTypes                 RentalUnitType[]
+  hospitalityProperties           HospitalityProperty[]
+  hospitalityAmenities            HospitalityAmenity[]
+  hospitalityAvailabilityWindows  HospitalityAvailabilityWindow[]
+  hospitalityAvailabilityHolds    HospitalityAvailabilityHold[]
+  hospitalityBaseRates            HospitalityBaseRate[]
+  hospitalityChargeRules          HospitalityChargeRule[]
+  hospitalityAddons               HospitalityAddon[]
+  hospitalityBookings             HospitalityBooking[]
+  publicBookingPrincipals          PublicBookingPrincipal[]
+  paymentCheckoutSessions         PaymentCheckoutSession[]
+  paymentTransactions             PaymentTransaction[]
+  hospitalityCommercialAmendments HospitalityBookingCommercialAmendment[]
+  hospitalityBookingPricingEvidence HospitalityBookingPricingEvidence[]
+  invoiceIssuerProfiles           InvoiceIssuerProfile[]
+  hospitalityInvoicePreparations  HospitalityInvoicePreparation[]
+  hospitalityInvoiceNumberSequences HospitalityInvoiceNumberSequence[]
+  hospitalityIssuedInvoices       HospitalityIssuedInvoice[]
+  hospitalityIssuedAdjustmentNotes HospitalityIssuedAdjustmentNote[]
+  integrations                    Integration[]
+  auditEvents                     AuditEvent[]
 
   @@index([status, deletedAt])
   @@index([kind])
@@ -164,21 +164,21 @@ model Organization {
 }
 
 model User {
-  id                                     String                          @id @default(uuid()) @db.Uuid
-  email                                  String                          @unique @db.VarChar(320)
-  displayName                            String?                         @db.VarChar(160)
-  status                                 UserStatus                      @default(ACTIVE)
-  platformRole                           PlatformRole                    @default(USER)
-  createdAt                              DateTime                        @default(now()) @db.Timestamptz(6)
-  updatedAt                              DateTime                        @updatedAt @db.Timestamptz(6)
-  memberships                            OrganizationMembership[]
-  passwordCredential                    PasswordCredential?
-  authSessions                          AuthSession[]
-  auditEvents                           AuditEvent[]                     @relation("AuditActor")
-  createdInvoiceIssuerProfiles          InvoiceIssuerProfile[]
+  id                 String                   @id @default(uuid()) @db.Uuid
+  email              String                   @unique @db.VarChar(320)
+  displayName        String?                  @db.VarChar(160)
+  status             UserStatus               @default(ACTIVE)
+  platformRole       PlatformRole             @default(USER)
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime                 @updatedAt @db.Timestamptz(6)
+  memberships        OrganizationMembership[]
+  passwordCredential PasswordCredential?
+  authSessions       AuthSession[]
+  auditEvents        AuditEvent[]              @relation("AuditActor")
+  createdInvoiceIssuerProfiles InvoiceIssuerProfile[]
   createdHospitalityInvoicePreparations HospitalityInvoicePreparation[]
-  issuedHospitalityInvoices             HospitalityIssuedInvoice[]
-  issuedHospitalityAdjustmentNotes      HospitalityIssuedAdjustmentNote[]
+  issuedHospitalityInvoices HospitalityIssuedInvoice[]
+  issuedHospitalityAdjustmentNotes HospitalityIssuedAdjustmentNote[]
 
   @@index([status])
   @@index([platformRole, status])
@@ -251,29 +251,29 @@ model Customer {
 }
 
 model HospitalityProperty {
-  id                     String                                  @id @default(uuid()) @db.Uuid
-  organizationId         String                                  @db.Uuid
-  name                   String                                  @db.VarChar(160)
-  code                   String                                  @db.VarChar(32)
-  status                 InventoryLifecycleStatus                @default(ACTIVE)
-  timezone               String                                  @db.VarChar(80)
-  addressLine1           String?                                 @db.VarChar(200)
-  city                   String?                                 @db.VarChar(120)
-  region                 String?                                 @db.VarChar(120)
-  postalCode             String?                                 @db.VarChar(24)
-  countryCode            String                                  @db.Char(2)
-  createdAt              DateTime                                @default(now()) @db.Timestamptz(6)
-  updatedAt              DateTime                                @updatedAt @db.Timestamptz(6)
-  archivedAt             DateTime?                               @db.Timestamptz(6)
-  organization           Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  roomTypes              HospitalityRoomType[]
-  amenityAssignments     HospitalityPropertyAmenity[]
-  images                 HospitalityPropertyImage[]
-  ratePlans              HospitalityRatePlan[]
-  baseRates              HospitalityBaseRate[]
-  chargeRules            HospitalityChargeRule[]
-  addons                 HospitalityAddon[]
-  commercialAmendments   HospitalityBookingCommercialAmendment[]
+  id                 String                       @id @default(uuid()) @db.Uuid
+  organizationId     String                       @db.Uuid
+  name               String                       @db.VarChar(160)
+  code               String                       @db.VarChar(32)
+  status             InventoryLifecycleStatus     @default(ACTIVE)
+  timezone           String                       @db.VarChar(80)
+  addressLine1       String?                      @db.VarChar(200)
+  city               String?                      @db.VarChar(120)
+  region             String?                      @db.VarChar(120)
+  postalCode         String?                      @db.VarChar(24)
+  countryCode        String                       @db.Char(2)
+  createdAt          DateTime                     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime                     @updatedAt @db.Timestamptz(6)
+  archivedAt         DateTime?                    @db.Timestamptz(6)
+  organization       Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  roomTypes          HospitalityRoomType[]
+  amenityAssignments HospitalityPropertyAmenity[]
+  images             HospitalityPropertyImage[]
+  ratePlans          HospitalityRatePlan[]
+  baseRates          HospitalityBaseRate[]
+  chargeRules        HospitalityChargeRule[]
+  addons             HospitalityAddon[]
+  commercialAmendments HospitalityBookingCommercialAmendment[]
   bookingPricingEvidence HospitalityBookingPricingEvidence[]
 
   @@unique([organizationId, code])
@@ -283,33 +283,33 @@ model HospitalityProperty {
 }
 
 model HospitalityRoomType {
-  id                          String                                  @id @default(uuid()) @db.Uuid
-  organizationId              String                                  @db.Uuid
-  propertyId                  String                                  @db.Uuid
-  name                        String                                  @db.VarChar(120)
-  code                        String                                  @db.VarChar(32)
-  status                      InventoryLifecycleStatus                @default(ACTIVE)
-  maxOccupancy                Int
-  bedsDescription             String?                                 @db.VarChar(160)
-  createdAt                   DateTime                                @default(now()) @db.Timestamptz(6)
-  updatedAt                   DateTime                                @updatedAt @db.Timestamptz(6)
-  archivedAt                  DateTime?                               @db.Timestamptz(6)
-  property                    HospitalityProperty                     @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  rooms                       HospitalityRoom[]
-  amenityAssignments          HospitalityRoomTypeAmenity[]
-  images                      HospitalityRoomTypeImage[]
-  ratePlanAssignments         HospitalityRoomTypeRatePlan[]
-  restrictions                HospitalityRestriction[]
-  availabilityWindows         HospitalityAvailabilityWindow[]
-  availabilityHolds           HospitalityAvailabilityHold[]
-  baseRates                   HospitalityBaseRate[]
-  chargeRules                 HospitalityChargeRule[]
-  addons                      HospitalityAddon[]
-  bookings                    HospitalityBooking[]
-  bookingAllocations          HospitalityBookingAllocation[]
+  id                  String                          @id @default(uuid()) @db.Uuid
+  organizationId      String                          @db.Uuid
+  propertyId          String                          @db.Uuid
+  name                String                          @db.VarChar(120)
+  code                String                          @db.VarChar(32)
+  status              InventoryLifecycleStatus        @default(ACTIVE)
+  maxOccupancy        Int
+  bedsDescription     String?                         @db.VarChar(160)
+  createdAt           DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                        @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?                       @db.Timestamptz(6)
+  property            HospitalityProperty             @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rooms               HospitalityRoom[]
+  amenityAssignments  HospitalityRoomTypeAmenity[]
+  images              HospitalityRoomTypeImage[]
+  ratePlanAssignments HospitalityRoomTypeRatePlan[]
+  restrictions        HospitalityRestriction[]
+  availabilityWindows HospitalityAvailabilityWindow[]
+  availabilityHolds   HospitalityAvailabilityHold[]
+  baseRates           HospitalityBaseRate[]
+  chargeRules         HospitalityChargeRule[]
+  addons              HospitalityAddon[]
+  bookings            HospitalityBooking[]
+  bookingAllocations  HospitalityBookingAllocation[]
   currentCommercialAmendments HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentCurrentRoomType")
-  targetCommercialAmendments  HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentTargetRoomType")
-  bookingPricingEvidence      HospitalityBookingPricingEvidence[]
+  targetCommercialAmendments HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentTargetRoomType")
+  bookingPricingEvidence HospitalityBookingPricingEvidence[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -420,27 +420,27 @@ model HospitalityRoomTypeImage {
 }
 
 model HospitalityRatePlan {
-  id                          String                                  @id @default(uuid()) @db.Uuid
-  organizationId              String                                  @db.Uuid
-  propertyId                  String                                  @db.Uuid
-  name                        String                                  @db.VarChar(120)
-  code                        String                                  @db.VarChar(32)
-  description                 String?                                 @db.VarChar(300)
-  status                      InventoryLifecycleStatus                @default(ACTIVE)
-  createdAt                   DateTime                                @default(now()) @db.Timestamptz(6)
-  updatedAt                   DateTime                                @updatedAt @db.Timestamptz(6)
-  archivedAt                  DateTime?                               @db.Timestamptz(6)
-  property                    HospitalityProperty                     @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  roomTypeAssignments         HospitalityRoomTypeRatePlan[]
-  restrictions                HospitalityRestriction[]
-  availabilityHolds           HospitalityAvailabilityHold[]
-  baseRates                   HospitalityBaseRate[]
-  chargeRules                 HospitalityChargeRule[]
-  addons                      HospitalityAddon[]
-  bookings                    HospitalityBooking[]
+  id                  String                        @id @default(uuid()) @db.Uuid
+  organizationId      String                        @db.Uuid
+  propertyId          String                        @db.Uuid
+  name                String                        @db.VarChar(120)
+  code                String                        @db.VarChar(32)
+  description         String?                       @db.VarChar(300)
+  status              InventoryLifecycleStatus      @default(ACTIVE)
+  createdAt           DateTime                      @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                      @updatedAt @db.Timestamptz(6)
+  archivedAt          DateTime?                     @db.Timestamptz(6)
+  property            HospitalityProperty           @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  roomTypeAssignments HospitalityRoomTypeRatePlan[]
+  restrictions        HospitalityRestriction[]
+  availabilityHolds   HospitalityAvailabilityHold[]
+  baseRates           HospitalityBaseRate[]
+  chargeRules         HospitalityChargeRule[]
+  addons              HospitalityAddon[]
+  bookings            HospitalityBooking[]
   currentCommercialAmendments HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentCurrentRatePlan")
-  targetCommercialAmendments  HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentTargetRatePlan")
-  bookingPricingEvidence      HospitalityBookingPricingEvidence[]
+  targetCommercialAmendments HospitalityBookingCommercialAmendment[] @relation("HospitalityCommercialAmendmentTargetRatePlan")
+  bookingPricingEvidence HospitalityBookingPricingEvidence[]
 
   @@unique([propertyId, code])
   @@unique([id, propertyId, organizationId])
@@ -594,25 +594,25 @@ model HospitalityAvailabilityWindow {
 }
 
 model HospitalityAvailabilityHold {
-  id                        String                                  @id @default(uuid()) @db.Uuid
-  organizationId            String                                  @db.Uuid
-  propertyId                String                                  @db.Uuid
-  roomTypeId                String                                  @db.Uuid
-  ratePlanId                String                                  @db.Uuid
-  idempotencyKey            String                                  @db.VarChar(120)
-  arrivalDate               DateTime                                @db.Date
-  departureDate             DateTime                                @db.Date
-  quantity                  Int
-  status                    AvailabilityHoldStatus                  @default(ACTIVE)
-  expiresAt                 DateTime                                @db.Timestamptz(6)
-  endedAt                   DateTime?                               @db.Timestamptz(6)
-  createdAt                 DateTime                                @default(now()) @db.Timestamptz(6)
-  updatedAt                 DateTime                                @updatedAt @db.Timestamptz(6)
-  organization              Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  roomType                  HospitalityRoomType                     @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_room_type_fkey")
-  ratePlan                  HospitalityRatePlan                     @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_rate_plan_fkey")
-  booking                   HospitalityBooking?
-  publicBookingOwnership    PublicBookingHoldOwnership?
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  propertyId     String                 @db.Uuid
+  roomTypeId     String                 @db.Uuid
+  ratePlanId     String                 @db.Uuid
+  idempotencyKey String                 @db.VarChar(120)
+  arrivalDate    DateTime               @db.Date
+  departureDate  DateTime               @db.Date
+  quantity       Int
+  status         AvailabilityHoldStatus @default(ACTIVE)
+  expiresAt      DateTime               @db.Timestamptz(6)
+  endedAt        DateTime?              @db.Timestamptz(6)
+  createdAt      DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(6)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  roomType       HospitalityRoomType    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_room_type_fkey")
+  ratePlan       HospitalityRatePlan    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_holds_rate_plan_fkey")
+  booking        HospitalityBooking?
+  publicBookingOwnership PublicBookingHoldOwnership?
   commercialAmendmentTarget HospitalityBookingCommercialAmendment?
 
   @@unique([organizationId, idempotencyKey], map: "hospitality_holds_org_idempotency_key")
@@ -623,46 +623,46 @@ model HospitalityAvailabilityHold {
 }
 
 model HospitalityBooking {
-  id                         String                                 @id @default(uuid()) @db.Uuid
-  organizationId             String                                 @db.Uuid
-  propertyId                 String                                 @db.Uuid
-  roomTypeId                 String                                 @db.Uuid
-  ratePlanId                 String                                 @db.Uuid
-  customerId                 String                                 @db.Uuid
-  holdId                     String                                 @db.Uuid
-  idempotencyKey             String                                 @db.VarChar(120)
-  status                     BookingStatus                          @default(CONFIRMED)
-  paymentStatus              PaymentStatus                          @default(UNPAID)
-  arrivalDate                DateTime                               @db.Date
-  departureDate              DateTime                               @db.Date
-  quantity                   Int
-  currency                   String                                 @db.Char(3)
-  accommodationSubtotalMinor BigInt                                 @db.BigInt
-  taxTotalMinor              BigInt                                 @db.BigInt
-  feeTotalMinor              BigInt                                 @db.BigInt
-  addonTotalMinor            BigInt                                 @db.BigInt
-  totalMinor                 BigInt                                 @db.BigInt
-  pricingFingerprint         String                                 @db.Char(64)
-  addonSelections            Json
-  createdAt                  DateTime                               @default(now()) @db.Timestamptz(6)
-  updatedAt                  DateTime                               @updatedAt @db.Timestamptz(6)
-  confirmedAt                DateTime?                              @db.Timestamptz(6)
-  cancelledAt                DateTime?                              @db.Timestamptz(6)
-  organization               Organization                           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  customer                   Customer                               @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_customer_fkey")
-  hold                       HospitalityAvailabilityHold            @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_hold_fkey")
-  roomType                   HospitalityRoomType                    @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_room_type_fkey")
-  ratePlan                   HospitalityRatePlan                    @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_rate_plan_fkey")
-  allocation                 HospitalityBookingAllocation?
-  guests                     HospitalityBookingGuest[]
-  publicBookingOwnership     PublicBookingBookingOwnership?
-  checkoutSessions           PaymentCheckoutSession[]
-  paymentTransactions        PaymentTransaction[]
-  commercialAmendments       HospitalityBookingCommercialAmendment[]
-  pricingEvidence            HospitalityBookingPricingEvidence[]
-  invoicePreparations        HospitalityInvoicePreparation[]
-  issuedInvoices             HospitalityIssuedInvoice[]
-  issuedAdjustmentNotes      HospitalityIssuedAdjustmentNote[]
+  id                           String                         @id @default(uuid()) @db.Uuid
+  organizationId               String                         @db.Uuid
+  propertyId                   String                         @db.Uuid
+  roomTypeId                   String                         @db.Uuid
+  ratePlanId                   String                         @db.Uuid
+  customerId                   String                         @db.Uuid
+  holdId                       String                         @db.Uuid
+  idempotencyKey               String                         @db.VarChar(120)
+  status                       BookingStatus                  @default(CONFIRMED)
+  paymentStatus                PaymentStatus                  @default(UNPAID)
+  arrivalDate                  DateTime                       @db.Date
+  departureDate                DateTime                       @db.Date
+  quantity                     Int
+  currency                     String                         @db.Char(3)
+  accommodationSubtotalMinor   BigInt                         @db.BigInt
+  taxTotalMinor                BigInt                         @db.BigInt
+  feeTotalMinor                BigInt                         @db.BigInt
+  addonTotalMinor              BigInt                         @db.BigInt
+  totalMinor                   BigInt                         @db.BigInt
+  pricingFingerprint           String                         @db.Char(64)
+  addonSelections              Json
+  createdAt                    DateTime                       @default(now()) @db.Timestamptz(6)
+  updatedAt                    DateTime                       @updatedAt @db.Timestamptz(6)
+  confirmedAt                  DateTime?                      @db.Timestamptz(6)
+  cancelledAt                  DateTime?                      @db.Timestamptz(6)
+  organization                 Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer                     Customer                       @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_customer_fkey")
+  hold                         HospitalityAvailabilityHold    @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_bookings_hold_fkey")
+  roomType                     HospitalityRoomType            @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_room_type_fkey")
+  ratePlan                     HospitalityRatePlan            @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_bookings_rate_plan_fkey")
+  allocation                   HospitalityBookingAllocation?
+  guests                       HospitalityBookingGuest[]
+  publicBookingOwnership       PublicBookingBookingOwnership?
+  checkoutSessions             PaymentCheckoutSession[]
+  paymentTransactions          PaymentTransaction[]
+  commercialAmendments         HospitalityBookingCommercialAmendment[]
+  pricingEvidence              HospitalityBookingPricingEvidence[]
+  invoicePreparations          HospitalityInvoicePreparation[]
+  issuedInvoices               HospitalityIssuedInvoice[]
+  issuedAdjustmentNotes        HospitalityIssuedAdjustmentNote[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, idempotencyKey], map: "hospitality_bookings_org_idempotency_key")

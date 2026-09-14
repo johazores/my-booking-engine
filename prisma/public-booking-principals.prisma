@@ -5,11 +5,11 @@ model PublicBookingPrincipal {
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @db.Timestamptz(6)
 
-  organization      Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_principals_organization_fkey")
+  organization      Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_principals_organization_fkey")
   holdOwnerships    PublicBookingHoldOwnership[]
   bookingOwnerships PublicBookingBookingOwnership[]
-  auditEvents       PublicBookingAuditEvent[]
-  checkoutSessions  PaymentCheckoutSession[]
+  auditEvents        PublicBookingAuditEvent[]
+  checkoutSessions   PaymentCheckoutSession[]
 
   @@unique([id, organizationId])
   @@index([organizationId, expiresAt], map: "public_booking_principals_org_expiry_idx")
@@ -35,7 +35,7 @@ model PublicBookingBookingOwnership {
   bookingId          String   @db.Uuid
   principalId        String   @db.Uuid
   requestFingerprint String   @db.Char(64)
-  createdAt          DateTime @default(now()) @db.Timestamptz(6)
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
   principal PublicBookingPrincipal @relation(fields: [principalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_principal_fkey")
   booking   HospitalityBooking     @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_booking_fkey")

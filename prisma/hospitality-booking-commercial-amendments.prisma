@@ -11,58 +11,58 @@ enum HospitalityBookingCommercialAmendmentDirection {
 }
 
 model HospitalityBookingCommercialAmendment {
-  id                                 String                                         @id @default(uuid()) @db.Uuid
-  organizationId                     String                                         @db.Uuid
-  bookingId                          String                                         @db.Uuid
-  idempotencyKey                     String                                         @db.VarChar(120)
-  status                             HospitalityBookingCommercialAmendmentStatus     @default(PREPARED)
-  direction                          HospitalityBookingCommercialAmendmentDirection
-  bookingVersion                     DateTime                                       @db.Timestamptz(6)
-  selectionFingerprint               String                                         @db.Char(64)
-  adjustmentFingerprint              String                                         @db.Char(64)
-  paymentProviderCode                String                                         @db.VarChar(40)
-  propertyId                         String                                         @db.Uuid
-  currentRoomTypeId                  String                                         @db.Uuid
-  currentRatePlanId                  String                                         @db.Uuid
-  currentQuantity                    Int
-  currentAddonSelections             Json
-  targetRoomTypeId                   String                                         @db.Uuid
-  targetRatePlanId                   String                                         @db.Uuid
-  targetQuantity                     Int
-  targetAddonSelections              Json
-  currency                           String                                         @db.Char(3)
-  beforeAccommodationSubtotalMinor   BigInt                                         @db.BigInt
-  beforeTaxTotalMinor                BigInt                                         @db.BigInt
-  beforeFeeTotalMinor                BigInt                                         @db.BigInt
-  beforeAddonTotalMinor              BigInt                                         @db.BigInt
-  beforeTotalMinor                   BigInt                                         @db.BigInt
-  beforePricingFingerprint           String                                         @db.Char(64)
-  afterAccommodationSubtotalMinor    BigInt                                         @db.BigInt
-  afterTaxTotalMinor                 BigInt                                         @db.BigInt
-  afterFeeTotalMinor                 BigInt                                         @db.BigInt
-  afterAddonTotalMinor               BigInt                                         @db.BigInt
-  afterTotalMinor                    BigInt                                         @db.BigInt
-  afterPricingFingerprint            String                                         @db.Char(64)
-  deltaMinor                         BigInt                                         @db.BigInt
-  targetHoldId                       String?                                        @db.Uuid
-  protectionQuantity                 Int                                            @default(0)
-  expiresAt                          DateTime                                       @db.Timestamptz(6)
-  endedAt                            DateTime?                                      @db.Timestamptz(6)
-  appliedAt                          DateTime?                                      @db.Timestamptz(6)
-  createdAt                          DateTime                                       @default(now()) @db.Timestamptz(6)
-  updatedAt                          DateTime                                       @updatedAt @db.Timestamptz(6)
+  id                                String                                         @id @default(uuid()) @db.Uuid
+  organizationId                    String                                         @db.Uuid
+  bookingId                         String                                         @db.Uuid
+  idempotencyKey                    String                                         @db.VarChar(120)
+  status                            HospitalityBookingCommercialAmendmentStatus     @default(PREPARED)
+  direction                         HospitalityBookingCommercialAmendmentDirection
+  bookingVersion                    DateTime                                       @db.Timestamptz(6)
+  selectionFingerprint              String                                         @db.Char(64)
+  adjustmentFingerprint             String                                         @db.Char(64)
+  paymentProviderCode               String                                         @db.VarChar(40)
+  propertyId                        String                                         @db.Uuid
+  currentRoomTypeId                 String                                         @db.Uuid
+  currentRatePlanId                 String                                         @db.Uuid
+  currentQuantity                   Int
+  currentAddonSelections            Json
+  targetRoomTypeId                  String                                         @db.Uuid
+  targetRatePlanId                  String                                         @db.Uuid
+  targetQuantity                    Int
+  targetAddonSelections             Json
+  currency                          String                                         @db.Char(3)
+  beforeAccommodationSubtotalMinor  BigInt                                         @db.BigInt
+  beforeTaxTotalMinor               BigInt                                         @db.BigInt
+  beforeFeeTotalMinor               BigInt                                         @db.BigInt
+  beforeAddonTotalMinor             BigInt                                         @db.BigInt
+  beforeTotalMinor                  BigInt                                         @db.BigInt
+  beforePricingFingerprint          String                                         @db.Char(64)
+  afterAccommodationSubtotalMinor   BigInt                                         @db.BigInt
+  afterTaxTotalMinor                BigInt                                         @db.BigInt
+  afterFeeTotalMinor                BigInt                                         @db.BigInt
+  afterAddonTotalMinor              BigInt                                         @db.BigInt
+  afterTotalMinor                   BigInt                                         @db.BigInt
+  afterPricingFingerprint           String                                         @db.Char(64)
+  deltaMinor                        BigInt                                         @db.BigInt
+  targetHoldId                      String?                                        @db.Uuid
+  protectionQuantity                Int                                            @default(0)
+  expiresAt                         DateTime                                       @db.Timestamptz(6)
+  endedAt                           DateTime?                                      @db.Timestamptz(6)
+  appliedAt                         DateTime?                                      @db.Timestamptz(6)
+  createdAt                         DateTime                                       @default(now()) @db.Timestamptz(6)
+  updatedAt                         DateTime                                       @updatedAt @db.Timestamptz(6)
 
-  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_organization_fkey")
-  booking             HospitalityBooking         @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_booking_fkey")
-  property            HospitalityProperty        @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_property_fkey")
-  currentRoomType     HospitalityRoomType        @relation("HospitalityCommercialAmendmentCurrentRoomType", fields: [currentRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_room_type_fkey")
-  targetRoomType      HospitalityRoomType        @relation("HospitalityCommercialAmendmentTargetRoomType", fields: [targetRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_room_type_fkey")
-  currentRatePlan     HospitalityRatePlan        @relation("HospitalityCommercialAmendmentCurrentRatePlan", fields: [currentRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_rate_plan_fkey")
-  targetRatePlan      HospitalityRatePlan        @relation("HospitalityCommercialAmendmentTargetRatePlan", fields: [targetRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_rate_plan_fkey")
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_organization_fkey")
+  booking             HospitalityBooking           @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_booking_fkey")
+  property            HospitalityProperty          @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_property_fkey")
+  currentRoomType     HospitalityRoomType          @relation("HospitalityCommercialAmendmentCurrentRoomType", fields: [currentRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_room_type_fkey")
+  targetRoomType      HospitalityRoomType          @relation("HospitalityCommercialAmendmentTargetRoomType", fields: [targetRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_room_type_fkey")
+  currentRatePlan     HospitalityRatePlan          @relation("HospitalityCommercialAmendmentCurrentRatePlan", fields: [currentRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_rate_plan_fkey")
+  targetRatePlan      HospitalityRatePlan          @relation("HospitalityCommercialAmendmentTargetRatePlan", fields: [targetRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_rate_plan_fkey")
   targetHold          HospitalityAvailabilityHold? @relation(fields: [targetHoldId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_hold_fkey")
-  paymentTransactions PaymentTransaction[]
-  pricingEvidence     HospitalityBookingPricingEvidence[]
-  issuedAdjustmentNote HospitalityIssuedAdjustmentNote?
+  paymentTransactions  PaymentTransaction[]
+  pricingEvidence      HospitalityBookingPricingEvidence[]
+  issuedAdjustmentNote  HospitalityIssuedAdjustmentNote?
 
   @@unique([id, organizationId], map: "hospitality_booking_commercial_amendments_id_org_key")
   @@unique([id, bookingId, organizationId], map: "hospitality_booking_commercial_amendments_id_booking_org_key")
