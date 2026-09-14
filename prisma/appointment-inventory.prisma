@@ -1,0 +1,76 @@
+model AppointmentService {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  organizationId      String                   @db.Uuid
+  name                String                   @db.VarChar(160)
+  code                String                   @db.VarChar(32)
+  description         String?                  @db.VarChar(1000)
+  durationMinutes     Int
+  bufferBeforeMinutes Int                      @default(0)
+  bufferAfterMinutes  Int                      @default(0)
+  status              InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt          DateTime?                @db.Timestamptz(6)
+  createdAt           DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @db.Timestamptz(6)
+
+  staffAssignments AppointmentStaffService[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status, name])
+  @@map("appointment_services")
+}
+
+model AppointmentStaff {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  name           String                   @db.VarChar(160)
+  code           String                   @db.VarChar(32)
+  description    String?                  @db.VarChar(1000)
+  timezone       String                   @db.VarChar(80)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  serviceAssignments AppointmentStaffService[]
+  schedules          AppointmentSchedule[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status, name])
+  @@map("appointment_staff")
+}
+
+model AppointmentStaffService {
+  organizationId String   @db.Uuid
+  staffId        String   @db.Uuid
+  serviceId      String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  staff   AppointmentStaff   @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  service AppointmentService @relation(fields: [serviceId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([organizationId, staffId, serviceId])
+  @@index([organizationId, serviceId])
+  @@map("appointment_staff_services")
+}
+
+model AppointmentSchedule {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  staffId        String                   @db.Uuid
+  dayOfWeek      Int
+  startsAtMinute Int
+  endsAtMinute   Int
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  staff AppointmentStaff @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([staffId, dayOfWeek, startsAtMinute, endsAtMinute])
+  @@index([organizationId, staffId, status, dayOfWeek, startsAtMinute])
+  @@map("appointment_schedules")
+}
