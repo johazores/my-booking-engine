@@ -6,7 +6,9 @@ import {
   assertRentalArchiveConfirmation,
   assertRentalRemoveConfirmation,
   normalizeRentalAvailabilityBlockInput,
+  normalizeRentalLocationInput,
   normalizeRentalRatePeriodInput,
+  normalizeRentalUnitInput,
   normalizeRentalUnitTypeInput,
 } from '../src/server/inventory/rental-domain.ts';
 
@@ -24,6 +26,66 @@ test('normalizes unit type pricing and identifiers', () => {
     currency: 'PHP',
     defaultDailyRateMinor: 125000,
   });
+});
+
+test('normalizes rental locations and validates country and timezone authority', () => {
+  assert.deepEqual(normalizeRentalLocationInput({
+    name: '  Makati Hub ',
+    code: ' makati-hub ',
+    addressLine1: '  123 Ayala Avenue ',
+    addressLine2: '',
+    city: ' Makati ',
+    region: ' NCR ',
+    postalCode: ' 1200 ',
+    countryCode: ' ph ',
+    timeZone: ' Asia/Manila ',
+  }), {
+    name: 'Makati Hub',
+    code: 'MAKATI-HUB',
+    addressLine1: '123 Ayala Avenue',
+    addressLine2: null,
+    city: 'Makati',
+    region: 'NCR',
+    postalCode: '1200',
+    countryCode: 'PH',
+    timeZone: 'Asia/Manila',
+  });
+  assert.throws(() => normalizeRentalLocationInput({
+    name: 'Bad country',
+    code: 'BAD-COUNTRY',
+    addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '',
+    countryCode: 'PHL',
+    timeZone: 'Asia/Manila',
+  }), RentalInventoryValidationError);
+  assert.throws(() => normalizeRentalLocationInput({
+    name: 'Bad timezone',
+    code: 'BAD-TZ',
+    addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '',
+    countryCode: 'PH',
+    timeZone: 'Not/A-Timezone',
+  }), RentalInventoryValidationError);
+});
+
+test('new rental units require a canonical location code', () => {
+  assert.deepEqual(normalizeRentalUnitInput({
+    unitTypeId: ' type-id ',
+    locationCode: ' makati-hub ',
+    name: ' Bike 12 ',
+    code: ' bike-12 ',
+    description: '',
+  }), {
+    unitTypeId: 'type-id',
+    locationCode: 'MAKATI-HUB',
+    name: 'Bike 12',
+    code: 'BIKE-12',
+    description: null,
+  });
+  assert.throws(() => normalizeRentalUnitInput({
+    unitTypeId: 'type-id',
+    locationCode: '',
+    name: 'Bike 13',
+    code: 'BIKE-13',
+  }), RentalInventoryValidationError);
 });
 
 test('uses valid half-open date ranges and rejects invalid calendar values', () => {

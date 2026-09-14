@@ -1,3 +1,28 @@
+model RentalLocation {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  name           String                   @db.VarChar(160)
+  code           String                   @db.VarChar(32)
+  addressLine1   String                   @db.VarChar(200)
+  addressLine2   String?                  @db.VarChar(200)
+  city           String                   @db.VarChar(120)
+  region         String?                  @db.VarChar(120)
+  postalCode     String?                  @db.VarChar(32)
+  countryCode    String                   @db.Char(2)
+  timeZone       String                   @db.VarChar(80)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  units RentalUnit[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status, name])
+  @@map("rental_locations")
+}
+
 model RentalUnitType {
   id                    String                   @id @default(uuid()) @db.Uuid
   organizationId        String                   @db.Uuid
@@ -24,6 +49,7 @@ model RentalUnit {
   id             String                   @id @default(uuid()) @db.Uuid
   organizationId String                   @db.Uuid
   unitTypeId     String                   @db.Uuid
+  locationId     String?                  @db.Uuid
   name           String                   @db.VarChar(160)
   code           String                   @db.VarChar(32)
   description    String?                  @db.VarChar(1000)
@@ -33,11 +59,13 @@ model RentalUnit {
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
   unitType           RentalUnitType             @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  location           RentalLocation?            @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   availabilityBlocks RentalAvailabilityBlock[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
   @@index([organizationId, unitTypeId, status, name])
+  @@index([organizationId, locationId, status, name])
   @@map("rental_units")
 }
 

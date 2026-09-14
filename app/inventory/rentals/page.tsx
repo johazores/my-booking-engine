@@ -18,6 +18,8 @@ const errors: Record<string, string> = {
 };
 
 const statuses: Record<string, string> = {
+  'location-created': 'Rental location created.',
+  'location-archived': 'Rental location archived.',
   'unit-type-created': 'Rental unit type created.',
   'unit-type-archived': 'Rental unit type archived.',
   'unit-archived': 'Rental unit archived.',
@@ -27,9 +29,10 @@ function money(minor: number, currency: string) {
   return `${currency} ${minor.toLocaleString()} minor units`;
 }
 
-function rentalHref(typePage: number, unitPage: number, pageSize: number) {
+function rentalHref(typePage: number, locationPage: number, unitPage: number, pageSize: number) {
   const params = new URLSearchParams();
   if (typePage > 1) params.set('typePage', String(typePage));
+  if (locationPage > 1) params.set('locationPage', String(locationPage));
   if (unitPage > 1) params.set('unitPage', String(unitPage));
   if (pageSize !== 20) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -39,7 +42,7 @@ function rentalHref(typePage: number, unitPage: number, pageSize: number) {
 export default async function RentalInventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ typePage?: string; unitPage?: string; pageSize?: string; status?: string; error?: string }>;
+  searchParams: Promise<{ typePage?: string; locationPage?: string; unitPage?: string; pageSize?: string; status?: string; error?: string }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -72,18 +75,44 @@ export default async function RentalInventoryPage({
     organizationId: activeContext.organization.id,
     actorUserId: session.user.id,
     unitTypePage: parseInventoryPage(params.typePage),
+    locationPage: parseInventoryPage(params.locationPage),
     unitPage: parseInventoryPage(params.unitPage),
     pageSize,
   });
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental inventory</p><h1>Units and pricing</h1><p>Manage rentable unit types, physical units, daily pricing, and unavailable dates for {activeContext.organization.name}.</p></div>
+      <div><p className="sf-eyebrow">Rental inventory</p><h1>Products, locations, and pricing</h1><p>Manage rentable unit types, operating locations, physical units, daily pricing, and unavailable dates for {activeContext.organization.name}.</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory">Hospitality</Link><Link className="sf-button sf-button--secondary" href="/inventory/tours">Tours</Link><Link className="sf-button sf-button--secondary" href="/inventory/appointments">Appointments</Link></div>
     </header>
 
     {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
     {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+
+    <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
+      <section className="sf-inventory-card" aria-labelledby="rental-locations-title">
+        <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Operations</p><h2 id="rental-locations-title">Locations</h2></div><span>{inventory.locations.total} active</span></div>
+        {inventory.locations.items.length === 0 ? <div className="sf-empty-state"><h3>No rental locations yet</h3><p>{canManage ? 'Create a location before adding new physical rental units.' : 'No rental locations are available for this tenant.'}</p></div> :
+          <ul className="sf-inventory-list">{inventory.locations.items.map((location) =>
+            <li key={location.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/locations/${location.id}`}><div><strong>{location.name}</strong><span>{location.code} · {location.city}, {location.countryCode} · {location.timeZone}</span></div></Link></div></li>
+          )}</ul>}
+        {inventory.locations.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental location pages">{inventory.locations.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.locations.page - 1, inventory.units.page, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.locations.page} of {inventory.locations.totalPages}</span>{inventory.locations.page < inventory.locations.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.locations.page + 1, inventory.units.page, pageSize)}>Next</Link> : <span />}</nav> : null}
+      </section>
+
+      {canManage ? <aside className="sf-inventory-card sf-inventory-card--create">
+        <p className="sf-eyebrow">New rental location</p><h2>Create location</h2><p>Use a tenant-local code and a real operating address. Pickup and drop-off selection are separate later booking concerns.</p>
+        <form className="sf-form" action="/api/inventory/rentals/locations" method="post">
+          <label className="sf-field">Name<input name="name" maxLength={160} required /></label>
+          <label className="sf-field">Code<input name="code" maxLength={32} required autoCapitalize="characters" /></label>
+          <label className="sf-field">Address line 1<input name="addressLine1" maxLength={200} required /></label>
+          <label className="sf-field">Address line 2<input name="addressLine2" maxLength={200} /></label>
+          <div className="sf-form-row"><label className="sf-field">City<input name="city" maxLength={120} required /></label><label className="sf-field">Region / state<input name="region" maxLength={120} /></label></div>
+          <div className="sf-form-row"><label className="sf-field">Postal code<input name="postalCode" maxLength={32} /></label><label className="sf-field">Country code<input name="countryCode" maxLength={2} minLength={2} required autoCapitalize="characters" defaultValue="PH" /></label></div>
+          <label className="sf-field">IANA timezone<input name="timeZone" maxLength={80} required defaultValue="Asia/Manila" /></label>
+          <button className="sf-button sf-button--primary" type="submit">Create location</button>
+        </form>
+      </aside> : null}
+    </div>
 
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
       <section className="sf-inventory-card" aria-labelledby="rental-types-title">
@@ -92,7 +121,7 @@ export default async function RentalInventoryPage({
           <ul className="sf-inventory-list">{inventory.unitTypes.items.map((unitType) =>
             <li key={unitType.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/types/${unitType.id}`}><div><strong>{unitType.name}</strong><span>{unitType.code} · {money(unitType.defaultDailyRateMinor, unitType.currency)} / day</span></div></Link></div></li>
           )}</ul>}
-        {inventory.unitTypes.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental unit type pages">{inventory.unitTypes.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page - 1, inventory.units.page, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.unitTypes.page} of {inventory.unitTypes.totalPages}</span>{inventory.unitTypes.page < inventory.unitTypes.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page + 1, inventory.units.page, pageSize)}>Next</Link> : <span />}</nav> : null}
+        {inventory.unitTypes.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental unit type pages">{inventory.unitTypes.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page - 1, inventory.locations.page, inventory.units.page, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.unitTypes.page} of {inventory.unitTypes.totalPages}</span>{inventory.unitTypes.page < inventory.unitTypes.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page + 1, inventory.locations.page, inventory.units.page, pageSize)}>Next</Link> : <span />}</nav> : null}
       </section>
 
       {canManage ? <aside className="sf-inventory-card sf-inventory-card--create">
@@ -109,11 +138,11 @@ export default async function RentalInventoryPage({
 
     <section className="sf-inventory-card" aria-labelledby="rental-units-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fleet</p><h2 id="rental-units-title">Physical units</h2></div><span>{inventory.units.total} active</span></div>
-      {inventory.units.items.length === 0 ? <div className="sf-empty-state"><h3>No rental units yet</h3><p>Add units from a unit type page.</p></div> :
+      {inventory.units.items.length === 0 ? <div className="sf-empty-state"><h3>No rental units yet</h3><p>Add units from a unit type page after creating an operating location.</p></div> :
         <ul className="sf-inventory-list">{inventory.units.items.map((unit) =>
-          <li key={unit.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/units/${unit.id}`}><div><strong>{unit.name}</strong><span>{unit.code} · {unit.unitType.name} ({unit.unitType.code})</span></div></Link></div></li>
+          <li key={unit.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/units/${unit.id}`}><div><strong>{unit.name}</strong><span>{unit.code} · {unit.unitType.name} ({unit.unitType.code}) · {unit.location ? `${unit.location.name} (${unit.location.code})` : 'Location not assigned'}</span></div></Link></div></li>
         )}</ul>}
-      {inventory.units.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental unit pages">{inventory.units.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.units.page - 1, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.units.page} of {inventory.units.totalPages}</span>{inventory.units.page < inventory.units.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.units.page + 1, pageSize)}>Next</Link> : <span />}</nav> : null}
+      {inventory.units.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental unit pages">{inventory.units.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.locations.page, inventory.units.page - 1, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.units.page} of {inventory.units.totalPages}</span>{inventory.units.page < inventory.units.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={rentalHref(inventory.unitTypes.page, inventory.locations.page, inventory.units.page + 1, pageSize)}>Next</Link> : <span />}</nav> : null}
     </section>
   </div>;
 }

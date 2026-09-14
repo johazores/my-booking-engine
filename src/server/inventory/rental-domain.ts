@@ -5,6 +5,18 @@ export class RentalInventoryValidationError extends Error {
   }
 }
 
+export type RentalLocationInput = {
+  name: string;
+  code: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  region?: string;
+  postalCode?: string;
+  countryCode: string;
+  timeZone: string;
+};
+
 export type RentalUnitTypeInput = {
   name: string;
   code: string;
@@ -15,6 +27,7 @@ export type RentalUnitTypeInput = {
 
 export type RentalUnitInput = {
   unitTypeId: string;
+  locationCode: string;
   name: string;
   code: string;
   description?: string;
@@ -46,6 +59,24 @@ export function normalizeRentalCode(value: string) {
   const normalized = value.trim().toUpperCase();
   if (!/^[A-Z0-9][A-Z0-9_-]{0,31}$/.test(normalized)) {
     throw new RentalInventoryValidationError('Code must use 1-32 letters, numbers, dashes, or underscores.');
+  }
+  return normalized;
+}
+
+export function normalizeRentalCountryCode(value: string) {
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) {
+    throw new RentalInventoryValidationError('Country code must be a two-letter ISO-style code.');
+  }
+  return normalized;
+}
+
+export function normalizeRentalTimeZone(value: string) {
+  const normalized = normalizeText(value, 'Timezone', 80) as string;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format();
+  } catch {
+    throw new RentalInventoryValidationError('Timezone must be a valid IANA timezone.');
   }
   return normalized;
 }
@@ -96,6 +127,20 @@ export function normalizeRentalDateRange(input: RentalDateRangeInput) {
   return { startsOn, endsOn };
 }
 
+export function normalizeRentalLocationInput(input: RentalLocationInput) {
+  return {
+    name: normalizeText(input.name, 'Location name', 160) as string,
+    code: normalizeRentalCode(input.code),
+    addressLine1: normalizeText(input.addressLine1, 'Address line 1', 200) as string,
+    addressLine2: normalizeText(input.addressLine2, 'Address line 2', 200, false),
+    city: normalizeText(input.city, 'City', 120) as string,
+    region: normalizeText(input.region, 'Region', 120, false),
+    postalCode: normalizeText(input.postalCode, 'Postal code', 32, false),
+    countryCode: normalizeRentalCountryCode(input.countryCode),
+    timeZone: normalizeRentalTimeZone(input.timeZone),
+  };
+}
+
 export function normalizeRentalUnitTypeInput(input: RentalUnitTypeInput) {
   return {
     name: normalizeText(input.name, 'Unit type name', 160) as string,
@@ -109,6 +154,7 @@ export function normalizeRentalUnitTypeInput(input: RentalUnitTypeInput) {
 export function normalizeRentalUnitInput(input: RentalUnitInput) {
   return {
     unitTypeId: input.unitTypeId.trim(),
+    locationCode: normalizeRentalCode(input.locationCode),
     name: normalizeText(input.name, 'Unit name', 160) as string,
     code: normalizeRentalCode(input.code),
     description: normalizeText(input.description, 'Description', 1000, false),

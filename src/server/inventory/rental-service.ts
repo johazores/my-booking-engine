@@ -5,10 +5,13 @@ import {
   assertRentalArchiveConfirmation,
   assertRentalRemoveConfirmation,
   normalizeRentalAvailabilityBlockInput,
+  normalizeRentalCode,
+  normalizeRentalLocationInput,
   normalizeRentalRatePeriodInput,
   normalizeRentalUnitInput,
   normalizeRentalUnitTypeInput,
   type RentalAvailabilityBlockInput,
+  type RentalLocationInput,
   type RentalRatePeriodInput,
   type RentalUnitInput,
   type RentalUnitTypeInput,
@@ -57,29 +60,65 @@ export async function listRentalInventory(input: {
   organizationId: string;
   actorUserId: string;
   unitTypePage: number;
+  locationPage: number;
   unitPage: number;
   pageSize: number;
 }) {
   await requireRentalPermission(input, 'inventory:read');
-  const [unitTypeTotal, unitTypes, unitTotal, units] = await db.$transaction([
+  const [unitTypeTotal, unitTypes, locationTotal, locations, unitTotal, units] = await db.$transaction([
     db.rentalUnitType.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
     db.rentalUnitType.findMany({
       where: { organizationId: input.organizationId, status: 'ACTIVE' },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       ...pagination(input.unitTypePage, input.pageSize),
     }),
+    db.rentalLocation.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
+    db.rentalLocation.findMany({
+      where: { organizationId: input.organizationId, status: 'ACTIVE' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      ...pagination(input.locationPage, input.pageSize),
+    }),
     db.rentalUnit.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
     db.rentalUnit.findMany({
       where: { organizationId: input.organizationId, status: 'ACTIVE' },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      include: { unitType: { select: { name: true, code: true, currency: true } } },
+      include: {
+        unitType: { select: { name: true, code: true, currency: true } },
+        location: { select: { name: true, code: true } },
+      },
       ...pagination(input.unitPage, input.pageSize),
     }),
   ]);
   return {
     unitTypes: { items: unitTypes, total: unitTypeTotal, page: input.unitTypePage, totalPages: Math.max(1, Math.ceil(unitTypeTotal / input.pageSize)) },
+    locations: { items: locations, total: locationTotal, page: input.locationPage, totalPages: Math.max(1, Math.ceil(locationTotal / input.pageSize)) },
     units: { items: units, total: unitTotal, page: input.unitPage, totalPages: Math.max(1, Math.ceil(unitTotal / input.pageSize)) },
   };
+}
+
+export async function readRentalLocationInventory(input: {
+  organizationId: string;
+  actorUserId: string;
+  locationId: string;
+  unitPage: number;
+  pageSize: number;
+}) {
+  await requireRentalPermission(input, 'inventory:read');
+  assertUuidIdentifier(input.locationId, 'locationId');
+  const location = await db.rentalLocation.findFirst({
+    where: { id: input.locationId, organizationId: input.organizationId, status: 'ACTIVE' },
+  });
+  if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+  const total = await db.rentalUnit.count({
+    where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
+  });
+  const units = await db.rentalUnit.findMany({
+    where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    include: { unitType: { select: { name: true, code: true } } },
+    ...pagination(input.unitPage, input.pageSize),
+  });
+  return { location, units: { items: units, total, page: input.unitPage, totalPages: Math.max(1, Math.ceil(total / input.pageSize)) } };
 }
 
 export async function readRentalUnitTypeInventory(input: {
@@ -101,6 +140,7 @@ export async function readRentalUnitTypeInventory(input: {
     db.rentalUnit.findMany({
       where: { organizationId: input.organizationId, unitTypeId: unitType.id, status: 'ACTIVE' },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      include: { location: { select: { name: true, code: true } } },
       ...pagination(input.unitPage, input.pageSize),
     }),
     db.rentalRatePeriod.count({ where: { organizationId: input.organizationId, unitTypeId: unitType.id } }),
@@ -128,7 +168,7 @@ export async function readRentalUnitInventory(input: {
   assertUuidIdentifier(input.unitId, 'unitId');
   const unit = await db.rentalUnit.findFirst({
     where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
-    include: { unitType: true },
+    include: { unitType: true, location: true },
   });
   if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
   const total = await db.rentalAvailabilityBlock.count({ where: { organizationId: input.organizationId, unitId: unit.id } });
@@ -138,6 +178,34 @@ export async function readRentalUnitInventory(input: {
     ...pagination(input.blockPage, input.pageSize),
   });
   return { unit, blocks: { items: blocks, total, page: input.blockPage, totalPages: Math.max(1, Math.ceil(total / input.pageSize)) } };
+}
+
+export async function createRentalLocation(input: {
+  organizationId: string;
+  actorUserId: string;
+  location: RentalLocationInput;
+}) {
+  await requireRentalPermission(input, 'inventory:manage');
+  const location = normalizeRentalLocationInput(input.location);
+  try {
+    return await db.$transaction(async (transaction) => {
+      const created = await transaction.rentalLocation.create({ data: { organizationId: input.organizationId, ...location } });
+      await transaction.auditEvent.create({
+        data: {
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: 'inventory.rental-location.created',
+          resourceType: 'rental-location',
+          resourceId: created.id,
+          afterData: { code: created.code, countryCode: created.countryCode, timeZone: created.timeZone, status: created.status },
+        },
+      });
+      return created;
+    }, { isolationLevel: 'Serializable' });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw new RentalInventoryConflictError('A rental location with that code already exists in this organization.');
+    throw error;
+  }
 }
 
 export async function createRentalUnitType(input: {
@@ -178,12 +246,28 @@ export async function createRentalUnit(input: {
   assertUuidIdentifier(unit.unitTypeId, 'unitTypeId');
   try {
     return await db.$transaction(async (transaction) => {
-      const unitType = await transaction.rentalUnitType.findFirst({
-        where: { id: unit.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
-        select: { id: true, code: true },
-      });
+      const [unitType, location] = await Promise.all([
+        transaction.rentalUnitType.findFirst({
+          where: { id: unit.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
+          select: { id: true, code: true },
+        }),
+        transaction.rentalLocation.findFirst({
+          where: { organizationId: input.organizationId, code: unit.locationCode, status: 'ACTIVE' },
+          select: { id: true, code: true },
+        }),
+      ]);
       if (!unitType) throw new RentalInventoryUnavailableError('Rental unit type is not active in this organization.');
-      const created = await transaction.rentalUnit.create({ data: { organizationId: input.organizationId, ...unit } });
+      if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+      const created = await transaction.rentalUnit.create({
+        data: {
+          organizationId: input.organizationId,
+          unitTypeId: unit.unitTypeId,
+          locationId: location.id,
+          name: unit.name,
+          code: unit.code,
+          description: unit.description,
+        },
+      });
       await transaction.auditEvent.create({
         data: {
           organizationId: input.organizationId,
@@ -191,7 +275,7 @@ export async function createRentalUnit(input: {
           action: 'inventory.rental-unit.created',
           resourceType: 'rental-unit',
           resourceId: created.id,
-          afterData: { code: created.code, unitTypeId: created.unitTypeId, unitTypeCode: unitType.code, status: created.status },
+          afterData: { code: created.code, unitTypeId: created.unitTypeId, unitTypeCode: unitType.code, locationId: location.id, locationCode: location.code, status: created.status },
         },
       });
       return created;
@@ -201,6 +285,45 @@ export async function createRentalUnit(input: {
     if (isUniqueConstraintError(error)) throw new RentalInventoryConflictError('A rental unit with that code already exists in this organization.');
     throw error;
   }
+}
+
+export async function assignRentalUnitLocation(input: {
+  organizationId: string;
+  actorUserId: string;
+  unitId: string;
+  locationCode: string;
+}) {
+  await requireRentalPermission(input, 'inventory:manage');
+  assertUuidIdentifier(input.unitId, 'unitId');
+  const locationCode = normalizeRentalCode(input.locationCode);
+  return db.$transaction(async (transaction) => {
+    const [unit, location] = await Promise.all([
+      transaction.rentalUnit.findFirst({
+        where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
+        select: { id: true, locationId: true, code: true },
+      }),
+      transaction.rentalLocation.findFirst({
+        where: { organizationId: input.organizationId, code: locationCode, status: 'ACTIVE' },
+        select: { id: true, code: true },
+      }),
+    ]);
+    if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
+    if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+    if (unit.locationId === location.id) return unit;
+    const updated = await transaction.rentalUnit.update({ where: { id: unit.id }, data: { locationId: location.id } });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'inventory.rental-unit.location-assigned',
+        resourceType: 'rental-unit',
+        resourceId: unit.id,
+        beforeData: { locationId: unit.locationId },
+        afterData: { locationId: location.id, locationCode: location.code },
+      },
+    });
+    return updated;
+  }, { isolationLevel: 'Serializable' });
 }
 
 export async function createRentalAvailabilityBlock(input: {
@@ -278,6 +401,42 @@ export async function createRentalRatePeriod(input: {
       },
     });
     return created;
+  }, { isolationLevel: 'Serializable' });
+}
+
+export async function archiveRentalLocation(input: {
+  organizationId: string;
+  actorUserId: string;
+  locationId: string;
+  confirmation: string;
+}) {
+  await requireRentalPermission(input, 'inventory:manage');
+  assertUuidIdentifier(input.locationId, 'locationId');
+  assertRentalArchiveConfirmation(input.confirmation);
+  return db.$transaction(async (transaction) => {
+    const current = await transaction.rentalLocation.findFirst({
+      where: { id: input.locationId, organizationId: input.organizationId, status: 'ACTIVE' },
+      select: { id: true, status: true },
+    });
+    if (!current) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+    const activeUnits = await transaction.rentalUnit.count({
+      where: { organizationId: input.organizationId, locationId: current.id, status: 'ACTIVE' },
+    });
+    if (activeUnits > 0) throw new RentalInventoryDependencyError('Move or archive active rental units before archiving this location.');
+    const archivedAt = new Date();
+    const updated = await transaction.rentalLocation.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'inventory.rental-location.archived',
+        resourceType: 'rental-location',
+        resourceId: current.id,
+        beforeData: { status: current.status },
+        afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() },
+      },
+    });
+    return updated;
   }, { isolationLevel: 'Serializable' });
 }
 

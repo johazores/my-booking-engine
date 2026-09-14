@@ -15,7 +15,13 @@ export async function POST(request: Request) {
     const created = await createRentalUnit({
       organizationId: organization.id,
       actorUserId: session.user.id,
-      unit: { unitTypeId, name: formField(formData, 'name'), code: formField(formData, 'code'), description: formField(formData, 'description') },
+      unit: {
+        unitTypeId,
+        locationCode: formField(formData, 'locationCode'),
+        name: formField(formData, 'name'),
+        code: formField(formData, 'code'),
+        description: formField(formData, 'description'),
+      },
     });
     return finish(NextResponse.redirect(new URL(`/inventory/rentals/units/${created.id}?status=unit-created`, request.url), 303));
   } catch (error) {
