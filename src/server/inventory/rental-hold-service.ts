@@ -11,10 +11,8 @@ import {
   rentalAvailabilityHoldPayloadMatches,
   type RentalAvailabilityHoldInput,
 } from './rental-hold-domain.ts';
-import {
-  normalizeRentalDateRange,
-  RentalInventoryValidationError,
-} from './rental-domain.ts';
+import { RentalInventoryValidationError } from './rental-domain.ts';
+import { rentalUnitLockKey } from './rental-lock-domain.ts';
 import {
   RentalInventoryConflictError,
   RentalInventoryUnavailableError,
@@ -22,10 +20,6 @@ import {
 
 function idempotencyLockKey(organizationId: string, idempotencyKey: string) {
   return `sf:rental-hold:${organizationId}:idempotency:${idempotencyKey}`;
-}
-
-function rentalUnitLockKey(organizationId: string, unitId: string) {
-  return `sf:rental-unit:${organizationId}:${unitId}`;
 }
 
 function normalizePage(value: number, field: string, maximum: number) {
@@ -476,75 +470,4 @@ export async function releaseRentalAvailabilityHold(input: Readonly<{
     });
     return updated;
   }, { isolationLevel: 'ReadCommitted' });
-}
-
-export async function assertRentalAvailabilityBlockNotHeld(input: Readonly<{
-  organizationId: string;
-  actorUserId: string;
-  unitId: string;
-  startsOn: string;
-  endsOn: string;
-  now?: Date;
-}>) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  assertUuidIdentifier(input.unitId, 'unitId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'inventory:manage',
-  });
-  const range = normalizeRentalDateRange(input);
-  const now = input.now ?? new Date();
-  assertValidNow(now);
-
-  const overlappingHold = await db.rentalAvailabilityHold.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      unitId: input.unitId,
-      status: 'ACTIVE',
-      expiresAt: { gt: now },
-      startsOn: { lt: range.endsOn },
-      endsOn: { gt: range.startsOn },
-    },
-    select: { id: true },
-  });
-  if (overlappingHold) {
-    throw new RentalInventoryConflictError(
-      'Release the overlapping rental availability hold before adding this unavailable-date block.',
-    );
-  }
-}
-
-export async function assertRentalUnitNotHeldForInventoryMutation(input: Readonly<{
-  organizationId: string;
-  actorUserId: string;
-  unitId: string;
-  now?: Date;
-}>) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  assertUuidIdentifier(input.unitId, 'unitId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'inventory:manage',
-  });
-  const now = input.now ?? new Date();
-  assertValidNow(now);
-
-  const activeHold = await db.rentalAvailabilityHold.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      unitId: input.unitId,
-      status: 'ACTIVE',
-      expiresAt: { gt: now },
-    },
-    select: { id: true },
-  });
-  if (activeHold) {
-    throw new RentalInventoryConflictError(
-      'Release active rental availability holds before relocating or archiving this unit.',
-    );
-  }
 }
