@@ -1,0 +1,74 @@
+model RentalUnitType {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  organizationId        String                   @db.Uuid
+  name                  String                   @db.VarChar(160)
+  code                  String                   @db.VarChar(32)
+  description           String?                  @db.VarChar(1000)
+  currency              String                   @db.Char(3)
+  defaultDailyRateMinor Int
+  status                InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt            DateTime?                @db.Timestamptz(6)
+  createdAt             DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime                 @updatedAt @db.Timestamptz(6)
+
+  units       RentalUnit[]
+  ratePeriods RentalRatePeriod[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, status, name])
+  @@map("rental_unit_types")
+}
+
+model RentalUnit {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  unitTypeId     String                   @db.Uuid
+  name           String                   @db.VarChar(160)
+  code           String                   @db.VarChar(32)
+  description    String?                  @db.VarChar(1000)
+  status         InventoryLifecycleStatus @default(ACTIVE)
+  archivedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+
+  unitType           RentalUnitType             @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  availabilityBlocks RentalAvailabilityBlock[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, code])
+  @@index([organizationId, unitTypeId, status, name])
+  @@map("rental_units")
+}
+
+model RentalAvailabilityBlock {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  unitId         String   @db.Uuid
+  startsOn       DateTime @db.Date
+  endsOn         DateTime @db.Date
+  reason         String?  @db.VarChar(500)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, unitId, startsOn, endsOn])
+  @@map("rental_availability_blocks")
+}
+
+model RentalRatePeriod {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  unitTypeId     String   @db.Uuid
+  startsOn       DateTime @db.Date
+  endsOn         DateTime @db.Date
+  dailyRateMinor Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  unitType RentalUnitType @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId, unitTypeId, startsOn, endsOn])
+  @@map("rental_rate_periods")
+}

@@ -23,6 +23,12 @@ import {
   HospitalityInventoryDependencyError,
   HospitalityInventoryUnavailableError,
 } from './hospitality-service.ts';
+import { RentalInventoryValidationError } from './rental-domain.ts';
+import {
+  RentalInventoryConflictError,
+  RentalInventoryDependencyError,
+  RentalInventoryUnavailableError,
+} from './rental-service.ts';
 import { TourInventoryValidationError } from './tour-domain.ts';
 import {
   TourInventoryConflictError,
@@ -48,22 +54,26 @@ export function inventoryErrorCode(error: unknown) {
   if (
     error instanceof HospitalityInventoryConflictError ||
     error instanceof TourInventoryConflictError ||
-    error instanceof AppointmentInventoryConflictError
+    error instanceof AppointmentInventoryConflictError ||
+    error instanceof RentalInventoryConflictError
   ) return 'conflict';
   if (
     error instanceof HospitalityInventoryDependencyError ||
     error instanceof TourInventoryDependencyError ||
-    error instanceof AppointmentInventoryDependencyError
+    error instanceof AppointmentInventoryDependencyError ||
+    error instanceof RentalInventoryDependencyError
   ) return 'dependency';
   if (
     error instanceof HospitalityInventoryUnavailableError ||
     error instanceof TourInventoryUnavailableError ||
-    error instanceof AppointmentInventoryUnavailableError
+    error instanceof AppointmentInventoryUnavailableError ||
+    error instanceof RentalInventoryUnavailableError
   ) return 'unavailable';
   if (
     error instanceof HospitalityInventoryValidationError ||
     error instanceof TourInventoryValidationError ||
-    error instanceof AppointmentInventoryValidationError
+    error instanceof AppointmentInventoryValidationError ||
+    error instanceof RentalInventoryValidationError
   ) return 'validation';
   return 'server';
 }
