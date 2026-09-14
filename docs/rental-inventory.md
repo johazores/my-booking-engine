@@ -13,7 +13,9 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - Overlapping availability blocks for a unit are rejected.
 - Server-side `inventory:read` / `inventory:manage` authorization.
 - Tenant-scoped reads and mutations; resource identifiers and submitted location codes are never sufficient without the authenticated `organizationId`.
+- Database-enforced tenant roots: root rental unit types and locations have PostgreSQL foreign keys to their owning organization, while child unit/block/rate relations remain organization-composite.
 - Archive lifecycle for commercial unit type, unit, and location rows. Unit types cannot be archived while active units remain. Locations cannot be archived while active units are assigned. Archiving a unit retains historical availability blocks and its last location reference.
+- Database lifecycle invariants: status/archive timestamp consistency is also enforced with database checks for unit types, physical units, and locations.
 - Explicit `ARCHIVE` and `REMOVE` confirmations for destructive management operations.
 - Audit events for location, unit type, unit, relocation, block, and rate mutations.
 - Independently bounded pagination for unit types, locations, units, availability blocks, and rate periods.
@@ -51,6 +53,6 @@ Those features require separate commercial acceptance criteria and must not infe
 
 ## Validation boundary
 
-Dependency-free domain and source-contract coverage validates location normalization, timezone/country constraints, tenant-composite schema relationships, server-side authorization and location resolution, bounded collections, overlap rules, lifecycle dependencies, route wiring, and the no-fake-booking boundary. A guarded PostgreSQL rental scenario is included in `npm run test:database` for Tenant A/Tenant B isolation, permissions, location assignment/movement, overlap rejection, lifecycle dependencies, and audit evidence.
+Dependency-free domain and source-contract coverage validates location normalization, timezone/country constraints, tenant-composite schema relationships, root organization foreign-key ownership, lifecycle database invariants, server-side authorization and location resolution, bounded collections, overlap rules, lifecycle dependencies, route wiring, and the no-fake-booking boundary. A guarded PostgreSQL rental scenario is included in `npm run test:database` for Tenant A/Tenant B isolation, permissions, location assignment/movement, overlap rejection, lifecycle dependencies, and audit evidence.
 
 Live Prisma validation, migration deployment/drift verification, and the PostgreSQL integration scenario remain governed by the Phase 1 disposable-database gate and must not be claimed without the repository-supported Node 24 toolchain and an explicitly disposable database target.
