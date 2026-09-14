@@ -1,13 +1,14 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { TravelportStaysBookingTermsProvider } from '../suppliers/travelport-stays-booking-terms-provider.ts';
+import { createTravelportStaysOAuthCredentialContainmentFetch } from '../suppliers/travelport-stays-oauth-credential-containment-fetch.ts';
+import { createTravelportStaysOperationalLogFetch } from '../suppliers/travelport-stays-operational-log-fetch.ts';
 import { TravelportStaysReservationAuthorityProvider } from '../suppliers/travelport-stays-reservation-authority-provider.ts';
 import { TravelportStaysReservationCreateExecutor } from '../suppliers/travelport-stays-reservation-create-executor.ts';
 import { TravelportStaysReservationRecoveryProvider } from '../suppliers/travelport-stays-reservation-recovery-provider.ts';
 import { createTravelportStaysReservationStatusOnlyResponseFetch } from '../suppliers/travelport-stays-reservation-status-only-response-fetch.ts';
 import { TravelportStaysReservationSyncExecutor } from '../suppliers/travelport-stays-reservation-sync-executor.ts';
 import { createTravelportStaysReservationTraceAuthorityFetch } from '../suppliers/travelport-stays-reservation-trace-fetch.ts';
-import { createTravelportStaysOAuthCredentialContainmentFetch } from '../suppliers/travelport-stays-oauth-credential-containment-fetch.ts';
 import { createTravelportStaysTraceFetch } from '../suppliers/travelport-stays-trace-fetch.ts';
 import {
   probeTravelportStaysIntegrationHealth,
@@ -23,6 +24,22 @@ export type TravelportStaysIntegrationHealthResult = Readonly<{
   status: IntegrationHealthStatus;
   failureCode: IntegrationProviderFailureCode | null;
 }>;
+
+function createOperationalFetch(input: Readonly<{
+  organizationId: string;
+  integrationId: string;
+  credentialVersion: number;
+  environment: TravelportStaysCredentials['environment'];
+  fetchImpl?: typeof fetch;
+}>) {
+  return createTravelportStaysOperationalLogFetch({
+    organizationId: input.organizationId,
+    integrationId: input.integrationId,
+    credentialVersion: input.credentialVersion,
+    environment: input.environment,
+    fetchImpl: input.fetchImpl,
+  });
+}
 
 export async function testTravelportStaysIntegrationConnection(input: {
   organizationId: string;
@@ -42,10 +59,17 @@ export async function testTravelportStaysIntegrationConnection(input: {
     providerCode: 'travelport-stays',
   });
   const normalizedCredentials = readTravelportStaysCredentials(credentials);
+  const operationalFetch = createOperationalFetch({
+    organizationId: input.organizationId,
+    integrationId: integration.id,
+    credentialVersion: integration.credentialVersion,
+    environment: normalizedCredentials.environment,
+    fetchImpl: input.fetchImpl,
+  });
   const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: normalizedCredentials.environment,
     credentials: normalizedCredentials,
-    fetchImpl: input.fetchImpl,
+    fetchImpl: operationalFetch,
   });
   const fetchImpl = createTravelportStaysTraceFetch({
     environment: normalizedCredentials.environment,
@@ -100,10 +124,17 @@ export async function loadTravelportStaysIntegration(organizationId: string): Pr
   });
   const normalizedCredentials: TravelportStaysCredentials = readTravelportStaysCredentials(credentials);
   const cacheKey = `${integration.id}:${integration.credentialVersion}`;
+  const operationalFetch = createOperationalFetch({
+    organizationId,
+    integrationId: integration.id,
+    credentialVersion: integration.credentialVersion,
+    environment: normalizedCredentials.environment,
+    fetchImpl: fetch,
+  });
   const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: normalizedCredentials.environment,
     credentials: normalizedCredentials,
-    fetchImpl: fetch,
+    fetchImpl: operationalFetch,
   });
   const reservationStatusOnlyFetch = createTravelportStaysReservationStatusOnlyResponseFetch(credentialContainedFetch);
   const fetchImpl = createTravelportStaysReservationTraceAuthorityFetch(
