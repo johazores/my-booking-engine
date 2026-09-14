@@ -46,7 +46,7 @@ test('rental hold schema and migrations preserve tenant scope, overlap authority
   assert.match(pricingMigration, /rental hold pricing evidence is immutable/);
 });
 
-test('rental hold and inventory services enforce permissions, exact idempotency, tenant scope, pricing evidence, and service-level hold protection', async () => {
+test('rental hold and inventory services enforce permissions, exact idempotency, tenant scope, pricing evidence, shared locking, and service-level hold protection', async () => {
   const [holdService, rentalService, domain] = await Promise.all([
     source('src/server/inventory/rental-hold-service.ts'),
     source('src/server/inventory/rental-service.ts'),
@@ -56,7 +56,7 @@ test('rental hold and inventory services enforce permissions, exact idempotency,
   assert.match(holdService, /permission: 'availability:manage'/);
   assert.match(holdService, /permission: 'availability:read'/);
   assert.match(holdService, /permission: 'pricing:read'/);
-  assert.match(holdService, /permission: 'inventory:manage'/);
+  assert.doesNotMatch(holdService, /permission: 'inventory:manage'/);
   assert.match(holdService, /organizationId_idempotencyKey/);
   assert.match(holdService, /buildRentalPricingEvidence/);
   assert.match(holdService, /quotedTotalMinor: BigInt\(pricingEvidence\.totalMinor\)/);
@@ -68,8 +68,9 @@ test('rental hold and inventory services enforce permissions, exact idempotency,
   assert.match(holdService, /expiresAt: \{ gt: now \}/);
   assert.match(holdService, /availability\.rental-hold\.created/);
   assert.match(holdService, /availability\.rental-hold\.released/);
-  assert.match(holdService, /assertRentalAvailabilityBlockNotHeld/);
-  assert.match(holdService, /assertRentalUnitNotHeldForInventoryMutation/);
+  assert.match(holdService, /import \{ rentalUnitLockKey \} from '\.\/rental-lock-domain\.ts';/);
+  assert.doesNotMatch(holdService, /function rentalUnitLockKey/);
+  assert.doesNotMatch(holdService, /assertRentalAvailabilityBlockNotHeld|assertRentalUnitNotHeldForInventoryMutation/);
 
   assert.match(rentalService, /rentalUnitLockKey/);
   assert.match(rentalService, /pg_advisory_xact_lock/);
