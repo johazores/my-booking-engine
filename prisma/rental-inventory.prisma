@@ -89,17 +89,22 @@ model RentalAvailabilityBlock {
 }
 
 model RentalAvailabilityHold {
-  id             String                 @id @default(uuid()) @db.Uuid
-  organizationId String                 @db.Uuid
-  unitId         String                 @db.Uuid
-  startsOn       DateTime               @db.Date
-  endsOn         DateTime               @db.Date
-  status         AvailabilityHoldStatus @default(ACTIVE)
-  expiresAt      DateTime               @db.Timestamptz(6)
-  endedAt        DateTime?              @db.Timestamptz(6)
-  idempotencyKey String                 @db.VarChar(120)
-  createdAt      DateTime               @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime               @updatedAt @db.Timestamptz(6)
+  id                 String                 @id @default(uuid()) @db.Uuid
+  organizationId     String                 @db.Uuid
+  unitId             String                 @db.Uuid
+  startsOn           DateTime               @db.Date
+  endsOn             DateTime               @db.Date
+  status             AvailabilityHoldStatus @default(ACTIVE)
+  expiresAt          DateTime               @db.Timestamptz(6)
+  endedAt            DateTime?              @db.Timestamptz(6)
+  idempotencyKey     String                 @db.VarChar(120)
+  quotedCurrency     String?                @db.Char(3)
+  quotedTotalMinor   BigInt?                @db.BigInt
+  pricingFingerprint String?                @db.Char(64)
+  pricingSnapshot    Json?
+  pricingObservedAt  DateTime?              @db.Timestamptz(6)
+  createdAt          DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(6)
 
   unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
 

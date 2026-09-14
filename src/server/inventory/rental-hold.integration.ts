@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental hold integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental holds enforce tenant scope, permissions, idempotency, concurrency, and inventory protection', async () => {
+test('rental holds enforce tenant scope, permissions, idempotency, pricing evidence, concurrency, and inventory protection', async () => {
   const [{ db }, rentals, holds, availability] = await Promise.all([
     import('../database.ts'),
     import('./rental-service.ts'),
@@ -142,6 +142,20 @@ test('rental holds enforce tenant scope, permissions, idempotency, concurrency, 
         idempotencyKey,
       },
     });
+    assert.equal(first.quotedCurrency, 'PHP');
+    assert.equal(first.quotedTotalMinor, 375000n);
+    assert.match(first.pricingFingerprint ?? '', /^[0-9a-f]{64}$/);
+    assert.ok(first.pricingSnapshot);
+    assert.ok(first.pricingObservedAt);
+
+    await assert.rejects(
+      db.rentalAvailabilityHold.update({
+        where: { id: first.id },
+        data: { quotedTotalMinor: 999999n },
+      }),
+      /pricing evidence is immutable/i,
+    );
+
     const retry = await holds.createRentalAvailabilityHold({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -153,6 +167,7 @@ test('rental holds enforce tenant scope, permissions, idempotency, concurrency, 
       },
     });
     assert.equal(retry.id, first.id);
+    assert.equal(retry.pricingFingerprint, first.pricingFingerprint);
 
     await assert.rejects(
       holds.createRentalAvailabilityHold({
@@ -167,6 +182,59 @@ test('rental holds enforce tenant scope, permissions, idempotency, concurrency, 
       }),
       /idempotency key/i,
     );
+    await assert.rejects(
+      holds.createRentalAvailabilityHold({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        hold: {
+          unitId: unitA.id,
+          startsOn: '2026-10-10',
+          endsOn: '2026-10-13',
+          idempotencyKey,
+          expiresInMinutes: 20,
+        },
+      }),
+      /idempotency key/i,
+    );
+
+    const initialPricingReview = await holds.readRentalAvailabilityHoldPricingReview({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      holdId: first.id,
+    });
+    assert.equal(initialPricingReview.pricingState, 'CURRENT');
+    assert.equal(initialPricingReview.original?.totalMinor, 375000n);
+    assert.equal(initialPricingReview.current.totalMinor, 375000n);
+
+    await assert.rejects(
+      holds.readRentalAvailabilityHoldPricingReview({
+        organizationId: organizationB.id,
+        actorUserId: adminB.id,
+        holdId: first.id,
+      }),
+      /not available/i,
+    );
+
+    await rentals.createRentalRatePeriod({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      rate: {
+        unitTypeId: unitType.id,
+        startsOn: '2026-10-10',
+        endsOn: '2026-10-13',
+        dailyRateMinor: 150000,
+      },
+    });
+
+    const changedPricingReview = await holds.readRentalAvailabilityHoldPricingReview({
+      organizationId: organizationA.id,
+      actorUserId: adminA.id,
+      holdId: first.id,
+    });
+    assert.equal(changedPricingReview.pricingState, 'CHANGED');
+    assert.equal(changedPricingReview.original?.totalMinor, 375000n);
+    assert.equal(changedPricingReview.current.totalMinor, 450000n);
+    assert.notEqual(changedPricingReview.original?.fingerprint, changedPricingReview.current.fingerprint);
 
     const heldAvailability = await availability.searchRentalInventoryAvailability({
       organizationId: organizationA.id,
@@ -180,6 +248,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, concurrency, 
     });
     assert.equal(heldAvailability.availability.total, 1);
     assert.deepEqual(heldAvailability.availability.items.map((unit) => unit.id), [unitB.id]);
+    assert.equal(heldAvailability.pricing.totalMinor, 450000);
+    assert.equal(heldAvailability.pricing.fingerprint, changedPricingReview.current.fingerprint);
 
     await assert.rejects(
       rentals.createRentalAvailabilityBlock({

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   normalizeRentalCode,
   normalizeRentalDateRange,
@@ -143,5 +145,54 @@ export function buildRentalRateQuote(input: Readonly<{
     days,
     totalMinor,
     segments: Object.freeze(segments.map((segment) => Object.freeze({ ...segment }))),
+  });
+}
+
+export function buildRentalPricingEvidence(input: Readonly<{
+  unitTypeId: string;
+  currency: string;
+  startsOn: Date;
+  endsOn: Date;
+  defaultDailyRateMinor: number;
+  ratePeriods: readonly RentalRatePeriodEvidence[];
+}>) {
+  const unitTypeId = input.unitTypeId.trim();
+  if (!unitTypeId || unitTypeId.length > 120) {
+    throw new RentalAvailabilityIntegrityError('Rental pricing unit type identity is invalid.');
+  }
+  const currency = input.currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new RentalAvailabilityIntegrityError('Rental pricing currency is invalid.');
+  }
+
+  const quote = buildRentalRateQuote({
+    startsOn: input.startsOn,
+    endsOn: input.endsOn,
+    defaultDailyRateMinor: input.defaultDailyRateMinor,
+    ratePeriods: input.ratePeriods,
+  });
+  const snapshot = {
+    version: 1,
+    unitTypeId,
+    currency,
+    startsOn: localDate(input.startsOn),
+    endsOn: localDate(input.endsOn),
+    days: quote.days,
+    totalMinor: quote.totalMinor,
+    segments: quote.segments.map((segment) => ({ ...segment })),
+  };
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify(snapshot))
+    .digest('hex');
+
+  return Object.freeze({
+    currency,
+    totalMinor: quote.totalMinor,
+    fingerprint,
+    snapshot: Object.freeze({
+      ...snapshot,
+      segments: Object.freeze(snapshot.segments.map((segment) => Object.freeze(segment))),
+    }),
+    quote,
   });
 }

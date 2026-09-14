@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { RentalInventoryValidationError } from './rental-domain.ts';
 import {
+  buildRentalPricingEvidence,
   buildRentalRateQuote,
   normalizeRentalAvailabilitySearchInput,
   RentalAvailabilityIntegrityError,
@@ -66,6 +67,40 @@ test('rental rate quote applies half-open overrides using integer minor units', 
   ]);
 });
 
+test('rental pricing evidence is deterministic and changes with authoritative rate evidence', () => {
+  const input = {
+    unitTypeId: '4f45b570-b1c2-46f9-86d5-c2e26cf0b582',
+    currency: 'php',
+    startsOn: new Date('2026-10-01T00:00:00.000Z'),
+    endsOn: new Date('2026-10-05T00:00:00.000Z'),
+    defaultDailyRateMinor: 100,
+    ratePeriods: [{
+      startsOn: new Date('2026-10-02T00:00:00.000Z'),
+      endsOn: new Date('2026-10-04T00:00:00.000Z'),
+      dailyRateMinor: 150,
+    }],
+  } as const;
+
+  const first = buildRentalPricingEvidence(input);
+  const retry = buildRentalPricingEvidence(input);
+  const changed = buildRentalPricingEvidence({
+    ...input,
+    ratePeriods: [{
+      startsOn: new Date('2026-10-02T00:00:00.000Z'),
+      endsOn: new Date('2026-10-04T00:00:00.000Z'),
+      dailyRateMinor: 175,
+    }],
+  });
+
+  assert.equal(first.currency, 'PHP');
+  assert.equal(first.totalMinor, 500);
+  assert.match(first.fingerprint, /^[0-9a-f]{64}$/);
+  assert.equal(first.fingerprint, retry.fingerprint);
+  assert.notEqual(first.fingerprint, changed.fingerprint);
+  assert.equal(first.snapshot.totalMinor, 500);
+  assert.equal(changed.snapshot.totalMinor, 550);
+});
+
 test('rental rate quote fails closed for overlapping or unsafe persisted pricing', () => {
   assert.throws(
     () => buildRentalRateQuote({
@@ -84,6 +119,17 @@ test('rental rate quote fails closed for overlapping or unsafe persisted pricing
       startsOn: new Date('2026-10-01T00:00:00.000Z'),
       endsOn: new Date('2026-10-02T00:00:00.000Z'),
       defaultDailyRateMinor: Number.NaN,
+      ratePeriods: [],
+    }),
+    RentalAvailabilityIntegrityError,
+  );
+  assert.throws(
+    () => buildRentalPricingEvidence({
+      unitTypeId: '',
+      currency: 'PHP',
+      startsOn: new Date('2026-10-01T00:00:00.000Z'),
+      endsOn: new Date('2026-10-02T00:00:00.000Z'),
+      defaultDailyRateMinor: 100,
       ratePeriods: [],
     }),
     RentalAvailabilityIntegrityError,

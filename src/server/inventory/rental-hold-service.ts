@@ -1,6 +1,11 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import {
+  buildRentalPricingEvidence,
+  RentalAvailabilityIntegrityError,
+} from './rental-availability-domain.ts';
 import {
   normalizeRentalAvailabilityHoldInput,
   rentalAvailabilityHoldPayloadMatches,
@@ -34,6 +39,31 @@ function assertValidNow(now: Date) {
   if (!Number.isFinite(now.getTime())) {
     throw new RentalInventoryValidationError('Hold time is invalid.');
   }
+}
+
+function toJsonInput(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function hasCompletePricingEvidence(hold: Readonly<{
+  quotedCurrency: string | null;
+  quotedTotalMinor: bigint | null;
+  pricingFingerprint: string | null;
+  pricingSnapshot: Prisma.JsonValue | null;
+  pricingObservedAt: Date | null;
+}>) {
+  const fields = [
+    hold.quotedCurrency,
+    hold.quotedTotalMinor,
+    hold.pricingFingerprint,
+    hold.pricingSnapshot,
+    hold.pricingObservedAt,
+  ];
+  const present = fields.filter((value) => value !== null).length;
+  if (present !== 0 && present !== fields.length) {
+    throw new RentalAvailabilityIntegrityError('Rental hold pricing evidence is incomplete.');
+  }
+  return present === fields.length;
 }
 
 export async function createRentalAvailabilityHold(input: Readonly<{
@@ -70,7 +100,7 @@ export async function createRentalAvailabilityHold(input: Readonly<{
     if (existing) {
       if (!rentalAvailabilityHoldPayloadMatches({ hold: existing, requested: hold })) {
         throw new RentalInventoryConflictError(
-          'That rental hold idempotency key was already used for a different unit or date range.',
+          'That rental hold idempotency key was already used for a different unit, date range, or duration.',
         );
       }
       return existing;
@@ -97,8 +127,15 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       select: {
         id: true,
         code: true,
-        unitTypeId: true,
         locationId: true,
+        unitType: {
+          select: {
+            id: true,
+            code: true,
+            currency: true,
+            defaultDailyRateMinor: true,
+          },
+        },
       },
     });
     if (!unit || !unit.locationId) {
@@ -107,7 +144,7 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       );
     }
 
-    const [blockOverlap, holdOverlap] = await Promise.all([
+    const [blockOverlap, holdOverlap, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -128,6 +165,16 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         },
         select: { id: true },
       }),
+      transaction.rentalRatePeriod.findMany({
+        where: {
+          organizationId: input.organizationId,
+          unitTypeId: unit.unitType.id,
+          startsOn: { lt: hold.endsOn },
+          endsOn: { gt: hold.startsOn },
+        },
+        orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
+        select: { startsOn: true, endsOn: true, dailyRateMinor: true },
+      }),
     ]);
     if (blockOverlap) {
       throw new RentalInventoryConflictError(
@@ -140,6 +187,14 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       );
     }
 
+    const pricingEvidence = buildRentalPricingEvidence({
+      unitTypeId: unit.unitType.id,
+      currency: unit.unitType.currency,
+      startsOn: hold.startsOn,
+      endsOn: hold.endsOn,
+      defaultDailyRateMinor: unit.unitType.defaultDailyRateMinor,
+      ratePeriods,
+    });
     const created = await transaction.rentalAvailabilityHold.create({
       data: {
         organizationId: input.organizationId,
@@ -148,6 +203,11 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         endsOn: hold.endsOn,
         idempotencyKey: hold.idempotencyKey,
         expiresAt,
+        quotedCurrency: pricingEvidence.currency,
+        quotedTotalMinor: BigInt(pricingEvidence.totalMinor),
+        pricingFingerprint: pricingEvidence.fingerprint,
+        pricingSnapshot: toJsonInput(pricingEvidence.snapshot),
+        pricingObservedAt: now,
         createdAt: now,
       },
     });
@@ -161,9 +221,13 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         afterData: {
           unitId: unit.id,
           unitCode: unit.code,
+          unitTypeCode: unit.unitType.code,
           startsOn: created.startsOn.toISOString(),
           endsOn: created.endsOn.toISOString(),
           expiresAt: created.expiresAt.toISOString(),
+          quotedCurrency: pricingEvidence.currency,
+          quotedTotalMinor: pricingEvidence.totalMinor,
+          pricingFingerprint: pricingEvidence.fingerprint,
         },
       },
     });
@@ -223,6 +287,117 @@ export async function listRentalAvailabilityHolds(input: Readonly<{
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
   });
+}
+
+export async function readRentalAvailabilityHoldPricingReview(input: Readonly<{
+  organizationId: string;
+  actorUserId: string;
+  holdId: string;
+  now?: Date;
+}>) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.holdId, 'holdId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'availability:read',
+  });
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'pricing:read',
+  });
+  const now = input.now ?? new Date();
+  assertValidNow(now);
+
+  return db.$transaction(async (transaction) => {
+    const hold = await transaction.rentalAvailabilityHold.findFirst({
+      where: {
+        id: input.holdId,
+        organizationId: input.organizationId,
+      },
+      include: {
+        unit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            status: true,
+            unitType: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                status: true,
+                currency: true,
+                defaultDailyRateMinor: true,
+              },
+            },
+            location: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!hold) {
+      throw new RentalInventoryUnavailableError(
+        'Rental availability hold is not available in this organization.',
+      );
+    }
+
+    const ratePeriods = await transaction.rentalRatePeriod.findMany({
+      where: {
+        organizationId: input.organizationId,
+        unitTypeId: hold.unit.unitType.id,
+        startsOn: { lt: hold.endsOn },
+        endsOn: { gt: hold.startsOn },
+      },
+      orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
+      select: { startsOn: true, endsOn: true, dailyRateMinor: true },
+    });
+    const current = buildRentalPricingEvidence({
+      unitTypeId: hold.unit.unitType.id,
+      currency: hold.unit.unitType.currency,
+      startsOn: hold.startsOn,
+      endsOn: hold.endsOn,
+      defaultDailyRateMinor: hold.unit.unitType.defaultDailyRateMinor,
+      ratePeriods,
+    });
+    const complete = hasCompletePricingEvidence(hold);
+    const pricingState = !complete
+      ? 'LEGACY' as const
+      : hold.pricingFingerprint === current.fingerprint
+        ? 'CURRENT' as const
+        : 'CHANGED' as const;
+
+    return Object.freeze({
+      hold,
+      effective: hold.status === 'ACTIVE' && hold.expiresAt > now,
+      pricingState,
+      original: complete
+        ? Object.freeze({
+            currency: hold.quotedCurrency as string,
+            totalMinor: hold.quotedTotalMinor as bigint,
+            fingerprint: hold.pricingFingerprint as string,
+            observedAt: hold.pricingObservedAt as Date,
+            snapshot: hold.pricingSnapshot,
+          })
+        : null,
+      current: Object.freeze({
+        currency: current.currency,
+        totalMinor: BigInt(current.totalMinor),
+        fingerprint: current.fingerprint,
+        quote: current.quote,
+      }),
+    });
+  }, { isolationLevel: 'Serializable' });
 }
 
 export async function releaseRentalAvailabilityHold(input: Readonly<{

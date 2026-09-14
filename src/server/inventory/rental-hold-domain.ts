@@ -62,14 +62,19 @@ export function rentalAvailabilityHoldPayloadMatches(input: Readonly<{
     unitId: string;
     startsOn: Date;
     endsOn: Date;
+    createdAt: Date;
+    expiresAt: Date;
   };
   requested: {
     unitId: string;
     startsOn: Date;
     endsOn: Date;
+    expiresInMinutes: number;
   };
 }>) {
+  const requestedDurationMilliseconds = input.requested.expiresInMinutes * 60_000;
   return input.hold.unitId === input.requested.unitId
     && input.hold.startsOn.getTime() === input.requested.startsOn.getTime()
-    && input.hold.endsOn.getTime() === input.requested.endsOn.getTime();
+    && input.hold.endsOn.getTime() === input.requested.endsOn.getTime()
+    && input.hold.expiresAt.getTime() - input.hold.createdAt.getTime() === requestedDurationMilliseconds;
 }

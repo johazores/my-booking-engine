@@ -2,7 +2,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  buildRentalRateQuote,
+  buildRentalPricingEvidence,
   normalizeRentalAvailabilitySearchInput,
   type RentalAvailabilitySearchInput,
 } from './rental-availability-domain.ts';
@@ -114,7 +114,9 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       }),
     ]);
 
-    const pricing = buildRentalRateQuote({
+    const pricingEvidence = buildRentalPricingEvidence({
+      unitTypeId: unitType.id,
+      currency: unitType.currency,
       startsOn: search.startsOn,
       endsOn: search.endsOn,
       defaultDailyRateMinor: unitType.defaultDailyRateMinor,
@@ -132,7 +134,10 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
         pageSize: search.pageSize,
         totalPages: Math.max(1, Math.ceil(total / search.pageSize)),
       }),
-      pricing,
+      pricing: Object.freeze({
+        ...pricingEvidence.quote,
+        fingerprint: pricingEvidence.fingerprint,
+      }),
     });
   }, { isolationLevel: 'Serializable' });
 }

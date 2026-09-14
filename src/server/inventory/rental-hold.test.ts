@@ -55,19 +55,33 @@ test('rental hold input rejects unsafe idempotency, duration, and oversized date
   );
 });
 
-test('rental hold idempotency payload comparison binds physical unit and date range', () => {
+test('rental hold idempotency payload comparison binds unit, dates, and requested duration', () => {
+  const createdAt = new Date('2026-09-14T15:00:00.000Z');
   const hold = {
     unitId: 'unit-a',
     startsOn: new Date('2026-10-01T00:00:00.000Z'),
     endsOn: new Date('2026-10-05T00:00:00.000Z'),
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + 15 * 60_000),
   };
-  assert.equal(rentalAvailabilityHoldPayloadMatches({ hold, requested: { ...hold } }), true);
+  const requested = {
+    unitId: hold.unitId,
+    startsOn: hold.startsOn,
+    endsOn: hold.endsOn,
+    expiresInMinutes: 15,
+  };
+
+  assert.equal(rentalAvailabilityHoldPayloadMatches({ hold, requested }), true);
   assert.equal(rentalAvailabilityHoldPayloadMatches({
     hold,
-    requested: { ...hold, unitId: 'unit-b' },
+    requested: { ...requested, unitId: 'unit-b' },
   }), false);
   assert.equal(rentalAvailabilityHoldPayloadMatches({
     hold,
-    requested: { ...hold, endsOn: new Date('2026-10-06T00:00:00.000Z') },
+    requested: { ...requested, endsOn: new Date('2026-10-06T00:00:00.000Z') },
+  }), false);
+  assert.equal(rentalAvailabilityHoldPayloadMatches({
+    hold,
+    requested: { ...requested, expiresInMinutes: 20 },
   }), false);
 });
