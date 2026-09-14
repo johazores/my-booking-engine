@@ -333,7 +333,10 @@ export async function assignRentalUnitLocation(input: {
       );
     }
 
-    const updated = await transaction.rentalUnit.update({ where: { id: unit.id }, data: { locationId: location.id } });
+    const updated = await transaction.rentalUnit.update({
+      where: { id: unit.id, organizationId: input.organizationId },
+      data: { locationId: location.id },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -467,7 +470,10 @@ export async function archiveRentalLocation(input: {
     });
     if (activeUnits > 0) throw new RentalInventoryDependencyError('Move or archive active rental units before archiving this location.');
     const archivedAt = new Date();
-    const updated = await transaction.rentalLocation.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.rentalLocation.update({
+      where: { id: current.id, organizationId: input.organizationId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -503,7 +509,10 @@ export async function archiveRentalUnitType(input: {
     });
     if (activeUnits > 0) throw new RentalInventoryDependencyError('Archive active rental units before archiving this unit type.');
     const archivedAt = new Date();
-    const updated = await transaction.rentalUnitType.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.rentalUnitType.update({
+      where: { id: current.id, organizationId: input.organizationId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -552,7 +561,10 @@ export async function archiveRentalUnit(input: {
     }
 
     const archivedAt = new Date();
-    const updated = await transaction.rentalUnit.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.rentalUnit.update({
+      where: { id: current.id, organizationId: input.organizationId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -584,7 +596,9 @@ export async function removeRentalAvailabilityBlock(input: {
       where: { id: input.blockId, unitId: input.unitId, organizationId: input.organizationId },
     });
     if (!current) throw new RentalInventoryUnavailableError('Rental availability block is not available in this organization.');
-    await transaction.rentalAvailabilityBlock.delete({ where: { id: current.id } });
+    await transaction.rentalAvailabilityBlock.delete({
+      where: { id: current.id, organizationId: input.organizationId },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
@@ -614,7 +628,9 @@ export async function removeRentalRatePeriod(input: {
       where: { id: input.rateId, unitTypeId: input.unitTypeId, organizationId: input.organizationId },
     });
     if (!current) throw new RentalInventoryUnavailableError('Rental rate period is not available in this organization.');
-    await transaction.rentalRatePeriod.delete({ where: { id: current.id } });
+    await transaction.rentalRatePeriod.delete({
+      where: { id: current.id, organizationId: input.organizationId },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,
