@@ -48,11 +48,17 @@ Tenant-owned customer/contact records, lifecycle management, search/filter/sort/
 
 Archived bookingless customer profiles also support an irreversible tenant-scoped de-identification action that clears mutable direct identifiers only after `customer:manage`, explicit confirmation, and a write-time re-check that no hospitality booking references the profile. Booking-linked customer copies, provider-held data, backups/exports, and legally retained evidence remain separate reviewed lifecycle work.
 
-## 9. Internal inventory — hospitality foundation implemented
+## 9. Internal inventory — hospitality, tour, appointment, and rental foundations implemented in code
 
 Implemented hospitality capabilities include properties, room types, physical rooms, amenities, image records, rate plans, assignments, restrictions, lifecycle guards, permissions, management UI, and tenant-safe database relationships.
 
-Tours, appointments, rentals, and marketplace inventory remain separate later business modules; they are not forced into the hospitality schema.
+Implemented tour/package inventory includes tenant-owned products, dated departure schedules, explicit configured capacity, add-ons, dependency-safe archival, audited mutations, bounded management collections, and tenant-composite persistence relationships.
+
+Implemented appointment inventory includes tenant-owned services and staff, explicit staff-to-service eligibility, recurring weekly schedules with overlap protection, dependency-safe archival/removal, audited mutations, bounded management collections, and tenant-composite persistence relationships.
+
+Implemented rental inventory includes tenant-owned unit types/products, operating locations, physical units, unit-level unavailable date blocks, default daily prices and date-range rate overrides, location movement, lifecycle guards, audited mutations, bounded management collections, and tenant-composite persistence relationships.
+
+These are internal inventory foundations only. Tour, appointment, and rental customer-facing availability, holds/allocation, pricing beyond the implemented rental rate configuration, booking/payment flows, supplier/calendar integrations, and marketplace inventory remain separate later business workflows. Live Prisma/migration/PostgreSQL execution remains governed by the database validation gate above.
 
 ## 10. Availability — hospitality allocation foundation implemented
 
@@ -168,8 +174,8 @@ Travelport `reservation` capability remains unadvertised and no staff/customer r
 
 ## 17. Additional providers — later
 
-Add Amadeus, Sabre, Travelport, or other supplier/payment/email/SMS providers only from real product need and refine contracts from actual provider differences rather than hypothetical abstraction.
+Add Amadeus, Sabre, additional Travelport products, or other supplier/payment/email/SMS providers only from real product need and refine contracts from actual provider differences rather than hypothetical abstraction.
 
-## 18. Advanced business modules — later
+## 18. Advanced business modules — later workflows
 
-Add hotel/resort extensions, travel-agency workflows, tour-operator workflows, appointments, rentals, and marketplace capabilities only after the shared booking foundation and required provider contracts are proven.
+The tenant-owned tour/package, appointment, and rental inventory foundations are already implemented under section 9. Later work here means the real business workflows built on those inventories: tour-operator availability/pricing/passenger/booking flows, appointment slot/exception/intake/booking/calendar flows, rental availability/hold/pickup-drop-off/deposit/booking flows, plus hotel/resort extensions, travel-agency workflows, and marketplace capabilities. These must reuse shared foundations only where the commercial concepts genuinely overlap rather than forcing all businesses into one generic booking model.
