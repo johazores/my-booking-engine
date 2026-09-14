@@ -11,6 +11,12 @@ import {
   type RequestLogFailureOutcome,
 } from '../observability/request-observability.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
+import { AppointmentInventoryValidationError } from './appointment-domain.ts';
+import {
+  AppointmentInventoryConflictError,
+  AppointmentInventoryDependencyError,
+  AppointmentInventoryUnavailableError,
+} from './appointment-service.ts';
 import { HospitalityInventoryValidationError } from './hospitality-domain.ts';
 import {
   HospitalityInventoryConflictError,
@@ -39,10 +45,26 @@ export async function readInventoryFormData(request: Request) {
 
 export function inventoryErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'permission';
-  if (error instanceof HospitalityInventoryConflictError || error instanceof TourInventoryConflictError) return 'conflict';
-  if (error instanceof HospitalityInventoryDependencyError || error instanceof TourInventoryDependencyError) return 'dependency';
-  if (error instanceof HospitalityInventoryUnavailableError || error instanceof TourInventoryUnavailableError) return 'unavailable';
-  if (error instanceof HospitalityInventoryValidationError || error instanceof TourInventoryValidationError) return 'validation';
+  if (
+    error instanceof HospitalityInventoryConflictError ||
+    error instanceof TourInventoryConflictError ||
+    error instanceof AppointmentInventoryConflictError
+  ) return 'conflict';
+  if (
+    error instanceof HospitalityInventoryDependencyError ||
+    error instanceof TourInventoryDependencyError ||
+    error instanceof AppointmentInventoryDependencyError
+  ) return 'dependency';
+  if (
+    error instanceof HospitalityInventoryUnavailableError ||
+    error instanceof TourInventoryUnavailableError ||
+    error instanceof AppointmentInventoryUnavailableError
+  ) return 'unavailable';
+  if (
+    error instanceof HospitalityInventoryValidationError ||
+    error instanceof TourInventoryValidationError ||
+    error instanceof AppointmentInventoryValidationError
+  ) return 'validation';
   return 'server';
 }
 

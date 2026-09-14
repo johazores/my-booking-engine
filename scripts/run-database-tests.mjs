@@ -40,6 +40,7 @@ run(process.execPath, [
   'src/server/integrations/integration.integration.ts',
   'src/server/inventory/hospitality.integration.ts',
   'src/server/inventory/tour-inventory.integration.ts',
+  'src/server/inventory/appointment-inventory.integration.ts',
   'src/server/inventory/hospitality-rate-plan.integration.ts',
   'src/server/inventory/hospitality-restriction.integration.ts',
   'src/server/availability/hospitality-availability.integration.ts',
