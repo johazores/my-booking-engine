@@ -1,4 +1,10 @@
 import {
+  emitStructuredObservationSafely,
+  safeObservationClockMs,
+  safeObservationDurationMs,
+  safeObservationTimestamp,
+} from '../observability/structured-log-safety.ts';
+import {
   hospitalitySupplierFailureCodes,
   type HospitalitySupplierFailureCode,
 } from './hospitality-supplier-provider.ts';
@@ -19,6 +25,10 @@ export interface StructuredHospitalitySupplierReservationProviderLogRecord {
   providerResult?: HospitalitySupplierReservationProviderResult;
   failureCode?: HospitalitySupplierFailureCode;
 }
+
+export type HospitalitySupplierReservationProviderLogSink = (
+  record: StructuredHospitalitySupplierReservationProviderLogRecord,
+) => void;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROVIDER_CODE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -62,7 +72,7 @@ export function buildHospitalitySupplierReservationProviderLogRecord(input: {
   now?: () => Date;
 }): StructuredHospitalitySupplierReservationProviderLogRecord {
   const base = {
-    timestamp: (input.now ?? (() => new Date()))().toISOString(),
+    timestamp: safeObservationTimestamp(input.now ?? (() => new Date())),
     event: 'supplier.reservation-recovery.provider-request.completed' as const,
     requestCorrelationId: safeUuid(input.requestCorrelationId, 'invalid-request-correlation-id'),
     organizationId: safeUuid(input.organizationId, 'invalid-organization-id'),
@@ -109,9 +119,11 @@ export function createHospitalitySupplierReservationProviderObservation(input: {
   provider: string;
   nowMs?: () => number;
   now?: () => Date;
+  sink?: HospitalitySupplierReservationProviderLogSink;
 }) {
   const nowMs = input.nowMs ?? Date.now;
-  const startedAt = nowMs();
+  const startedAt = safeObservationClockMs(nowMs);
+  const sink = input.sink ?? writeStructuredSupplierProviderLog;
   let finished = false;
 
   return {
@@ -125,11 +137,11 @@ export function createHospitalitySupplierReservationProviderObservation(input: {
         requestCorrelationId: input.requestCorrelationId,
         organizationId: input.organizationId,
         provider: input.provider,
-        durationMs: nowMs() - startedAt,
+        durationMs: safeObservationDurationMs(startedAt, nowMs),
         result,
         now: input.now,
       });
-      writeStructuredSupplierProviderLog(record);
+      emitStructuredObservationSafely(sink, record);
       return record;
     },
   };

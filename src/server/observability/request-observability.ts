@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import { REQUEST_ID_HEADER, isSafeRequestId } from '../../lib/request-correlation.ts';
+import {
+  emitStructuredObservationSafely,
+  safeObservationClockMs,
+  safeObservationDurationMs,
+  safeObservationTimestamp,
+} from './structured-log-safety.ts';
 
 export type RequestLogDocumentType = 'tax-invoice' | 'adjustment-note';
 export type RequestLogOutcome = 'succeeded' | 'rejected' | 'failed';
@@ -28,6 +34,8 @@ export interface StructuredRequestLogRecord {
   documentType?: RequestLogDocumentType;
 }
 
+export type StructuredRequestLogSink = (record: StructuredRequestLogRecord) => void;
+
 interface RequestObservationOptions {
   operation: string;
   documentType?: RequestLogDocumentType;
@@ -37,15 +45,30 @@ interface RequestCompletionOptions {
   failureOutcome?: RequestLogFailureOutcome;
 }
 
+interface RequestObservationDependencies {
+  sink?: StructuredRequestLogSink;
+  now?: () => Date;
+  nowMs?: () => number;
+  randomUuid?: () => string;
+}
+
 const SAFE_LOG_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
+const REQUEST_ID_UNAVAILABLE = 'request-id-unavailable';
 
 function safeLogIdentifier(value: string | undefined) {
   return value && SAFE_LOG_IDENTIFIER_PATTERN.test(value) ? value : undefined;
 }
 
-export function resolveRequestId(request: Request) {
+export function resolveRequestId(request: Request, randomUuidFactory: () => string = randomUUID) {
   const requestId = request.headers.get(REQUEST_ID_HEADER);
-  return isSafeRequestId(requestId) ? requestId : randomUUID();
+  if (isSafeRequestId(requestId)) return requestId;
+
+  try {
+    const generated = randomUuidFactory();
+    return isSafeRequestId(generated) ? generated : REQUEST_ID_UNAVAILABLE;
+  } catch {
+    return REQUEST_ID_UNAVAILABLE;
+  }
 }
 
 function classifyStatus(
@@ -66,17 +89,18 @@ export function buildStructuredRequestLogRecord(input: {
   documentType?: RequestLogDocumentType;
   scope?: RequestObservationScope;
   failureOutcome?: RequestLogFailureOutcome;
+  now?: () => Date;
 }): StructuredRequestLogRecord {
   const classification = classifyStatus(input.statusCode, input.failureOutcome);
   const record: StructuredRequestLogRecord = {
-    timestamp: new Date().toISOString(),
+    timestamp: safeObservationTimestamp(input.now ?? (() => new Date())),
     level: classification.level,
     event: 'http.request.completed',
     requestId: isSafeRequestId(input.requestId) ? input.requestId : 'invalid-request-id',
     operation: safeLogIdentifier(input.operation) ?? 'unknown-operation',
     outcome: classification.outcome,
     statusCode: input.statusCode,
-    durationMs: Math.max(0, Math.round(input.durationMs)),
+    durationMs: Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0,
     documentType: input.documentType,
   };
 
@@ -102,9 +126,15 @@ function writeStructuredRequestLog(record: StructuredRequestLogRecord) {
   console.info(line);
 }
 
-export function createRequestObservation(request: Request, options: RequestObservationOptions) {
-  const requestId = resolveRequestId(request);
-  const startedAt = Date.now();
+export function createRequestObservation(
+  request: Request,
+  options: RequestObservationOptions,
+  dependencies: RequestObservationDependencies = {},
+) {
+  const nowMs = dependencies.nowMs ?? Date.now;
+  const requestId = resolveRequestId(request, dependencies.randomUuid ?? randomUUID);
+  const startedAt = safeObservationClockMs(nowMs);
+  const sink = dependencies.sink ?? writeStructuredRequestLog;
 
   return {
     requestId,
@@ -113,16 +143,23 @@ export function createRequestObservation(request: Request, options: RequestObser
       scope?: RequestObservationScope,
       completion?: RequestCompletionOptions,
     ) {
-      response.headers.set(REQUEST_ID_HEADER, requestId);
-      writeStructuredRequestLog(buildStructuredRequestLogRecord({
+      try {
+        response.headers.set(REQUEST_ID_HEADER, requestId);
+      } catch {
+        // Correlation metadata must never replace an otherwise valid application response.
+      }
+
+      const record = buildStructuredRequestLogRecord({
         requestId,
         operation: options.operation,
         statusCode: response.status,
-        durationMs: Date.now() - startedAt,
+        durationMs: safeObservationDurationMs(startedAt, nowMs),
         documentType: options.documentType,
         scope,
         failureOutcome: completion?.failureOutcome,
-      }));
+        now: dependencies.now,
+      });
+      emitStructuredObservationSafely(sink, record);
       return response;
     },
   };

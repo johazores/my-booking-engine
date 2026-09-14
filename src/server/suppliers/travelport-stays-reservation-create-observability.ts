@@ -1,3 +1,10 @@
+import {
+  emitStructuredObservationSafely,
+  safeObservationClockMs,
+  safeObservationDurationMs,
+  safeObservationTimestamp,
+} from '../observability/structured-log-safety.ts';
+
 export type TravelportStaysReservationCreateProviderResult = 'CONFIRMED' | 'FAILED' | 'REVIEW_REQUIRED' | 'AMBIGUOUS';
 
 export interface StructuredTravelportStaysReservationCreateLogRecord {
@@ -11,6 +18,10 @@ export interface StructuredTravelportStaysReservationCreateLogRecord {
   outcome: 'confirmed' | 'failed' | 'review-required' | 'ambiguous';
   durationMs: number;
 }
+
+export type TravelportStaysReservationCreateLogSink = (
+  record: StructuredTravelportStaysReservationCreateLogRecord,
+) => void;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -44,7 +55,7 @@ export function buildTravelportStaysReservationCreateLogRecord(input: Readonly<{
         : 'ambiguous';
 
   return Object.freeze({
-    timestamp: (input.now ?? (() => new Date()))().toISOString(),
+    timestamp: safeObservationTimestamp(input.now ?? (() => new Date())),
     level: result === 'AMBIGUOUS' ? 'warn' : 'info',
     event: 'supplier.reservation-create.provider-request.completed',
     requestCorrelationId: safeUuid(input.requestCorrelationId, 'invalid-request-correlation-id'),
@@ -70,9 +81,11 @@ export function createTravelportStaysReservationCreateProviderObservation(input:
   organizationId: string;
   nowMs?: () => number;
   now?: () => Date;
+  sink?: TravelportStaysReservationCreateLogSink;
 }>) {
   const nowMs = input.nowMs ?? Date.now;
-  const startedAt = nowMs();
+  const startedAt = safeObservationClockMs(nowMs);
+  const sink = input.sink ?? writeStructuredTravelportCreateLog;
   let finished = false;
 
   return Object.freeze({
@@ -82,11 +95,11 @@ export function createTravelportStaysReservationCreateProviderObservation(input:
       const record = buildTravelportStaysReservationCreateLogRecord({
         requestCorrelationId: input.requestCorrelationId,
         organizationId: input.organizationId,
-        durationMs: nowMs() - startedAt,
+        durationMs: safeObservationDurationMs(startedAt, nowMs),
         result,
         now: input.now,
       });
-      writeStructuredTravelportCreateLog(record);
+      emitStructuredObservationSafely(sink, record);
       return record;
     },
   });
