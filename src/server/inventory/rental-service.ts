@@ -1,3 +1,4 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -16,6 +17,7 @@ import {
   type RentalUnitInput,
   type RentalUnitTypeInput,
 } from './rental-domain.ts';
+import { rentalUnitLockKey } from './rental-lock-domain.ts';
 
 export class RentalInventoryConflictError extends Error {
   constructor(message = 'A rental inventory record conflicts with an existing record.') {
@@ -50,6 +52,10 @@ async function requireRentalPermission(input: { organizationId: string; actorUse
     userId: input.actorUserId,
     permission,
   });
+}
+
+async function lockRentalUnit(transaction: Prisma.TransactionClient, organizationId: string, unitId: string) {
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(organizationId, unitId)}, 0))`;
 }
 
 function pagination(page: number, pageSize: number) {
@@ -297,6 +303,7 @@ export async function assignRentalUnitLocation(input: {
   assertUuidIdentifier(input.unitId, 'unitId');
   const locationCode = normalizeRentalCode(input.locationCode);
   return db.$transaction(async (transaction) => {
+    await lockRentalUnit(transaction, input.organizationId, input.unitId);
     const [unit, location] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
@@ -310,6 +317,22 @@ export async function assignRentalUnitLocation(input: {
     if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
     if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
     if (unit.locationId === location.id) return unit;
+
+    const activeHold = await transaction.rentalAvailabilityHold.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        unitId: unit.id,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (activeHold) {
+      throw new RentalInventoryConflictError(
+        'Release active rental availability holds before relocating this rental unit.',
+      );
+    }
+
     const updated = await transaction.rentalUnit.update({ where: { id: unit.id }, data: { locationId: location.id } });
     await transaction.auditEvent.create({
       data: {
@@ -335,21 +358,41 @@ export async function createRentalAvailabilityBlock(input: {
   const block = normalizeRentalAvailabilityBlockInput(input.block);
   assertUuidIdentifier(block.unitId, 'unitId');
   return db.$transaction(async (transaction) => {
-    const unit = await transaction.rentalUnit.findFirst({
-      where: { id: block.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
-      select: { id: true, code: true },
-    });
+    await lockRentalUnit(transaction, input.organizationId, block.unitId);
+    const now = new Date();
+    const [unit, overlap, overlappingHold] = await Promise.all([
+      transaction.rentalUnit.findFirst({
+        where: { id: block.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
+        select: { id: true, code: true },
+      }),
+      transaction.rentalAvailabilityBlock.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: block.unitId,
+          startsOn: { lt: block.endsOn },
+          endsOn: { gt: block.startsOn },
+        },
+        select: { id: true },
+      }),
+      transaction.rentalAvailabilityHold.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: block.unitId,
+          status: 'ACTIVE',
+          expiresAt: { gt: now },
+          startsOn: { lt: block.endsOn },
+          endsOn: { gt: block.startsOn },
+        },
+        select: { id: true },
+      }),
+    ]);
     if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
-    const overlap = await transaction.rentalAvailabilityBlock.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        unitId: unit.id,
-        startsOn: { lt: block.endsOn },
-        endsOn: { gt: block.startsOn },
-      },
-      select: { id: true },
-    });
     if (overlap) throw new RentalInventoryConflictError('That availability block overlaps an existing block for this rental unit.');
+    if (overlappingHold) {
+      throw new RentalInventoryConflictError(
+        'Release the overlapping rental availability hold before adding this unavailable-date block.',
+      );
+    }
     const created = await transaction.rentalAvailabilityBlock.create({ data: { organizationId: input.organizationId, ...block } });
     await transaction.auditEvent.create({
       data: {
@@ -486,11 +529,28 @@ export async function archiveRentalUnit(input: {
   assertUuidIdentifier(input.unitId, 'unitId');
   assertRentalArchiveConfirmation(input.confirmation);
   return db.$transaction(async (transaction) => {
+    await lockRentalUnit(transaction, input.organizationId, input.unitId);
     const current = await transaction.rentalUnit.findFirst({
       where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
       select: { id: true, status: true },
     });
     if (!current) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
+
+    const activeHold = await transaction.rentalAvailabilityHold.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        unitId: current.id,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (activeHold) {
+      throw new RentalInventoryConflictError(
+        'Release active rental availability holds before archiving this rental unit.',
+      );
+    }
+
     const archivedAt = new Date();
     const updated = await transaction.rentalUnit.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
     await transaction.auditEvent.create({

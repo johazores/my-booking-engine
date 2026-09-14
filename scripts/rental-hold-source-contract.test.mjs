@@ -9,10 +9,11 @@ async function source(path) {
 }
 
 test('rental hold schema and migrations preserve tenant scope, overlap authority, and complete pricing evidence', async () => {
-  const [schema, holdMigration, pricingMigration] = await Promise.all([
+  const [schema, holdMigration, pricingMigration, lockDomain] = await Promise.all([
     source('prisma/rental-inventory.prisma'),
     source('prisma/migrations/20260914154000_rental_availability_holds/migration.sql'),
     source('prisma/migrations/20260914161000_rental_hold_pricing_evidence/migration.sql'),
+    source('src/server/inventory/rental-lock-domain.ts'),
   ]);
 
   assert.match(schema, /model RentalAvailabilityHold \{/);
@@ -34,6 +35,7 @@ test('rental hold schema and migrations preserve tenant scope, overlap authority
   assert.match(holdMigration, /rental_availability_blocks_hold_guard/);
   assert.match(holdMigration, /rental_units_active_hold_guard/);
   assert.match(holdMigration, /ERRCODE = '23P01'/);
+  assert.match(lockDomain, /sf:rental-unit:\$\{organizationId\}:\$\{unitId\}/);
 
   assert.match(pricingMigration, /rental_availability_holds_pricing_evidence_complete_check/);
   assert.match(pricingMigration, /"quotedCurrency" IS NULL[\s\S]*"pricingObservedAt" IS NULL/);
@@ -44,27 +46,39 @@ test('rental hold schema and migrations preserve tenant scope, overlap authority
   assert.match(pricingMigration, /rental hold pricing evidence is immutable/);
 });
 
-test('rental hold service enforces permissions, exact idempotency, tenant scope, pricing evidence, and bounded effective reads', async () => {
-  const service = await source('src/server/inventory/rental-hold-service.ts');
-  const domain = await source('src/server/inventory/rental-hold-domain.ts');
+test('rental hold and inventory services enforce permissions, exact idempotency, tenant scope, pricing evidence, and service-level hold protection', async () => {
+  const [holdService, rentalService, domain] = await Promise.all([
+    source('src/server/inventory/rental-hold-service.ts'),
+    source('src/server/inventory/rental-service.ts'),
+    source('src/server/inventory/rental-hold-domain.ts'),
+  ]);
 
-  assert.match(service, /permission: 'availability:manage'/);
-  assert.match(service, /permission: 'availability:read'/);
-  assert.match(service, /permission: 'pricing:read'/);
-  assert.match(service, /permission: 'inventory:manage'/);
-  assert.match(service, /organizationId_idempotencyKey/);
-  assert.match(service, /buildRentalPricingEvidence/);
-  assert.match(service, /quotedTotalMinor: BigInt\(pricingEvidence\.totalMinor\)/);
-  assert.match(service, /pricingSnapshot: toJsonInput\(pricingEvidence\.snapshot\)/);
-  assert.match(service, /pricingObservedAt: now/);
-  assert.match(service, /readRentalAvailabilityHoldPricingReview/);
-  assert.match(service, /pricingState = !complete[\s\S]*'LEGACY'[\s\S]*'CURRENT'[\s\S]*'CHANGED'/);
-  assert.match(service, /organizationId: input\.organizationId,\s*unitId: unit\.id,\s*status: 'ACTIVE'/s);
-  assert.match(service, /expiresAt: \{ gt: now \}/);
-  assert.match(service, /availability\.rental-hold\.created/);
-  assert.match(service, /availability\.rental-hold\.released/);
-  assert.match(service, /assertRentalAvailabilityBlockNotHeld/);
-  assert.match(service, /assertRentalUnitNotHeldForInventoryMutation/);
+  assert.match(holdService, /permission: 'availability:manage'/);
+  assert.match(holdService, /permission: 'availability:read'/);
+  assert.match(holdService, /permission: 'pricing:read'/);
+  assert.match(holdService, /permission: 'inventory:manage'/);
+  assert.match(holdService, /organizationId_idempotencyKey/);
+  assert.match(holdService, /buildRentalPricingEvidence/);
+  assert.match(holdService, /quotedTotalMinor: BigInt\(pricingEvidence\.totalMinor\)/);
+  assert.match(holdService, /pricingSnapshot: toJsonInput\(pricingEvidence\.snapshot\)/);
+  assert.match(holdService, /pricingObservedAt: now/);
+  assert.match(holdService, /readRentalAvailabilityHoldPricingReview/);
+  assert.match(holdService, /pricingState = !complete[\s\S]*'LEGACY'[\s\S]*'CURRENT'[\s\S]*'CHANGED'/);
+  assert.match(holdService, /organizationId: input\.organizationId,\s*unitId: unit\.id,\s*status: 'ACTIVE'/s);
+  assert.match(holdService, /expiresAt: \{ gt: now \}/);
+  assert.match(holdService, /availability\.rental-hold\.created/);
+  assert.match(holdService, /availability\.rental-hold\.released/);
+  assert.match(holdService, /assertRentalAvailabilityBlockNotHeld/);
+  assert.match(holdService, /assertRentalUnitNotHeldForInventoryMutation/);
+
+  assert.match(rentalService, /rentalUnitLockKey/);
+  assert.match(rentalService, /pg_advisory_xact_lock/);
+  assert.match(rentalService, /Release the overlapping rental availability hold before adding this unavailable-date block/);
+  assert.match(rentalService, /Release active rental availability holds before relocating this rental unit/);
+  assert.match(rentalService, /Release active rental availability holds before archiving this rental unit/);
+  assert.match(rentalService, /assignRentalUnitLocation[\s\S]*lockRentalUnit\(transaction, input\.organizationId, input\.unitId\)/);
+  assert.match(rentalService, /createRentalAvailabilityBlock[\s\S]*lockRentalUnit\(transaction, input\.organizationId, block\.unitId\)/);
+  assert.match(rentalService, /archiveRentalUnit[\s\S]*lockRentalUnit\(transaction, input\.organizationId, input\.unitId\)/);
   assert.match(domain, /expiresAt\.getTime\(\) - input\.hold\.createdAt\.getTime\(\) === requestedDurationMilliseconds/);
 });
 
@@ -99,12 +113,15 @@ test('rental availability and hold UI expose real inventory protection plus curr
   assert.match(createRoute, /hold\.status === 'ACTIVE'/);
   assert.match(createRoute, /hold-inactive/);
   assert.match(releaseRoute, /releaseRentalAvailabilityHold/);
-  assert.match(blockRoute, /assertRentalAvailabilityBlockNotHeld/);
-  assert.match(locationRoute, /assertRentalUnitNotHeldForInventoryMutation/);
-  assert.match(archiveRoute, /assertRentalUnitNotHeldForInventoryMutation/);
+  assert.match(blockRoute, /createRentalAvailabilityBlock/);
+  assert.match(locationRoute, /assignRentalUnitLocation/);
+  assert.match(archiveRoute, /archiveRentalUnit/);
+  assert.doesNotMatch(blockRoute, /assertRentalAvailabilityBlockNotHeld/);
+  assert.doesNotMatch(locationRoute, /assertRentalUnitNotHeldForInventoryMutation/);
+  assert.doesNotMatch(archiveRoute, /assertRentalUnitNotHeldForInventoryMutation/);
 });
 
-test('rental hold database scenario covers pricing evidence drift without claiming booking conversion', async () => {
+test('rental hold database scenario covers pricing evidence drift and direct service-level inventory protection without claiming booking conversion', async () => {
   const integration = await source('src/server/inventory/rental-hold.integration.ts');
 
   assert.match(integration, /quotedTotalMinor, 375000n/);
@@ -113,6 +130,9 @@ test('rental hold database scenario covers pricing evidence drift without claimi
   assert.match(integration, /pricingState, 'CHANGED'/);
   assert.match(integration, /current\.totalMinor, 450000n/);
   assert.match(integration, /expiresInMinutes: 20/);
+  assert.match(integration, /Release the overlapping rental availability hold/);
+  assert.match(integration, /Release active rental availability holds before relocating/);
+  assert.match(integration, /Release active rental availability holds before archiving/);
   assert.doesNotMatch(integration, /createRentalBooking|confirmRentalBooking|consumeRentalHold/);
 });
 
@@ -127,6 +147,7 @@ test('rental hold documentation and guarded database runner keep pricing and boo
   assert.match(docs, /not a customer reservation/i);
   assert.match(docs, /does not lock pricing/i);
   assert.match(docs, /current fingerprint still matches the original observation/i);
+  assert.match(docs, /Application services perform the same expected-state checks first/i);
   assert.match(docs, /database.*guard/i);
   assert.match(runner, /src\/server\/inventory\/rental-hold\.integration\.ts/);
 });

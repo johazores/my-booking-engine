@@ -262,6 +262,7 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
           reason: 'Must not overlap active hold',
         },
       }),
+      /Release the overlapping rental availability hold/i,
     );
     await assert.rejects(
       rentals.assignRentalUnitLocation({
@@ -270,6 +271,7 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         unitId: unitA.id,
         locationCode: locationA2.code,
       }),
+      /Release active rental availability holds before relocating/i,
     );
     await assert.rejects(
       rentals.archiveRentalUnit({
@@ -278,6 +280,7 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         unitId: unitA.id,
         confirmation: 'ARCHIVE',
       }),
+      /Release active rental availability holds before archiving/i,
     );
 
     const released = await holds.releaseRentalAvailabilityHold({

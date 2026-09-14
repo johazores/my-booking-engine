@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
-import { assertRentalUnitNotHeldForInventoryMutation } from '@/server/inventory/rental-hold-service.ts';
 import { archiveRentalUnit } from '@/server/inventory/rental-service.ts';
 
 export async function POST(request: Request, context: { params: Promise<{ 'unit-id': string }> }) {
@@ -14,11 +13,6 @@ export async function POST(request: Request, context: { params: Promise<{ 'unit-
   const formData = await readInventoryFormData(request);
   if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
   try {
-    await assertRentalUnitNotHeldForInventoryMutation({
-      organizationId: organization.id,
-      actorUserId: session.user.id,
-      unitId,
-    });
     await archiveRentalUnit({ organizationId: organization.id, actorUserId: session.user.id, unitId, confirmation: formField(formData, 'confirmation') });
     return finish(NextResponse.redirect(new URL('/inventory/rentals?status=unit-archived', request.url), 303));
   } catch (error) {

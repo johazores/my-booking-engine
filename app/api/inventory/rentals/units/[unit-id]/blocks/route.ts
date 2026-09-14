@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
-import { assertRentalAvailabilityBlockNotHeld } from '@/server/inventory/rental-hold-service.ts';
 import { createRentalAvailabilityBlock } from '@/server/inventory/rental-service.ts';
 
 export async function POST(request: Request, context: { params: Promise<{ 'unit-id': string }> }) {
@@ -16,13 +15,6 @@ export async function POST(request: Request, context: { params: Promise<{ 'unit-
   const startsOn = formField(formData, 'startsOn');
   const endsOn = formField(formData, 'endsOn');
   try {
-    await assertRentalAvailabilityBlockNotHeld({
-      organizationId: organization.id,
-      actorUserId: session.user.id,
-      unitId,
-      startsOn,
-      endsOn,
-    });
     await createRentalAvailabilityBlock({
       organizationId: organization.id,
       actorUserId: session.user.id,
