@@ -35,7 +35,20 @@ test('tour service enforces permissions, tenant predicates, audited serializable
   assert.match(service, /inventory\.tour-departure\.created/);
   assert.match(service, /inventory\.tour-addon\.created/);
   assert.match(service, /Archive active departures and add-ons before archiving the tour or package/);
+  assert.match(service, /listTourDeparturesForProduct/);
+  assert.match(service, /listTourAddonsForProduct/);
   assert.doesNotMatch(service, /delete\(|deleteMany\(/);
+});
+
+test('tour child collections are independently tenant-scoped and paginated', async () => {
+  const repository = await source('src/server/inventory/tour-repository.ts');
+  assert.match(repository, /listTourDeparturesForProduct/);
+  assert.match(repository, /listTourAddonsForProduct/);
+  assert.match(repository, /organizationId: input\.organizationId, tourProductId: input\.tourProductId/g);
+  assert.equal((repository.match(/skip: \(page - 1\) \* input\.pageSize/g) ?? []).length, 3);
+  assert.equal((repository.match(/take: input\.pageSize/g) ?? []).length, 3);
+  assert.doesNotMatch(repository, /include:\s*\{\s*departures:/);
+  assert.doesNotMatch(repository, /include:\s*\{\s*addons:/);
 });
 
 test('tour HTTP and UI surfaces use authenticated persistence, expose real states, and avoid fake pricing or booking actions', async () => {
@@ -59,7 +72,11 @@ test('tour HTTP and UI surfaces use authenticated persistence, expose real state
   }
   assert.match(listPage, /listTourProducts/);
   assert.match(listPage, /action="\/api\/inventory\/tours"/);
-  assert.match(detailPage, /readTourProduct/);
+  assert.match(detailPage, /readTourInventoryDetail/);
+  assert.match(detailPage, /departurePage/);
+  assert.match(detailPage, /addonPage/);
+  assert.match(detailPage, /aria-label="Departure pages"/);
+  assert.match(detailPage, /aria-label="Add-on pages"/);
   assert.match(detailPage, /\/departures`}/);
   assert.match(detailPage, /\/addons`}/);
   assert.match(detailPage, /Pricing stays behind the pricing layer/);

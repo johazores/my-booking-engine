@@ -112,9 +112,16 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
 
     const listed = await tours.listTourProducts({ organizationId: organizationA.id, actorUserId: staffA.id, page: 1, pageSize: 20 });
     assert.deepEqual(listed.products.map((product) => product.id), [productA.id]);
-    const read = await tours.readTourProduct({ organizationId: organizationA.id, actorUserId: staffA.id, tourProductId: productA.id });
-    assert.equal(read.departures[0]?.capacity, 12);
-    assert.equal(read.addons[0]?.code, 'MUSEUM');
+    const detail = await tours.readTourInventoryDetail({
+      organizationId: organizationA.id,
+      actorUserId: staffA.id,
+      tourProductId: productA.id,
+      departurePage: 1,
+      addonPage: 1,
+      pageSize: 20,
+    });
+    assert.equal(detail.departureResult.departures[0]?.capacity, 12);
+    assert.equal(detail.addonResult.addons[0]?.code, 'MUSEUM');
     await assert.rejects(
       tours.readTourProduct({ organizationId: organizationB.id, actorUserId: adminB.id, tourProductId: productA.id }),
       /not available in this organization/i,

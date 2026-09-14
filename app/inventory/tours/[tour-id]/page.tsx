@@ -4,7 +4,8 @@ import { notFound, redirect } from 'next/navigation';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
-import { readTourProduct, TourInventoryUnavailableError } from '@/server/inventory/tour-service.ts';
+import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
+import { readTourInventoryDetail, TourInventoryUnavailableError } from '@/server/inventory/tour-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 const errors: Record<string, string> = {
@@ -33,12 +34,33 @@ function formatLocalDateTime(date: Date, timezone: string) {
   }).format(date);
 }
 
+function detailHref(input: {
+  tourProductId: string;
+  departurePage: number;
+  addonPage: number;
+  pageSize: number;
+}) {
+  const query = new URLSearchParams();
+  if (input.departurePage > 1) query.set('departurePage', String(input.departurePage));
+  if (input.addonPage > 1) query.set('addonPage', String(input.addonPage));
+  if (input.pageSize !== 20) query.set('pageSize', String(input.pageSize));
+  const encodedProductId = encodeURIComponent(input.tourProductId);
+  const queryString = query.toString();
+  return queryString ? `/inventory/tours/${encodedProductId}?${queryString}` : `/inventory/tours/${encodedProductId}`;
+}
+
 export default async function TourInventoryDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ 'tour-id': string }>;
-  searchParams: Promise<{ status?: string; error?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    error?: string;
+    departurePage?: string;
+    addonPage?: string;
+    pageSize?: string;
+  }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -66,18 +88,23 @@ export default async function TourInventoryDetailPage({
   }
 
   const routeParams = await params;
-  let product: Awaited<ReturnType<typeof readTourProduct>>;
+  const query = await searchParams;
+  const pageSize = parseInventoryPageSize(query.pageSize);
+  let detail: Awaited<ReturnType<typeof readTourInventoryDetail>>;
   try {
-    product = await readTourProduct({
+    detail = await readTourInventoryDetail({
       organizationId: activeContext.organization.id,
       actorUserId: session.user.id,
       tourProductId: routeParams['tour-id'],
+      departurePage: parseInventoryPage(query.departurePage),
+      addonPage: parseInventoryPage(query.addonPage),
+      pageSize,
     });
   } catch (error) {
     if (error instanceof TourInventoryUnavailableError) notFound();
     throw error;
   }
-  const query = await searchParams;
+  const { product, departureResult, addonResult } = detail;
   const isActive = product.status === 'ACTIVE';
 
   return <div className="sf-inventory-page">
@@ -99,8 +126,8 @@ export default async function TourInventoryDetailPage({
 
     <div className="sf-inventory-layout">
       <section className="sf-inventory-card" aria-labelledby="departures-title">
-        <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Schedule and capacity</p><h2 id="departures-title">Departures</h2></div><span>{product.departures.length}</span></div>
-        {product.departures.length === 0 ? <div className="sf-empty-state"><h3>No departures yet</h3><p>Create a dated departure before later availability and booking layers can allocate capacity.</p></div> : <ul className="sf-inventory-list">{product.departures.map((departure) => <li key={departure.id}>
+        <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Schedule and capacity</p><h2 id="departures-title">Departures</h2></div><span>{departureResult.total}</span></div>
+        {departureResult.departures.length === 0 ? <div className="sf-empty-state"><h3>No departures yet</h3><p>Create a dated departure before later availability and booking layers can allocate capacity.</p></div> : <ul className="sf-inventory-list">{departureResult.departures.map((departure) => <li key={departure.id}>
           <div className="sf-inventory-list__link">
             <div className="sf-inventory-list__primary"><div><strong>{formatLocalDateTime(departure.startsAt, product.timezone)}</strong><span>Ends {formatLocalDateTime(departure.endsAt, product.timezone)} · capacity {departure.capacity}</span></div></div>
             <div className="sf-inventory-list__meta">
@@ -109,11 +136,16 @@ export default async function TourInventoryDetailPage({
             </div>
           </div>
         </li>)}</ul>}
+        {departureResult.total > pageSize ? <nav className="sf-pagination" aria-label="Departure pages">
+          {departureResult.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={detailHref({ tourProductId: product.id, departurePage: departureResult.page - 1, addonPage: addonResult.page, pageSize })}>Previous</Link> : <span />}
+          <span>Page {departureResult.page} of {departureResult.totalPages}</span>
+          {departureResult.page < departureResult.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={detailHref({ tourProductId: product.id, departurePage: departureResult.page + 1, addonPage: addonResult.page, pageSize })}>Next</Link> : <span />}
+        </nav> : null}
       </section>
 
       <section className="sf-inventory-card" aria-labelledby="addons-title">
-        <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Optional inventory</p><h2 id="addons-title">Add-ons</h2></div><span>{product.addons.length}</span></div>
-        {product.addons.length === 0 ? <div className="sf-empty-state"><h3>No add-ons yet</h3><p>Add optional product components without inventing pricing or provider behavior.</p></div> : <ul className="sf-inventory-list">{product.addons.map((addon) => <li key={addon.id}>
+        <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Optional inventory</p><h2 id="addons-title">Add-ons</h2></div><span>{addonResult.total}</span></div>
+        {addonResult.addons.length === 0 ? <div className="sf-empty-state"><h3>No add-ons yet</h3><p>Add optional product components without inventing pricing or provider behavior.</p></div> : <ul className="sf-inventory-list">{addonResult.addons.map((addon) => <li key={addon.id}>
           <div className="sf-inventory-list__link">
             <div className="sf-inventory-list__primary"><div><strong>{addon.name}</strong><span>{addon.code} · max {addon.maxQuantityPerBooking} per booking{addon.description ? ` · ${addon.description}` : ''}</span></div></div>
             <div className="sf-inventory-list__meta">
@@ -122,6 +154,11 @@ export default async function TourInventoryDetailPage({
             </div>
           </div>
         </li>)}</ul>}
+        {addonResult.total > pageSize ? <nav className="sf-pagination" aria-label="Add-on pages">
+          {addonResult.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={detailHref({ tourProductId: product.id, departurePage: departureResult.page, addonPage: addonResult.page - 1, pageSize })}>Previous</Link> : <span />}
+          <span>Page {addonResult.page} of {addonResult.totalPages}</span>
+          {addonResult.page < addonResult.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={detailHref({ tourProductId: product.id, departurePage: departureResult.page, addonPage: addonResult.page + 1, pageSize })}>Next</Link> : <span />}
+        </nav> : null}
       </section>
     </div>
 

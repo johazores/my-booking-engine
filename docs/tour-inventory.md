@@ -38,14 +38,16 @@ No delete endpoint exists for this scope.
 
 Authenticated operators use:
 
-- `/inventory/tours` for paginated tour/package catalog and product creation;
-- `/inventory/tours/[tour-id]` for schedules, capacity, add-ons, and archival controls.
+- `/inventory/tours` for the paginated tour/package catalog and product creation;
+- `/inventory/tours/[tour-id]` for independently paginated departure schedules and add-ons, configured capacity, and archival controls.
 
-The pages reuse SF native CSS/design-token components and existing inventory authorization. Empty, permission-denied, validation, conflict, dependency, success, loading, error, and archived states are explicit. No dead booking or pricing action is exposed.
+All potentially growing tour collections are bounded with the existing inventory pagination contract (default 20, maximum 50). The product detail reader does not eagerly load unbounded child schedules or add-ons.
+
+The pages reuse SF native CSS/design-token components and existing inventory authorization. Empty, permission-denied, validation, conflict, dependency, success, and archived states are explicit. No dead booking or pricing action is exposed.
 
 ## Validation and remaining work
 
-Dependency-free domain coverage validates product normalization, exact-offset schedules, capacity bounds, add-on bounds, and archive confirmation. A source-contract suite covers tenant/database relationships, permission guards, serializable/audited writes, real route wiring, and the no-fake-pricing boundary. A guarded PostgreSQL integration scenario is included in `npm run test:database` for permission, Tenant A/Tenant B isolation, uniqueness, dependency-safe archival, and audit behavior.
+Dependency-free domain coverage validates product normalization, exact-offset schedules, capacity bounds, add-on bounds, and archive confirmation. A source-contract suite covers tenant/database relationships, permission guards, serializable/audited writes, real route wiring, bounded collection reads, and the no-fake-pricing boundary. A guarded PostgreSQL integration scenario is included in `npm run test:database` for permission, Tenant A/Tenant B isolation, uniqueness, dependency-safe archival, and audit behavior.
 
 The current automation environment still cannot claim Prisma generate/validate/migration execution or PostgreSQL integration because the repository-supported Node 24 dependency checkout and an explicitly disposable database target are unavailable. Those remain governed by the Phase 1 validation gates.
 

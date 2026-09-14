@@ -11,6 +11,8 @@ import {
   type TourProductInput,
 } from './tour-domain.ts';
 import {
+  listTourAddonsForProduct,
+  listTourDeparturesForProduct,
   listTourProductsForOrganization,
   readTourProductForOrganization,
 } from './tour-repository.ts';
@@ -70,6 +72,34 @@ export async function readTourProduct(input: { organizationId: string; actorUser
   const product = await readTourProductForOrganization(input);
   if (!product) throw new TourInventoryUnavailableError();
   return product;
+}
+
+export async function readTourInventoryDetail(input: {
+  organizationId: string;
+  actorUserId: string;
+  tourProductId: string;
+  departurePage: number;
+  addonPage: number;
+  pageSize: number;
+}) {
+  await requireInventoryRead(input);
+  const product = await readTourProductForOrganization(input);
+  if (!product) throw new TourInventoryUnavailableError();
+  const [departureResult, addonResult] = await Promise.all([
+    listTourDeparturesForProduct({
+      organizationId: input.organizationId,
+      tourProductId: input.tourProductId,
+      page: input.departurePage,
+      pageSize: input.pageSize,
+    }),
+    listTourAddonsForProduct({
+      organizationId: input.organizationId,
+      tourProductId: input.tourProductId,
+      page: input.addonPage,
+      pageSize: input.pageSize,
+    }),
+  ]);
+  return { product, departureResult, addonResult };
 }
 
 export async function createTourProduct(input: {
