@@ -55,4 +55,6 @@ Those features require separate commercial acceptance criteria and must not infe
 
 Dependency-free domain and source-contract coverage validates location normalization, timezone/country constraints, tenant-composite schema relationships, root organization foreign-key ownership, lifecycle database invariants, server-side authorization and location resolution, bounded collections, overlap rules, lifecycle dependencies, route wiring, and the no-fake-booking boundary. A guarded PostgreSQL rental scenario is included in `npm run test:database` for Tenant A/Tenant B isolation, permissions, location assignment/movement, overlap rejection, lifecycle dependencies, and audit evidence.
 
-Live Prisma validation, migration deployment/drift verification, and the PostgreSQL integration scenario remain governed by the Phase 1 disposable-database gate and must not be claimed without the repository-supported Node 24 toolchain and an explicitly disposable database target.
+A dedicated guarded database-integrity scenario directly verifies the root organization foreign keys, organization delete protection, rejected impossible archive states, and persisted-state preservation against the disposable PostgreSQL target when `npm run test:database` is available.
+
+Live Prisma validation, migration deployment/drift verification, and the PostgreSQL integration scenarios remain governed by the Phase 1 disposable-database gate and must not be claimed without the repository-supported Node 24 toolchain and an explicitly disposable database target.

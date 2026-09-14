@@ -44,9 +44,23 @@ test('new rental root ownership matches the sibling tour and appointment databas
   assert.equal((appointmentMigration.match(/FOREIGN KEY \("organizationId"\) REFERENCES "organizations"\("id"\)/g) ?? []).length, 2);
 });
 
+test('guarded database suite executes the rental persistence integrity scenario', async () => {
+  const [runner, integration] = await Promise.all([
+    source('scripts/run-database-tests.mjs'),
+    source('src/server/inventory/rental-database-integrity.integration.ts'),
+  ]);
+
+  assert.match(runner, /src\/server\/inventory\/rental-database-integrity\.integration\.ts/);
+  assert.match(integration, /db\.rentalUnitType\.create/);
+  assert.match(integration, /db\.rentalLocation\.create/);
+  assert.match(integration, /db\.organization\.delete/);
+  assert.equal((integration.match(/assert\.rejects/g) ?? []).length, 6);
+});
+
 test('rental documentation records root tenant ownership and lifecycle database invariants', async () => {
   const documentation = await source('docs/rental-inventory.md');
 
   assert.match(documentation, /root rental unit types and locations have PostgreSQL foreign keys to their owning organization/i);
   assert.match(documentation, /status\/archive timestamp consistency is also enforced with database checks/i);
+  assert.match(documentation, /dedicated guarded database-integrity scenario/i);
 });
