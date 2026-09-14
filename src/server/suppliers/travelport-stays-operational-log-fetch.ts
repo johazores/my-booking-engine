@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
+import {
+  emitStructuredObservationSafely,
+  safeObservationClockMs,
+  safeObservationDurationMs,
+  safeObservationTimestamp,
+} from '../observability/structured-log-safety.ts';
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TRAVELPORT_STAYS_ENDPOINTS = Object.freeze({
   searchComplete: '/12/hotel/search/searchcomplete',
@@ -115,23 +122,6 @@ function providerCorrelationId(headers: Headers) {
   return value !== null && UUID_PATTERN.test(value) ? value : null;
 }
 
-function safeNowMs(nowMs: () => number) {
-  try {
-    const value = nowMs();
-    return Number.isFinite(value) ? value : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function safeTimestamp(now: () => Date) {
-  try {
-    return now().toISOString();
-  } catch {
-    return new Date(0).toISOString();
-  }
-}
-
 function requestCorrelationId(providerCorrelation: string | null, randomUuidFactory: () => string) {
   if (providerCorrelation !== null) return providerCorrelation;
   try {
@@ -145,14 +135,6 @@ function classifyHttpStatus(statusCode: number) {
   if (statusCode >= 500) return Object.freeze({ level: 'error' as const, outcome: 'failed' as const });
   if (statusCode >= 300) return Object.freeze({ level: 'warn' as const, outcome: 'rejected' as const });
   return Object.freeze({ level: 'info' as const, outcome: 'succeeded' as const });
-}
-
-function emitSafely(sink: TravelportStaysOperationalLogSink, record: StructuredTravelportStaysProviderRequestLogRecord) {
-  try {
-    sink(record);
-  } catch {
-    // Observability availability must never become booking or supplier-request authority.
-  }
 }
 
 function writeStructuredTravelportProviderRequestLog(record: StructuredTravelportStaysProviderRequestLogRecord) {
@@ -186,7 +168,7 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
   const randomUuidFactory = input.randomUuid ?? randomUUID;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
-    const startedAt = safeNowMs(nowMs);
+    const startedAt = safeObservationClockMs(nowMs);
     const headers = requestHeaders(requestInput, init);
     const providerCorrelation = providerCorrelationId(headers);
     const requestCorrelation = requestCorrelationId(providerCorrelation, randomUuidFactory);
@@ -208,26 +190,26 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
     try {
       const response = await fetchImpl(requestInput, init);
       const classification = classifyHttpStatus(response.status);
-      emitSafely(sink, Object.freeze({
+      emitStructuredObservationSafely(sink, Object.freeze({
         ...base,
-        timestamp: safeTimestamp(now),
+        timestamp: safeObservationTimestamp(now),
         level: classification.level,
         outcome: classification.outcome,
         statusCode: response.status,
-        durationMs: Math.max(0, Math.round(safeNowMs(nowMs) - startedAt)),
+        durationMs: safeObservationDurationMs(startedAt, nowMs),
         failureClass: null,
       }));
       return response;
     } catch (error) {
       const aborted = init?.signal?.aborted === true
         || (error instanceof DOMException && error.name === 'AbortError');
-      emitSafely(sink, Object.freeze({
+      emitStructuredObservationSafely(sink, Object.freeze({
         ...base,
-        timestamp: safeTimestamp(now),
+        timestamp: safeObservationTimestamp(now),
         level: aborted ? 'warn' : 'error',
         outcome: 'failed',
         statusCode: null,
-        durationMs: Math.max(0, Math.round(safeNowMs(nowMs) - startedAt)),
+        durationMs: safeObservationDurationMs(startedAt, nowMs),
         failureClass: aborted ? 'aborted' : 'transport',
       }));
       throw error;

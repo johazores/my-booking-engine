@@ -9,6 +9,7 @@ import {
   resolveRequestId,
 } from '../src/server/observability/request-observability.ts';
 import { createHospitalitySupplierReservationProviderObservation } from '../src/server/suppliers/hospitality-supplier-reservation-observability.ts';
+import { createTravelportStaysOperationalLogFetch } from '../src/server/suppliers/travelport-stays-operational-log-fetch.ts';
 import { createTravelportStaysReservationCreateProviderObservation } from '../src/server/suppliers/travelport-stays-reservation-create-observability.ts';
 import { createTravelportStaysReservationSyncProviderObservation } from '../src/server/suppliers/travelport-stays-reservation-sync-observability.ts';
 
@@ -100,10 +101,35 @@ test('Travelport create and sync observations cannot interrupt provider settleme
   assert.equal(syncRecord?.outcome, 'confirmed');
 });
 
+test('Travelport terminal request timing also degrades to zero when the start clock is unavailable', async () => {
+  const records = [];
+  let clockCalls = 0;
+  const operationalFetch = createTravelportStaysOperationalLogFetch({
+    organizationId: ORGANIZATION_ID,
+    integrationId: '323e4567-e89b-42d3-a456-426614174000',
+    credentialVersion: 3,
+    environment: 'production',
+    fetchImpl: async () => new Response('{}', { status: 200 }),
+    nowMs: () => {
+      clockCalls += 1;
+      return clockCalls === 1 ? Number.NaN : 5_000;
+    },
+    sink: (record) => records.push(record),
+  });
+
+  await operationalFetch('https://api.travelport.net/12/hotel/search/searchcomplete', {
+    method: 'POST',
+    headers: { TraceId: ATTEMPT_ID },
+  });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].durationMs, 0);
+});
+
 test('all current application and supplier domain observers use the shared fail-open emission boundary', () => {
   for (const path of [
     '../src/server/observability/request-observability.ts',
     '../src/server/suppliers/hospitality-supplier-reservation-observability.ts',
+    '../src/server/suppliers/travelport-stays-operational-log-fetch.ts',
     '../src/server/suppliers/travelport-stays-reservation-create-observability.ts',
     '../src/server/suppliers/travelport-stays-reservation-sync-observability.ts',
   ]) {
