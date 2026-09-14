@@ -255,7 +255,7 @@ export async function archiveTourDeparture(input: {
     if (!current) throw new TourInventoryUnavailableError('Departure is not active in this organization.');
     const archivedAt = new Date();
     const updated = await transaction.tourDeparture.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
@@ -297,7 +297,7 @@ export async function archiveTourAddon(input: {
     if (!current) throw new TourInventoryUnavailableError('Add-on is not active in this organization.');
     const archivedAt = new Date();
     const updated = await transaction.tourAddon.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
@@ -343,7 +343,7 @@ export async function archiveTourProduct(input: {
     }
     const archivedAt = new Date();
     const updated = await transaction.tourProduct.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({

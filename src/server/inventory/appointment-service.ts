@@ -366,7 +366,7 @@ export async function archiveAppointmentSchedule(input: {
     if (!current) throw new AppointmentInventoryUnavailableError('Schedule is not active in this organization.');
     const archivedAt = new Date();
     const updated = await transaction.appointmentSchedule.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
@@ -407,7 +407,7 @@ export async function archiveAppointmentService(input: {
     }
     const archivedAt = new Date();
     const updated = await transaction.appointmentService.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
@@ -453,7 +453,7 @@ export async function archiveAppointmentStaff(input: {
     }
     const archivedAt = new Date();
     const updated = await transaction.appointmentStaff.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
