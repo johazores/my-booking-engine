@@ -28,6 +28,47 @@ test('Prisma config and drift validation use the complete multi-file schema dire
   );
 });
 
+test('non-hospitality tenant-root foreign keys are represented in Prisma drift authority', async () => {
+  const [rootSchema, tourSchema, appointmentSchema, rentalSchema, tourMigration, appointmentMigration, rentalIntegrityMigration] =
+    await Promise.all([
+      source('prisma/schema.prisma'),
+      source('prisma/tour-inventory.prisma'),
+      source('prisma/appointment-inventory.prisma'),
+      source('prisma/rental-inventory.prisma'),
+      source('prisma/migrations/20260914122000_tour_inventory_foundation/migration.sql'),
+      source('prisma/migrations/20260914130000_appointment_inventory_foundation/migration.sql'),
+      source('prisma/migrations/20260914151000_rental_tenant_integrity/migration.sql'),
+    ]);
+
+  for (const relation of [
+    ['tourProducts', 'TourProduct'],
+    ['appointmentServices', 'AppointmentService'],
+    ['appointmentStaff', 'AppointmentStaff'],
+    ['rentalLocations', 'RentalLocation'],
+    ['rentalUnitTypes', 'RentalUnitType'],
+  ]) {
+    assert.match(rootSchema, new RegExp(`\\b${relation[0]}\\s+${relation[1]}\\[\\]`));
+  }
+
+  const mappedRelations = [
+    [tourSchema, tourMigration, 'tour_products_organization_fkey'],
+    [appointmentSchema, appointmentMigration, 'appointment_services_organization_fkey'],
+    [appointmentSchema, appointmentMigration, 'appointment_staff_organization_fkey'],
+    [rentalSchema, rentalIntegrityMigration, 'rental_locations_organization_fkey'],
+    [rentalSchema, rentalIntegrityMigration, 'rental_unit_types_organization_fkey'],
+  ];
+
+  for (const [schema, migration, constraintName] of mappedRelations) {
+    assert.match(
+      schema,
+      new RegExp(
+        `organization\\s+Organization\\s+@relation\\(fields: \\[organizationId\\], references: \\[id\\], onDelete: Restrict, onUpdate: Cascade, map: "${constraintName}"\\)`,
+      ),
+    );
+    assert.match(migration, new RegExp(`"${constraintName}"`));
+  }
+});
+
 test('disposable database runner regenerates the current client before migration and integration checks', async () => {
   const runner = await source('scripts/run-database-tests.mjs');
   const expectedSequence = [
@@ -52,6 +93,7 @@ test('development guide records the multi-file drift and raw SQL verification bo
 
   assert.match(guide, /complete multi-file Prisma schema/i);
   assert.match(guide, /must point at the `prisma` directory rather than only `prisma\/schema\.prisma`/i);
+  assert.match(guide, /Prisma-supported tenant-root foreign keys must also be represented in the multi-file schema/i);
   assert.match(guide, /Raw SQL constraints that Prisma does not model are verified by the guarded PostgreSQL integration scenarios/i);
   assert.match(guide, /regenerates the current Prisma client/i);
   assert.match(guide, /schema-first sequence/i);

@@ -42,6 +42,8 @@ npm run db:drift
 
 `db:status` verifies that the checked-in migration history matches the database migration table. `db:drift` compares the complete multi-file Prisma schema to the configured database and exits non-zero when Prisma-supported schema drift exists. SF configures `schema: 'prisma'`, so drift validation must point at the `prisma` directory rather than only `prisma/schema.prisma`; otherwise domain fragments such as inventory and supplier persistence can be omitted from the comparison.
 
+Prisma-supported tenant-root foreign keys must also be represented in the multi-file schema, including their checked-in constraint names when migrations name those constraints explicitly. A database foreign key that exists only in migration SQL but is absent from Prisma relation metadata can make an otherwise intentional production constraint appear as schema drift.
+
 Prisma schema diffing covers Prisma-supported database features only. Raw SQL constraints that Prisma does not model are verified by the guarded PostgreSQL integration scenarios and their direct database assertions; a clean `db:drift` result alone is not evidence that those custom constraints exist.
 
 For an isolated development database where Prisma should manage development migration state:

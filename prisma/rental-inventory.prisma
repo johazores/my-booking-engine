@@ -15,6 +15,7 @@ model RentalLocation {
   createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "rental_locations_organization_fkey")
   units RentalUnit[]
 
   @@unique([id, organizationId])
@@ -36,6 +37,7 @@ model RentalUnitType {
   createdAt             DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime                 @updatedAt @db.Timestamptz(6)
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "rental_unit_types_organization_fkey")
   units       RentalUnit[]
   ratePeriods RentalRatePeriod[]
 

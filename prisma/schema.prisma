@@ -132,6 +132,11 @@ model Organization {
   deletedAt                       DateTime?                       @db.Timestamptz(6)
   memberships                     OrganizationMembership[]
   customers                       Customer[]
+  tourProducts                    TourProduct[]
+  appointmentServices             AppointmentService[]
+  appointmentStaff                AppointmentStaff[]
+  rentalLocations                 RentalLocation[]
+  rentalUnitTypes                 RentalUnitType[]
   hospitalityProperties           HospitalityProperty[]
   hospitalityAmenities            HospitalityAmenity[]
   hospitalityAvailabilityWindows  HospitalityAvailabilityWindow[]
