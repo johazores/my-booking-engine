@@ -4,7 +4,7 @@
 
 The OAuth credential-containment fetch is the final SF-owned boundary before Travelport network I/O. Validating a parsed URL is not enough if the terminal Fetch implementation still receives the caller-owned `Request` or `URL` object, because object-level request metadata can outlive the reviewed terminal projection. The final network target therefore uses only the exact URL string that SF parsed and validated.
 
-The same boundary also treats the Stays bearer token as explicit authority. A correct Travelport host, supported Hotel operation, and access group do not authorize an arbitrary `Authorization` scheme or an unbounded credential value.
+The same boundary also treats the Stays bearer token and request payload as explicit authority. A correct Travelport host, supported Hotel operation, access group, and bearer token do not authorize an arbitrary request body or content type.
 
 ## Terminal target authority
 
@@ -19,7 +19,7 @@ The fresh terminal `RequestInit` remains authoritative for method, body, abort s
 
 ## Bearer authority
 
-Before Stays network I/O, the terminal boundary now independently requires:
+Before Stays network I/O, the terminal boundary independently requires:
 
 - an `Authorization` header;
 - the exact `Bearer ` scheme spelling used by the Travelport adapters;
@@ -28,16 +28,28 @@ Before Stays network I/O, the terminal boundary now independently requires:
 
 The configured `XAUTH_TRAVELPORT_ACCESSGROUP` must still match exactly. Long-lived username/password/client credentials are still consumed as internal identity-binding evidence and removed before the Stays request is forwarded.
 
-This is defense in depth. The outer Travelport trace transport continues to own the complete request/body/header/correlation/response contract, while the terminal boundary independently prevents a future wrapper-composition mistake from turning another authorization scheme or oversized credential into Stays network authority.
+## Payload authority
+
+The same terminal boundary now independently reasserts the method/body contract immediately before network I/O:
+
+- Stays `GET` operations must have no request body;
+- Stays `POST` operations require a string body with exact `application/json` content type, a JSON-object envelope, well-formed Unicode, and the existing 4 MiB UTF-8 request limit; and
+- OAuth `POST /oauth/token` requires the exact form content type plus the existing five-field `URLSearchParams` password-grant body bound to the active normalized credential set.
+
+These checks deliberately mirror the outer trace transport rather than replacing it. They prevent a future wrapper-composition change or caller-owned `Request` from turning a validated credential-bearing target into authority for an arbitrary body, body-bearing `GET`, or mismatched content type.
+
+This is defense in depth. The outer Travelport trace transport continues to own the complete request/body/header/correlation/response contract, while the terminal boundary independently prevents a future wrapper-composition mistake from changing request identity, authorization shape, or payload semantics at the last SF-owned network edge.
 
 ## Similar-issue sweep
 
-The production Travelport composition uses the same credential-containment fetch for SearchComplete/pricing, Rules, Availability, initial and reviewed Create, Booking.com Sync, known-locator Retrieve, and the authenticated connection-test OAuth exchange. Fixing terminal target identity and bearer shape at this shared network edge therefore covers every currently implemented Travelport request path without duplicating policy inside individual adapters.
+The production Travelport composition uses the same credential-containment fetch for SearchComplete/pricing, Rules, Availability, initial and reviewed Create, Booking.com Sync, known-locator Retrieve, and the authenticated connection-test OAuth exchange. Fixing terminal target identity, bearer shape, and payload authority at this shared network edge therefore covers every currently implemented Travelport request path without duplicating policy inside individual adapters.
 
 No provider capability is widened. `reservation` remains deliberately unadvertised.
 
 ## Validation
 
-Focused behavior coverage verifies that missing, non-Bearer, whitespace-bearing, and oversized Stays authorization values fail before network I/O, while a token at the documented SF bound remains accepted. Separate coverage invokes the terminal boundary with caller-owned `URL` and `Request` objects and verifies that the injected network Fetch receives only the validated URL string plus the fresh safe `RequestInit`.
+Focused behavior coverage verifies that missing, non-Bearer, whitespace-bearing, and oversized Stays authorization values fail before network I/O, while a token at the documented SF bound remains accepted. Payload coverage verifies that body-bearing GET, missing/wrong POST content type, non-string/non-object/oversized Stays bodies, and mismatched OAuth content types also fail before the terminal Fetch implementation is called. Valid Stays GET/POST and OAuth form requests continue through the boundary.
 
-A dependency-free source contract pins the bearer bound, the pre-I/O bearer assertion, both `url.href` terminal calls, and this documentation boundary.
+Separate coverage invokes the terminal boundary with caller-owned `URL` and `Request` objects and verifies that the injected network Fetch receives only the validated URL string plus the fresh safe `RequestInit`.
+
+A dependency-free source contract pins the bearer bound, payload rules, pre-I/O assertions, both `url.href` terminal calls, and this documentation boundary.

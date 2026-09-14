@@ -16,9 +16,20 @@ const credentials = Object.freeze({
 function staysHeaders(authorization = 'Bearer test-token') {
   return {
     Accept: 'application/json',
+    'Content-Type': 'application/json',
     Authorization: authorization,
     XAUTH_TRAVELPORT_ACCESSGROUP: credentials.accessGroup,
   };
+}
+
+function oauthBody() {
+  return new URLSearchParams({
+    grant_type: 'password',
+    username: credentials.username,
+    password: credentials.password,
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+  });
 }
 
 function assertInvalidRequest(error: unknown) {
@@ -41,7 +52,11 @@ test('terminal Stays boundary requires bounded bearer authorization before netwo
   const target = 'https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest';
 
   for (const headers of [
-    { Accept: 'application/json', XAUTH_TRAVELPORT_ACCESSGROUP: credentials.accessGroup },
+    {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      XAUTH_TRAVELPORT_ACCESSGROUP: credentials.accessGroup,
+    },
     staysHeaders('Basic not-travelport-bearer-authority'),
     staysHeaders('Bearer'),
     staysHeaders('Bearer token with-space'),
@@ -59,6 +74,110 @@ test('terminal Stays boundary requires bounded bearer authorization before netwo
     body: '{}',
   });
   assert.equal(calls, 1);
+});
+
+test('terminal Travelport boundary rejects body and content-type authority mismatches before network I/O', async () => {
+  let calls = 0;
+  const containedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production',
+    credentials,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+  });
+  const rulesTarget = 'https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest';
+  const retrieveTarget = 'https://api.travelport.net/11/hotel/book/reservations/ABC123';
+  const oauthTarget = 'https://auth.travelport.net/oauth/token';
+
+  await assert.rejects(
+    containedFetch(rulesTarget, { method: 'POST', headers: staysHeaders() }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(rulesTarget, {
+      method: 'POST',
+      headers: { ...staysHeaders(), 'Content-Type': 'text/plain' },
+      body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(rulesTarget, {
+      method: 'POST',
+      headers: staysHeaders(),
+      body: new URLSearchParams({ invalid: 'body' }),
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(rulesTarget, {
+      method: 'POST',
+      headers: staysHeaders(),
+      body: '[]',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(rulesTarget, {
+      method: 'POST',
+      headers: staysHeaders(),
+      body: `{\"value\":\"${String.fromCharCode(0xd800)}\"}`,
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(rulesTarget, {
+      method: 'POST',
+      headers: staysHeaders(),
+      body: `{\"value\":\"${'a'.repeat(4 * 1024 * 1024)}\"}`,
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(retrieveTarget, {
+      method: 'GET',
+      headers: staysHeaders(),
+      body: '{}',
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(oauthTarget, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  await assert.rejects(
+    containedFetch(oauthTarget, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: oauthBody(),
+    }),
+    assertInvalidRequest,
+  );
+  assert.equal(calls, 0);
+
+  await containedFetch(rulesTarget, {
+    method: 'POST',
+    headers: staysHeaders(),
+    body: '{"valid":true}',
+  });
+  await containedFetch(retrieveTarget, {
+    method: 'GET',
+    headers: staysHeaders(),
+  });
+  await containedFetch(oauthTarget, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: oauthBody(),
+  });
+  assert.equal(calls, 3);
 });
 
 test('terminal boundary forwards the validated URL string instead of caller Request or URL identity', async () => {

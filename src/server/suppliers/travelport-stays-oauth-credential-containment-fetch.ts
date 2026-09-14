@@ -59,6 +59,9 @@ const TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS = Object.freeze(new Set([
   'xauth_travelport_accessgroup',
 ]));
 const MAX_TRAVELPORT_ACCESS_TOKEN_LENGTH = 16_384;
+const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
+const TRAVELPORT_JSON_CONTENT_TYPE = 'application/json';
+const TRAVELPORT_OAUTH_CONTENT_TYPE = 'application/x-www-form-urlencoded';
 const BEARER_PREFIX = 'Bearer ';
 
 type LongLivedOAuthCredentialHeader = (typeof LONG_LIVED_OAUTH_CREDENTIAL_HEADERS)[number];
@@ -179,6 +182,66 @@ function assertTravelportStaysBearerAuthorization(headers: Headers) {
 function assertAllowedTerminalHeaders(headers: Headers, allowed: ReadonlySet<string>) {
   for (const name of headers.keys()) {
     if (!allowed.has(name.toLowerCase())) invalidCredentialContainment();
+  }
+}
+
+function hasExactContentType(headers: Headers, expected: string) {
+  return headers.get('Content-Type')?.trim().toLowerCase() === expected;
+}
+
+function hasUtf8ByteLengthAtMost(value: string, maxBytes: number) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x7f) bytes += 1;
+    else if (codeUnit <= 0x7ff) bytes += 2;
+    else if (
+      codeUnit >= 0xd800
+      && codeUnit <= 0xdbff
+      && index + 1 < value.length
+      && value.charCodeAt(index + 1) >= 0xdc00
+      && value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4;
+      index += 1;
+    } else bytes += 3;
+    if (bytes > maxBytes) return false;
+  }
+  return true;
+}
+
+function isJsonWhitespace(codeUnit: number) {
+  return codeUnit === 0x20 || codeUnit === 0x09 || codeUnit === 0x0a || codeUnit === 0x0d;
+}
+
+function hasJsonObjectEnvelope(value: string) {
+  let start = 0;
+  while (start < value.length && isJsonWhitespace(value.charCodeAt(start))) start += 1;
+  if (start >= value.length || value[start] !== '{') return false;
+
+  let end = value.length - 1;
+  while (end > start && isJsonWhitespace(value.charCodeAt(end))) end -= 1;
+  return value[end] === '}';
+}
+
+function assertTravelportStaysTerminalBody(
+  body: BodyInit | null,
+  headers: Headers,
+  method: string,
+) {
+  if (method === 'GET') {
+    if (body !== null) invalidCredentialContainment();
+    return;
+  }
+  if (
+    body === null
+    || typeof body !== 'string'
+    || !body.isWellFormed()
+    || !hasExactContentType(headers, TRAVELPORT_JSON_CONTENT_TYPE)
+    || !hasJsonObjectEnvelope(body)
+    || !hasUtf8ByteLengthAtMost(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES)
+  ) {
+    invalidCredentialContainment();
   }
 }
 
@@ -355,6 +418,7 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
         invalidCredentialContainment();
       }
       assertAllowedTerminalHeaders(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS);
+      if (!hasExactContentType(headers, TRAVELPORT_OAUTH_CONTENT_TYPE)) invalidCredentialContainment();
       assertTravelportOAuthCredentialBody(body, input.credentials);
       return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
     }
@@ -365,6 +429,7 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
     containedStaysHeaders(headers, input.credentials);
     assertTravelportStaysBearerAuthorization(headers);
     assertAllowedTerminalHeaders(headers, TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS);
+    assertTravelportStaysTerminalBody(body, headers, method);
     return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
   }) as typeof fetch;
 }
