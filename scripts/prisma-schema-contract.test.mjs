@@ -244,7 +244,7 @@ test('disposable database runner regenerates the current client before migration
   }
 });
 
-test('development documentation records multi-file drift, raw SQL, and staged migration-authority boundaries', async () => {
+test('development documentation records multi-file drift, raw SQL, and current migration-authority boundaries', async () => {
   const [guide, authority] = await Promise.all([
     source('docs/development-guide.md'),
     source('docs/prisma-migration-authority.md'),
@@ -257,7 +257,8 @@ test('development documentation records multi-file drift, raw SQL, and staged mi
   assert.match(guide, /regenerates the current Prisma client/i);
   assert.match(guide, /schema-first sequence/i);
   assert.match(authority, /cross-fragment relations/i);
-  assert.match(authority, /additional foreign keys into root models/i);
+  assert.match(authority, /root-side Prisma models now expose the inverse relations/i);
+  assert.match(authority, /new migration or an older migration outside these covered contracts/i);
   assert.match(authority, /Do not remove or weaken the database constraints/i);
   assert.match(authority, /not a substitute for Prisma validation/i);
   assert.match(authority, /GitHub Actions are intentionally not used/i);
