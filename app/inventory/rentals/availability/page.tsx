@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -17,6 +19,21 @@ type RentalAvailabilitySearchParams = {
   endsOn?: string;
   page?: string;
   pageSize?: string;
+  status?: string;
+  error?: string;
+};
+
+const statuses: Record<string, string> = {
+  'hold-active': 'Rental availability hold is active. The selected physical unit is temporarily protected for this date range.',
+  'hold-inactive': 'That idempotent hold request already completed or expired. Refresh availability before creating a new hold.',
+};
+
+const errors: Record<string, string> = {
+  permission: 'You do not have permission to manage rental availability holds.',
+  conflict: 'That rental unit is no longer available for the requested hold dates. Refresh the preview and choose an available unit.',
+  unavailable: 'That rental unit is not active at an active location in this organization.',
+  validation: 'Check the rental hold details and try again.',
+  server: 'The rental hold operation could not be completed. Try again.',
 };
 
 function resultHref(search: Readonly<{
@@ -60,6 +77,10 @@ export default async function RentalAvailabilityPage({
     authorization.platformAdmin
       || (authorization.role && organizationRoleHasPermission(authorization.role, 'inventory:read')),
   );
+  const canManageAvailability = Boolean(
+    authorization.platformAdmin
+      || (authorization.role && organizationRoleHasPermission(authorization.role, 'availability:manage')),
+  );
   if (!canRead) {
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental availability</p><h1>Rental access is restricted</h1><p>Your organization role does not include inventory access.</p></section>;
   }
@@ -96,9 +117,12 @@ export default async function RentalAvailabilityPage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental inventory</p><h1>Availability and pricing preview</h1><p>Inspect active physical stock against explicit unavailable dates and the effective daily pricing calendar for {activeContext.organization.name}.</p></div>
-      <Link className="sf-button sf-button--secondary" href="/inventory/rentals">Back to rentals</Link>
+      <div><p className="sf-eyebrow">Rental inventory</p><h1>Availability and pricing preview</h1><p>Inspect active physical stock against unavailable dates, active temporary holds, and the effective daily pricing calendar for {activeContext.organization.name}.</p></div>
+      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/holds">Active holds</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals">Back to rentals</Link></div>
     </header>
+
+    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
+    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-availability-search-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory preview</p><h2 id="rental-availability-search-title">Check a rental window</h2></div><span>Maximum 90 days</span></div>
@@ -108,7 +132,7 @@ export default async function RentalAvailabilityPage({
         <input type="hidden" name="pageSize" value={query.pageSize ?? '20'} />
         <button className="sf-button sf-button--primary" type="submit">Preview availability</button>
       </form>
-      <p className="sf-field-hint">This is an internal inventory preview. It does not create a hold or booking and must not be used as customer booking confirmation until rental reservation persistence is implemented.</p>
+      <p className="sf-field-hint">This internal preview can create a short-lived staff hold when your role permits it. A hold protects one physical unit and date range only; it is not a customer booking, reservation, payment, pickup/drop-off promise, or locked price.</p>
     </section>
 
     {searchError ? <p className="sf-alert sf-alert--error" role="alert">{searchError}</p> : null}
@@ -117,13 +141,13 @@ export default async function RentalAvailabilityPage({
       <section className="sf-inventory-card" aria-labelledby="rental-availability-results-title">
         <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Available stock</p><h2 id="rental-availability-results-title">{result.unitType.name}</h2></div><span>{result.availability.total} available</span></div>
         <p>{result.unitType.code} · {result.location ? `${result.location.name} (${result.location.code})` : 'All active rental locations'} · {result.search.startsOn.toISOString().slice(0, 10)} through {result.search.endsOn.toISOString().slice(0, 10)} (end exclusive)</p>
-        {result.availability.items.length === 0 ? <div className="sf-empty-state"><h3>No unblocked units in this inventory window</h3><p>No active, location-assigned physical units in this scope are free of explicit availability blocks for the full requested period.</p></div> : <ul className="sf-inventory-list">{result.availability.items.map((unit) => <li key={unit.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/units/${unit.id}`}><div><strong>{unit.name}</strong><span>{unit.code} · {unit.location ? `${unit.location.name} (${unit.location.code})` : 'Location unavailable'}</span></div></Link></div></li>)}</ul>}
+        {result.availability.items.length === 0 ? <div className="sf-empty-state"><h3>No available units in this inventory window</h3><p>No active, location-assigned physical units in this scope are free of unavailable-date blocks and effective temporary holds for the full requested period.</p></div> : <ul className="sf-inventory-list">{result.availability.items.map((unit) => <li key={unit.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/units/${unit.id}`}><div><strong>{unit.name}</strong><span>{unit.code} · {unit.location ? `${unit.location.name} (${unit.location.code})` : 'Location unavailable'}</span></div></Link>{canManageAvailability ? <form action="/api/inventory/rentals/holds" method="post"><input type="hidden" name="unitId" value={unit.id} /><input type="hidden" name="unitTypeCode" value={result.unitType.code} /><input type="hidden" name="locationCode" value={result.location?.code ?? ''} /><input type="hidden" name="startsOn" value={result.search.startsOn.toISOString().slice(0, 10)} /><input type="hidden" name="endsOn" value={result.search.endsOn.toISOString().slice(0, 10)} /><input type="hidden" name="pageSize" value={String(result.search.pageSize)} /><input type="hidden" name="expiresInMinutes" value="15" /><input type="hidden" name="idempotencyKey" value={`rental-hold:${randomUUID()}`} /><button className="sf-button sf-button--secondary sf-button--compact" type="submit">Hold 15 minutes</button></form> : null}</div></li>)}</ul>}
         {result.availability.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental availability result pages">{result.availability.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={resultHref(result.search, result.availability.page - 1)}>Previous</Link> : <span />}<span>Page {result.availability.page} of {result.availability.totalPages}</span>{result.availability.page < result.availability.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={resultHref(result.search, result.availability.page + 1)}>Next</Link> : <span />}</nav> : null}
       </section>
 
       <section className="sf-inventory-card" aria-labelledby="rental-pricing-preview-title">
         <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Effective pricing</p><h2 id="rental-pricing-preview-title">Pricing calendar</h2></div><span>{result.unitType.currency} {result.pricing.totalMinor.toLocaleString()} minor units</span></div>
-        <p>{result.pricing.days} rental days. Pricing uses the unit type default rate unless a configured date-range override applies.</p>
+        <p>{result.pricing.days} rental days. Pricing uses the unit type default rate unless a configured date-range override applies. Creating a temporary availability hold does not lock this price.</p>
         <ul className="sf-inventory-list">{result.pricing.segments.map((segment) => <li key={`${segment.startsOn}:${segment.endsOn}:${segment.dailyRateMinor}`}><div className="sf-inventory-list__primary"><div><strong>{result.unitType.currency} {segment.dailyRateMinor.toLocaleString()} minor units/day</strong><span>{segment.startsOn} through {segment.endsOn} · {segment.source}</span></div></div></li>)}</ul>
       </section>
     </> : null}

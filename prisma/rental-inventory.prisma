@@ -63,6 +63,7 @@ model RentalUnit {
   unitType           RentalUnitType             @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   location           RentalLocation?            @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   availabilityBlocks RentalAvailabilityBlock[]
+  availabilityHolds  RentalAvailabilityHold[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
@@ -85,6 +86,28 @@ model RentalAvailabilityBlock {
   @@unique([id, organizationId])
   @@index([organizationId, unitId, startsOn, endsOn])
   @@map("rental_availability_blocks")
+}
+
+model RentalAvailabilityHold {
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  unitId         String                 @db.Uuid
+  startsOn       DateTime               @db.Date
+  endsOn         DateTime               @db.Date
+  status         AvailabilityHoldStatus @default(ACTIVE)
+  expiresAt      DateTime               @db.Timestamptz(6)
+  endedAt        DateTime?              @db.Timestamptz(6)
+  idempotencyKey String                 @db.VarChar(120)
+  createdAt      DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(6)
+
+  unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, unitId, status, startsOn, endsOn])
+  @@index([organizationId, status, expiresAt])
+  @@map("rental_availability_holds")
 }
 
 model RentalRatePeriod {

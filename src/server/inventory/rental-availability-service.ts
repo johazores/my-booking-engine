@@ -22,6 +22,7 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
   });
 
   const search = normalizeRentalAvailabilitySearchInput(input.search);
+  const now = new Date();
   return db.$transaction(async (transaction) => {
     const unitType = await transaction.rentalUnitType.findFirst({
       where: {
@@ -72,6 +73,15 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       availabilityBlocks: {
         none: {
           organizationId: input.organizationId,
+          startsOn: { lt: search.endsOn },
+          endsOn: { gt: search.startsOn },
+        },
+      },
+      availabilityHolds: {
+        none: {
+          organizationId: input.organizationId,
+          status: 'ACTIVE' as const,
+          expiresAt: { gt: now },
           startsOn: { lt: search.endsOn },
           endsOn: { gt: search.startsOn },
         },

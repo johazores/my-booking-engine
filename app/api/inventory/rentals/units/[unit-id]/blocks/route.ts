@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
+import { assertRentalAvailabilityBlockNotHeld } from '@/server/inventory/rental-hold-service.ts';
 import { createRentalAvailabilityBlock } from '@/server/inventory/rental-service.ts';
 
 export async function POST(request: Request, context: { params: Promise<{ 'unit-id': string }> }) {
@@ -12,11 +13,20 @@ export async function POST(request: Request, context: { params: Promise<{ 'unit-
   const path = `/inventory/rentals/units/${encodeURIComponent(unitId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+  const startsOn = formField(formData, 'startsOn');
+  const endsOn = formField(formData, 'endsOn');
   try {
+    await assertRentalAvailabilityBlockNotHeld({
+      organizationId: organization.id,
+      actorUserId: session.user.id,
+      unitId,
+      startsOn,
+      endsOn,
+    });
     await createRentalAvailabilityBlock({
       organizationId: organization.id,
       actorUserId: session.user.id,
-      block: { unitId, startsOn: formField(formData, 'startsOn'), endsOn: formField(formData, 'endsOn'), reason: formField(formData, 'reason') },
+      block: { unitId, startsOn, endsOn, reason: formField(formData, 'reason') },
     });
     return finish(NextResponse.redirect(new URL(`${path}?status=block-created`, request.url), 303));
   } catch (error) {
