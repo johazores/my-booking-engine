@@ -41,3 +41,12 @@ test('architecture names current inventory and supplier boundaries without reviv
   assert.doesNotMatch(architecture, /remaining business-specific inventory\/workflows for tours, appointments, rentals/i);
   assert.doesNotMatch(architecture, /largest remaining cross-provider dependency is the first real external supplier\/GDS adapter/i);
 });
+
+test('hospitality inventory documentation reflects the implemented downstream availability and pricing modules', async () => {
+  const hospitality = await source('docs/hospitality-inventory.md');
+
+  assert.match(hospitality, /Hospitality availability, allocation, pricing, and booking are now implemented as separate modules/i);
+  assert.match(hospitality, /availability evaluation can combine those scopes deterministically/i);
+  assert.doesNotMatch(hospitality, /Availability and pricing remain later platform phases/i);
+  assert.doesNotMatch(hospitality, /later availability evaluation can combine those scopes deterministically/i);
+});
