@@ -28,8 +28,9 @@ model PaymentTransaction {
   amountMinor             BigInt
   createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  booking      HospitalityBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  organization        Organization                            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_organization_fkey")
+  booking             HospitalityBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_booking_fkey")
+  commercialAmendment HospitalityBookingCommercialAmendment? @relation(fields: [commercialAmendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "payment_transactions_commercial_amendment_fkey")
 
   @@unique([id, organizationId])
   @@unique([id, bookingId, organizationId])

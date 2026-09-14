@@ -52,6 +52,8 @@ model HospitalityBookingCommercialAmendment {
   createdAt                         DateTime                                       @default(now()) @db.Timestamptz(6)
   updatedAt                         DateTime                                       @updatedAt @db.Timestamptz(6)
 
+  paymentTransactions PaymentTransaction[]
+
   @@unique([id, organizationId])
   @@unique([id, bookingId, organizationId])
   @@unique([organizationId, idempotencyKey])
