@@ -58,6 +58,8 @@ const TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS = Object.freeze(new Set([
   'tvp-trace-id',
   'xauth_travelport_accessgroup',
 ]));
+const MAX_TRAVELPORT_ACCESS_TOKEN_LENGTH = 16_384;
+const BEARER_PREFIX = 'Bearer ';
 
 type LongLivedOAuthCredentialHeader = (typeof LONG_LIVED_OAUTH_CREDENTIAL_HEADERS)[number];
 type OAuthCredentialField = (typeof TRAVELPORT_OAUTH_CREDENTIAL_FIELDS)[number];
@@ -161,6 +163,17 @@ function containedStaysHeaders(
 
 function carriesTravelportStaysAuthority(headers: Headers) {
   return TRAVELPORT_STAYS_AUTHORITY_HEADERS.some((name) => headers.has(name));
+}
+
+function assertTravelportStaysBearerAuthorization(headers: Headers) {
+  const authorization = headers.get('Authorization');
+  if (
+    authorization === null
+    || authorization.length > BEARER_PREFIX.length + MAX_TRAVELPORT_ACCESS_TOKEN_LENGTH
+    || !/^Bearer \S+$/.test(authorization)
+  ) {
+    invalidCredentialContainment();
+  }
 }
 
 function assertAllowedTerminalHeaders(headers: Headers, allowed: ReadonlySet<string>) {
@@ -343,14 +356,15 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
       }
       assertAllowedTerminalHeaders(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS);
       assertTravelportOAuthCredentialBody(body, input.credentials);
-      return fetchImpl(requestInput, terminalTravelportRequestInit(method, body, signal, headers));
+      return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
     }
 
     if (url.hostname !== targets.staysHost) invalidCredentialContainment();
     if (!isSecureTravelportStaysTarget(url, targets.staysHost, method)) invalidCredentialContainment();
 
     containedStaysHeaders(headers, input.credentials);
+    assertTravelportStaysBearerAuthorization(headers);
     assertAllowedTerminalHeaders(headers, TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS);
-    return fetchImpl(requestInput, terminalTravelportRequestInit(method, body, signal, headers));
+    return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
   }) as typeof fetch;
 }
