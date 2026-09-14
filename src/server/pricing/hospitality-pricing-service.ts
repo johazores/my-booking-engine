@@ -151,7 +151,10 @@ export async function archiveHospitalityBaseRate(input: {
     });
     if (!current) throw new HospitalityPricingUnavailableError('Active base rate is not available in this organization.');
     const archivedAt = new Date();
-    const updated = await transaction.hospitalityBaseRate.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.hospitalityBaseRate.update({
+      where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({
       data: {
         organizationId: input.organizationId,

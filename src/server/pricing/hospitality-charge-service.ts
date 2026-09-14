@@ -126,7 +126,10 @@ export async function archiveHospitalityChargeRule(input: { organizationId: stri
     });
     if (!current) throw new HospitalityChargeUnavailableError('Active tax or fee rule is not available in this organization.');
     const archivedAt = new Date();
-    const updated = await transaction.hospitalityChargeRule.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.hospitalityChargeRule.update({
+      where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'pricing.charge.archived', resourceType: 'hospitality-charge-rule', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } } });
     return updated;
   }, { isolationLevel: 'Serializable' });

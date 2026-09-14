@@ -122,7 +122,10 @@ export async function archiveHospitalityAvailabilityWindow(input: { organization
     if (!current) throw new AvailabilityUnavailableError('Availability window is not available in this organization.');
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityAvailabilityAllocationLockKey({ organizationId: input.organizationId, propertyId: current.propertyId, roomTypeId: current.roomTypeId })}, 0))`;
     const archivedAt = new Date();
-    const updated = await transaction.hospitalityAvailabilityWindow.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.hospitalityAvailabilityWindow.update({
+      where: { id: current.id, organizationId: input.organizationId, propertyId: current.propertyId, roomTypeId: current.roomTypeId },
+      data: { status: 'ARCHIVED', archivedAt },
+    });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'availability.window.archived', resourceType: 'hospitality-availability-window', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } } });
     return updated;
   }, { isolationLevel: 'Serializable' });

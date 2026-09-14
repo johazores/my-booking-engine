@@ -139,7 +139,10 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
         where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: true },
         data: { isPrimary: false },
       });
-      const updated = await transaction.hospitalityRoomTypeImage.update({ where: { id: current.id }, data: { isPrimary: true } });
+      const updated = await transaction.hospitalityRoomTypeImage.update({
+        where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+        data: { isPrimary: true },
+      });
       await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.primary-room-type', resourceType: 'hospitality-room-type-image', resourceId: current.id, afterData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: true } } });
       return updated;
     }
@@ -150,7 +153,10 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
     if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
     if (current.isPrimary) return current;
     await transaction.hospitalityPropertyImage.updateMany({ where: { organizationId: input.organizationId, propertyId: input.propertyId, isPrimary: true }, data: { isPrimary: false } });
-    const updated = await transaction.hospitalityPropertyImage.update({ where: { id: current.id }, data: { isPrimary: true } });
+    const updated = await transaction.hospitalityPropertyImage.update({
+      where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
+      data: { isPrimary: true },
+    });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.primary-property', resourceType: 'hospitality-property-image', resourceId: current.id, afterData: { propertyId: input.propertyId, isPrimary: true } } });
     return updated;
   }, { isolationLevel: 'Serializable' });
@@ -172,14 +178,18 @@ export async function removeHospitalityImage(input: ImageScope & { imageId: stri
         },
       });
       if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
-      await transaction.hospitalityRoomTypeImage.delete({ where: { id: current.id } });
+      await transaction.hospitalityRoomTypeImage.delete({
+        where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+      });
       await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-room-type', resourceType: 'hospitality-room-type-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
       return current;
     }
 
     const current = await transaction.hospitalityPropertyImage.findFirst({ where: { id: input.imageId, organizationId: input.organizationId, propertyId: input.propertyId, property: { is: { status: 'ACTIVE' } } } });
     if (!current) throw new HospitalityInventoryUnavailableError('Image is not available in an active inventory scope.');
-    await transaction.hospitalityPropertyImage.delete({ where: { id: current.id } });
+    await transaction.hospitalityPropertyImage.delete({
+      where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
+    });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-property', resourceType: 'hospitality-property-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
     return current;
   }, { isolationLevel: 'Serializable' });

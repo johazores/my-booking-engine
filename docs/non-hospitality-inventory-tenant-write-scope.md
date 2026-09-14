@@ -12,7 +12,9 @@ The invariant is deliberately redundant with globally unique row IDs. A scoped r
 
 ## Scope boundary
 
-This sweep is intentionally limited to the related rental, tour, and appointment inventory foundation cluster. Search results also show ID-only mutations in mature hospitality, pricing, customer, payment, branding, organization, and availability modules. Those paths have different lifecycle, reconciliation, locking, and authorization semantics and require a separate review and regression matrix rather than being changed speculatively as part of this focused inventory patch.
+This sweep remains intentionally limited to the related rental, tour, and appointment inventory foundation cluster. The follow-up hospitality review now applies the same write-time ownership rule to hospitality inventory, pricing archives, availability windows, availability-hold release, and booking-confirmation hold consumption; see `docs/hospitality-tenant-write-scope.md`.
+
+The remaining ID-only production mutations found by the broader pattern sweep are primarily in customer, payment/reconciliation, branding, and organization-management code. Those paths have different lifecycle, external-provider, optimistic-state, or organization-root semantics and require their own focused review rather than speculative bulk changes.
 
 That remaining review is not evidence of a demonstrated cross-tenant exploit: the affected patterns generally follow tenant-scoped reads and globally unique IDs. It is defense-in-depth parity work needed to make write-time tenant ownership consistent across the wider platform.
 

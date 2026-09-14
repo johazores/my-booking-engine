@@ -162,7 +162,7 @@ export async function releaseHospitalityAvailabilityHoldInTransaction(input: {
 
   const status = current.expiresAt <= input.now ? 'EXPIRED' as const : 'RELEASED' as const;
   const updated = await input.transaction.hospitalityAvailabilityHold.update({
-    where: { id: current.id },
+    where: { id: current.id, organizationId: input.organizationId, propertyId: current.propertyId, roomTypeId: current.roomTypeId },
     data: { status, endedAt: input.now },
   });
   return { hold: updated, changed: true as const, previousStatus: current.status };

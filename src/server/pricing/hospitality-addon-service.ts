@@ -163,7 +163,7 @@ export async function archiveHospitalityAddon(input: {
     if (!current) throw new HospitalityAddonUnavailableError('Active add-on is not available in this organization.');
     const archivedAt = new Date();
     const updated = await transaction.hospitalityAddon.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({

@@ -56,7 +56,7 @@ export async function archiveHospitalityAmenity(input: { organizationId: string;
       throw new HospitalityInventoryDependencyError('Remove amenity assignments before archiving the amenity.');
     }
     const archivedAt = new Date();
-    const updated = await transaction.hospitalityAmenity.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.hospitalityAmenity.update({ where: { id: current.id, organizationId: input.organizationId }, data: { status: 'ARCHIVED', archivedAt } });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.amenity.archived', resourceType: 'hospitality-amenity', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } } });
     return updated;
   }, { isolationLevel: 'Serializable' });

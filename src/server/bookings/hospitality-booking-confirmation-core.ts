@@ -225,7 +225,7 @@ export async function confirmHospitalityBookingFromHoldInTransaction(input: {
   });
 
   await input.transaction.hospitalityAvailabilityHold.update({
-    where: { id: hold.id },
+    where: { id: hold.id, organizationId: input.organizationId, propertyId: hold.propertyId, roomTypeId: hold.roomTypeId },
     data: { status: 'CONSUMED', endedAt: input.now },
   });
 

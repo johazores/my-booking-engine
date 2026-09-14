@@ -189,7 +189,7 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
       if (activeCharges > 0) throw new HospitalityInventoryDependencyError('Archive active taxes and fees before archiving the property.');
       const activeAddons = await transaction.hospitalityAddon.count({ where: { propertyId: current.id, organizationId: input.organizationId, status: 'ACTIVE' } });
       if (activeAddons > 0) throw new HospitalityInventoryDependencyError('Archive active add-ons before archiving the property.');
-      const updated = await transaction.hospitalityProperty.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+      const updated = await transaction.hospitalityProperty.update({ where: { id: current.id, organizationId: input.organizationId }, data: { status: 'ARCHIVED', archivedAt } });
       await transaction.auditEvent.create({
         data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.property.archived', resourceType: 'hospitality-property', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } },
       });
@@ -206,7 +206,7 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
       if (activeChildren > 0) throw new HospitalityInventoryDependencyError('Archive rooms before archiving the room type.');
       const ratePlanAssignments = await transaction.hospitalityRoomTypeRatePlan.count({ where: { roomTypeId: current.id, organizationId: input.organizationId } });
       if (ratePlanAssignments > 0) throw new HospitalityInventoryDependencyError('Remove rate plan assignments before archiving the room type.');
-      const updated = await transaction.hospitalityRoomType.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+      const updated = await transaction.hospitalityRoomType.update({ where: { id: current.id, organizationId: input.organizationId }, data: { status: 'ARCHIVED', archivedAt } });
       await transaction.auditEvent.create({
         data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.room-type.archived', resourceType: 'hospitality-room-type', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } },
       });
@@ -223,7 +223,7 @@ async function archiveInventoryRecord(input: { organizationId: string; actorUser
       where: { organizationId: input.organizationId, roomTypeId: current.roomTypeId, status: 'ACTIVE', expiresAt: { gt: archivedAt } },
     });
     if (activeHolds > 0) throw new HospitalityInventoryDependencyError('Release or expire active availability holds before reducing physical room capacity.');
-    const updated = await transaction.hospitalityRoom.update({ where: { id: current.id }, data: { status: 'ARCHIVED', archivedAt } });
+    const updated = await transaction.hospitalityRoom.update({ where: { id: current.id, organizationId: input.organizationId }, data: { status: 'ARCHIVED', archivedAt } });
     await transaction.auditEvent.create({
       data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.room.archived', resourceType: 'hospitality-room', resourceId: current.id, beforeData: { status: current.status }, afterData: { status: 'ARCHIVED', archivedAt: archivedAt.toISOString() } },
     });
