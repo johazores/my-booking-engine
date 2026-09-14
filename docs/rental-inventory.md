@@ -11,6 +11,7 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - Unit-level availability blocks using half-open calendar ranges `[startsOn, endsOn)`.
 - Unit-type date-range daily price overrides. Overlapping active pricing periods for a unit type are rejected.
 - Overlapping availability blocks for a unit are rejected.
+- An internal inventory availability and pricing preview under `/inventory/rentals/availability`. The preview is server-authorized, tenant-scoped, bounded to 90 days, excludes active units with explicit overlapping availability blocks, excludes unassigned units and units at archived locations, and computes effective default/override daily pricing using integer minor units.
 - Server-side `inventory:read` / `inventory:manage` authorization.
 - Tenant-scoped reads and mutations; resource identifiers and submitted location codes are never sufficient without the authenticated `organizationId`.
 - Database-enforced tenant roots: root rental unit types and locations have PostgreSQL foreign keys to their owning organization, while child unit/block/rate relations remain organization-composite.
@@ -18,7 +19,7 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - Database lifecycle invariants: status/archive timestamp consistency is also enforced with database checks for unit types, physical units, and locations.
 - Explicit `ARCHIVE` and `REMOVE` confirmations for destructive management operations.
 - Audit events for location, unit type, unit, relocation, block, and rate mutations.
-- Independently bounded pagination for unit types, locations, units, availability blocks, and rate periods.
+- Independently bounded pagination for unit types, locations, units, availability blocks, rate periods, and availability preview results.
 - Real management UI under `/inventory/rentals`, with dedicated unit-type, location, and unit detail pages.
 
 ## Location semantics
@@ -35,6 +36,14 @@ Calendar records are date-only PostgreSQL `DATE` values. The end date is exclusi
 
 Pricing is stored only as integer minor units. A unit type owns its currency; rate periods override the daily amount for a date range but never introduce a second currency.
 
+### Inventory availability and pricing preview
+
+The read-only preview resolves an active unit type code and optional active location code inside the authenticated organization. Candidate units must be active, assigned to an active tenant location, belong to the requested active unit type, and have no explicit unit availability blocks overlapping the full requested half-open date range. Results are independently paginated and bounded to a maximum 90-day window.
+
+Effective pricing is calculated from the unit type default daily rate plus configured rate-period overrides. The calculation is deterministic per calendar day and remains in integer minor units. Persisted overlapping rate periods or invalid persisted amounts fail closed as an integrity error rather than selecting an arbitrary price.
+
+The preview is **not a reservation hold, allocation, or customer booking authority**. It does not account for future rental reservations because rental reservation persistence does not exist yet. It must not be used as customer booking confirmation, and it does not create inventory locks or promises. The later rental booking workflow must re-evaluate authoritative inventory and add durable hold/allocation semantics before a commercial reservation can be confirmed.
+
 ## Deliberate boundaries
 
 This foundation does **not** present the following as implemented:
@@ -49,11 +58,11 @@ This foundation does **not** present the following as implemented:
 - payment processing
 - external marketplace, fleet, or calendar synchronization
 
-Those features require separate commercial acceptance criteria and must not infer availability solely from these management records.
+Those features require separate commercial acceptance criteria. The internal preview may inspect explicit inventory blocks and pricing evidence, but it is not sufficient reservation authority by itself.
 
 ## Validation boundary
 
-Dependency-free domain and source-contract coverage validates location normalization, timezone/country constraints, tenant-composite schema relationships, root organization foreign-key ownership, lifecycle database invariants, server-side authorization and location resolution, bounded collections, overlap rules, lifecycle dependencies, route wiring, and the no-fake-booking boundary. A guarded PostgreSQL rental scenario is included in `npm run test:database` for Tenant A/Tenant B isolation, permissions, location assignment/movement, overlap rejection, lifecycle dependencies, and audit evidence.
+Dependency-free domain and source-contract coverage validates location normalization, timezone/country constraints, tenant-composite schema relationships, root organization foreign-key ownership, lifecycle database invariants, server-side authorization and location resolution, bounded collections, overlap rules, lifecycle dependencies, route wiring, the inventory availability/pricing preview, and the no-fake-booking boundary. A guarded PostgreSQL rental scenario is included in `npm run test:database` for Tenant A/Tenant B isolation, permissions, location assignment/movement, overlap rejection, lifecycle dependencies, and audit evidence.
 
 A dedicated guarded database-integrity scenario directly verifies the root organization foreign keys, organization delete protection, rejected impossible archive states, and persisted-state preservation against the disposable PostgreSQL target when `npm run test:database` is available.
 
