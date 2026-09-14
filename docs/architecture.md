@@ -6,9 +6,9 @@ This document describes the target architecture and identifies what exists today
 
 ## Current foundation
 
-SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, tenant-owned white-label presentation settings, tenant-owned customer records, hospitality inventory covering properties, room types, physical rooms, amenities, hosted-image metadata, property-owned rate plans with room-type assignments, date/stay/arrival restrictions, availability windows, temporary availability holds, nightly base rates, persisted hospitality tax/fee rules, persisted hospitality add-ons, confirmed hospitality bookings, permanent booking allocations, append-only accepted-state booking pricing evidence, payment transactions, payment Checkout sessions, and versioned hospitality commercial amendments.
+SF currently uses a modular Next.js application with PostgreSQL/Prisma persistence. The implemented data foundation contains organizations, users, organization memberships, password credentials, persisted opaque authentication sessions, organization/platform roles, audit events, tenant-owned white-label presentation settings, tenant-owned customer records, hospitality inventory covering properties, room types, physical rooms, amenities, hosted-image metadata, property-owned rate plans with room-type assignments, date/stay/arrival restrictions, availability windows, temporary availability holds, nightly base rates, persisted hospitality tax/fee rules, persisted hospitality add-ons, confirmed hospitality bookings, permanent booking allocations, append-only accepted-state booking pricing evidence, payment transactions, payment Checkout sessions, versioned hospitality commercial amendments, tenant-owned tour/package products with dated departures/capacity/add-ons, tenant-owned appointment services/staff/service eligibility/weekly schedules, and tenant-owned rental unit types/locations/physical units/unavailable-date blocks/rate periods.
 
-First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, manage white-label branding where authorized, operate a tenant-scoped customer directory, manage hospitality inventory, configure availability and pricing, operate the authenticated hospitality booking desk, and manage real tenant integration configuration where authorized. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
+First-party email/password authentication is implemented through server-side App Router flows with secure session cookies and protected server-rendered access. Organization reads are tenant-scoped, and authenticated users can create a tenant atomically with their membership, choose an active organization context, manage permitted organization settings/membership lifecycle, archive organizations without destroying commercial history, manage white-label branding where authorized, operate a tenant-scoped customer directory, manage hospitality/tour/appointment/rental inventory, configure hospitality availability and pricing, operate the authenticated hospitality booking desk, and manage real tenant integration configuration where authorized. The active organization cookie is only a preference: every context read revalidates the authenticated user's active membership server-side.
 
 Fine-grained authorization is implemented through centralized organization capabilities and server-side permission checks. `/dashboard`, `/bookings`, `/customers`, `/inventory`, `/pricing`, `/integrations`, `/account`, and `/branding` share the canonical authenticated workspace. Tenant branding is resolved at that server boundary and applied through CSS design tokens rather than tenant-specific component overrides. Customer, inventory, availability, pricing, booking, payment, commercial-amendment, and integration operations reuse the same authorization, audit, lifecycle, pagination, and tenant-scope principles.
 
@@ -16,7 +16,7 @@ Hospitality availability normalizes property/room-type/rate-plan/date/quantity r
 
 Hospitality pricing has a normalized money boundary, persisted nightly base rates, persisted taxes/fees, and persisted add-ons. Base prices, fixed charges, and add-ons are stored in integer minor units with explicit currency, percentage charges use integer basis points, ambiguous overlapping commercial rules are prevented, and server-side quote/revalidation services produce deterministic complete-price fingerprints. Booking confirmation recalculates current complete pricing inside its serializable transaction and persists the authoritative aggregate accommodation/tax/fee/add-on/total snapshot and pricing identity before confirmation commits. Newly accepted booking states also persist canonical line-item pricing evidence separately from the mutable booking row. Zero-delta modifications and same-price reschedules refresh the accepted fingerprint and append pricing evidence when terms/dates change without changing aggregate money. Non-zero room/rate/quantity/add-on changes use the versioned commercial-amendment lifecycle, which freezes target pricing evidence before settlement, rather than rewriting booking/payment truth directly.
 
-Payments are implemented through a provider-neutral contract with manual/offline behavior and a real Stripe adapter. SF persists tenant-owned payment evidence, supports authorization/capture, hosted Checkout, signed webhooks, polling reconciliation, provider-aware refunds, customer-safe receipts, public payment recovery, commercial-amendment settlement, and compensation recovery. Browser redirects never prove payment. Jurisdiction-specific legal invoice/tax-document issuance is intentionally separate and remains incomplete.
+Payments are implemented through a provider-neutral contract with manual/offline behavior and a real Stripe adapter. SF persists tenant-owned payment evidence, supports authorization/capture, hosted Checkout, signed webhooks, polling reconciliation, provider-aware refunds, customer-safe receipts, public payment recovery, commercial-amendment settlement, and compensation recovery. Browser redirects never prove payment. Australian hospitality legal-document infrastructure is also implemented for the documented tax-invoice and supported adjustment-note boundaries, while broader correction/delivery/Unicode/legal-review requirements remain incomplete.
 
 ## Architectural shape
 
@@ -48,21 +48,27 @@ Implemented foundation/operational modules:
 - branding
 - customer directory
 - hospitality inventory: properties, room types, rooms, amenities, images, rate plans, and restrictions
+- tour/package inventory: tenant-owned products, dated departures, configured capacity, add-ons, lifecycle controls, and bounded management collections
+- appointment inventory: tenant-owned services, staff, staff/service eligibility, recurring weekly schedules, lifecycle controls, and bounded management collections
+- rental inventory: tenant-owned unit types, operating locations, physical units, unavailable-date blocks, daily rates/rate overrides, lifecycle controls, and bounded management collections
 - hospitality availability: physical capacity, windows, restrictions, temporary holds, expiry semantics, permanent booking allocations, and no-overbooking locking
 - hospitality pricing: normalized money, nightly base rates, taxes/fees, add-ons, complete quotes, transactional revalidation, booking pricing identity, and immutable accepted-state pricing evidence
 - hospitality bookings: public/internal creation, immutable guest and aggregate price snapshots, lifecycle/payment state separation, authenticated management, history, cancellation, same-price date rescheduling, traveler edits, zero-delta commercial edits, and versioned non-zero commercial amendments
 - payments: manual/offline, Stripe authorization/capture, hosted Checkout, webhooks, reconciliation, refunds, receipts, and recovery
+- Australian hospitality legal-document infrastructure for the currently documented tax-invoice and adjustment-note contracts
 - tenant integration management with encrypted credentials, capabilities, lifecycle, health testing, and Stripe configuration
+- Travelport TripServices Stays server-only supplier adapter and durable reservation-write infrastructure, with reservation capability intentionally unadvertised pending documented activation gates
 - audit history foundation
 
 Planned/conditional modules:
 
-- first external supplier/GDS and normalized supplier search/availability/pricing/reservation adapters
+- activation/extension of Travelport reservation capabilities only after the documented live-provider, payment-guarantee, and recovery gates are proven
 - additional supplier/payment/email/SMS providers only when product-prioritized
 - advanced tenant/provider pricing rules when concrete requirements exist
 - price-changing date rescheduling only if product requirements justify extending the amendment stay/inventory contract
-- jurisdiction-specific legal invoice/tax-document issuance
-- remaining business-specific inventory/workflows for tours, appointments, rentals, and later advanced modules
+- remaining jurisdiction/legal-document correction, durable delivery/history, Unicode rendering, retention/reconciliation-policy, and legal-review requirements
+- customer-facing tour-operator, appointment, and rental availability/pricing/booking/provider workflows built on their implemented inventory foundations
+- marketplace and later advanced modules only from concrete product requirements
 
 Business-specific capabilities extend the common booking foundation only where concepts genuinely overlap. Hotel rooms, tours, appointments, and rentals are not forced into one meaningless generic entity. Customer/contact identity is shared, while hospitality bookings persist immutable ordered guest snapshots with their own booking lifecycle.
 
@@ -77,7 +83,7 @@ Business-specific capabilities extend the common booking foundation only where c
 
 Authenticated tenant operations derive user identity from the validated server session and revalidate organization membership at the server/data-access boundary. Browser route parameters, form values, cookies, provider redirects, or client-calculated totals are never sufficient tenant/payment/commercial authority.
 
-Single-resource tenant operations use both tenant identity and resource identity. Hospitality parent relationships additionally use composite foreign keys so room types, rooms, amenities, images, rate-plan assignments, restrictions, availability records, pricing records, holds, bookings, allocations, accepted-state booking pricing evidence, amendment-owned payment transactions, and commercial amendments cannot cross organization/property/booking boundaries even if application validation is bypassed.
+Single-resource tenant operations use both tenant identity and resource identity. Hospitality parent relationships additionally use composite foreign keys so room types, rooms, amenities, images, rate-plan assignments, restrictions, availability records, pricing records, holds, bookings, allocations, accepted-state booking pricing evidence, amendment-owned payment transactions, and commercial amendments cannot cross organization/property/booking boundaries even if application validation is bypassed. Tour departures/add-ons, appointment staff/service/schedule relationships, and rental unit/location/block/rate relationships likewise preserve tenant-bound composite ownership where they cross inventory parents.
 
 The application shell may display already-resolved user, tenant, role, and branding context, but it is never an authorization boundary. Protected pages and server operations remain responsible for enforcing their own access requirements.
 
@@ -107,6 +113,12 @@ Rate plans deliberately stop at commercial identity. Restrictions add minimum/ma
 
 Inventory archival is explicit, dependency-aware where relationships must be cleared, and audited. Hosted image management accepts real HTTPS assets; a future direct-upload feature must sit behind a real storage adapter rather than leaking provider APIs into the inventory domain.
 
+## Non-hospitality inventory boundary
+
+Tour/package, appointment, and rental inventory use separate domain models instead of pretending that a departure, staff schedule, or physical rental unit is a hotel room. Their implemented management services reuse the common `inventory:read` / `inventory:manage` authorization, tenant-scoped repository patterns, serializable audited writes, lifecycle confirmations, bounded pagination, and native SF design system while keeping their business rules separate.
+
+Tour inventory currently stops at tenant-owned products, dated departures, configured sellable capacity, and optional add-on definitions. Appointment inventory stops at services, staff eligibility, and recurring weekly working-hour configuration. Rental inventory stops at unit types, locations, physical stock, unavailable date blocks, and daily rate configuration/overrides. None of those records silently become a customer hold, booking, payment, pickup/drop-off promise, generated appointment slot, or supplier reservation. Those require explicit workflow contracts in later modules.
+
 ## Availability boundary
 
 The normalized availability request shape is provider-independent. Hospitality availability requires active property, room type, and rate-plan assignment within the authenticated organization, counts only active physical rooms, applies active capacity windows/effective restrictions, and subtracts active unexpired holds plus non-cancelled permanent allocations per occupied night.
@@ -127,7 +139,7 @@ Booking confirmation re-reads current persisted pricing and recalculates the com
 
 Accepted-state pricing evidence is persisted in the separate `HospitalityBookingPricingEvidence` table rather than continually mutating one JSON field on the booking. Each row freezes the organization/booking ownership, observed booking version, commercial scope and stay, normalized add-on selections, aggregate exact money, pricing fingerprint, and schema-versioned nightly/tax/fee/add-on breakdown. The evidence domain validates line identities, labels, calculations, quantities, date coverage, duplicate lines, and aggregate reconciliation before persistence. Tenant/resource composite foreign keys and database checks reinforce those invariants.
 
-Confirmation, same-price rescheduling, and zero-delta commercial modification append evidence in the same protected transaction as the accepted state. Non-zero commercial-amendment preparation freezes target pricing evidence before amendment-owned provider settlement starts. Pre-migration bookings can legitimately lack such evidence; SF does not backfill historical lines from today's mutable commercial configuration. This pricing evidence is a legal-data prerequisite, not a claim of invoice issuance. Immutable issuer/tax registration, jurisdiction/tax semantics, billing authority, fiscal numbering, legal document lifecycle, required wording, rendering/delivery, retention, and accounting contracts remain incomplete. See `docs/invoice-foundation.md`.
+Confirmation, same-price rescheduling, and zero-delta commercial modification append evidence in the same protected transaction as the accepted state. Non-zero commercial-amendment preparation freezes target pricing evidence before amendment-owned provider settlement starts. Pre-migration bookings can legitimately lack such evidence; SF does not backfill historical lines from today's mutable commercial configuration. This pricing evidence is a legal-data prerequisite, not a claim of invoice issuance. Immutable issuer/tax registration, jurisdiction/tax semantics, billing authority, fiscal numbering, legal document lifecycle, required wording, rendering/delivery, retention, and accounting contracts remain separate reviewed concerns; the currently implemented subset is documented under `docs/invoice-foundation.md` and its linked legal-document docs.
 
 ## Booking and commercial-amendment boundary
 
@@ -141,7 +153,7 @@ General room/rate/quantity/add-on modification has two deliberate paths. A zero-
 
 The public tenant-branded hospitality flow is also implemented through real discovery → hold → quote → guest/customer → confirmation → Stripe-hosted Checkout → signed/provider-truth completion and recovery. Public principals/capabilities do not grant staff tenant permissions.
 
-The largest remaining cross-provider dependency is the first real external supplier/GDS adapter. Jurisdiction-specific invoice/tax-document issuance and product-specific price-changing date amendment semantics remain separate future contracts.
+The first external supplier/GDS adapter is implemented server-side for Travelport TripServices Stays, but reservation capability remains intentionally unadvertised until the documented live non-production, PCI-safe payment/guarantee, locator-less correlation, retry, and provider-truth recovery gates are proven. Additional suppliers and business-specific booking workflows remain separate future dependencies. Product-specific price-changing date amendment semantics likewise remain a separate future contract.
 
 ## Scaling restraint
 
