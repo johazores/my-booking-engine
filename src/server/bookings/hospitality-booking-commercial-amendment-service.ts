@@ -80,7 +80,14 @@ async function expirePreparedAmendment(input: {
     });
   }
   const updated = await input.transaction.hospitalityBookingCommercialAmendment.update({
-    where: { id: input.amendment.id },
+    where: {
+      id: input.amendment.id,
+      organizationId: input.organizationId,
+      bookingId: input.amendment.bookingId,
+      status: 'PREPARED',
+      expiresAt: { lte: input.now },
+      targetHoldId: input.amendment.targetHoldId,
+    },
     data: { status: 'EXPIRED', endedAt: input.now },
   });
   await input.transaction.auditEvent.create({
@@ -617,7 +624,23 @@ export async function cancelHospitalityBookingCommercialAmendment(input: {
     }
     const nextStatus = amendment.expiresAt <= now ? 'EXPIRED' as const : 'CANCELLED' as const;
     const updated = await transaction.hospitalityBookingCommercialAmendment.update({
-      where: { id: amendment.id },
+      where: {
+        id: amendment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        status: 'PREPARED',
+        bookingVersion: amendment.bookingVersion,
+        selectionFingerprint: amendment.selectionFingerprint,
+        adjustmentFingerprint: amendment.adjustmentFingerprint,
+        paymentProviderCode: amendment.paymentProviderCode,
+        direction: amendment.direction,
+        currency: amendment.currency,
+        beforeTotalMinor: amendment.beforeTotalMinor,
+        afterTotalMinor: amendment.afterTotalMinor,
+        deltaMinor: amendment.deltaMinor,
+        targetHoldId: amendment.targetHoldId,
+        expiresAt: amendment.expiresAt,
+      },
       data: { status: nextStatus, endedAt: now },
     });
     await transaction.auditEvent.create({
