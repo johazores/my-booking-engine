@@ -240,7 +240,24 @@ async function markCheckoutClaimFailed(input: {
       },
     });
     if (!payment || !isInternalPaymentClaimReference(payment.providerReference)) return;
-    const updated = await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+    const updated = await transaction.paymentTransaction.update({
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint: payment.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'CAPTURE',
+        status: 'AMBIGUOUS',
+        providerReference: payment.providerReference,
+        sourceProviderReference: null,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
+      data: { status: 'FAILED' },
+    });
     await transaction.auditEvent.create({ data: {
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -320,7 +337,24 @@ async function bindCheckoutSession(input: {
     });
     if (duplicate) throw new PaymentConflictError('Stripe Checkout Session is already bound to another payment transaction.');
 
-    const updated = await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { providerReference: input.sessionReference } });
+    const updated = await transaction.paymentTransaction.update({
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint: input.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'CAPTURE',
+        status: 'AMBIGUOUS',
+        providerReference: payment.providerReference,
+        sourceProviderReference: null,
+        currency: input.currency,
+        amountMinor: input.amountMinor,
+      },
+      data: { providerReference: input.sessionReference },
+    });
     await transaction.auditEvent.create({ data: {
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -606,7 +640,21 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentChecko
     }
 
     const updated = await transaction.paymentTransaction.update({
-      where: { id: payment.id },
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: payment.idempotencyKey,
+        requestFingerprint: payment.requestFingerprint,
+        kind: 'CAPTURE',
+        status: 'AMBIGUOUS',
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: payment.providerReference,
+        sourceProviderReference: null,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
       data: {
         status: reconciliation.transactionStatus,
         providerReference: reconciliation.paymentIntentReference ?? payment.providerReference,
