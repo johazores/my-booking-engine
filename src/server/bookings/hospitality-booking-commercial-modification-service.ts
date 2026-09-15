@@ -164,19 +164,253 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
       throw new HospitalityBookingConflictError('Only confirmed bookings with an active allocation can be commercially modified.');
     }
 
-    const allocation = booking.allocation;
-    if (
-      allocation.organizationId !== input.organizationId
-      || allocation.bookingId !== booking.id
-      || allocation.propertyId !== booking.propertyId
-      || allocation.roomTypeId !== booking.roomTypeId
-      || allocation.quantity !== booking.quantity
-      || allocation.arrivalDate.getTime() !== booking.arrivalDate.getTime()
-      || allocation.departureDate.getTime() !== booking.departureDate.getTime()
-    ) {
+    const priorAttempt = await transaction.auditEvent.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        resourceType: 'hospitality-booking',
+        resourceId: booking.id,
+        action: 'booking.commercial-modified',
+        afterData: { path: ['idempotencyKey'], equals: change.idempotencyKey },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { afterData: true },
+    });
+    if (priorAttempt) {
+      const prior = readAuditModificationPayload(priorAttempt.afterData);
+      if (!prior || prior.modificationFingerprint !== modificationFingerprint) {
+        throw new HospitalityBookingConflictError('Idempotency key was already used for a different commercial booking modification.');
+      }
+      if (!hospitalityBookingCommercialSelectionMatches(booking, change)) {
+        throw new HospitalityBookingConflictError('This modification already completed, but the booking was changed again afterward. Refresh before retrying.');
+      }
+      return booking;
+    }
+
+    if (hospitalityBookingCommercialSelectionMatches(booking, change)) return booking;
+
+    const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
+      reader: transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      now,
+    });
+    if (activeAmendment) {
+      throw new HospitalityBookingConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
+    }
+
+    const activePayment = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        status: { in: ['PENDING', 'AMBIGUOUS'] },
+      },
+      select: { id: true },
+    });
+    if (activePayment) {
       throw new HospitalityBookingConflictError(
-        'Booking allocation no longer matches the confirmed booking snapshot. Refresh before changing commercial terms.',
+        'Booking has an unresolved payment operation. Resolve the payment attempt before changing commercial terms.',
       );
     }
 
-    const priorAttempt = await transaaction
+    const assignment = await transaction.hospitalityRoomTypeRatePlan.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        propertyId: booking.propertyId,
+        roomTypeId: change.roomTypeId,
+        ratePlanId: change.ratePlanId,
+        roomType: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+        ratePlan: { is: { status: 'ACTIVE', property: { is: { status: 'ACTIVE' } } } },
+      },
+      select: { roomType: { select: { maxOccupancy: true } } },
+    });
+    if (!assignment) {
+      throw new HospitalityBookingUnavailableError('The requested room type and rate plan are no longer active and assigned.');
+    }
+    if (booking._count.guests > change.quantity * assignment.roomType.maxOccupancy) {
+      throw new HospitalityBookingConflictError('The current traveler count exceeds the requested room quantity and room-type occupancy.');
+    }
+
+    const availabilityRequest = normalizeAvailabilityRequest({
+      propertyId: booking.propertyId,
+      roomTypeId: change.roomTypeId,
+      arrivalDate: formatAvailabilityDate(booking.arrivalDate),
+      departureDate: formatAvailabilityDate(booking.departureDate),
+      quantity: change.quantity,
+    });
+
+    const [physicalCapacity, restrictions, windows, activeHolds, otherAllocations] = await Promise.all([
+      transaction.hospitalityRoom.count({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: change.roomTypeId,
+          status: 'ACTIVE',
+        },
+      }),
+      transaction.hospitalityRestriction.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          ratePlanId: change.ratePlanId,
+          status: 'ACTIVE',
+          startDate: { lte: booking.departureDate },
+          endDate: { gte: booking.arrivalDate },
+          OR: [{ roomTypeId: null }, { roomTypeId: change.roomTypeId }],
+        },
+        select: {
+          startDate: true,
+          endDate: true,
+          minStayNights: true,
+          maxStayNights: true,
+          closedToArrival: true,
+          closedToDeparture: true,
+        },
+      }),
+      transaction.hospitalityAvailabilityWindow.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: change.roomTypeId,
+          status: 'ACTIVE',
+          startDate: { lt: booking.departureDate },
+          endDate: { gte: booking.arrivalDate },
+        },
+        select: { startDate: true, endDate: true, capacityLimit: true },
+      }),
+      transaction.hospitalityAvailabilityHold.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: change.roomTypeId,
+          status: 'ACTIVE',
+          expiresAt: { gt: now },
+          arrivalDate: { lt: booking.departureDate },
+          departureDate: { gt: booking.arrivalDate },
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
+      transaction.hospitalityBookingAllocation.findMany({
+        where: {
+          organizationId: input.organizationId,
+          propertyId: booking.propertyId,
+          roomTypeId: change.roomTypeId,
+          bookingId: { not: booking.id },
+          arrivalDate: { lt: booking.departureDate },
+          departureDate: { gt: booking.arrivalDate },
+          booking: { is: { status: { not: 'CANCELLED' } } },
+        },
+        select: { arrivalDate: true, departureDate: true, quantity: true },
+      }),
+    ]);
+
+    const restrictionResult = evaluateAvailabilityRestrictions({
+      arrivalDate: availabilityRequest.arrivalDate,
+      departureDate: availabilityRequest.departureDate,
+      stayNights: availabilityRequest.stayNights,
+      restrictions,
+    });
+    const capacity = calculateAvailabilityHoldCapacity({
+      physicalCapacity,
+      arrivalDate: availabilityRequest.arrivalDate,
+      departureDate: availabilityRequest.departureDate,
+      windows,
+      holds: activeHolds,
+      allocations: otherAllocations,
+    });
+    if (!restrictionResult.allowed) {
+      throw new HospitalityBookingUnavailableError(
+        `Requested commercial terms violate booking restrictions: ${restrictionResult.reasons.join(', ')}.`,
+      );
+    }
+    if (capacity.sellableUnits < change.quantity) {
+      throw new HospitalityBookingUnavailableError('Requested room type no longer has enough sellable inventory for this booking.');
+    }
+
+    const latestPrice = await quoteHospitalityPriceFromReader({
+      reader: transaction,
+      organizationId: input.organizationId,
+      request: {
+        propertyId: booking.propertyId,
+        roomTypeId: change.roomTypeId,
+        ratePlanId: change.ratePlanId,
+        arrivalDate: formatAvailabilityDate(booking.arrivalDate),
+        departureDate: formatAvailabilityDate(booking.departureDate),
+        quantity: change.quantity,
+      },
+      addonSelections: change.addonSelections,
+    });
+    if (!hospitalityBookingPriceSnapshotMatches(booking, latestPrice)) {
+      throw new HospitalityBookingPriceChangedError(
+        'Commercial modification changes the persisted booking price. Complete a payment-adjustment workflow before applying this change.',
+      );
+    }
+
+    const beforeData = {
+      roomTypeId: booking.roomTypeId,
+      ratePlanId: booking.ratePlanId,
+      quantity: booking.quantity,
+      addonSelections: booking.addonSelections,
+      currency: booking.currency,
+      totalMinor: booking.totalMinor.toString(),
+      paymentStatus: booking.paymentStatus,
+      pricingFingerprint: booking.pricingFingerprint,
+    };
+
+    const updated = await transaction.hospitalityBooking.update({
+      where: { id: booking.id },
+      data: {
+        roomTypeId: change.roomTypeId,
+        ratePlanId: change.ratePlanId,
+        quantity: change.quantity,
+        addonSelections: change.addonSelections,
+        pricingFingerprint: latestPrice.fingerprint,
+      },
+    });
+    await transaction.hospitalityBookingAllocation.update({
+      where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
+      data: { roomTypeId: change.roomTypeId, quantity: change.quantity },
+    });
+    await persistHospitalityBookingPricingEvidence({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      evidenceKey: `commercial-modification:${booking.id}:${change.idempotencyKey}`,
+      source: 'BOOKING_COMMERCIAL_MODIFICATION',
+      bookingVersion: updated.updatedAt,
+      state: {
+        propertyId: updated.propertyId,
+        roomTypeId: updated.roomTypeId,
+        ratePlanId: updated.ratePlanId,
+        arrivalDate: updated.arrivalDate,
+        departureDate: updated.departureDate,
+        quantity: updated.quantity,
+        addonSelections: change.addonSelections,
+      },
+      quote: latestPrice,
+    });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'booking.commercial-modified',
+        resourceType: 'hospitality-booking',
+        resourceId: booking.id,
+        beforeData,
+        afterData: {
+          roomTypeId: updated.roomTypeId,
+          ratePlanId: updated.ratePlanId,
+          quantity: updated.quantity,
+          addonSelections: updated.addonSelections,
+          currency: updated.currency,
+          totalMinor: updated.totalMinor.toString(),
+          paymentStatus: updated.paymentStatus,
+          pricingFingerprint: updated.pricingFingerprint,
+          idempotencyKey: change.idempotencyKey,
+          modificationFingerprint,
+        },
+      },
+    });
+
+    return updated;
+  }, { isolationLevel: 'Serializable' });
+}
