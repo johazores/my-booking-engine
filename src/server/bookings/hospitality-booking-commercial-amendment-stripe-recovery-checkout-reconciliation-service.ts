@@ -271,7 +271,21 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
     }
 
     const updated = await transaction.paymentTransaction.update({
-      where: { id: current.payment.id },
+      where: {
+        id: current.payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: current.payment.idempotencyKey,
+        requestFingerprint: current.payment.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'CAPTURE',
+        status: 'AMBIGUOUS',
+        providerReference: current.payment.providerReference,
+        sourceProviderReference: null,
+        currency: current.payment.currency,
+        amountMinor: current.payment.amountMinor,
+      },
       data: {
         status: reconciliation.transactionStatus,
         providerReference: reconciliation.paymentIntentReference ?? current.payment.providerReference,
