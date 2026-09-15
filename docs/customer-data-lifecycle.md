@@ -21,6 +21,8 @@ A customer referenced by a durable booking can also have immutable or operationa
 
 Hospitality bookings can retain guest, payment, provider, public-booking, invoice, and adjustment evidence. Rental bookings retain an immutable customer name/contact snapshot together with commercial pricing and inventory-allocation evidence. Clearing only the mutable customer profile while either booking domain still references the customer would therefore misrepresent the actual retention state.
 
+Rental booking/customer ownership is also enforced independently at the database layer by a tenant-composite foreign key from `(customerId, organizationId)` to the customer record with delete restriction. A direct customer delete therefore cannot silently orphan the immutable rental booking snapshot. This is an integrity backstop, not disposal authority: a future reviewed retention workflow would need to resolve the booking evidence deliberately rather than bypass the relationship.
+
 This workflow does not mutate or delete booking snapshots, booking guest snapshots, payment records, provider records, public booking capability state, tax-invoice/adjustment-note recipient snapshots, or other immutable legal/accounting evidence. Those records require their own reviewed retention and disposal authority.
 
 ## Legal and privacy boundary
