@@ -138,7 +138,7 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       );
     }
 
-    const [blockOverlap, holdOverlap, ratePeriods] = await Promise.all([
+    const [blockOverlap, holdOverlap, bookingOverlap, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -156,6 +156,21 @@ export async function createRentalAvailabilityHold(input: Readonly<{
           expiresAt: { gt: now },
           startsOn: { lt: hold.endsOn },
           endsOn: { gt: hold.startsOn },
+        },
+        select: { id: true },
+      }),
+      transaction.rentalBookingAllocation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: unit.id,
+          startsOn: { lt: hold.endsOn },
+          endsOn: { gt: hold.startsOn },
+          booking: {
+            is: {
+              organizationId: input.organizationId,
+              status: { not: 'CANCELLED' },
+            },
+          },
         },
         select: { id: true },
       }),
@@ -178,6 +193,11 @@ export async function createRentalAvailabilityHold(input: Readonly<{
     if (holdOverlap) {
       throw new RentalInventoryConflictError(
         'That rental unit is already held for part of the requested date range.',
+      );
+    }
+    if (bookingOverlap) {
+      throw new RentalInventoryConflictError(
+        'That rental unit is already booked for part of the requested date range.',
       );
     }
 
