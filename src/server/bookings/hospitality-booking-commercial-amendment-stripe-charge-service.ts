@@ -273,7 +273,24 @@ async function markClaimFailed(input: {
       },
     });
     if (!payment || payment.status !== 'AMBIGUOUS' || !isInternalPaymentClaimReference(payment.providerReference)) return;
-    const updated = await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+    const updated = await transaction.paymentTransaction.update({
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: payment.idempotencyKey,
+        requestFingerprint: payment.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: input.stage,
+        status: 'AMBIGUOUS',
+        providerReference: payment.providerReference,
+        sourceProviderReference: null,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
+      data: { status: 'FAILED' },
+    });
     await transaction.auditEvent.create({ data: {
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -643,7 +660,21 @@ export async function chargeStripeHospitalityBookingCommercialAmendment(input: {
     }
 
     const payment = await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: claim.operationIdempotencyKey,
+        requestFingerprint: claim.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: claim.stage,
+        status: 'AMBIGUOUS',
+        providerReference: claim.claimReference,
+        sourceProviderReference: null,
+        currency: claim.currency,
+        amountMinor: claim.amountMinor,
+      },
       data: { providerReference: providerResult.providerReference, status: persistence.transactionStatus },
     });
     let directCapture = null;
@@ -784,7 +815,24 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentCharge
       throw new HospitalityBookingConflictError('Commercial amendment Stripe charge changed during reconciliation.');
     }
 
-    const updated = await transaction.paymentTransaction.update({ where: { id: current.id }, data: { status: reconciliation.transactionStatus } });
+    const updated = await transaction.paymentTransaction.update({
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        commercialAmendmentId: input.amendmentId,
+        idempotencyKey: payment.idempotencyKey,
+        requestFingerprint: payment.requestFingerprint,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: payment.kind,
+        status: 'AMBIGUOUS',
+        providerReference: payment.providerReference,
+        sourceProviderReference: null,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
+      data: { status: reconciliation.transactionStatus },
+    });
     let directCapture = null;
     if (payment.kind === 'AUTHORIZATION' && reconciliation.directlySettled) {
       directCapture = await persistDirectSettlementCapture({
