@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { RentalBookingCancelAction } from '@/components/rental-booking-cancel-action.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
@@ -14,6 +15,16 @@ import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.t
 const statuses: Record<string, string> = {
   'booking-confirmed': 'Rental booking confirmed and physical inventory committed.',
   'booking-existing': 'This confirmation request already completed earlier. The existing rental booking is shown below.',
+  'booking-cancelled': 'Rental booking cancelled. Its physical unit and date range are available for new inventory decisions again.',
+  'booking-already-cancelled': 'This rental booking was already cancelled. No duplicate lifecycle change was applied.',
+};
+
+const errors: Record<string, string> = {
+  permission: 'Your organization role cannot cancel this rental booking.',
+  conflict: 'The rental booking changed or its retained allocation is inconsistent. Refresh the booking before trying again.',
+  unavailable: 'This rental booking is no longer available in the active organization.',
+  validation: 'The rental booking cancellation request was invalid.',
+  server: 'Rental booking cancellation could not be completed. No successful cancellation was recorded.',
 };
 
 export default async function RentalBookingDetailPage({
@@ -21,7 +32,7 @@ export default async function RentalBookingDetailPage({
   searchParams,
 }: {
   params: Promise<{ 'booking-id': string }>;
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; error?: string }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -47,6 +58,14 @@ export default async function RentalBookingDetailPage({
     authorization.platformAdmin
       || (authorization.role && organizationRoleHasPermission(authorization.role, 'inventory:read')),
   );
+  const canManageBooking = Boolean(
+    authorization.platformAdmin
+      || (authorization.role && organizationRoleHasPermission(authorization.role, 'booking:manage')),
+  );
+  const canManageAvailability = Boolean(
+    authorization.platformAdmin
+      || (authorization.role && organizationRoleHasPermission(authorization.role, 'availability:manage')),
+  );
   if (!canRead) {
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental bookings</p><h1>Booking access is restricted</h1><p>Your organization role does not include booking access.</p></section>;
   }
@@ -67,6 +86,11 @@ export default async function RentalBookingDetailPage({
     throw error;
   }
 
+  const canCancel = booking.status === 'CONFIRMED'
+    && Boolean(booking.allocation)
+    && canManageBooking
+    && canManageAvailability;
+
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
       <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
@@ -74,6 +98,7 @@ export default async function RentalBookingDetailPage({
     </header>
 
     {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
+    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
     {!booking.allocation ? <p className="sf-alert sf-alert--error" role="alert">This booking is missing its physical-unit allocation. Treat the record as an integrity incident until repaired.</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-lifecycle-title">
@@ -81,11 +106,17 @@ export default async function RentalBookingDetailPage({
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Rental period</strong><span>{booking.startsOn.toISOString().slice(0, 10)} through {booking.endsOn.toISOString().slice(0, 10)} (end exclusive)</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Confirmed</strong><span><time dateTime={booking.confirmedAt.toISOString()}>{booking.confirmedAt.toISOString()}</time></span></div></div></li>
-        <li><div className="sf-inventory-list__primary"><div><strong>Physical allocation</strong><span>{booking.allocation ? `${booking.unit.name} (${booking.unit.code}) is allocated for the exact booking dates.` : 'Allocation missing'}</span></div></div></li>
+        {booking.cancelledAt ? <li><div className="sf-inventory-list__primary"><div><strong>Cancelled</strong><span><time dateTime={booking.cancelledAt.toISOString()}>{booking.cancelledAt.toISOString()}</time></span></div></div></li> : null}
+        <li><div className="sf-inventory-list__primary"><div><strong>Physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${booking.unit.name} (${booking.unit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${booking.unit.name} (${booking.unit.code}) is allocated for the exact booking dates.` : 'Allocation missing'}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Cancellation, amendments, rescheduling, payment/deposit collection, pickup, delivery, return, and fulfillment are not implied by this booking state and have no primary action on this screen.</p>
+      <p className="sf-field-hint">Amendments, rescheduling, payment/deposit collection, pickup, delivery, return, and fulfillment are not implied by this booking state and have no primary action on this screen.</p>
     </section>
+
+    {canCancel ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title">
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory release</p><h2 id="rental-booking-cancel-title">Cancel rental booking</h2></div></div>
+      <RentalBookingCancelAction bookingId={booking.id} />
+    </section> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-customer-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Immutable snapshot</p><h2 id="rental-booking-customer-title">Customer evidence</h2></div><span>{booking.customer.status.toLowerCase()} profile</span></div>

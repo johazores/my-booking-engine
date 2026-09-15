@@ -1,6 +1,6 @@
 # Rental inventory
 
-SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, and a staff-only rental booking interaction layer. The current booking foundation can convert an active hold into a confirmed rental booking and expose tenant-scoped staff history/detail, while payment, fulfillment, cancellation/amendment, and customer self-service remain separate contracts.
+SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, and a staff-only rental booking interaction layer. The current booking foundation can convert an active hold into a confirmed rental booking, expose tenant-scoped staff history/detail, and perform explicit staff cancellation that releases live inventory while retaining booking evidence. Payment, fulfillment, amendments/rescheduling, and customer self-service remain separate contracts.
 
 ## Implemented scope
 
@@ -18,17 +18,18 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - A staff conversion interaction on `/inventory/rentals/holds/[hold-id]` with bounded active-customer search, server-side authority review, and a confirmation action only for ready authority plus the required write permission.
 - A durable rental booking writer that atomically consumes the exact active hold, snapshots customer and commercial evidence, creates a `RentalBooking`, creates the exact `RentalBookingAllocation`, and records a secret-free audit event in one serializable transaction.
 - Tenant-scoped, paginated rental booking history under `/inventory/rentals/bookings` and retained booking evidence under `/inventory/rentals/bookings/[booking-id]`, both protected by `booking:read`.
-- Confirmed rental allocations participate in availability, hold creation, unavailable-date blocks, and unit mutation guards so committed inventory cannot be offered or re-protected concurrently.
-- Customer profile de-identification treats both hospitality and rental booking references as retention boundaries. A confirmed rental booking therefore prevents the mutable customer profile from being independently de-identified while the booking snapshot remains retained.
-- Server-side `inventory:read` / `inventory:manage` authorization for inventory, `availability:read` / `availability:manage` for holds, `pricing:read` for pricing review, and the booking/customer permissions required by the rental conversion authority, confirmation writer, and staff read model.
+- Explicit staff cancellation for a confirmed rental booking with `booking:manage` plus `availability:manage`. Cancellation is serializable, uses the same physical-unit lock as availability, records terminal `CANCELLED` state/audit evidence, retains the allocation historically, and releases that unit/date range from live booking protection.
+- Confirmed rental allocations participate in availability, hold creation, unavailable-date blocks, and unit mutation guards so committed inventory cannot be offered or re-protected concurrently. Cancelled parent bookings make their retained allocations non-blocking.
+- Customer profile de-identification treats both hospitality and rental booking references, including cancelled retained rental bookings, as retention boundaries.
+- Server-side `inventory:read` / `inventory:manage` authorization for inventory, `availability:read` / `availability:manage` for holds, `pricing:read` for pricing review, and the booking/customer permissions required by rental conversion, confirmation, cancellation, and staff reads.
 - Tenant-scoped reads and mutations; resource identifiers, idempotency keys, submitted codes, hold IDs, customer IDs, booking IDs, and authority fingerprints never grant scope without the authenticated `organizationId`.
-- Database-enforced tenant roots, organization-composite inventory relationships, booking insert guards, immutable booking evidence, per-unit advisory serialization, and deferred exact-allocation validation.
+- Database-enforced tenant roots, organization-composite inventory relationships, booking insert guards, immutable booking evidence, terminal booking lifecycle guard, per-unit advisory serialization, and deferred exact-allocation validation.
 - Archive lifecycle for commercial unit type, unit, and location rows. Unit types cannot be archived while active units remain. Locations cannot be archived while active units are assigned. Unit relocation/retyping/archive is blocked when active or future non-cancelled rental allocations still depend on that unit.
 - Database pricing-evidence invariants allow legacy holds with no evidence but reject partially populated evidence, invalid currency/fingerprint formats, non-positive quoted totals, and non-object snapshots. Populated hold pricing evidence is immutable.
-- Explicit `ARCHIVE` and `REMOVE` confirmations for destructive inventory management operations.
-- Audit events for location, unit type, unit, relocation, block, rate, hold lifecycle, and rental booking confirmation.
+- Explicit destructive confirmations for inventory removal/archive and rental booking cancellation.
+- Audit events for location, unit type, unit, relocation, block, rate, hold lifecycle, rental booking confirmation, and rental booking cancellation.
 - Independently bounded pagination for unit types, locations, units, unavailable-date blocks, rate periods, availability preview results, effective holds, active-customer conversion search, and rental booking history.
-- Real inventory management UI under `/inventory/rentals`, with dedicated unit-type, location, unit, availability-preview, hold-management, hold-pricing/conversion-review, and rental booking list/detail pages.
+- Real inventory management UI under `/inventory/rentals`, with dedicated unit-type, location, unit, availability-preview, hold-management, hold-pricing/conversion-review, and rental booking list/detail/cancellation surfaces.
 
 ## Location semantics
 
@@ -50,17 +51,19 @@ The read-only preview resolves an active unit type code and optional active loca
 
 Effective pricing is calculated from the unit type default daily rate plus configured rate-period overrides. The calculation is deterministic per calendar day and remains in integer minor units. Persisted overlapping rate periods or invalid persisted amounts fail closed as integrity errors. A canonical fingerprint binds the unit-type identity, currency, stay dates, exact total, and segmented rate sources so later authority can compare pricing without trusting mutable UI state.
 
-### Holds and conversion
+### Holds, conversion, and cancellation
 
 Roles with `availability:manage` may turn a currently available result into a short-lived internal hold. Hold creation revalidates the physical unit, active tenant location, unavailable-date blocks, other effective holds, non-cancelled rental booking allocations, and current pricing server-side under the same physical-unit serialization boundary.
 
 Every newly created hold snapshots the pricing observation used at creation and stores its fingerprint. That evidence is immutable and deliberately separate from mutable current pricing. `/inventory/rentals/holds/[hold-id]` recalculates the current quote and reports whether it still matches the original observation.
 
-A temporary hold is **not** itself a customer booking or payment authority. The staff conversion surface first binds a real active tenant customer to the existing server-side conversion authority. `confirmRentalBookingFromHold` then revalidates the active customer, effective hold, physical-unit state, current price, booked-allocation conflicts, and exact authority fingerprint under serializable locks. The writer consumes the hold and creates the durable booking/allocation atomically. A stale review or browser state is never accepted as write authority.
+A temporary hold is **not** itself a customer booking or payment authority. The staff conversion surface first binds a real active tenant customer to the server-side conversion authority. `confirmRentalBookingFromHold` then revalidates the active customer, effective hold, physical-unit state, current price, booked-allocation conflicts, and exact authority fingerprint under serializable locks. The writer consumes the hold and creates the durable booking/allocation atomically. A stale review or browser state is never accepted as write authority.
 
 The confirmation route derives tenant and actor identity from the authenticated server context and derives the stable confirmation idempotency key from the hold plus selected customer rather than accepting those authority fields from browser input. The durable list/detail read model similarly repeats authenticated tenant scope at every booking query.
 
-`CONFIRMED` in the current rental contract means SF has committed the physical unit to the customer under the reviewed price. It does not mean money has been collected, a deposit has been authorized, or pickup/delivery/return terms have been agreed.
+`CONFIRMED` means SF has committed the physical unit to the customer under the reviewed price. It does not mean money has been collected, a deposit has been authorized, or pickup/delivery/return terms have been agreed.
+
+Staff cancellation changes only a still-confirmed tenant booking to terminal `CANCELLED` under the booking and physical-unit serialization locks. It retains immutable customer/commercial evidence and the exact allocation row, but existing availability/hold/block/unit guards ignore allocations with a cancelled parent. The unit/date range therefore returns to live inventory immediately after the cancellation transaction commits. The cancellation route does not perform any refund, deposit, provider, tax, notification, or fulfillment action. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
 
 Expiry remains authoritative by timestamp: an `ACTIVE` hold whose `expiresAt` is no longer in the future stops protecting availability even before lifecycle cleanup updates its stored status. Explicit release changes an effective hold to `RELEASED`; releasing an already time-expired active record records it as `EXPIRED`; successful durable booking conversion changes the exact hold to `CONSUMED`.
 
@@ -69,8 +72,8 @@ Expiry remains authoritative by timestamp: an `ACTIVE` hold whose `expiresAt` is
 The following are **not** presented as implemented:
 
 - customer-facing rental search, checkout, or self-service booking management
-- staff-facing rental cancellation, amendments, or rescheduling
-- payment processing, deposits, discounts, taxes/fees, or multi-day pricing rules beyond configured daily-rate overrides
+- staff-facing rental amendments or rescheduling; those remain separate commercial/inventory contracts
+- payment processing, deposits, cancellation fees/refunds, discounts, taxes/fees, or multi-day pricing rules beyond configured daily-rate overrides
 - customer pickup/drop-off selection, one-way returns, delivery zones, opening-hour rules, or transfer pricing
 - quantity pools for interchangeable stock
 - hourly rentals
@@ -78,12 +81,12 @@ The following are **not** presented as implemented:
 - external marketplace, fleet, supplier, or calendar synchronization
 - rental fulfillment notifications or operational pickup/return workflows
 
-Those features require separate commercial acceptance criteria. The current production contract stops at staff-reviewed durable confirmed inventory commitment plus tenant-scoped history/detail and does not present unimplemented logistics or financial behavior as real.
+Those features require separate commercial acceptance criteria. The current production contract stops at staff-reviewed durable confirmed inventory commitment, tenant-scoped history/detail, and inventory-release cancellation. Amendments or rescheduling remain separate because the accepted rental dates, unit, and commercial evidence are immutable and must not be edited in place without a new authority model.
 
 ## Validation boundary
 
-Dependency-free domain and source-contract coverage validates hold input/idempotency rules, deterministic pricing fingerprints, tenant-composite schema relationships, database checks/guards, persisted pricing evidence, server-side authorization, tenant-bound resource resolution, bounded collections, overlap behavior, inventory-mutation guard wiring, booked-allocation exclusion, conversion authority, atomic hold consumption, durable booking/allocation persistence, staff conversion/read routing, customer-retention integration, and the no-fake-commercial-workflow boundary.
+Dependency-free domain and source-contract coverage validates hold input/idempotency rules, deterministic pricing fingerprints, tenant-composite schema relationships, database checks/guards, persisted pricing evidence, server-side authorization, tenant-bound resource resolution, bounded collections, overlap behavior, inventory-mutation guard wiring, booked-allocation exclusion, conversion authority, atomic hold consumption, durable booking/allocation persistence, staff conversion/read routing, terminal cancellation and inventory release, customer-retention integration, and the no-fake-financial/fulfillment boundary.
 
-Guarded PostgreSQL scenarios are registered in `npm run test:database`. When an explicitly disposable database is available they cover tenant isolation, permission denial, idempotent retries, hold pricing evidence, price revalidation, availability exclusion, block/relocation/archive protection, concurrent hold contention, rental booking confirmation races, replay, exact hold consumption, booked-inventory protection, and rental-linked customer de-identification rejection.
+Guarded PostgreSQL scenarios are registered in `npm run test:database`. When an explicitly disposable database is available they cover tenant isolation, permission denial, idempotent retries, hold pricing evidence, price revalidation, availability exclusion, block/relocation/archive protection, concurrent hold contention, rental booking confirmation races/replay, exact hold consumption, booked-inventory protection, cancellation/replay/cross-tenant denial, post-cancellation availability and replacement hold creation, database rejection of lifecycle reversal, and rental-linked customer de-identification rejection.
 
 Live Prisma validation, migration deployment/drift verification, and PostgreSQL integration scenarios remain governed by the Phase 1 disposable-database gate and must not be claimed without the repository-supported Node 24 toolchain and an explicitly disposable database target.

@@ -135,9 +135,9 @@ void test('rental booking references participate in the fail-closed customer de-
 void test('documentation reflects durable rental booking infrastructure without presenting unfinished commercial workflows as real', () => {
   assert.match(inventoryDocs, /durable rental booking writer/i);
   assert.match(inventoryDocs, /overlapping non-cancelled rental booking allocations/i);
-  assert.match(inventoryDocs, /staff-facing rental booking conversion UI, booking list\/detail UI, cancellation, amendments, or rescheduling/i);
-  assert.doesNotMatch(inventoryDocs, /durable customer reservation\/booking allocation, confirmation, cancellation, or amendments/);
-  assert.match(docs, /does not expose a new booking page, public route, checkout, provider integration, fake payment flow/i);
+  assert.match(inventoryDocs, /rental booking list\/detail\/cancellation surfaces/i);
+  assert.match(inventoryDocs, /staff-facing rental amendments or rescheduling/i);
+  assert.match(docs, /staff-only conversion review\/confirmation, rental booking list\/detail, and explicit inventory-release cancellation/i);
   assert.match(docs, /does not imply that money has been collected/i);
   assert.match(docs, /Full database validation must run through `npm run test:database`/);
   assert.match(docs, /No GitHub Actions are required or used/);

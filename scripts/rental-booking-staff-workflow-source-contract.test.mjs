@@ -5,6 +5,7 @@ import test from 'node:test';
 const readService = readFileSync('src/server/bookings/rental-booking-read-service.ts', 'utf8');
 const holdDetail = readFileSync('app/inventory/rentals/holds/[hold-id]/page.tsx', 'utf8');
 const confirmRoute = readFileSync('app/api/inventory/rentals/holds/[hold-id]/confirm/route.ts', 'utf8');
+const cancelRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
 const bookingList = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const bookingDetail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
 const documentation = readFileSync('docs/rental-booking-staff-workflow.md', 'utf8');
@@ -43,28 +44,31 @@ test('confirmation route derives tenant, actor, and idempotency authority server
   assert.doesNotMatch(confirmRoute, /formField\(formData, 'idempotencyKey'\)/);
 });
 
-test('staff booking list and detail are real bounded read surfaces without unsupported commercial actions', () => {
+test('staff booking list/detail and cancellation stay inside supported lifecycle authority', () => {
   assert.match(bookingList, /listRentalBookings/);
   assert.match(bookingList, /parseInventoryPageSize/);
   assert.match(bookingList, /Review active holds/);
   assert.match(bookingDetail, /getRentalBooking/);
   assert.match(bookingDetail, /missing its physical-unit allocation/);
-  assert.match(bookingDetail, /payment\/deposit collection, pickup, delivery, return, and fulfillment are not implied/);
-  for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Cancel rental', 'Complete pickup', 'Complete return']) {
+  assert.match(bookingDetail, /Cancel rental booking/);
+  assert.match(cancelRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.cancel'\)/);
+  assert.match(bookingDetail, /Amendments, rescheduling, payment\/deposit collection, pickup, delivery, return, and fulfillment are not implied/);
+  for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Reschedule rental', 'Complete pickup', 'Complete return']) {
     assert.doesNotMatch(`${bookingList}\n${bookingDetail}`, new RegExp(unsupportedAction, 'i'));
   }
 });
 
 test('documentation preserves the production boundary and forbids fake downstream workflow claims', () => {
-  assert.match(documentation, /server-derived organization\/actor\/idempotency authority/);
+  assert.match(documentation, /authenticated server context/);
   assert.match(documentation, /caps page size at 100/);
-  assert.match(documentation, /does not implement or imply/);
+  assert.match(documentation, /Cancellation releases SF-owned inventory only/);
   assert.match(documentation, /payment collection/);
-  assert.match(documentation, /booking cancellation, amendment, or rescheduling/);
+  assert.match(documentation, /booking amendment or rescheduling/);
   assert.match(documentation, /GitHub Actions are not required or used/);
   assert.match(foundation, /Staff booking interaction/);
+  assert.match(foundation, /Cancellation lifecycle/);
   assert.match(foundation, /rental-booking-staff-workflow\.md/);
   assert.match(inventoryDoc, /staff conversion interaction/);
-  assert.match(inventoryDoc, /rental booking list\/detail pages/);
-  assert.doesNotMatch(inventoryDoc, /staff-facing rental booking conversion UI, booking list\/detail UI/);
+  assert.match(inventoryDoc, /rental booking list\/detail\/cancellation surfaces/);
+  assert.match(inventoryDoc, /staff-facing rental amendments or rescheduling/);
 });

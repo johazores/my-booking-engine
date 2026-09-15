@@ -8,12 +8,13 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental booking confirmation and reads are tenant-scoped, atomic, idempotent, protect booked inventory, and block partial customer de-identification', async () => {
-  const [{ db }, holds, bookings, bookingReads, authority, availability, customers] = await Promise.all([
+test('rental booking confirmation, reads, cancellation, inventory release, and customer retention are tenant-scoped and atomic', async () => {
+  const [{ db }, holds, bookings, bookingReads, cancellations, authority, availability, customers] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('./rental-booking-service.ts'),
     import('./rental-booking-read-service.ts'),
+    import('./rental-booking-cancellation-service.ts'),
     import('./rental-booking-authority-service.ts'),
     import('../inventory/rental-availability-service.ts'),
     import('../customers/customer-service.ts'),
@@ -209,7 +210,7 @@ test('rental booking confirmation and reads are tenant-scoped, atomic, idempoten
     assert.equal(replay.booking.id, confirmed.booking.id);
     assert.equal(replay.allocation.id, confirmed.allocation.id);
 
-    const search = await availability.searchRentalInventoryAvailability({
+    const bookedSearch = await availability.searchRentalInventoryAvailability({
       organizationId: organization.id,
       actorUserId: admin.id,
       search: {
@@ -219,7 +220,7 @@ test('rental booking confirmation and reads are tenant-scoped, atomic, idempoten
         endsOn: '2026-10-13',
       },
     });
-    assert.equal(search.availability.total, 0);
+    assert.equal(bookedSearch.availability.total, 0);
 
     await assert.rejects(
       holds.createRentalAvailabilityHold({
@@ -247,6 +248,95 @@ test('rental booking confirmation and reads are tenant-scoped, atomic, idempoten
       }),
       /booking/i,
     );
+
+    await assert.rejects(
+      cancellations.cancelRentalBooking({
+        organizationId: otherOrganization.id,
+        actorUserId: otherAdmin.id,
+        bookingId: confirmed.booking.id,
+      }),
+      /not available/i,
+    );
+
+    const cancelled = await cancellations.cancelRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+    });
+    assert.equal(cancelled.idempotent, false);
+    assert.equal(cancelled.booking.status, 'CANCELLED');
+    assert.ok(cancelled.booking.cancelledAt);
+    assert.equal(cancelled.allocation.id, confirmed.allocation.id);
+
+    const cancellationReplay = await cancellations.cancelRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+    });
+    assert.equal(cancellationReplay.idempotent, true);
+    assert.equal(cancellationReplay.booking.status, 'CANCELLED');
+    assert.equal(cancellationReplay.allocation.id, confirmed.allocation.id);
+
+    await assert.rejects(
+      db.rentalBooking.update({
+        where: { id: confirmed.booking.id },
+        data: { status: 'CONFIRMED', cancelledAt: null },
+      }),
+      /unsupported rental booking lifecycle transition/i,
+    );
+
+    const cancelledDetail = await bookingReads.getRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+    });
+    assert.equal(cancelledDetail.status, 'CANCELLED');
+    assert.equal(cancelledDetail.allocation?.id, confirmed.allocation.id);
+    const cancelledList = await bookingReads.listRentalBookings({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      status: 'CANCELLED',
+      page: 1,
+      pageSize: 20,
+    });
+    assert.equal(cancelledList.total, 1);
+    const confirmedAfterCancellation = await bookingReads.listRentalBookings({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      status: 'CONFIRMED',
+      page: 1,
+      pageSize: 20,
+    });
+    assert.equal(confirmedAfterCancellation.total, 0);
+
+    const releasedSearch = await availability.searchRentalInventoryAvailability({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      search: {
+        unitTypeCode: unitType.code,
+        locationCode: location.code,
+        startsOn: '2026-10-10',
+        endsOn: '2026-10-13',
+      },
+    });
+    assert.equal(releasedSearch.availability.total, 1);
+
+    const replacementHold = await holds.createRentalAvailabilityHold({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      hold: {
+        unitId: unit.id,
+        startsOn: '2026-10-11',
+        endsOn: '2026-10-12',
+        idempotencyKey: `rental-booking-after-cancel:${runId}`,
+      },
+    });
+    assert.equal(replacementHold.status, 'ACTIVE');
+    await holds.releaseRentalAvailabilityHold({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      holdId: replacementHold.id,
+    });
 
     await customers.archiveCustomer({
       organizationId: organization.id,
