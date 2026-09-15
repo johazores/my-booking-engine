@@ -8,11 +8,12 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects booked inventory, and blocks partial customer de-identification', async () => {
-  const [{ db }, holds, bookings, authority, availability, customers] = await Promise.all([
+test('rental booking confirmation and reads are tenant-scoped, atomic, idempotent, protect booked inventory, and block partial customer de-identification', async () => {
+  const [{ db }, holds, bookings, bookingReads, authority, availability, customers] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('./rental-booking-service.ts'),
+    import('./rental-booking-read-service.ts'),
     import('./rental-booking-authority-service.ts'),
     import('../inventory/rental-availability-service.ts'),
     import('../customers/customer-service.ts'),
@@ -21,6 +22,9 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects
   const runId = crypto.randomUUID();
   const admin = await db.user.create({
     data: { email: `rental-booking-admin-${runId}@example.test`, status: 'ACTIVE' },
+  });
+  const otherAdmin = await db.user.create({
+    data: { email: `rental-booking-other-admin-${runId}@example.test`, status: 'ACTIVE' },
   });
   const organization = await db.organization.create({
     data: {
@@ -31,9 +35,23 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects
       currency: 'PHP',
     },
   });
-  await db.organizationMembership.create({
-    data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
+  const otherOrganization = await db.organization.create({
+    data: {
+      name: 'Other Rental Booking Tenant',
+      slug: `rental-booking-other-${runId}`.slice(0, 63),
+      kind: 'RENTAL_BUSINESS',
+      timezone: 'Asia/Manila',
+      currency: 'PHP',
+    },
   });
+  await Promise.all([
+    db.organizationMembership.create({
+      data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
+    }),
+    db.organizationMembership.create({
+      data: { organizationId: otherOrganization.id, userId: otherAdmin.id, status: 'ACTIVE', role: 'ADMIN' },
+    }),
+  ]);
   const customer = await db.customer.create({
     data: {
       organizationId: organization.id,
@@ -137,6 +155,42 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects
     assert.equal(confirmed.booking.totalMinor, 450000n);
     assert.equal(confirmed.allocation.unitId, unit.id);
 
+    const detail = await bookingReads.getRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+    });
+    assert.equal(detail.id, confirmed.booking.id);
+    assert.equal(detail.organizationId, organization.id);
+    assert.equal(detail.allocation?.id, confirmed.allocation.id);
+    assert.equal(detail.customerFirstName, customer.firstName);
+    assert.equal(detail.unit.id, unit.id);
+    const listed = await bookingReads.listRentalBookings({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      status: 'CONFIRMED',
+      page: 1,
+      pageSize: 20,
+    });
+    assert.equal(listed.total, 1);
+    assert.equal(listed.bookings[0]?.id, confirmed.booking.id);
+    const otherTenantList = await bookingReads.listRentalBookings({
+      organizationId: otherOrganization.id,
+      actorUserId: otherAdmin.id,
+      status: 'ALL',
+      page: 1,
+      pageSize: 20,
+    });
+    assert.equal(otherTenantList.total, 0);
+    await assert.rejects(
+      bookingReads.getRentalBooking({
+        organizationId: otherOrganization.id,
+        actorUserId: otherAdmin.id,
+        bookingId: confirmed.booking.id,
+      }),
+      /not available/i,
+    );
+
     const consumed = await db.rentalAvailabilityHold.findUniqueOrThrow({ where: { id: hold.id } });
     assert.equal(consumed.status, 'CONSUMED');
     assert.ok(consumed.endedAt);
@@ -231,8 +285,8 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects
     await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalLocation.deleteMany({ where: { organizationId: organization.id } });
     await db.customer.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.delete({ where: { id: organization.id } });
-    await db.user.delete({ where: { id: admin.id } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organization.id, otherOrganization.id] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organization.id, otherOrganization.id] } } });
+    await db.user.deleteMany({ where: { id: { in: [admin.id, otherAdmin.id] } } });
   }
 });

@@ -10,6 +10,7 @@ const bookingDetail = readFileSync('app/inventory/rentals/bookings/[booking-id]/
 const documentation = readFileSync('docs/rental-booking-staff-workflow.md', 'utf8');
 const foundation = readFileSync('docs/rental-booking-foundation.md', 'utf8');
 const inventoryDoc = readFileSync('docs/rental-inventory.md', 'utf8');
+const integration = readFileSync('src/server/bookings/rental-booking.integration.ts', 'utf8');
 
 test('rental booking read model requires booking read permission and repeats tenant scope', () => {
   assert.match(readService, /permission: 'booking:read'/);
@@ -17,6 +18,10 @@ test('rental booking read model requires booking read permission and repeats ten
   assert.match(readService, /const where: Prisma\.RentalBookingWhereInput = \{ organizationId: input\.organizationId \}/);
   assert.match(readService, /Math\.min\(pageSize, 100\)/);
   assert.match(readService, /status\?: RentalBookingListStatus/);
+  assert.match(integration, /bookingReads\.getRentalBooking/);
+  assert.match(integration, /bookingReads\.listRentalBookings/);
+  assert.match(integration, /organizationId: otherOrganization\.id/);
+  assert.match(integration, /otherTenantList\.total, 0/);
 });
 
 test('staff hold review binds a real active customer to server conversion authority before rendering confirmation', () => {
