@@ -48,6 +48,17 @@ const RECOVERY_IDEMPOTENCY_PREFIX = 'ca-stripe-recovery-';
 
 type RecoveryContext = Awaited<ReturnType<typeof loadRecoveryContext>>;
 type RecoveryTransaction = RecoveryContext['transactions'][number];
+type ExactRecoveryPayment = Pick<
+  RecoveryTransaction,
+  | 'id'
+  | 'idempotencyKey'
+  | 'requestFingerprint'
+  | 'kind'
+  | 'providerReference'
+  | 'sourceProviderReference'
+  | 'currency'
+  | 'amountMinor'
+>;
 
 function paymentLockKey(organizationId: string, bookingId: string) {
   return `payment:${organizationId}:booking:${bookingId}`;
@@ -55,6 +66,30 @@ function paymentLockKey(organizationId: string, bookingId: string) {
 
 function idempotencyLockKey(organizationId: string, idempotencyKey: string) {
   return `payment:${organizationId}:idempotency:${idempotencyKey}`;
+}
+
+function exactRecoveryPaymentMutationWhere(input: {
+  organizationId: string;
+  bookingId: string;
+  amendmentId: string;
+  payment: ExactRecoveryPayment;
+  status: 'SUCCEEDED' | 'AMBIGUOUS';
+}) {
+  return {
+    id: input.payment.id,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
+    commercialAmendmentId: input.amendmentId,
+    idempotencyKey: input.payment.idempotencyKey,
+    requestFingerprint: input.payment.requestFingerprint,
+    providerCode: STRIPE_PROVIDER_CODE,
+    kind: input.payment.kind,
+    status: input.status,
+    providerReference: input.payment.providerReference,
+    sourceProviderReference: input.payment.sourceProviderReference,
+    currency: input.payment.currency,
+    amountMinor: input.payment.amountMinor,
+  };
 }
 
 async function requireRecoveryPermissions(input: { organizationId: string; actorUserId: string }) {
@@ -421,7 +456,13 @@ async function persistReleasedAuthorization(input: {
     }
 
     const updated = await transaction.paymentTransaction.update({
-      where: { id: authorization.id },
+      where: exactRecoveryPaymentMutationWhere({
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        amendmentId: input.amendmentId,
+        payment: authorization,
+        status: 'SUCCEEDED',
+      }),
       data: { status: 'FAILED' },
     });
     await transaction.auditEvent.create({
@@ -556,7 +597,13 @@ async function markRecoveryClaimFailed(input: {
       return;
     }
     const updated = await transaction.paymentTransaction.update({
-      where: { id: payment.id },
+      where: exactRecoveryPaymentMutationWhere({
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        amendmentId: input.amendmentId,
+        payment,
+        status: 'AMBIGUOUS',
+      }),
       data: { status: 'FAILED' },
     });
     await transaction.auditEvent.create({
@@ -636,7 +683,13 @@ async function persistRecoveryProviderResult(input: {
         providerStatus: result.status,
       });
       const updated = await transaction.paymentTransaction.update({
-        where: { id: current.id },
+        where: exactRecoveryPaymentMutationWhere({
+          organizationId: input.organizationId,
+          bookingId: input.bookingId,
+          amendmentId: input.amendmentId,
+          payment: current,
+          status: 'AMBIGUOUS',
+        }),
         data: { status: persistence.transactionStatus },
       });
       await transaction.auditEvent.create({
@@ -688,7 +741,13 @@ async function persistRecoveryProviderResult(input: {
     }
     const status = stripeCommercialAmendmentRefundPersistenceStatus(result.status);
     const updated = await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: exactRecoveryPaymentMutationWhere({
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        amendmentId: input.amendmentId,
+        payment: current,
+        status: 'AMBIGUOUS',
+      }),
       data: {
         providerReference: refundReference,
         status,
@@ -1315,7 +1374,13 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
     }
     assertRecoveryClaim(current, input.amendmentId);
     const persisted = await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: exactRecoveryPaymentMutationWhere({
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        amendmentId: input.amendmentId,
+        payment: current,
+        status: 'AMBIGUOUS',
+      }),
       data: { status },
     });
     await transaction.auditEvent.create({
