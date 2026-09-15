@@ -52,7 +52,9 @@ test('staff booking list/detail and cancellation stay inside supported lifecycle
   assert.match(bookingDetail, /missing its physical-unit allocation/);
   assert.match(bookingDetail, /Cancel rental booking/);
   assert.match(cancelRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.cancel'\)/);
-  assert.match(bookingDetail, /Amendments, rescheduling, payment\/deposit collection, pickup, delivery, return, and fulfillment are not implied/);
+  assert.match(bookingDetail, /read-only price-neutral date-reschedule preflight/i);
+  assert.match(bookingDetail, /Reschedule preflight/);
+  assert.match(bookingDetail, /\/reschedule/);
   for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Reschedule rental', 'Complete pickup', 'Complete return']) {
     assert.doesNotMatch(`${bookingList}\n${bookingDetail}`, new RegExp(unsupportedAction, 'i'));
   }
