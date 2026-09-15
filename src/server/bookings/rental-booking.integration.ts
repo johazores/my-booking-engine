@@ -216,6 +216,10 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects
       }),
       /booking records/i,
     );
+    await assert.rejects(
+      db.customer.delete({ where: { id: customer.id } }),
+      /foreign key|constraint/i,
+    );
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
