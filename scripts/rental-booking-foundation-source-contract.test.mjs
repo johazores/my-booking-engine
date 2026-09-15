@@ -9,10 +9,13 @@ const paths = {
   availability: new URL('../src/server/inventory/rental-availability-service.ts', import.meta.url),
   authority: new URL('../src/server/bookings/rental-booking-authority-service.ts', import.meta.url),
   holdService: new URL('../src/server/inventory/rental-hold-service.ts', import.meta.url),
+  customerService: new URL('../src/server/customers/customer-service.ts', import.meta.url),
   docs: new URL('../docs/rental-booking-foundation.md', import.meta.url),
+  inventoryDocs: new URL('../docs/rental-inventory.md', import.meta.url),
+  customerDocs: new URL('../docs/customer-data-lifecycle.md', import.meta.url),
 };
 
-const [schema, migration, writer, availability, authority, holdService, docs] = await Promise.all(
+const [schema, migration, writer, availability, authority, holdService, customerService, docs, inventoryDocs, customerDocs] = await Promise.all(
   Object.values(paths).map((path) => readFile(path, 'utf8')),
 );
 
@@ -104,7 +107,21 @@ void test('availability, hold creation, and conversion review exclude overlappin
   assert.match(holdService, /already booked for part of the requested date range/i);
 });
 
-void test('documentation keeps unimplemented rental commercial capabilities outside the production contract', () => {
+void test('rental booking references participate in the fail-closed customer de-identification boundary', () => {
+  assert.match(customerService, /db\.rentalBooking\.count\(\{/);
+  assert.match(customerService, /transaction\.rentalBooking\.count\(\{/);
+  assert.match(customerService, /const bookingReferenceCount = hospitalityBookingReferenceCount \+ rentalBookingReferenceCount/);
+  assert.match(customerService, /where: \{ organizationId: input\.organizationId, customerId: current\.id \}/);
+  assert.match(docs, /Customer lifecycle integration/);
+  assert.match(docs, /hospitality and rental booking references/);
+  assert.match(customerDocs, /zero hospitality and rental booking references/i);
+});
+
+void test('documentation reflects durable rental booking infrastructure without presenting unfinished commercial workflows as real', () => {
+  assert.match(inventoryDocs, /durable rental booking writer/i);
+  assert.match(inventoryDocs, /overlapping non-cancelled rental booking allocations/i);
+  assert.match(inventoryDocs, /staff-facing rental booking conversion UI, booking list\/detail UI, cancellation, amendments, or rescheduling/i);
+  assert.doesNotMatch(inventoryDocs, /durable customer reservation\/booking allocation, confirmation, cancellation, or amendments/);
   assert.match(docs, /does not expose a new booking page, public route, checkout, provider integration, fake payment flow/i);
   assert.match(docs, /does not imply that money has been collected/i);
   assert.match(docs, /Full database validation must run through `npm run test:database`/);
