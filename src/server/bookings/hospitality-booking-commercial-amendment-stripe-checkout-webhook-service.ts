@@ -175,7 +175,14 @@ export async function finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook(i
 
     if (reconciliation.transactionStatus === 'AMBIGUOUS') {
       await transaction.paymentWebhookEvent.update({
-        where: { id: verifiedEvent.id },
+        where: {
+          id: verifiedEvent.id,
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerEventId: evidence.providerEventId,
+          eventType: evidence.eventType,
+          payloadHash,
+        },
         data: {
           bookingId: evidence.bookingId,
           providerReference: evidence.checkoutReference,
@@ -204,14 +211,35 @@ export async function finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook(i
     }
 
     const updated = await transaction.paymentTransaction.update({
-      where: { id: payment.id },
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: evidence.bookingId,
+        commercialAmendmentId: evidence.amendmentId,
+        idempotencyKey: payment.idempotencyKey,
+        requestFingerprint: payment.requestFingerprint,
+        kind: 'CAPTURE',
+        status: 'AMBIGUOUS',
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: evidence.checkoutReference,
+        sourceProviderReference: null,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
       data: {
         status: reconciliation.transactionStatus,
         providerReference: reconciliation.paymentIntentReference ?? payment.providerReference,
       },
     });
     await transaction.paymentWebhookEvent.update({
-      where: { id: verifiedEvent.id },
+      where: {
+        id: verifiedEvent.id,
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerEventId: evidence.providerEventId,
+        eventType: evidence.eventType,
+        payloadHash,
+      },
       data: {
         bookingId: evidence.bookingId,
         providerReference: updated.providerReference,
