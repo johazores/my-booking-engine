@@ -20,7 +20,10 @@ test('rental cancellation requires booking and availability authority and serial
   assert.match(service, /effectiveStartsOn/);
   assert.match(service, /effectiveEndsOn/);
   assert.match(service, /isolationLevel: 'Serializable'/);
-  assert.match(service, /prismaErrorCode\(error\) === 'P2034'/);
+  assert.match(service, /classifyRentalBookingWriteError\(error\)/);
+  assert.match(service, /disposition === 'RETRYABLE' && attempt < 2/);
+  assert.match(service, /Rental booking cancellation could not be serialized after bounded retries/);
+  assert.match(service, /disposition === 'CONFLICT'/);
 });
 
 test('final cancellation write is an exact tenant-owned compare-and-swap and retains audit evidence', () => {

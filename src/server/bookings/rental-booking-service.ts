@@ -14,6 +14,7 @@ import {
   rentalBookingConfirmationPayloadMatches,
   type RentalBookingConfirmationInput,
 } from './rental-booking-domain.ts';
+import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
 export class RentalBookingConflictError extends Error {}
 
@@ -40,19 +41,23 @@ function hasCompletePricingEvidence(hold: Readonly<{
   return present === fields.length;
 }
 
-function prismaErrorCode(error: unknown) {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : null;
-}
-
 async function runRentalBookingWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
-      const code = prismaErrorCode(error);
-      if ((code === 'P2002' || code === 'P2034') && attempt < 2) continue;
+      const disposition = classifyRentalBookingWriteError(error, { retryUniqueConflict: true });
+      if (disposition === 'RETRYABLE' && attempt < 2) continue;
+      if (disposition === 'RETRYABLE') {
+        throw new RentalBookingConflictError(
+          'Rental booking write could not be serialized after bounded retries.',
+        );
+      }
+      if (disposition === 'CONFLICT') {
+        throw new RentalBookingConflictError(
+          'Rental booking write no longer satisfies the durable inventory or lifecycle contract.',
+        );
+      }
       throw error;
     }
   }

@@ -4,6 +4,7 @@ import { RentalAvailabilityIntegrityError } from '../inventory/rental-availabili
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
+import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
 export class RentalBookingCancellationConflictError extends Error {
   constructor(message: string) {
@@ -19,18 +20,23 @@ export class RentalBookingCancellationUnavailableError extends Error {
   }
 }
 
-function prismaErrorCode(error: unknown) {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : null;
-}
-
 async function runRentalBookingCancellation<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
-      if (prismaErrorCode(error) === 'P2034' && attempt < 2) continue;
+      const disposition = classifyRentalBookingWriteError(error);
+      if (disposition === 'RETRYABLE' && attempt < 2) continue;
+      if (disposition === 'RETRYABLE') {
+        throw new RentalBookingCancellationConflictError(
+          'Rental booking cancellation could not be serialized after bounded retries.',
+        );
+      }
+      if (disposition === 'CONFLICT') {
+        throw new RentalBookingCancellationConflictError(
+          'Rental booking cancellation no longer satisfies the durable inventory or lifecycle contract.',
+        );
+      }
       throw error;
     }
   }

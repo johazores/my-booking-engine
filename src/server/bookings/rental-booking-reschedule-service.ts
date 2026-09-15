@@ -13,6 +13,7 @@ import {
   rentalBookingLockKey,
   type RentalBookingRescheduleApplyInput,
 } from './rental-booking-reschedule-domain.ts';
+import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
 export class RentalBookingRescheduleConflictError extends Error {
   constructor(message: string) {
@@ -32,20 +33,19 @@ function toJsonInput(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function prismaErrorCode(error: unknown) {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : null;
-}
-
 async function runRentalBookingReschedule<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
-      const code = prismaErrorCode(error);
-      if ((code === 'P2002' || code === 'P2034') && attempt < 2) continue;
-      if (code === 'P2003' || code === 'P2004') {
+      const disposition = classifyRentalBookingWriteError(error, { retryUniqueConflict: true });
+      if (disposition === 'RETRYABLE' && attempt < 2) continue;
+      if (disposition === 'RETRYABLE') {
+        throw new RentalBookingRescheduleConflictError(
+          'Rental booking reschedule could not be serialized after bounded retries.',
+        );
+      }
+      if (disposition === 'CONFLICT') {
         throw new RentalBookingRescheduleConflictError(
           'Rental booking reschedule no longer satisfies the durable inventory or lifecycle contract.',
         );
