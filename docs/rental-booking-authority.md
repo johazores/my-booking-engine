@@ -22,9 +22,11 @@ This separation lets UI or application code present an explicit review step with
 
 ## Product boundaries
 
-The current first rental contract keeps the unit's active operating location as inventory metadata only. One-way return rules, delivery zones, opening hours, deposits, taxes/fees, payments, cancellation, amendments, customer self-service, and fulfillment notifications remain separate commercial acceptance criteria rather than being guessed here.
+The current first rental contract keeps the unit's active operating location as inventory metadata only. One-way return rules, delivery zones, opening hours, deposits, taxes/fees, payments, amendments/rescheduling, customer self-service, and fulfillment notifications remain separate commercial acceptance criteria rather than being guessed here.
 
-No route or primary action should present any of those capabilities as real until their server-side contracts exist.
+Rental booking cancellation is now implemented as a separate terminal inventory-release lifecycle after confirmation; it is not authority produced by this conversion review. The cancellation contract retains historical booking/allocation evidence and does not imply refund, deposit, or provider behavior. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
+
+No route or primary action should present the still-unsupported capabilities above as real until their server-side contracts exist.
 
 ## Validation
 
