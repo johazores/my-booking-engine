@@ -50,7 +50,12 @@ export async function updateMembershipRole(input: {
     }
 
     const updated = await transaction.organizationMembership.update({
-      where: { id: membership.id },
+      where: {
+        id: membership.id,
+        organizationId: input.organizationId,
+        role: membership.role,
+        status: membership.status,
+      },
       data: { role: input.role as OrganizationRole },
       select: { id: true, userId: true, role: true, status: true },
     });

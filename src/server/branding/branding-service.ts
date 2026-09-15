@@ -140,7 +140,7 @@ export async function updateOrganizationBranding(input: {
       if (JSON.stringify(comparableCurrent) === JSON.stringify(next)) return current;
 
       const updated = await transaction.organization.update({
-        where: { id: current.id },
+        where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
         data: next,
         select: brandingSelect,
       });

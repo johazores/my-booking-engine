@@ -60,7 +60,12 @@ export async function updateMembershipStatus(input: {
     }
 
     const updated = await transaction.organizationMembership.update({
-      where: { id: membership.id },
+      where: {
+        id: membership.id,
+        organizationId: input.organizationId,
+        role: membership.role,
+        status: membership.status,
+      },
       data: { status: input.status },
       select: { id: true, userId: true, role: true, status: true },
     });

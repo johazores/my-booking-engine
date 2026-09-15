@@ -109,7 +109,7 @@ export async function updateOrganizationSettings(input: {
       }
 
       const updated = await transaction.organization.update({
-        where: { id: current.id },
+        where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
         data: next,
       });
 
@@ -168,7 +168,7 @@ export async function archiveOrganization(input: {
     assertOrganizationStatusTransition(current.status, 'ARCHIVED');
     const archivedAt = new Date();
     const updated = await transaction.organization.update({
-      where: { id: current.id },
+      where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
       data: { status: 'ARCHIVED', deletedAt: archivedAt },
     });
 

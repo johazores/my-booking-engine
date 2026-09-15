@@ -175,7 +175,7 @@ export async function updateCustomer(input: {
       if (changedFields.length === 0) return current;
 
       const updated = await transaction.customer.update({
-        where: { id: current.id },
+        where: { id: current.id, organizationId: input.organizationId, status: 'ACTIVE' },
         data: next,
       });
       await transaction.auditEvent.create({
@@ -221,7 +221,7 @@ export async function archiveCustomer(input: {
 
     const archivedAt = new Date();
     const updated = await transaction.customer.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId, status: 'ACTIVE' },
       data: { status: 'ARCHIVED', archivedAt },
     });
     await transaction.auditEvent.create({
@@ -279,7 +279,7 @@ export async function deidentifyCustomerProfile(input: {
     if (bookingReferenceCount > 0) throw new CustomerDeidentificationBlockedError();
 
     const updated = await transaction.customer.update({
-      where: { id: current.id },
+      where: { id: current.id, organizationId: input.organizationId, status: 'ARCHIVED' },
       data: {
         firstName: DEIDENTIFIED_CUSTOMER_FIRST_NAME,
         lastName: DEIDENTIFIED_CUSTOMER_LAST_NAME,

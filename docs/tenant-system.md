@@ -4,15 +4,17 @@
 
 Every business is an organization/tenant. A tenant may represent a hotel, resort, travel agency, tour operator, appointment business, rental business, marketplace, or another reservation business.
 
-The business kind is descriptive. Product behavior should evolve through capabilities rather than separate duplicated applications.
+The business kind is descriptive. Product behavior evolves through capabilities rather than duplicated applications.
 
 ## Implemented foundation
 
-The current database contains organizations, users, and organization memberships. Server-side repository methods fetch organizations only when the requesting user has an active membership, including lookup by organization ID and canonical slug.
+The current database contains organizations, users, organization memberships, customers, internal inventory, availability/pricing/booking/payment records, tenant integrations, and audit history. Implemented protected server operations resolve the authenticated user and active tenant before accessing tenant-owned data, then apply the relevant capability check for the requested operation.
 
-Organization membership reads follow the same server-side boundary. Listing or retrieving a membership requires both the target organization ID and an active membership for the requesting user in that same active, non-deleted organization. A membership ID from another tenant cannot be used by itself to cross the organization boundary.
+Organization membership reads follow the same server-side boundary. Listing or retrieving a membership requires both the target organization ID and active access for the requesting user in that same active, non-deleted organization. A membership ID from another tenant cannot be used by itself to cross the organization boundary.
 
-All tenant-owned read paths that currently exist in the repository now use the shared tenant-scope helpers. There are no tenant-owned write APIs yet; membership mutation is intentionally withheld until roles and permissions exist so an ordinary active member cannot implicitly gain management authority. Future update/delete repositories must bind both `organizationId` and the target resource ID and must additionally validate the required permission before mutation.
+Tenant-owned child-resource reads bind `organizationId` plus the resource identifier. Mutable production services also retain write-time ownership at the final persistence boundary instead of relying only on a preceding scoped read. Customer, membership, branding, organization-management, internal inventory, availability, pricing, booking, payment, and integration code apply the tenant boundary according to their domain-specific lifecycle and commercial rules. Provider-specific behavior remains behind adapters.
+
+For tenant-owned child rows, final mutations repeat `organizationId` and the relevant resource/lifecycle scope when the model supports it. The `Organization` row is the tenant root and therefore has no separate tenant foreign key; root settings, branding, and archive mutations pin the exact server-authorized organization ID and the expected active/non-deleted lifecycle state. See `docs/core-tenant-write-scope.md` for the core administration/customer write contract and the domain-specific write-scope documents for inventory/hospitality boundaries.
 
 Membership lifecycle rules are explicit in `src/server/memberships/membership-domain.ts`:
 
@@ -27,55 +29,54 @@ User identities use canonical trimmed lowercase email values. Their lifecycle is
 
 Organization identifiers use stable UUID primary keys plus unique human-readable slugs. Slugs are normalized to lowercase letters, numbers, and single hyphens and are constrained to 3-63 characters.
 
-The initial organization lifecycle is explicit:
+The organization lifecycle is explicit:
 
 - `ACTIVE` can become `SUSPENDED` or `ARCHIVED`
 - `SUSPENDED` can return to `ACTIVE` or become `ARCHIVED`
 - `ARCHIVED` is terminal in the current foundation
 
-The checked-in PostgreSQL migrations add the tenant tables, relational constraints, indexes, database checks, canonical user identity constraints, and the terminal membership archival state. They still need to be applied and verified against a real PostgreSQL database before live database validation is considered complete.
+The checked-in PostgreSQL migrations define the tenant tables, relational constraints, indexes, database checks, canonical identity rules, authorization relations, tenant-owned business models, and lifecycle constraints. The complete chain still needs to be applied and verified against an explicitly disposable PostgreSQL database before the two open Phase 1 live-database gates can be claimed complete.
 
-A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant-scope.ts`. Organization access scopes require an active membership for the requesting user. Tenant-owned records can additionally use active collection/resource scopes that bind `organizationId` and validate actor access through the owning organization relation. Single-resource lookups bind both the resource identifier and organization identifier so a resource ID from another tenant cannot be used by itself.
+A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant-scope.ts`. Organization access scopes require an active user, active organization, and active membership. Tenant-owned repositories/services add resource ownership and permission checks appropriate to each domain. Single-resource lookups bind both the resource identifier and organization identifier so a resource ID from another tenant cannot be used by itself.
 
-The scope helpers are covered by dependency-free tests. Membership lifecycle tests additionally verify that only active memberships grant access and that archived memberships are terminal. The PostgreSQL integration test exercises the real organization and organization-membership repositories in both tenant directions and covers every current repository read path: organization list, ID lookup, canonical-slug lookup, membership list, and membership detail. It also verifies that invited members, suspended users, suspended memberships, archived memberships, and suspended organizations do not satisfy tenant access. These assertions are checked in but remain unverified against live PostgreSQL until `npm run test:database` can run against a disposable database.
-
-This is the beginning of tenant isolation, not a complete authorization system.
+Dependency-free tests cover tenant-scope and lifecycle rules, while the guarded PostgreSQL integration suite exercises real Tenant A/Tenant B isolation and protected workflows. Checked-in database scenarios are not claimed as executed until `npm run test:database` runs successfully against an explicitly acknowledged disposable PostgreSQL target.
 
 ## Required security model
 
-Every protected operation must eventually validate:
+Every protected operation validates, as applicable:
 
 1. authenticated identity
-2. active organization membership
+2. active organization membership or platform-admin authority
 3. required permission/capability
 4. scope/ownership of the requested resource
+5. lifecycle/commercial preconditions for the final write
 
-A user from Organization A must never access Organization B data by changing an ID, slug, URL, query string, request body, or API call.
+A user from Organization A must never access or mutate Organization B data by changing an ID, slug, URL, query string, request body, browser cookie, or API call.
 
-## Tenant repository rule
+## Tenant repository and service rule
 
-For every future tenant-owned model:
+For every tenant-owned model:
 
-- collection reads must include `organizationId`
-- single-resource reads must include both `organizationId` and resource ID
-- updates and deletes must include both `organizationId` and resource ID
-- callers must not receive an unrestricted repository method that accepts only a resource ID
-- protected operations must validate active membership before using a tenant-owned repository
-- write operations must additionally validate the required permission once the authorization model exists
+- collection reads include `organizationId`
+- single-resource reads include both `organizationId` and resource ID
+- updates and deletes retain both `organizationId` and resource identity at the final persistence boundary where the model supports an organization foreign key
+- lifecycle-sensitive writes retain the expected state when that state is part of the validated precondition
+- organization-root writes bind the exact authorized organization ID and expected lifecycle because the tenant root cannot contain a second organization key
+- callers do not receive unrestricted production mutation methods that accept only a tenant-owned resource ID
+- protected operations validate active tenant access before using tenant-owned repositories/services
+- write operations validate the required capability independently of ownership
+- external/commercial writes additionally preserve their provider, idempotency, locking, reconciliation, and state-machine contracts
 
-This rule belongs in server/data-access code. Client filtering, hidden navigation, or a route parameter is never an authorization boundary.
+This rule belongs in server/data-access code. Client filtering, hidden navigation, route parameters, or cookies are never authorization boundaries.
 
-## Future tenant-owned areas
+## Current tenant-owned product areas
 
-- membership role/permission management
-- branding/settings
-- customers
-- inventory/products/properties
-- availability/rates
-- bookings/payments
-- integrations/domains
-- email and booking configuration
+The tenant boundary is currently used by implemented organization/membership administration, branding/settings, customers, hospitality inventory, tour inventory, appointment inventory, rental inventory and rental holds, hospitality availability/pricing/bookings, payments/legal-document foundations, and integration/provider management.
+
+New domain models must follow the same tenant isolation rule before their UI or API is considered production-ready. Advanced tour, appointment, rental, marketplace, and additional-provider workflows remain separate roadmap work and must not weaken the shared tenant boundary.
 
 ## White label
 
-Tenant branding is planned after the application shell. Branding should come from tenant configuration/design tokens rather than hardcoded component values and may eventually control business name, logo, favicon, colors, fonts, email branding, booking branding, domain, and contact details.
+Tenant branding is implemented for the authenticated workspace and public hospitality booking journey. Branding comes from persisted tenant configuration/design tokens rather than tenant-specific component copies. Current settings include business identity, logo/favicon, controlled colors/fonts, public booking copy, contact/email-branding values, and intended custom domain configuration.
+
+Custom-domain persistence does not claim DNS ownership verification or custom-host routing. Those infrastructure capabilities remain separate from the tenant data model.
