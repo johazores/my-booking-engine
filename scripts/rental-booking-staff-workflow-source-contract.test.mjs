@@ -9,6 +9,7 @@ const cancelRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id
 const rescheduleRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/reschedule/route.ts', 'utf8');
 const bookingList = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const bookingDetail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
+const unitSubstitutionPage = readFileSync('app/inventory/rentals/bookings/[booking-id]/unit-substitution/page.tsx', 'utf8');
 const documentation = readFileSync('docs/rental-booking-staff-workflow.md', 'utf8');
 const foundation = readFileSync('docs/rental-booking-foundation.md', 'utf8');
 const inventoryDoc = readFileSync('docs/rental-inventory.md', 'utf8');
@@ -46,9 +47,10 @@ test('confirmation route derives tenant, actor, and idempotency authority server
   assert.doesNotMatch(confirmRoute, /formField\(formData, 'idempotencyKey'\)/);
 });
 
-test('staff booking list detail cancellation and reschedule stay inside supported lifecycle authority', () => {
+test('staff booking lifecycle stays inside supported write authority while exposing read-only replacement review', () => {
   assert.match(bookingList, /listRentalBookings/);
   assert.match(bookingList, /booking\.allocation\.startsOn/);
+  assert.match(bookingList, /unit-substitution/);
   assert.match(bookingDetail, /getRentalBooking/);
   assert.match(bookingDetail, /missing its physical-unit allocation/);
   assert.match(bookingDetail, /Cancel rental booking/);
@@ -57,6 +59,9 @@ test('staff booking list detail cancellation and reschedule stay inside supporte
   assert.match(bookingDetail, /Append-only history/);
   assert.match(rescheduleRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.reschedule'\)/);
   assert.match(rescheduleRoute, /buildRentalBookingRescheduleIdempotencyKey/);
+  assert.match(unitSubstitutionPage, /read-only preflight/i);
+  assert.doesNotMatch(unitSubstitutionPage, /method="post"/i);
+  assert.doesNotMatch(unitSubstitutionPage, />Apply substitution</i);
   for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Change unit', 'Complete pickup', 'Complete return']) {
     assert.doesNotMatch(`${bookingList}\n${bookingDetail}`, new RegExp(unsupportedAction, 'i'));
   }
@@ -66,13 +71,15 @@ test('documentation preserves the production boundary and forbids fake downstrea
   assert.match(documentation, /authenticated server context/);
   assert.match(documentation, /caps page size at 100/);
   assert.match(documentation, /same-unit price-neutral date reschedules/);
+  assert.match(documentation, /Replacement-unit authority/);
+  assert.match(documentation, /no substitution POST route or Apply button/i);
   assert.match(documentation, /Cancellation is an inventory-release lifecycle mutation/);
   assert.match(documentation, /payment collection/);
   assert.match(documentation, /price-changing reschedules\/amendments/);
   assert.match(documentation, /GitHub Actions are not required or used/);
   assert.match(foundation, /Staff booking interaction/);
   assert.match(foundation, /Cancellation lifecycle/);
-  assert.match(foundation, /rental-booking-staff-workflow\.md/);
-  assert.match(inventoryDoc, /staff conversion interaction/);
-  assert.match(inventoryDoc, /rental booking list\/detail\/cancellation surfaces/);
+  assert.match(foundation, /same-unit, price-neutral/);
+  assert.match(inventoryDoc, /Staff conversion interaction/);
+  assert.match(inventoryDoc, /terminal inventory-release cancellation/);
 });

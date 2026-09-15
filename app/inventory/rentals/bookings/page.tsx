@@ -48,10 +48,14 @@ export default async function RentalBookingsPage({
     organizationId: activeContext.organization.id,
     userId: session.user.id,
   });
-  const canRead = Boolean(
+  const hasPermission = (permission: Parameters<typeof organizationRoleHasPermission>[1]) => Boolean(
     authorization.platformAdmin
-      || (authorization.role && organizationRoleHasPermission(authorization.role, 'booking:read')),
+      || (authorization.role && organizationRoleHasPermission(authorization.role, permission)),
   );
+  const canRead = hasPermission('booking:read');
+  const canReviewUnitSubstitution = hasPermission('booking:manage')
+    && hasPermission('availability:read')
+    && hasPermission('inventory:read');
   if (!canRead) {
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental bookings</p><h1>Booking access is restricted</h1><p>Your organization role does not include booking access.</p></section>;
   }
@@ -82,7 +86,7 @@ export default async function RentalBookingsPage({
       </form>
       <p className="sf-field-hint">A confirmed rental booking means SF has committed the physical unit under reviewed commercial evidence. The displayed period is the current effective allocation after any supported price-neutral reschedules.</p>
 
-      {result.bookings.length === 0 ? <div className="sf-empty-state"><h3>No rental bookings match this filter</h3><p>Bookings appear only after an effective hold and active customer pass the server-side conversion review and atomic confirmation boundary.</p><Link className="sf-button sf-button--primary" href="/inventory/rentals/holds">Review active holds</Link></div> : <ul className="sf-inventory-list">{result.bookings.map((booking) => <li key={booking.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/bookings/${booking.id}`}><div><strong>{booking.customerFirstName} {booking.customerLastName}</strong><span>{booking.unit.name} ({booking.unit.code}) · {booking.unitType.name} · {booking.location.name}</span><span>{booking.allocation ? `${booking.allocation.startsOn.toISOString().slice(0, 10)} through ${booking.allocation.endsOn.toISOString().slice(0, 10)} (end exclusive)` : 'Physical allocation missing'}</span><span>{booking.currency} {moneyMinorToMajorString(booking.totalMinor, booking.currency)} · {booking.status.toLowerCase()}</span></div></Link></div></li>)}</ul>}
+      {result.bookings.length === 0 ? <div className="sf-empty-state"><h3>No rental bookings match this filter</h3><p>Bookings appear only after an effective hold and active customer pass the server-side conversion review and atomic confirmation boundary.</p><Link className="sf-button sf-button--primary" href="/inventory/rentals/holds">Review active holds</Link></div> : <ul className="sf-inventory-list">{result.bookings.map((booking) => <li key={booking.id}><div className="sf-inventory-list__link"><Link className="sf-inventory-list__primary" href={`/inventory/rentals/bookings/${booking.id}`}><div><strong>{booking.customerFirstName} {booking.customerLastName}</strong><span>{booking.unit.name} ({booking.unit.code}) · {booking.unitType.name} · {booking.location.name}</span><span>{booking.allocation ? `${booking.allocation.startsOn.toISOString().slice(0, 10)} through ${booking.allocation.endsOn.toISOString().slice(0, 10)} (end exclusive)` : 'Physical allocation missing'}</span><span>{booking.currency} {moneyMinorToMajorString(booking.totalMinor, booking.currency)} · {booking.status.toLowerCase()}</span></div></Link>{booking.status === 'CONFIRMED' && booking.allocation && canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary sf-button--compact" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Review replacement</Link> : null}</div></li>)}</ul>}
 
       {result.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental booking pages">{result.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={bookingListHref({ page: result.page - 1, pageSize, status })}>Previous</Link> : <span />}<span>Page {result.page} of {result.totalPages}</span>{result.page < result.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={bookingListHref({ page: result.page + 1, pageSize, status })}>Next</Link> : <span />}</nav> : null}
     </section>

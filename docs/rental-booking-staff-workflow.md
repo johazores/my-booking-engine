@@ -1,18 +1,19 @@
 # Rental booking staff workflow
 
-SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, and cancel a confirmed booking to release its physical inventory.
+SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, cancel a confirmed booking to release its physical inventory, and run a read-only same-type/same-location replacement-unit preflight.
 
-The workflow does not invent payment, deposit, unit-substitution, price-changing amendment, pickup, delivery, return, or fulfillment semantics.
+The workflow does not invent payment, deposit, durable unit-substitution, price-changing amendment, pickup, delivery, return, or fulfillment semantics.
 
 ## Routes
 
 - `/inventory/rentals/holds/[hold-id]` reviews one effective rental hold against an active tenant customer.
 - `POST /api/inventory/rentals/holds/[hold-id]/confirm` derives tenant, actor, and confirmation idempotency authority from authenticated server context before calling `confirmRentalBookingFromHold`.
-- `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering and current effective allocation dates.
+- `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering and current effective allocation dates. Confirmed rows expose the replacement-unit review only when the actor has the required review permissions.
 - `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, current effective allocation, append-only reschedule history, and cancellation evidence.
 - `/inventory/rentals/bookings/[booking-id]/reschedule` reviews target dates and only renders Apply when fresh authority is ready and the actor can manage availability.
 - `POST /api/inventory/rentals/bookings/[booking-id]/reschedule` derives tenant, actor, and idempotency authority server-side and calls the durable reschedule writer.
 - `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer.
+- `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs a fresh read-only inventory-authority review. It has no POST route or Apply action.
 
 All routes remain inside the authenticated SF application shell. No public/customer rental booking or modification route is introduced.
 
@@ -23,6 +24,8 @@ Rental booking list/detail reads require `booking:read`; every booking query rep
 Hold conversion review requires `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read`; confirmation additionally requires `availability:manage`.
 
 Reschedule review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`. Apply additionally requires `availability:manage`. These UI checks are usability only: both review and write services independently enforce server-side permissions and tenant ownership.
+
+Replacement-unit candidate search requires `booking:manage` plus `inventory:read`; fresh substitution authority review additionally requires `availability:read`. The candidate and review services independently repeat tenant scope and never treat a browser-supplied unit ID as ownership authority.
 
 Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking and current effective allocation inside its serializable transaction.
 
@@ -42,6 +45,16 @@ Successful apply inserts append-only reschedule evidence, moves only the effecti
 
 See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
 
+## Replacement-unit authority
+
+The replacement-unit preflight is deliberately narrower than a complete unit-substitution workflow. It allows staff to search up to 50 active physical units at a time by name/code, but only within the booking's retained unit type and operating location. Candidate discovery does not imply availability.
+
+Fresh review uses PostgreSQL time and the booking's current effective allocation dates, including the latest append-only reschedule target when present. It rejects inactive/wrong-tenant/wrong-type/wrong-location targets and target units blocked by unavailable dates, effective holds, or another non-cancelled allocation.
+
+A ready review returns a deterministic authority fingerprint binding the tenant, booking version, source/target units, retained type/location, effective dates, accepted money, and effective pricing fingerprint. It reserves nothing and persists nothing.
+
+There is intentionally no substitution POST route or Apply button yet. The durable writer requires append-only substitution evidence, deterministic booking/source/target unit locking, idempotency, stale-authority rejection, audit evidence, and database allocation guards that derive the current effective unit without rewriting immutable booking-time unit evidence. See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
+
 ## Cancellation authority
 
 Cancellation is an inventory-release lifecycle mutation, not a financial action. It uses the same tenant/booking lock namespace as rescheduling plus the shared physical-unit lock, validates the current effective allocation, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED`.
@@ -56,7 +69,9 @@ The allocation and all reschedule rows remain retained as historical evidence. E
 
 ## Deliberate boundaries
 
-This workflow does not implement or imply rental payment collection/payment status, deposits/card authorization, physical-unit substitution/location change, price-changing reschedules/amendments, cancellation financial side effects, pickup/delivery/return/inspection/damage lifecycle, public self-service, notifications, or external synchronization.
+This workflow does not implement or imply rental payment collection/payment status, deposits/card authorization, durable physical-unit substitution/location change, price-changing reschedules/amendments, cancellation financial side effects, pickup/delivery/return/inspection/damage lifecycle, public self-service, notifications, or external synchronization.
+
+The replacement-unit route is review infrastructure only. It does not make physical-unit substitution an implemented booking capability.
 
 The remaining features require separate commercial state machines and acceptance criteria. No dead primary action is exposed for them.
 
@@ -65,5 +80,7 @@ The remaining features require separate commercial state machines and acceptance
 `scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects tenant-scoped reads, server-derived confirmation authority, staff list/detail routes, cancellation wiring, durable reschedule wiring, and the explicit no-fake-payment/fulfillment boundary.
 
 `scripts/rental-booking-reschedule-source-contract.test.mjs` protects the reschedule persistence and write boundary.
+
+`scripts/rental-booking-unit-substitution-authority-source-contract.test.mjs` protects bounded tenant-scoped candidate search, fresh target-inventory review, deterministic authority evidence, and the deliberate absence of a substitution mutation.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
