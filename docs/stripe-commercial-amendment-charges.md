@@ -61,6 +61,12 @@ The internal additional-charge executor remains available for trusted server-own
 
 If Stripe reports an authorization as already `succeeded` rather than `requires_capture`, SF records deterministic successful settlement evidence only from that provider truth. Settlement reconciliation de-duplicates matching authorization/capture references.
 
+## Persistence write scope
+
+Direct authorization/capture, source-scoped refund, authenticated reconciliation, and signed non-Checkout amendment webhook finalization now retain the exact tenant, amendment, provider operation, fingerprint, prior state/reference, source reference where applicable, and exact money in the final Prisma mutation. The verified webhook ledger similarly retains organization/provider/event/payload identity at final mutation time.
+
+The detailed defense-in-depth contract is documented in `docs/stripe-commercial-amendment-payment-write-scope.md`. Hosted Checkout has its separate reviewed persistence contract in `docs/stripe-commercial-amendment-checkout-write-scope.md`.
+
 ## Expiry and recovery
 
 The commercial amendment/target-inventory window is still authoritative for **applying booking terms**. Stripe Checkout may remain open longer than that prepared window. SF therefore treats a late payment as real money but never as permission to apply stale terms.
@@ -81,6 +87,6 @@ If those checks cannot pass after money settled, the amendment does not force st
 
 ## Validation
 
-Dependency-free coverage now includes the direct authorization/capture domain, normal commercial Checkout deterministic identity/fingerprint/reconciliation, Checkout ownership metadata, Checkout webhook parsing, amendment Stripe refund/recovery domains, and provider-drift rejection.
+Dependency-free coverage now includes the direct authorization/capture domain, normal commercial Checkout deterministic identity/fingerprint/reconciliation, Checkout ownership metadata, Checkout webhook parsing, amendment Stripe refund/recovery domains, provider-drift rejection, and source-contract checks for the reviewed direct/refund/non-Checkout webhook persistence boundary.
 
 Full repository typecheck/lint/test/build, Prisma generation/validation/migration checks, and PostgreSQL locking/idempotency/webhook concurrency validation remain mandatory before production release and must run in the repository-required Node 24 environment with an explicitly disposable PostgreSQL target. GitHub Actions are not used.
