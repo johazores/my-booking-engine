@@ -513,7 +513,24 @@ export async function applyHospitalityBookingCommercialAmendment(input: {
       ...bookingPrice,
     };
     const updatedBooking = await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: 'CONFIRMED',
+        updatedAt: amendment.bookingVersion,
+        propertyId: amendment.propertyId,
+        roomTypeId: amendment.currentRoomTypeId,
+        ratePlanId: amendment.currentRatePlanId,
+        quantity: amendment.currentQuantity,
+        paymentStatus: 'PAID',
+        currency: amendment.currency,
+        accommodationSubtotalMinor: amendment.beforeAccommodationSubtotalMinor,
+        taxTotalMinor: amendment.beforeTaxTotalMinor,
+        feeTotalMinor: amendment.beforeFeeTotalMinor,
+        addonTotalMinor: amendment.beforeAddonTotalMinor,
+        totalMinor: amendment.beforeTotalMinor,
+        pricingFingerprint: amendment.beforePricingFingerprint,
+      },
       data: {
         roomTypeId: amendment.targetRoomTypeId,
         ratePlanId: amendment.targetRatePlanId,
@@ -549,7 +566,31 @@ export async function applyHospitalityBookingCommercialAmendment(input: {
       });
     }
     const updatedAmendment = await transaction.hospitalityBookingCommercialAmendment.update({
-      where: { id: amendment.id },
+      where: {
+        id: amendment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        status: 'PREPARED',
+        bookingVersion: amendment.bookingVersion,
+        selectionFingerprint: amendment.selectionFingerprint,
+        adjustmentFingerprint: amendment.adjustmentFingerprint,
+        paymentProviderCode: amendment.paymentProviderCode,
+        direction: amendment.direction,
+        currency: amendment.currency,
+        beforeTotalMinor: amendment.beforeTotalMinor,
+        afterTotalMinor: amendment.afterTotalMinor,
+        deltaMinor: amendment.deltaMinor,
+        propertyId: amendment.propertyId,
+        currentRoomTypeId: amendment.currentRoomTypeId,
+        currentRatePlanId: amendment.currentRatePlanId,
+        currentQuantity: amendment.currentQuantity,
+        targetRoomTypeId: amendment.targetRoomTypeId,
+        targetRatePlanId: amendment.targetRatePlanId,
+        targetQuantity: amendment.targetQuantity,
+        targetHoldId: amendment.targetHoldId,
+        protectionQuantity: amendment.protectionQuantity,
+        expiresAt: amendment.expiresAt,
+      },
       data: { status: 'APPLIED', appliedAt: now, endedAt: now },
     });
 
