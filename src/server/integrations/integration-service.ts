@@ -24,6 +24,33 @@ export class IntegrationLifecycleError extends Error {
   }
 }
 
+export class IntegrationWriteConflictError extends IntegrationLifecycleError {
+  constructor() {
+    super('Integration changed concurrently. Refresh and retry the operation.');
+    this.name = 'IntegrationWriteConflictError';
+  }
+}
+
+function prismaErrorCode(error: unknown) {
+  if (!error || typeof error !== 'object' || !('code' in error) || typeof error.code !== 'string') return null;
+  return error.code;
+}
+
+function isIntegrationWriteConflict(error: unknown) {
+  const code = prismaErrorCode(error);
+  return code === 'P2002' || code === 'P2025' || code === 'P2034';
+}
+
+async function runIntegrationWrite<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof IntegrationUnavailableError || error instanceof IntegrationLifecycleError) throw error;
+    if (isIntegrationWriteConflict(error)) throw new IntegrationWriteConflictError();
+    throw error;
+  }
+}
+
 export async function saveIntegration(input: {
   organizationId: string;
   actorUserId: string;
@@ -46,13 +73,19 @@ export async function saveIntegration(input: {
   const capabilities = normalizeIntegrationCapabilities(input.capabilities);
   const encryptedCredentials = encryptIntegrationCredentials(input.credentials);
 
-  return db.$transaction(async (transaction) => {
+  return runIntegrationWrite(() => db.$transaction(async (transaction) => {
     const existing = await transaction.integration.findUnique({
       where: { organizationId_providerCode: { organizationId: input.organizationId, providerCode } },
     });
     const integration = existing
       ? await transaction.integration.update({
-          where: { id: existing.id },
+          where: {
+            id: existing.id,
+            organizationId: input.organizationId,
+            providerCode: existing.providerCode,
+            status: existing.status,
+            credentialVersion: existing.credentialVersion,
+          },
           data: {
             displayName,
             capabilities,
@@ -94,7 +127,7 @@ export async function saveIntegration(input: {
     });
 
     return publicIntegrationRecord(integration);
-  });
+  }, { isolationLevel: 'Serializable' }));
 }
 
 export async function listIntegrations(input: { organizationId: string; actorUserId: string }) {
@@ -146,7 +179,7 @@ export async function enableIntegration(input: {
     permission: 'integration:manage',
   });
 
-  return db.$transaction(async (transaction) => {
+  return runIntegrationWrite(() => db.$transaction(async (transaction) => {
     const existing = await transaction.integration.findFirst({
       where: { id: input.integrationId, organizationId: input.organizationId },
     });
@@ -156,7 +189,16 @@ export async function enableIntegration(input: {
     }
     const integration = existing.status === 'ACTIVE'
       ? existing
-      : await transaction.integration.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
+      : await transaction.integration.update({
+          where: {
+            id: existing.id,
+            organizationId: input.organizationId,
+            providerCode: existing.providerCode,
+            status: existing.status,
+            credentialVersion: existing.credentialVersion,
+          },
+          data: { status: 'ACTIVE' },
+        });
 
     if (existing.status !== 'ACTIVE') {
       await transaction.auditEvent.create({
@@ -175,7 +217,7 @@ export async function enableIntegration(input: {
       });
     }
     return publicIntegrationRecord(integration);
-  });
+  }, { isolationLevel: 'Serializable' }));
 }
 
 export async function disableIntegration(input: {
@@ -192,7 +234,7 @@ export async function disableIntegration(input: {
     permission: 'integration:manage',
   });
 
-  return db.$transaction(async (transaction) => {
+  return runIntegrationWrite(() => db.$transaction(async (transaction) => {
     const existing = await transaction.integration.findFirst({
       where: { id: input.integrationId, organizationId: input.organizationId },
     });
@@ -202,7 +244,16 @@ export async function disableIntegration(input: {
     }
     const integration = existing.status === 'DISABLED'
       ? existing
-      : await transaction.integration.update({ where: { id: existing.id }, data: { status: 'DISABLED' } });
+      : await transaction.integration.update({
+          where: {
+            id: existing.id,
+            organizationId: input.organizationId,
+            providerCode: existing.providerCode,
+            status: existing.status,
+            credentialVersion: existing.credentialVersion,
+          },
+          data: { status: 'DISABLED' },
+        });
 
     if (existing.status !== 'DISABLED') {
       await transaction.auditEvent.create({
@@ -221,7 +272,7 @@ export async function disableIntegration(input: {
       });
     }
     return publicIntegrationRecord(integration);
-  });
+  }, { isolationLevel: 'Serializable' }));
 }
 
 export async function archiveIntegration(input: {
@@ -238,7 +289,7 @@ export async function archiveIntegration(input: {
     permission: 'integration:manage',
   });
 
-  return db.$transaction(async (transaction) => {
+  return runIntegrationWrite(() => db.$transaction(async (transaction) => {
     const existing = await transaction.integration.findFirst({
       where: { id: input.integrationId, organizationId: input.organizationId },
     });
@@ -249,7 +300,13 @@ export async function archiveIntegration(input: {
     }
 
     const integration = await transaction.integration.update({
-      where: { id: existing.id },
+      where: {
+        id: existing.id,
+        organizationId: input.organizationId,
+        providerCode: existing.providerCode,
+        status: existing.status,
+        credentialVersion: existing.credentialVersion,
+      },
       data: {
         status: 'ARCHIVED',
         encryptedCredentials: null,
@@ -277,7 +334,7 @@ export async function archiveIntegration(input: {
       },
     });
     return publicIntegrationRecord(integration);
-  });
+  }, { isolationLevel: 'Serializable' }));
 }
 
 export async function loadActiveIntegrationCredentials(input: {
