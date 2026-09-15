@@ -184,6 +184,7 @@ async function finalizeCharge(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
   payload: string;
+  payloadHash: string;
   event: StripeWebhookEvent;
   verifiedWebhookEventId: string;
 }) {
@@ -290,7 +291,21 @@ async function finalizeCharge(input: {
   }
 
   await input.transaction.paymentTransaction.update({
-    where: { id: payment.id },
+    where: {
+      id: payment.id,
+      organizationId: input.organizationId,
+      bookingId: selected.bookingId,
+      commercialAmendmentId: selected.commercialAmendmentId,
+      idempotencyKey: payment.idempotencyKey,
+      requestFingerprint: payment.requestFingerprint,
+      providerCode: STRIPE_PROVIDER_CODE,
+      kind: payment.kind,
+      status: 'AMBIGUOUS',
+      providerReference: intent.providerReference,
+      sourceProviderReference: null,
+      currency: payment.currency,
+      amountMinor: payment.amountMinor,
+    },
     data: { status: reconciliation.transactionStatus },
   });
   if (payment.kind === 'AUTHORIZATION' && reconciliation.directlySettled) {
@@ -305,7 +320,14 @@ async function finalizeCharge(input: {
     });
   }
   await input.transaction.paymentWebhookEvent.update({
-    where: { id: input.verifiedWebhookEventId },
+    where: {
+      id: input.verifiedWebhookEventId,
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerEventId: input.event.providerEventId,
+      eventType: input.event.eventType,
+      payloadHash: input.payloadHash,
+    },
     data: {
       bookingId: selected.bookingId,
       providerReference: intent.providerReference,
@@ -322,6 +344,7 @@ async function finalizeCharge(input: {
 async function finalizeRefund(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
+  payloadHash: string;
   event: StripeWebhookEvent;
   verifiedWebhookEventId: string;
 }) {
@@ -424,11 +447,32 @@ async function finalizeRefund(input: {
   if (duplicateReference) throw new PaymentConflictError('Stripe refund reference is already recorded by another payment transaction.');
 
   await input.transaction.paymentTransaction.update({
-    where: { id: refund.id },
+    where: {
+      id: refund.id,
+      organizationId: input.organizationId,
+      bookingId: selected.bookingId,
+      commercialAmendmentId: selected.commercialAmendmentId,
+      idempotencyKey: refund.idempotencyKey,
+      requestFingerprint: expectedFingerprint,
+      providerCode: STRIPE_PROVIDER_CODE,
+      kind: 'REFUND',
+      status: 'AMBIGUOUS',
+      providerReference: providerRefund.refundReference,
+      sourceProviderReference: refund.sourceProviderReference,
+      currency: refund.currency,
+      amountMinor: refund.amountMinor,
+    },
     data: { status: reconciledStatus },
   });
   await input.transaction.paymentWebhookEvent.update({
-    where: { id: input.verifiedWebhookEventId },
+    where: {
+      id: input.verifiedWebhookEventId,
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerEventId: input.event.providerEventId,
+      eventType: input.event.eventType,
+      payloadHash: input.payloadHash,
+    },
     data: {
       bookingId: selected.bookingId,
       providerReference: providerRefund.refundReference,
@@ -487,12 +531,14 @@ export async function finalizeVerifiedStripeCommercialAmendmentWebhook(input: {
             transaction,
             organizationId: input.organizationId,
             payload: input.payload,
+            payloadHash,
             event,
             verifiedWebhookEventId: verifiedEvent.id,
           })
         : await finalizeRefund({
             transaction,
             organizationId: input.organizationId,
+            payloadHash,
             event,
             verifiedWebhookEventId: verifiedEvent.id,
           });
