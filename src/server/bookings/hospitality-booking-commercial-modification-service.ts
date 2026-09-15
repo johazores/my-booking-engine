@@ -164,6 +164,21 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
       throw new HospitalityBookingConflictError('Only confirmed bookings with an active allocation can be commercially modified.');
     }
 
+    const allocation = booking.allocation;
+    if (
+      allocation.organizationId !== input.organizationId
+      || allocation.bookingId !== booking.id
+      || allocation.propertyId !== booking.propertyId
+      || allocation.roomTypeId !== booking.roomTypeId
+      || allocation.quantity !== booking.quantity
+      || allocation.arrivalDate.getTime() !== booking.arrivalDate.getTime()
+      || allocation.departureDate.getTime() !== booking.departureDate.getTime()
+    ) {
+      throw new HospitalityBookingConflictError(
+        'Booking allocation no longer matches the confirmed booking snapshot. Refresh before changing commercial terms.',
+      );
+    }
+
     const priorAttempt = await transaction.auditEvent.findFirst({
       where: {
         organizationId: input.organizationId,
@@ -357,7 +372,26 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
     };
 
     const updated = await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: 'CONFIRMED',
+        updatedAt: booking.updatedAt,
+        propertyId: booking.propertyId,
+        roomTypeId: booking.roomTypeId,
+        ratePlanId: booking.ratePlanId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: booking.quantity,
+        paymentStatus: booking.paymentStatus,
+        currency: booking.currency,
+        accommodationSubtotalMinor: booking.accommodationSubtotalMinor,
+        taxTotalMinor: booking.taxTotalMinor,
+        feeTotalMinor: booking.feeTotalMinor,
+        addonTotalMinor: booking.addonTotalMinor,
+        totalMinor: booking.totalMinor,
+        pricingFingerprint: booking.pricingFingerprint,
+      },
       data: {
         roomTypeId: change.roomTypeId,
         ratePlanId: change.ratePlanId,
@@ -367,7 +401,14 @@ export async function modifyHospitalityBookingCommercialTerms(input: {
       },
     });
     await transaction.hospitalityBookingAllocation.update({
-      where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
+      where: {
+        organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id },
+        propertyId: booking.propertyId,
+        roomTypeId: booking.roomTypeId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: booking.quantity,
+      },
       data: { roomTypeId: change.roomTypeId, quantity: change.quantity },
     });
     await persistHospitalityBookingPricingEvidence({
