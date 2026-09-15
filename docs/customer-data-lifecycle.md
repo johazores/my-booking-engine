@@ -2,14 +2,14 @@
 
 ## Scope
 
-SF now provides a narrow, irreversible de-identification workflow for the mutable customer profile only. It is deliberately fail-closed and does not claim to be a universal privacy-erasure workflow.
+SF provides a narrow, irreversible de-identification workflow for the mutable customer profile only. It is deliberately fail-closed and does not claim to be a universal privacy-erasure workflow.
 
 The current product action is available only when all of the following are true:
 
 - the operator is authenticated in the active organization and has `customer:manage`;
 - the customer belongs to that organization and is already `ARCHIVED`;
 - the operator explicitly types `DEIDENTIFY`; and
-- the customer has **zero hospitality booking references** in that organization.
+- the customer has **zero hospitality and rental booking references** in that organization.
 
 When those conditions hold, one serializable transaction replaces the mutable customer name with the generic `De-identified Customer` label, clears email, phone, and internal notes, and writes a tenant-scoped `customer.deidentified` audit event. The audit records only lifecycle state and the names of fields cleared; it does not copy the removed values.
 
@@ -17,9 +17,11 @@ The operation is intentionally not exposed for active customers and does not inf
 
 ## Why booking-linked customers are blocked
 
-A customer referenced by a booking can also have immutable or operational evidence containing personal information. The current de-identification workflow therefore blocks on **any** hospitality booking reference rather than presenting a misleading partial-erasure action.
+A customer referenced by a durable booking can also have immutable or operational evidence containing personal information. The current de-identification workflow therefore blocks on **any supported hospitality or rental booking reference** rather than presenting a misleading partial-erasure action.
 
-This workflow does not mutate or delete booking guest snapshots, payment records, provider records, public booking capability state, tax-invoice/adjustment-note recipient snapshots, or other immutable legal/accounting evidence. Those records require their own reviewed retention and disposal authority.
+Hospitality bookings can retain guest, payment, provider, public-booking, invoice, and adjustment evidence. Rental bookings retain an immutable customer name/contact snapshot together with commercial pricing and inventory-allocation evidence. Clearing only the mutable customer profile while either booking domain still references the customer would therefore misrepresent the actual retention state.
+
+This workflow does not mutate or delete booking snapshots, booking guest snapshots, payment records, provider records, public booking capability state, tax-invoice/adjustment-note recipient snapshots, or other immutable legal/accounting evidence. Those records require their own reviewed retention and disposal authority.
 
 ## Legal and privacy boundary
 
@@ -38,12 +40,12 @@ This product boundary is an engineering control, not legal advice. Tenants remai
 
 The customer detail page clearly distinguishes archival from profile de-identification. A successful operation leaves a non-identifying customer stub so historical internal audit references remain resolvable, but the mutable customer directory no longer contains the prior direct profile identifiers.
 
-For an archived profile that has not already been de-identified, the tenant-scoped customer detail read derives a best-effort eligibility state from the current booking references. The destructive form is shown only when that read finds no hospitality booking reference. If a booking reference exists, SF renders an explicit unavailable state instead of presenting an action that is guaranteed to fail.
+For an archived profile that has not already been de-identified, the tenant-scoped customer detail read derives a best-effort eligibility state from current hospitality and rental booking references. The destructive form is shown only when that read finds no supported booking reference. If a booking reference exists, SF renders an explicit unavailable state instead of presenting an action that is guaranteed to fail.
 
-This read-time eligibility is **not write-time authority**. The de-identification mutation independently re-checks the tenant-owned archived customer, prior de-identification evidence, and current booking-reference count inside its serializable transaction before clearing any field. A booking created after the page was rendered therefore still blocks the mutation safely.
+This read-time eligibility is **not write-time authority**. The de-identification mutation independently re-checks the tenant-owned archived customer, prior de-identification evidence, and both supported booking-reference sets inside its serializable transaction before clearing any field. A hospitality or rental booking created after the page was rendered therefore still blocks the mutation safely.
 
 Request correlation uses the existing `customer.deidentify` operation. Structured request logs include the tenant organization only after active-organization authority succeeds and do not include the customer ID, form body, confirmation phrase, removed identifiers, or request URL.
 
 ## Remaining lifecycle work
 
-Broader customer-data disposal remains open for booking-linked customers and for copies held in booking guest snapshots, public capability/principal records, provider systems, payment records, backups, exports, and legally retained documents. That work needs a separately reviewed retention matrix, provider-specific adapter behavior where applicable, legal-document constraints, and live PostgreSQL verification before SF can claim a complete customer-erasure lifecycle.
+Broader customer-data disposal remains open for booking-linked customers and for copies held in booking/customer snapshots, guest snapshots, public capability/principal records, provider systems, payment records, backups, exports, and legally retained documents. As additional booking domains become durable, their customer references must be added to this fail-closed eligibility boundary before those domains can be considered production-complete. That work needs a separately reviewed retention matrix, provider-specific adapter behavior where applicable, legal-document constraints, and live PostgreSQL verification before SF can claim a complete customer-erasure lifecycle.
