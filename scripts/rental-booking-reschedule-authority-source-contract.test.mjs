@@ -4,7 +4,6 @@ import test from 'node:test';
 
 const domain = readFileSync('src/server/bookings/rental-booking-reschedule-domain.ts', 'utf8');
 const service = readFileSync('src/server/bookings/rental-booking-reschedule-authority-service.ts', 'utf8');
-const bookingMigration = readFileSync('prisma/migrations/20260915123000_rental_booking_foundation/migration.sql', 'utf8');
 const docs = readFileSync('docs/rental-booking-reschedule-authority.md', 'utf8');
 const page = readFileSync('app/inventory/rentals/bookings/[booking-id]/reschedule/page.tsx', 'utf8');
 const detailPage = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
@@ -19,8 +18,8 @@ test('rental reschedule review is tenant-scoped and permission-checked', () => {
     'organizationId: input.organizationId',
     "status: 'CONFIRMED'",
     'cancelledAt: null',
-    'include: {',
     'allocation: true',
+    'rentalBookingReschedule.findFirst',
   ]) assert.ok(service.includes(token), `missing reschedule review authority token: ${token}`);
   assert.match(service, /isolationLevel: 'Serializable'/);
   assert.match(service, /SELECT clock_timestamp\(\) AS "now"/);
@@ -42,38 +41,42 @@ test('review excludes only the source allocation and revalidates target inventor
   ]) assert.ok(service.includes(token), `missing reschedule inventory/pricing token: ${token}`);
 });
 
-test('reschedule authority fingerprint binds source version and target commercial evidence', () => {
+test('reschedule authority fingerprint binds current effective source version and target commercial evidence', () => {
   for (const token of [
     'bookingUpdatedAt',
+    'sourceStartsOn',
+    'sourceEndsOn',
     'sourcePricingFingerprint',
     'targetPricingFingerprint',
-    'startsOn',
-    'endsOn',
+    'targetStartsOn',
+    'targetEndsOn',
     'totalMinor',
     "createHash('sha256')",
+    'version: 2',
   ]) assert.ok(domain.includes(token), `missing reschedule fingerprint token: ${token}`);
   assert.match(service, /bookingUpdatedAt: booking\.updatedAt/);
-  assert.match(service, /sourcePricingFingerprint: booking\.pricingFingerprint/);
+  assert.match(service, /sourcePricingFingerprint/);
   assert.match(service, /targetPricingFingerprint: targetPricing\.fingerprint/);
+  assert.match(service, /latestReschedule\?\.targetStartsOn \?\? booking\.startsOn/);
 });
 
-test('authority review stays read-only while immutable booking evidence remains protected', () => {
+test('authority review itself stays read-only while durable apply is a separate server boundary', () => {
   assert.doesNotMatch(service, /rentalBooking\.(?:create|update|updateMany|delete|deleteMany)\(/);
   assert.doesNotMatch(service, /rentalBookingAllocation\.(?:create|update|updateMany|delete|deleteMany)\(/);
   assert.doesNotMatch(service, /rentalAvailabilityHold\.(?:create|update|updateMany|delete|deleteMany)\(/);
-  assert.match(bookingMigration, /sf_guard_rental_booking_immutable_evidence/);
-  assert.match(docs, /does not mutate/i);
-  assert.match(docs, /same physical unit/i);
+  assert.match(docs, /review itself reserves nothing/i);
+  assert.match(docs, /same-unit/i);
   assert.match(docs, /price-neutral/i);
 });
 
-test('staff UI exposes an explicit read-only reschedule preflight without a dead mutation action', () => {
-  assert.match(detailPage, /Reschedule preflight/);
+test('staff UI exposes review plus an apply action only when fresh authority and write permission are present', () => {
+  assert.match(detailPage, /Reschedule rental/);
   assert.match(detailPage, /\/reschedule/);
   assert.match(page, /reviewRentalBookingRescheduleAuthority/);
   assert.match(page, /method="get"/);
   assert.match(page, /Review target dates/);
-  assert.match(page, /does not reserve new inventory and does not mutate/i);
-  assert.doesNotMatch(page, /method="post"/);
-  assert.doesNotMatch(page, /Apply reschedule|Confirm reschedule|Save reschedule/i);
+  assert.match(page, /canApply = canReview && hasPermission\('availability:manage'\)/);
+  assert.match(page, /method="post"/);
+  assert.match(page, /Apply reschedule/);
+  assert.match(page, /authorityFingerprint/);
 });

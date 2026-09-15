@@ -84,15 +84,25 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       },
     });
     if (!booking) throw new RentalBookingRescheduleUnavailableError();
+
+    const latestReschedule = await transaction.rentalBookingReschedule.findFirst({
+      where: { organizationId: input.organizationId, bookingId: booking.id },
+      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+    const sourceEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+    const sourcePricingFingerprint =
+      latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+
     if (
       !booking.allocation
       || booking.allocation.organizationId !== input.organizationId
       || booking.allocation.bookingId !== booking.id
       || booking.allocation.unitId !== booking.unitId
-      || booking.allocation.startsOn.getTime() !== booking.startsOn.getTime()
-      || booking.allocation.endsOn.getTime() !== booking.endsOn.getTime()
+      || booking.allocation.startsOn.getTime() !== sourceStartsOn.getTime()
+      || booking.allocation.endsOn.getTime() !== sourceEndsOn.getTime()
     ) {
-      throw new RentalAvailabilityIntegrityError('Rental reschedule review requires the exact retained physical-unit allocation.');
+      throw new RentalAvailabilityIntegrityError('Rental reschedule review requires the exact effective physical-unit allocation.');
     }
     if (
       booking.unit.status !== 'ACTIVE'
@@ -168,8 +178,8 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
 
     let blocker: RentalBookingRescheduleBlocker | null = null;
     if (
-      target.startsOn.getTime() === booking.startsOn.getTime()
-      && target.endsOn.getTime() === booking.endsOn.getTime()
+      target.startsOn.getTime() === sourceStartsOn.getTime()
+      && target.endsOn.getTime() === sourceEndsOn.getTime()
     ) {
       blocker = 'NO_CHANGE';
     } else if (blockOverlap || competingHold || bookingOverlap) {
@@ -189,11 +199,13 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
           unitId: booking.unitId,
           unitTypeId: booking.unitTypeId,
           locationId: booking.locationId,
-          startsOn: target.startsOn,
-          endsOn: target.endsOn,
+          sourceStartsOn,
+          sourceEndsOn,
+          targetStartsOn: target.startsOn,
+          targetEndsOn: target.endsOn,
           currency: targetPricing.currency,
           totalMinor: BigInt(targetPricing.totalMinor),
-          sourcePricingFingerprint: booking.pricingFingerprint,
+          sourcePricingFingerprint,
           targetPricingFingerprint: targetPricing.fingerprint,
         })
       : null;
@@ -206,11 +218,14 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       booking: Object.freeze({
         id: booking.id,
         unitId: booking.unitId,
-        startsOn: booking.startsOn,
-        endsOn: booking.endsOn,
+        startsOn: sourceStartsOn,
+        endsOn: sourceEndsOn,
+        originalStartsOn: booking.startsOn,
+        originalEndsOn: booking.endsOn,
         currency: booking.currency,
         totalMinor: booking.totalMinor,
-        pricingFingerprint: booking.pricingFingerprint,
+        pricingFingerprint: sourcePricingFingerprint,
+        originalPricingFingerprint: booking.pricingFingerprint,
         updatedAt: booking.updatedAt,
       }),
       target: Object.freeze({ startsOn: target.startsOn, endsOn: target.endsOn, days: target.days }),

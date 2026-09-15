@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 
 export class RentalBookingCancellationConflictError extends Error {
   constructor(message: string) {
@@ -16,10 +17,6 @@ export class RentalBookingCancellationUnavailableError extends Error {
     super('Rental booking is not available in this organization.');
     this.name = 'RentalBookingCancellationUnavailableError';
   }
-}
-
-function rentalBookingCancellationLockKey(organizationId: string, bookingId: string) {
-  return `sf:rental-booking:${organizationId}:booking:${bookingId}`;
 }
 
 function prismaErrorCode(error: unknown) {
@@ -65,7 +62,7 @@ export async function cancelRentalBooking(input: Readonly<{
   return runRentalBookingCancellation(() => db.$transaction(async (transaction) => {
     await transaction.$queryRaw`
       SELECT pg_advisory_xact_lock(
-        hashtextextended(${rentalBookingCancellationLockKey(input.organizationId, input.bookingId)}, 0)
+        hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0)
       )
     `;
 
@@ -88,20 +85,28 @@ export async function cancelRentalBooking(input: Readonly<{
       throw new RentalAvailabilityIntegrityError('Database clock is unavailable for rental booking cancellation.');
     }
 
-    const booking = await transaction.rentalBooking.findFirst({
-      where: { id: input.bookingId, organizationId: input.organizationId, unitId: locator.unitId },
-      include: { allocation: true },
-    });
+    const [booking, latestReschedule] = await Promise.all([
+      transaction.rentalBooking.findFirst({
+        where: { id: input.bookingId, organizationId: input.organizationId, unitId: locator.unitId },
+        include: { allocation: true },
+      }),
+      transaction.rentalBookingReschedule.findFirst({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
     if (!booking) throw new RentalBookingCancellationUnavailableError();
+    const effectiveStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+    const effectiveEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     if (
       !booking.allocation
       || booking.allocation.organizationId !== input.organizationId
       || booking.allocation.bookingId !== booking.id
       || booking.allocation.unitId !== booking.unitId
-      || booking.allocation.startsOn.getTime() !== booking.startsOn.getTime()
-      || booking.allocation.endsOn.getTime() !== booking.endsOn.getTime()
+      || booking.allocation.startsOn.getTime() !== effectiveStartsOn.getTime()
+      || booking.allocation.endsOn.getTime() !== effectiveEndsOn.getTime()
     ) {
-      throw new RentalAvailabilityIntegrityError('Rental booking cancellation requires its exact physical-unit allocation.');
+      throw new RentalAvailabilityIntegrityError('Rental booking cancellation requires its exact effective physical-unit allocation.');
     }
 
     if (booking.status === 'CANCELLED') {
@@ -167,9 +172,10 @@ export async function cancelRentalBooking(input: Readonly<{
         beforeData: {
           status: booking.status,
           unitId: booking.unitId,
-          startsOn: booking.startsOn.toISOString(),
-          endsOn: booking.endsOn.toISOString(),
+          startsOn: effectiveStartsOn.toISOString(),
+          endsOn: effectiveEndsOn.toISOString(),
           allocationId: booking.allocation.id,
+          latestRescheduleId: latestReschedule?.id ?? null,
         },
         afterData: {
           status: current.status,

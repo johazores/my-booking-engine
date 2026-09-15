@@ -73,12 +73,18 @@ export async function getRentalBooking(input: Readonly<{
     permission: 'booking:read',
   });
 
-  const booking = await db.rentalBooking.findFirst({
-    where: { id: input.bookingId, organizationId: input.organizationId },
-    include: rentalBookingDetailInclude,
-  });
+  const [booking, reschedules] = await Promise.all([
+    db.rentalBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      include: rentalBookingDetailInclude,
+    }),
+    db.rentalBookingReschedule.findMany({
+      where: { bookingId: input.bookingId, organizationId: input.organizationId },
+      orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    }),
+  ]);
   if (!booking) throw new RentalBookingUnavailableError();
-  return booking;
+  return Object.freeze({ ...booking, reschedules });
 }
 
 export async function listRentalBookings(input: Readonly<{

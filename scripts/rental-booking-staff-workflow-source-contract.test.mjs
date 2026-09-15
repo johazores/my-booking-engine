@@ -6,6 +6,7 @@ const readService = readFileSync('src/server/bookings/rental-booking-read-servic
 const holdDetail = readFileSync('app/inventory/rentals/holds/[hold-id]/page.tsx', 'utf8');
 const confirmRoute = readFileSync('app/api/inventory/rentals/holds/[hold-id]/confirm/route.ts', 'utf8');
 const cancelRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
+const rescheduleRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/reschedule/route.ts', 'utf8');
 const bookingList = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const bookingDetail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
 const documentation = readFileSync('docs/rental-booking-staff-workflow.md', 'utf8');
@@ -17,6 +18,7 @@ test('rental booking read model requires booking read permission and repeats ten
   assert.match(readService, /permission: 'booking:read'/);
   assert.match(readService, /where: \{ id: input\.bookingId, organizationId: input\.organizationId \}/);
   assert.match(readService, /const where: Prisma\.RentalBookingWhereInput = \{ organizationId: input\.organizationId \}/);
+  assert.match(readService, /rentalBookingReschedule\.findMany/);
   assert.match(readService, /Math\.min\(pageSize, 100\)/);
   assert.match(readService, /status\?: RentalBookingListStatus/);
   assert.match(integration, /bookingReads\.getRentalBooking/);
@@ -44,18 +46,18 @@ test('confirmation route derives tenant, actor, and idempotency authority server
   assert.doesNotMatch(confirmRoute, /formField\(formData, 'idempotencyKey'\)/);
 });
 
-test('staff booking list/detail and cancellation stay inside supported lifecycle authority', () => {
+test('staff booking list detail cancellation and reschedule stay inside supported lifecycle authority', () => {
   assert.match(bookingList, /listRentalBookings/);
-  assert.match(bookingList, /parseInventoryPageSize/);
-  assert.match(bookingList, /Review active holds/);
+  assert.match(bookingList, /booking\.allocation\.startsOn/);
   assert.match(bookingDetail, /getRentalBooking/);
   assert.match(bookingDetail, /missing its physical-unit allocation/);
   assert.match(bookingDetail, /Cancel rental booking/);
   assert.match(cancelRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.cancel'\)/);
-  assert.match(bookingDetail, /read-only price-neutral date-reschedule preflight/i);
-  assert.match(bookingDetail, /Reschedule preflight/);
-  assert.match(bookingDetail, /\/reschedule/);
-  for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Reschedule rental', 'Complete pickup', 'Complete return']) {
+  assert.match(bookingDetail, /Reschedule rental/);
+  assert.match(bookingDetail, /Append-only history/);
+  assert.match(rescheduleRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.reschedule'\)/);
+  assert.match(rescheduleRoute, /buildRentalBookingRescheduleIdempotencyKey/);
+  for (const unsupportedAction of ['Collect payment', 'Take deposit', 'Change unit', 'Complete pickup', 'Complete return']) {
     assert.doesNotMatch(`${bookingList}\n${bookingDetail}`, new RegExp(unsupportedAction, 'i'));
   }
 });
@@ -63,14 +65,14 @@ test('staff booking list/detail and cancellation stay inside supported lifecycle
 test('documentation preserves the production boundary and forbids fake downstream workflow claims', () => {
   assert.match(documentation, /authenticated server context/);
   assert.match(documentation, /caps page size at 100/);
-  assert.match(documentation, /Cancellation releases SF-owned inventory only/);
+  assert.match(documentation, /same-unit price-neutral date reschedules/);
+  assert.match(documentation, /Cancellation is an inventory-release lifecycle mutation/);
   assert.match(documentation, /payment collection/);
-  assert.match(documentation, /booking amendment or rescheduling/);
+  assert.match(documentation, /price-changing reschedules\/amendments/);
   assert.match(documentation, /GitHub Actions are not required or used/);
   assert.match(foundation, /Staff booking interaction/);
   assert.match(foundation, /Cancellation lifecycle/);
   assert.match(foundation, /rental-booking-staff-workflow\.md/);
   assert.match(inventoryDoc, /staff conversion interaction/);
   assert.match(inventoryDoc, /rental booking list\/detail\/cancellation surfaces/);
-  assert.match(inventoryDoc, /staff-facing rental amendments or rescheduling/);
 });

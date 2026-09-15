@@ -1,75 +1,69 @@
 # Rental booking staff workflow
 
-SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, and cancel a confirmed booking to release its physical inventory. The workflow still does not invent payment, deposit, amendment/rescheduling, pickup, delivery, return, or fulfillment semantics.
+SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, and cancel a confirmed booking to release its physical inventory.
+
+The workflow does not invent payment, deposit, unit-substitution, price-changing amendment, pickup, delivery, return, or fulfillment semantics.
 
 ## Routes
 
-- `/inventory/rentals/holds/[hold-id]` remains the staff review surface for one rental hold. When the actor has the required permissions and the hold is still effective, the page provides bounded active-customer search, runs the server-side conversion authority review for the selected customer, and only renders the confirm action when the review is ready.
-- `POST /api/inventory/rentals/holds/[hold-id]/confirm` is the staff confirmation boundary. It derives the active organization and actor from the authenticated server context, derives the tenant-local idempotency key from the hold and selected customer, and passes only the route hold, selected customer, and authority fingerprint into `confirmRentalBookingFromHold`.
-- `/inventory/rentals/bookings` is a tenant-scoped, paginated staff read model with lifecycle filtering.
-- `/inventory/rentals/bookings/[booking-id]` renders retained customer snapshot, physical allocation, lifecycle, exact money, pricing fingerprint, conversion-authority fingerprint, source references, and cancellation evidence when present.
-- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` is the staff cancellation boundary. It derives the active tenant and actor from server authentication and calls `cancelRentalBooking`; the browser cannot submit tenant, actor, unit, dates, price, or cancellation time as authority.
+- `/inventory/rentals/holds/[hold-id]` reviews one effective rental hold against an active tenant customer.
+- `POST /api/inventory/rentals/holds/[hold-id]/confirm` derives tenant, actor, and confirmation idempotency authority from authenticated server context before calling `confirmRentalBookingFromHold`.
+- `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering and current effective allocation dates.
+- `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, current effective allocation, append-only reschedule history, and cancellation evidence.
+- `/inventory/rentals/bookings/[booking-id]/reschedule` reviews target dates and only renders Apply when fresh authority is ready and the actor can manage availability.
+- `POST /api/inventory/rentals/bookings/[booking-id]/reschedule` derives tenant, actor, and idempotency authority server-side and calls the durable reschedule writer.
+- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer.
 
-All routes remain inside the authenticated SF application shell. No customer/public rental booking route is introduced by this workflow.
+All routes remain inside the authenticated SF application shell. No public/customer rental booking or modification route is introduced.
 
 ## Authorization and tenant scope
 
-The list and detail services validate the organization, actor, and booking identifiers and require `booking:read` before any rental booking query. Every booking count, list, and detail lookup repeats the authenticated `organizationId`; a booking ID alone never grants access.
+Rental booking list/detail reads require `booking:read`; every booking query repeats the authenticated `organizationId`.
 
-The hold conversion page only offers the review workflow when the actor has `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read`. The final confirmation additionally requires `availability:manage`, matching the writer that consumes the hold. These UI checks are usability only: the authority review and confirmation writer independently enforce permissions and tenant scope server-side.
+Hold conversion review requires `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read`; confirmation additionally requires `availability:manage`.
 
-Cancellation requires both `booking:manage` and `availability:manage`. The action is offered only for a confirmed booking with its retained allocation, but `cancelRentalBooking` independently repeats those permissions, tenant scope, lifecycle, and allocation checks inside its serializable transaction.
+Reschedule review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`. Apply additionally requires `availability:manage`. These UI checks are usability only: both review and write services independently enforce server-side permissions and tenant ownership.
 
-Customer selection uses the existing tenant-scoped customer service with `ACTIVE` status and a maximum of 25 results per review page. When more customers match, staff are instructed to refine the search rather than receiving an unbounded collection.
+Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking and current effective allocation inside its serializable transaction.
 
 ## Confirmation authority
 
-A browser-visible review is never write authority. The selected customer causes the server to run `reviewRentalBookingConversionAuthority`, which rechecks tenant ownership, hold effectiveness using PostgreSQL time, unit/type/location lifecycle, booked or blocked inventory, current pricing, and immutable hold pricing evidence. Only a ready review receives an authority fingerprint.
+The browser-visible conversion review is never write authority. Confirmation reacquires the idempotency and physical-unit locks, uses PostgreSQL time, revalidates active tenant customer/hold/unit/location state, checks inventory and current pricing, compares the conversion fingerprint, consumes the hold, creates the durable booking/allocation, and writes an audit event atomically.
 
-The confirmation POST route does not accept an organization ID, actor ID, amount, currency, unit, dates, pricing snapshot, or idempotency key from the browser. The route derives organization and actor identity from the authenticated context and derives `rental:<hold-id>:<customer-id>` as the stable tenant-local confirmation idempotency key. The service then reacquires serialization locks and revalidates all commercial evidence before consuming the hold and atomically creating the booking, allocation, and audit event.
+## Reschedule authority
 
-A successful retry that exactly matches the already-created booking redirects to the same durable booking. Conflicts, stale authority, inactive customer/hold state, permission denial, and invalid input are rejected and return staff to the hold review rather than pretending confirmation succeeded.
+Rental rescheduling is intentionally narrow: the physical unit, unit type, and location do not change; the accepted currency and aggregate amount do not change; original booking-time commercial evidence stays immutable; and current target inventory and pricing are rebuilt at review and again under write locks.
+
+The review returns a versioned authority fingerprint binding the current booking version, effective source dates, target dates, physical assignment, exact money, source pricing fingerprint, and target pricing fingerprint.
+
+The POST route accepts only target dates plus that reviewed fingerprint. Tenant and actor come from authenticated server context. The route derives a stable idempotency key from booking plus authority; it never trusts browser-supplied organization, actor, unit, money, pricing snapshot, or idempotency authority.
+
+Successful apply inserts append-only reschedule evidence, moves only the effective physical allocation dates, advances the booking version, and writes an audit event. Database guards require the live allocation to match the latest reschedule target and continue rejecting unavailable blocks, active holds, or other live bookings.
+
+See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
 
 ## Cancellation authority
 
-Cancellation is a booking lifecycle and inventory-release mutation, not a financial action. The route is same-origin/authenticated and submits no mutable commercial fields. The service acquires tenant/booking and tenant/unit advisory locks, re-reads the exact tenant booking/allocation, uses PostgreSQL time, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED`.
+Cancellation is an inventory-release lifecycle mutation, not a financial action. It uses the same tenant/booking lock namespace as rescheduling plus the shared physical-unit lock, validates the current effective allocation, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED`.
 
-The allocation row remains retained. Existing rental inventory queries and database guards already ignore allocations whose parent booking is cancelled, so the physical unit/date range becomes eligible for new availability, holds, and blocks after the cancellation commits. A database lifecycle trigger uses the same unit lock and rejects reopening a cancelled booking.
-
-A repeated cancellation is idempotent and returns the already-cancelled booking without writing a duplicate audit transition. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
+The allocation and all reschedule rows remain retained as historical evidence. Existing rental inventory queries ignore allocations whose parent booking is cancelled, so the effective physical unit/date range is released only after cancellation commits. Repeated cancellation is idempotent.
 
 ## Read model
 
-`listRentalBookings` requires `booking:read`, enforces tenant scope, caps page size at 100, and supports `ALL`, `CONFIRMED`, and `CANCELLED` lifecycle filters. The list renders the immutable customer booking snapshot rather than depending on the mutable customer profile for historical identity.
+`listRentalBookings` requires `booking:read`, enforces tenant scope, caps page size at 100, and supports `ALL`, `CONFIRMED`, and `CANCELLED` lifecycle filters. Staff see current effective allocation dates rather than stale booking-time dates after a reschedule.
 
-`getRentalBooking` requires `booking:read` and resolves one booking only by the authenticated tenant plus booking ID. The detail includes the retained customer relation, source hold, physical unit, unit type, operating location, and exact allocation. A missing allocation is surfaced as an integrity incident rather than silently hidden and blocks the cancellation action.
-
-The staff detail explicitly states that `CONFIRMED` means physical inventory is durably committed under the reviewed price. It does not imply money was collected, a deposit was authorized, or fulfillment occurred. A `CANCELLED` booking shows its cancellation timestamp and retained allocation as historical evidence.
-
-## UX states
-
-The staff workflow includes permission-restricted reads/actions, inactive/expired hold state, bounded customer search, conversion blockers, stale/unavailable customer or hold errors, confirmation conflict/validation/server feedback, idempotent confirmation feedback, empty/filterable/paginated booking history, retained-allocation integrity feedback, explicit cancellation confirmation, cancellation permission/conflict/unavailable/server errors, cancellation success, and idempotent already-cancelled feedback.
-
-All styling reuses the existing native CSS/design-token surfaces. No UI framework or new generated styling system is introduced.
+`getRentalBooking` resolves one tenant booking and its append-only reschedule history. The detail distinguishes immutable booking-time dates/customer/commercial snapshot, current effective allocation, applied reschedule history, and terminal cancellation evidence. A missing allocation remains an integrity incident.
 
 ## Deliberate boundaries
 
-This workflow does not implement or imply:
+This workflow does not implement or imply rental payment collection/payment status, deposits/card authorization, physical-unit substitution/location change, price-changing reschedules/amendments, cancellation financial side effects, pickup/delivery/return/inspection/damage lifecycle, public self-service, notifications, or external synchronization.
 
-- payment collection or payment status for rental bookings
-- deposits or card authorization
-- tax/fee/discount calculation beyond the existing daily-rate rental price evidence
-- booking amendment or rescheduling
-- cancellation fees, penalties, refunds, credits, or payment-provider side effects
-- customer pickup/drop-off selection, one-way returns, delivery, or transfer pricing
-- pickup, check-out, return, inspection, damage, or fulfillment lifecycle
-- public/customer self-service rental booking
-- notifications or external rental provider synchronization
-
-Cancellation releases SF-owned inventory only. The remaining features require separate commercial state machines and acceptance criteria, so the staff detail intentionally has no dead primary actions for them.
+The remaining features require separate commercial state machines and acceptance criteria. No dead primary action is exposed for them.
 
 ## Validation
 
-`scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects the tenant-scoped read boundary, bounded customer search, server-derived organization/actor/idempotency authority, conversion review wiring, staff list/detail routes, and explicit no-fake-payment/fulfillment boundary. `scripts/rental-booking-cancellation-source-contract.test.mjs` covers the new cancellation route/action plus its terminal lifecycle and inventory-release authority.
+`scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects tenant-scoped reads, server-derived confirmation authority, staff list/detail routes, cancellation wiring, durable reschedule wiring, and the explicit no-fake-payment/fulfillment boundary.
+
+`scripts/rental-booking-reschedule-source-contract.test.mjs` protects the reschedule persistence and write boundary.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

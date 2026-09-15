@@ -1,0 +1,23 @@
+model RentalBookingReschedule {
+  id                       String   @id @default(uuid()) @db.Uuid
+  organizationId           String   @db.Uuid
+  bookingId                String   @db.Uuid
+  idempotencyKey           String   @db.VarChar(120)
+  sourceStartsOn           DateTime @db.Date
+  sourceEndsOn             DateTime @db.Date
+  targetStartsOn           DateTime @db.Date
+  targetEndsOn             DateTime @db.Date
+  currency                 String   @db.Char(3)
+  totalMinor               BigInt   @db.BigInt
+  sourcePricingFingerprint String   @db.Char(64)
+  targetPricingFingerprint String   @db.Char(64)
+  targetPricingSnapshot    Json
+  authorityFingerprint     String   @db.Char(64)
+  appliedAt                DateTime @db.Timestamptz(6)
+  createdAt                DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId], map: "rental_booking_reschedules_id_organization_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_reschedules_org_idempotency_key")
+  @@index([organizationId, bookingId, appliedAt], map: "rental_booking_reschedules_booking_applied_idx")
+  @@map("rental_booking_reschedules")
+}

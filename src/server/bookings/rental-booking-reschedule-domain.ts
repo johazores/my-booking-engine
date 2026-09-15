@@ -3,10 +3,21 @@ import { createHash } from 'node:crypto';
 import { normalizeRentalDateRange, RentalInventoryValidationError } from '../inventory/rental-domain.ts';
 
 const MAX_RENTAL_RESCHEDULE_DAYS = 90;
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
+const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+
+export class RentalBookingRescheduleValidationError extends Error {}
 
 export type RentalBookingRescheduleReviewInput = Readonly<{
   startsOn: string;
   endsOn: string;
+}>;
+
+export type RentalBookingRescheduleApplyInput = Readonly<{
+  startsOn: string;
+  endsOn: string;
+  idempotencyKey: string;
+  authorityFingerprint: string;
 }>;
 
 export function normalizeRentalBookingRescheduleReviewInput(input: RentalBookingRescheduleReviewInput) {
@@ -20,6 +31,30 @@ export function normalizeRentalBookingRescheduleReviewInput(input: RentalBooking
   return Object.freeze({ ...range, days });
 }
 
+export function normalizeRentalBookingRescheduleApplyInput(input: RentalBookingRescheduleApplyInput) {
+  const range = normalizeRentalBookingRescheduleReviewInput(input);
+  const idempotencyKey = input.idempotencyKey.trim();
+  const authorityFingerprint = input.authorityFingerprint.trim().toLowerCase();
+  if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+    throw new RentalBookingRescheduleValidationError(
+      'Idempotency key must be 8-120 letters, numbers, dots, underscores, colons, or hyphens.',
+    );
+  }
+  if (!FINGERPRINT_PATTERN.test(authorityFingerprint)) {
+    throw new RentalBookingRescheduleValidationError('Rental reschedule authority fingerprint is invalid.');
+  }
+  return Object.freeze({ ...range, idempotencyKey, authorityFingerprint });
+}
+
+export function buildRentalBookingRescheduleIdempotencyKey(bookingId: string, authorityFingerprint: string) {
+  const digest = createHash('sha256').update(`${bookingId}:${authorityFingerprint}`).digest('hex');
+  return `rental-reschedule:${digest}`;
+}
+
+export function rentalBookingLockKey(organizationId: string, bookingId: string) {
+  return `sf:rental-booking:${organizationId}:booking:${bookingId}`;
+}
+
 export function buildRentalBookingRescheduleAuthorityFingerprint(input: Readonly<{
   organizationId: string;
   bookingId: string;
@@ -27,23 +62,27 @@ export function buildRentalBookingRescheduleAuthorityFingerprint(input: Readonly
   unitId: string;
   unitTypeId: string;
   locationId: string;
-  startsOn: Date;
-  endsOn: Date;
+  sourceStartsOn: Date;
+  sourceEndsOn: Date;
+  targetStartsOn: Date;
+  targetEndsOn: Date;
   currency: string;
   totalMinor: bigint;
   sourcePricingFingerprint: string;
   targetPricingFingerprint: string;
 }>) {
   const snapshot = {
-    version: 1,
+    version: 2,
     organizationId: input.organizationId,
     bookingId: input.bookingId,
     bookingUpdatedAt: input.bookingUpdatedAt.toISOString(),
     unitId: input.unitId,
     unitTypeId: input.unitTypeId,
     locationId: input.locationId,
-    startsOn: input.startsOn.toISOString().slice(0, 10),
-    endsOn: input.endsOn.toISOString().slice(0, 10),
+    sourceStartsOn: input.sourceStartsOn.toISOString().slice(0, 10),
+    sourceEndsOn: input.sourceEndsOn.toISOString().slice(0, 10),
+    targetStartsOn: input.targetStartsOn.toISOString().slice(0, 10),
+    targetEndsOn: input.targetEndsOn.toISOString().slice(0, 10),
     currency: input.currency,
     totalMinor: input.totalMinor.toString(),
     sourcePricingFingerprint: input.sourcePricingFingerprint,
