@@ -94,11 +94,17 @@ export async function readCustomerWithActivity(input: {
     }),
   ]);
 
-  const bookingReferenceCount = customer.status === 'ARCHIVED' && !deidentification
-    ? await db.hospitalityBooking.count({
-        where: { organizationId: input.organizationId, customerId: input.customerId },
-      })
-    : 0;
+  const [hospitalityBookingReferenceCount, rentalBookingReferenceCount] = customer.status === 'ARCHIVED' && !deidentification
+    ? await Promise.all([
+        db.hospitalityBooking.count({
+          where: { organizationId: input.organizationId, customerId: input.customerId },
+        }),
+        db.rentalBooking.count({
+          where: { organizationId: input.organizationId, customerId: input.customerId },
+        }),
+      ])
+    : [0, 0];
+  const bookingReferenceCount = hospitalityBookingReferenceCount + rentalBookingReferenceCount;
   const deidentificationEligibility = deidentification
     ? { allowed: false, reason: 'ALREADY_DEIDENTIFIED' as const }
     : customer.status !== 'ARCHIVED'
@@ -273,9 +279,15 @@ export async function deidentifyCustomerProfile(input: {
     });
     if (existingEvidence) throw new CustomerUnavailableError();
 
-    const bookingReferenceCount = await transaction.hospitalityBooking.count({
-      where: { organizationId: input.organizationId, customerId: current.id },
-    });
+    const [hospitalityBookingReferenceCount, rentalBookingReferenceCount] = await Promise.all([
+      transaction.hospitalityBooking.count({
+        where: { organizationId: input.organizationId, customerId: current.id },
+      }),
+      transaction.rentalBooking.count({
+        where: { organizationId: input.organizationId, customerId: current.id },
+      }),
+    ]);
+    const bookingReferenceCount = hospitalityBookingReferenceCount + rentalBookingReferenceCount;
     if (bookingReferenceCount > 0) throw new CustomerDeidentificationBlockedError();
 
     const updated = await transaction.customer.update({
