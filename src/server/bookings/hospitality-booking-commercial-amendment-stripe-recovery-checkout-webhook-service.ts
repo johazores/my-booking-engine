@@ -74,6 +74,15 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutW
       throw new PaymentConflictError('Verified Stripe recovery Checkout webhook evidence changed before finalization.');
     }
 
+    const eventWhere = {
+      id: verifiedEvent.id,
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerEventId: evidence.providerEventId,
+      eventType: verifiedEvent.eventType,
+      payloadHash: verifiedEvent.payloadHash,
+    };
+
     const candidates = await transaction.paymentTransaction.findMany({
       where: {
         organizationId: input.organizationId,
@@ -148,15 +157,31 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutW
       throw new PaymentConflictError('Stripe recovery Checkout money or operation identity does not match the persisted claim.');
     }
 
+    const paymentWhere = {
+      id: payment.id,
+      organizationId: input.organizationId,
+      bookingId: evidence.bookingId,
+      commercialAmendmentId: evidence.amendmentId,
+      idempotencyKey: payment.idempotencyKey,
+      requestFingerprint: payment.requestFingerprint,
+      providerCode: STRIPE_PROVIDER_CODE,
+      kind: 'CAPTURE' as const,
+      status: 'AMBIGUOUS' as const,
+      providerReference: payment.providerReference,
+      sourceProviderReference: null,
+      currency: payment.currency,
+      amountMinor: payment.amountMinor,
+    };
+
     if (evidence.eventType === 'checkout.session.expired') {
       if (
         evidence.checkoutStatus === 'expired'
         && evidence.paymentStatus === 'unpaid'
         && !evidence.paymentIntentReference
       ) {
-        await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        await transaction.paymentTransaction.update({ where: paymentWhere, data: { status: 'FAILED' } });
         await transaction.paymentWebhookEvent.update({
-          where: { id: verifiedEvent.id },
+          where: eventWhere,
           data: {
             bookingId: evidence.bookingId,
             providerReference: evidence.checkoutReference,
@@ -168,7 +193,7 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutW
         return { handled: true as const, state: 'FAILED' as const };
       }
       await transaction.paymentWebhookEvent.update({
-        where: { id: verifiedEvent.id },
+        where: eventWhere,
         data: {
           bookingId: evidence.bookingId,
           providerReference: evidence.checkoutReference,
@@ -188,7 +213,7 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutW
     }
     if (evidence.paymentStatus !== 'paid') {
       await transaction.paymentWebhookEvent.update({
-        where: { id: verifiedEvent.id },
+        where: eventWhere,
         data: {
           bookingId: evidence.bookingId,
           providerReference: evidence.checkoutReference,
@@ -217,11 +242,11 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutW
     }
 
     await transaction.paymentTransaction.update({
-      where: { id: payment.id },
+      where: paymentWhere,
       data: { providerReference: evidence.paymentIntentReference, status: 'SUCCEEDED' },
     });
     await transaction.paymentWebhookEvent.update({
-      where: { id: verifiedEvent.id },
+      where: eventWhere,
       data: {
         bookingId: evidence.bookingId,
         providerReference: evidence.paymentIntentReference,
