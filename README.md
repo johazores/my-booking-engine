@@ -25,7 +25,7 @@ The current repository includes real persisted production boundaries for:
 - hospitality properties, room types, rooms, amenities, images, rate plans, restrictions, availability windows, holds, allocation locking, pricing, taxes/fees, and add-ons;
 - tenant-owned tour/package inventory with departure schedules, explicit configured capacity, add-ons, audited lifecycle controls, and bounded management collections;
 - tenant-owned appointment inventory with services, staff, explicit staff/service eligibility, recurring weekly schedules, audited lifecycle controls, and bounded management collections;
-- tenant-owned rental inventory with unit types, operating locations, physical units, unavailable date blocks, daily rate configuration and date-range rate overrides, temporary holds, conversion-authority review, durable confirmed rental bookings/physical-unit allocations, tenant-scoped staff booking list/detail, terminal inventory-release cancellation, audited lifecycle controls, and booked-inventory protection;
+- tenant-owned rental inventory with unit types, operating locations, physical units, unavailable date blocks, daily rate configuration and date-range rate overrides, temporary holds, conversion-authority review, durable confirmed rental bookings/physical-unit allocations, tenant-scoped staff booking list/detail, same-unit price-neutral date rescheduling with append-only evidence, terminal inventory-release cancellation, audited lifecycle controls, and booked-inventory protection;
 - exact-money hospitality quoting, price fingerprints, atomic hold-to-booking confirmation, idempotency, permanent booking allocations, and booking audit history;
 - authenticated hospitality booking detail, cancellation, same-price date rescheduling, traveler snapshot editing, provider-aware refunds, receipts, audit history, and room/rate/quantity/add-on commercial modification;
 - an explicit versioned hospitality commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
@@ -46,7 +46,7 @@ The repository does not pretend unfinished product areas are complete. Notable r
 - activation of the implemented Travelport Stays reservation lifecycle only after a concrete reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end verification, and authoritative locator-less/retry/recovery semantics are proven, plus later provider-specific supplier integrations when required;
 - additional payment/email/SMS providers only when there is a real product requirement;
 - customer-facing availability, pricing, booking, payment, and provider/calendar workflows for tour and appointment inventory;
-- customer-facing rental booking/payment plus rental amendments/rescheduling, payment/deposit policy, pickup/drop-off/return, fulfillment, and external synchronization on top of the implemented staff hold-to-booking/read/cancellation infrastructure; and
+- customer-facing rental booking/payment plus physical-unit substitution, price-changing rental amendments/rescheduling, payment/deposit policy, pickup/drop-off/return, fulfillment, and external synchronization on top of the implemented staff hold-to-booking/read/same-unit-reschedule/cancellation infrastructure; and
 - marketplace capabilities and other advanced business modules only when concrete product requirements justify them.
 
 ## Setup
@@ -88,6 +88,7 @@ Start with:
 - `docs/appointment-inventory.md`
 - `docs/rental-inventory.md`
 - `docs/rental-booking-foundation.md`
+- `docs/rental-booking-reschedule-lifecycle.md`
 - `docs/rental-booking-cancellation.md`
 - `docs/booking-flow.md`
 - `docs/public-booking-payments.md`

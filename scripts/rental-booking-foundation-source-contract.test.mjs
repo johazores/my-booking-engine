@@ -5,8 +5,10 @@ import test from 'node:test';
 const paths = {
   rootSchema: new URL('../prisma/schema.prisma', import.meta.url),
   schema: new URL('../prisma/rental-inventory.prisma', import.meta.url),
+  rescheduleSchema: new URL('../prisma/rental-booking-reschedule.prisma', import.meta.url),
   migration: new URL('../prisma/migrations/20260915123000_rental_booking_foundation/migration.sql', import.meta.url),
   customerIntegrityMigration: new URL('../prisma/migrations/20260915131500_rental_booking_customer_integrity/migration.sql', import.meta.url),
+  rescheduleMigration: new URL('../prisma/migrations/20260915173000_rental_booking_reschedule_lifecycle/migration.sql', import.meta.url),
   writer: new URL('../src/server/bookings/rental-booking-service.ts', import.meta.url),
   availability: new URL('../src/server/inventory/rental-availability-service.ts', import.meta.url),
   authority: new URL('../src/server/bookings/rental-booking-authority-service.ts', import.meta.url),
@@ -17,9 +19,22 @@ const paths = {
   customerDocs: new URL('../docs/customer-data-lifecycle.md', import.meta.url),
 };
 
-const [rootSchema, schema, migration, customerIntegrityMigration, writer, availability, authority, holdService, customerService, docs, inventoryDocs, customerDocs] = await Promise.all(
-  Object.values(paths).map((path) => readFile(path, 'utf8')),
-);
+const [
+  rootSchema,
+  schema,
+  rescheduleSchema,
+  migration,
+  customerIntegrityMigration,
+  rescheduleMigration,
+  writer,
+  availability,
+  authority,
+  holdService,
+  customerService,
+  docs,
+  inventoryDocs,
+  customerDocs,
+] = await Promise.all(Object.values(paths).map((path) => readFile(path, 'utf8')));
 
 void test('rental booking schema persists tenant-owned commercial evidence and one physical allocation', () => {
   for (const token of [
@@ -46,6 +61,10 @@ void test('rental booking schema persists tenant-owned commercial evidence and o
     assert.ok(schema.includes(token), `missing rental booking schema token: ${token}`);
   }
   assert.ok(schema.includes('bookingAllocations RentalBookingAllocation[]'));
+  assert.match(schema, /reschedules\s+RentalBookingReschedule\[\]/);
+  assert.match(rescheduleSchema, /booking\s+RentalBooking\s+@relation\(fields: \[bookingId, organizationId\], references: \[id, organizationId\]/);
+  assert.match(rescheduleSchema, /map: "rental_booking_reschedules_booking_fkey"/);
+  assert.match(rescheduleMigration, /ADD CONSTRAINT "rental_booking_reschedules_booking_fkey"/);
 });
 
 void test('rental booking customer ownership is represented in Prisma and protected by a composite database foreign key', () => {
@@ -82,6 +101,9 @@ void test('database guards serialize unit inventory and protect customer, hold, 
   ]) {
     assert.ok(migration.includes(token), `missing rental booking migration guard: ${token}`);
   }
+  assert.match(rescheduleMigration, /sf_guard_rental_booking_reschedule_insert/);
+  assert.match(rescheduleMigration, /sf_guard_rental_booking_reschedule_append_only/);
+  assert.match(rescheduleMigration, /rental_booking_reschedules_require_allocation_guard/);
 });
 
 void test('confirmation writer revalidates tenant authority under idempotency and unit locks before atomic persistence', () => {
@@ -135,10 +157,10 @@ void test('rental booking references participate in the fail-closed customer de-
 void test('documentation reflects durable rental booking infrastructure without presenting unfinished commercial workflows as real', () => {
   assert.match(inventoryDocs, /durable rental booking writer/i);
   assert.match(inventoryDocs, /overlapping non-cancelled rental booking allocations/i);
-  assert.match(inventoryDocs, /rental booking list\/detail\/cancellation surfaces/i);
-  assert.match(inventoryDocs, /staff-facing rental amendments or rescheduling/i);
-  assert.match(docs, /staff-only conversion review\/confirmation, rental booking list\/detail, and explicit inventory-release cancellation/i);
-  assert.match(docs, /does not imply that money has been collected/i);
+  assert.match(inventoryDocs, /same-unit, price-neutral date rescheduling/i);
+  assert.match(inventoryDocs, /unit substitution and price-changing rental amendments/i);
+  assert.match(docs, /staff-only conversion review\/confirmation, booking list\/detail, same-unit price-neutral date rescheduling, and terminal inventory-release cancellation/i);
+  assert.match(docs, /does not imply payment or fulfillment/i);
   assert.match(docs, /Full database validation must run through `npm run test:database`/);
   assert.match(docs, /No GitHub Actions are required or used/);
 });

@@ -1,35 +1,42 @@
 # Rental booking conversion authority
 
-SF has a server-only production authority review for deciding whether one active physical-unit hold and one active tenant customer can safely enter the durable rental booking writer. The review is intentionally read-only. It never consumes inventory or creates a booking itself.
+SF has a server-only production authority review for deciding whether one active physical-unit hold and one active tenant customer can safely enter the durable rental booking writer. The review is intentionally read-only and never consumes inventory or creates a booking itself.
 
 ## Authority boundary
 
-`reviewRentalBookingConversionAuthority` requires `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read` before it reads commercial, inventory, or customer data. Organization IDs come from the authenticated server context; a hold ID or customer ID never grants scope by itself.
+`reviewRentalBookingConversionAuthority` requires `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read` before it reads commercial, inventory, or customer data. Organization identity comes from authenticated server context; hold/customer IDs never grant scope by themselves.
 
-The review runs as a serializable, read-only transaction and uses PostgreSQL `clock_timestamp()` as the expiry clock. It requires an effective tenant-owned `ACTIVE` hold, an active tenant customer, an active physical rental unit, its active unit type, and its active operating location. It rechecks overlapping unavailable-date blocks, competing effective holds, overlapping non-cancelled rental booking allocations, and all tenant-owned rate periods needed for the held date range.
+The review runs as a serializable transaction and uses PostgreSQL `clock_timestamp()` as the expiry clock. It requires an effective tenant-owned `ACTIVE` hold, active tenant customer, active physical unit, active unit type, and active operating location. It rechecks unavailable-date blocks, competing effective holds, overlapping non-cancelled booking allocations, and tenant rate periods needed for the held date range.
 
-Creation-time hold pricing remains evidence rather than a permanent price lock. Legacy holds without complete pricing evidence are not conversion-ready. If current tenant pricing differs from the immutable hold observation in currency, exact total, or pricing fingerprint, the authority fails closed with `PRICE_CHANGED`. Inventory contradictions fail closed with `INVENTORY_CONFLICT`.
+Creation-time hold pricing remains evidence rather than a permanent price lock. Legacy holds without complete evidence are not conversion-ready. Current currency, exact total, and pricing fingerprint must still match immutable hold evidence; otherwise authority fails closed. Inventory contradictions fail closed.
 
-Only a fully coherent review receives a deterministic SHA-256 `authorityFingerprint`. Version 1 binds the organization, hold, customer, physical unit, unit type, operating location, date range, exact hold expiry, currency, exact minor-unit total, and current pricing fingerprint. A change to any of those inputs produces a different authority.
+Only a fully coherent review receives deterministic SHA-256 `authorityFingerprint` version 1 binding organization, hold, customer, physical unit/type/location, dates, exact hold expiry, currency, exact minor-unit total, and current pricing fingerprint.
 
 ## Durable write boundary
 
-The review itself does **not** create a rental booking, consume the hold, allocate the unit, charge a customer, or change availability.
+The review itself does not create a rental booking, consume the hold, allocate the unit, charge a customer, or change availability.
 
-The durable writer is `confirmRentalBookingFromHold`, documented in [rental-booking-foundation.md](./rental-booking-foundation.md). The writer does not trust a previously successful review as current truth. It reacquires the tenant/unit serialization boundary and revalidates the active hold, customer, inventory conflicts, current price, and the exact authority fingerprint inside the serializable write transaction before it consumes the hold and creates the booking/allocation atomically.
+`confirmRentalBookingFromHold`, documented in [rental-booking-foundation.md](./rental-booking-foundation.md), reacquires serialization locks and revalidates active hold/customer/inventory/current price plus the exact authority fingerprint before atomically consuming the hold and creating booking/allocation evidence.
 
-This separation lets UI or application code present an explicit review step without creating a time-of-check/time-of-use permission or commercial-authority gap at persistence time.
+This keeps browser-visible review separate from persistence authority and prevents time-of-check/time-of-use gaps.
+
+## Downstream booking lifecycle
+
+After confirmation, SF separately supports:
+
+- terminal inventory-release cancellation, documented in [rental-booking-cancellation.md](./rental-booking-cancellation.md)
+- same-unit, price-neutral date rescheduling with append-only evidence and fresh inventory/pricing authority, documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md)
+
+Neither downstream lifecycle is authority produced by the initial conversion review. Each reacquires its own current server authority under booking/unit serialization.
 
 ## Product boundaries
 
-The current first rental contract keeps the unit's active operating location as inventory metadata only. One-way return rules, delivery zones, opening hours, deposits, taxes/fees, payments, amendments/rescheduling, customer self-service, and fulfillment notifications remain separate commercial acceptance criteria rather than being guessed here.
+The current rental contract still does not invent customer-selected pickup/drop-off promises, one-way return rules, delivery zones, opening hours, deposits, payment processing, taxes/fees beyond existing daily-rate evidence, physical-unit substitution, price-changing amendments/rescheduling, customer self-service, fulfillment notifications, or external synchronization.
 
-Rental booking cancellation is now implemented as a separate terminal inventory-release lifecycle after confirmation; it is not authority produced by this conversion review. The cancellation contract retains historical booking/allocation evidence and does not imply refund, deposit, or provider behavior. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
-
-No route or primary action should present the still-unsupported capabilities above as real until their server-side contracts exist.
+No route or primary action should present those unsupported capabilities as real until their server-side contracts exist.
 
 ## Validation
 
-`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scoping, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only review boundary.
+`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scope, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only review boundary.
 
-Full repository validation still requires the repository-supported Node 24 environment. Prisma/database execution remains gated on an explicitly disposable PostgreSQL target. No GitHub Actions are required or used.
+Full repository validation requires the repository-supported Node 24 environment. Prisma/database execution remains gated on an explicitly disposable PostgreSQL target. No GitHub Actions are required or used.

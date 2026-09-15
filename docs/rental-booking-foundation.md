@@ -1,98 +1,81 @@
 # Rental booking foundation
 
-SF now has a durable rental booking persistence boundary for converting one active physical-unit hold into one confirmed tenant booking, a staff-only interaction/read layer for reviewing and confirming that authority, and a staff cancellation lifecycle that releases live inventory while retaining historical booking/allocation evidence. The commercial contract remains intentionally narrow: it establishes durable ownership, commercial evidence, physical-unit allocation, idempotency, inventory protection/release, auditability, and staff review without inventing payment, deposit, pickup, delivery, return, amendment/rescheduling, or customer self-service behavior.
+SF has a durable rental booking persistence and staff lifecycle boundary. It converts one active physical-unit hold into one confirmed tenant booking, exposes tenant-scoped staff history/detail, supports same-unit price-neutral date rescheduling through append-only evidence, and supports terminal cancellation that releases live inventory while retaining history.
+
+The commercial contract remains intentionally narrow: it establishes ownership, immutable booking-time customer/commercial evidence, effective physical-unit allocation, idempotency, inventory protection/release, reschedule authority, auditability, and staff review without inventing payment/deposit, unit substitution, price-changing amendment, pickup/delivery/return, fulfillment, or customer self-service behavior.
 
 ## Durable records
 
-`RentalBooking` stores the tenant, customer identity plus an immutable customer name/contact snapshot, source hold, physical unit, unit type, operating location, stable idempotency key, lifecycle, exclusive-end rental dates, currency, exact minor-unit total, immutable pricing evidence, conversion-authority fingerprint, and confirmation/cancellation timestamps.
+`RentalBooking` stores tenant/customer identity, immutable customer snapshot, source hold, physical unit/type/location, confirmation idempotency key, lifecycle, original booking-time dates, currency, exact accepted total, immutable pricing evidence, conversion-authority fingerprint, and confirmation/cancellation timestamps.
 
-`RentalBookingAllocation` is the physical inventory commitment. It binds one booking to one tenant-owned physical unit and exact date range. A deferred database constraint requires every confirmed rental booking to finish its transaction with one matching allocation. Cancellation retains that allocation as historical evidence; inventory guards consider it inactive once the parent booking is `CANCELLED`.
+`RentalBookingAllocation` is the current physical inventory commitment. It binds one booking to one tenant-owned unit and the current effective date range. Cancellation retains the allocation as historical evidence; inventory guards treat it as non-blocking once the parent booking is `CANCELLED`.
 
-The rental booking/customer relationship is modeled in Prisma on both sides and backed by the composite database foreign key `(customerId, organizationId) -> customers(id, organizationId)` with delete restriction. A durable rental booking therefore cannot silently outlive or cross-bind its tenant-owned customer through a direct database delete.
+`RentalBookingReschedule` is append-only evidence for a supported same-unit, price-neutral date change. It stores effective source/target dates, unchanged money, source/target pricing fingerprints, target pricing snapshot, reviewed authority fingerprint, stable idempotency key, and application timestamp. The original `RentalBooking` commercial/date evidence is not rewritten.
 
-The supported lifecycle is deliberately narrow: a booking enters as `CONFIRMED` and may transition once to terminal `CANCELLED`. The shared booking enum also contains `PENDING_CONFIRMATION`, but rental persistence does not use it.
+The rental booking/customer relationship is modeled in Prisma and backed by a composite tenant foreign key. Rental reschedule rows are likewise modeled with a composite booking relationship and database foreign key.
 
 ## Confirmation writer
 
-`confirmRentalBookingFromHold` is server-only and requires `booking:manage`, `availability:manage`, `inventory:read`, `pricing:read`, and `customer:read` for the authenticated organization.
+`confirmRentalBookingFromHold` is server-only and requires `booking:manage`, `availability:manage`, `inventory:read`, `pricing:read`, and `customer:read`.
 
-The writer runs in a serializable transaction and uses two advisory serialization boundaries:
+It runs in a serializable transaction under tenant/idempotency and tenant/physical-unit locks, uses PostgreSQL time, and revalidates active hold/customer/unit/type/location, unavailable blocks, effective holds, live booking allocations, complete hold pricing evidence, current pricing, and the exact conversion authority.
 
-- tenant + booking idempotency key
-- tenant + physical rental unit, using the same `sf:rental-unit:` namespace as rental availability writes
+Only after exact hold consumption does the transaction create booking, allocation, and audit evidence. Replay succeeds only for the same tenant-local hold/customer/authority identity.
 
-Inside those boundaries it uses PostgreSQL `clock_timestamp()` and revalidates all authority rather than trusting the earlier review result. It requires:
+## Reschedule lifecycle
 
-- an active, unexpired tenant hold
-- an active tenant customer
-- the same active physical unit, active unit type, and active operating location
-- no overlapping unavailable-date block
-- no competing active unexpired hold
-- no overlapping non-cancelled rental booking allocation
-- complete immutable hold pricing evidence
-- current pricing with the same currency, exact minor-unit total, and pricing fingerprint
-- an authority fingerprint rebuilt from the current locked evidence that exactly matches the caller-supplied review fingerprint
+Same-unit, price-neutral rescheduling is documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
 
-The hold is consumed with an exact final persistence predicate. Only after successful consumption does the transaction create the booking, allocation, and secret-free audit event. Any failure rolls all of those writes back together.
+Review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`. Apply additionally requires `availability:manage`.
 
-The booking idempotency key is tenant-local. A replay returns the existing booking only when the requested hold, customer, and authority fingerprint are exactly the same. Reuse for different commercial authority fails closed. Serializable and uniqueness races are retried within a small bounded loop; they are never treated as successful without re-reading durable evidence.
+Review is read-only and derives the current effective source period from the retained allocation/latest append-only reschedule rather than assuming original booking dates are still current. It rejects unavailable blocks, effective holds, other live allocations, no-op dates, and any target pricing whose currency or exact aggregate amount differs.
+
+Apply reacquires a shared tenant/booking lock plus the physical-unit lock, rebuilds authority, derives idempotency server-side, inserts append-only reschedule evidence, changes only effective allocation dates, advances booking `updatedAt` for stale-authority invalidation, and records an audit event. Database constraints require the target allocation before commit.
 
 ## Cancellation lifecycle
 
-`cancelRentalBooking` is the server-only inventory-release lifecycle. It requires both `booking:manage` and `availability:manage`, repeats tenant scope on every booking lookup, and runs in a serializable transaction under a tenant/booking lock plus the same physical-unit advisory lock used by rental availability.
+`cancelRentalBooking` requires `booking:manage` and `availability:manage`, runs in a serializable transaction under the same tenant/booking and physical-unit locks, and validates the current effective allocation including any latest reschedule target.
 
-Cancellation requires the exact retained physical allocation. The final `CONFIRMED -> CANCELLED` write is an exact compare-and-swap over tenant, lifecycle, observed version timestamp, customer snapshot identity, source hold, unit/type/location, dates, exact money, pricing identity, conversion authority, and confirmation evidence. A successful retry is idempotent.
+The final `CONFIRMED -> CANCELLED` write remains an exact compare-and-swap over immutable booking evidence plus observed version. The allocation and reschedule history remain retained. Live inventory guards ignore the retained allocation only after the parent booking is cancelled.
 
-A database lifecycle trigger takes the same physical-unit lock and permits only the supported terminal transition. Reopening a cancelled booking fails closed. The allocation row is not deleted: it remains historical evidence while every existing live inventory guard ignores allocations whose parent booking is `CANCELLED`. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
+See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
 
 ## Staff booking interaction
 
-The authenticated hold detail exposes a real staff conversion workflow only when the actor has the existing conversion permissions. Active-customer lookup is tenant-scoped and bounded, the selected customer is passed through `reviewRentalBookingConversionAuthority`, and the confirm action is only rendered for a ready authority. The browser does not submit organization ID, actor ID, amount, dates, unit identity, pricing snapshot, or idempotency key as commercial authority.
+The authenticated hold detail supports bounded active-customer search, conversion review, and confirmation only after ready server authority.
 
-`POST /api/inventory/rentals/holds/[hold-id]/confirm` derives the active tenant and actor from the authenticated server context and derives the stable idempotency key from the route hold plus selected customer. It then calls the existing confirmation writer, which revalidates the full authority inside the serializable write transaction before consuming inventory protection.
+`/inventory/rentals/bookings` and `/inventory/rentals/bookings/[booking-id]` provide `booking:read`-protected tenant history/detail. List/detail show current effective allocation dates; detail separately preserves original booking-time dates, append-only reschedule history, accepted money, customer snapshot, source evidence, and cancellation evidence.
 
-`/inventory/rentals/bookings` and `/inventory/rentals/bookings/[booking-id]` provide `booking:read`-protected, organization-scoped staff history and detail. The list is paginated and lifecycle-filterable. The detail shows the retained customer snapshot, physical allocation, source evidence, exact money, pricing/authority fingerprints, and cancellation evidence when present. A cancellation action is rendered only for a confirmed booking with its retained allocation when the actor has both required management permissions. See [rental-booking-staff-workflow.md](./rental-booking-staff-workflow.md).
+`/inventory/rentals/bookings/[booking-id]/reschedule` provides a fresh GET review and a POST Apply action only when the review is ready and the actor has write authority. The browser cannot supply tenant, actor, unit, amount, pricing snapshot, or idempotency authority.
 
 ## Database inventory protection
 
-The migrations add database guards because app-level availability checks alone are insufficient under concurrency or alternative writers.
+Database guards complement server authorization:
 
-- Booking insert validates the active tenant customer snapshot, consumed hold evidence, and current unit/type/location ownership.
-- The composite customer foreign key permanently binds the booking to the same tenant-owned customer and rejects direct customer deletion while the booking remains.
-- Commercial and ownership evidence on a rental booking is immutable after creation.
-- Booking lifecycle updates take the physical-unit lock and allow only terminal `CONFIRMED -> CANCELLED` with a valid cancellation timestamp.
-- Allocation writes take the same per-unit advisory lock and reject overlapping blocks, effective holds, or non-cancelled booking allocations.
-- A deferred constraint prevents a confirmed booking from committing without its exact allocation.
-- Rental hold creation rejects dates already allocated to a non-cancelled booking.
-- Rental unavailable-date blocks reject dates already allocated to a non-cancelled booking.
-- Rental unit location, type, or lifecycle changes reject active/future non-cancelled allocations.
-
-These database guards complement, rather than replace, tenant-scoped server authorization and transaction-level revalidation.
-
-## Availability integration
-
-Rental availability excludes overlapping non-cancelled booking allocations in addition to unavailable-date blocks and active unexpired holds. Effective-hold time comparisons use the database clock inside the serializable availability read.
-
-The conversion-authority review also treats an overlapping non-cancelled booking allocation as an inventory conflict, so a stale hold can never be presented as conversion-ready merely because it still exists.
-
-When a booking becomes `CANCELLED`, its retained allocation immediately becomes historical/non-blocking for these same inventory decisions. The cancellation service and database lifecycle trigger serialize that release with the physical unit before commit.
+- booking insert validates active customer, consumed hold, and current unit/type/location ownership
+- composite customer and reschedule foreign keys preserve same-tenant ownership
+- original booking commercial/ownership evidence is immutable
+- reschedule evidence is append-only
+- allocation writes take the per-unit advisory lock and must match the latest reschedule target, or original dates when no reschedule exists
+- allocation writes reject unavailable blocks, effective holds, or overlapping non-cancelled allocations
+- deferred constraints require confirmed bookings and new reschedules to commit with the exact effective allocation
+- cancellation is terminal and serialized with the physical unit
+- hold/block/unit mutation guards account for non-cancelled booking allocations
 
 ## Customer lifecycle integration
 
-A rental booking retains an immutable customer name/contact snapshot as part of its commercial evidence. SF therefore treats a rental booking reference as a customer-data retention boundary rather than allowing the mutable customer profile to be de-identified independently.
-
-Both customer-detail eligibility and the final serializable de-identification mutation count tenant-owned hospitality and rental booking references. An archived customer referenced by either supported booking domain receives `BOOKING_REFERENCES`, the destructive action is not offered, and the mutation independently fails closed if a booking appears after the page was rendered. Cancellation does not erase that reference.
-
-The rental booking PostgreSQL integration scenario verifies both service-level de-identification rejection and database-level customer-delete rejection after cancellation as well as confirmation. Broader booking-linked disposal remains a separate legal/privacy lifecycle concern; the rental booking snapshot is not mutated or deleted by customer profile lifecycle operations.
+Rental bookings retain immutable customer snapshots and remain customer-data retention boundaries after rescheduling or cancellation. Customer-detail eligibility and final de-identification mutations count both hospitality and rental booking references and fail closed when references exist.
 
 ## Explicit boundaries
 
-This foundation exposes staff-only conversion review/confirmation, rental booking list/detail, and explicit inventory-release cancellation. It still does not expose a public/customer rental booking route, checkout, provider integration, payment or deposit workflow, delivery/pickup promise, return workflow, tax/fee workflow, amendment/rescheduling action, or fulfillment notification. Those features require their own explicit product and commercial acceptance criteria.
+This foundation exposes staff-only conversion review/confirmation, booking list/detail, same-unit price-neutral date rescheduling, and terminal inventory-release cancellation.
 
-`CONFIRMED` means the tenant has durably committed the physical inventory to the customer under the reviewed price. It does not imply that money has been collected or that fulfillment logistics have been agreed. `CANCELLED` means SF no longer treats that physical-unit/date allocation as live inventory protection; it does not imply a refund or other financial action.
+It does not expose public/customer rental checkout or modification, payment/deposit workflows, physical-unit substitution, price-changing amendments/rescheduling, pickup/delivery/return, tax/fee workflows beyond current daily-rate evidence, fulfillment notifications, or external synchronization.
+
+`CONFIRMED` means physical inventory is durably committed under reviewed commercial evidence. It does not imply payment or fulfillment. `CANCELLED` releases SF inventory protection only and does not imply refund or financial side effects.
 
 ## Validation
 
-`src/server/bookings/rental-booking-domain.test.ts` covers confirmation input and idempotent payload identity. `scripts/rental-booking-foundation-source-contract.test.mjs` protects the Prisma customer relationship, composite customer foreign-key migration, schema/migration inventory guards, authorization, locking, tenant scope, pricing and authority revalidation, atomic hold consumption, allocation, audit, booked-inventory exclusion, and customer-retention integration. `scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects the staff read/conversion routing and tenant/authority boundary. `scripts/rental-booking-cancellation-source-contract.test.mjs` protects terminal cancellation, exact write scope, inventory release, staff routing, and the financial/fulfillment boundary. `src/server/bookings/rental-booking.integration.ts` is registered in the disposable PostgreSQL test runner for concurrency, replay, hold consumption, availability, database inventory guards, cancellation/release behavior, tenant isolation, and rental-linked customer retention.
+Dependency-free source contracts protect schema relationships, tenant/database guards, confirmation authority, staff reads, reschedule authority/write scope, cancellation, customer retention, and explicit unsupported-workflow boundaries.
 
-Full database validation must run through `npm run test:database` with an explicitly disposable PostgreSQL target. The repository-wide validation gate remains `npm run validate` under the Node version declared in `package.json`. No GitHub Actions are required or used.
+Full database validation must run through `npm run test:database` with an explicitly disposable PostgreSQL target. Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. No GitHub Actions are required or used.

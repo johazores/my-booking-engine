@@ -10,12 +10,15 @@ const lifecycleMigration = readFileSync('prisma/migrations/20260915142000_rental
 test('rental cancellation requires booking and availability authority and serializes with physical inventory', () => {
   assert.match(service, /permission: 'booking:manage'/);
   assert.match(service, /permission: 'availability:manage'/);
-  assert.match(service, /rentalBookingCancellationLockKey/);
+  assert.match(service, /rentalBookingLockKey/);
   assert.match(service, /rentalUnitLockKey\(input\.organizationId, locator\.unitId\)/);
   assert.match(service, /SELECT clock_timestamp\(\) AS "now"/);
   assert.match(service, /where: \{ id: input\.bookingId, organizationId: input\.organizationId/);
   assert.match(service, /include: \{ allocation: true \}/);
   assert.match(service, /allocation\.unitId !== booking\.unitId/);
+  assert.match(service, /rentalBookingReschedule\.findFirst/);
+  assert.match(service, /effectiveStartsOn/);
+  assert.match(service, /effectiveEndsOn/);
   assert.match(service, /isolationLevel: 'Serializable'/);
   assert.match(service, /prismaErrorCode\(error\) === 'P2034'/);
 });
@@ -42,6 +45,7 @@ test('final cancellation write is an exact tenant-owned compare-and-swap and ret
     "status: 'CANCELLED'",
     'cancelledAt: databaseClock.now',
     "action: 'booking.rental.cancelled'",
+    'latestRescheduleId',
     'inventoryProtectionReleased: true',
   ]) {
     assert.ok(service.includes(token), `missing cancellation write-scope token: ${token}`);
