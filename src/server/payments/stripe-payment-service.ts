@@ -136,12 +136,39 @@ async function markProviderClaimFailed(input: {
     const payment = await transaction.paymentTransaction.findFirst({
       where: { id: input.paymentId, organizationId: input.organizationId, bookingId: input.bookingId },
     });
-    if (!payment || payment.status !== 'PENDING' || !isInternalPaymentClaimReference(payment.providerReference)) return;
+    if (
+      !payment
+      || payment.kind !== input.kind
+      || payment.providerCode !== STRIPE_PROVIDER_CODE
+      || payment.status !== 'PENDING'
+      || !isInternalPaymentClaimReference(payment.providerReference)
+    ) return;
 
-    await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+    await transaction.paymentTransaction.update({
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: input.kind,
+        status: 'PENDING',
+        providerReference: payment.providerReference,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+        requestFingerprint: payment.requestFingerprint,
+      },
+      data: { status: 'FAILED' },
+    });
     if (input.kind === 'AUTHORIZATION') {
       await transaction.hospitalityBooking.updateMany({
-        where: { id: input.bookingId, organizationId: input.organizationId, paymentStatus: { in: ['UNPAID', 'FAILED'] } },
+        where: {
+          id: input.bookingId,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: { in: ['UNPAID', 'FAILED'] },
+          currency: payment.currency,
+          totalMinor: payment.amountMinor,
+        },
         data: { paymentStatus: 'FAILED' },
       });
     }
@@ -350,11 +377,32 @@ export async function authorizeStripeBookingPayment(input: {
     }
 
     const payment = await transaction.paymentTransaction.update({
-      where: { id: existing.id },
+      where: {
+        id: existing.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'AUTHORIZATION',
+        status: existing.status,
+        providerReference: existing.providerReference,
+        currency: existing.currency,
+        amountMinor: existing.amountMinor,
+        requestFingerprint: existing.requestFingerprint,
+      },
       data: { status: persistence.transactionStatus, providerReference: providerResult.providerReference },
     });
     if (currentBooking.paymentStatus !== persistence.bookingPaymentStatus) {
-      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: persistence.bookingPaymentStatus } });
+      await transaction.hospitalityBooking.update({
+        where: {
+          id: booking.id,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: currentBooking.paymentStatus,
+          currency: currentBooking.currency,
+          totalMinor: currentBooking.totalMinor,
+        },
+        data: { paymentStatus: persistence.bookingPaymentStatus },
+      });
     }
     await transaction.auditEvent.create({
       data: {
@@ -558,11 +606,32 @@ export async function captureStripeBookingPayment(input: {
     }
 
     const payment = await transaction.paymentTransaction.update({
-      where: { id: existing.id },
+      where: {
+        id: existing.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'CAPTURE',
+        status: existing.status,
+        providerReference: existing.providerReference,
+        currency: existing.currency,
+        amountMinor: existing.amountMinor,
+        requestFingerprint: existing.requestFingerprint,
+      },
       data: { status: persistence.transactionStatus, providerReference: authorization.providerReference },
     });
     if (persistence.bookingPaymentStatus === 'PAID') {
-      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: 'PAID' } });
+      await transaction.hospitalityBooking.update({
+        where: {
+          id: booking.id,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: currentBooking.paymentStatus,
+          currency: currentBooking.currency,
+          totalMinor: currentBooking.totalMinor,
+        },
+        data: { paymentStatus: 'PAID' },
+      });
     }
     await transaction.auditEvent.create({
       data: {
