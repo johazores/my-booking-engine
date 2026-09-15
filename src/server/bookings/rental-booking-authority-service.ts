@@ -47,31 +47,11 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
   assertUuidIdentifier(input.customerId, 'customerId');
 
   await Promise.all([
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'booking:manage',
-    }),
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'availability:read',
-    }),
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'inventory:read',
-    }),
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'pricing:read',
-    }),
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'customer:read',
-    }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:read' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'customer:read' }),
   ]);
 
   return db.$transaction(async (transaction) => {
@@ -137,14 +117,10 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
     ]);
 
     if (!hold) {
-      throw new RentalInventoryUnavailableError(
-        'Rental availability hold is not active in this organization.',
-      );
+      throw new RentalInventoryUnavailableError('Rental availability hold is not active in this organization.');
     }
     if (!customer) {
-      throw new RentalInventoryUnavailableError(
-        'Rental booking customer is not active in this organization.',
-      );
+      throw new RentalInventoryUnavailableError('Rental booking customer is not active in this organization.');
     }
     if (
       hold.unit.status !== 'ACTIVE'
@@ -153,12 +129,10 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       || hold.unit.location.status !== 'ACTIVE'
       || hold.unit.locationId !== hold.unit.location.id
     ) {
-      throw new RentalInventoryUnavailableError(
-        'Rental unit, unit type, or operating location is no longer active.',
-      );
+      throw new RentalInventoryUnavailableError('Rental unit, unit type, or operating location is no longer active.');
     }
 
-    const [ratePeriods, blockOverlap, competingHold] = await Promise.all([
+    const [ratePeriods, blockOverlap, competingHold, bookingOverlap] = await Promise.all([
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -190,6 +164,21 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
         },
         select: { id: true },
       }),
+      transaction.rentalBookingAllocation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: hold.unit.id,
+          startsOn: { lt: hold.endsOn },
+          endsOn: { gt: hold.startsOn },
+          booking: {
+            is: {
+              organizationId: input.organizationId,
+              status: { not: 'CANCELLED' },
+            },
+          },
+        },
+        select: { id: true },
+      }),
     ]);
 
     const currentPricing = buildRentalPricingEvidence({
@@ -203,7 +192,7 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
     const completePricingEvidence = hasCompletePricingEvidence(hold);
 
     let blocker: RentalBookingConversionBlocker | null = null;
-    if (blockOverlap || competingHold) {
+    if (blockOverlap || competingHold || bookingOverlap) {
       blocker = 'INVENTORY_CONFLICT';
     } else if (!completePricingEvidence) {
       blocker = 'LEGACY_PRICING_EVIDENCE';
@@ -237,27 +226,14 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       blocker,
       checkedAt: databaseClock.now,
       authorityFingerprint,
-      hold: Object.freeze({
-        id: hold.id,
-        startsOn: hold.startsOn,
-        endsOn: hold.endsOn,
-        expiresAt: hold.expiresAt,
-      }),
+      hold: Object.freeze({ id: hold.id, startsOn: hold.startsOn, endsOn: hold.endsOn, expiresAt: hold.expiresAt }),
       customer: Object.freeze(customer),
       unit: Object.freeze({
         id: hold.unit.id,
         code: hold.unit.code,
         name: hold.unit.name,
-        unitType: Object.freeze({
-          id: hold.unit.unitType.id,
-          code: hold.unit.unitType.code,
-          name: hold.unit.unitType.name,
-        }),
-        location: Object.freeze({
-          id: hold.unit.location.id,
-          code: hold.unit.location.code,
-          name: hold.unit.location.name,
-        }),
+        unitType: Object.freeze({ id: hold.unit.unitType.id, code: hold.unit.unitType.code, name: hold.unit.unitType.name }),
+        location: Object.freeze({ id: hold.unit.location.id, code: hold.unit.location.code, name: hold.unit.location.name }),
       }),
       currentPricing: Object.freeze({
         currency: currentPricing.currency,

@@ -4,6 +4,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalPricingEvidence,
   normalizeRentalAvailabilitySearchInput,
+  RentalAvailabilityIntegrityError,
   type RentalAvailabilitySearchInput,
 } from './rental-availability-domain.ts';
 import { RentalInventoryUnavailableError } from './rental-service.ts';
@@ -22,8 +23,14 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
   });
 
   const search = normalizeRentalAvailabilitySearchInput(input.search);
-  const now = new Date();
   return db.$transaction(async (transaction) => {
+    const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS "now"
+    `;
+    if (!databaseClock?.now) {
+      throw new RentalAvailabilityIntegrityError('Database time authority is unavailable.');
+    }
+
     const unitType = await transaction.rentalUnitType.findFirst({
       where: {
         organizationId: input.organizationId,
@@ -81,9 +88,22 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
         none: {
           organizationId: input.organizationId,
           status: 'ACTIVE' as const,
-          expiresAt: { gt: now },
+          expiresAt: { gt: databaseClock.now },
           startsOn: { lt: search.endsOn },
           endsOn: { gt: search.startsOn },
+        },
+      },
+      bookingAllocations: {
+        none: {
+          organizationId: input.organizationId,
+          startsOn: { lt: search.endsOn },
+          endsOn: { gt: search.startsOn },
+          booking: {
+            is: {
+              organizationId: input.organizationId,
+              status: { not: 'CANCELLED' as const },
+            },
+          },
         },
       },
     };

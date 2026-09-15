@@ -16,7 +16,8 @@ model RentalLocation {
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "rental_locations_organization_fkey")
-  units RentalUnit[]
+  units        RentalUnit[]
+  bookings     RentalBooking[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
@@ -38,8 +39,9 @@ model RentalUnitType {
   updatedAt             DateTime                 @updatedAt @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "rental_unit_types_organization_fkey")
-  units       RentalUnit[]
-  ratePeriods RentalRatePeriod[]
+  units        RentalUnit[]
+  ratePeriods  RentalRatePeriod[]
+  bookings     RentalBooking[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
@@ -64,6 +66,8 @@ model RentalUnit {
   location           RentalLocation?            @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   availabilityBlocks RentalAvailabilityBlock[]
   availabilityHolds  RentalAvailabilityHold[]
+  bookings           RentalBooking[]            @relation("RentalBookingUnit")
+  bookingAllocations RentalBookingAllocation[]  @relation("RentalBookingAllocationUnit")
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
@@ -106,7 +110,8 @@ model RentalAvailabilityHold {
   createdAt          DateTime               @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime               @updatedAt @db.Timestamptz(6)
 
-  unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  unit    RentalUnit     @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  booking RentalBooking?
 
   @@unique([id, organizationId])
   @@unique([organizationId, idempotencyKey])
@@ -129,4 +134,63 @@ model RentalRatePeriod {
   @@unique([id, organizationId])
   @@index([organizationId, unitTypeId, startsOn, endsOn])
   @@map("rental_rate_periods")
+}
+
+model RentalBooking {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  organizationId       String                   @db.Uuid
+  customerId           String                   @db.Uuid
+  customerFirstName    String                   @db.VarChar(80)
+  customerLastName     String                   @db.VarChar(80)
+  customerEmail        String?                  @db.VarChar(320)
+  customerPhone        String?                  @db.VarChar(40)
+  holdId               String                   @db.Uuid
+  unitId               String                   @db.Uuid
+  unitTypeId           String                   @db.Uuid
+  locationId           String                   @db.Uuid
+  idempotencyKey       String                   @db.VarChar(120)
+  status               BookingStatus            @default(CONFIRMED)
+  startsOn             DateTime                 @db.Date
+  endsOn               DateTime                 @db.Date
+  currency             String                   @db.Char(3)
+  totalMinor           BigInt                   @db.BigInt
+  pricingFingerprint   String                   @db.Char(64)
+  pricingSnapshot      Json
+  pricingObservedAt    DateTime                 @db.Timestamptz(6)
+  authorityFingerprint String                   @db.Char(64)
+  createdAt            DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime                 @updatedAt @db.Timestamptz(6)
+  confirmedAt          DateTime                 @db.Timestamptz(6)
+  cancelledAt          DateTime?                @db.Timestamptz(6)
+
+  hold       RentalAvailabilityHold @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_hold_fkey")
+  unit       RentalUnit             @relation("RentalBookingUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_fkey")
+  unitType   RentalUnitType         @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_type_fkey")
+  location   RentalLocation         @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_location_fkey")
+  allocation RentalBookingAllocation?
+
+  @@unique([id, organizationId], map: "rental_bookings_id_organization_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_bookings_org_idempotency_key")
+  @@unique([organizationId, holdId], map: "rental_bookings_org_hold_key")
+  @@index([organizationId, status, createdAt], map: "rental_bookings_org_status_created_idx")
+  @@index([organizationId, customerId, createdAt], map: "rental_bookings_customer_created_idx")
+  @@index([organizationId, unitId, startsOn, endsOn], map: "rental_bookings_unit_dates_idx")
+  @@map("rental_bookings")
+}
+
+model RentalBookingAllocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  bookingId      String   @db.Uuid
+  unitId         String   @db.Uuid
+  startsOn       DateTime @db.Date
+  endsOn         DateTime @db.Date
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_allocations_booking_fkey")
+  unit    RentalUnit    @relation("RentalBookingAllocationUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_allocations_unit_fkey")
+
+  @@unique([organizationId, bookingId], map: "rental_booking_allocations_org_booking_key")
+  @@index([organizationId, unitId, startsOn, endsOn], map: "rental_booking_allocations_unit_dates_idx")
+  @@map("rental_booking_allocations")
 }
