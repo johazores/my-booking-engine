@@ -8,10 +8,11 @@ const paths = {
   writer: new URL('../src/server/bookings/rental-booking-service.ts', import.meta.url),
   availability: new URL('../src/server/inventory/rental-availability-service.ts', import.meta.url),
   authority: new URL('../src/server/bookings/rental-booking-authority-service.ts', import.meta.url),
+  holdService: new URL('../src/server/inventory/rental-hold-service.ts', import.meta.url),
   docs: new URL('../docs/rental-booking-foundation.md', import.meta.url),
 };
 
-const [schema, migration, writer, availability, authority, docs] = await Promise.all(
+const [schema, migration, writer, availability, authority, holdService, docs] = await Promise.all(
   Object.values(paths).map((path) => readFile(path, 'utf8')),
 );
 
@@ -93,13 +94,14 @@ void test('confirmation writer revalidates tenant authority under idempotency an
   }
 });
 
-void test('availability and conversion review exclude overlapping non-cancelled booking allocations', () => {
-  for (const source of [availability, authority]) {
+void test('availability, hold creation, and conversion review exclude overlapping non-cancelled booking allocations', () => {
+  for (const source of [availability, authority, holdService]) {
     assert.ok(source.includes('rentalBookingAllocation') || source.includes('bookingAllocations'));
     assert.ok(source.includes("status: { not: 'CANCELLED'"));
     assert.ok(source.includes('organizationId: input.organizationId'));
   }
   assert.ok(availability.includes('SELECT clock_timestamp() AS "now"'));
+  assert.match(holdService, /already booked for part of the requested date range/i);
 });
 
 void test('documentation keeps unimplemented rental commercial capabilities outside the production contract', () => {
