@@ -217,7 +217,15 @@ export async function ingestStripePaymentWebhook(input: {
         if (event.checkoutSession.paymentStatus !== 'paid') {
           if (currentSession.status === 'OPEN') {
             await transaction.paymentCheckoutSession.update({
-              where: { id: currentSession.id },
+              where: {
+                id: currentSession.id,
+                organizationId: input.organizationId,
+                bookingId: booking.id,
+                paymentTransactionId: payment.id,
+                providerCode: STRIPE_PROVIDER_CODE,
+                providerReference: currentSession.providerReference,
+                status: 'OPEN',
+              },
               data: {
                 status: 'COMPLETED',
                 completedAt: event.providerCreatedAt,
@@ -245,7 +253,17 @@ export async function ingestStripePaymentWebhook(input: {
 
         if (payment.status !== 'SUCCEEDED') {
           await transaction.paymentTransaction.update({
-            where: { id: payment.id },
+            where: {
+              id: payment.id,
+              organizationId: input.organizationId,
+              bookingId: booking.id,
+              providerCode: STRIPE_PROVIDER_CODE,
+              kind: 'CAPTURE',
+              status: payment.status,
+              providerReference: payment.providerReference,
+              currency: payment.currency,
+              amountMinor: payment.amountMinor,
+            },
             data: {
               providerReference: event.checkoutSession.paymentIntentReference,
               status: 'SUCCEEDED',
@@ -255,11 +273,29 @@ export async function ingestStripePaymentWebhook(input: {
           throw new PaymentConflictError('Completed Stripe Checkout Session disagrees with the recorded successful payment reference.');
         }
         if (booking.paymentStatus !== 'PAID') {
-          await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: 'PAID' } });
+          await transaction.hospitalityBooking.update({
+            where: {
+              id: booking.id,
+              organizationId: input.organizationId,
+              status: 'CONFIRMED',
+              paymentStatus: booking.paymentStatus,
+              currency: booking.currency,
+              totalMinor: booking.totalMinor,
+            },
+            data: { paymentStatus: 'PAID' },
+          });
         }
         if (currentSession.status !== 'COMPLETED') {
           await transaction.paymentCheckoutSession.update({
-            where: { id: currentSession.id },
+            where: {
+              id: currentSession.id,
+              organizationId: input.organizationId,
+              bookingId: booking.id,
+              paymentTransactionId: payment.id,
+              providerCode: STRIPE_PROVIDER_CODE,
+              providerReference: currentSession.providerReference,
+              status: 'OPEN',
+            },
             data: {
               status: 'COMPLETED',
               completedAt: event.providerCreatedAt,
@@ -299,7 +335,15 @@ export async function ingestStripePaymentWebhook(input: {
 
         if (event.checkoutSession.status === 'expired' && currentSession.status === 'OPEN') {
           await transaction.paymentCheckoutSession.update({
-            where: { id: currentSession.id },
+            where: {
+              id: currentSession.id,
+              organizationId: input.organizationId,
+              bookingId: booking.id,
+              paymentTransactionId: payment.id,
+              providerCode: STRIPE_PROVIDER_CODE,
+              providerReference: currentSession.providerReference,
+              status: 'OPEN',
+            },
             data: {
               status: 'EXPIRED',
               expiredAt: event.providerCreatedAt,
@@ -343,9 +387,29 @@ export async function ingestStripePaymentWebhook(input: {
           return persistEvent('PROCESSED', 'checkout-session-expiry-race-preserved-booking', booking.id);
         }
 
-        await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        await transaction.paymentTransaction.update({
+          where: {
+            id: payment.id,
+            organizationId: input.organizationId,
+            bookingId: booking.id,
+            providerCode: STRIPE_PROVIDER_CODE,
+            kind: 'CAPTURE',
+            status: lockedPayment.status,
+            providerReference: lockedPayment.providerReference,
+            currency: payment.currency,
+            amountMinor: payment.amountMinor,
+          },
+          data: { status: 'FAILED' },
+        });
         await transaction.hospitalityBooking.update({
-          where: { id: booking.id },
+          where: {
+            id: booking.id,
+            organizationId: input.organizationId,
+            status: lockedBooking.status,
+            paymentStatus: lockedBooking.paymentStatus,
+            currency: booking.currency,
+            totalMinor: booking.totalMinor,
+          },
           data: { status: 'CANCELLED', cancelledAt: event.providerCreatedAt },
         });
         return persistEvent('PROCESSED', decision.note, booking.id);
@@ -468,7 +532,18 @@ export async function ingestStripePaymentWebhook(input: {
       });
 
       await transaction.paymentTransaction.update({
-        where: { id: refund.id },
+        where: {
+          id: refund.id,
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          providerCode: STRIPE_PROVIDER_CODE,
+          kind: 'REFUND',
+          status: 'PENDING',
+          providerReference: currentRefund.providerReference,
+          sourceProviderReference: currentRefund.sourceProviderReference,
+          currency: currentRefund.currency,
+          amountMinor: currentRefund.amountMinor,
+        },
         data: { providerReference: event.refund.refundReference, status: reconciledStatus },
       });
 
@@ -487,7 +562,17 @@ export async function ingestStripePaymentWebhook(input: {
           throw new PaymentConflictError('Stripe refund webhook result no longer matches the authoritative booking settlement state.');
         }
         if (booking.paymentStatus !== bookingPaymentStatus) {
-          await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: bookingPaymentStatus } });
+          await transaction.hospitalityBooking.update({
+            where: {
+              id: booking.id,
+              organizationId: input.organizationId,
+              status: 'CONFIRMED',
+              paymentStatus: booking.paymentStatus,
+              currency: booking.currency,
+              totalMinor: booking.totalMinor,
+            },
+            data: { paymentStatus: bookingPaymentStatus },
+          });
         }
       }
 
@@ -608,14 +693,34 @@ export async function ingestStripePaymentWebhook(input: {
     }
 
     await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: payment.kind,
+        status: 'PENDING',
+        providerReference: current.providerReference,
+        currency: current.currency,
+        amountMinor: current.amountMinor,
+      },
       data: {
         providerReference: event.paymentIntent.providerReference,
         status: reconciliation.transactionStatus,
       },
     });
     if (booking.paymentStatus !== nextBookingPaymentStatus) {
-      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: nextBookingPaymentStatus } });
+      await transaction.hospitalityBooking.update({
+        where: {
+          id: booking.id,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: booking.paymentStatus,
+          currency: booking.currency,
+          totalMinor: booking.totalMinor,
+        },
+        data: { paymentStatus: nextBookingPaymentStatus },
+      });
     }
 
     return persistEvent('PROCESSED', reconciliation.transactionStatus === 'PENDING' ? 'payment-still-pending' : 'payment-state-applied', booking.id);
