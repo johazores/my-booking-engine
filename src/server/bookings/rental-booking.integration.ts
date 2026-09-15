@@ -8,13 +8,14 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental booking confirmation is tenant-scoped, atomic, idempotent, and protects booked inventory', async () => {
-  const [{ db }, holds, bookings, authority, availability] = await Promise.all([
+test('rental booking confirmation is tenant-scoped, atomic, idempotent, protects booked inventory, and blocks partial customer de-identification', async () => {
+  const [{ db }, holds, bookings, authority, availability, customers] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('./rental-booking-service.ts'),
     import('./rental-booking-authority-service.ts'),
     import('../inventory/rental-availability-service.ts'),
+    import('../customers/customer-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -191,6 +192,29 @@ test('rental booking confirmation is tenant-scoped, atomic, idempotent, and prot
         },
       }),
       /booking/i,
+    );
+
+    await customers.archiveCustomer({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      customerId: customer.id,
+      confirmation: 'ARCHIVE',
+    });
+    const archivedCustomer = await customers.readCustomerWithActivity({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      customerId: customer.id,
+    });
+    assert.equal(archivedCustomer?.deidentificationEligibility.allowed, false);
+    assert.equal(archivedCustomer?.deidentificationEligibility.reason, 'BOOKING_REFERENCES');
+    await assert.rejects(
+      customers.deidentifyCustomerProfile({
+        organizationId: organization.id,
+        actorUserId: admin.id,
+        customerId: customer.id,
+        confirmation: 'DEIDENTIFY',
+      }),
+      /booking records/i,
     );
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
