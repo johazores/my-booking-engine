@@ -162,7 +162,14 @@ export async function recordManualOfflinePayment(input: {
     });
 
     await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: 'CONFIRMED',
+        paymentStatus: booking.paymentStatus,
+        currency: booking.currency,
+        totalMinor: booking.totalMinor,
+      },
       data: { paymentStatus: 'PAID' },
     });
 
@@ -337,7 +344,14 @@ export async function recordManualOfflineRefund(input: {
     });
 
     await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: 'CONFIRMED',
+        paymentStatus: booking.paymentStatus,
+        currency: booking.currency,
+        totalMinor: booking.totalMinor,
+      },
       data: { paymentStatus: plan.nextPaymentStatus },
     });
 
