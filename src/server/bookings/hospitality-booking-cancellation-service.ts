@@ -72,7 +72,26 @@ export async function cancelHospitalityBooking(input: {
     }
 
     const cancelled = await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: booking.status,
+        paymentStatus: booking.paymentStatus,
+        updatedAt: booking.updatedAt,
+        propertyId: booking.propertyId,
+        roomTypeId: booking.roomTypeId,
+        ratePlanId: booking.ratePlanId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: booking.quantity,
+        currency: booking.currency,
+        accommodationSubtotalMinor: booking.accommodationSubtotalMinor,
+        taxTotalMinor: booking.taxTotalMinor,
+        feeTotalMinor: booking.feeTotalMinor,
+        addonTotalMinor: booking.addonTotalMinor,
+        totalMinor: booking.totalMinor,
+        pricingFingerprint: booking.pricingFingerprint,
+      },
       data: { status: 'CANCELLED', cancelledAt: now },
     });
 
