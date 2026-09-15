@@ -1,0 +1,30 @@
+model RentalBookingUnitSubstitution {
+  id                   String   @id @default(uuid()) @db.Uuid
+  organizationId       String   @db.Uuid
+  bookingId            String   @db.Uuid
+  idempotencyKey       String   @db.VarChar(120)
+  sourceUnitId         String   @db.Uuid
+  targetUnitId         String   @db.Uuid
+  unitTypeId           String   @db.Uuid
+  locationId           String   @db.Uuid
+  startsOn             DateTime @db.Date
+  endsOn               DateTime @db.Date
+  currency             String   @db.Char(3)
+  totalMinor           BigInt   @db.BigInt
+  pricingFingerprint   String   @db.Char(64)
+  authorityFingerprint String   @db.Char(64)
+  appliedAt            DateTime @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+
+  booking    RentalBooking  @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_unit_substitutions_booking_fkey")
+  sourceUnit RentalUnit     @relation("RentalBookingUnitSubstitutionSource", fields: [sourceUnitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_unit_substitutions_source_unit_fkey")
+  targetUnit RentalUnit     @relation("RentalBookingUnitSubstitutionTarget", fields: [targetUnitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_unit_substitutions_target_unit_fkey")
+  unitType   RentalUnitType @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_unit_substitutions_unit_type_fkey")
+  location   RentalLocation @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_unit_substitutions_location_fkey")
+
+  @@unique([id, organizationId], map: "rental_booking_unit_substitutions_id_organization_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_unit_substitutions_org_idempotency_key")
+  @@index([organizationId, bookingId, appliedAt], map: "rental_booking_unit_substitutions_booking_applied_idx")
+  @@index([organizationId, targetUnitId, startsOn, endsOn], map: "rental_booking_unit_substitutions_target_dates_idx")
+  @@map("rental_booking_unit_substitutions")
+}
