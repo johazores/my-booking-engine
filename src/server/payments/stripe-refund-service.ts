@@ -192,7 +192,22 @@ async function failInternalClaim(input: { organizationId: string; actorUserId: s
       where: { id: input.refundId, organizationId: input.organizationId, bookingId: input.bookingId, kind: 'REFUND' },
     });
     if (!refund || refund.status !== 'PENDING' || !isInternalPaymentClaimReference(refund.providerReference)) return;
-    await tx.paymentTransaction.update({ where: { id: refund.id }, data: { status: 'FAILED' } });
+    await tx.paymentTransaction.update({
+      where: {
+        id: refund.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        providerCode: PROVIDER,
+        kind: 'REFUND',
+        status: 'PENDING',
+        providerReference: refund.providerReference,
+        sourceProviderReference: refund.sourceProviderReference,
+        currency: refund.currency,
+        amountMinor: refund.amountMinor,
+        requestFingerprint: refund.requestFingerprint,
+      },
+      data: { status: 'FAILED' },
+    });
     await tx.auditEvent.create({ data: {
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -454,7 +469,19 @@ export async function refundStripeBookingPayment(input: {
     }
 
     const refund = await tx.paymentTransaction.update({
-      where: { id: existing.id },
+      where: {
+        id: existing.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        providerCode: PROVIDER,
+        kind: 'REFUND',
+        status: existing.status,
+        providerReference: existing.providerReference,
+        sourceProviderReference: existing.sourceProviderReference,
+        currency: existing.currency,
+        amountMinor: existing.amountMinor,
+        requestFingerprint: existing.requestFingerprint,
+      },
       data: { status: transactionStatus, providerReference: result.refundReference },
     });
 
@@ -473,7 +500,17 @@ export async function refundStripeBookingPayment(input: {
         throw new PaymentConflictError('Stripe refund result no longer matches the authoritative booking settlement state.');
       }
       if (currentBooking.paymentStatus !== bookingPaymentStatus) {
-        await tx.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: bookingPaymentStatus } });
+        await tx.hospitalityBooking.update({
+          where: {
+            id: booking.id,
+            organizationId: input.organizationId,
+            status: 'CONFIRMED',
+            paymentStatus: currentBooking.paymentStatus,
+            currency: currentBooking.currency,
+            totalMinor: currentBooking.totalMinor,
+          },
+          data: { paymentStatus: bookingPaymentStatus },
+        });
       }
     }
 
