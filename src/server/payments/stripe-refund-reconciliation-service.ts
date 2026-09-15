@@ -194,7 +194,18 @@ export async function reconcileStripeRefundTransaction(input: {
     ) throw new PaymentConflictError('Stripe refund settlement allocation changed during reconciliation.');
 
     const updated = await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        bookingId: refund.bookingId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'REFUND',
+        status: 'PENDING',
+        providerReference: refund.providerReference,
+        sourceProviderReference: refund.sourceProviderReference,
+        currency: refund.currency,
+        amountMinor: refund.amountMinor,
+      },
       data: { status: reconciledStatus },
     });
 
@@ -213,7 +224,17 @@ export async function reconcileStripeRefundTransaction(input: {
         throw new PaymentConflictError('Reconciled Stripe refund no longer matches the authoritative booking settlement state.');
       }
       if (currentBooking.paymentStatus !== bookingPaymentStatus) {
-        await transaction.hospitalityBooking.update({ where: { id: currentBooking.id }, data: { paymentStatus: bookingPaymentStatus } });
+        await transaction.hospitalityBooking.update({
+          where: {
+            id: currentBooking.id,
+            organizationId: input.organizationId,
+            status: 'CONFIRMED',
+            paymentStatus: currentBooking.paymentStatus,
+            currency: currentBooking.currency,
+            totalMinor: currentBooking.totalMinor,
+          },
+          data: { paymentStatus: bookingPaymentStatus },
+        });
       }
     }
 

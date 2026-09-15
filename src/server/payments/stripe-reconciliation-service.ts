@@ -119,11 +119,31 @@ export async function reconcileStripePaymentTransaction(input: {
       reconciledStatus: reconciliation.bookingPaymentStatus,
     });
     const updated = await transaction.paymentTransaction.update({
-      where: { id: current.id },
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        bookingId: payment.bookingId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: payment.kind,
+        status: 'PENDING',
+        providerReference: payment.providerReference,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+      },
       data: { status: reconciliation.transactionStatus },
     });
     if (booking.paymentStatus !== nextBookingPaymentStatus) {
-      await transaction.hospitalityBooking.update({ where: { id: booking.id }, data: { paymentStatus: nextBookingPaymentStatus } });
+      await transaction.hospitalityBooking.update({
+        where: {
+          id: booking.id,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: booking.paymentStatus,
+          currency: payment.currency,
+          totalMinor: payment.amountMinor,
+        },
+        data: { paymentStatus: nextBookingPaymentStatus },
+      });
     }
     await transaction.auditEvent.create({
       data: {
