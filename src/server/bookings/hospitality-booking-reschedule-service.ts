@@ -70,6 +70,18 @@ export async function rescheduleHospitalityBooking(input: {
     if (booking.status !== 'CONFIRMED' || !booking.allocation) {
       throw new HospitalityBookingConflictError('Only confirmed bookings with an active allocation can be rescheduled.');
     }
+    const allocation = booking.allocation;
+    if (
+      allocation.organizationId !== input.organizationId
+      || allocation.bookingId !== booking.id
+      || allocation.propertyId !== booking.propertyId
+      || allocation.roomTypeId !== booking.roomTypeId
+      || allocation.quantity !== booking.quantity
+      || allocation.arrivalDate.getTime() !== booking.arrivalDate.getTime()
+      || allocation.departureDate.getTime() !== booking.departureDate.getTime()
+    ) {
+      throw new HospitalityBookingConflictError('Booking allocation no longer matches the confirmed booking snapshot. Refresh before rescheduling.');
+    }
 
     const priorAttempt = await transaction.auditEvent.findFirst({
       where: {
@@ -237,7 +249,26 @@ export async function rescheduleHospitalityBooking(input: {
     const afterDepartureDate = formatAvailabilityDate(change.departureDate);
 
     const updated = await transaction.hospitalityBooking.update({
-      where: { id: booking.id },
+      where: {
+        id: booking.id,
+        organizationId: input.organizationId,
+        status: 'CONFIRMED',
+        paymentStatus: booking.paymentStatus,
+        updatedAt: booking.updatedAt,
+        propertyId: booking.propertyId,
+        roomTypeId: booking.roomTypeId,
+        ratePlanId: booking.ratePlanId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: booking.quantity,
+        currency: booking.currency,
+        accommodationSubtotalMinor: booking.accommodationSubtotalMinor,
+        taxTotalMinor: booking.taxTotalMinor,
+        feeTotalMinor: booking.feeTotalMinor,
+        addonTotalMinor: booking.addonTotalMinor,
+        totalMinor: booking.totalMinor,
+        pricingFingerprint: booking.pricingFingerprint,
+      },
       data: {
         arrivalDate: change.arrivalDate,
         departureDate: change.departureDate,
@@ -245,7 +276,16 @@ export async function rescheduleHospitalityBooking(input: {
       },
     });
     await transaction.hospitalityBookingAllocation.update({
-      where: { organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id } },
+      where: {
+        organizationId_bookingId: { organizationId: input.organizationId, bookingId: booking.id },
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        propertyId: allocation.propertyId,
+        roomTypeId: allocation.roomTypeId,
+        arrivalDate: allocation.arrivalDate,
+        departureDate: allocation.departureDate,
+        quantity: allocation.quantity,
+      },
       data: { arrivalDate: change.arrivalDate, departureDate: change.departureDate },
     });
     await persistHospitalityBookingPricingEvidence({
