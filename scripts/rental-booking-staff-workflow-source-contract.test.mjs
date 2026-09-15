@@ -51,6 +51,8 @@ test('staff booking lifecycle stays inside supported write authority while expos
   assert.match(bookingList, /listRentalBookings/);
   assert.match(bookingList, /booking\.allocation\.startsOn/);
   assert.match(bookingList, /unit-substitution/);
+  assert.match(bookingDetail, /unit-substitution/);
+  assert.match(bookingDetail, /Review replacement/);
   assert.match(bookingDetail, /getRentalBooking/);
   assert.match(bookingDetail, /missing its physical-unit allocation/);
   assert.match(bookingDetail, /Cancel rental booking/);
