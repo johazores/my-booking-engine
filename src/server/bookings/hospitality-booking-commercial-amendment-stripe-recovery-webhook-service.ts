@@ -147,6 +147,7 @@ async function finalizeRecoveryCapture(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
   payload: string;
+  payloadHash: string;
   event: StripeWebhookEvent;
   verifiedWebhookEventId: string;
   now: Date;
@@ -307,11 +308,32 @@ async function finalizeRecoveryCapture(input: {
   }
 
   await input.transaction.paymentTransaction.update({
-    where: { id: payment.id },
+    where: {
+      id: payment.id,
+      organizationId: input.organizationId,
+      bookingId: payment.bookingId,
+      commercialAmendmentId: selected.commercialAmendmentId,
+      idempotencyKey: payment.idempotencyKey,
+      requestFingerprint: payment.requestFingerprint,
+      providerCode: STRIPE_PROVIDER_CODE,
+      kind: 'CAPTURE',
+      status: 'AMBIGUOUS',
+      providerReference: payment.providerReference,
+      sourceProviderReference: null,
+      currency: payment.currency,
+      amountMinor: payment.amountMinor,
+    },
     data: { status: reconciliation.transactionStatus },
   });
   await input.transaction.paymentWebhookEvent.update({
-    where: { id: input.verifiedWebhookEventId },
+    where: {
+      id: input.verifiedWebhookEventId,
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerEventId: input.event.providerEventId,
+      eventType: input.event.eventType,
+      payloadHash: input.payloadHash,
+    },
     data: {
       bookingId: selected.bookingId,
       providerReference: intent.providerReference,
@@ -319,7 +341,7 @@ async function finalizeRecoveryCapture(input: {
       processingNote: reconciliation.transactionStatus === 'AMBIGUOUS'
         ? 'commercial-amendment-recovery-capture-awaiting-provider'
         : `commercial-amendment-recovery-capture-${reconciliation.transactionStatus.toLowerCase()}`,
-      processedAt: new Date(),
+      processedAt: input.now,
     },
   });
   return true;
@@ -328,6 +350,7 @@ async function finalizeRecoveryCapture(input: {
 async function finalizeRecoveryRefund(input: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
+  payloadHash: string;
   event: StripeWebhookEvent;
   verifiedWebhookEventId: string;
   now: Date;
@@ -474,11 +497,32 @@ async function finalizeRecoveryRefund(input: {
   }
 
   await input.transaction.paymentTransaction.update({
-    where: { id: refund.id },
+    where: {
+      id: refund.id,
+      organizationId: input.organizationId,
+      bookingId: refund.bookingId,
+      commercialAmendmentId: selected.commercialAmendmentId,
+      idempotencyKey: refund.idempotencyKey,
+      requestFingerprint: refund.requestFingerprint,
+      providerCode: STRIPE_PROVIDER_CODE,
+      kind: 'REFUND',
+      status: 'AMBIGUOUS',
+      providerReference: refund.providerReference,
+      sourceProviderReference: refund.sourceProviderReference,
+      currency: refund.currency,
+      amountMinor: refund.amountMinor,
+    },
     data: { status: reconciledStatus },
   });
   await input.transaction.paymentWebhookEvent.update({
-    where: { id: input.verifiedWebhookEventId },
+    where: {
+      id: input.verifiedWebhookEventId,
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerEventId: input.event.providerEventId,
+      eventType: input.event.eventType,
+      payloadHash: input.payloadHash,
+    },
     data: {
       bookingId: selected.bookingId,
       providerReference: providerRefund.refundReference,
@@ -486,7 +530,7 @@ async function finalizeRecoveryRefund(input: {
       processingNote: reconciledStatus === 'AMBIGUOUS'
         ? 'commercial-amendment-recovery-refund-awaiting-provider'
         : `commercial-amendment-recovery-refund-${reconciledStatus.toLowerCase()}`,
-      processedAt: new Date(),
+      processedAt: input.now,
     },
   });
   return true;
@@ -558,6 +602,7 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook(i
             transaction,
             organizationId: input.organizationId,
             payload: input.payload,
+            payloadHash,
             event,
             verifiedWebhookEventId: verifiedEvent.id,
             now,
@@ -565,6 +610,7 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook(i
         : await finalizeRecoveryRefund({
             transaction,
             organizationId: input.organizationId,
+            payloadHash,
             event,
             verifiedWebhookEventId: verifiedEvent.id,
             now,
