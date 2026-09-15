@@ -42,11 +42,11 @@ Tenant presentation/contact/public-booking configuration, custom-domain configur
 
 Custom-domain persistence does not claim DNS ownership verification or custom-host routing; that remains an infrastructure capability.
 
-## 8. Customers, travelers, and guests — implemented current hospitality foundation
+## 8. Customers, travelers, and guests — implemented current booking foundation
 
-Tenant-owned customer/contact records, lifecycle management, search/filter/sort/pagination, audits, and permissions are implemented. Hospitality bookings persist immutable ordered guest snapshots, and confirmed-booking traveler snapshots can be edited through the tenant-safe booking-management boundary with occupancy and idempotency enforcement.
+Tenant-owned customer/contact records, lifecycle management, search/filter/sort/pagination, audits, and permissions are implemented. Hospitality bookings persist immutable ordered guest snapshots, confirmed-booking traveler snapshots can be edited through the tenant-safe booking-management boundary, and durable rental bookings retain an immutable customer identity/contact snapshot as commercial evidence.
 
-Archived bookingless customer profiles also support an irreversible tenant-scoped de-identification action that clears mutable direct identifiers only after `customer:manage`, explicit confirmation, and a write-time re-check that no hospitality booking references the profile. Booking-linked customer copies, provider-held data, backups/exports, and legally retained evidence remain separate reviewed lifecycle work.
+Archived bookingless customer profiles support an irreversible tenant-scoped de-identification action that clears mutable direct identifiers only after `customer:manage`, explicit confirmation, and a write-time re-check that neither hospitality nor rental booking records reference the profile. Booking-linked customer/guest snapshots, provider-held data, backups/exports, and legally retained evidence remain separate reviewed lifecycle work.
 
 ## 9. Internal inventory — hospitality, tour, appointment, and rental foundations implemented in code
 
@@ -56,9 +56,9 @@ Implemented tour/package inventory includes tenant-owned products, dated departu
 
 Implemented appointment inventory includes tenant-owned services and staff, explicit staff-to-service eligibility, recurring weekly schedules with overlap protection, dependency-safe archival/removal, audited mutations, bounded management collections, and tenant-composite persistence relationships.
 
-Implemented rental inventory includes tenant-owned unit types/products, operating locations, physical units, unit-level unavailable date blocks, default daily prices and date-range rate overrides, location movement, lifecycle guards, audited mutations, bounded management collections, and tenant-composite persistence relationships.
+Implemented rental infrastructure includes tenant-owned unit types/products, operating locations, physical units, unit-level unavailable date blocks, default daily prices and date-range rate overrides, location movement, lifecycle guards, bounded management collections, temporary holds with immutable pricing evidence, server-side conversion authority, atomic hold consumption, durable confirmed rental bookings, exact physical-unit allocations, booked-inventory exclusion, customer-retention integration, and database-backed inventory race protection.
 
-These are internal inventory foundations only. Tour, appointment, and rental customer-facing availability, holds/allocation, pricing beyond the implemented rental rate configuration, booking/payment flows, supplier/calendar integrations, and marketplace inventory remain separate later business workflows. Live Prisma/migration/PostgreSQL execution remains governed by the database validation gate above.
+Tour and appointment customer booking/payment workflows remain separate later business workflows. Rental now has a server-only durable hold-to-booking infrastructure boundary, but staff/customer booking UI, cancellation/amendment/rescheduling, payments/deposits, pickup/drop-off/return, fulfillment, and external synchronization remain later rental workflow work. Live Prisma/migration/PostgreSQL execution remains governed by the database validation gate above.
 
 ## 10. Availability — hospitality allocation foundation implemented
 
@@ -66,11 +66,15 @@ Normalized availability windows, physical capacity, restrictions, temporary hold
 
 Public abandoned `PENDING_CONFIRMATION` allocations stop protecting capacity when their bounded payment-start/recovery evidence expires; staff/non-public pending allocations fail safe.
 
+Rental availability separately excludes explicit blocks, effective holds, and non-cancelled durable rental booking allocations under the physical-unit serialization boundary described in `docs/rental-inventory.md` and `docs/rental-booking-foundation.md`.
+
 ## 11. Pricing — hospitality pricing and accepted-state evidence foundation implemented
 
 Exact integer minor-unit money, tenant currency, base-rate windows, percentage/fixed taxes and fees, persisted add-ons, deterministic complete quotes, pricing fingerprints, transactional revalidation, price-change rejection, management UI, and checked-in pricing coverage are implemented.
 
 Newly accepted hospitality commercial states also persist append-only tenant-scoped pricing evidence containing canonical occupied-night, tax/fee, and add-on line details together with exact aggregates, commercial scope, selected add-ons, and the accepted fingerprint. Confirmation, same-price rescheduling, zero-delta commercial modification, and prepared non-zero commercial-amendment targets use this evidence boundary. Historical records are not fabricated by backfilling from current mutable pricing configuration.
+
+Rental holds and durable rental bookings use a separate deterministic daily-rate evidence contract based on integer minor units, immutable hold observations, fresh conversion-time revalidation, and canonical pricing fingerprints. Taxes, fees, discounts, deposits, and more complex rental pricing remain unimplemented until concrete commercial requirements exist.
 
 Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements. Jurisdiction-specific legal issuer/tax semantics remain a separate invoice dependency.
 
@@ -115,7 +119,7 @@ Still separate/not claimed complete:
 
 The legal-document browser cannot select direction, ordinal, predecessor, refund authority, legal money, or numbering. Customer/staff/accounting projections consume shared verified immutable evidence rather than reconstructing historical legal documents from current mutable booking or pricing state. See `docs/invoice-foundation.md` and `docs/customer-data-lifecycle.md`.
 
-## 14. Booking management — current commercial-amendment scope implemented
+## 14. Booking management — current hospitality commercial-amendment scope implemented
 
 Implemented:
 
@@ -136,6 +140,8 @@ Implemented:
 - retained commercial history, immutable before/after amendment evidence, and audited mutations
 
 Price-changing **date** rescheduling remains deliberately separate from the implemented room/rate/quantity/add-on amendment contract. It should only be introduced if product requirements justify extending amendment stay dates, inventory protection, provider settlement, and recovery semantics together rather than treating dates as an unsafe partial edit.
+
+Rental booking management is not part of this hospitality management contract. Rental cancellation/amendment/rescheduling needs its own physical-unit, fulfillment, payment/deposit, and commercial acceptance rules before a mutation surface is exposed.
 
 ## 15. Integration framework — current production management foundation implemented
 
@@ -168,7 +174,7 @@ The current server-only single-room Create coordinator repeats fresh offer/Rules
 
 Documented Travelport price/guarantee no-sell responses persist as dedicated `REVIEW_REQUIRED` state rather than ordinary failure. The tenant-authorized acceptance boundary verifies the exact durable marked/completed Create attempt, explicitly matches the accepted change dimensions, repeats fresh SearchComplete/Rules/Availability/traveler/integration/payment authority, and persists bounded non-secret decision evidence. A separate read-only consumption gate repeats fresh accepted authority immediately before the reviewed second sell.
 
-The one-time accepted-review second-write infrastructure is now implemented server-side. Request composition, sensitive-card validation, accepted-query selection, and OAuth finish before a serializable provider-boundary transaction archives the full bounded decision into immutable tenant-scoped acceptance history, binds it to exactly one subsequent `CREATE` attempt, clears the active acceptance slot, and writes `providerRequestStartedAt`. Only after that transaction commits can the executor send the second Create request, and it includes only the exact accepted `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` query parameter. Initial Create continues to send neither flag. A repeated provider price/guarantee change starts a new `REVIEW_REQUIRED` cycle while the prior acceptance remains in history. Other definitive failures after consumption are non-retryable, so normal Create cannot omit or silently reuse the reviewed flags. Normal retry cannot enter this path.
+The one-time accepted-review second-write infrastructure is implemented server-side. Request composition, sensitive-card validation, accepted-query selection, and OAuth finish before a serializable provider-boundary transaction archives the full bounded decision into immutable tenant-scoped acceptance history, binds it to exactly one subsequent `CREATE` attempt, clears the active acceptance slot, and writes `providerRequestStartedAt`. Only after that transaction commits can the executor send the second Create request, and it includes only the exact accepted `acceptPriceChangeInd=true` and/or `acceptGuaranteeChangeInd=true` query parameter. Initial Create continues to send neither flag. A repeated provider price/guarantee change starts a new `REVIEW_REQUIRED` cycle while the prior acceptance remains in history. Other definitive failures after consumption are non-retryable, so normal Create cannot omit or silently reuse the reviewed flags. Normal retry cannot enter this path.
 
 Travelport `reservation` capability remains unadvertised and no staff/customer reserve action should be exposed until the remaining activation gates are satisfied: live SearchComplete → Rules → Availability → initial Create → reviewed second Create → Sync/recovery verification with provisioned non-production credentials; a reviewed PCI-safe form-of-payment/guarantee source appropriate for the account; verified `13034`/locator-less correlation and retry semantics; and complete provider-truth recovery behavior. Multi-room, modification, and cancellation capabilities must be verified independently rather than inferred from create support.
 
@@ -178,4 +184,6 @@ Add Amadeus, Sabre, additional Travelport products, or other supplier/payment/em
 
 ## 18. Advanced business modules — later workflows
 
-The tenant-owned tour/package, appointment, and rental inventory foundations are already implemented under section 9. Later work here means the real business workflows built on those inventories: tour-operator availability/pricing/passenger/booking flows, appointment slot/exception/intake/booking/calendar flows, rental availability/hold/pickup-drop-off/deposit/booking flows, plus hotel/resort extensions, travel-agency workflows, and marketplace capabilities. These must reuse shared foundations only where the commercial concepts genuinely overlap rather than forcing all businesses into one generic booking model.
+The tenant-owned tour/package and appointment inventory foundations remain infrastructure-only. Rental has progressed further: temporary availability protection, immutable rate evidence, server-side booking conversion authority, durable confirmed booking/allocation persistence, booked-inventory protection, and rental-linked customer retention are implemented. The broad rental workflow remains incomplete until staff/customer booking surfaces plus cancellation/amendment/rescheduling, payment/deposit, pickup/drop-off/return, fulfillment, and external synchronization receive their own production contracts.
+
+Later work here therefore means tour-operator availability/pricing/passenger/booking flows, appointment slot/exception/intake/booking/calendar flows, the remaining rental commercial/fulfillment workflow, plus hotel/resort extensions, travel-agency workflows, and marketplace capabilities. These must reuse shared foundations only where the commercial concepts genuinely overlap rather than forcing all businesses into one generic booking model.
