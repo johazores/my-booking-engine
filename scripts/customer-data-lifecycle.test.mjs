@@ -8,20 +8,24 @@ const route = readFileSync('app/api/customers/[customer-id]/deidentify/route.ts'
 const page = readFileSync('app/customers/[customer-id]/page.tsx', 'utf8');
 const docs = readFileSync('docs/customer-data-lifecycle.md', 'utf8');
 
-test('profile de-identification is tenant-scoped, authorized, archived-only, and blocked by any booking reference', () => {
+test('profile de-identification is tenant-scoped, authorized, archived-only, and blocked by every supported booking reference', () => {
   assert.match(service, /permission: 'customer:manage'/);
   assert.match(service, /where: \{ id: input\.customerId, organizationId: input\.organizationId, status: 'ARCHIVED' \}/);
   assert.match(service, /transaction\.hospitalityBooking\.count\(\{\s*where: \{ organizationId: input\.organizationId, customerId: current\.id \}/s);
+  assert.match(service, /transaction\.rentalBooking\.count\(\{\s*where: \{ organizationId: input\.organizationId, customerId: current\.id \}/s);
+  assert.match(service, /const bookingReferenceCount = hospitalityBookingReferenceCount \+ rentalBookingReferenceCount/);
   assert.match(service, /if \(bookingReferenceCount > 0\) throw new CustomerDeidentificationBlockedError\(\)/);
 });
 
 test('customer detail derives tenant-scoped de-identification eligibility without replacing write-time authority', () => {
-  assert.match(service, /const bookingReferenceCount = customer\.status === 'ARCHIVED' && !deidentification/);
+  assert.match(service, /const \[hospitalityBookingReferenceCount, rentalBookingReferenceCount\] = customer\.status === 'ARCHIVED' && !deidentification/);
+  assert.match(service, /db\.hospitalityBooking\.count/);
+  assert.match(service, /db\.rentalBooking\.count/);
   assert.match(service, /where: \{ organizationId: input\.organizationId, customerId: input\.customerId \}/);
   assert.match(service, /reason: 'BOOKING_REFERENCES'/);
   assert.match(service, /allowed: true, reason: null/);
   assert.match(service, /return \{ customer, activity, deidentification, deidentificationEligibility \}/);
-  assert.match(service, /return db\.\$transaction\(async \(transaction\) => \{[\s\S]*?transaction\.hospitalityBooking\.count/s);
+  assert.match(service, /return db\.\$transaction\(async \(transaction\) => \{[\s\S]*?transaction\.rentalBooking\.count/s);
 });
 
 test('profile de-identification clears direct mutable identifiers and records PII-free audit evidence', () => {
@@ -55,6 +59,7 @@ test('operator UI only offers the destructive action when the server-derived eli
   assert.match(page, /const deidentificationEligibility = detail\.deidentificationEligibility/);
   assert.match(page, /canManage && deidentificationEligibility\.allowed/);
   assert.match(page, /deidentificationEligibility\.reason === 'BOOKING_REFERENCES'/);
+  assert.match(page, /no hospitality or rental booking currently references this customer/i);
   assert.match(page, /De-identification unavailable/);
   assert.match(page, /the server will check the complete eligibility rules again when you submit/);
   assert.match(page, /aria-describedby="deidentify-customer-description"/);
@@ -63,8 +68,9 @@ test('operator UI only offers the destructive action when the server-derived eli
 test('operator UI and lifecycle contract state the narrow irreversible boundary without claiming linked evidence disposal', () => {
   assert.match(page, /It does not delete booking, guest, payment, or issued legal-document evidence/);
   assert.match(page, /DEIDENTIFY/);
-  assert.match(docs, /zero hospitality booking references/i);
-  assert.match(docs, /does not mutate or delete booking guest snapshots/i);
+  assert.match(docs, /zero hospitality and rental booking references/i);
+  assert.match(docs, /rental bookings retain an immutable customer name\/contact snapshot/i);
+  assert.match(docs, /does not mutate or delete booking snapshots/i);
   assert.match(docs, /does not infer disposal authority from age/i);
   assert.match(docs, /write-time authority/i);
 });
