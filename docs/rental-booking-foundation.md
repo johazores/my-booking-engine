@@ -55,6 +55,14 @@ Rental availability now excludes overlapping non-cancelled booking allocations i
 
 The conversion-authority review also treats an overlapping non-cancelled booking allocation as an inventory conflict, so a stale hold can never be presented as conversion-ready merely because it still exists.
 
+## Customer lifecycle integration
+
+A confirmed rental booking retains an immutable customer name/contact snapshot as part of its commercial evidence. SF therefore treats a rental booking reference as a customer-data retention boundary rather than allowing the mutable customer profile to be de-identified independently.
+
+Both customer-detail eligibility and the final serializable de-identification mutation count tenant-owned hospitality and rental booking references. An archived customer referenced by either supported booking domain receives `BOOKING_REFERENCES`, the destructive action is not offered, and the mutation independently fails closed if a booking appears after the page was rendered.
+
+The rental booking PostgreSQL integration scenario now verifies this behavior after confirmation. Broader booking-linked disposal remains a separate legal/privacy lifecycle concern; the rental booking snapshot is not mutated or deleted by customer profile lifecycle operations.
+
 ## Explicit boundaries
 
 This foundation does not expose a new booking page, public route, checkout, provider integration, fake payment flow, deposit workflow, delivery/pickup promise, return workflow, tax/fee logic, cancellation action, amendment action, or notification. Those features require their own explicit product and commercial acceptance criteria.
@@ -63,6 +71,6 @@ In particular, `CONFIRMED` in this first rental contract means the tenant has du
 
 ## Validation
 
-`src/server/bookings/rental-booking-domain.test.ts` covers confirmation input and idempotent payload identity. `scripts/rental-booking-foundation-source-contract.test.mjs` protects the schema, migration guards, authorization, locking, tenant scope, pricing and authority revalidation, atomic hold consumption, allocation, audit, and booked-inventory exclusion. `src/server/bookings/rental-booking.integration.ts` is registered in the disposable PostgreSQL test runner for concurrency, replay, hold consumption, availability, and database inventory-guard verification.
+`src/server/bookings/rental-booking-domain.test.ts` covers confirmation input and idempotent payload identity. `scripts/rental-booking-foundation-source-contract.test.mjs` protects the schema, migration guards, authorization, locking, tenant scope, pricing and authority revalidation, atomic hold consumption, allocation, audit, booked-inventory exclusion, and customer-retention integration. `src/server/bookings/rental-booking.integration.ts` is registered in the disposable PostgreSQL test runner for concurrency, replay, hold consumption, availability, database inventory-guard verification, and rental-linked customer de-identification rejection.
 
 Full database validation must run through `npm run test:database` with an explicitly disposable PostgreSQL target. The repository-wide validation gate remains `npm run validate` under the Node version declared in `package.json`. No GitHub Actions are required or used.
