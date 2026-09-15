@@ -8,7 +8,7 @@ import { db } from '../database.ts';
 import { loadStripeCheckoutIntegration } from '../integrations/stripe-checkout-integration.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { PaymentProviderError } from './payment-provider.ts';
-import { paymentOperationClaimReference, paymentRequestFingerprint } from './stripe-payment-service.ts';
+import { isInternalPaymentClaimReference, paymentOperationClaimReference, paymentRequestFingerprint } from './stripe-payment-service.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
 
@@ -78,11 +78,32 @@ async function markCheckoutClaimFailed(input: {
     const payment = await transaction.paymentTransaction.findFirst({
       where: { id: input.paymentId, organizationId: input.organizationId, bookingId: input.bookingId },
     });
-    if (!payment || payment.status !== 'PENDING' || !payment.providerReference.startsWith('sf_claim_')) return;
+    if (!payment || payment.status !== 'PENDING' || !isInternalPaymentClaimReference(payment.providerReference)) return;
 
-    await transaction.paymentTransaction.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+    await transaction.paymentTransaction.update({
+      where: {
+        id: payment.id,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        kind: 'CAPTURE',
+        status: 'PENDING',
+        providerReference: payment.providerReference,
+        currency: payment.currency,
+        amountMinor: payment.amountMinor,
+        requestFingerprint: payment.requestFingerprint,
+      },
+      data: { status: 'FAILED' },
+    });
     await transaction.hospitalityBooking.updateMany({
-      where: { id: input.bookingId, organizationId: input.organizationId, paymentStatus: { in: ['UNPAID', 'FAILED'] } },
+      where: {
+        id: input.bookingId,
+        organizationId: input.organizationId,
+        status: { in: ['PENDING_CONFIRMATION', 'CONFIRMED'] },
+        paymentStatus: { in: ['UNPAID', 'FAILED'] },
+        currency: payment.currency,
+        totalMinor: payment.amountMinor,
+      },
       data: { paymentStatus: 'FAILED' },
     });
     await transaction.publicBookingAuditEvent.create({
@@ -134,6 +155,12 @@ async function persistCheckoutSession(input: {
       amountMinor: payment.amountMinor,
       requestFingerprint: input.requestFingerprint,
     });
+    if (
+      payment.status !== 'PENDING'
+      || payment.providerReference !== paymentOperationClaimReference(input.requestFingerprint)
+    ) {
+      throw new PaymentConflictError('Checkout payment claim is no longer pending provider binding.');
+    }
 
     const existingByPayment = await transaction.paymentCheckoutSession.findUnique({
       where: {
@@ -187,6 +214,8 @@ async function persistCheckoutSession(input: {
         organizationId: input.organizationId,
         status: 'PENDING_CONFIRMATION',
         paymentStatus: { in: ['UNPAID', 'FAILED'] },
+        currency: payment.currency,
+        totalMinor: payment.amountMinor,
       },
       data: { status: 'CONFIRMED', confirmedAt: input.confirmedAt },
     });
