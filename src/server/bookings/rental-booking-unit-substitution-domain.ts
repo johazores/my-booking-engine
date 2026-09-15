@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 
 export class RentalBookingUnitSubstitutionValidationError extends Error {
@@ -9,6 +10,12 @@ export class RentalBookingUnitSubstitutionValidationError extends Error {
   }
 }
 
+export type RentalBookingUnitSubstitutionApplyInput = Readonly<{
+  targetUnitId: string;
+  idempotencyKey: string;
+  authorityFingerprint: string;
+}>;
+
 export function normalizeRentalBookingUnitSubstitutionSearch(value: string | undefined) {
   const query = value?.trim() ?? '';
   if (query.length > 80) {
@@ -17,6 +24,39 @@ export function normalizeRentalBookingUnitSubstitutionSearch(value: string | und
     );
   }
   return query;
+}
+
+export function normalizeRentalBookingUnitSubstitutionApplyInput(
+  input: RentalBookingUnitSubstitutionApplyInput,
+) {
+  const targetUnitId = input.targetUnitId.trim().toLowerCase();
+  const idempotencyKey = input.idempotencyKey.trim();
+  const authorityFingerprint = input.authorityFingerprint.trim().toLowerCase();
+  if (!/^[a-f0-9-]{36}$/.test(targetUnitId)) {
+    throw new RentalBookingUnitSubstitutionValidationError('Target rental unit identifier is invalid.');
+  }
+  if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+    throw new RentalBookingUnitSubstitutionValidationError(
+      'Idempotency key must be 8-120 letters, numbers, dots, underscores, colons, or hyphens.',
+    );
+  }
+  if (!FINGERPRINT_PATTERN.test(authorityFingerprint)) {
+    throw new RentalBookingUnitSubstitutionValidationError(
+      'Rental unit substitution authority fingerprint is invalid.',
+    );
+  }
+  return Object.freeze({ targetUnitId, idempotencyKey, authorityFingerprint });
+}
+
+export function buildRentalBookingUnitSubstitutionIdempotencyKey(
+  bookingId: string,
+  targetUnitId: string,
+  authorityFingerprint: string,
+) {
+  const digest = createHash('sha256')
+    .update(`${bookingId}:${targetUnitId}:${authorityFingerprint}`)
+    .digest('hex');
+  return `rental-unit-substitution:${digest}`;
 }
 
 export function buildRentalBookingUnitSubstitutionAuthorityFingerprint(input: Readonly<{
@@ -40,7 +80,7 @@ export function buildRentalBookingUnitSubstitutionAuthorityFingerprint(input: Re
   }
 
   const snapshot = {
-    version: 1,
+    version: 2,
     organizationId: input.organizationId,
     bookingId: input.bookingId,
     bookingUpdatedAt: input.bookingUpdatedAt.toISOString(),

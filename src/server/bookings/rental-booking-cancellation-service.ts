@@ -53,16 +53,8 @@ export async function cancelRentalBooking(input: Readonly<{
   assertUuidIdentifier(input.bookingId, 'bookingId');
 
   await Promise.all([
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'booking:manage',
-    }),
-    requireOrganizationPermission({
-      organizationId: input.organizationId,
-      userId: input.actorUserId,
-      permission: 'availability:manage',
-    }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' }),
+    requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:manage' }),
   ]);
 
   return runRentalBookingCancellation(() => db.$transaction(async (transaction) => {
@@ -72,15 +64,32 @@ export async function cancelRentalBooking(input: Readonly<{
       )
     `;
 
-    const locator = await transaction.rentalBooking.findFirst({
-      where: { id: input.bookingId, organizationId: input.organizationId },
-      select: { unitId: true },
-    });
-    if (!locator) throw new RentalBookingCancellationUnavailableError();
+    const [bookingLocator, allocationLocator, latestSubstitutionLocator] = await Promise.all([
+      transaction.rentalBooking.findFirst({
+        where: { id: input.bookingId, organizationId: input.organizationId },
+        select: { unitId: true },
+      }),
+      transaction.rentalBookingAllocation.findFirst({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        select: { unitId: true },
+      }),
+      transaction.rentalBookingUnitSubstitution.findFirst({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        select: { targetUnitId: true },
+      }),
+    ]);
+    if (!bookingLocator || !allocationLocator) throw new RentalBookingCancellationUnavailableError();
+    const effectiveUnitId = latestSubstitutionLocator?.targetUnitId ?? bookingLocator.unitId;
+    if (allocationLocator.unitId !== effectiveUnitId) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking cancellation locator does not match the current effective unit assignment.',
+      );
+    }
 
     await transaction.$queryRaw`
       SELECT pg_advisory_xact_lock(
-        hashtextextended(${rentalUnitLockKey(input.organizationId, locator.unitId)}, 0)
+        hashtextextended(${rentalUnitLockKey(input.organizationId, effectiveUnitId)}, 0)
       )
     `;
 
@@ -91,12 +100,16 @@ export async function cancelRentalBooking(input: Readonly<{
       throw new RentalAvailabilityIntegrityError('Database clock is unavailable for rental booking cancellation.');
     }
 
-    const [booking, latestReschedule] = await Promise.all([
+    const [booking, latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBooking.findFirst({
-        where: { id: input.bookingId, organizationId: input.organizationId, unitId: locator.unitId },
+        where: { id: input.bookingId, organizationId: input.organizationId },
         include: { allocation: true },
       }),
       transaction.rentalBookingReschedule.findFirst({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingUnitSubstitution.findFirst({
         where: { bookingId: input.bookingId, organizationId: input.organizationId },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
@@ -104,11 +117,13 @@ export async function cancelRentalBooking(input: Readonly<{
     if (!booking) throw new RentalBookingCancellationUnavailableError();
     const effectiveStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const effectiveEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+    const currentUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
     if (
-      !booking.allocation
+      currentUnitId !== effectiveUnitId
+      || !booking.allocation
       || booking.allocation.organizationId !== input.organizationId
       || booking.allocation.bookingId !== booking.id
-      || booking.allocation.unitId !== booking.unitId
+      || booking.allocation.unitId !== currentUnitId
       || booking.allocation.startsOn.getTime() !== effectiveStartsOn.getTime()
       || booking.allocation.endsOn.getTime() !== effectiveEndsOn.getTime()
     ) {
@@ -151,10 +166,7 @@ export async function cancelRentalBooking(input: Readonly<{
         authorityFingerprint: booking.authorityFingerprint,
         confirmedAt: booking.confirmedAt,
       },
-      data: {
-        status: 'CANCELLED',
-        cancelledAt: databaseClock.now,
-      },
+      data: { status: 'CANCELLED', cancelledAt: databaseClock.now },
     });
     if (cancelled.count !== 1) {
       throw new RentalBookingCancellationConflictError('Rental booking changed before cancellation could be committed.');
@@ -177,11 +189,13 @@ export async function cancelRentalBooking(input: Readonly<{
         resourceId: booking.id,
         beforeData: {
           status: booking.status,
-          unitId: booking.unitId,
+          unitId: currentUnitId,
+          originalUnitId: booking.unitId,
           startsOn: effectiveStartsOn.toISOString(),
           endsOn: effectiveEndsOn.toISOString(),
           allocationId: booking.allocation.id,
           latestRescheduleId: latestReschedule?.id ?? null,
+          latestUnitSubstitutionId: latestSubstitution?.id ?? null,
         },
         afterData: {
           status: current.status,

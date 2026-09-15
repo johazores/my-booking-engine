@@ -48,6 +48,88 @@ async function requireUnitSubstitutionPermissions(input: Readonly<{
   await Promise.all(checks);
 }
 
+const effectiveAllocationInclude = {
+  unit: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      status: true,
+      unitTypeId: true,
+      locationId: true,
+      unitType: { select: { id: true, code: true, name: true, status: true } },
+      location: { select: { id: true, code: true, name: true, status: true } },
+    },
+  },
+} as const;
+
+function assertEffectiveAllocation(input: Readonly<{
+  organizationId: string;
+  booking: {
+    id: string;
+    unitId: string;
+    unitTypeId: string;
+    locationId: string;
+    startsOn: Date;
+    endsOn: Date;
+    allocation: null | {
+      organizationId: string;
+      bookingId: string;
+      unitId: string;
+      startsOn: Date;
+      endsOn: Date;
+      unit: {
+        id: string;
+        code: string;
+        name: string;
+        status: string;
+        unitTypeId: string;
+        locationId: string | null;
+        unitType: { id: string; code: string; name: string; status: string };
+        location: null | { id: string; code: string; name: string; status: string };
+      };
+    };
+  };
+  latestReschedule: null | { targetStartsOn: Date; targetEndsOn: Date };
+  latestSubstitution: null | { targetUnitId: string };
+}>) {
+  const startsOn = input.latestReschedule?.targetStartsOn ?? input.booking.startsOn;
+  const endsOn = input.latestReschedule?.targetEndsOn ?? input.booking.endsOn;
+  const sourceUnitId = input.latestSubstitution?.targetUnitId ?? input.booking.unitId;
+  const allocation = input.booking.allocation;
+
+  if (
+    !allocation
+    || allocation.organizationId !== input.organizationId
+    || allocation.bookingId !== input.booking.id
+    || allocation.unitId !== sourceUnitId
+    || allocation.unit.id !== sourceUnitId
+    || allocation.startsOn.getTime() !== startsOn.getTime()
+    || allocation.endsOn.getTime() !== endsOn.getTime()
+  ) {
+    throw new RentalAvailabilityIntegrityError(
+      'Rental unit substitution requires the exact effective physical-unit allocation.',
+    );
+  }
+
+  if (
+    allocation.unit.status !== 'ACTIVE'
+    || allocation.unit.unitType.status !== 'ACTIVE'
+    || !allocation.unit.location
+    || allocation.unit.location.status !== 'ACTIVE'
+    || allocation.unit.unitTypeId !== input.booking.unitTypeId
+    || allocation.unit.unitType.id !== input.booking.unitTypeId
+    || allocation.unit.locationId !== input.booking.locationId
+    || allocation.unit.location.id !== input.booking.locationId
+  ) {
+    throw new RentalBookingUnitSubstitutionUnavailableError(
+      'The effective physical unit is no longer active at the retained booking assignment.',
+    );
+  }
+
+  return Object.freeze({ startsOn, endsOn, sourceUnitId, sourceUnit: allocation.unit });
+}
+
 export async function searchRentalBookingUnitSubstitutionCandidates(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -73,35 +155,33 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
         status: 'CONFIRMED',
         cancelledAt: null,
       },
-      include: { allocation: true },
+      include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
 
-    const latestReschedule = await transaction.rentalBookingReschedule.findFirst({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    const [latestReschedule, latestSubstitution] = await Promise.all([
+      transaction.rentalBookingReschedule.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingUnitSubstitution.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
+    const effective = assertEffectiveAllocation({
+      organizationId: input.organizationId,
+      booking,
+      latestReschedule,
+      latestSubstitution,
     });
-    const startsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
-    const endsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
-    if (
-      !booking.allocation
-      || booking.allocation.organizationId !== input.organizationId
-      || booking.allocation.bookingId !== booking.id
-      || booking.allocation.unitId !== booking.unitId
-      || booking.allocation.startsOn.getTime() !== startsOn.getTime()
-      || booking.allocation.endsOn.getTime() !== endsOn.getTime()
-    ) {
-      throw new RentalAvailabilityIntegrityError(
-        'Rental unit substitution requires the exact effective physical-unit allocation.',
-      );
-    }
 
     const where = {
       organizationId: input.organizationId,
       status: 'ACTIVE' as const,
       unitTypeId: booking.unitTypeId,
       locationId: booking.locationId,
-      id: { not: booking.unitId },
+      id: { not: effective.sourceUnitId },
       unitType: {
         organizationId: input.organizationId,
         status: 'ACTIVE' as const,
@@ -134,11 +214,11 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
 
     return Object.freeze({
       bookingId: booking.id,
-      sourceUnitId: booking.unitId,
+      sourceUnitId: effective.sourceUnitId,
       unitTypeId: booking.unitTypeId,
       locationId: booking.locationId,
-      startsOn,
-      endsOn,
+      startsOn: effective.startsOn,
+      endsOn: effective.endsOn,
       query,
       total,
       limit: CANDIDATE_PAGE_SIZE,
@@ -181,59 +261,27 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
         status: 'CONFIRMED',
         cancelledAt: null,
       },
-      include: {
-        allocation: true,
-        unit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            status: true,
-            unitTypeId: true,
-            locationId: true,
-            unitType: { select: { id: true, code: true, name: true, status: true } },
-            location: { select: { id: true, code: true, name: true, status: true } },
-          },
-        },
-      },
+      include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
 
-    const latestReschedule = await transaction.rentalBookingReschedule.findFirst({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    const [latestReschedule, latestSubstitution] = await Promise.all([
+      transaction.rentalBookingReschedule.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingUnitSubstitution.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
+    const effective = assertEffectiveAllocation({
+      organizationId: input.organizationId,
+      booking,
+      latestReschedule,
+      latestSubstitution,
     });
-    const startsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
-    const endsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     const pricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
-
-    if (
-      !booking.allocation
-      || booking.allocation.organizationId !== input.organizationId
-      || booking.allocation.bookingId !== booking.id
-      || booking.allocation.unitId !== booking.unitId
-      || booking.allocation.startsOn.getTime() !== startsOn.getTime()
-      || booking.allocation.endsOn.getTime() !== endsOn.getTime()
-    ) {
-      throw new RentalAvailabilityIntegrityError(
-        'Rental unit substitution review requires the exact effective physical-unit allocation.',
-      );
-    }
-    if (
-      booking.unit.status !== 'ACTIVE'
-      || booking.unit.unitType.status !== 'ACTIVE'
-      || !booking.unit.location
-      || booking.unit.location.status !== 'ACTIVE'
-      || booking.unit.unitTypeId !== booking.unit.unitType.id
-      || booking.unit.locationId !== booking.unit.location.id
-      || booking.unitId !== booking.unit.id
-      || booking.unitTypeId !== booking.unit.unitType.id
-      || booking.locationId !== booking.unit.location.id
-    ) {
-      throw new RentalBookingUnitSubstitutionUnavailableError(
-        'The booked physical unit is no longer active at its retained operating assignment.',
-      );
-    }
 
     const targetUnit = await transaction.rentalUnit.findFirst({
       where: {
@@ -263,18 +311,16 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
     });
 
     let blocker: RentalBookingUnitSubstitutionBlocker | null = null;
-    if (!targetUnit) {
-      blocker = 'TARGET_UNAVAILABLE';
-    } else if (targetUnit.id === booking.unitId) {
-      blocker = 'NO_CHANGE';
-    } else {
+    if (!targetUnit) blocker = 'TARGET_UNAVAILABLE';
+    else if (targetUnit.id === effective.sourceUnitId) blocker = 'NO_CHANGE';
+    else {
       const [blockOverlap, competingHold, bookingOverlap] = await Promise.all([
         transaction.rentalAvailabilityBlock.findFirst({
           where: {
             organizationId: input.organizationId,
             unitId: targetUnit.id,
-            startsOn: { lt: endsOn },
-            endsOn: { gt: startsOn },
+            startsOn: { lt: effective.endsOn },
+            endsOn: { gt: effective.startsOn },
           },
           select: { id: true },
         }),
@@ -284,8 +330,8 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
             unitId: targetUnit.id,
             status: 'ACTIVE',
             expiresAt: { gt: databaseClock.now },
-            startsOn: { lt: endsOn },
-            endsOn: { gt: startsOn },
+            startsOn: { lt: effective.endsOn },
+            endsOn: { gt: effective.startsOn },
           },
           select: { id: true },
         }),
@@ -293,8 +339,9 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
           where: {
             organizationId: input.organizationId,
             unitId: targetUnit.id,
-            startsOn: { lt: endsOn },
-            endsOn: { gt: startsOn },
+            bookingId: { not: booking.id },
+            startsOn: { lt: effective.endsOn },
+            endsOn: { gt: effective.startsOn },
             booking: {
               is: {
                 organizationId: input.organizationId,
@@ -305,9 +352,7 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
           select: { id: true },
         }),
       ]);
-      if (blockOverlap || competingHold || bookingOverlap) {
-        blocker = 'INVENTORY_CONFLICT';
-      }
+      if (blockOverlap || competingHold || bookingOverlap) blocker = 'INVENTORY_CONFLICT';
     }
 
     const authorityFingerprint = targetUnit && blocker === null
@@ -315,12 +360,12 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
           organizationId: input.organizationId,
           bookingId: booking.id,
           bookingUpdatedAt: booking.updatedAt,
-          sourceUnitId: booking.unitId,
+          sourceUnitId: effective.sourceUnitId,
           targetUnitId: targetUnit.id,
           unitTypeId: booking.unitTypeId,
           locationId: booking.locationId,
-          startsOn,
-          endsOn,
+          startsOn: effective.startsOn,
+          endsOn: effective.endsOn,
           currency: booking.currency,
           totalMinor: booking.totalMinor,
           pricingFingerprint,
@@ -335,29 +380,27 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
       booking: Object.freeze({
         id: booking.id,
         updatedAt: booking.updatedAt,
-        startsOn,
-        endsOn,
+        startsOn: effective.startsOn,
+        endsOn: effective.endsOn,
         currency: booking.currency,
         totalMinor: booking.totalMinor,
         pricingFingerprint,
       }),
       sourceUnit: Object.freeze({
-        id: booking.unit.id,
-        code: booking.unit.code,
-        name: booking.unit.name,
+        id: effective.sourceUnit.id,
+        code: effective.sourceUnit.code,
+        name: effective.sourceUnit.name,
       }),
-      targetUnit: targetUnit
-        ? Object.freeze({ id: targetUnit.id, code: targetUnit.code, name: targetUnit.name })
-        : null,
+      targetUnit: targetUnit ? Object.freeze({ id: targetUnit.id, code: targetUnit.code, name: targetUnit.name }) : null,
       unitType: Object.freeze({
-        id: booking.unit.unitType.id,
-        code: booking.unit.unitType.code,
-        name: booking.unit.unitType.name,
+        id: effective.sourceUnit.unitType.id,
+        code: effective.sourceUnit.unitType.code,
+        name: effective.sourceUnit.unitType.name,
       }),
       location: Object.freeze({
-        id: booking.unit.location.id,
-        code: booking.unit.location.code,
-        name: booking.unit.location.name,
+        id: effective.sourceUnit.location.id,
+        code: effective.sourceUnit.location.code,
+        name: effective.sourceUnit.location.name,
       }),
     });
   }, { isolationLevel: 'Serializable' });

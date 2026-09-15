@@ -57,27 +57,28 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         cancelledAt: null,
       },
       include: {
-        allocation: true,
-        unit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            status: true,
-            unitTypeId: true,
-            locationId: true,
-            unitType: {
+        allocation: {
+          include: {
+            unit: {
               select: {
                 id: true,
                 code: true,
                 name: true,
                 status: true,
-                currency: true,
-                defaultDailyRateMinor: true,
+                unitTypeId: true,
+                locationId: true,
+                unitType: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    status: true,
+                    currency: true,
+                    defaultDailyRateMinor: true,
+                  },
+                },
+                location: { select: { id: true, code: true, name: true, status: true } },
               },
-            },
-            location: {
-              select: { id: true, code: true, name: true, status: true },
             },
           },
         },
@@ -85,44 +86,52 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
     });
     if (!booking) throw new RentalBookingRescheduleUnavailableError();
 
-    const latestReschedule = await transaction.rentalBookingReschedule.findFirst({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const [latestReschedule, latestSubstitution] = await Promise.all([
+      transaction.rentalBookingReschedule.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingUnitSubstitution.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id },
+        orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
     const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const sourceEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
-    const sourcePricingFingerprint =
-      latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+    const sourcePricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+    const effectiveUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
+    const allocation = booking.allocation;
 
     if (
-      !booking.allocation
-      || booking.allocation.organizationId !== input.organizationId
-      || booking.allocation.bookingId !== booking.id
-      || booking.allocation.unitId !== booking.unitId
-      || booking.allocation.startsOn.getTime() !== sourceStartsOn.getTime()
-      || booking.allocation.endsOn.getTime() !== sourceEndsOn.getTime()
+      !allocation
+      || allocation.organizationId !== input.organizationId
+      || allocation.bookingId !== booking.id
+      || allocation.unitId !== effectiveUnitId
+      || allocation.unit.id !== effectiveUnitId
+      || allocation.startsOn.getTime() !== sourceStartsOn.getTime()
+      || allocation.endsOn.getTime() !== sourceEndsOn.getTime()
     ) {
       throw new RentalAvailabilityIntegrityError('Rental reschedule review requires the exact effective physical-unit allocation.');
     }
+    const unit = allocation.unit;
     if (
-      booking.unit.status !== 'ACTIVE'
-      || booking.unit.unitType.status !== 'ACTIVE'
-      || !booking.unit.location
-      || booking.unit.location.status !== 'ACTIVE'
-      || booking.unit.unitTypeId !== booking.unit.unitType.id
-      || booking.unit.locationId !== booking.unit.location.id
-      || booking.unitId !== booking.unit.id
-      || booking.unitTypeId !== booking.unit.unitType.id
-      || booking.locationId !== booking.unit.location.id
+      unit.status !== 'ACTIVE'
+      || unit.unitType.status !== 'ACTIVE'
+      || !unit.location
+      || unit.location.status !== 'ACTIVE'
+      || unit.unitTypeId !== booking.unitTypeId
+      || unit.unitType.id !== booking.unitTypeId
+      || unit.locationId !== booking.locationId
+      || unit.location.id !== booking.locationId
     ) {
-      throw new RentalBookingRescheduleUnavailableError('The booked physical unit is no longer active at its retained operating assignment.');
+      throw new RentalBookingRescheduleUnavailableError('The effective physical unit is no longer active at its retained operating assignment.');
     }
 
     const [blockOverlap, competingHold, bookingOverlap, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
-          unitId: booking.unitId,
+          unitId: effectiveUnitId,
           startsOn: { lt: target.endsOn },
           endsOn: { gt: target.startsOn },
         },
@@ -131,7 +140,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       transaction.rentalAvailabilityHold.findFirst({
         where: {
           organizationId: input.organizationId,
-          unitId: booking.unitId,
+          unitId: effectiveUnitId,
           status: 'ACTIVE',
           expiresAt: { gt: databaseClock.now },
           startsOn: { lt: target.endsOn },
@@ -142,7 +151,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       transaction.rentalBookingAllocation.findFirst({
         where: {
           organizationId: input.organizationId,
-          unitId: booking.unitId,
+          unitId: effectiveUnitId,
           bookingId: { not: booking.id },
           startsOn: { lt: target.endsOn },
           endsOn: { gt: target.startsOn },
@@ -169,10 +178,10 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
 
     const targetPricing = buildRentalPricingEvidence({
       unitTypeId: booking.unitTypeId,
-      currency: booking.unit.unitType.currency,
+      currency: unit.unitType.currency,
       startsOn: target.startsOn,
       endsOn: target.endsOn,
-      defaultDailyRateMinor: booking.unit.unitType.defaultDailyRateMinor,
+      defaultDailyRateMinor: unit.unitType.defaultDailyRateMinor,
       ratePeriods,
     });
 
@@ -180,23 +189,19 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
     if (
       target.startsOn.getTime() === sourceStartsOn.getTime()
       && target.endsOn.getTime() === sourceEndsOn.getTime()
-    ) {
-      blocker = 'NO_CHANGE';
-    } else if (blockOverlap || competingHold || bookingOverlap) {
-      blocker = 'INVENTORY_CONFLICT';
-    } else if (
+    ) blocker = 'NO_CHANGE';
+    else if (blockOverlap || competingHold || bookingOverlap) blocker = 'INVENTORY_CONFLICT';
+    else if (
       targetPricing.currency !== booking.currency
       || BigInt(targetPricing.totalMinor) !== booking.totalMinor
-    ) {
-      blocker = 'PRICE_CHANGED';
-    }
+    ) blocker = 'PRICE_CHANGED';
 
     const authorityFingerprint = blocker === null
       ? buildRentalBookingRescheduleAuthorityFingerprint({
           organizationId: input.organizationId,
           bookingId: booking.id,
           bookingUpdatedAt: booking.updatedAt,
-          unitId: booking.unitId,
+          unitId: effectiveUnitId,
           unitTypeId: booking.unitTypeId,
           locationId: booking.locationId,
           sourceStartsOn,
@@ -217,7 +222,8 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       authorityFingerprint,
       booking: Object.freeze({
         id: booking.id,
-        unitId: booking.unitId,
+        unitId: effectiveUnitId,
+        originalUnitId: booking.unitId,
         startsOn: sourceStartsOn,
         endsOn: sourceEndsOn,
         originalStartsOn: booking.startsOn,
@@ -230,11 +236,11 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       }),
       target: Object.freeze({ startsOn: target.startsOn, endsOn: target.endsOn, days: target.days }),
       unit: Object.freeze({
-        id: booking.unit.id,
-        code: booking.unit.code,
-        name: booking.unit.name,
-        unitType: Object.freeze({ id: booking.unit.unitType.id, code: booking.unit.unitType.code, name: booking.unit.unitType.name }),
-        location: Object.freeze({ id: booking.unit.location.id, code: booking.unit.location.code, name: booking.unit.location.name }),
+        id: unit.id,
+        code: unit.code,
+        name: unit.name,
+        unitType: Object.freeze({ id: unit.unitType.id, code: unit.unitType.code, name: unit.unitType.name }),
+        location: Object.freeze({ id: unit.location.id, code: unit.location.code, name: unit.location.name }),
       }),
       targetPricing: Object.freeze({
         currency: targetPricing.currency,

@@ -18,8 +18,12 @@ function normalizePagination(page: number, pageSize: number) {
   return { page: safePage, pageSize: safePageSize };
 }
 
+const effectiveAllocationInclude = {
+  unit: { select: { id: true, code: true, name: true, status: true, locationId: true, unitTypeId: true } },
+} satisfies Prisma.RentalBookingAllocationInclude;
+
 const rentalBookingListInclude = {
-  allocation: true,
+  allocation: { include: effectiveAllocationInclude },
   unit: { select: { id: true, code: true, name: true, status: true } },
   unitType: { select: { id: true, code: true, name: true, status: true } },
   location: {
@@ -73,7 +77,7 @@ export async function getRentalBooking(input: Readonly<{
     permission: 'booking:read',
   });
 
-  const [booking, reschedules] = await Promise.all([
+  const [booking, reschedules, unitSubstitutions] = await Promise.all([
     db.rentalBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
       include: rentalBookingDetailInclude,
@@ -82,9 +86,17 @@ export async function getRentalBooking(input: Readonly<{
       where: { bookingId: input.bookingId, organizationId: input.organizationId },
       orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     }),
+    db.rentalBookingUnitSubstitution.findMany({
+      where: { bookingId: input.bookingId, organizationId: input.organizationId },
+      orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      include: {
+        sourceUnit: { select: { id: true, code: true, name: true } },
+        targetUnit: { select: { id: true, code: true, name: true } },
+      },
+    }),
   ]);
   if (!booking) throw new RentalBookingUnavailableError();
-  return Object.freeze({ ...booking, reschedules });
+  return Object.freeze({ ...booking, reschedules, unitSubstitutions });
 }
 
 export async function listRentalBookings(input: Readonly<{
@@ -117,11 +129,5 @@ export async function listRentalBookings(input: Readonly<{
     include: rentalBookingListInclude,
   });
 
-  return Object.freeze({
-    bookings,
-    total,
-    page,
-    pageSize: pagination.pageSize,
-    totalPages,
-  });
+  return Object.freeze({ bookings, total, page, pageSize: pagination.pageSize, totalPages });
 }
