@@ -24,12 +24,20 @@ const blockerMessages = {
   INVENTORY_CONFLICT: 'The selected unit has another live inventory commitment during the effective rental period.',
 } as const;
 
+const applyErrors: Record<string, string> = {
+  permission: 'Your organization role cannot apply this rental unit substitution.',
+  unavailable: 'The rental booking is no longer available for unit substitution in this organization.',
+  conflict: 'The booking, source allocation, target inventory, or review authority changed. Review the replacement unit again.',
+  validation: 'The rental unit substitution request was invalid. Review the replacement unit again.',
+  server: 'The rental unit substitution could not be completed. No successful substitution was recorded.',
+};
+
 export default async function RentalBookingUnitSubstitutionReviewPage({
   params,
   searchParams,
 }: {
   params: Promise<{ 'booking-id': string }>;
-  searchParams: Promise<{ q?: string; targetUnitId?: string }>;
+  searchParams: Promise<{ q?: string; targetUnitId?: string; error?: string }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -51,6 +59,7 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
   const canReview = hasPermission('booking:manage')
     && hasPermission('availability:read')
     && hasPermission('inventory:read');
+  const canApply = canReview && hasPermission('availability:manage');
 
   if (!canRead) {
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental bookings</p><h1>Booking access is restricted</h1><p>Your organization role does not include booking access.</p></section>;
@@ -108,15 +117,16 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental booking</p><h1>Review replacement unit</h1><p>Preflight a same-type, same-location physical-unit replacement for {booking.customerFirstName} {booking.customerLastName} without changing the accepted rental period or amount.</p></div>
+      <div><p className="sf-eyebrow">Rental booking</p><h1>Replace physical unit</h1><p>Review and apply a same-type, same-location physical-unit replacement for {booking.customerFirstName} {booking.customerLastName} without changing the accepted rental period or amount.</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
+    {query.error && applyErrors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{applyErrors[query.error]}</p> : null}
     {reviewError ? <p className="sf-alert sf-alert--error" role="alert">{reviewError}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-unit-substitution-candidates-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Candidate inventory</p><h2 id="rental-unit-substitution-candidates-title">Choose another physical unit</h2></div><span>{booking.unit.unitType.name}</span></div>
-      <p>Current unit: <strong>{booking.unit.name} ({booking.unit.code})</strong>. Effective period: <strong>{booking.allocation.startsOn.toISOString().slice(0, 10)}</strong> through <strong>{booking.allocation.endsOn.toISOString().slice(0, 10)}</strong> (end exclusive).</p>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Candidate inventory</p><h2 id="rental-unit-substitution-candidates-title">Choose another physical unit</h2></div><span>{booking.unitType.name}</span></div>
+      <p>Current effective unit: <strong>{booking.allocation.unit.name} ({booking.allocation.unit.code})</strong>. Effective period: <strong>{booking.allocation.startsOn.toISOString().slice(0, 10)}</strong> through <strong>{booking.allocation.endsOn.toISOString().slice(0, 10)}</strong> (end exclusive).</p>
       <form method="get" className="sf-inventory-form">
         <label className="sf-field"><span>Search same-type units at this location</span><input name="q" type="search" maxLength={80} defaultValue={query.q ?? ''} placeholder="Unit name or code" /></label>
         <button className="sf-button sf-button--secondary" type="submit">Search units</button>
@@ -131,7 +141,7 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
     </section>
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-unit-substitution-result-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Read-only authority</p><h2 id="rental-unit-substitution-result-title">{review.ready ? 'Replacement unit is compatible' : 'Replacement unit is blocked'}</h2></div><span>{review.targetUnit ? `${review.targetUnit.name} (${review.targetUnit.code})` : 'Unavailable target'}</span></div>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh write authority</p><h2 id="rental-unit-substitution-result-title">{review.ready ? 'Ready to apply' : 'Replacement unit is blocked'}</h2></div><span>{review.targetUnit ? `${review.targetUnit.name} (${review.targetUnit.code})` : 'Unavailable target'}</span></div>
       {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">The target unit is active, matches the retained unit type and operating location, and has no conflicting inventory commitment for the effective rental period.</p>}
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Effective rental period</strong><span>{review.booking.startsOn.toISOString().slice(0, 10)} through {review.booking.endsOn.toISOString().slice(0, 10)} (end exclusive)</span></div></div></li>
@@ -141,7 +151,12 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
         <li><div className="sf-inventory-list__primary"><div><strong>Checked</strong><span><time dateTime={review.checkedAt.toISOString()}>{review.checkedAt.toISOString()}</time></span></div></div></li>
         {review.authorityFingerprint ? <li><div className="sf-inventory-list__primary"><div><strong>Substitution authority fingerprint</strong><span><code>{review.authorityFingerprint}</code></span></div></div></li> : null}
       </ul>
-      <p className="sf-field-hint">This is a read-only preflight. It does not reserve the target unit, change the booking, or move the allocation. SF will not expose an Apply action until an append-only substitution record, dual-unit write serialization, stale-authority protection, database allocation guards, idempotency, and audit semantics are implemented together.</p>
+      {review.ready && review.authorityFingerprint && review.targetUnit && canApply ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/unit-substitution`} className="sf-inventory-form">
+        <input type="hidden" name="targetUnitId" value={review.targetUnit.id} />
+        <input type="hidden" name="authorityFingerprint" value={review.authorityFingerprint} />
+        <button className="sf-button sf-button--primary" type="submit">Apply replacement unit</button>
+      </form> : review.ready ? <p className="sf-field-hint">Your role can review this replacement but does not include availability management required to apply it.</p> : null}
+      <p className="sf-field-hint">Apply is server-authoritative: it locks the booking and both physical units in deterministic order, revalidates current source/target inventory and authority, writes append-only substitution evidence, moves only the effective allocation unit, versions the booking, and records an audit event. The immutable booking-time unit remains retained as historical evidence.</p>
     </section> : null}
   </div>;
 }

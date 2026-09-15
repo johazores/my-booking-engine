@@ -19,6 +19,8 @@ const statuses: Record<string, string> = {
   'booking-already-cancelled': 'This rental booking was already cancelled. No duplicate lifecycle change was applied.',
   'booking-rescheduled': 'Rental booking rescheduled. The effective physical-unit allocation now uses the reviewed target dates.',
   'booking-reschedule-existing': 'This rental reschedule request already completed earlier. The current effective booking is shown below.',
+  'booking-unit-substituted': 'Rental booking physical unit replaced. The new effective unit now protects the current rental period.',
+  'booking-unit-substitution-existing': 'This replacement request already completed earlier. The current effective booking is shown below.',
 };
 
 const errors: Record<string, string> = {
@@ -95,11 +97,12 @@ export default async function RentalBookingDetailPage({
     && canReadInventory;
   const effectiveStartsOn = booking.allocation?.startsOn ?? booking.startsOn;
   const effectiveEndsOn = booking.allocation?.endsOn ?? booking.endsOn;
+  const effectiveUnit = booking.allocation?.unit ?? booking.unit;
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
       <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
-      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.unitId}`}>Physical unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Reschedule rental</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Review replacement</Link> : null}</div>
+      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory && booking.allocation ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.allocation.unitId}`}>Effective unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Reschedule rental</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Replace unit</Link> : null}</div>
     </header>
 
     {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
@@ -113,11 +116,17 @@ export default async function RentalBookingDetailPage({
         {booking.reschedules.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time period</strong><span>{booking.startsOn.toISOString().slice(0, 10)} through {booking.endsOn.toISOString().slice(0, 10)} · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Confirmed</strong><span><time dateTime={booking.confirmedAt.toISOString()}>{booking.confirmedAt.toISOString()}</time></span></div></div></li>
         {booking.cancelledAt ? <li><div className="sf-inventory-list__primary"><div><strong>Cancelled</strong><span><time dateTime={booking.cancelledAt.toISOString()}>{booking.cancelledAt.toISOString()}</time></span></div></div></li> : null}
-        <li><div className="sf-inventory-list__primary"><div><strong>Physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${booking.unit.name} (${booking.unit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${booking.unit.name} (${booking.unit.code}) protects the effective rental period.` : 'Allocation missing'}</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Effective physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${effectiveUnit.name} (${effectiveUnit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${effectiveUnit.name} (${effectiveUnit.code}) protects the effective rental period.` : 'Allocation missing'}</span></div></div></li>
+        {booking.unitSubstitutions.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time unit</strong><span>{booking.unit.name} ({booking.unit.code}) · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Authorized staff can apply same-unit, price-neutral date reschedules and review same-type, same-location replacement units. Durable unit substitution, price-changing amendments, payment/deposit collection, pickup, delivery, return, and fulfillment remain separate unsupported contracts.</p>
+      <p className="sf-field-hint">Authorized staff can apply same-unit, price-neutral date reschedules, same-type same-location physical-unit substitutions, and terminal cancellation. Unit-type/location changes, price-changing amendments, payment/deposit collection, pickup, delivery, return, and fulfillment remain separate unsupported contracts.</p>
     </section>
+
+    {booking.unitSubstitutions.length > 0 ? <section className="sf-inventory-card" aria-labelledby="rental-booking-unit-substitution-history-title">
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Append-only history</p><h2 id="rental-booking-unit-substitution-history-title">Physical-unit substitution evidence</h2></div><span>{booking.unitSubstitutions.length} applied</span></div>
+      <ul className="sf-inventory-list">{booking.unitSubstitutions.map((substitution) => <li key={substitution.id}><div className="sf-inventory-list__primary"><div><strong>{substitution.sourceUnit.name} ({substitution.sourceUnit.code}) → {substitution.targetUnit.name} ({substitution.targetUnit.code})</strong><span>{substitution.startsOn.toISOString().slice(0, 10)} through {substitution.endsOn.toISOString().slice(0, 10)} · accepted {substitution.currency} {moneyMinorToMajorString(substitution.totalMinor, substitution.currency)}</span><span>Authority <code>{substitution.authorityFingerprint}</code> · applied <time dateTime={substitution.appliedAt.toISOString()}>{substitution.appliedAt.toISOString()}</time></span></div></div></li>)}</ul>
+    </section> : null}
 
     {booking.reschedules.length > 0 ? <section className="sf-inventory-card" aria-labelledby="rental-booking-reschedule-history-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Append-only history</p><h2 id="rental-booking-reschedule-history-title">Reschedule evidence</h2></div><span>{booking.reschedules.length} applied</span></div>

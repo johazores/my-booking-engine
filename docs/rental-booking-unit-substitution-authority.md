@@ -1,16 +1,12 @@
-# Rental booking unit substitution authority
+# Rental booking unit substitution lifecycle
 
-SF has a read-only, staff-only authority preflight for a deliberately narrow physical-unit substitution contract. It answers whether one confirmed tenant rental booking could move from its current physical unit to another active unit **of the same unit type at the same operating location** without changing dates or accepted money.
+SF supports a deliberately narrow staff-only physical-unit substitution contract for a confirmed tenant rental booking. The effective physical unit can move to another active unit **of the same retained unit type at the same retained operating location** without changing effective dates or accepted money.
 
-The preflight is not a booking mutation. It does not reserve the target unit, update `RentalBooking`, update `RentalBookingAllocation`, create a new commercial record, or expose an Apply action.
+The original `RentalBooking.unitId` remains immutable booking-time evidence. Current physical inventory authority comes from the live `RentalBookingAllocation`, backed by append-only `RentalBookingUnitSubstitution` history.
 
 ## Why the contract is narrow
 
-The current rental booking keeps original booking-time unit, unit type, location, dates, money, and pricing evidence immutable. Date-only rescheduling already changes only the effective allocation dates while preserving append-only reschedule evidence.
-
-A physical-unit replacement therefore cannot safely be implemented as `allocation.unitId = targetUnitId` alone. The current database guards intentionally require the allocation unit to equal the immutable booking-time unit. A production writer must first introduce append-only substitution evidence and make database allocation authority derive the current effective unit from that history, just as rescheduling derives current effective dates from append-only history.
-
-Keeping this review same-type and same-location avoids inventing product changes, transfer/location semantics, repricing, tax changes, payment adjustments, or fulfillment consequences.
+Physical-unit substitution does not imply a product change, location transfer, repricing, tax change, payment adjustment, or fulfillment consequence. Unit-type changes, location changes, price-changing amendments, payments/deposits, pickup/delivery/return, and fulfillment remain separate commercial contracts.
 
 ## Authorization and tenant scope
 
@@ -21,35 +17,17 @@ Candidate search requires:
 
 Fresh authority review additionally requires `availability:read`.
 
-Every booking, target-unit, block, hold, allocation, and reschedule query repeats the authenticated `organizationId`. A target unit ID from another tenant, another unit type, another location, or an inactive lifecycle is returned only as unavailable target authority; the identifier never grants scope.
+Apply additionally requires `availability:manage`.
 
-The page also requires `booking:read` for the staff booking surface. UI permission checks are usability only; the server services enforce their own permissions independently.
+Every booking, allocation, substitution, target-unit, block, hold, and reschedule query repeats the authenticated `organizationId`. The mutation route derives organization and actor from authenticated server context and accepts only the target unit plus the reviewed authority fingerprint. It derives idempotency server-side.
 
-## Candidate search
+## Candidate search and fresh authority
 
-`searchRentalBookingUnitSubstitutionCandidates` first proves that the tenant-owned booking is still `CONFIRMED`, not cancelled, and has the exact current allocation. Effective dates come from the latest append-only reschedule target when present, otherwise from the immutable booking-time dates.
+`searchRentalBookingUnitSubstitutionCandidates` proves that the tenant booking is still confirmed and has the exact current effective allocation. Effective dates come from the latest append-only reschedule target when present. The effective source unit comes from the latest append-only substitution target when present, otherwise from immutable booking-time evidence.
 
-It then returns at most 50 active physical units that:
+Candidate discovery is bounded to 50 active physical units in the same tenant, retained unit type, and retained operating location, excluding the current effective unit. Optional unit code/name search is bounded to 80 characters. Candidate discovery does not reserve inventory.
 
-- belong to the same organization;
-- share the booking's retained unit type;
-- share the booking's retained operating location;
-- are not the current physical unit;
-- have active unit-type and location parents.
-
-Optional unit code/name search is bounded to 80 characters. Candidate search is inventory discovery only and does not claim target availability.
-
-## Fresh authority review
-
-`reviewRentalBookingUnitSubstitutionAuthority` uses a serializable read transaction and PostgreSQL `clock_timestamp()` for effective-hold decisions. It rechecks:
-
-- confirmed, uncancelled tenant booking lifecycle;
-- exact current allocation and effective reschedule dates;
-- active/consistent source unit, unit type, and operating location;
-- active target unit in the same tenant, unit type, and location;
-- unavailable-date blocks on the target unit;
-- effective `ACTIVE` target-unit holds whose expiry is still in the future by database time;
-- overlapping allocations whose parent rental booking is not cancelled.
+`reviewRentalBookingUnitSubstitutionAuthority` then uses a serializable read transaction and PostgreSQL `clock_timestamp()` to recheck source allocation integrity and target unavailable blocks, effective holds, and overlapping non-cancelled booking allocations.
 
 Review blockers are:
 
@@ -59,42 +37,60 @@ Review blockers are:
 
 ## Authority fingerprint
 
-A ready review returns a deterministic SHA-256 authority fingerprint binding:
+A ready review returns a version-2 deterministic SHA-256 fingerprint binding:
 
-- version 1;
 - organization and booking IDs;
 - observed booking `updatedAt` version;
-- source and target physical unit IDs;
+- current source and requested target physical unit IDs;
 - retained unit type and operating location IDs;
 - exact effective start/end dates;
 - accepted currency and total minor units;
-- effective pricing fingerprint, including the latest append-only reschedule pricing fingerprint when applicable.
+- effective pricing fingerprint, including latest append-only reschedule pricing when applicable.
 
-The fingerprint is server-side review evidence only. It is not write authority by itself and is not persisted by this slice.
+The review itself reserves nothing. `applyRentalBookingUnitSubstitution` reacquires write authority under locks before mutating anything.
 
-## Staff UX
+## Durable writer
 
-`/inventory/rentals/bookings/[booking-id]/unit-substitution` provides bounded candidate search and fresh read-only authority review. The page is explicit that the review reserves nothing and changes nothing. No POST route or Apply button exists.
+`applyRentalBookingUnitSubstitution` requires `booking:manage`, `availability:read`, `availability:manage`, and `inventory:read`.
 
-## Required writer boundary before activation
+The writer runs in a serializable transaction with bounded retries. It acquires the tenant/booking advisory lock first, then locks the current source and requested target physical units in deterministic lexical order. Under those locks it:
 
-A future durable substitution writer must be implemented as one coherent persistence boundary. At minimum it must:
+1. resolves the latest append-only substitution and reschedule evidence;
+2. verifies the exact current allocation, active source/target units, retained unit type, and retained operating location;
+3. uses PostgreSQL time for effective-hold checks;
+4. rejects target unavailable blocks, effective holds, and other non-cancelled booking allocations;
+5. rebuilds the versioned substitution fingerprint and rejects stale review authority;
+6. inserts append-only `RentalBookingUnitSubstitution` evidence;
+7. moves only `RentalBookingAllocation.unitId` from the exact observed source to target;
+8. advances booking `updatedAt` without rewriting immutable booking-time unit/date/money evidence;
+9. records a secret-free `booking.rental.unit-substituted` audit event.
 
-1. add append-only tenant-scoped substitution evidence with stable server-derived idempotency;
-2. serialize the booking plus both source and target physical units in deterministic lock order;
-3. rebuild fresh authority after locks are acquired;
-4. reject stale booking version, source allocation, lifecycle, target inventory, type, or location evidence;
-5. move only the effective allocation unit while preserving immutable booking-time unit evidence;
-6. update database allocation/booking/reschedule guards so the effective unit is derived from latest substitution history rather than weakening ownership constraints;
-7. prevent races with holds, blocks, relocation/archive, rescheduling, cancellation, and another substitution;
-8. retain append-only audit evidence without customer or secret data;
-9. support idempotent replay without making a stale target look current;
-10. add guarded PostgreSQL concurrency and cross-tenant coverage.
+Idempotency is derived from booking ID, target unit ID, and reviewed authority. Replay succeeds only while the matching substitution is still the latest/current substitution and the effective allocation still points at its target. Replaying older substitution authority after a later substitution fails closed instead of pretending the old target is current.
 
-Location-changing substitution, unit-type changes, price-changing amendments, payments/deposits, cancellation financial policy, pickup/delivery/return, and fulfillment remain separate commercial contracts.
+## Database protection
+
+The migration adds same-tenant booking/source/target foreign keys, append-only substitution evidence, and a database function that resolves the effective physical unit from the latest substitution target or original booking-time unit.
+
+Database guards now use that effective unit for:
+
+- booking allocation validation;
+- confirmed-booking exact-allocation checks;
+- reschedule source/target allocation checks;
+- cancellation serialization;
+- substitution source/target validation.
+
+The substitution insert trigger takes the same booking and deterministic source/target unit locks, validates same-type/same-location lifecycle evidence, exact dates/money/pricing evidence, and target conflicts. A deferred constraint requires the target allocation before commit.
+
+Rental units with a non-cancelled booking allocation cannot be archived, relocated, or retyped at the database boundary. This prevents an inventory-management write from invalidating the effective booked assignment while a booking is live.
+
+## Staff UX and read model
+
+`/inventory/rentals/bookings/[booking-id]/unit-substitution` provides bounded candidate search and fresh review. Apply is shown only when review is ready and the actor has availability-management authority.
+
+The booking list and detail use `RentalBookingAllocation.unit` as the current effective unit. Detail separately preserves original booking-time unit evidence and renders append-only substitution history, so operations staff can distinguish current inventory authority from historical booking evidence.
 
 ## Validation boundary
 
-Focused dependency-free tests protect deterministic authority fingerprinting, bounded search, server authorization, tenant-scoped candidate/target queries, database-time hold checks, inventory-conflict checks, and the deliberate absence of a mutation action.
+Focused domain/source contracts protect versioned fingerprinting, server-derived idempotency, bounded tenant-scoped candidate search, deterministic dual-unit serialization, stale-authority rejection, append-only persistence, effective-unit database guards, neighboring reschedule/cancellation behavior, and staff-route authority.
 
-Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database behavior must be validated through `npm run test:database` against an explicitly disposable PostgreSQL target once the durable writer exists. GitHub Actions are not required or used.
+Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database behavior must be validated through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
