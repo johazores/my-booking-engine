@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const paths = {
+  rootSchema: new URL('../prisma/schema.prisma', import.meta.url),
   schema: new URL('../prisma/rental-inventory.prisma', import.meta.url),
   migration: new URL('../prisma/migrations/20260915123000_rental_booking_foundation/migration.sql', import.meta.url),
+  customerIntegrityMigration: new URL('../prisma/migrations/20260915131500_rental_booking_customer_integrity/migration.sql', import.meta.url),
   writer: new URL('../src/server/bookings/rental-booking-service.ts', import.meta.url),
   availability: new URL('../src/server/inventory/rental-availability-service.ts', import.meta.url),
   authority: new URL('../src/server/bookings/rental-booking-authority-service.ts', import.meta.url),
@@ -15,7 +17,7 @@ const paths = {
   customerDocs: new URL('../docs/customer-data-lifecycle.md', import.meta.url),
 };
 
-const [schema, migration, writer, availability, authority, holdService, customerService, docs, inventoryDocs, customerDocs] = await Promise.all(
+const [rootSchema, schema, migration, customerIntegrityMigration, writer, availability, authority, holdService, customerService, docs, inventoryDocs, customerDocs] = await Promise.all(
   Object.values(paths).map((path) => readFile(path, 'utf8')),
 );
 
@@ -44,6 +46,19 @@ void test('rental booking schema persists tenant-owned commercial evidence and o
     assert.ok(schema.includes(token), `missing rental booking schema token: ${token}`);
   }
   assert.ok(schema.includes('bookingAllocations RentalBookingAllocation[]'));
+});
+
+void test('rental booking customer ownership is represented in Prisma and protected by a composite database foreign key', () => {
+  assert.match(rootSchema, /rentalBookings\s+RentalBooking\[\]/);
+  assert.match(
+    schema,
+    /customer\s+Customer\s+@relation\(fields: \[customerId, organizationId\], references: \[id, organizationId\], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_customer_fkey"\)/,
+  );
+  assert.match(customerIntegrityMigration, /ADD CONSTRAINT "rental_bookings_customer_fkey"/);
+  assert.match(customerIntegrityMigration, /FOREIGN KEY \("customerId", "organizationId"\)/);
+  assert.match(customerIntegrityMigration, /REFERENCES "customers"\("id", "organizationId"\)/);
+  assert.match(customerIntegrityMigration, /ON DELETE RESTRICT/);
+  assert.match(customerIntegrityMigration, /ON UPDATE CASCADE/);
 });
 
 void test('database guards serialize unit inventory and protect customer, hold, booking, and allocation integrity', () => {
