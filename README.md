@@ -21,14 +21,14 @@ The current repository includes real persisted production boundaries for:
 - first-party email/password authentication, opaque sessions, organization membership, roles, permissions, and audited tenant administration;
 - a persistent responsive SF application shell with tenant switching, account controls, and real tenant data;
 - tenant branding and white-label settings applied to both the authenticated workspace and public hospitality booking route;
-- tenant-owned customers, immutable booking-specific guest snapshots, and a narrow irreversible de-identification workflow for archived customer profiles with no hospitality booking references;
+- tenant-owned customers, immutable booking/customer snapshots, and a narrow irreversible de-identification workflow for archived customer profiles with no supported hospitality or rental booking references;
 - hospitality properties, room types, rooms, amenities, images, rate plans, restrictions, availability windows, holds, allocation locking, pricing, taxes/fees, and add-ons;
 - tenant-owned tour/package inventory with departure schedules, explicit configured capacity, add-ons, audited lifecycle controls, and bounded management collections;
 - tenant-owned appointment inventory with services, staff, explicit staff/service eligibility, recurring weekly schedules, audited lifecycle controls, and bounded management collections;
-- tenant-owned rental inventory with unit types, operating locations, physical units, unavailable date blocks, daily rate configuration and date-range rate overrides, audited lifecycle controls, and bounded management collections;
+- tenant-owned rental inventory with unit types, operating locations, physical units, unavailable date blocks, daily rate configuration and date-range rate overrides, temporary holds, conversion-authority review, durable confirmed rental bookings/physical-unit allocations, audited lifecycle controls, and booked-inventory protection;
 - exact-money hospitality quoting, price fingerprints, atomic hold-to-booking confirmation, idempotency, permanent booking allocations, and booking audit history;
-- authenticated booking detail, cancellation, same-price date rescheduling, traveler snapshot editing, provider-aware refunds, receipts, audit history, and room/rate/quantity/add-on commercial modification;
-- an explicit versioned commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
+- authenticated hospitality booking detail, cancellation, same-price date rescheduling, traveler snapshot editing, provider-aware refunds, receipts, audit history, and room/rate/quantity/add-on commercial modification;
+- an explicit versioned hospitality commercial-amendment lifecycle for non-zero room/rate/quantity/add-on price deltas, including target inventory protection, manual/Stripe settlement, reconciliation, final serializable apply, expiry, and compensation recovery;
 - a normalized payment contract plus manual/offline payments and a real Stripe adapter for authorization/capture, hosted Checkout, verified webhooks, reconciliation, refunds, public payment recovery, and commercial-amendment settlement;
 - Australian hospitality legal-document infrastructure with immutable issuer/recipient/pricing evidence, serializable tax-invoice numbering and issuance, direction-aware commercial adjustment-note chains, supported cancellation adjustments, deterministic PDFs for the current lossless-text contract, tenant registers/accounting exports, retention boundaries, and reconciliation;
 - encrypted tenant integration credentials, provider capabilities, lifecycle management, connection health, rotation, disable/enable/archive/reconnect behavior, and secret-safe auditing;
@@ -41,11 +41,12 @@ Provider-specific behavior remains behind adapters. Browser redirects are never 
 
 The repository does not pretend unfinished product areas are complete. Notable remaining work includes:
 
-- price-changing date reschedules beyond the current same-price reschedule contract, if that product capability is prioritized;
+- price-changing hospitality date reschedules beyond the current same-price reschedule contract, if that product capability is prioritized;
 - remaining Australian legal-document boundaries such as mixed-taxability or partial/non-standard-GST adjustments, generic correction/void/reissue, durable re-authenticated customer history and email/resend delivery, universal Unicode-safe PDF rendering, broader booking-linked customer-data disposal, production database/toolchain validation, and jurisdiction/legal review;
 - activation of the implemented Travelport Stays reservation lifecycle only after a concrete reviewed PCI-safe FormOfPayment/guarantee source, live non-production end-to-end verification, and authoritative locator-less/retry/recovery semantics are proven, plus later provider-specific supplier integrations when required;
 - additional payment/email/SMS providers only when there is a real product requirement;
-- customer-facing availability, pricing, booking, payment, and provider/calendar workflows for the implemented tour, appointment, and rental inventory foundations; and
+- customer-facing availability, pricing, booking, payment, and provider/calendar workflows for tour and appointment inventory;
+- staff/customer rental booking UI plus rental cancellation, amendments/rescheduling, payment/deposit, pickup/drop-off/return, fulfillment, and external synchronization on top of the now-durable rental hold-to-booking infrastructure; and
 - marketplace capabilities and other advanced business modules only when concrete product requirements justify them.
 
 ## Setup
@@ -86,6 +87,7 @@ Start with:
 - `docs/tour-inventory.md`
 - `docs/appointment-inventory.md`
 - `docs/rental-inventory.md`
+- `docs/rental-booking-foundation.md`
 - `docs/booking-flow.md`
 - `docs/public-booking-payments.md`
 - `docs/payments.md`
