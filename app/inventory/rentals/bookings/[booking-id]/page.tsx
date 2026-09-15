@@ -58,6 +58,10 @@ export default async function RentalBookingDetailPage({
     authorization.platformAdmin
       || (authorization.role && organizationRoleHasPermission(authorization.role, 'inventory:read')),
   );
+  const canReadPricing = Boolean(
+    authorization.platformAdmin
+      || (authorization.role && organizationRoleHasPermission(authorization.role, 'pricing:read')),
+  );
   const canManageBooking = Boolean(
     authorization.platformAdmin
       || (authorization.role && organizationRoleHasPermission(authorization.role, 'booking:manage')),
@@ -90,11 +94,17 @@ export default async function RentalBookingDetailPage({
     && Boolean(booking.allocation)
     && canManageBooking
     && canManageAvailability;
+  const canReviewReschedule = booking.status === 'CONFIRMED'
+    && Boolean(booking.allocation)
+    && canManageBooking
+    && canReadAvailability
+    && canReadInventory
+    && canReadPricing;
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
       <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
-      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.unitId}`}>Physical unit</Link> : null}</div>
+      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.unitId}`}>Physical unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Reschedule preflight</Link> : null}</div>
     </header>
 
     {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
@@ -110,7 +120,7 @@ export default async function RentalBookingDetailPage({
         <li><div className="sf-inventory-list__primary"><div><strong>Physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${booking.unit.name} (${booking.unit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${booking.unit.name} (${booking.unit.code}) is allocated for the exact booking dates.` : 'Allocation missing'}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Amendments, rescheduling, payment/deposit collection, pickup, delivery, return, and fulfillment are not implied by this booking state and have no primary action on this screen.</p>
+      <p className="sf-field-hint">A read-only price-neutral date-reschedule preflight is available to authorized staff. No durable reschedule writer, unit substitution, payment/deposit collection, pickup, delivery, return, or fulfillment action is implied by this booking state.</p>
     </section>
 
     {canCancel ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title">
