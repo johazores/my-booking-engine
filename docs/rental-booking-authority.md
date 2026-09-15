@@ -25,18 +25,19 @@ This keeps browser-visible review separate from persistence authority and preven
 After confirmation, SF separately supports:
 
 - terminal inventory-release cancellation, documented in [rental-booking-cancellation.md](./rental-booking-cancellation.md)
-- same-unit, price-neutral date rescheduling with append-only evidence and fresh inventory/pricing authority, documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md)
+- price-neutral date rescheduling on the current effective unit with append-only evidence and fresh inventory/pricing authority, documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md)
+- same-type/same-location physical-unit substitution with append-only evidence and dual-unit serialization, documented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md)
 
-Neither downstream lifecycle is authority produced by the initial conversion review. Each reacquires its own current server authority under booking/unit serialization.
+None of those downstream lifecycle changes is authority produced by the initial conversion review. Each reacquires its own current server authority under booking/current-inventory serialization.
 
 ## Product boundaries
 
-The current rental contract still does not invent customer-selected pickup/drop-off promises, one-way return rules, delivery zones, opening hours, deposits, payment processing, taxes/fees beyond existing daily-rate evidence, physical-unit substitution, price-changing amendments/rescheduling, customer self-service, fulfillment notifications, or external synchronization.
+The current rental contract still does not invent customer-selected pickup/drop-off promises, one-way return rules, delivery zones, opening hours, deposits, payment processing, taxes/fees beyond existing daily-rate evidence, unit-type/location-changing substitution, price-changing amendments/rescheduling, customer self-service, fulfillment notifications, or external synchronization.
 
 No route or primary action should present those unsupported capabilities as real until their server-side contracts exist.
 
 ## Validation
 
-`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scope, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only review boundary.
+`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scope, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only conversion-review boundary.
 
 Full repository validation requires the repository-supported Node 24 environment. Prisma/database execution remains gated on an explicitly disposable PostgreSQL target. No GitHub Actions are required or used.

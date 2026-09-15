@@ -19,7 +19,7 @@ import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.t
 
 const blockerMessages = {
   NO_CHANGE: 'Choose dates that differ from the current effective rental period.',
-  INVENTORY_CONFLICT: 'The current physical unit has another live inventory commitment in the requested target range.',
+  INVENTORY_CONFLICT: 'The current effective physical unit has another live inventory commitment in the requested target range.',
   PRICE_CHANGED: 'Current target-date pricing changes the accepted aggregate amount. Price-changing rental amendments are not implemented.',
 } as const;
 
@@ -115,7 +115,7 @@ export default async function RentalBookingRescheduleReviewPage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental booking</p><h1>Reschedule rental</h1><p>Review and apply a price-neutral date change for {booking.customerFirstName} {booking.customerLastName} on the same physical unit.</p></div>
+      <div><p className="sf-eyebrow">Rental booking</p><h1>Reschedule rental</h1><p>Review and apply a price-neutral date change for {booking.customerFirstName} {booking.customerLastName} on the current effective physical unit.</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
@@ -123,19 +123,19 @@ export default async function RentalBookingRescheduleReviewPage({
     {reviewError ? <p className="sf-alert sf-alert--error" role="alert">{reviewError}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-reschedule-review-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh authority</p><h2 id="rental-reschedule-review-title">Target date review</h2></div><span>{booking.unit.name} ({booking.unit.code})</span></div>
-      <p>Current effective period: <strong>{booking.allocation.startsOn.toISOString().slice(0, 10)}</strong> through <strong>{booking.allocation.endsOn.toISOString().slice(0, 10)}</strong> (end exclusive). The immutable booking-time period remains retained separately as historical evidence.</p>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh authority</p><h2 id="rental-reschedule-review-title">Target date review</h2></div><span>{booking.allocation.unit.name} ({booking.allocation.unit.code})</span></div>
+      <p>Current effective period: <strong>{booking.allocation.startsOn.toISOString().slice(0, 10)}</strong> through <strong>{booking.allocation.endsOn.toISOString().slice(0, 10)}</strong> (end exclusive). Original booking-time period and unit evidence remain retained separately as history.</p>
       <form method="get" className="sf-inventory-form">
         <label className="sf-field"><span>Target start date</span><input name="startsOn" type="date" required defaultValue={defaultStartsOn} /></label>
         <label className="sf-field"><span>Target end date</span><input name="endsOn" type="date" required defaultValue={defaultEndsOn} /></label>
         <button className="sf-button sf-button--primary" type="submit">Review target dates</button>
       </form>
-      <p className="sf-field-hint">The review does not reserve inventory. Apply performs a second server-side validation under booking and physical-unit locks before changing the effective allocation.</p>
+      <p className="sf-field-hint">The review does not reserve inventory. Apply performs a second server-side validation under booking and current effective physical-unit locks before changing the effective allocation dates.</p>
     </section>
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-reschedule-result-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Authority result</p><h2 id="rental-reschedule-result-title">{review.ready ? 'Ready to apply' : 'Target dates blocked'}</h2></div><span>{review.targetPricing.currency} {moneyMinorToMajorString(review.targetPricing.totalMinor, review.targetPricing.currency)}</span></div>
-      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">Inventory and current aggregate pricing are compatible with the supported same-unit, price-neutral reschedule contract.</p>}
+      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">Inventory and current aggregate pricing are compatible with the supported price-neutral reschedule contract on the current effective unit.</p>}
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Source period</strong><span>{review.booking.startsOn.toISOString().slice(0, 10)} through {review.booking.endsOn.toISOString().slice(0, 10)}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Target period</strong><span>{review.target.startsOn.toISOString().slice(0, 10)} through {review.target.endsOn.toISOString().slice(0, 10)} · {review.target.days} day(s)</span></div></div></li>
@@ -149,7 +149,7 @@ export default async function RentalBookingRescheduleReviewPage({
         <input type="hidden" name="authorityFingerprint" value={review.authorityFingerprint} />
         <button className="sf-button sf-button--primary" type="submit">Apply reschedule</button>
       </form> : review.ready ? <p className="sf-field-hint">Your role can review this change but does not include availability management required to apply it.</p> : null}
-      <p className="sf-field-hint">Apply remains server-authoritative: it rebuilds inventory and price evidence under locks, writes an append-only reschedule record, moves only the effective allocation dates, versions the booking, and records an audit event. Unit substitution and price-changing amendments remain unsupported.</p>
+      <p className="sf-field-hint">Apply remains server-authoritative: it rebuilds inventory and price evidence under locks, writes append-only reschedule evidence, moves only effective allocation dates, versions the booking, and records an audit event. Same-type same-location unit substitution is supported separately; unit-type/location changes and price-changing amendments remain unsupported.</p>
     </section> : null}
   </div>;
 }

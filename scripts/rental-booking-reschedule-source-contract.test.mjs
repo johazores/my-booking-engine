@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const schema = readFileSync('prisma/rental-booking-reschedule.prisma', 'utf8');
 const migration = readFileSync('prisma/migrations/20260915173000_rental_booking_reschedule_lifecycle/migration.sql', 'utf8');
+const substitutionMigration = readFileSync('prisma/migrations/20260915232000_rental_booking_unit_substitution_lifecycle/migration.sql', 'utf8');
 const domain = readFileSync('src/server/bookings/rental-booking-reschedule-domain.ts', 'utf8');
 const review = readFileSync('src/server/bookings/rental-booking-reschedule-authority-service.ts', 'utf8');
 const writer = readFileSync('src/server/bookings/rental-booking-reschedule-service.ts', 'utf8');
@@ -15,7 +16,7 @@ const detail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.ts
 const list = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const docs = readFileSync('docs/rental-booking-reschedule-lifecycle.md', 'utf8');
 
-test('reschedule evidence is append-only and database allocation authority follows the latest target', () => {
+test('reschedule evidence is append-only and database allocation authority follows latest dates and effective unit', () => {
   for (const token of [
     'model RentalBookingReschedule',
     '@@unique([organizationId, idempotencyKey]',
@@ -37,9 +38,12 @@ test('reschedule evidence is append-only and database allocation authority follo
   assert.match(migration, /booking\."status" <> 'CONFIRMED'/);
   assert.match(migration, /allocation\."startsOn" = NEW\."targetStartsOn"/);
   assert.match(migration, /allocation\."endsOn" = NEW\."targetEndsOn"/);
+  assert.match(substitutionMigration, /sf_rental_booking_effective_unit_id/);
+  assert.match(substitutionMigration, /expected_unit_id := sf_rental_booking_effective_unit_id/);
+  assert.match(substitutionMigration, /allocation\."unitId" = expected_unit_id/);
 });
 
-test('review and apply use tenant permissions, shared locks, fresh inventory, pricing, and stale-authority protection', () => {
+test('review and apply use tenant permissions, effective-unit locks, fresh inventory, pricing, and stale-authority protection', () => {
   for (const token of [
     "permission: 'booking:manage'",
     "permission: 'availability:read'",
@@ -49,6 +53,8 @@ test('review and apply use tenant permissions, shared locks, fresh inventory, pr
     "status: 'CONFIRMED'",
     'cancelledAt: null',
     'rentalBookingReschedule.findFirst',
+    'rentalBookingUnitSubstitution.findFirst',
+    'effectiveUnitId',
     'sourceStartsOn',
     'sourceEndsOn',
     'sourcePricingFingerprint',
@@ -61,7 +67,9 @@ test('review and apply use tenant permissions, shared locks, fresh inventory, pr
     "permission: 'inventory:read'",
     "permission: 'pricing:read'",
     'rentalBookingLockKey(input.organizationId, input.bookingId)',
-    'rentalUnitLockKey(input.organizationId, locator.unitId)',
+    'rentalBookingUnitSubstitution.findFirst',
+    'effectiveUnitId',
+    'rentalUnitLockKey(input.organizationId, effectiveUnitId)',
     'SELECT clock_timestamp() AS "now"',
     "isolationLevel: 'Serializable'",
     'bookingId: { not: booking.id }',
@@ -82,7 +90,8 @@ test('review and apply use tenant permissions, shared locks, fresh inventory, pr
   assert.match(domain, /rental-reschedule:/);
 });
 
-test('writer preserves immutable booking evidence while changing only effective allocation and booking version', () => {
+test('writer preserves immutable booking evidence while changing only effective allocation dates and booking version', () => {
+  assert.match(writer, /unitId: currentUnitId/);
   assert.match(writer, /data: \{\s*startsOn: requested\.startsOn,\s*endsOn: requested\.endsOn,\s*\}/);
   assert.match(writer, /data: \{ updatedAt: databaseClock\.now \}/);
   assert.match(writer, /targetPricingSnapshot: toJsonInput\(targetPricing\.snapshot\)/);
@@ -103,18 +112,23 @@ test('staff route derives tenant actor and idempotency authority server-side and
   assert.match(page, /Apply reschedule/);
   assert.match(page, /authorityFingerprint/);
   assert.match(page, /canApply = canReview && hasPermission\('availability:manage'\)/);
+  assert.match(page, /booking\.allocation\.unit\.name/);
 });
 
-test('read and cancellation paths use current effective allocation after reschedules', () => {
+test('read and cancellation paths use current effective allocation after reschedules and substitutions', () => {
   assert.match(readService, /rentalBookingReschedule\.findMany/);
+  assert.match(readService, /rentalBookingUnitSubstitution\.findMany/);
   assert.match(readService, /organizationId: input\.organizationId/);
   assert.match(detail, /Effective rental period/);
   assert.match(detail, /Original booking-time period/);
+  assert.match(detail, /Physical-unit substitution evidence/);
   assert.match(detail, /Append-only history/);
   assert.match(list, /booking\.allocation\.startsOn/);
   assert.match(list, /booking\.allocation\.endsOn/);
+  assert.match(list, /booking\.allocation\.unit\.name/);
   assert.match(cancellation, /rentalBookingReschedule\.findFirst/);
+  assert.match(cancellation, /rentalBookingUnitSubstitution\.findFirst/);
   assert.match(cancellation, /effectiveStartsOn/);
   assert.match(cancellation, /effectiveEndsOn/);
-  assert.match(cancellation, /latestRescheduleId/);
+  assert.match(cancellation, /latestUnitSubstitutionId/);
 });
