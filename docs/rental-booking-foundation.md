@@ -8,6 +8,8 @@ SF now has the first durable rental booking persistence boundary for converting 
 
 `RentalBookingAllocation` is the physical inventory commitment. It binds one confirmed booking to one tenant-owned physical unit and exact date range. A deferred database constraint requires every confirmed rental booking to finish its transaction with one matching allocation.
 
+The rental booking/customer relationship is modeled in Prisma on both sides and backed by the composite database foreign key `(customerId, organizationId) -> customers(id, organizationId)` with delete restriction. A durable rental booking therefore cannot silently outlive or cross-bind its tenant-owned customer through a direct database delete.
+
 The first lifecycle deliberately persists only `CONFIRMED` and `CANCELLED` states even though the shared booking enum also contains `PENDING_CONFIRMATION`. No rental cancellation action is exposed yet, so production writes in this slice only create confirmed bookings.
 
 ## Confirmation writer
@@ -37,9 +39,10 @@ The booking idempotency key is tenant-local. A replay returns the existing booki
 
 ## Database inventory protection
 
-The migration adds database guards because app-level availability checks alone are insufficient under concurrency or alternative writers.
+The migrations add database guards because app-level availability checks alone are insufficient under concurrency or alternative writers.
 
 - Booking insert validates the active tenant customer snapshot, consumed hold evidence, and current unit/type/location ownership.
+- The composite customer foreign key permanently binds the booking to the same tenant-owned customer and rejects direct customer deletion while the booking remains.
 - Commercial and ownership evidence on a rental booking is immutable after creation.
 - Allocation writes take the same per-unit advisory lock and reject overlapping blocks, effective holds, or non-cancelled booking allocations.
 - A deferred constraint prevents a confirmed booking from committing without its exact allocation.
@@ -61,7 +64,7 @@ A confirmed rental booking retains an immutable customer name/contact snapshot a
 
 Both customer-detail eligibility and the final serializable de-identification mutation count tenant-owned hospitality and rental booking references. An archived customer referenced by either supported booking domain receives `BOOKING_REFERENCES`, the destructive action is not offered, and the mutation independently fails closed if a booking appears after the page was rendered.
 
-The rental booking PostgreSQL integration scenario now verifies this behavior after confirmation. Broader booking-linked disposal remains a separate legal/privacy lifecycle concern; the rental booking snapshot is not mutated or deleted by customer profile lifecycle operations.
+The rental booking PostgreSQL integration scenario now verifies both service-level de-identification rejection and database-level customer-delete rejection after confirmation. Broader booking-linked disposal remains a separate legal/privacy lifecycle concern; the rental booking snapshot is not mutated or deleted by customer profile lifecycle operations.
 
 ## Explicit boundaries
 
@@ -71,6 +74,6 @@ In particular, `CONFIRMED` in this first rental contract means the tenant has du
 
 ## Validation
 
-`src/server/bookings/rental-booking-domain.test.ts` covers confirmation input and idempotent payload identity. `scripts/rental-booking-foundation-source-contract.test.mjs` protects the schema, migration guards, authorization, locking, tenant scope, pricing and authority revalidation, atomic hold consumption, allocation, audit, booked-inventory exclusion, and customer-retention integration. `src/server/bookings/rental-booking.integration.ts` is registered in the disposable PostgreSQL test runner for concurrency, replay, hold consumption, availability, database inventory-guard verification, and rental-linked customer de-identification rejection.
+`src/server/bookings/rental-booking-domain.test.ts` covers confirmation input and idempotent payload identity. `scripts/rental-booking-foundation-source-contract.test.mjs` protects the Prisma customer relationship, composite customer foreign-key migration, schema/migration inventory guards, authorization, locking, tenant scope, pricing and authority revalidation, atomic hold consumption, allocation, audit, booked-inventory exclusion, and customer-retention integration. `src/server/bookings/rental-booking.integration.ts` is registered in the disposable PostgreSQL test runner for concurrency, replay, hold consumption, availability, database inventory-guard verification, rental-linked customer de-identification rejection, and database customer-delete protection.
 
 Full database validation must run through `npm run test:database` with an explicitly disposable PostgreSQL target. The repository-wide validation gate remains `npm run validate` under the Node version declared in `package.json`. No GitHub Actions are required or used.
