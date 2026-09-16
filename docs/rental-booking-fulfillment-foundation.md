@@ -8,7 +8,7 @@ This is deliberately narrower than a full rental operations suite. Pickup and re
 
 `RentalBookingFulfillmentEvent` is append-only tenant-owned evidence. Each event snapshots the effective physical unit ID/code/name, effective rental dates, server-derived idempotency key, event kind, and PostgreSQL event time.
 
-A booking can have at most one pickup and one return. Return requires prior pickup and cannot predate it. Database foreign keys bind fulfillment evidence to the tenant booking and physical unit even though the Prisma model intentionally keeps scalar references so the existing booking/inventory models do not need speculative navigation fields.
+A booking can have at most one pickup and one return. Return requires prior pickup and cannot predate it. Prisma models the tenant-composite booking and physical-unit relations with the same named foreign keys created by the migration, so schema validation/drift checks and database referential integrity describe the same ownership boundary.
 
 ## Write authority
 
@@ -35,7 +35,7 @@ The staff booking detail displays custody history and exposes a real POST pickup
 ## Validation
 
 - `src/server/bookings/rental-booking-fulfillment-domain.test.ts` covers state derivation, invalid ordering/duplicates, and deterministic idempotency authority.
-- `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects persistence, tenant scope, authorization, locks, PostgreSQL time, route authority, neighboring mutation guards, and staff action wiring.
+- `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, route authority, neighboring mutation guards, and staff action wiring.
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.
 
 GitHub Actions are not required or used.
