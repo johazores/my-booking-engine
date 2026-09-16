@@ -56,9 +56,9 @@ Implemented tour/package inventory includes tenant-owned products, dated departu
 
 Implemented appointment inventory includes tenant-owned services and staff, explicit staff-to-service eligibility, recurring weekly schedules with overlap protection, dependency-safe archival/removal, audited mutations, bounded management collections, and tenant-composite persistence relationships.
 
-Implemented rental infrastructure includes tenant-owned unit types/products, operating locations, physical units, unit-level unavailable date blocks, default daily prices and date-range rate overrides, location movement, lifecycle guards, bounded management collections, temporary holds with immutable pricing evidence, server-side conversion authority, atomic hold consumption, durable confirmed rental bookings, exact physical-unit allocations, booked-inventory exclusion, customer-retention integration, database-backed inventory race protection, tenant-scoped staff booking list/detail, same-unit price-neutral date rescheduling with append-only authority/evidence, same-type/same-location physical-unit substitution with append-only authority/evidence and deterministic dual-unit serialization, and terminal inventory-release cancellation.
+Implemented rental infrastructure includes tenant-owned unit types/products, operating locations, physical units, unit-level unavailable date blocks, default daily prices and date-range rate overrides, location movement, lifecycle guards, bounded management collections, temporary holds with immutable pricing evidence, server-side conversion authority, atomic hold consumption, durable confirmed rental bookings, exact physical-unit allocations, booked-inventory exclusion, customer-retention integration, database-backed inventory race protection, tenant-scoped staff booking list/detail, same-unit price-neutral date rescheduling with append-only authority/evidence, same-type/same-location physical-unit substitution with append-only authority/evidence and deterministic dual-unit serialization, terminal inventory-release cancellation, and staff-only full-value manual/offline settlement with remaining-refund evidence and cancellation financial guards.
 
-Tour and appointment customer booking/payment workflows remain separate later business workflows. Rental now has a staff hold-to-booking interaction, durable booking read model, price-neutral reschedule lifecycle on the current effective unit, supported same-type/same-location physical-unit substitution, and explicit inventory-release cancellation. Customer booking UI, unit-type/location-changing rental amendments, price-changing rental amendments/rescheduling, payments/deposits, pickup/drop-off/return, fulfillment, and external synchronization remain later rental workflow work. Live Prisma/migration/PostgreSQL execution remains governed by the database validation gate above.
+Tour and appointment customer booking/payment workflows remain separate later business workflows. Rental now has a staff hold-to-booking interaction, durable booking read model, price-neutral reschedule lifecycle on the current effective unit, supported same-type/same-location physical-unit substitution, explicit inventory-release cancellation, and staff-only manual/offline full-value settlement plus remaining refunds. Customer booking UI, unit-type/location-changing rental amendments, price-changing rental amendments/rescheduling, deposits, online rental checkout/card authorization, split tenders, pickup/drop-off/return, fulfillment, and external synchronization remain later rental workflow work. Live Prisma/migration/PostgreSQL execution remains governed by the database validation gate above.
 
 ## 10. Availability — hospitality allocation foundation implemented
 
@@ -66,7 +66,7 @@ Normalized availability windows, physical capacity, restrictions, temporary hold
 
 Public abandoned `PENDING_CONFIRMATION` allocations stop protecting capacity when their bounded payment-start/recovery evidence expires; staff/non-public pending allocations fail safe.
 
-Rental availability separately excludes explicit blocks, effective holds, and non-cancelled durable rental booking allocations under the physical-unit serialization boundary described in `docs/rental-inventory.md` and `docs/rental-booking-foundation.md`. Price-neutral rental rescheduling moves only effective allocation dates after target inventory/pricing is revalidated under booking/current-unit locks. Same-type/same-location substitution moves only the effective allocation unit after source/target authority is revalidated under deterministic booking/source/target locks. Rental cancellation uses the current effective unit lock before changing the booking to terminal `CANCELLED`, after which the retained allocation no longer blocks live availability.
+Rental availability separately excludes explicit blocks, effective holds, and non-cancelled durable rental booking allocations under the physical-unit serialization boundary described in `docs/rental-inventory.md` and `docs/rental-booking-foundation.md`. Price-neutral rental rescheduling moves only effective allocation dates after target inventory/pricing is revalidated under booking/current-unit locks. Same-type/same-location substitution moves only the effective allocation unit after source/target authority is revalidated under deterministic booking/source/target locks. Rental cancellation uses the current effective unit lock before changing the booking to terminal `CANCELLED`, after payment settlement has reconciled to zero, after which the retained allocation no longer blocks live availability.
 
 ## 11. Pricing — hospitality pricing and accepted-state evidence foundation implemented
 
@@ -92,6 +92,7 @@ Implemented:
 
 - normalized provider contract and explicit capabilities
 - real manual/offline payment recording
+- staff-only rental manual/offline full-value settlement and remaining-refund evidence with tenant-scoped append-only persistence and cancellation financial guards
 - real Stripe authorization/capture and hosted Checkout adapters
 - encrypted tenant Stripe configuration through the integration framework
 - exact-money transaction ledger and paginated payment history
@@ -109,6 +110,7 @@ Implemented:
 
 Still separate/not claimed complete:
 
+- rental deposits/security bonds, online rental checkout/card authorization, split tenders, cancellation fees, chargebacks, pickup/return settlement, customer self-service rental payments, rental invoices, and rental accounting synchronization
 - PayPal or additional payment providers until prioritized by real product need
 - mixed-taxability and partial/non-standard-GST adjustment rules
 - generic legal-document correction/void/reissue rules
@@ -117,7 +119,7 @@ Still separate/not claimed complete:
 - broader booking-linked customer-data disposal/de-identification, provider-held copy handling, and future accounting-provider integration
 - complete Node 24/Prisma/PostgreSQL production execution plus jurisdiction/legal review
 
-The legal-document browser cannot select direction, ordinal, predecessor, refund authority, legal money, or numbering. Customer/staff/accounting projections consume shared verified immutable evidence rather than reconstructing historical legal documents from current mutable booking or pricing state. See `docs/invoice-foundation.md` and `docs/customer-data-lifecycle.md`.
+The legal-document browser cannot select direction, ordinal, predecessor, refund authority, legal money, or numbering. Customer/staff/accounting projections consume shared verified immutable evidence rather than reconstructing historical legal documents from current mutable booking or pricing state. See `docs/invoice-foundation.md`, `docs/rental-payment-foundation.md`, and `docs/customer-data-lifecycle.md`.
 
 ## 14. Booking management — current hospitality commercial-amendment scope implemented
 
@@ -141,7 +143,7 @@ Implemented:
 
 Price-changing **hospitality date** rescheduling remains deliberately separate from the implemented room/rate/quantity/add-on amendment contract. It should only be introduced if product requirements justify extending amendment stay dates, inventory protection, provider settlement, and recovery semantics together rather than treating dates as an unsafe partial edit.
 
-Rental booking management is a separate domain. Rental implements staff confirmation, tenant-scoped history/detail, price-neutral date rescheduling on the current effective physical unit, same-type/same-location physical-unit substitution under deterministic booking/source/target serialization with append-only evidence, and terminal inventory-release cancellation. Unit-type/location changes, price-changing rental amendments/rescheduling, payment/deposit consequences, fulfillment changes, and cancellation financial policy remain separate rental contracts rather than being inferred from hospitality behavior.
+Rental booking management is a separate domain. Rental implements staff confirmation, tenant-scoped history/detail, price-neutral date rescheduling on the current effective physical unit, same-type/same-location physical-unit substitution under deterministic booking/source/target serialization with append-only evidence, terminal inventory-release cancellation, and narrow staff-only manual/offline full settlement plus remaining-refund evidence. Unit-type/location changes, price-changing rental amendments/rescheduling, deposits and online payment consequences, split tenders, fulfillment changes, and cancellation fee policy remain separate rental contracts rather than being inferred from hospitality behavior.
 
 ## 15. Integration framework — current production management foundation implemented
 
@@ -184,6 +186,6 @@ Add Amadeus, Sabre, additional Travelport products, or other supplier/payment/em
 
 ## 18. Advanced business modules — later workflows
 
-The tenant-owned tour/package and appointment inventory foundations remain infrastructure-only. Rental has progressed further: temporary availability protection, immutable rate evidence, server-side booking conversion authority, staff hold-to-booking confirmation, durable confirmed booking/allocation persistence, tenant-scoped booking history/detail, price-neutral date rescheduling on the current effective unit, same-type/same-location physical-unit substitution with append-only evidence, booked-inventory protection, terminal inventory-release cancellation, and rental-linked customer retention are implemented. The broad rental workflow remains incomplete until customer booking surfaces, unit-type/location-changing amendments, price-changing amendments/rescheduling, payment/deposit, pickup/drop-off/return, fulfillment, and external synchronization receive their own production contracts.
+The tenant-owned tour/package and appointment inventory foundations remain infrastructure-only. Rental has progressed further: temporary availability protection, immutable rate evidence, server-side booking conversion authority, staff hold-to-booking confirmation, durable confirmed booking/allocation persistence, tenant-scoped booking history/detail, price-neutral date rescheduling on the current effective unit, same-type/same-location physical-unit substitution with append-only evidence, booked-inventory protection, terminal inventory-release cancellation, rental-linked customer retention, and staff-only manual/offline full settlement plus remaining-refund evidence are implemented. The broad rental workflow remains incomplete until customer booking surfaces, unit-type/location-changing amendments, price-changing amendments/rescheduling, deposits and online rental checkout/card authorization, split tenders, cancellation fees, pickup/drop-off/return, fulfillment, and external synchronization receive their own production contracts.
 
 Later work here therefore means tour-operator availability/pricing/passenger/booking flows, appointment slot/exception/intake/booking/calendar flows, the remaining rental commercial/fulfillment workflow, plus hotel/resort extensions, travel-agency workflows, and marketplace capabilities. These must reuse shared foundations only where the commercial concepts genuinely overlap rather than forcing all businesses into one generic booking model.

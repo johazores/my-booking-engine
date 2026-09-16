@@ -1,6 +1,6 @@
 # Rental inventory
 
-SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, and staff rental booking lifecycle. The current booking workflow supports hold-to-booking confirmation, tenant-scoped history/detail, same-unit price-neutral date rescheduling, same-type/same-location physical-unit substitution, and terminal inventory-release cancellation. Payment/deposit, unit-type/location-changing amendments, price-changing amendments, fulfillment, and customer self-service remain separate contracts.
+SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, staff rental booking lifecycle, and the current narrow manual settlement boundary. The current booking workflow supports hold-to-booking confirmation, tenant-scoped history/detail, same-unit price-neutral date rescheduling, same-type/same-location physical-unit substitution, terminal inventory-release cancellation, and staff-only full-value manual/offline settlement with remaining refunds. Deposits, online rental checkout/card authorization, unit-type/location-changing amendments, price-changing amendments, fulfillment, and customer self-service remain separate contracts.
 
 ## Implemented scope
 
@@ -20,18 +20,19 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - Tenant-scoped, paginated rental booking history and detail protected by `booking:read`.
 - Same-unit, price-neutral date rescheduling with fresh target inventory/pricing review, versioned authority fingerprint, server-derived idempotency, serializable booking/effective-unit locks, append-only reschedule evidence, exact effective allocation update, stale-authority protection, and audit evidence.
 - Same-type, same-location physical-unit substitution with bounded candidate search, fresh target inventory review, version-2 authority fingerprint, deterministic booking/source/target locks, server-derived idempotency, append-only substitution evidence, exact effective allocation-unit move, stale-authority protection, and audit evidence.
-- Explicit staff cancellation for a confirmed booking with `booking:manage` plus `availability:manage`. Cancellation records terminal `CANCELLED`, retains historical allocation/reschedule/substitution evidence, and releases live inventory protection.
+- Explicit staff cancellation for a confirmed booking with `booking:manage` plus `availability:manage`. Cancellation records terminal `CANCELLED`, retains historical allocation/reschedule/substitution evidence, and releases live inventory protection only after current rental payment settlement reconciles to zero.
+- Staff-only full-value manual/offline payment recording and remaining manual/offline refund recording through the existing payment-provider adapter boundary, with tenant-scoped append-only evidence, server-derived idempotency, booking serialization, bounded complete settlement-history reconciliation, and payment-state cancellation guards.
 - Confirmed rental allocations participate in availability, hold creation, unavailable-date blocks, substitution, and unit mutation guards. Cancelled parent bookings make retained allocations non-blocking.
 - Customer de-identification treats hospitality and rental booking references, including cancelled rental bookings, as retention boundaries.
-- Server-side authorization for inventory, availability, pricing, booking, and customer capabilities used by each workflow.
-- Tenant-scoped reads and mutations; resource identifiers, idempotency keys, codes, hold IDs, customer IDs, booking IDs, target-unit IDs, and authority fingerprints never grant scope without authenticated `organizationId`.
-- Database-enforced tenant roots, organization-composite relationships, booking insert guards, immutable booking-time evidence, append-only reschedule/substitution evidence, effective-allocation guards, terminal cancellation guard, per-unit advisory serialization, and deferred exact-allocation validation.
+- Server-side authorization for inventory, availability, pricing, booking, customer, and payment capabilities used by each workflow.
+- Tenant-scoped reads and mutations; resource identifiers, idempotency keys, codes, hold IDs, customer IDs, booking IDs, target-unit IDs, authority fingerprints, and payment references never grant scope without authenticated `organizationId`.
+- Database-enforced tenant roots, organization-composite relationships, booking insert guards, immutable booking-time evidence, append-only reschedule/substitution/payment evidence, effective-allocation guards, terminal cancellation and financial-settlement guards, per-unit advisory serialization, and deferred exact-allocation validation.
 - Archive lifecycle for commercial inventory rows with dependency-safe constraints.
 - Database pricing-evidence invariants that allow legacy holds without evidence but reject partially populated or invalid evidence.
 - Explicit destructive confirmations for inventory removal/archive and booking cancellation.
-- Audit events for inventory, hold, booking confirmation, booking reschedule, booking unit substitution, and booking cancellation.
-- Independently bounded pagination for rental management collections.
-- Real inventory UI under `/inventory/rentals` with unit-type, location, unit, availability, hold, conversion, booking list/detail, reschedule, unit-substitution, and cancellation surfaces.
+- Audit events for inventory, hold, booking confirmation, booking reschedule, booking unit substitution, booking cancellation, and rental manual payment/refund recording.
+- Independently bounded pagination for rental management collections and bounded cursor pagination for complete rental payment reconciliation history.
+- Real inventory UI under `/inventory/rentals` with unit-type, location, unit, availability, hold, conversion, booking list/detail, reschedule, unit-substitution, cancellation, and manual settlement surfaces.
 
 ## Location semantics
 
@@ -83,11 +84,19 @@ Apply reacquires the booking lock and both physical-unit locks in deterministic 
 
 Database guards derive the effective unit from latest substitution history for allocation, reschedule, and cancellation authority. See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
 
+### Manual/offline settlement
+
+A confirmed rental booking may receive one full-value manual/offline payment recorded by authorized staff after the real external settlement has occurred. The browser provides only the normalized external reference; tenant, actor, booking, idempotency, currency, and amount authority are server-derived.
+
+A later manual/offline refund records the remaining refundable amount against the successful source payment and retains explicit source attribution. Settlement decisions load complete tenant-owned history through bounded cursor pages and fail closed if the current reconciliation safety limit is exceeded.
+
+Payment evidence is append-only and separate from booking/inventory evidence. This workflow does not implement deposits, card authorization, Stripe rental checkout, split tenders, cancellation fees, chargebacks, customer self-service, or pickup/return settlement. See [rental-payment-foundation.md](./rental-payment-foundation.md).
+
 ### Cancellation
 
-Staff cancellation changes only a still-confirmed tenant booking to terminal `CANCELLED` under booking/current-effective-unit serialization. Cancellation validates current allocation after latest reschedule and substitution, retains booking/allocation/modification history, and makes retained allocation non-blocking for live inventory.
+Staff cancellation changes only a still-confirmed tenant booking to terminal `CANCELLED` under booking/current-effective-unit serialization. Cancellation validates current allocation after latest reschedule and substitution, requires complete rental payment settlement to reconcile to zero, retains booking/allocation/modification/payment history, and makes retained allocation non-blocking for live inventory.
 
-Cancellation does not perform refund, deposit, provider, tax, notification, or fulfillment actions. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
+Cancellation does not itself perform a refund, deposit, provider, tax, notification, or fulfillment action. Any real manual refund must be recorded through the payment workflow before cancellation can commit. See [rental-booking-cancellation.md](./rental-booking-cancellation.md) and [rental-payment-foundation.md](./rental-payment-foundation.md).
 
 ### Hold expiry
 
@@ -99,7 +108,7 @@ The following are **not** presented as implemented:
 
 - customer-facing rental search, checkout, payment, or self-service booking management
 - unit-type changes, location-changing substitutions, and price-changing rental amendments or rescheduling
-- rental payment processing, deposits, cancellation fees/refunds, discounts, taxes/fees, or complex pricing beyond current daily-rate evidence
+- deposits, online rental checkout/card authorization, split/tendered payments, cancellation fees, automated/provider refunds, discounts, taxes/fees, or complex pricing beyond current daily-rate evidence
 - customer pickup/drop-off selection, one-way returns, delivery zones, opening-hour rules, or transfer pricing
 - quantity pools for interchangeable stock
 - hourly rentals
@@ -107,11 +116,11 @@ The following are **not** presented as implemented:
 - external marketplace, fleet, supplier, or calendar synchronization
 - pickup, return, inspection, damage, or other fulfillment workflows
 
-Those require separate commercial state machines and acceptance criteria. The current production contract stops at staff-reviewed durable inventory commitment, tenant-scoped read history, price-neutral date rescheduling, same-type/same-location physical-unit substitution, and inventory-release cancellation.
+Those require separate commercial state machines and acceptance criteria. The current production contract stops at staff-reviewed durable inventory commitment, tenant-scoped read history, price-neutral date rescheduling, same-type/same-location physical-unit substitution, inventory-release cancellation, and the narrow staff-only manual/offline settlement/refund boundary described above.
 
 ## Validation boundary
 
-Dependency-free domain/source contracts cover deterministic pricing and authority fingerprints, tenant-composite relationships, database guards, hold evidence, authorization, tenant-bound resolution, bounded collections, overlap behavior, atomic hold consumption, durable booking/allocation persistence, reschedule/substitution authority and write scope, cancellation, customer retention, and the no-fake-financial/fulfillment boundary.
+Dependency-free domain/source contracts cover deterministic pricing and authority fingerprints, tenant-composite relationships, database guards, hold evidence, authorization, tenant-bound resolution, bounded collections, overlap behavior, atomic hold consumption, durable booking/allocation persistence, reschedule/substitution authority and write scope, cancellation, rental manual settlement/refund evidence, bounded complete settlement history, customer retention, and the no-fake-financial/fulfillment boundary.
 
 Guarded PostgreSQL scenarios remain registered under `npm run test:database` and must target an explicitly disposable database. Live Prisma validation, migration/drift checks, complete typecheck/lint/test/build, and PostgreSQL execution must not be claimed without the repository-supported Node 24 toolchain and required environment.
 
