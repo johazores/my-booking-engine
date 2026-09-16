@@ -23,17 +23,32 @@ const effectiveAllocationInclude = {
   unit: { select: { id: true, code: true, name: true, status: true, locationId: true, unitTypeId: true } },
 } satisfies Prisma.RentalBookingAllocationInclude;
 
-const rentalBookingListInclude = {
+const rentalBookingBaseInclude = {
   allocation: { include: effectiveAllocationInclude },
   unit: { select: { id: true, code: true, name: true, status: true } },
   unitType: { select: { id: true, code: true, name: true, status: true } },
   location: { select: { id: true, code: true, name: true, city: true, countryCode: true, timeZone: true, status: true } },
 } satisfies Prisma.RentalBookingInclude;
 
+const rentalBookingListInclude = {
+  ...rentalBookingBaseInclude,
+  reschedules: {
+    orderBy: [{ appliedAt: 'desc' as const }, { createdAt: 'desc' as const }, { id: 'desc' as const }],
+    take: 1,
+    select: { targetStartsOn: true, targetEndsOn: true },
+  },
+  fulfillmentEvents: {
+    orderBy: [{ occurredAt: 'asc' as const }, { createdAt: 'asc' as const }, { id: 'asc' as const }],
+    select: { kind: true, occurredAt: true },
+  },
+  earlyReturnRelease: { select: { releasedEndsOn: true } },
+} satisfies Prisma.RentalBookingInclude;
+
 const rentalBookingDetailInclude = {
-  ...rentalBookingListInclude,
+  ...rentalBookingBaseInclude,
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, status: true, archivedAt: true } },
   hold: { select: { id: true, status: true, expiresAt: true, endedAt: true, idempotencyKey: true } },
+  earlyReturnRelease: true,
 } satisfies Prisma.RentalBookingInclude;
 
 export async function getRentalBooking(input: Readonly<{ organizationId: string; actorUserId: string; bookingId: string }>) {
@@ -86,13 +101,23 @@ export async function listRentalBookings(input: Readonly<{
   const total = await db.rentalBooking.count({ where });
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
   const page = Math.min(pagination.page, totalPages);
-  const bookings = await db.rentalBooking.findMany({
+  const bookingRows = await db.rentalBooking.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     skip: (page - 1) * pagination.pageSize,
     take: pagination.pageSize,
     include: rentalBookingListInclude,
   });
+  const bookings = bookingRows.map((booking) => Object.freeze({
+    ...booking,
+    fulfillment: deriveRentalBookingFulfillmentState(booking.fulfillmentEvents),
+  }));
 
-  return Object.freeze({ bookings, total, page, pageSize: pagination.pageSize, totalPages });
+  return Object.freeze({
+    bookings: Object.freeze(bookings),
+    total,
+    page,
+    pageSize: pagination.pageSize,
+    totalPages,
+  });
 }

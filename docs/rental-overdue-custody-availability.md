@@ -30,8 +30,12 @@ Supported hold creation and hold-to-booking confirmation acquire the existing ph
 
 These database guards are defense in depth; they do not replace server authorization, tenant scope, idempotency, or service-level conflict handling.
 
+## Interaction with early return
+
+Return clears open custody through append-only `RETURNED` evidence. Return itself does not shorten the existing allocation, so live inventory remains protected through the committed end until staff explicitly apply early-return inventory release.
+
+When an early-return release is valid, SF keeps the committed custody dates unchanged and shortens only the live allocation end to the first reusable whole rental day after the local return day. That separate append-only contract is documented in [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
+
 ## Deliberate boundaries
 
 This protection does **not** implement rental extensions, grace periods, late fees, damage charges, security-bond decisions, automatic customer notifications, replacement dispatch, maintenance transitions, or forced cancellation of later bookings. Those require separate commercial rules.
-
-Return clears open custody through append-only `RETURNED` evidence. The existing allocation continues to protect the originally committed period; an early return still does not release inventory before the effective end date.

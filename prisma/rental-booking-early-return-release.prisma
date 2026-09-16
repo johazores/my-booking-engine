@@ -1,0 +1,25 @@
+model RentalBookingEarlyReturnRelease {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @db.Uuid
+  bookingId         String   @db.Uuid
+  unitId            String   @db.Uuid
+  returnEventId     String   @db.Uuid
+  idempotencyKey    String   @db.VarChar(120)
+  committedStartsOn DateTime @db.Date
+  committedEndsOn   DateTime @db.Date
+  releasedEndsOn    DateTime @db.Date
+  returnedAt        DateTime @db.Timestamptz(6)
+  releasedAt        DateTime @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+
+  booking     RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_early_return_releases_booking_fkey")
+  unit        RentalUnit                    @relation("RentalBookingEarlyReturnReleaseUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_early_return_releases_unit_fkey")
+  returnEvent RentalBookingFulfillmentEvent @relation("RentalBookingEarlyReturnReleaseReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_early_return_releases_return_event_fkey")
+
+  @@unique([id, organizationId], map: "rental_booking_early_return_releases_id_org_key")
+  @@unique([organizationId, bookingId], map: "rental_booking_early_return_releases_org_booking_key")
+  @@unique([organizationId, returnEventId], map: "rental_booking_early_return_releases_org_return_event_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_early_return_releases_org_idempotency_key")
+  @@index([organizationId, unitId, releasedAt], map: "rental_booking_early_return_releases_unit_released_idx")
+  @@map("rental_booking_early_return_releases")
+}

@@ -18,7 +18,8 @@ model RentalBookingFulfillmentEvent {
   createdAt      DateTime                          @default(now()) @db.Timestamptz(6)
 
   booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_fulfillment_events_booking_fkey")
-  unit    RentalUnit    @relation("RentalBookingFulfillmentEventUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_fulfillment_events_unit_fkey")
+  unit               RentalUnit                       @relation("RentalBookingFulfillmentEventUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_fulfillment_events_unit_fkey")
+  earlyReturnRelease RentalBookingEarlyReturnRelease? @relation("RentalBookingEarlyReturnReleaseReturnEvent")
 
   @@unique([id, organizationId], map: "rental_booking_fulfillment_events_id_org_key")
   @@unique([organizationId, bookingId, kind], map: "rental_booking_fulfillment_events_org_booking_kind_key")

@@ -6,6 +6,7 @@ import { RentalBookingPaymentPanel } from '@/components/rental-booking-payment-p
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
+import { deriveRentalBookingEarlyReturnReleaseEndsOn } from '@/server/bookings/rental-booking-early-return-release-domain.ts';
 import { getRentalBooking, RentalBookingUnavailableError } from '@/server/bookings/rental-booking-read-service.ts';
 import { listRentalBookingPaymentTransactions, RentalPaymentUnavailableError } from '@/server/payments/rental-payment-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
@@ -28,6 +29,8 @@ const statuses: Record<string, string> = {
   'rental-pickup-existing': 'Rental pickup was already recorded earlier. No duplicate custody event was created.',
   'rental-returned': 'Rental return recorded. The immutable pickup and return custody evidence is retained.',
   'rental-return-existing': 'Rental return was already recorded earlier. No duplicate custody event was created.',
+  'rental-inventory-released': 'Remaining whole-day inventory after the recorded early return is now available for new inventory decisions.',
+  'rental-inventory-release-existing': 'This early-return inventory release was already applied earlier. No duplicate release evidence was created.',
 };
 
 const errors: Record<string, string> = {
@@ -97,9 +100,24 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
   const canReviewReschedule = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory && canReadPricing;
   const canReviewUnitSubstitution = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory;
   const canFulfill = booking.status === 'CONFIRMED' && Boolean(booking.allocation) && canManageBooking && canManageInventory;
-  const effectiveStartsOn = booking.allocation?.startsOn ?? booking.startsOn;
-  const effectiveEndsOn = booking.allocation?.endsOn ?? booking.endsOn;
+  const latestReschedule = booking.reschedules.at(-1);
+  const committedStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+  const committedEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+  const inventoryEndsOn = booking.allocation?.endsOn ?? committedEndsOn;
   const effectiveUnit = booking.allocation?.unit ?? booking.unit;
+  const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
+  const releaseCandidateEndsOn = !booking.earlyReturnRelease && returnEvent
+    ? deriveRentalBookingEarlyReturnReleaseEndsOn({
+        returnedAt: returnEvent.occurredAt,
+        committedStartsOn,
+        committedEndsOn,
+        timeZone: booking.location.timeZone,
+      })
+    : null;
+  const canReleaseRemainingInventory = canFulfill
+    && booking.fulfillment.state === 'RETURNED'
+    && !booking.earlyReturnRelease
+    && releaseCandidateEndsOn !== null;
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
@@ -114,15 +132,17 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-lifecycle-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Lifecycle</p><h2 id="rental-booking-lifecycle-title">Booking commitment</h2></div><span>{booking.status}</span></div>
       <ul className="sf-inventory-list">
-        <li><div className="sf-inventory-list__primary"><div><strong>Effective rental period</strong><span>{effectiveStartsOn.toISOString().slice(0, 10)} through {effectiveEndsOn.toISOString().slice(0, 10)} (end exclusive)</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Committed rental period</strong><span>{committedStartsOn.toISOString().slice(0, 10)} through {committedEndsOn.toISOString().slice(0, 10)} (end exclusive)</span></div></div></li>
         {booking.reschedules.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time period</strong><span>{booking.startsOn.toISOString().slice(0, 10)} through {booking.endsOn.toISOString().slice(0, 10)} · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Confirmed</strong><span><time dateTime={booking.confirmedAt.toISOString()}>{booking.confirmedAt.toISOString()}</time></span></div></div></li>
         {booking.cancelledAt ? <li><div className="sf-inventory-list__primary"><div><strong>Cancelled</strong><span><time dateTime={booking.cancelledAt.toISOString()}>{booking.cancelledAt.toISOString()}</time></span></div></div></li> : null}
-        <li><div className="sf-inventory-list__primary"><div><strong>Effective physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${effectiveUnit.name} (${effectiveUnit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${effectiveUnit.name} (${effectiveUnit.code}) protects the effective rental period.` : 'Allocation missing'}</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Effective physical allocation</strong><span>{booking.allocation ? booking.status === 'CANCELLED' ? `${effectiveUnit.name} (${effectiveUnit.code}) allocation is retained as historical evidence and no longer protects live availability.` : `${effectiveUnit.name} (${effectiveUnit.code}) is the current physical assignment.` : 'Allocation missing'}</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Live inventory protection</strong><span>{booking.status === 'CANCELLED' ? 'Released by cancellation.' : `${committedStartsOn.toISOString().slice(0, 10)} through ${inventoryEndsOn.toISOString().slice(0, 10)} (end exclusive)`}</span></div></div></li>
+        {booking.earlyReturnRelease ? <li><div className="sf-inventory-list__primary"><div><strong>Early-return inventory release</strong><span>Committed end {booking.earlyReturnRelease.committedEndsOn.toISOString().slice(0, 10)} retained; inventory protection shortened to {booking.earlyReturnRelease.releasedEndsOn.toISOString().slice(0, 10)} after return.</span><span>Released <time dateTime={booking.earlyReturnRelease.releasedAt.toISOString()}>{booking.earlyReturnRelease.releasedAt.toISOString()}</time> · append-only evidence</span></div></div></li> : null}
         {booking.unitSubstitutions.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time unit</strong><span>{booking.unit.name} ({booking.unit.code}) · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Before pickup, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Once pickup is recorded, cancellation, rescheduling, and unit replacement fail closed. Return records custody handback but does not shorten the committed availability period or invent refund, damage, inspection, or deposit semantics.</p>
+      <p className="sf-field-hint">Before pickup, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Once pickup is recorded, cancellation, rescheduling, and unit replacement fail closed. Return records custody handback; a separate explicit release can free only complete remaining rental days without changing accepted money or the committed rental period.</p>
     </section>
 
     {booking.status === 'CONFIRMED' ? <section className="sf-inventory-card" aria-labelledby="rental-booking-fulfillment-title">
@@ -130,7 +150,9 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
       {booking.fulfillmentEvents.length > 0 ? <ul className="sf-inventory-list">{booking.fulfillmentEvents.map((event) => <li key={event.id}><div className="sf-inventory-list__primary"><div><strong>{event.kind === 'PICKED_UP' ? 'Picked up' : 'Returned'}</strong><span>{event.unitName} ({event.unitCode}) · {event.startsOn.toISOString().slice(0, 10)} through {event.endsOn.toISOString().slice(0, 10)}</span><span><time dateTime={event.occurredAt.toISOString()}>{event.occurredAt.toISOString()}</time> · immutable custody evidence</span></div></div></li>)}</ul> : <p className="sf-field-hint">No physical custody transfer has been recorded. The booking remains eligible for supported pre-pickup commercial and inventory changes.</p>}
       {canFulfill && booking.fulfillment.state === 'AWAITING_PICKUP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/pickup`}><button className="sf-button sf-button--primary" type="submit">Record pickup</button></form> : null}
       {canFulfill && booking.fulfillment.state === 'PICKED_UP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/return`}><button className="sf-button sf-button--primary" type="submit">Record return</button></form> : null}
-      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the effective unit/date allocation is snapshotted server-side. Return does not release inventory before the booking's effective end date.</p>
+      {canReleaseRemainingInventory ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/inventory-release`} aria-describedby="rental-early-return-release-hint"><button className="sf-button sf-button--primary" type="submit">Release remaining inventory</button></form> : null}
+      {canReleaseRemainingInventory && releaseCandidateEndsOn ? <p id="rental-early-return-release-hint" className="sf-field-hint">This will make the effective unit available from {releaseCandidateEndsOn.toISOString().slice(0, 10)} onward. The committed rental end, accepted amount, payment evidence, and custody history remain unchanged.</p> : null}
+      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
     </section> : null}
 
     {paymentData ? <RentalBookingPaymentPanel bookingId={booking.id} bookingStatus={booking.status} bookingCurrency={booking.currency} settlement={paymentData.settlement} transactions={paymentData.transactions} canManage={canManagePayments} /> : null}
