@@ -7,6 +7,7 @@ import {
   RentalAvailabilityIntegrityError,
   type RentalAvailabilitySearchInput,
 } from './rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
 import { RentalInventoryUnavailableError } from './rental-service.ts';
 
 export async function searchRentalInventoryAvailability(input: Readonly<{
@@ -63,10 +64,18 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
     }
 
+    const overdueCustodyUnitIds = await findOverdueRentalCustodyUnitIds(transaction, {
+      organizationId: input.organizationId,
+      observedAt: databaseClock.now,
+      unitTypeId: unitType.id,
+      ...(location ? { locationId: location.id } : {}),
+    });
+
     const unitWhere = {
       organizationId: input.organizationId,
       unitTypeId: unitType.id,
       status: 'ACTIVE' as const,
+      ...(overdueCustodyUnitIds.length > 0 ? { id: { notIn: overdueCustodyUnitIds } } : {}),
       ...(location
         ? { locationId: location.id }
         : {

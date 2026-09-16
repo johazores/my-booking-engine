@@ -5,6 +5,7 @@ import {
   buildRentalPricingEvidence,
   RentalAvailabilityIntegrityError,
 } from '../inventory/rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { RentalInventoryUnavailableError } from '../inventory/rental-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { buildRentalBookingConversionAuthorityFingerprint } from './rental-booking-authority-domain.ts';
@@ -132,7 +133,7 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       throw new RentalInventoryUnavailableError('Rental unit, unit type, or operating location is no longer active.');
     }
 
-    const [ratePeriods, blockOverlap, competingHold, bookingOverlap] = await Promise.all([
+    const [ratePeriods, blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds] = await Promise.all([
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -179,6 +180,11 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
         },
         select: { id: true },
       }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: databaseClock.now,
+        unitId: hold.unit.id,
+      }),
     ]);
 
     const currentPricing = buildRentalPricingEvidence({
@@ -192,7 +198,7 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
     const completePricingEvidence = hasCompletePricingEvidence(hold);
 
     let blocker: RentalBookingConversionBlocker | null = null;
-    if (blockOverlap || competingHold || bookingOverlap) {
+    if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
       blocker = 'INVENTORY_CONFLICT';
     } else if (!completePricingEvidence) {
       blocker = 'LEGACY_PRICING_EVIDENCE';

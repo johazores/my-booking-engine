@@ -5,6 +5,7 @@ import {
   buildRentalPricingEvidence,
   RentalAvailabilityIntegrityError,
 } from '../inventory/rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { RentalInventoryUnavailableError } from '../inventory/rental-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -163,7 +164,7 @@ export async function confirmRentalBookingFromHold(input: Readonly<{
       throw new RentalBookingConflictError('The held rental unit is no longer active at its original operating location.');
     }
 
-    const [blockOverlap, competingHold, bookingOverlap, ratePeriods] = await Promise.all([
+    const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: { organizationId: input.organizationId, unitId: hold.unitId, startsOn: { lt: hold.endsOn }, endsOn: { gt: hold.startsOn } },
         select: { id: true },
@@ -190,14 +191,19 @@ export async function confirmRentalBookingFromHold(input: Readonly<{
         },
         select: { id: true },
       }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: databaseClock.now,
+        unitId: hold.unitId,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: { organizationId: input.organizationId, unitTypeId: hold.unit.unitType.id, startsOn: { lt: hold.endsOn }, endsOn: { gt: hold.startsOn } },
         orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
         select: { startsOn: true, endsOn: true, dailyRateMinor: true },
       }),
     ]);
-    if (blockOverlap || competingHold || bookingOverlap) {
-      throw new RentalBookingConflictError('The held rental unit now conflicts with another inventory commitment.');
+    if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
+      throw new RentalBookingConflictError('The held rental unit now conflicts with another inventory commitment or overdue open custody.');
     }
     if (!hasCompletePricingEvidence(hold)) {
       throw new RentalBookingConflictError('Legacy rental holds without complete pricing evidence cannot be converted into bookings.');

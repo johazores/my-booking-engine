@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalBookingUnitSubstitutionAuthorityFingerprint,
@@ -148,12 +149,22 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
   });
 
   return db.$transaction(async (transaction) => {
+    const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS "now"
+    `;
+    if (!databaseClock?.now) {
+      throw new RentalAvailabilityIntegrityError(
+        'Database time authority is unavailable for rental unit substitution candidates.',
+      );
+    }
+
     const booking = await transaction.rentalBooking.findFirst({
       where: {
         id: input.bookingId,
         organizationId: input.organizationId,
         status: 'CONFIRMED',
         cancelledAt: null,
+        fulfillmentEvents: { none: { organizationId: input.organizationId } },
       },
       include: { allocation: { include: effectiveAllocationInclude } },
     });
@@ -176,12 +187,23 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
       latestSubstitution,
     });
 
+    const overdueCustodyUnitIds = await findOverdueRentalCustodyUnitIds(transaction, {
+      organizationId: input.organizationId,
+      observedAt: databaseClock.now,
+      unitTypeId: booking.unitTypeId,
+      locationId: booking.locationId,
+      excludeBookingId: booking.id,
+    });
+
     const where = {
       organizationId: input.organizationId,
       status: 'ACTIVE' as const,
       unitTypeId: booking.unitTypeId,
       locationId: booking.locationId,
-      id: { not: effective.sourceUnitId },
+      id: {
+        not: effective.sourceUnitId,
+        ...(overdueCustodyUnitIds.length > 0 ? { notIn: overdueCustodyUnitIds } : {}),
+      },
       unitType: {
         organizationId: input.organizationId,
         status: 'ACTIVE' as const,
@@ -260,6 +282,7 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
         organizationId: input.organizationId,
         status: 'CONFIRMED',
         cancelledAt: null,
+        fulfillmentEvents: { none: { organizationId: input.organizationId } },
       },
       include: { allocation: { include: effectiveAllocationInclude } },
     });
@@ -314,7 +337,7 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
     if (!targetUnit) blocker = 'TARGET_UNAVAILABLE';
     else if (targetUnit.id === effective.sourceUnitId) blocker = 'NO_CHANGE';
     else {
-      const [blockOverlap, competingHold, bookingOverlap] = await Promise.all([
+      const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds] = await Promise.all([
         transaction.rentalAvailabilityBlock.findFirst({
           where: {
             organizationId: input.organizationId,
@@ -351,8 +374,16 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
           },
           select: { id: true },
         }),
+        findOverdueRentalCustodyUnitIds(transaction, {
+          organizationId: input.organizationId,
+          observedAt: databaseClock.now,
+          unitId: targetUnit.id,
+          excludeBookingId: booking.id,
+        }),
       ]);
-      if (blockOverlap || competingHold || bookingOverlap) blocker = 'INVENTORY_CONFLICT';
+      if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
+        blocker = 'INVENTORY_CONFLICT';
+      }
     }
 
     const authorityFingerprint = targetUnit && blocker === null

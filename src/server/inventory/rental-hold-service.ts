@@ -6,6 +6,7 @@ import {
   buildRentalPricingEvidence,
   RentalAvailabilityIntegrityError,
 } from './rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
 import {
   normalizeRentalAvailabilityHoldInput,
   rentalAvailabilityHoldPayloadMatches,
@@ -102,6 +103,13 @@ export async function createRentalAvailabilityHold(input: Readonly<{
 
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(input.organizationId, hold.unitId)}, 0))`;
 
+    const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS "now"
+    `;
+    if (!databaseClock?.now) {
+      throw new RentalAvailabilityIntegrityError('Database time authority is unavailable for rental hold creation.');
+    }
+
     const unit = await transaction.rentalUnit.findFirst({
       where: {
         id: hold.unitId,
@@ -138,7 +146,7 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       );
     }
 
-    const [blockOverlap, holdOverlap, bookingOverlap, ratePeriods] = await Promise.all([
+    const [blockOverlap, holdOverlap, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -174,6 +182,11 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         },
         select: { id: true },
       }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: databaseClock.now,
+        unitId: unit.id,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -198,6 +211,11 @@ export async function createRentalAvailabilityHold(input: Readonly<{
     if (bookingOverlap) {
       throw new RentalInventoryConflictError(
         'That rental unit is already booked for part of the requested date range.',
+      );
+    }
+    if (overdueCustodyUnitIds.length > 0) {
+      throw new RentalInventoryConflictError(
+        'That rental unit is overdue from an earlier pickup and has not been returned yet.',
       );
     }
 

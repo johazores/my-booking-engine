@@ -4,6 +4,7 @@ import {
   buildRentalPricingEvidence,
   RentalAvailabilityIntegrityError,
 } from '../inventory/rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
@@ -55,6 +56,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         organizationId: input.organizationId,
         status: 'CONFIRMED',
         cancelledAt: null,
+        fulfillmentEvents: { none: { organizationId: input.organizationId } },
       },
       include: {
         allocation: {
@@ -127,7 +129,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       throw new RentalBookingRescheduleUnavailableError('The effective physical unit is no longer active at its retained operating assignment.');
     }
 
-    const [blockOverlap, competingHold, bookingOverlap, ratePeriods] = await Promise.all([
+    const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -164,6 +166,12 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         },
         select: { id: true },
       }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: databaseClock.now,
+        unitId: effectiveUnitId,
+        excludeBookingId: booking.id,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -190,7 +198,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       target.startsOn.getTime() === sourceStartsOn.getTime()
       && target.endsOn.getTime() === sourceEndsOn.getTime()
     ) blocker = 'NO_CHANGE';
-    else if (blockOverlap || competingHold || bookingOverlap) blocker = 'INVENTORY_CONFLICT';
+    else if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) blocker = 'INVENTORY_CONFLICT';
     else if (
       targetPricing.currency !== booking.currency
       || BigInt(targetPricing.totalMinor) !== booking.totalMinor

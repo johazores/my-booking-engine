@@ -26,6 +26,8 @@ These guards use the same tenant/booking advisory lock namespace as the lifecycl
 
 Return does **not** release the booking allocation early. Availability remains protected through the effective booking end date. Early-return release, extension/late-return handling, fees, damage/inspection state, and maintenance transitions require separate commercial rules.
 
+If pickup remains open when the exclusive effective end date is reached in the retained booking location timezone, the unit becomes overdue custody and is removed from new availability/hold/booking/replacement authority until return is recorded. This is inventory protection only: it does not extend the booking or create a fee. See [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md).
+
 ## Read model and UI
 
 `getRentalBooking` reads fulfillment evidence with tenant scope and derives `AWAITING_PICKUP`, `PICKED_UP`, or `RETURNED` from immutable event history.
@@ -35,7 +37,9 @@ The staff booking detail displays custody history and exposes a real POST pickup
 ## Validation
 
 - `src/server/bookings/rental-booking-fulfillment-domain.test.ts` covers state derivation, invalid ordering/duplicates, and deterministic idempotency authority.
+- `src/server/inventory/rental-custody-availability.test.ts` covers location-timezone date authority and the exclusive-end overdue boundary.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, route authority, neighboring mutation guards, and staff action wiring.
+- `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority plus database hold/allocation/substitution guards.
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.
 
 GitHub Actions are not required or used.
