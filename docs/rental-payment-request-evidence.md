@@ -36,11 +36,14 @@ The bounded settlement-history reader applies the same evidence checks before an
 
 ## PostgreSQL defense in depth
 
-The migration adds an insert-only authority guard for future rental payment rows. Before the existing rental settlement trigger executes, PostgreSQL requires:
+The request-evidence migration adds an insert-only authority guard for future rental payment rows. PostgreSQL requires:
 
 - a lowercase 64-hex request fingerprint;
-- the enabled operation-specific idempotency namespace and 48-hex digest shape (`rental:manual-payment:*` or `rental:manual-refund:*`);
-- `createdAt` to remain the database-authored transaction timestamp rather than caller-authored evidence.
+- the enabled operation-specific idempotency namespace and 48-hex digest shape (`rental:manual-payment:*` or `rental:manual-refund:*`).
+
+A follow-up chronology migration keeps the same trigger contract but makes the database the final author of settlement insertion time. The trigger now assigns `createdAt` from PostgreSQL `clock_timestamp()` on every insert. Caller-supplied `createdAt` values are overwritten rather than accepted as commercial chronology.
+
+This is intentionally different from comparing `createdAt` with `CURRENT_TIMESTAMP`. PostgreSQL `CURRENT_TIMESTAMP` is the transaction-start time, while a serializable rental settlement transaction may do authorization, locking, reconciliation, and provider-adapter work before the evidence row is inserted. `clock_timestamp()` records the database wall clock at that actual insert boundary and cannot be shifted by an application-node clock or a caller-provided timestamp.
 
 The database intentionally does not reproduce the application SHA-256 payload contract because the repository does not require a PostgreSQL cryptographic extension for this workflow. Exact fingerprint semantics remain application-owned and replay-validated; PostgreSQL independently enforces required evidence presence, shape, operation namespace, and database-authored chronology.
 
@@ -53,7 +56,8 @@ This change does not add Stripe rental checkout, deposits, split tenders, card a
 ## Validation
 
 - `src/server/payments/rental-payment-domain.test.ts` covers deterministic fingerprinting and sensitivity to tenant, idempotency, source, operation, and exact money.
-- `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects service persistence/replay checks, pre-provider payment/refund authority binding, migration guards, integration coverage, and the legacy-compatibility boundary.
-- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable PostgreSQL suite and now exercises missing fingerprint, malformed operation idempotency, caller-authored creation time, persisted fingerprints, payment replay, refund replay before and after cancellation, settlement, append-only evidence, and cancellation safety.
+- `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects service persistence/replay checks, pre-provider payment/refund authority binding, migration guards, database-authored insertion chronology, integration coverage, and the legacy-compatibility boundary.
+- `scripts/rental-payment-database-clock-source-contract.test.mjs` specifically protects the follow-up PostgreSQL wall-clock chronology guard and documents its difference from transaction-start time.
+- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable PostgreSQL suite and exercises missing fingerprint, malformed operation idempotency, caller-supplied creation-time overwrite inside a rolled-back probe, persisted fingerprints, payment replay, refund replay before and after cancellation, settlement, append-only evidence, and cancellation safety.
 
 Full repository validation remains `npm run validate` on the Node version declared in `package.json`. Live migration/database validation remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

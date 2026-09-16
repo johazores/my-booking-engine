@@ -5,7 +5,8 @@ import test from 'node:test';
 const domain = readFileSync('src/server/payments/rental-payment-domain.ts', 'utf8');
 const service = readFileSync('src/server/payments/rental-payment-service.ts', 'utf8');
 const history = readFileSync('src/server/payments/rental-payment-history.ts', 'utf8');
-const migration = readFileSync('prisma/migrations/20260916153500_rental_payment_request_evidence/migration.sql', 'utf8');
+const authorityMigration = readFileSync('prisma/migrations/20260916153500_rental_payment_request_evidence/migration.sql', 'utf8');
+const clockMigration = readFileSync('prisma/migrations/20260916172000_rental_payment_database_clock/migration.sql', 'utf8');
 const integration = readFileSync('src/server/payments/rental-payment.integration.ts', 'utf8');
 const docs = readFileSync('docs/rental-payment-request-evidence.md', 'utf8');
 
@@ -76,23 +77,33 @@ test('bounded settlement history revalidates deterministic request evidence befo
   assert.match(history, /if \(row\.requestFingerprint === null\) return null/);
 });
 
-test('database requires request evidence shape, operation idempotency namespace, and database-authored creation time', () => {
-  assert.match(migration, /sf_guard_rental_payment_request_evidence/);
-  assert.match(migration, /NEW\."requestFingerprint" IS NULL/);
-  assert.match(migration, /\^\[a-f0-9\]\{64\}\$/);
-  assert.match(migration, /\^rental:manual-payment:\[a-f0-9\]\{48\}\$/);
-  assert.match(migration, /\^rental:manual-refund:\[a-f0-9\]\{48\}\$/);
-  assert.match(migration, /NEW\."createdAt" IS DISTINCT FROM CURRENT_TIMESTAMP/);
-  assert.match(migration, /rental_payment_transactions_authority_guard/);
+test('database requires request evidence shape and operation idempotency namespace', () => {
+  assert.match(authorityMigration, /sf_guard_rental_payment_request_evidence/);
+  assert.match(authorityMigration, /NEW\."requestFingerprint" IS NULL/);
+  assert.match(authorityMigration, /\^\[a-f0-9\]\{64\}\$/);
+  assert.match(authorityMigration, /\^rental:manual-payment:\[a-f0-9\]\{48\}\$/);
+  assert.match(authorityMigration, /\^rental:manual-refund:\[a-f0-9\]\{48\}\$/);
+  assert.match(authorityMigration, /rental_payment_transactions_authority_guard/);
 });
 
-test('guarded PostgreSQL scenario covers direct-write request-evidence rejection and refund replay integrity', () => {
+test('database authors rental settlement insertion chronology from its wall clock', () => {
+  assert.match(clockMigration, /CREATE OR REPLACE FUNCTION sf_guard_rental_payment_request_evidence/);
+  assert.match(clockMigration, /NEW\."createdAt" := clock_timestamp\(\)/);
+  assert.doesNotMatch(clockMigration, /NEW\."createdAt" IS DISTINCT FROM CURRENT_TIMESTAMP/);
+  assert.match(clockMigration, /NEW\."requestFingerprint" IS NULL/);
+  assert.match(clockMigration, /\^rental:manual-payment:\[a-f0-9\]\{48\}\$/);
+  assert.match(clockMigration, /\^rental:manual-refund:\[a-f0-9\]\{48\}\$/);
+});
+
+test('guarded PostgreSQL scenario covers direct-write request-evidence rejection, database-authored chronology, and refund replay integrity', () => {
   assert.match(integration, /NO-FP-/);
   assert.match(integration, /request fingerprint/i);
   assert.match(integration, /BAD-KEY-/);
   assert.match(integration, /idempotency key/i);
-  assert.match(integration, /BAD-TIME-/);
-  assert.match(integration, /creation time/i);
+  assert.match(integration, /CLOCK-PROBE-/);
+  assert.match(integration, /callerAuthoredCreatedAt/);
+  assert.match(integration, /clock_timestamp\(\) AS "databaseNow"/);
+  assert.match(integration, /ROLLBACK_RENTAL_PAYMENT_CLOCK_PROBE/);
   assert.match(integration, /payment\.transaction\.requestFingerprint/);
   assert.match(integration, /refund\.transaction\.requestFingerprint/);
   assert.match(integration, /const refundReplay = await payments\.recordRentalManualOfflineRefund/);
@@ -105,6 +116,8 @@ test('documentation preserves legacy replay compatibility without expanding rent
   assert.match(docs, /New rows cannot use that legacy path/);
   assert.match(docs, /same two-sided authority check/);
   assert.match(docs, /replayable after the booking is later cancelled/);
+  assert.match(docs, /`clock_timestamp\(\)`/);
+  assert.match(docs, /caller-supplied `createdAt` values are overwritten/i);
   assert.match(docs, /does not add Stripe rental checkout, deposits, split tenders/i);
   assert.match(docs, /GitHub Actions are not required or used/);
 });

@@ -90,23 +90,34 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
     }),
     /idempotency key/i,
   );
+
+  const callerAuthoredCreatedAt = new Date('2099-01-01T00:00:00.000Z');
   await assert.rejects(
-    db.rentalPaymentTransaction.create({
-      data: {
-        organizationId: organization.id,
-        bookingId: confirmed.booking.id,
-        idempotencyKey: `rental:manual-payment:${'c'.repeat(48)}`,
-        requestFingerprint: 'd'.repeat(64),
-        kind: 'OFFLINE_PAYMENT',
-        status: 'SUCCEEDED',
-        providerCode: 'manual',
-        providerReference: `BAD-TIME-${runId.slice(0, 12)}`,
-        currency: confirmed.booking.currency,
-        amountMinor: confirmed.booking.totalMinor,
-        createdAt: new Date('2099-01-01T00:00:00.000Z'),
-      },
+    db.$transaction(async (transaction) => {
+      const clockProbe = await transaction.rentalPaymentTransaction.create({
+        data: {
+          organizationId: organization.id,
+          bookingId: confirmed.booking.id,
+          idempotencyKey: `rental:manual-payment:${'c'.repeat(48)}`,
+          requestFingerprint: 'd'.repeat(64),
+          kind: 'OFFLINE_PAYMENT',
+          status: 'SUCCEEDED',
+          providerCode: 'manual',
+          providerReference: `CLOCK-PROBE-${runId.slice(0, 12)}`,
+          currency: confirmed.booking.currency,
+          amountMinor: confirmed.booking.totalMinor,
+          createdAt: callerAuthoredCreatedAt,
+        },
+      });
+      const [databaseClock] = await transaction.$queryRaw<Array<{ databaseNow: Date }>>`
+        SELECT clock_timestamp() AS "databaseNow"
+      `;
+      assert.ok(databaseClock);
+      assert.notEqual(clockProbe.createdAt.getTime(), callerAuthoredCreatedAt.getTime());
+      assert.ok(Math.abs(databaseClock.databaseNow.getTime() - clockProbe.createdAt.getTime()) < 5_000);
+      throw new Error('ROLLBACK_RENTAL_PAYMENT_CLOCK_PROBE');
     }),
-    /creation time/i,
+    /ROLLBACK_RENTAL_PAYMENT_CLOCK_PROBE/,
   );
 
   const paymentReference = `PAYMENT-${runId.slice(0, 12)}`;
