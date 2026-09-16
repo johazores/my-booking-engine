@@ -27,6 +27,7 @@ const historySelect = {
   sourceProviderReference: true,
   currency: true,
   amountMinor: true,
+  createdAt: true,
 } as const;
 
 type RentalPaymentHistoryRow = Readonly<{
@@ -42,6 +43,7 @@ type RentalPaymentHistoryRow = Readonly<{
   sourceProviderReference: string | null;
   currency: string;
   amountMinor: bigint;
+  createdAt: Date;
 }>;
 
 function validateRentalPaymentRequestEvidence(
@@ -51,6 +53,9 @@ function validateRentalPaymentRequestEvidence(
 ): string | null {
   if (row.organizationId !== organizationId || row.bookingId !== bookingId) {
     return 'Rental payment history returned evidence outside the requested tenant booking scope.';
+  }
+  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
+    return 'Rental payment history contains settlement evidence with an invalid database creation timestamp.';
   }
   if (row.providerCode !== 'manual' || (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')) {
     return null;
@@ -84,11 +89,60 @@ function validateRentalPaymentRequestEvidence(
   return null;
 }
 
+function validateRentalPaymentChronology(rows: readonly RentalPaymentHistoryRow[]): string | null {
+  const sourceCreatedAtByReference = new Map<string, number>();
+
+  for (const row of rows) {
+    if (
+      row.status === 'SUCCEEDED'
+      && row.providerCode === 'manual'
+      && row.kind === 'OFFLINE_PAYMENT'
+    ) {
+      sourceCreatedAtByReference.set(row.providerReference, row.createdAt.getTime());
+    }
+  }
+
+  for (const row of rows) {
+    if (
+      row.status !== 'SUCCEEDED'
+      || row.providerCode !== 'manual'
+      || row.kind !== 'REFUND'
+    ) {
+      continue;
+    }
+
+    if (row.sourceProviderReference === null) {
+      return 'Rental refund history is missing its retained settlement source chronology.';
+    }
+    const sourceCreatedAt = sourceCreatedAtByReference.get(row.sourceProviderReference);
+    if (sourceCreatedAt === undefined) {
+      return 'Rental refund history does not have retained source-payment chronology.';
+    }
+    if (row.createdAt.getTime() < sourceCreatedAt) {
+      return 'Rental refund history predates its retained source payment.';
+    }
+  }
+
+  return null;
+}
+
+function completeRentalPaymentHistory(
+  evidenceRows: readonly RentalPaymentHistoryRow[],
+  transactions: readonly BookingSettlementTransaction[],
+): RentalPaymentHistoryResult {
+  const chronologyReason = validateRentalPaymentChronology(evidenceRows);
+  if (chronologyReason) {
+    return Object.freeze({ complete: false as const, reason: chronologyReason });
+  }
+  return Object.freeze({ complete: true as const, transactions: Object.freeze([...transactions]) });
+}
+
 export async function readRentalPaymentSettlementHistory(input: Readonly<{
   transaction: RentalPaymentHistoryReader;
   organizationId: string;
   bookingId: string;
 }>): Promise<RentalPaymentHistoryResult> {
+  const evidenceRows: RentalPaymentHistoryRow[] = [];
   const transactions: BookingSettlementTransaction[] = [];
   let cursorId: string | undefined;
 
@@ -102,14 +156,16 @@ export async function readRentalPaymentSettlementHistory(input: Readonly<{
     });
 
     for (const row of rows) {
+      const evidenceRow = row as RentalPaymentHistoryRow;
       const invalidReason = validateRentalPaymentRequestEvidence(
-        row as RentalPaymentHistoryRow,
+        evidenceRow,
         input.organizationId,
         input.bookingId,
       );
       if (invalidReason) {
         return Object.freeze({ complete: false as const, reason: invalidReason });
       }
+      evidenceRows.push(evidenceRow);
       transactions.push({
         kind: row.kind,
         status: row.status,
@@ -122,7 +178,7 @@ export async function readRentalPaymentSettlementHistory(input: Readonly<{
     }
 
     if (rows.length < RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE) {
-      return Object.freeze({ complete: true as const, transactions: Object.freeze(transactions) });
+      return completeRentalPaymentHistory(evidenceRows, transactions);
     }
     cursorId = rows.at(-1)?.id;
   }
@@ -149,5 +205,5 @@ export async function readRentalPaymentSettlementHistory(input: Readonly<{
     });
   }
 
-  return Object.freeze({ complete: true as const, transactions: Object.freeze(transactions) });
+  return completeRentalPaymentHistory(evidenceRows, transactions);
 }

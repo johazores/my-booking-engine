@@ -34,6 +34,8 @@ A completed refund remains replayable after the booking is later cancelled only 
 
 The bounded settlement-history reader applies the same evidence checks before any payment, refund, cancellation, or staff settlement decision consumes the history. For enabled manual payment/refund rows it rebuilds the deterministic idempotency key from booking + operation + retained provider reference, and when a request fingerprint is present it rebuilds and verifies the exact fingerprint. A mismatched key or fingerprint therefore makes the entire settlement history incomplete and fails the caller closed. Legacy null fingerprints remain readable only when their deterministic idempotency evidence is intact.
 
+The same reader now consumes the retained database-authored `createdAt` evidence. Every retained row must contain a valid timestamp, and a successful manual refund cannot predate the successful source payment named by `sourceProviderReference`. This is a causal integrity check rather than a second request fingerprint: `createdAt` remains database-authored chronology and is intentionally not mixed into the deterministic request identity.
+
 ## PostgreSQL defense in depth
 
 The request-evidence migration adds an insert-only authority guard for future rental payment rows. PostgreSQL requires:
@@ -56,8 +58,9 @@ This change does not add Stripe rental checkout, deposits, split tenders, card a
 ## Validation
 
 - `src/server/payments/rental-payment-domain.test.ts` covers deterministic fingerprinting and sensitivity to tenant, idempotency, source, operation, and exact money.
+- `src/server/payments/rental-payment-history.test.ts` covers bounded complete reads, deterministic evidence verification, valid database timestamps, and refund/source chronology.
 - `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects service persistence/replay checks, pre-provider payment/refund authority binding, migration guards, database-authored insertion chronology, integration coverage, and the legacy-compatibility boundary.
-- `scripts/rental-payment-database-clock-source-contract.test.mjs` specifically protects the follow-up PostgreSQL wall-clock chronology guard and documents its difference from transaction-start time.
+- `scripts/rental-payment-database-clock-source-contract.test.mjs` protects both the PostgreSQL wall-clock chronology guard and consumption of that chronology by the bounded settlement reader.
 - `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable PostgreSQL suite and exercises missing fingerprint, malformed operation idempotency, caller-supplied creation-time overwrite inside a rolled-back probe, persisted fingerprints, payment replay, refund replay before and after cancellation, settlement, append-only evidence, and cancellation safety.
 
 Full repository validation remains `npm run validate` on the Node version declared in `package.json`. Live migration/database validation remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

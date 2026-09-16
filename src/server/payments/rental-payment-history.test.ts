@@ -45,6 +45,7 @@ function makeRows(count: number) {
       sourceProviderReference,
       currency: 'PHP',
       amountMinor: 1n,
+      createdAt: new Date(Date.UTC(2026, 8, 16, 0, index)),
     };
   });
 }
@@ -135,4 +136,25 @@ test('legacy null request fingerprints remain readable when deterministic operat
 
   assert.equal(result.complete, true);
   assert.equal(result.complete ? result.transactions.length : -1, 1);
+});
+
+test('rental settlement history rejects invalid database-authored creation timestamps', async () => {
+  const source = makeRows(1);
+  source[0] = { ...source[0]!, createdAt: new Date(Number.NaN) };
+  const reader = createReader(source);
+  const result = await readRentalPaymentSettlementHistory({ transaction: reader.transaction as never, organizationId, bookingId });
+
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /creation timestamp/i);
+});
+
+test('rental settlement history rejects a successful refund that predates its retained source payment', async () => {
+  const source = makeRows(2);
+  source[0] = { ...source[0]!, createdAt: new Date('2026-09-16T02:00:00.000Z') };
+  source[1] = { ...source[1]!, createdAt: new Date('2026-09-16T01:00:00.000Z') };
+  const reader = createReader(source);
+  const result = await readRentalPaymentSettlementHistory({ transaction: reader.transaction as never, organizationId, bookingId });
+
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /predates its retained source payment/i);
 });
