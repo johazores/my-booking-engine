@@ -44,6 +44,10 @@ async function runRentalBookingFulfillment<T>(operation: () => Promise<T>) {
   throw new RentalBookingFulfillmentConflictError('Rental fulfillment could not be serialized.');
 }
 
+function sameDate(left: Date, right: Date) {
+  return left.getTime() === right.getTime();
+}
+
 async function recordRentalBookingFulfillmentEvent(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -75,10 +79,57 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       if (existing.idempotencyKey !== idempotencyKey) {
         throw new RentalBookingFulfillmentConflictError('Existing rental fulfillment evidence does not match the server-derived idempotency authority.');
       }
-      const history = await transaction.rentalBookingFulfillmentEvent.findMany({
-        where: { organizationId: input.organizationId, bookingId: input.bookingId },
-        orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      });
+
+      const [booking, latestReschedule, latestSubstitution, history] = await Promise.all([
+        transaction.rentalBooking.findFirst({
+          where: { id: input.bookingId, organizationId: input.organizationId, status: 'CONFIRMED', cancelledAt: null },
+          select: { id: true, unitId: true, startsOn: true, endsOn: true },
+        }),
+        transaction.rentalBookingReschedule.findFirst({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+          orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          select: { targetStartsOn: true, targetEndsOn: true },
+        }),
+        transaction.rentalBookingUnitSubstitution.findFirst({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+          orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          select: { targetUnitId: true },
+        }),
+        transaction.rentalBookingFulfillmentEvent.findMany({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+          orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        }),
+      ]);
+      if (!booking) {
+        throw new RentalBookingFulfillmentConflictError(
+          'Existing rental fulfillment evidence no longer resolves to the retained confirmed booking.',
+        );
+      }
+
+      const effectiveUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
+      const effectiveStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+      const effectiveEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+      if (
+        existing.unitId !== effectiveUnitId
+        || !sameDate(existing.startsOn, effectiveStartsOn)
+        || !sameDate(existing.endsOn, effectiveEndsOn)
+      ) {
+        throw new RentalBookingFulfillmentConflictError(
+          'Existing rental fulfillment evidence no longer matches the retained physical assignment.',
+        );
+      }
+      if (!history.some((event) => event.id === existing.id && event.kind === input.kind)) {
+        throw new RentalBookingFulfillmentConflictError(
+          'Existing rental fulfillment evidence is not present in the retained custody history.',
+        );
+      }
+
+      await transaction.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${rentalUnitLockKey(input.organizationId, effectiveUnitId)}, 0)
+        )
+      `;
+
       return Object.freeze({ event: existing, fulfillment: deriveRentalBookingFulfillmentState(history), idempotent: true });
     }
 

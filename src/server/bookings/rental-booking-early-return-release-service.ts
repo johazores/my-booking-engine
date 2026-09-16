@@ -95,23 +95,89 @@ export async function releaseRentalBookingInventoryAfterEarlyReturn(input: Reado
         );
       }
 
+      const [booking, latestReschedule, latestSubstitution] = await Promise.all([
+        transaction.rentalBooking.findFirst({
+          where: {
+            id: input.bookingId,
+            organizationId: input.organizationId,
+            status: 'CONFIRMED',
+            cancelledAt: null,
+          },
+          select: {
+            id: true,
+            unitId: true,
+            startsOn: true,
+            endsOn: true,
+          },
+        }),
+        transaction.rentalBookingReschedule.findFirst({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+          orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          select: { targetStartsOn: true, targetEndsOn: true },
+        }),
+        transaction.rentalBookingUnitSubstitution.findFirst({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+          orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+          select: { targetUnitId: true },
+        }),
+      ]);
+      if (!booking) {
+        throw new RentalBookingEarlyReturnReleaseConflictError(
+          'Existing early-return release evidence no longer resolves to the retained confirmed booking.',
+        );
+      }
+
+      const effectiveUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
+      const committedStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+      const committedEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+      if (
+        existing.unitId !== effectiveUnitId
+        || !sameDate(existing.committedStartsOn, committedStartsOn)
+        || !sameDate(existing.committedEndsOn, committedEndsOn)
+      ) {
+        throw new RentalBookingEarlyReturnReleaseConflictError(
+          'Existing early-return release evidence no longer matches the retained physical assignment.',
+        );
+      }
+
       await transaction.$queryRaw`
         SELECT pg_advisory_xact_lock(
-          hashtextextended(${rentalUnitLockKey(input.organizationId, existing.unitId)}, 0)
+          hashtextextended(${rentalUnitLockKey(input.organizationId, effectiveUnitId)}, 0)
         )
       `;
 
-      const allocation = await transaction.rentalBookingAllocation.findFirst({
-        where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      });
+      const [allocation, returnEvent] = await Promise.all([
+        transaction.rentalBookingAllocation.findFirst({
+          where: { organizationId: input.organizationId, bookingId: input.bookingId },
+        }),
+        transaction.rentalBookingFulfillmentEvent.findFirst({
+          where: {
+            id: existing.returnEventId,
+            organizationId: input.organizationId,
+            bookingId: input.bookingId,
+            kind: 'RETURNED',
+          },
+        }),
+      ]);
       if (
         !allocation
-        || allocation.unitId !== existing.unitId
-        || !sameDate(allocation.startsOn, existing.committedStartsOn)
+        || allocation.unitId !== effectiveUnitId
+        || !sameDate(allocation.startsOn, committedStartsOn)
         || !sameDate(allocation.endsOn, existing.releasedEndsOn)
       ) {
         throw new RentalBookingEarlyReturnReleaseConflictError(
           'Existing early-return release evidence no longer matches the live physical allocation.',
+        );
+      }
+      if (
+        !returnEvent
+        || returnEvent.unitId !== effectiveUnitId
+        || !sameDate(returnEvent.startsOn, committedStartsOn)
+        || !sameDate(returnEvent.endsOn, committedEndsOn)
+        || returnEvent.occurredAt.getTime() !== existing.returnedAt.getTime()
+      ) {
+        throw new RentalBookingEarlyReturnReleaseConflictError(
+          'Existing early-return release evidence no longer matches the retained return custody event.',
         );
       }
 

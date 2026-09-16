@@ -18,7 +18,7 @@ Pickup and return require both `booking:manage` and `inventory:manage`. Routes d
 
 The writer uses the tenant/booking advisory lock followed by the effective physical-unit lock, a serializable transaction, PostgreSQL `clock_timestamp()`, bounded conflict retry, exact effective allocation validation after any supported reschedule/substitution, and audit evidence.
 
-Repeated pickup or return requests replay the existing event idempotently instead of creating duplicate custody evidence.
+Repeated pickup or return requests replay an existing event only after re-deriving the retained confirmed booking's latest pre-pickup reschedule/substitution assignment. The existing event must still match the effective unit and committed date snapshot and remain present in the tenant-owned custody history. Replay then takes the same effective-unit lock before returning idempotent success. An idempotency key match by itself is not sufficient.
 
 Early-return inventory release uses the same permissions and lock order. It derives the release cutoff from the immutable return timestamp in the retained booking location timezone and only shortens the allocation when at least one complete remaining rental day can be freed. See [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
 
@@ -47,7 +47,7 @@ The booking detail and list distinguish the committed rental period from the sho
 - `src/server/bookings/rental-booking-fulfillment-domain.test.ts` covers state derivation, invalid ordering/duplicates, and deterministic idempotency authority.
 - `src/server/inventory/rental-custody-availability.test.ts` covers location-timezone date authority and the exclusive-end overdue boundary.
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers whole-day early-return release semantics and deterministic idempotency.
-- `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, route authority, neighboring mutation guards, and staff action wiring.
+- `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, replay revalidation, route authority, neighboring mutation guards, and staff action wiring.
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority plus database hold/allocation/substitution guards.
 - `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects append-only release evidence, exact return-event authority, allocation shortening, database guards, and staff read/UI semantics.
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.

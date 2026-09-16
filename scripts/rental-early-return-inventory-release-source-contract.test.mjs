@@ -51,6 +51,18 @@ test('release writer derives immutable authority, serializes booking and unit, a
   assert.doesNotMatch(service, /paymentTransaction|totalMinor|currency|refund/i);
 });
 
+test('idempotent release replay revalidates assignment, exact return evidence, and live allocation', () => {
+  assert.match(service, /if \(existing\)/);
+  assert.match(service, /existing\.unitId !== effectiveUnitId/);
+  assert.match(service, /sameDate\(existing\.committedStartsOn, committedStartsOn\)/);
+  assert.match(service, /sameDate\(existing\.committedEndsOn, committedEndsOn\)/);
+  assert.match(service, /id: existing\.returnEventId/);
+  assert.match(service, /kind: 'RETURNED'/);
+  assert.match(service, /returnEvent\.occurredAt\.getTime\(\) !== existing\.returnedAt\.getTime\(\)/);
+  assert.match(service, /sameDate\(allocation\.endsOn, existing\.releasedEndsOn\)/);
+  assert.match(service, /Existing early-return release evidence no longer matches the retained return custody event/);
+});
+
 test('database guards allow only whole-day post-return release and keep committed booking evidence unchanged', () => {
   assert.match(migration, /event\."kind" = 'RETURNED'/);
   assert.match(migration, /return_event\."unitId" <> expected_unit_id/);

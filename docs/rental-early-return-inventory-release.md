@@ -40,7 +40,7 @@ For example, a booking committed for October 10 through October 16 that is retur
 
 The database insert guard repeats the booking/unit lock boundary and requires exact return custody evidence plus the still-full committed allocation. The allocation guard then allows only the shortened end recorded by that release evidence. A deferred constraint requires the evidence and shortened allocation to commit together.
 
-Repeated requests replay the existing release only when the live allocation still matches the retained release evidence.
+Repeated requests replay an existing release only after re-deriving the retained confirmed booking's effective unit and committed dates, reacquiring the effective-unit lock, matching the exact linked `RETURNED` event and immutable return timestamp, and verifying that the live allocation still ends at the retained released date. An idempotency key match by itself is not sufficient.
 
 ## Commercial boundary
 
@@ -62,7 +62,7 @@ The booking list continues to show the committed rental period while separately 
 ## Validation
 
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers location-calendar release dates, whole-day semantics, no-op rejection, and deterministic idempotency.
-- `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects tenant ownership, append-only persistence, booking/unit serialization, return-event authority, server-derived route authority, exact allocation shortening, database guards, and staff read/UI semantics.
+- `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects tenant ownership, append-only persistence, booking/unit serialization, replay revalidation, exact return-event authority, server-derived route authority, exact allocation shortening, database guards, and staff read/UI semantics.
 - Full Prisma, migration, PostgreSQL, typecheck, lint, test, and build validation remains part of the repository-supported Node 24 workflow and guarded disposable-database tests.
 
 GitHub Actions are not required or used.

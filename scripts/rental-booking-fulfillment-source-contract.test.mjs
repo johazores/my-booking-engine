@@ -41,6 +41,17 @@ test('fulfillment writer derives tenant, custody snapshot, locks, time, idempote
   assert.match(service, /booking\.rental\.returned/);
 });
 
+test('idempotent fulfillment replay re-derives and validates the retained physical assignment', () => {
+  assert.match(service, /if \(existing\)/);
+  assert.match(service, /latestReschedule/);
+  assert.match(service, /latestSubstitution/);
+  assert.match(service, /existing\.unitId !== effectiveUnitId/);
+  assert.match(service, /sameDate\(existing\.startsOn, effectiveStartsOn\)/);
+  assert.match(service, /sameDate\(existing\.endsOn, effectiveEndsOn\)/);
+  assert.match(service, /history\.some\(\(event\) => event\.id === existing\.id && event\.kind === input\.kind\)/);
+  assert.match(service, /Existing rental fulfillment evidence no longer matches the retained physical assignment/);
+});
+
 test('pickup freezes unsafe neighboring booking mutations at the database boundary', () => {
   assert.match(migration, /rental_booking_reschedules_pre_fulfillment_guard/);
   assert.match(migration, /rental_booking_unit_substitutions_pre_fulfillment_guard/);
