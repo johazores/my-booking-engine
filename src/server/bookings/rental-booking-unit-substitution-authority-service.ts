@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-domain.ts';
 import {
   buildRentalBookingUnitSubstitutionAuthorityFingerprint,
   normalizeRentalBookingUnitSubstitutionSearch,
@@ -59,7 +60,7 @@ const effectiveAllocationInclude = {
       unitTypeId: true,
       locationId: true,
       unitType: { select: { id: true, code: true, name: true, status: true } },
-      location: { select: { id: true, code: true, name: true, status: true } },
+      location: { select: { id: true, code: true, name: true, status: true, timeZone: true } },
     },
   },
 } as const;
@@ -87,7 +88,7 @@ function assertEffectiveAllocation(input: Readonly<{
         unitTypeId: string;
         locationId: string | null;
         unitType: { id: string; code: string; name: string; status: string };
-        location: null | { id: string; code: string; name: string; status: string };
+        location: null | { id: string; code: string; name: string; status: string; timeZone: string };
       };
     };
   };
@@ -129,6 +130,21 @@ function assertEffectiveAllocation(input: Readonly<{
   }
 
   return Object.freeze({ startsOn, endsOn, sourceUnitId, sourceUnit: allocation.unit });
+}
+
+function assertUnitSubstitutionPickupWindowOpen(input: Readonly<{
+  observedAt: Date;
+  startsOn: Date;
+  endsOn: Date;
+  timeZone: string;
+}>) {
+  const pickupWindow = deriveRentalBookingPickupWindow(input);
+  if (pickupWindow.state === 'CLOSED') {
+    throw new RentalBookingUnitSubstitutionUnavailableError(
+      'The committed rental pickup window has closed. Reschedule or cancel the booking before changing its physical unit.',
+    );
+  }
+  return pickupWindow;
 }
 
 export async function searchRentalBookingUnitSubstitutionCandidates(input: Readonly<{
@@ -185,6 +201,12 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
       booking,
       latestReschedule,
       latestSubstitution,
+    });
+    assertUnitSubstitutionPickupWindowOpen({
+      observedAt: databaseClock.now,
+      startsOn: effective.startsOn,
+      endsOn: effective.endsOn,
+      timeZone: effective.sourceUnit.location.timeZone,
     });
 
     const overdueCustodyUnitIds = await findOverdueRentalCustodyUnitIds(transaction, {
@@ -303,6 +325,12 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
       booking,
       latestReschedule,
       latestSubstitution,
+    });
+    assertUnitSubstitutionPickupWindowOpen({
+      observedAt: databaseClock.now,
+      startsOn: effective.startsOn,
+      endsOn: effective.endsOn,
+      timeZone: effective.sourceUnit.location.timeZone,
     });
     const pricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
 

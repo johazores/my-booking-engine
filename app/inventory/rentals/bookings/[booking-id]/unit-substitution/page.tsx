@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
+import { deriveRentalBookingPickupWindow } from '@/server/bookings/rental-booking-pickup-window-domain.ts';
 import {
   getRentalBooking,
   RentalBookingUnavailableError,
@@ -27,7 +28,7 @@ const blockerMessages = {
 const applyErrors: Record<string, string> = {
   permission: 'Your organization role cannot apply this rental unit substitution.',
   unavailable: 'The rental booking is no longer available for unit substitution in this organization.',
-  conflict: 'The booking, source allocation, target inventory, or review authority changed. Review the replacement unit again.',
+  conflict: 'The booking, source allocation, target inventory, pickup window, or review authority changed. Review the booking before trying again.',
   validation: 'The rental unit substitution request was invalid. Review the replacement unit again.',
   server: 'The rental unit substitution could not be completed. No successful substitution was recorded.',
 };
@@ -89,6 +90,19 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental unit substitution</p><h1>Booking is not eligible</h1><p>Only a confirmed rental booking with its retained physical allocation can be reviewed for a replacement unit.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
   }
 
+  const latestReschedule = booking.reschedules.at(-1);
+  const committedStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
+  const committedEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+  const pickupWindow = deriveRentalBookingPickupWindow({
+    observedAt: booking.custody.observedAt,
+    startsOn: committedStartsOn,
+    endsOn: committedEndsOn,
+    timeZone: booking.location.timeZone,
+  });
+  if (booking.fulfillment.state !== 'AWAITING_PICKUP' || pickupWindow.state === 'CLOSED') {
+    return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental unit substitution</p><h1>Replacement window is closed</h1><p>Physical-unit replacement is available only before custody transfer and before the exclusive committed rental end. Review the booking for a supported reschedule, cancellation, or return workflow instead.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
+  }
+
   let candidates: Awaited<ReturnType<typeof searchRentalBookingUnitSubstitutionCandidates>> | null = null;
   let review: Awaited<ReturnType<typeof reviewRentalBookingUnitSubstitutionAuthority>> | null = null;
   let reviewError: string | null = null;
@@ -137,7 +151,7 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
         <button className="sf-button sf-button--primary" type="submit">Review replacement unit</button>
       </form> : <p className="sf-field-hint">No active same-type replacement units match this search at the booking operating location.</p>}
       {candidates && candidates.total > candidates.limit ? <p className="sf-field-hint">Showing the first {candidates.limit} of {candidates.total} matching units. Narrow the search to review another unit.</p> : null}
-      <p className="sf-field-hint">Candidate search does not promise availability. The fresh authority review checks blocks, effective holds, and non-cancelled booking allocations for the exact effective rental period.</p>
+      <p className="sf-field-hint">Candidate search does not promise availability. The fresh authority review checks the current pickup window, blocks, effective holds, and non-cancelled booking allocations for the exact effective rental period.</p>
     </section>
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-unit-substitution-result-title">

@@ -8,12 +8,12 @@ The workflow does not invent deposits, online payment collection, unit-type/loca
 
 - `/inventory/rentals/holds/[hold-id]` reviews one effective rental hold against an active tenant customer.
 - `POST /api/inventory/rentals/holds/[hold-id]/confirm` derives tenant, actor, and confirmation idempotency authority from authenticated server context before calling `confirmRentalBookingFromHold`.
-- `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering, committed dates, current effective unit, current fulfillment state, and any early-return inventory-release indicator.
+- `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering, committed dates, current effective unit, current fulfillment state, overdue-custody/missed-pickup operational queues, and any early-return inventory-release indicator.
 - `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, committed dates, current live inventory protection, append-only reschedule/substitution/fulfillment/early-return-release history, tenant-scoped manual settlement history, and cancellation evidence.
 - `/inventory/rentals/bookings/[booking-id]/reschedule` reviews target dates and only renders Apply when fresh authority is ready and the actor can manage availability.
 - `POST /api/inventory/rentals/bookings/[booking-id]/reschedule` derives tenant, actor, and idempotency authority server-side and calls the durable reschedule writer.
-- `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs fresh target-inventory authority review. Apply is rendered only for ready authority plus availability-management permission.
-- `POST /api/inventory/rentals/bookings/[booking-id]/unit-substitution` derives tenant, actor, and idempotency server-side and calls the durable substitution writer.
+- `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs fresh target-inventory authority review only before custody transfer and before the exclusive committed pickup end. Apply is rendered only for ready authority plus availability-management permission.
+- `POST /api/inventory/rentals/bookings/[booking-id]/unit-substitution` derives tenant, actor, and idempotency server-side and calls the durable substitution writer, which rechecks fulfillment and pickup-window authority under locks.
 - `POST /api/inventory/rentals/bookings/[booking-id]/payments/manual` derives tenant, actor, exact accepted amount, and idempotency server-side. The form supplies only the real external offline payment reference.
 - `POST /api/inventory/rentals/bookings/[booking-id]/payments/refunds` derives tenant, actor, refund source/amount, and idempotency server-side. The form supplies only the real external refund reference.
 - `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer, which refuses to release inventory while settled money remains or after pickup has transferred custody.
@@ -57,13 +57,15 @@ See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecyc
 
 Physical-unit substitution is intentionally narrow: source and target are active tenant units with the same retained unit type and operating location; current effective dates do not change; accepted currency/amount and effective pricing fingerprint do not change.
 
-Candidate discovery is bounded to 50 rows and is not availability authority. Fresh review checks target blocks, effective holds, and other non-cancelled allocations using PostgreSQL time. A ready version-2 fingerprint binds the tenant, booking version, current source unit, requested target unit, retained type/location, current dates, exact accepted money, and effective pricing evidence.
+Candidate discovery is bounded to 50 rows and is not availability authority. Fresh review checks the current effective pickup window using PostgreSQL time plus the retained location timezone before checking target blocks, effective holds, overdue open custody, and other non-cancelled allocations. Once the exclusive effective end date has been reached without pickup, the booking is a missed pickup and candidate/review authority closes instead of permitting a replacement under an expired period. A ready version-2 fingerprint binds the tenant, booking version, current source unit, requested target unit, retained type/location, current dates, exact accepted money, and effective pricing evidence.
 
-`applyRentalBookingUnitSubstitution` takes the booking lock, then source and target physical-unit locks in deterministic order. It revalidates the current source allocation, target inventory, lifecycle/type/location constraints, and reviewed fingerprint before inserting append-only substitution evidence and moving only the effective allocation unit. Immutable booking-time `RentalBooking.unitId` remains unchanged. New substitutions fail closed after pickup custody evidence exists.
+`applyRentalBookingUnitSubstitution` takes the booking lock, then source and target physical-unit locks in deterministic order. It revalidates the absence of fulfillment evidence, the retained location timezone, PostgreSQL pickup-window authority, current source allocation, target inventory, lifecycle/type/location constraints, and reviewed fingerprint before inserting append-only substitution evidence and moving only the effective allocation unit. Immutable booking-time `RentalBooking.unitId` remains unchanged. Existing idempotent replay remains historical replay authority; new substitutions fail closed after pickup or after the missed-pickup boundary.
+
+A PostgreSQL insertion guard independently takes the tenant booking lock, resolves the latest supported reschedule dates and retained location timezone, uses `clock_timestamp()`, and rejects stale reviewed authority that crosses the exclusive local-date end before commit.
 
 Server-derived idempotency replay succeeds only while the same substitution remains the latest/current physical assignment. Older substitution replays after another replacement fail closed.
 
-See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
+See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md) and [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
 
 ## Payment settlement authority
 
@@ -91,17 +93,19 @@ Pickup/return writers lock the tenant booking and current effective physical uni
 
 Pickup is the custody handoff boundary. Once pickup exists, cancellation, rescheduling, and physical-unit substitution are blocked at both UI and database boundaries. Return requires prior pickup and cannot predate it. Return does not automatically shorten the booking allocation.
 
+A confirmed `AWAITING_PICKUP` booking whose exclusive committed end has been reached in the retained location timezone is surfaced as **Missed pickup**. Pickup and physical-unit replacement are closed under that expired period, while separately authorized reschedule/cancellation remediation remains available under its own rules. No cancellation, fee, refund, or extension is invented automatically.
+
 After return, `releaseRentalBookingInventoryAfterEarlyReturn` reacquires the booking and current physical-unit locks, requires the exact `RETURNED` event and still-full committed allocation, derives the first reusable whole rental day from the immutable return timestamp in the retained booking-location timezone, inserts append-only release evidence, and shortens only `RentalBookingAllocation.endsOn` through an exact compare-and-swap update.
 
 The committed customer dates, accepted amount, payment evidence, fulfillment events, and original/reschedule commercial evidence are not rewritten. Repeated release requests replay only when the live allocation still matches the retained release evidence.
 
-See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md) and [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
+See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-booking-pickup-window.md](./rental-booking-pickup-window.md), and [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
 
 ## Read model
 
-`listRentalBookings` requires `booking:read`, enforces tenant scope, caps page size at 100, and supports `ALL`, `CONFIRMED`, and `CANCELLED` lifecycle filters. Staff see the committed rental period, current physical unit, derived fulfillment state, and an early-return release indicator when live inventory protection ends sooner. Post-pickup replacement links are not rendered.
+`listRentalBookings` requires `booking:read`, enforces tenant scope, caps page size at 100, and supports `ALL`, `CONFIRMED`, and `CANCELLED` lifecycle filters plus overdue-custody and missed-pickup operational queues. Staff see the committed rental period, current physical unit, derived fulfillment state, and an early-return release indicator when live inventory protection ends sooner. Replacement links are not rendered after pickup or after a missed pickup.
 
-`getRentalBooking` resolves one tenant booking plus append-only reschedule, substitution, fulfillment, and early-return release evidence. Detail distinguishes immutable booking-time unit/dates/customer/commercial evidence, committed dates, current live allocation protection, physical-custody evidence, and terminal cancellation evidence. A missing or inconsistent allocation remains an integrity incident.
+`getRentalBooking` resolves one tenant booking plus append-only reschedule, substitution, fulfillment, and early-return release evidence. Detail distinguishes immutable booking-time unit/dates/customer/commercial evidence, committed dates, current live allocation protection, physical-custody evidence, missed-pickup/overdue-custody state, and terminal cancellation evidence. A missing or inconsistent allocation remains an integrity incident.
 
 `listRentalBookingPaymentTransactions` separately requires `payment:read`, caps display pagination at 100, and reconciles payment state from the complete tenant-owned history rather than only the visible page.
 
@@ -116,6 +120,8 @@ Those features require separate commercial state machines and acceptance criteri
 `scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects tenant-scoped reads, server-derived mutation authority, staff list/detail routes, cancellation/reschedule/substitution wiring, and unsupported downstream workflow boundaries.
 
 `scripts/rental-booking-unit-substitution-lifecycle-source-contract.test.mjs` protects append-only substitution persistence, effective-unit database authority, deterministic locking, idempotency, neighboring mutation compatibility, and route scope.
+
+`scripts/rental-unit-substitution-pickup-window-source-contract.test.mjs` protects the server review/write pickup-window checks, PostgreSQL direct-write guard, and staff removal of replacement actions after a missed pickup.
 
 `scripts/rental-payment-foundation-source-contract.test.mjs` protects the rental settlement schema/migration, tenant scope, booking-lock serialization, provider-adapter use, payment/refund route authority, and cancellation financial guard.
 

@@ -1,6 +1,6 @@
 # Rental inventory
 
-SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, staff rental booking lifecycle, physical-custody evidence, explicit early-return inventory release, and the current narrow manual settlement boundary. The current booking workflow supports hold-to-booking confirmation, tenant-scoped history/detail, same-unit price-neutral date rescheduling, same-type/same-location physical-unit substitution, terminal pre-pickup inventory-release cancellation, staff-only full-value manual/offline settlement with remaining refunds, append-only pickup/return custody evidence, overdue open-custody inventory protection, and explicit release of complete remaining rental days after return. Deposits, online rental checkout/card authorization, unit-type/location-changing amendments, price-changing amendments, delivery, late-return fees, inspection/damage processing, maintenance transitions, and customer self-service remain separate contracts.
+SF rental inventory is a tenant-owned production foundation for rentable physical inventory. It separates catalog, operating-location, availability-calendar, temporary inventory protection, pricing evidence, rate configuration, durable physical-unit allocation, staff rental booking lifecycle, physical-custody evidence, explicit early-return inventory release, and the current narrow manual settlement boundary. The current booking workflow supports hold-to-booking confirmation, tenant-scoped history/detail, same-unit price-neutral date rescheduling, same-type/same-location physical-unit substitution, terminal pre-pickup inventory-release cancellation, staff-only full-value manual/offline settlement with remaining refunds, append-only pickup/return custody evidence, overdue open-custody inventory protection, missed-pickup operational visibility, and explicit release of complete remaining rental days after return. Deposits, online rental checkout/card authorization, unit-type/location-changing amendments, price-changing amendments, delivery, late-return fees, inspection/damage processing, maintenance transitions, and customer self-service remain separate contracts.
 
 ## Implemented scope
 
@@ -19,11 +19,12 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - A durable rental booking writer that consumes the exact hold, snapshots customer/commercial evidence, creates `RentalBooking`, creates exact `RentalBookingAllocation`, and records a secret-free audit event in one serializable transaction.
 - Tenant-scoped, paginated rental booking history and detail protected by `booking:read`.
 - Same-unit, price-neutral date rescheduling with fresh target inventory/pricing review, versioned authority fingerprint, server-derived idempotency, serializable booking/effective-unit locks, append-only reschedule evidence, exact effective allocation update, stale-authority protection, and audit evidence.
-- Same-type, same-location physical-unit substitution with bounded candidate search, fresh target inventory review, version-2 authority fingerprint, deterministic booking/source/target locks, server-derived idempotency, append-only substitution evidence, exact effective allocation-unit move, stale-authority protection, and audit evidence.
+- Same-type, same-location physical-unit substitution with bounded candidate search, fresh target inventory review, version-2 authority fingerprint, deterministic booking/source/target locks, server-derived idempotency, append-only substitution evidence, exact effective allocation-unit move, stale-authority protection, pickup/missed-pickup lifecycle guards, and audit evidence.
 - Explicit staff cancellation for a confirmed pre-pickup booking with `booking:manage` plus `availability:manage`. Cancellation records terminal `CANCELLED`, retains historical allocation/reschedule/substitution evidence, and releases live inventory protection only after current rental payment settlement reconciles to zero.
 - Staff-only full-value manual/offline payment recording and remaining manual/offline refund recording through the existing payment-provider adapter boundary, with tenant-scoped append-only evidence, server-derived idempotency, booking serialization, bounded complete settlement-history reconciliation, and payment-state cancellation guards.
 - Staff pickup/return custody recording with `booking:manage` plus `inventory:manage`, exact effective allocation validation, booking/effective-unit serialization, PostgreSQL event time, server-derived idempotency, immutable unit/date snapshots, append-only evidence, and pickup-before-return ordering.
 - Pickup freezes unsafe booking mutations: database guards reject cancellation, rescheduling, and physical-unit substitution after custody has transferred.
+- A confirmed awaiting-pickup booking whose exclusive effective end date has been reached in the retained location timezone is surfaced as **Missed pickup**; pickup and physical-unit replacement close under that expired period without inventing cancellation, fees, refunds, or extensions.
 - Return records custody handback without automatically shortening or releasing the committed availability period.
 - Explicit early-return inventory release after `RETURNED`, using the same booking/inventory permissions, booking/unit lock order, immutable return evidence, retained booking-location timezone, server-derived idempotency, append-only release evidence, and exact whole-day allocation shortening.
 - A picked-up unit whose exclusive effective end date has been reached in the retained booking-location timezone remains unavailable for new inventory authority until append-only return evidence exists.
@@ -31,7 +32,7 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 - Customer de-identification treats hospitality and rental booking references, including cancelled rental bookings, as retention boundaries.
 - Server-side authorization for inventory, availability, pricing, booking, customer, payment, and fulfillment capabilities used by each workflow.
 - Tenant-scoped reads and mutations; resource identifiers, idempotency keys, codes, hold IDs, customer IDs, booking IDs, target-unit IDs, authority fingerprints, and payment references never grant scope without authenticated `organizationId`.
-- Database-enforced tenant roots, organization-composite relationships, booking insert guards, immutable booking-time evidence, append-only reschedule/substitution/payment/fulfillment/early-return-release evidence, effective-allocation guards, terminal cancellation and financial-settlement guards, custody-order and overdue-custody guards, per-unit advisory serialization, and deferred exact-allocation validation.
+- Database-enforced tenant roots, organization-composite relationships, booking insert guards, immutable booking-time evidence, append-only reschedule/substitution/payment/fulfillment/early-return-release evidence, effective-allocation guards, terminal cancellation and financial-settlement guards, custody-order, pickup-window, missed-pickup substitution, and overdue-custody guards, per-unit advisory serialization, and deferred exact-allocation validation.
 - Archive lifecycle for commercial inventory rows with dependency-safe constraints.
 - Database pricing-evidence invariants that allow legacy holds without evidence but reject partially populated or invalid evidence.
 - Explicit destructive confirmations for inventory removal/archive and booking cancellation.
@@ -83,13 +84,13 @@ See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecyc
 
 ### Same-type same-location physical-unit substitution
 
-Authorized staff may replace the current effective unit with another active unit under the same retained product/type and operating location while dates and accepted money remain unchanged and before pickup custody is recorded.
+Authorized staff may replace the current effective unit with another active unit under the same retained product/type and operating location while dates and accepted money remain unchanged, before pickup custody is recorded, and before the exclusive effective rental end has been reached.
 
-Candidate discovery is bounded and does not reserve inventory. Fresh review uses PostgreSQL time and rejects target blocks, effective holds, other non-cancelled allocations, overdue open custody, wrong tenant/type/location, inactive lifecycle, and no-op targets. The version-2 authority fingerprint binds booking version, current source, target, retained type/location, effective dates, exact accepted money, and effective pricing evidence.
+Candidate discovery is bounded and does not reserve inventory. Fresh review uses PostgreSQL time plus the retained booking-location timezone to reject a booking once its pickup window has closed, then checks target blocks, effective holds, other non-cancelled allocations, overdue open custody, wrong tenant/type/location, inactive lifecycle, and no-op targets. The version-2 authority fingerprint binds booking version, current source, target, retained type/location, effective dates, exact accepted money, and effective pricing evidence.
 
-Apply reacquires the booking lock and both physical-unit locks in deterministic order, rebuilds authority, inserts append-only substitution evidence, moves only `RentalBookingAllocation.unitId`, advances the booking version, and records audit evidence. Original `RentalBooking.unitId` remains immutable booking-time history. Database guards reject new substitutions once pickup evidence exists and reject an overdue open-custody target.
+Apply reacquires the booking lock and both physical-unit locks in deterministic order, rechecks that no fulfillment evidence exists, re-derives the current pickup window from PostgreSQL time and the retained location timezone, rebuilds authority, inserts append-only substitution evidence, moves only `RentalBookingAllocation.unitId`, advances the booking version, and records audit evidence. Original `RentalBooking.unitId` remains immutable booking-time history. Database guards reject new substitutions once pickup evidence exists, after the missed-pickup exclusive-end boundary, and when a target remains held by overdue open custody.
 
-Database guards derive the effective unit from latest substitution history for allocation, reschedule, cancellation, and fulfillment authority. See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
+Database guards derive the effective unit from latest substitution history for allocation, reschedule, cancellation, and fulfillment authority. See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md) and [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
 
 ### Manual/offline settlement
 
@@ -105,11 +106,13 @@ Staff cancellation changes only a still-confirmed pre-pickup tenant booking to t
 
 Cancellation does not itself perform a refund, deposit, provider, tax, notification, or fulfillment action. Any real manual refund must be recorded through the payment workflow before cancellation can commit. Once pickup custody exists, a database guard rejects cancellation. See [rental-booking-cancellation.md](./rental-booking-cancellation.md), [rental-payment-foundation.md](./rental-payment-foundation.md), and [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md).
 
-### Pickup, return, and early-return inventory release
+### Pickup, missed pickup, return, and early-return inventory release
 
-Authorized staff may record pickup only for a confirmed booking whose current effective allocation is intact. The writer requires `booking:manage` and `inventory:manage`, takes the tenant/booking lock followed by the effective physical-unit lock, resolves latest reschedule/substitution authority, snapshots the active effective unit and committed dates, derives idempotency server-side, and uses PostgreSQL time.
+Authorized staff may record pickup only for a confirmed booking whose current effective allocation is intact and whose committed local-date window is active. The writer requires `booking:manage` and `inventory:manage`, takes the tenant/booking lock followed by the effective physical-unit lock, resolves latest reschedule/substitution authority, snapshots the active effective unit and committed dates, derives idempotency server-side, and uses PostgreSQL time plus the retained booking-location timezone.
 
 Pickup is the physical-custody handoff boundary. From that point, database guards reject cancellation, rescheduling, and unit substitution so historical custody evidence cannot be contradicted by a later booking mutation.
+
+If the exclusive committed end is reached while the booking is still awaiting pickup, SF surfaces **Missed pickup**. Pickup and physical-unit replacement are closed for that expired period. This does not automatically cancel, refund, extend, or fee the booking; separately authorized reschedule/cancellation paths remain the remediation boundary.
 
 Return requires prior pickup and records a second append-only custody event for the same effective assignment. Return does not automatically release inventory early.
 
@@ -119,7 +122,7 @@ If return has not been recorded when the exclusive committed end date is reached
 
 Extensions/late-return policy and fees, delivery, inspection/damage, deposits/security bonds, maintenance/work orders, and notifications remain separate contracts.
 
-See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), and [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md).
+See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-booking-pickup-window.md](./rental-booking-pickup-window.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), and [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md).
 
 ### Hold expiry
 
@@ -140,11 +143,13 @@ The following are **not** presented as implemented:
 - maintenance/work-order workflows beyond explicit unavailable-date blocks
 - external marketplace, fleet, supplier, or calendar synchronization
 
-Those require separate commercial state machines and acceptance criteria. The current production contract includes staff-reviewed durable inventory commitment, tenant-scoped read history, price-neutral date rescheduling, same-type/same-location physical-unit substitution, pre-pickup inventory-release cancellation, narrow staff-only manual/offline settlement/refund evidence, append-only pickup/return custody evidence, overdue open-custody inventory protection, and explicit whole-day post-return inventory release.
+Those require separate commercial state machines and acceptance criteria. The current production contract includes staff-reviewed durable inventory commitment, tenant-scoped read history, price-neutral date rescheduling, same-type/same-location physical-unit substitution within the pre-custody committed window, pre-pickup inventory-release cancellation, narrow staff-only manual/offline settlement/refund evidence, append-only pickup/return custody evidence, missed-pickup operational visibility, overdue open-custody inventory protection, and explicit whole-day post-return inventory release.
 
 ## Validation boundary
 
-Dependency-free domain/source contracts cover deterministic pricing and authority fingerprints, tenant-composite relationships, database guards, hold evidence, authorization, tenant-bound resolution, bounded collections, overlap behavior, atomic hold consumption, durable booking/allocation persistence, reschedule/substitution authority and write scope, cancellation, rental manual settlement/refund evidence, bounded complete settlement history, pickup/return state ordering and neighboring-mutation freeze, overdue open-custody availability protection, early-return inventory release, customer retention, and the no-fake-commercial-workflow boundary.
+Dependency-free domain/source contracts cover deterministic pricing and authority fingerprints, tenant-composite relationships, database guards, hold evidence, authorization, tenant-bound resolution, bounded collections, overlap behavior, atomic hold consumption, durable booking/allocation persistence, reschedule/substitution authority and write scope, missed-pickup substitution closure, cancellation, rental manual settlement/refund evidence, bounded complete settlement history, pickup/return state ordering and neighboring-mutation freeze, overdue open-custody availability protection, early-return inventory release, customer retention, and the no-fake-commercial-workflow boundary.
+
+`scripts/rental-unit-substitution-pickup-window-source-contract.test.mjs` specifically protects the candidate/review/write pickup-window checks, PostgreSQL direct-write guard, and staff action closure after missed pickup.
 
 Guarded PostgreSQL scenarios remain registered under `npm run test:database` and must target an explicitly disposable database. Live Prisma validation, migration/drift checks, complete typecheck/lint/test/build, and PostgreSQL execution must not be claimed without the repository-supported Node 24 toolchain and required environment.
 

@@ -4,6 +4,7 @@ import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-domain.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import {
   buildRentalBookingUnitSubstitutionAuthorityFingerprint,
@@ -158,6 +159,7 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
           organizationId: input.organizationId,
           status: 'CONFIRMED',
           cancelledAt: null,
+          fulfillmentEvents: { none: { organizationId: input.organizationId } },
         },
         select: { id: true },
       }),
@@ -196,8 +198,12 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
           organizationId: input.organizationId,
           status: 'CONFIRMED',
           cancelledAt: null,
+          fulfillmentEvents: { none: { organizationId: input.organizationId } },
         },
-        include: { allocation: true },
+        include: {
+          allocation: true,
+          location: { select: { id: true, timeZone: true } },
+        },
       }),
       transaction.rentalBookingReschedule.findFirst({
         where: { organizationId: input.organizationId, bookingId: input.bookingId },
@@ -241,6 +247,17 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
     const startsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const endsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     const pricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+    const pickupWindow = deriveRentalBookingPickupWindow({
+      observedAt: databaseClock.now,
+      startsOn,
+      endsOn,
+      timeZone: booking.location.timeZone,
+    });
+    if (pickupWindow.state === 'CLOSED') {
+      throw new RentalBookingUnitSubstitutionConflictError(
+        'The committed rental pickup window closed before the replacement unit could be applied. Reschedule or cancel the booking before changing its physical unit.',
+      );
+    }
 
     if (
       allocationLocator.unitId !== sourceUnitId
