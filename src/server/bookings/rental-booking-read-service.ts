@@ -3,11 +3,19 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveRentalBookingFulfillmentState } from './rental-booking-fulfillment-domain.ts';
+import { readBoundedRentalBookingHistory } from './rental-booking-history.ts';
 
 export class RentalBookingUnavailableError extends Error {
   constructor() {
     super('Rental booking is not available in this organization.');
     this.name = 'RentalBookingUnavailableError';
+  }
+}
+
+export class RentalBookingHistoryUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RentalBookingHistoryUnavailableError';
   }
 }
 
@@ -17,6 +25,15 @@ function normalizePagination(page: number, pageSize: number) {
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
   const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 100) : 25;
   return { page: safePage, pageSize: safePageSize };
+}
+
+function compareAppliedHistory(
+  left: Readonly<{ appliedAt: Date; createdAt: Date; id: string }>,
+  right: Readonly<{ appliedAt: Date; createdAt: Date; id: string }>,
+) {
+  return left.appliedAt.getTime() - right.appliedAt.getTime()
+    || left.createdAt.getTime() - right.createdAt.getTime()
+    || left.id.localeCompare(right.id);
 }
 
 const effectiveAllocationInclude = {
@@ -39,6 +56,7 @@ const rentalBookingListInclude = {
   },
   fulfillmentEvents: {
     orderBy: [{ occurredAt: 'asc' as const }, { createdAt: 'asc' as const }, { id: 'asc' as const }],
+    take: 3,
     select: { kind: true, occurredAt: true },
   },
   earlyReturnRelease: { select: { releasedEndsOn: true } },
@@ -57,30 +75,57 @@ export async function getRentalBooking(input: Readonly<{ organizationId: string;
   assertUuidIdentifier(input.bookingId, 'bookingId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
 
-  const [booking, reschedules, unitSubstitutions, fulfillmentEvents] = await Promise.all([
-    db.rentalBooking.findFirst({ where: { id: input.bookingId, organizationId: input.organizationId }, include: rentalBookingDetailInclude }),
-    db.rentalBookingReschedule.findMany({
-      where: { bookingId: input.bookingId, organizationId: input.organizationId },
-      orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    }),
-    db.rentalBookingUnitSubstitution.findMany({
-      where: { bookingId: input.bookingId, organizationId: input.organizationId },
-      orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      include: { sourceUnit: { select: { id: true, code: true, name: true } }, targetUnit: { select: { id: true, code: true, name: true } } },
-    }),
-    db.rentalBookingFulfillmentEvent.findMany({
-      where: { bookingId: input.bookingId, organizationId: input.organizationId },
-      orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    }),
-  ]);
-  if (!booking) throw new RentalBookingUnavailableError();
-  return Object.freeze({
-    ...booking,
-    reschedules,
-    unitSubstitutions,
-    fulfillmentEvents,
-    fulfillment: deriveRentalBookingFulfillmentState(fulfillmentEvents),
-  });
+  return db.$transaction(async (transaction) => {
+    const booking = await transaction.rentalBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      include: rentalBookingDetailInclude,
+    });
+    if (!booking) throw new RentalBookingUnavailableError();
+
+    const [rescheduleHistory, substitutionHistory, fulfillmentEvents] = await Promise.all([
+      readBoundedRentalBookingHistory({
+        label: 'Rental booking reschedule history',
+        readPage: (cursorId, take) => transaction.rentalBookingReschedule.findMany({
+          where: { bookingId: input.bookingId, organizationId: input.organizationId },
+          orderBy: { id: 'asc' },
+          take,
+          ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+        }),
+      }),
+      readBoundedRentalBookingHistory({
+        label: 'Rental booking unit-substitution history',
+        readPage: (cursorId, take) => transaction.rentalBookingUnitSubstitution.findMany({
+          where: { bookingId: input.bookingId, organizationId: input.organizationId },
+          orderBy: { id: 'asc' },
+          take,
+          ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+          include: {
+            sourceUnit: { select: { id: true, code: true, name: true } },
+            targetUnit: { select: { id: true, code: true, name: true } },
+          },
+        }),
+      }),
+      transaction.rentalBookingFulfillmentEvent.findMany({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        take: 3,
+      }),
+    ]);
+
+    if (!rescheduleHistory.complete) throw new RentalBookingHistoryUnavailableError(rescheduleHistory.reason);
+    if (!substitutionHistory.complete) throw new RentalBookingHistoryUnavailableError(substitutionHistory.reason);
+
+    const reschedules = [...rescheduleHistory.rows].sort(compareAppliedHistory);
+    const unitSubstitutions = [...substitutionHistory.rows].sort(compareAppliedHistory);
+
+    return Object.freeze({
+      ...booking,
+      reschedules: Object.freeze(reschedules),
+      unitSubstitutions: Object.freeze(unitSubstitutions),
+      fulfillmentEvents: Object.freeze(fulfillmentEvents),
+      fulfillment: deriveRentalBookingFulfillmentState(fulfillmentEvents),
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listRentalBookings(input: Readonly<{
@@ -98,26 +143,28 @@ export async function listRentalBookings(input: Readonly<{
   const where: Prisma.RentalBookingWhereInput = { organizationId: input.organizationId };
   if (input.status && input.status !== 'ALL') where.status = input.status;
 
-  const total = await db.rentalBooking.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const bookingRows = await db.rentalBooking.findMany({
-    where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    include: rentalBookingListInclude,
-  });
-  const bookings = bookingRows.map((booking) => Object.freeze({
-    ...booking,
-    fulfillment: deriveRentalBookingFulfillmentState(booking.fulfillmentEvents),
-  }));
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.rentalBooking.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const bookingRows = await transaction.rentalBooking.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      include: rentalBookingListInclude,
+    });
+    const bookings = bookingRows.map((booking) => Object.freeze({
+      ...booking,
+      fulfillment: deriveRentalBookingFulfillmentState(booking.fulfillmentEvents),
+    }));
 
-  return Object.freeze({
-    bookings: Object.freeze(bookings),
-    total,
-    page,
-    pageSize: pagination.pageSize,
-    totalPages,
-  });
+    return Object.freeze({
+      bookings: Object.freeze(bookings),
+      total,
+      page,
+      pageSize: pagination.pageSize,
+      totalPages,
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }
