@@ -26,6 +26,8 @@ Settlement decisions need the complete payment/refund chain rather than only the
 
 The current manual rental contract has a 1,000-transaction reconciliation safety limit. Exceeding it fails closed as unreconciled/conflicting settlement rather than making a financial decision from a truncated history. The current staff workflow normally produces only one full payment and its remaining refund; future split tenders, partial-refund automation, or new providers must deliberately revisit this limit and reconciliation strategy.
 
+Rental-specific settlement derivation independently enforces that current narrow contract before assigning a payment state. Successful evidence must use provider `manual` and kind `OFFLINE_PAYMENT` or `REFUND`; each successful offline payment must equal the authoritative booking total; and gross successful settlement-source money must be either zero or exactly that total. A partial successful payment, multiple successful settlement sources, authorization/capture evidence, or another provider therefore fails closed as unreconciled instead of being mislabeled as `PARTIALLY_REFUNDED` or `PAID`. Successful settlement evidence outside that contract fails closed even if generic provider-neutral settlement logic could otherwise reconcile it. This mirrors the database guard and prevents future provider rows from gaining rental semantics before the rental contract is explicitly extended.
+
 The staff payment read model computes settlement and the visible paginated history inside one `RepeatableRead` transaction so count, reconciliation evidence, and the returned page share a consistent database snapshot.
 
 ## Manual full payment
@@ -83,9 +85,9 @@ Those remain separate commercial contracts. No placeholder route or dead payment
 
 ## Validation
 
-- `src/server/payments/rental-payment-domain.test.ts` covers derived unpaid/paid/partial-refund/refunded states, fail-closed reconciliation, and deterministic server idempotency.
+- `src/server/payments/rental-payment-domain.test.ts` covers derived unpaid/paid/partial-refund/refunded states, fail-closed reconciliation, the manual/full-value successful-settlement contract, and deterministic server idempotency.
 - `src/server/payments/rental-payment-history.test.ts` covers bounded cursor pagination and fail-closed reconciliation when the safety limit is exceeded.
-- `scripts/rental-payment-foundation-source-contract.test.mjs` protects tenant ownership, schema/migration constraints, booking-lock serialization, exact replay evidence, bounded complete history, provider-adapter use, staff-route authority, cancellation settlement guards, and the no-deposit/no-online-checkout boundary.
+- `scripts/rental-payment-foundation-source-contract.test.mjs` protects tenant ownership, schema/migration constraints, booking-lock serialization, exact replay evidence, bounded complete history, the narrow rental settlement contract, provider-adapter use, staff-route authority, cancellation settlement guards, and the no-deposit/no-online-checkout boundary.
 - `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable-PostgreSQL runner and covers real payment/refund persistence, cross-tenant denial, cancellation blocking before refund, append-only evidence, and cancellation after full refund.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.

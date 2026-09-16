@@ -24,18 +24,40 @@ export function deriveRentalPaymentSettlement(input: Readonly<{
     return { reconciled: false, reason: 'Rental booking total must be positive before payment settlement can be reconciled.' };
   }
 
+  const successful = input.transactions.filter((transaction) => transaction.status === 'SUCCEEDED');
+  for (const transaction of successful) {
+    if (transaction.providerCode !== 'manual' || (transaction.kind !== 'OFFLINE_PAYMENT' && transaction.kind !== 'REFUND')) {
+      return {
+        reconciled: false,
+        reason: 'Rental payment history contains successful settlement evidence outside the enabled manual/offline contract.',
+      };
+    }
+    if (transaction.kind === 'OFFLINE_PAYMENT' && transaction.amountMinor !== input.bookingTotalMinor) {
+      return {
+        reconciled: false,
+        reason: 'Rental offline payment history does not match the full authoritative booking total.',
+      };
+    }
+  }
+
   const settlement = deriveBookingSettlementSummary({ currency: input.currency, transactions: input.transactions });
   if (!settlement.reconciled) return settlement;
+  if (settlement.grossSettledMinor !== 0n && settlement.grossSettledMinor !== input.bookingTotalMinor) {
+    return {
+      reconciled: false,
+      reason: 'Rental payment history contains more than the enabled full-value settlement contract.',
+    };
+  }
   if (settlement.netSettledMinor < 0n || settlement.netSettledMinor > input.bookingTotalMinor) {
     return { reconciled: false, reason: 'Rental payment history does not reconcile to the authoritative booking total.' };
   }
 
   const paymentState: RentalPaymentState = settlement.grossSettledMinor === 0n
     ? 'UNPAID'
-    : settlement.netSettledMinor === 0n
-      ? 'REFUNDED'
-      : settlement.netSettledMinor === input.bookingTotalMinor
-        ? 'PAID'
+    : settlement.refundedMinor === 0n
+      ? 'PAID'
+      : settlement.netSettledMinor === 0n
+        ? 'REFUNDED'
         : 'PARTIALLY_REFUNDED';
 
   return Object.freeze({

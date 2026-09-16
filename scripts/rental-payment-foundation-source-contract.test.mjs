@@ -59,6 +59,10 @@ test('manual rental settlement uses provider adapters, exact idempotent replay e
   assert.match(service, /isolationLevel: 'Serializable'/);
   assert.match(service, /isolationLevel: 'RepeatableRead'/);
   assert.match(domain, /createHash\('sha256'\)/);
+  assert.match(domain, /transaction\.providerCode !== 'manual'/);
+  assert.match(domain, /transaction\.kind !== 'OFFLINE_PAYMENT' && transaction\.kind !== 'REFUND'/);
+  assert.match(domain, /transaction\.kind === 'OFFLINE_PAYMENT' && transaction\.amountMinor !== input\.bookingTotalMinor/);
+  assert.match(domain, /settlement\.grossSettledMinor !== 0n && settlement\.grossSettledMinor !== input\.bookingTotalMinor/);
   assert.match(domain, /settlement\.grossSettledMinor === 0n/);
 });
 
@@ -120,6 +124,7 @@ test('documentation keeps unsupported rental commercial workflows explicit', () 
   assert.match(docs, /not an online checkout workflow/i);
   assert.match(docs, /bounded 100-row cursor pages/i);
   assert.match(docs, /1,000-transaction reconciliation safety limit/i);
+  assert.match(docs, /successful settlement evidence outside that contract fails closed/i);
   assert.match(docs, /does not implement deposits, card authorization, Stripe rental checkout/i);
   assert.match(docs, /No placeholder route or dead payment action/);
   assert.match(docs, /GitHub Actions are not required or used/);

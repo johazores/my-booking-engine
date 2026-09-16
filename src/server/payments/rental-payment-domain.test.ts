@@ -13,19 +13,29 @@ const payment = {
   amountMinor: 10_000n,
 };
 
+function requireReconciled(result: ReturnType<typeof deriveRentalPaymentSettlement>) {
+  if (!result.reconciled) throw new Error(result.reason);
+  return result;
+}
+
+function requireUnreconciled(result: ReturnType<typeof deriveRentalPaymentSettlement>) {
+  if (result.reconciled) throw new Error('Expected rental payment settlement to fail closed.');
+  return result;
+}
+
 test('rental payment settlement distinguishes unpaid, paid, partial refund, and full refund', () => {
-  assert.equal(deriveRentalPaymentSettlement({ bookingTotalMinor: 10_000n, currency: 'USD', transactions: [] }).paymentState, 'UNPAID');
-  assert.equal(deriveRentalPaymentSettlement({ bookingTotalMinor: 10_000n, currency: 'USD', transactions: [payment] }).paymentState, 'PAID');
-  assert.equal(deriveRentalPaymentSettlement({
+  assert.equal(requireReconciled(deriveRentalPaymentSettlement({ bookingTotalMinor: 10_000n, currency: 'USD', transactions: [] })).paymentState, 'UNPAID');
+  assert.equal(requireReconciled(deriveRentalPaymentSettlement({ bookingTotalMinor: 10_000n, currency: 'USD', transactions: [payment] })).paymentState, 'PAID');
+  assert.equal(requireReconciled(deriveRentalPaymentSettlement({
     bookingTotalMinor: 10_000n,
     currency: 'USD',
     transactions: [payment, { ...payment, kind: 'REFUND', providerReference: 'REF-1', sourceProviderReference: 'BANK-001', amountMinor: 2_500n }],
-  }).paymentState, 'PARTIALLY_REFUNDED');
-  assert.equal(deriveRentalPaymentSettlement({
+  })).paymentState, 'PARTIALLY_REFUNDED');
+  assert.equal(requireReconciled(deriveRentalPaymentSettlement({
     bookingTotalMinor: 10_000n,
     currency: 'USD',
     transactions: [payment, { ...payment, kind: 'REFUND', providerReference: 'REF-2', sourceProviderReference: 'BANK-001', amountMinor: 10_000n }],
-  }).paymentState, 'REFUNDED');
+  })).paymentState, 'REFUNDED');
 });
 
 test('rental payment settlement fails closed on unresolved or over-settled history', () => {
@@ -39,6 +49,36 @@ test('rental payment settlement fails closed on unresolved or over-settled histo
     currency: 'USD',
     transactions: [payment],
   }).reconciled, false);
+  assert.equal(deriveRentalPaymentSettlement({
+    bookingTotalMinor: 10_000n,
+    currency: 'USD',
+    transactions: [payment, { ...payment, providerReference: 'BANK-002' }],
+  }).reconciled, false);
+});
+
+test('rental payment settlement rejects partial successful payments instead of misclassifying them as refunds', () => {
+  const result = requireUnreconciled(deriveRentalPaymentSettlement({
+    bookingTotalMinor: 10_000n,
+    currency: 'USD',
+    transactions: [{ ...payment, amountMinor: 5_000n }],
+  }));
+  assert.match(result.reason, /full authoritative booking total/i);
+});
+
+test('rental payment settlement rejects successful evidence outside the enabled manual offline contract', () => {
+  const stripe = requireUnreconciled(deriveRentalPaymentSettlement({
+    bookingTotalMinor: 10_000n,
+    currency: 'USD',
+    transactions: [{ ...payment, providerCode: 'stripe' }],
+  }));
+  assert.match(stripe.reason, /manual\/offline contract/i);
+
+  const capture = requireUnreconciled(deriveRentalPaymentSettlement({
+    bookingTotalMinor: 10_000n,
+    currency: 'USD',
+    transactions: [{ ...payment, kind: 'CAPTURE' }],
+  }));
+  assert.match(capture.reason, /manual\/offline contract/i);
 });
 
 test('rental payment idempotency is stable and operation-scoped', () => {
