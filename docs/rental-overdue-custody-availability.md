@@ -24,9 +24,13 @@ The read-only reschedule and substitution surfaces also refuse bookings that alr
 
 ## Staff operational visibility
 
-Rental booking list and detail reads now derive the same overdue-custody condition for staff instead of leaving the inventory block invisible. Each request obtains one PostgreSQL `clock_timestamp()` observation inside its existing `RepeatableRead` snapshot, uses the immutable pickup event's exclusive `endsOn` date plus the retained booking location timezone, and exposes a read-only overdue flag with the expected-return boundary.
+Rental booking list and detail reads derive the same overdue-custody condition for staff instead of leaving the inventory block invisible. Each request obtains one PostgreSQL `clock_timestamp()` observation inside its existing `RepeatableRead` snapshot, uses the immutable pickup event's exclusive `endsOn` date plus the retained booking location timezone, and exposes a read-only overdue flag with the expected-return boundary.
 
 The booking list marks affected rows as **Overdue custody**. Booking detail shows an alert and changes the custody badge to **OVERDUE CUSTODY** while still exposing the real `Record return` action to authorized staff. This visibility does not create a new mutable booking status and does not bypass the existing server/database inventory guards.
+
+The booking list also provides an **Overdue only** operational queue. The queue is filtered in PostgreSQL before pagination rather than filtering an already paginated page in memory. Its count and page IDs use the same database observation time and the same confirmed + pickup + no-return + local exclusive-end rule as the row-level custody projection. Booking, location, pickup, and return predicates all repeat `organizationId`, and the final row read repeats tenant scope again before rendering. The returned page is then re-derived through the normal custody domain and fails closed if the SQL queue and retained evidence disagree or any selected ID cannot be re-read in the same snapshot. This keeps the queue useful for large tenants without turning a resource ID or fulfillment row into tenant authority.
+
+The queue is read-only. It does not create a late-return workflow, automatically extend a rental, assess a fee, or close custody. Staff still use the existing authorized `Record return` action to append return evidence.
 
 ## Database safety
 
@@ -41,6 +45,12 @@ These database guards are defense in depth; they do not replace server authoriza
 Return clears open custody through append-only `RETURNED` evidence. Return itself does not shorten the existing allocation, so live inventory remains protected through the committed end until staff explicitly apply early-return inventory release.
 
 When an early-return release is valid, SF keeps the committed custody dates unchanged and shortens only the live allocation end to the first reusable whole rental day after the local return day. That separate append-only contract is documented in [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
+
+## Validation
+
+- `src/server/inventory/rental-custody-availability.test.ts` covers retained-location date authority and the exclusive-end overdue boundary.
+- `scripts/rental-overdue-custody-source-contract.test.mjs` protects inventory exclusion, write guards, and base staff visibility.
+- `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects the tenant-scoped pre-pagination staff queue, shared PostgreSQL observation time, final row re-scope, and deliberate read-only commercial boundary.
 
 ## Deliberate boundaries
 
