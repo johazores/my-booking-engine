@@ -8,6 +8,7 @@ import {
   rentalBookingFulfillmentIdempotencyKey,
   type RentalBookingFulfillmentEventKind,
 } from './rental-booking-fulfillment-domain.ts';
+import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-domain.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
@@ -22,6 +23,13 @@ export class RentalBookingFulfillmentUnavailableError extends Error {
   constructor() {
     super('Rental booking is not available for fulfillment in this organization.');
     this.name = 'RentalBookingFulfillmentUnavailableError';
+  }
+}
+
+export class RentalBookingPickupWindowConflictError extends RentalBookingFulfillmentConflictError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RentalBookingPickupWindowConflictError';
   }
 }
 
@@ -83,7 +91,13 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       const [booking, latestReschedule, latestSubstitution, history] = await Promise.all([
         transaction.rentalBooking.findFirst({
           where: { id: input.bookingId, organizationId: input.organizationId, status: 'CONFIRMED', cancelledAt: null },
-          select: { id: true, unitId: true, startsOn: true, endsOn: true },
+          select: {
+            id: true,
+            unitId: true,
+            startsOn: true,
+            endsOn: true,
+            location: { select: { timeZone: true } },
+          },
         }),
         transaction.rentalBookingReschedule.findFirst({
           where: { organizationId: input.organizationId, bookingId: input.bookingId },
@@ -118,6 +132,19 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
           'Existing rental fulfillment evidence no longer matches the retained physical assignment.',
         );
       }
+      if (input.kind === 'PICKED_UP') {
+        const pickupWindow = deriveRentalBookingPickupWindow({
+          observedAt: existing.occurredAt,
+          startsOn: effectiveStartsOn,
+          endsOn: effectiveEndsOn,
+          timeZone: booking.location.timeZone,
+        });
+        if (pickupWindow.state !== 'OPEN') {
+          throw new RentalBookingFulfillmentConflictError(
+            'Existing rental pickup evidence falls outside the retained committed rental window.',
+          );
+        }
+      }
       if (!history.some((event) => event.id === existing.id && event.kind === input.kind)) {
         throw new RentalBookingFulfillmentConflictError(
           'Existing rental fulfillment evidence is not present in the retained custody history.',
@@ -136,7 +163,7 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
     const [booking, latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBooking.findFirst({
         where: { id: input.bookingId, organizationId: input.organizationId, status: 'CONFIRMED', cancelledAt: null },
-        include: { allocation: true },
+        include: { allocation: true, location: { select: { timeZone: true } } },
       }),
       transaction.rentalBookingReschedule.findFirst({
         where: { organizationId: input.organizationId, bookingId: input.bookingId },
@@ -186,6 +213,24 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
     const current = deriveRentalBookingFulfillmentState(history);
     if (input.kind === 'PICKED_UP' && current.state !== 'AWAITING_PICKUP') {
       throw new RentalBookingFulfillmentConflictError('Only an awaiting-pickup rental booking can be picked up.');
+    }
+    if (input.kind === 'PICKED_UP') {
+      const pickupWindow = deriveRentalBookingPickupWindow({
+        observedAt: databaseClock[0].now,
+        startsOn: effectiveStartsOn,
+        endsOn: effectiveEndsOn,
+        timeZone: booking.location.timeZone,
+      });
+      if (pickupWindow.state === 'BEFORE_WINDOW') {
+        throw new RentalBookingPickupWindowConflictError(
+          'Rental pickup cannot be recorded before the committed rental start date at the retained operating location.',
+        );
+      }
+      if (pickupWindow.state === 'CLOSED') {
+        throw new RentalBookingPickupWindowConflictError(
+          'Rental pickup cannot be recorded after the exclusive committed rental end date.',
+        );
+      }
     }
     if (input.kind === 'RETURNED' && current.state !== 'PICKED_UP') {
       throw new RentalBookingFulfillmentConflictError('Only a picked-up rental booking can be returned.');

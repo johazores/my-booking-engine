@@ -6,12 +6,14 @@ import {
   recordRentalBookingPickup,
   RentalBookingFulfillmentConflictError,
   RentalBookingFulfillmentUnavailableError,
+  RentalBookingPickupWindowConflictError,
 } from '@/server/bookings/rental-booking-fulfillment-service.ts';
 import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-availability-domain.ts';
 import { prepareInventoryMutationRequest } from '@/server/inventory/inventory-http.ts';
 
 function fulfillmentErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'permission';
+  if (error instanceof RentalBookingPickupWindowConflictError) return 'pickup-window';
   if (error instanceof RentalBookingFulfillmentConflictError || error instanceof RentalBookingFulfillmentIntegrityError || error instanceof RentalAvailabilityIntegrityError) return 'conflict';
   if (error instanceof RentalBookingFulfillmentUnavailableError) return 'unavailable';
   if (error instanceof Error && /invalid|required|must|cannot/i.test(error.message)) return 'validation';

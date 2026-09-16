@@ -4,6 +4,8 @@ SF supports an authenticated staff custody lifecycle for durable rental bookings
 
 This is deliberately narrower than a full rental operations suite. Pickup and return record physical custody evidence only. They do not create deposits/security bonds, authorize cards, collect money, assess late/damage fees, run inspections, create maintenance work, trigger notifications, or call external providers.
 
+Pickup is valid only while the current committed rental date range is active in the retained booking location timezone: the local date must be on or after the effective start and before the exclusive effective end. See [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
+
 ## Durable evidence
 
 `RentalBookingFulfillmentEvent` is append-only tenant-owned evidence. Each event snapshots the effective physical unit ID/code/name, effective rental dates, server-derived idempotency key, event kind, and PostgreSQL event time.
@@ -18,7 +20,9 @@ Pickup and return require both `booking:manage` and `inventory:manage`. Routes d
 
 The writer uses the tenant/booking advisory lock followed by the effective physical-unit lock, a serializable transaction, PostgreSQL `clock_timestamp()`, bounded conflict retry, exact effective allocation validation after any supported reschedule/substitution, and audit evidence.
 
-Repeated pickup or return requests replay an existing event only after re-deriving the retained confirmed booking's latest pre-pickup reschedule/substitution assignment. The existing event must still match the effective unit and committed date snapshot and remain present in the tenant-owned custody history. Replay then takes the same effective-unit lock before returning idempotent success. An idempotency key match by itself is not sufficient.
+Before pickup is written, the service combines that PostgreSQL timestamp with the retained booking location timezone and the current effective committed dates. Pickup before the local start date or at/after the exclusive local end date fails closed. A dedicated database trigger repeats the booking lock, latest-reschedule date derivation, retained-location timezone lookup, PostgreSQL clock authority, and pickup-window check for direct inserts, so a caller-provided event timestamp cannot bypass the current window.
+
+Repeated pickup or return requests replay an existing event only after re-deriving the retained confirmed booking's latest pre-pickup reschedule/substitution assignment. The existing event must still match the effective unit and committed date snapshot and remain present in the tenant-owned custody history. Pickup replay additionally verifies that the retained pickup timestamp falls inside that retained committed local-date window. Replay then takes the same effective-unit lock before returning idempotent success. An idempotency key match by itself is not sufficient.
 
 Early-return inventory release uses the same permissions and lock order. It derives the release cutoff from the immutable return timestamp in the retained booking location timezone and only shortens the allocation when at least one complete remaining rental day can be freed. See [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
 
@@ -38,17 +42,19 @@ Extensions/late-return handling, fees, damage/inspection state, deposits/securit
 
 `getRentalBooking` reads fulfillment and early-return release evidence with tenant scope and derives `AWAITING_PICKUP`, `PICKED_UP`, or `RETURNED` from immutable event history. It also derives read-only overdue custody from a PostgreSQL observation time, the retained booking location timezone, and the pickup event's immutable exclusive end date.
 
-The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup, then a real POST return action only while picked up. An overdue picked-up booking receives an explicit alert and `OVERDUE CUSTODY` badge while preserving the same authorized return action. After return, `Release remaining inventory` is rendered only when whole-day inventory can actually be freed and the actor has `booking:manage` plus `inventory:manage`.
+The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup **and** the current committed local-date pickup window is open, then a real POST return action only while picked up. Before the rental start, staff see when pickup opens. After the exclusive end passes without pickup, the primary pickup action is removed and the closed-window state is explained rather than presenting an action the server will reject. An overdue picked-up booking receives an explicit alert and `OVERDUE CUSTODY` badge while preserving the same authorized return action. After return, `Release remaining inventory` is rendered only when whole-day inventory can actually be freed and the actor has `booking:manage` plus `inventory:manage`.
 
 The paginated rental booking list also marks overdue picked-up rows. The booking detail and list distinguish the committed rental period from the shorter live inventory-protection period after an early release. UI checks are usability only; server services and database constraints remain authoritative.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-fulfillment-domain.test.ts` covers state derivation, invalid ordering/duplicates, and deterministic idempotency authority.
+- `src/server/bookings/rental-booking-pickup-window-domain.test.ts` covers date-window opening/closure, retained-location timezone authority, and invalid committed date evidence.
 - `src/server/bookings/rental-booking-custody-read-domain.test.ts` covers operational overdue derivation, location-timezone boundaries, non-overdue lifecycle states, and fail-closed missing pickup evidence.
 - `src/server/inventory/rental-custody-availability.test.ts` covers location-timezone date authority and the exclusive-end overdue boundary.
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers whole-day early-return release semantics and deterministic idempotency.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, replay revalidation, route authority, neighboring mutation guards, and staff action wiring.
+- `scripts/rental-booking-pickup-window-source-contract.test.mjs` protects the pickup-window service, database guard, staff action visibility, and documentation boundary.
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority, database hold/allocation/substitution guards, and staff list/detail visibility.
 - `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects append-only release evidence, exact return-event authority, allocation shortening, database guards, and staff read/UI semantics.
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.

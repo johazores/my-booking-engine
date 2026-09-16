@@ -7,6 +7,7 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { deriveRentalBookingEarlyReturnReleaseEndsOn } from '@/server/bookings/rental-booking-early-return-release-domain.ts';
+import { deriveRentalBookingPickupWindow } from '@/server/bookings/rental-booking-pickup-window-domain.ts';
 import { getRentalBooking, RentalBookingUnavailableError } from '@/server/bookings/rental-booking-read-service.ts';
 import { listRentalBookingPaymentTransactions, RentalPaymentUnavailableError } from '@/server/payments/rental-payment-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
@@ -36,6 +37,7 @@ const statuses: Record<string, string> = {
 const errors: Record<string, string> = {
   permission: 'Your organization role cannot change this rental booking.',
   conflict: 'The rental booking changed or its retained allocation is inconsistent. Refresh the booking before trying again.',
+  'pickup-window': 'Pickup is available only during the committed rental dates at the retained operating location. Refresh the booking and review its current period before handing over the unit.',
   unavailable: 'This rental booking is no longer available in the active organization.',
   validation: 'The rental booking request was invalid.',
   server: 'The rental booking change could not be completed. No successful change was recorded.',
@@ -103,6 +105,15 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
   const latestReschedule = booking.reschedules.at(-1);
   const committedStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
   const committedEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+  const pickupWindow = deriveRentalBookingPickupWindow({
+    observedAt: booking.custody.observedAt,
+    startsOn: committedStartsOn,
+    endsOn: committedEndsOn,
+    timeZone: booking.location.timeZone,
+  });
+  const canRecordPickup = canFulfill
+    && beforePickup
+    && pickupWindow.state === 'OPEN';
   const inventoryEndsOn = booking.allocation?.endsOn ?? committedEndsOn;
   const effectiveUnit = booking.allocation?.unit ?? booking.unit;
   const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
@@ -149,11 +160,13 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     {booking.status === 'CONFIRMED' ? <section className="sf-inventory-card" aria-labelledby="rental-booking-fulfillment-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Physical custody</p><h2 id="rental-booking-fulfillment-title">Rental fulfillment</h2></div><span>{booking.custody.overdue ? 'OVERDUE CUSTODY' : booking.fulfillment.state.replaceAll('_', ' ')}</span></div>
       {booking.fulfillmentEvents.length > 0 ? <ul className="sf-inventory-list">{booking.fulfillmentEvents.map((event) => <li key={event.id}><div className="sf-inventory-list__primary"><div><strong>{event.kind === 'PICKED_UP' ? 'Picked up' : 'Returned'}</strong><span>{event.unitName} ({event.unitCode}) · {event.startsOn.toISOString().slice(0, 10)} through {event.endsOn.toISOString().slice(0, 10)}</span><span><time dateTime={event.occurredAt.toISOString()}>{event.occurredAt.toISOString()}</time> · immutable custody evidence</span></div></div></li>)}</ul> : <p className="sf-field-hint">No physical custody transfer has been recorded. The booking remains eligible for supported pre-pickup commercial and inventory changes.</p>}
-      {canFulfill && booking.fulfillment.state === 'AWAITING_PICKUP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/pickup`}><button className="sf-button sf-button--primary" type="submit">Record pickup</button></form> : null}
+      {canRecordPickup ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/pickup`}><button className="sf-button sf-button--primary" type="submit">Record pickup</button></form> : null}
+      {canFulfill && beforePickup && pickupWindow.state === 'BEFORE_WINDOW' ? <p className="sf-field-hint">Pickup opens on {committedStartsOn.toISOString().slice(0, 10)} in {booking.location.timeZone}. The server will not record custody before the committed rental starts.</p> : null}
+      {beforePickup && pickupWindow.state === 'CLOSED' ? <p className="sf-alert sf-alert--error" role="status"><strong>Pickup window closed.</strong> The exclusive committed end {committedEndsOn.toISOString().slice(0, 10)} has been reached in {booking.location.timeZone}. Do not hand over the unit under this expired rental period; review the supported reschedule or cancellation path instead.</p> : null}
       {canFulfill && booking.fulfillment.state === 'PICKED_UP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/return`}><button className="sf-button sf-button--primary" type="submit">Record return</button></form> : null}
       {canReleaseRemainingInventory ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/inventory-release`} aria-describedby="rental-early-return-release-hint"><button className="sf-button sf-button--primary" type="submit">Release remaining inventory</button></form> : null}
       {canReleaseRemainingInventory && releaseCandidateEndsOn ? <p id="rental-early-return-release-hint" className="sf-field-hint">This will make the effective unit available from {releaseCandidateEndsOn.toISOString().slice(0, 10)} onward. The committed rental end, accepted amount, payment evidence, and custody history remain unchanged.</p> : null}
-      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
+      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Pickup is allowed only from the committed start date until the exclusive committed end in the retained operating-location timezone. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
     </section> : null}
 
     {paymentData ? <RentalBookingPaymentPanel bookingId={booking.id} bookingStatus={booking.status} bookingCurrency={booking.currency} settlement={paymentData.settlement} transactions={paymentData.transactions} canManage={canManagePayments} /> : null}
