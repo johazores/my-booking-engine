@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { deriveRentalBookingCustodyReadState } from './rental-booking-custody-read-domain.ts';
 import { deriveRentalBookingFulfillmentState } from './rental-booking-fulfillment-domain.ts';
 import { readBoundedRentalBookingHistory } from './rental-booking-history.ts';
 
@@ -36,6 +37,16 @@ function compareAppliedHistory(
     || left.id.localeCompare(right.id);
 }
 
+function requireDatabaseObservation(databaseClock: readonly Readonly<{ now: Date }>[]) {
+  const observedAt = databaseClock[0]?.now;
+  if (!(observedAt instanceof Date) || Number.isNaN(observedAt.getTime())) {
+    throw new RentalBookingHistoryUnavailableError(
+      'Rental booking custody status could not obtain the PostgreSQL observation time.',
+    );
+  }
+  return observedAt;
+}
+
 const effectiveAllocationInclude = {
   unit: { select: { id: true, code: true, name: true, status: true, locationId: true, unitTypeId: true } },
 } satisfies Prisma.RentalBookingAllocationInclude;
@@ -57,7 +68,7 @@ const rentalBookingListInclude = {
   fulfillmentEvents: {
     orderBy: [{ occurredAt: 'asc' as const }, { createdAt: 'asc' as const }, { id: 'asc' as const }],
     take: 3,
-    select: { kind: true, occurredAt: true },
+    select: { kind: true, occurredAt: true, endsOn: true },
   },
   earlyReturnRelease: { select: { releasedEndsOn: true } },
 } satisfies Prisma.RentalBookingInclude;
@@ -76,11 +87,15 @@ export async function getRentalBooking(input: Readonly<{ organizationId: string;
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
 
   return db.$transaction(async (transaction) => {
-    const booking = await transaction.rentalBooking.findFirst({
-      where: { id: input.bookingId, organizationId: input.organizationId },
-      include: rentalBookingDetailInclude,
-    });
+    const [booking, databaseClock] = await Promise.all([
+      transaction.rentalBooking.findFirst({
+        where: { id: input.bookingId, organizationId: input.organizationId },
+        include: rentalBookingDetailInclude,
+      }),
+      transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`,
+    ]);
     if (!booking) throw new RentalBookingUnavailableError();
+    const observedAt = requireDatabaseObservation(databaseClock);
 
     const [rescheduleHistory, substitutionHistory, fulfillmentEvents] = await Promise.all([
       readBoundedRentalBookingHistory({
@@ -117,13 +132,22 @@ export async function getRentalBooking(input: Readonly<{ organizationId: string;
 
     const reschedules = [...rescheduleHistory.rows].sort(compareAppliedHistory);
     const unitSubstitutions = [...substitutionHistory.rows].sort(compareAppliedHistory);
+    const fulfillment = deriveRentalBookingFulfillmentState(fulfillmentEvents);
+    const custody = deriveRentalBookingCustodyReadState({
+      bookingStatus: booking.status,
+      fulfillmentState: fulfillment.state,
+      fulfillmentEvents,
+      observedAt,
+      timeZone: booking.location.timeZone,
+    });
 
     return Object.freeze({
       ...booking,
       reschedules: Object.freeze(reschedules),
       unitSubstitutions: Object.freeze(unitSubstitutions),
       fulfillmentEvents: Object.freeze(fulfillmentEvents),
-      fulfillment: deriveRentalBookingFulfillmentState(fulfillmentEvents),
+      fulfillment,
+      custody,
     });
   }, { isolationLevel: 'RepeatableRead' });
 }
@@ -144,7 +168,11 @@ export async function listRentalBookings(input: Readonly<{
   if (input.status && input.status !== 'ALL') where.status = input.status;
 
   return db.$transaction(async (transaction) => {
-    const total = await transaction.rentalBooking.count({ where });
+    const [total, databaseClock] = await Promise.all([
+      transaction.rentalBooking.count({ where }),
+      transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`,
+    ]);
+    const observedAt = requireDatabaseObservation(databaseClock);
     const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
     const page = Math.min(pagination.page, totalPages);
     const bookingRows = await transaction.rentalBooking.findMany({
@@ -154,10 +182,20 @@ export async function listRentalBookings(input: Readonly<{
       take: pagination.pageSize,
       include: rentalBookingListInclude,
     });
-    const bookings = bookingRows.map((booking) => Object.freeze({
-      ...booking,
-      fulfillment: deriveRentalBookingFulfillmentState(booking.fulfillmentEvents),
-    }));
+    const bookings = bookingRows.map((booking) => {
+      const fulfillment = deriveRentalBookingFulfillmentState(booking.fulfillmentEvents);
+      return Object.freeze({
+        ...booking,
+        fulfillment,
+        custody: deriveRentalBookingCustodyReadState({
+          bookingStatus: booking.status,
+          fulfillmentState: fulfillment.state,
+          fulfillmentEvents: booking.fulfillmentEvents,
+          observedAt,
+          timeZone: booking.location.timeZone,
+        }),
+      });
+    });
 
     return Object.freeze({
       bookings: Object.freeze(bookings),

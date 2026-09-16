@@ -128,6 +128,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
     {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
     {!booking.allocation ? <p className="sf-alert sf-alert--error" role="alert">This booking is missing its physical-unit allocation. Treat the record as an integrity incident until repaired.</p> : null}
+    {booking.custody.overdue && booking.custody.expectedReturnOn ? <p className="sf-alert sf-alert--error" role="alert"><strong>Overdue custody.</strong> The exclusive committed end {booking.custody.expectedReturnOn.toISOString().slice(0, 10)} has been reached in {booking.location.timeZone}, but return has not been recorded. The physical unit remains blocked from new inventory authority until return is recorded. This status does not create a fee or change the committed rental period.</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-lifecycle-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Lifecycle</p><h2 id="rental-booking-lifecycle-title">Booking commitment</h2></div><span>{booking.status}</span></div>
@@ -146,7 +147,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     </section>
 
     {booking.status === 'CONFIRMED' ? <section className="sf-inventory-card" aria-labelledby="rental-booking-fulfillment-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Physical custody</p><h2 id="rental-booking-fulfillment-title">Rental fulfillment</h2></div><span>{booking.fulfillment.state.replaceAll('_', ' ')}</span></div>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Physical custody</p><h2 id="rental-booking-fulfillment-title">Rental fulfillment</h2></div><span>{booking.custody.overdue ? 'OVERDUE CUSTODY' : booking.fulfillment.state.replaceAll('_', ' ')}</span></div>
       {booking.fulfillmentEvents.length > 0 ? <ul className="sf-inventory-list">{booking.fulfillmentEvents.map((event) => <li key={event.id}><div className="sf-inventory-list__primary"><div><strong>{event.kind === 'PICKED_UP' ? 'Picked up' : 'Returned'}</strong><span>{event.unitName} ({event.unitCode}) · {event.startsOn.toISOString().slice(0, 10)} through {event.endsOn.toISOString().slice(0, 10)}</span><span><time dateTime={event.occurredAt.toISOString()}>{event.occurredAt.toISOString()}</time> · immutable custody evidence</span></div></div></li>)}</ul> : <p className="sf-field-hint">No physical custody transfer has been recorded. The booking remains eligible for supported pre-pickup commercial and inventory changes.</p>}
       {canFulfill && booking.fulfillment.state === 'AWAITING_PICKUP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/pickup`}><button className="sf-button sf-button--primary" type="submit">Record pickup</button></form> : null}
       {canFulfill && booking.fulfillment.state === 'PICKED_UP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/return`}><button className="sf-button sf-button--primary" type="submit">Record return</button></form> : null}

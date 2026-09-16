@@ -22,6 +22,12 @@ Overdue open custody is excluded or rejected by:
 
 The read-only reschedule and substitution surfaces also refuse bookings that already have fulfillment evidence, matching the database rule that those mutations are pre-pickup only.
 
+## Staff operational visibility
+
+Rental booking list and detail reads now derive the same overdue-custody condition for staff instead of leaving the inventory block invisible. Each request obtains one PostgreSQL `clock_timestamp()` observation inside its existing `RepeatableRead` snapshot, uses the immutable pickup event's exclusive `endsOn` date plus the retained booking location timezone, and exposes a read-only overdue flag with the expected-return boundary.
+
+The booking list marks affected rows as **Overdue custody**. Booking detail shows an alert and changes the custody badge to **OVERDUE CUSTODY** while still exposing the real `Record return` action to authorized staff. This visibility does not create a new mutable booking status and does not bypass the existing server/database inventory guards.
+
 ## Database safety
 
 The migration adds a tenant-aware `sf_rental_unit_has_overdue_custody` predicate using pickup evidence, absence of return evidence, confirmed booking state, and the booking location timezone. Separate guards reject new/effective holds, allocation writes, and substitution targets that would use a unit with overdue open custody.
@@ -39,3 +45,5 @@ When an early-return release is valid, SF keeps the committed custody dates unch
 ## Deliberate boundaries
 
 This protection does **not** implement rental extensions, grace periods, late fees, damage charges, security-bond decisions, automatic customer notifications, replacement dispatch, maintenance transitions, or forced cancellation of later bookings. Those require separate commercial rules.
+
+GitHub Actions are not required or used.

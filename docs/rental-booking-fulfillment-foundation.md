@@ -30,25 +30,26 @@ These guards use the same tenant/booking advisory lock namespace as the lifecycl
 
 Return does **not** release the booking allocation early by itself. Availability remains protected through the committed booking end date until an authorized staff user explicitly applies early-return inventory release. That release only frees complete remaining rental days and does not change accepted money, payment evidence, or the committed rental period.
 
-If pickup remains open when the exclusive effective end date is reached in the retained booking location timezone, the unit becomes overdue custody and is removed from new availability/hold/booking/replacement authority until return is recorded. This is inventory protection only: it does not extend the booking or create a fee. See [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md).
+If pickup remains open when the exclusive effective end date is reached in the retained booking location timezone, the unit becomes overdue custody and is removed from new availability/hold/booking/replacement authority until return is recorded. Staff list/detail reads also surface that server-derived overdue condition using PostgreSQL time and the immutable pickup date snapshot, so the inventory block is visible without creating a fake mutable booking status. See [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md).
 
 Extensions/late-return handling, fees, damage/inspection state, deposits/security bonds, delivery, maintenance transitions, and notifications remain separate contracts.
 
 ## Read model and UI
 
-`getRentalBooking` reads fulfillment and early-return release evidence with tenant scope and derives `AWAITING_PICKUP`, `PICKED_UP`, or `RETURNED` from immutable event history.
+`getRentalBooking` reads fulfillment and early-return release evidence with tenant scope and derives `AWAITING_PICKUP`, `PICKED_UP`, or `RETURNED` from immutable event history. It also derives read-only overdue custody from a PostgreSQL observation time, the retained booking location timezone, and the pickup event's immutable exclusive end date.
 
-The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup, then a real POST return action only while picked up. After return, `Release remaining inventory` is rendered only when whole-day inventory can actually be freed and the actor has `booking:manage` plus `inventory:manage`.
+The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup, then a real POST return action only while picked up. An overdue picked-up booking receives an explicit alert and `OVERDUE CUSTODY` badge while preserving the same authorized return action. After return, `Release remaining inventory` is rendered only when whole-day inventory can actually be freed and the actor has `booking:manage` plus `inventory:manage`.
 
-The booking detail and list distinguish the committed rental period from the shorter live inventory-protection period after an early release. UI checks are usability only; server services and database constraints remain authoritative.
+The paginated rental booking list also marks overdue picked-up rows. The booking detail and list distinguish the committed rental period from the shorter live inventory-protection period after an early release. UI checks are usability only; server services and database constraints remain authoritative.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-fulfillment-domain.test.ts` covers state derivation, invalid ordering/duplicates, and deterministic idempotency authority.
+- `src/server/bookings/rental-booking-custody-read-domain.test.ts` covers operational overdue derivation, location-timezone boundaries, non-overdue lifecycle states, and fail-closed missing pickup evidence.
 - `src/server/inventory/rental-custody-availability.test.ts` covers location-timezone date authority and the exclusive-end overdue boundary.
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers whole-day early-return release semantics and deterministic idempotency.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, replay revalidation, route authority, neighboring mutation guards, and staff action wiring.
-- `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority plus database hold/allocation/substitution guards.
+- `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority, database hold/allocation/substitution guards, and staff list/detail visibility.
 - `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects append-only release evidence, exact return-event authority, allocation shortening, database guards, and staff read/UI semantics.
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.
 

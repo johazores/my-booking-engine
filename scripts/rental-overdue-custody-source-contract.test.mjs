@@ -35,3 +35,23 @@ test('database guards protect holds allocations and substitution targets', async
   assert.match(migration, /rental_booking_unit_substitutions_overdue_custody_guard/);
   assert.match(migration, /AT TIME ZONE location\."timeZone"/);
 });
+
+test('staff booking reads and UI surface overdue custody from database time without inventing commercial policy', async () => {
+  const custodyReadDomain = await read('src/server/bookings/rental-booking-custody-read-domain.ts');
+  const readService = await read('src/server/bookings/rental-booking-read-service.ts');
+  const listPage = await read('app/inventory/rentals/bookings/page.tsx');
+  const detailPage = await read('app/inventory/rentals/bookings/[booking-id]/page.tsx');
+  const documentation = await read('docs/rental-overdue-custody-availability.md');
+
+  assert.match(custodyReadDomain, /rentalCustodyIsOverdue/);
+  assert.match(custodyReadDomain, /fulfillmentState !== 'PICKED_UP'/);
+  assert.match(custodyReadDomain, /bookingStatus !== 'CONFIRMED'/);
+  assert.match(readService, /clock_timestamp\(\)/);
+  assert.match(readService, /deriveRentalBookingCustodyReadState/);
+  assert.match(readService, /select:\s*\{\s*kind:\s*true,\s*occurredAt:\s*true,\s*endsOn:\s*true\s*\}/);
+  assert.match(listPage, /Overdue custody/);
+  assert.match(detailPage, /OVERDUE CUSTODY/);
+  assert.match(detailPage, /does not create a fee or change the committed rental period/);
+  assert.match(documentation, /Staff operational visibility/);
+  assert.match(documentation, /does \*\*not\*\* implement rental extensions, grace periods, late fees/);
+});

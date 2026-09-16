@@ -4,9 +4,9 @@ SF rental booking staff reads use a bounded, tenant-scoped snapshot contract. Bo
 
 ## Snapshot boundary
 
-`getRentalBooking` runs the retained booking row, reschedule history, physical-unit substitution history, and fulfillment history inside one PostgreSQL `RepeatableRead` transaction after `booking:read` authorization and UUID validation. Every resource query repeats both `organizationId` and `bookingId` where applicable.
+`getRentalBooking` runs the retained booking row, reschedule history, physical-unit substitution history, fulfillment history, and one PostgreSQL custody observation time inside one PostgreSQL `RepeatableRead` transaction after `booking:read` authorization and UUID validation. Every resource query repeats both `organizationId` and `bookingId` where applicable.
 
-`listRentalBookings` runs its count and page query in the same `RepeatableRead` snapshot. This prevents the staff page from reporting a total/page calculation from one database state while rendering rows from another concurrent state.
+`listRentalBookings` runs its count, page query, and one PostgreSQL custody observation time in the same `RepeatableRead` transaction. This prevents the staff page from reporting a total/page calculation from one database state while rendering rows from another concurrent state, and it gives every booking row on that page the same database-time reference for overdue-custody display.
 
 The read transaction does not create write authority. Confirmation, cancellation, reschedule, substitution, settlement, pickup/return, and early-return release continue to revalidate their own server authority inside their existing serializable write boundaries.
 
@@ -18,18 +18,26 @@ The current safety limit is 1,000 rows per history collection. An exact 1,000-ro
 
 Cursor traversal orders by the immutable row ID only so pagination has a stable unique cursor. After the complete bounded set is loaded, rows are sorted for presentation and domain use by `appliedAt`, then `createdAt`, then `id`, preserving the existing chronological contract.
 
-Fulfillment evidence is structurally limited to one pickup and one return. Read models request at most three rows: two valid events fit completely, while any third row is still visible to `deriveRentalBookingFulfillmentState` and causes the existing integrity checks to fail rather than hiding duplicate custody evidence.
+Fulfillment evidence is structurally limited to one pickup and one return. Read models request at most three rows: two valid events fit completely, while any third row is still visible to `deriveRentalBookingFulfillmentState` and causes the existing integrity checks to fail rather than hiding duplicate custody evidence. List projections include the immutable pickup `endsOn` snapshot because overdue-custody display derives from that retained custody evidence rather than mutable booking dates.
+
+## Operational custody status
+
+`deriveRentalBookingCustodyReadState` is read-only. It marks a booking overdue only when the retained booking is still `CONFIRMED`, fulfillment is `PICKED_UP`, and the PostgreSQL observation date in the retained booking location timezone has reached the pickup event's exclusive `endsOn` date. Awaiting-pickup and returned records are never presented as overdue open custody. Cancelled records are expected to have no custody handoff evidence; a cancelled booking carrying pickup/return evidence fails closed as an integrity incident instead of being presented as safely non-overdue.
+
+The resulting flag is surfaced on the staff booking list and detail page. It does not mutate booking status, extend the rental, calculate a late fee, or replace the database/service availability guards.
 
 ## Failure behavior
 
-A missing tenant-owned booking remains `RentalBookingUnavailableError`. A reschedule or substitution history that cannot be proven complete within the safety boundary raises `RentalBookingHistoryUnavailableError`. This is an integrity/operational failure, not a partial-success response.
+A missing tenant-owned booking remains `RentalBookingUnavailableError`. A reschedule or substitution history that cannot be proven complete within the safety boundary raises `RentalBookingHistoryUnavailableError`. Missing/invalid PostgreSQL observation time and inconsistent picked-up custody evidence also fail closed rather than returning a misleading non-overdue state.
 
 No customer, payment, provider, delivery, inspection, damage, fee, or maintenance semantics are introduced by this read hardening.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-history.test.ts` covers multi-page completion, exact-limit completion, overflow failure, and page-bound violations.
+- `src/server/bookings/rental-booking-custody-read-domain.test.ts` covers overdue staff-read derivation and fail-closed custody evidence.
 - `scripts/rental-booking-read-consistency-source-contract.test.mjs` protects tenant-scoped cursor pagination, bounded fulfillment reads, and `RepeatableRead` snapshot use for detail and list queries.
+- `scripts/rental-overdue-custody-source-contract.test.mjs` protects PostgreSQL-time custody read derivation and staff list/detail visibility.
 - Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`; PostgreSQL execution remains `npm run test:database` against an explicitly disposable database.
 
 GitHub Actions are not required or used.
