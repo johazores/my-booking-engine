@@ -28,6 +28,8 @@ Payment and refund replay still re-read the tenant-owned booking and bounded com
 
 Rows created before this migration may legitimately have `requestFingerprint = NULL`. Those legacy rows remain replayable only through the existing exact field checks plus full settlement/source reconciliation. New rows cannot use that legacy path.
 
+The bounded settlement-history reader applies the same evidence checks before any payment, refund, cancellation, or staff settlement decision consumes the history. For enabled manual payment/refund rows it rebuilds the deterministic idempotency key from booking + operation + retained provider reference, and when a request fingerprint is present it rebuilds and verifies the exact fingerprint. A mismatched key or fingerprint therefore makes the entire settlement history incomplete and fails the caller closed. Legacy null fingerprints remain readable only when their deterministic idempotency evidence is intact.
+
 ## PostgreSQL defense in depth
 
 The migration adds an insert-only authority guard for future rental payment rows. Before the existing rental settlement trigger executes, PostgreSQL requires:

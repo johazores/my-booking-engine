@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const domain = readFileSync('src/server/payments/rental-payment-domain.ts', 'utf8');
 const service = readFileSync('src/server/payments/rental-payment-service.ts', 'utf8');
+const history = readFileSync('src/server/payments/rental-payment-history.ts', 'utf8');
 const migration = readFileSync('prisma/migrations/20260916153500_rental_payment_request_evidence/migration.sql', 'utf8');
 const integration = readFileSync('src/server/payments/rental-payment.integration.ts', 'utf8');
 const docs = readFileSync('docs/rental-payment-request-evidence.md', 'utf8');
@@ -36,6 +37,18 @@ test('manual payment and refund writers persist fingerprints and validate retain
   assert.match(service, /Manual payment provider result changed the durable rental payment request identity/);
   assert.match(service, /where: \{ id: input\.bookingId, organizationId: input\.organizationId \}/);
   assert.match(service, /isolationLevel: 'Serializable'/);
+});
+
+test('bounded settlement history revalidates deterministic request evidence before financial decisions', () => {
+  assert.match(history, /organizationId: true/);
+  assert.match(history, /bookingId: true/);
+  assert.match(history, /idempotencyKey: true/);
+  assert.match(history, /requestFingerprint: true/);
+  assert.match(history, /buildRentalPaymentIdempotencyKey/);
+  assert.match(history, /buildRentalPaymentRequestFingerprint/);
+  assert.match(history, /invalid deterministic idempotency authority/);
+  assert.match(history, /invalid request fingerprint/);
+  assert.match(history, /if \(row\.requestFingerprint === null\) return null/);
 });
 
 test('database requires request evidence shape, operation idempotency namespace, and database-authored creation time', () => {

@@ -1,23 +1,52 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { buildRentalPaymentIdempotencyKey, buildRentalPaymentRequestFingerprint } from './rental-payment-domain.ts';
 import {
   readRentalPaymentSettlementHistory,
   RENTAL_PAYMENT_SETTLEMENT_MAX_TRANSACTIONS,
   RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE,
 } from './rental-payment-history.ts';
 
+const organizationId = 'org-1';
+const bookingId = 'booking-1';
+
 function makeRows(count: number) {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `${String(index + 1).padStart(8, '0')}-0000-4000-8000-000000000000`,
-    kind: index === 0 ? 'OFFLINE_PAYMENT' as const : 'REFUND' as const,
-    status: 'SUCCEEDED' as const,
-    providerCode: 'manual',
-    providerReference: `REF-${index + 1}`,
-    sourceProviderReference: index === 0 ? null : 'REF-1',
-    currency: 'PHP',
-    amountMinor: 1n,
-  }));
+  return Array.from({ length: count }, (_, index) => {
+    const kind = index === 0 ? 'OFFLINE_PAYMENT' as const : 'REFUND' as const;
+    const providerReference = `REF-${index + 1}`;
+    const sourceProviderReference = index === 0 ? null : 'REF-1';
+    const idempotencyKey = buildRentalPaymentIdempotencyKey({
+      kind: kind === 'OFFLINE_PAYMENT' ? 'manual-payment' : 'manual-refund',
+      bookingId,
+      reference: providerReference,
+    });
+    const requestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId,
+      bookingId,
+      idempotencyKey,
+      kind,
+      providerCode: 'manual',
+      providerReference,
+      sourceProviderReference,
+      currency: 'PHP',
+      amountMinor: 1n,
+    });
+    return {
+      id: `${String(index + 1).padStart(8, '0')}-0000-4000-8000-000000000000`,
+      organizationId,
+      bookingId,
+      idempotencyKey,
+      requestFingerprint,
+      kind,
+      status: 'SUCCEEDED' as const,
+      providerCode: 'manual',
+      providerReference,
+      sourceProviderReference,
+      currency: 'PHP',
+      amountMinor: 1n,
+    };
+  });
 }
 
 type FindManyArgs = Readonly<{
@@ -35,7 +64,7 @@ function createReader(rows: ReturnType<typeof makeRows>) {
       rentalPaymentTransaction: {
         async findMany(args: FindManyArgs) {
           calls.push(args);
-          assert.deepEqual(args.where, { organizationId: 'org-1', bookingId: 'booking-1' });
+          assert.deepEqual(args.where, { organizationId, bookingId });
           assert.ok(args.take <= RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE);
           let start = 0;
           if (args.cursor?.id) {
@@ -54,8 +83,8 @@ test('rental settlement history reads complete history through bounded tenant-sc
   const reader = createReader(source);
   const result = await readRentalPaymentSettlementHistory({
     transaction: reader.transaction as never,
-    organizationId: 'org-1',
-    bookingId: 'booking-1',
+    organizationId,
+    bookingId,
   });
 
   assert.equal(result.complete, true);
@@ -69,11 +98,41 @@ test('rental settlement history fails closed beyond the reconciliation safety li
   const reader = createReader(source);
   const result = await readRentalPaymentSettlementHistory({
     transaction: reader.transaction as never,
-    organizationId: 'org-1',
-    bookingId: 'booking-1',
+    organizationId,
+    bookingId,
   });
 
   assert.equal(result.complete, false);
   assert.match(result.complete ? '' : result.reason, /reconciliation safety limit/i);
   assert.equal(reader.calls.at(-1)?.take, 1);
+});
+
+test('rental settlement history rejects deterministic idempotency evidence that does not match the retained operation', async () => {
+  const source = makeRows(1);
+  source[0] = { ...source[0]!, idempotencyKey: `rental:manual-payment:${'a'.repeat(48)}` };
+  const reader = createReader(source);
+  const result = await readRentalPaymentSettlementHistory({ transaction: reader.transaction as never, organizationId, bookingId });
+
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /idempotency authority/i);
+});
+
+test('rental settlement history rejects a retained request fingerprint that does not match exact settlement evidence', async () => {
+  const source = makeRows(1);
+  source[0] = { ...source[0]!, requestFingerprint: 'f'.repeat(64) };
+  const reader = createReader(source);
+  const result = await readRentalPaymentSettlementHistory({ transaction: reader.transaction as never, organizationId, bookingId });
+
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /request fingerprint/i);
+});
+
+test('legacy null request fingerprints remain readable when deterministic operation evidence is intact', async () => {
+  const source = makeRows(1);
+  source[0] = { ...source[0]!, requestFingerprint: null };
+  const reader = createReader(source);
+  const result = await readRentalPaymentSettlementHistory({ transaction: reader.transaction as never, organizationId, bookingId });
+
+  assert.equal(result.complete, true);
+  assert.equal(result.complete ? result.transactions.length : -1, 1);
 });
