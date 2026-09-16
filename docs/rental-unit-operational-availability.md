@@ -1,45 +1,76 @@
 # Rental unit operational availability
 
-Rental operational availability is separate from the rental unit lifecycle. `RentalUnit.status` still represents active versus archived inventory; `RentalUnitOperationalState.status` represents whether an active physical unit can currently accept fresh rental work.
+SF treats a physical rental unit's commercial lifecycle and operational availability as separate production concerns.
 
-## State model
+`RentalUnit.status` still answers whether the inventory record is active or archived. `RentalUnitOperationalState.status` answers whether an otherwise active physical unit may accept new rental authority:
 
-- `AVAILABLE` means the unit can participate in fresh availability, holds, booking confirmation, allocation, substitution, rescheduling, and pickup when every other rule also passes.
-- `OUT_OF_SERVICE` is an unbounded operational block. It requires a retained reason of at most 500 characters.
-- A missing state row is treated as `AVAILABLE` for backward compatibility with rental units created before the operational-state model was introduced.
-- Returning a unit to `AVAILABLE` clears the retained reason.
+- `AVAILABLE` means no operational hold is active.
+- `OUT_OF_SERVICE` means the unit is unavailable until authorized staff explicitly returns it to `AVAILABLE`.
 
-The state row uses the same `(organizationId, unitId)` ownership boundary as the rental inventory model. PostgreSQL authors `changedAt` with `clock_timestamp()`, prevents the state identity from being rewritten, and prevents the state row from being deleted to bypass the outage.
+A unit without a persisted operational-state row is treated as `AVAILABLE` for backward compatibility. Taking a unit out of service requires a retained reason of at most 500 characters. Returning it to available clears that reason.
 
-## Authorization and locking
+## Authorization and tenant scope
 
-Reading the state requires `inventory:read`. Changing it requires `inventory:manage`. The service validates organization, actor, and unit UUIDs before database access and repeats `organizationId` on the unit and state reads/writes.
+Reading operational state requires `inventory:read`. Changing it requires `inventory:manage`.
 
-The mutation uses the existing rental physical-unit advisory lock. That is the same lock namespace used by holds, booking allocation, substitution, reschedule, fulfillment, early-return release, and maintenance, so an operational-state transition serializes with competing inventory work.
+The service validates organization, actor, and unit identifiers, repeats `organizationId` on unit/state lookups, takes the existing tenant/unit advisory lock, and updates only an active unit owned by the authenticated organization. Every real transition records an `inventory.rental-unit.operational-status-changed` audit event. Repeating the current status and reason is idempotent and does not manufacture another audit event.
 
-## Booking and availability enforcement
+PostgreSQL authors `changedAt` with `clock_timestamp()` at the state-row write boundary. The operational-state identity (`organizationId`, `unitId`) is immutable after insertion, and persisted state rows cannot be deleted; returning a unit to service is an explicit `AVAILABLE` transition.
 
-An out-of-service unit is excluded from fresh availability. PostgreSQL independently rejects attempts to create or retarget:
+## Availability and lifecycle behavior
 
-- an active rental hold;
-- a new rental booking;
-- a booking allocation;
-- a physical-unit substitution target;
-- a reschedule on the effective unit; or
-- pickup custody evidence.
+`OUT_OF_SERVICE` is an unbounded operational block, not a date-range booking amendment.
 
-A return remains allowed if the unit is marked out of service while it is already with a customer. Existing bookings are deliberately not automatically cancelled, refunded, extended, or moved when an outage is recorded.
+Fresh rental availability search excludes out-of-service units before pricing or staff selection. PostgreSQL independently rejects new authority that would place an out-of-service unit into an active rental commitment:
+
+- activating or creating an availability hold;
+- inserting a rental booking for the unit;
+- inserting an allocation or changing an allocation to that unit;
+- inserting a same-unit reschedule while the effective unit is out of service;
+- inserting a physical-unit substitution that targets the unit;
+- recording `PICKED_UP` custody for the unit.
+
+The database guards deliberately do **not** reject `RETURNED`. A unit may be taken out of service while it is physically in customer custody, and staff must still be able to record its return.
+
+Existing bookings are not silently cancelled, refunded, extended, or moved when staff mark a unit out of service. Supported remediation remains explicit: authorized staff may use the existing pre-custody substitution, reschedule, cancellation, and settlement workflows when their own acceptance criteria permit them.
+
+Unavailable-date blocks remain appropriate for known bounded calendar outages. Operational status is for an indefinite physical-unit outage that ends only through an explicit staff transition.
 
 ## Maintenance integration
 
-Rental maintenance work orders now use this operational state as their physical availability authority. Opening maintenance moves an available unit to `OUT_OF_SERVICE` in the same serializable transaction. If the unit already has a retained outage reason, maintenance preserves it. An active `OPEN` or `IN_PROGRESS` work order prevents staff or a direct database update from returning the unit to `AVAILABLE`.
+Rental maintenance work orders use this operational state as their physical availability authority.
 
-Completing or cancelling maintenance does not automatically clear the outage. Staff must explicitly verify the unit and return it to service after all active maintenance work is terminal. See `docs/rental-maintenance-work-orders.md` for the lifecycle contract.
+Opening a work order requires an active tenant-owned unit and, when the unit is currently available, moves it to `OUT_OF_SERVICE` in the same serializable transaction using the shared tenant/unit advisory lock. The default retained reason is `Maintenance: <title>`. If the unit is already out of service for another retained reason, opening maintenance preserves that reason instead of overwriting it.
 
-## Staff UX
+PostgreSQL independently requires the unit to be out of service before a maintenance work order can be inserted. Both the application service and the database prevent an `AVAILABLE` transition while any `OPEN` or `IN_PROGRESS` maintenance work remains. PostgreSQL also prevents archiving a unit while active maintenance exists so durable work cannot become orphaned behind an archived inventory record.
 
-The rental-unit detail page shows the current operational state and reason and links to the maintenance workspace. Authorized staff can change the operational state from the unit controls. Attempts to return a unit to service while maintenance remains active surface as a conflict instead of silently weakening the maintenance hold.
+Completing or cancelling the final active work order deliberately does **not** return the unit to service automatically. Staff must verify readiness and explicitly use the operational-status control after all active maintenance work is terminal. This prevents a work-order transition from silently clearing another outage or readiness concern.
+
+See `docs/rental-maintenance-work-orders.md` for the work-order lifecycle and evidence contract.
+
+## Staff workflow
+
+The rental-unit detail page shows the current operational status and retained reason. Staff with inventory-management permission can move the unit between **Available** and **Out of service** from the existing unit controls and can open the dedicated maintenance workspace from the same page.
+
+This is a real inventory authority control. It is not a cosmetic label: discovery, maintenance, and database write boundaries consume the state. Attempts to return a unit to service while active maintenance remains fail closed as a conflict.
 
 ## Deliberate boundaries
 
-Operational availability and the maintenance work-order foundation do not implement inspection checklists, damage assessment, security-bond handling, repair-vendor workflows, cost estimates, customer damage charging, late-return fees, notifications, or external maintenance synchronization. Those remain separate Phase 17 commercial workflows.
+Operational availability plus the maintenance work-order foundation do not invent inspection checklists, damage assessment, security-bond handling, repair-vendor dispatch, purchase orders, parts inventory, labor/cost estimates, customer damage charging, late-return fees, automatic notifications, or external maintenance-provider synchronization.
+
+Those remain separate Phase 17 commercial workflows and require their own evidence, authorization, settlement, and policy contracts.
+
+## Validation
+
+The dependency-free domain test `src/server/inventory/rental-unit-operational-domain.test.ts` protects status/reason normalization. The operational source contract `scripts/rental-unit-operational-availability-source-contract.test.mjs` protects:
+
+- the Prisma enum/model and tenant/unit relation;
+- authorization, tenant scope, unit locking, database time, idempotent writes, and audit evidence;
+- availability-search exclusion;
+- database guards across holds, booking confirmation, allocation/substitution, reschedule, and pickup;
+- the explicit ability to record return while a unit is out of service;
+- the staff unit-detail control and deliberate commercial boundaries.
+
+The maintenance domain and source-contract tests additionally protect work-order lifecycle validation, tenant-scoped idempotency, shared locking, operational coupling, active-maintenance release protection, archive protection, database-authored lifecycle timestamps, audit evidence, and real staff actions.
+
+Repository validation remains `npm run validate` on the Node version declared in `package.json`. Migration and trigger behavior should additionally be exercised through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
