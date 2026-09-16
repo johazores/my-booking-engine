@@ -7,6 +7,7 @@ import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual
 import { assertPaymentProviderCapability } from './payment-provider.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { buildRentalPaymentIdempotencyKey, deriveRentalPaymentSettlement } from './rental-payment-domain.ts';
+import { readRentalPaymentSettlementHistory } from './rental-payment-history.ts';
 
 export class RentalPaymentConflictError extends Error {
   constructor(message: string) {
@@ -27,7 +28,6 @@ const manualProvider = new ManualPaymentProvider();
 function paymentLockKey(organizationId: string, scope: string, value: string) {
   return `rental-payment:${organizationId}:${scope}:${value}`;
 }
-
 
 async function runRentalPaymentWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -54,15 +54,13 @@ function normalizePagination(page: number, pageSize: number) {
   return { page: safePage, pageSize: safePageSize };
 }
 
-const paymentHistorySelect = {
-  kind: true,
-  status: true,
-  providerCode: true,
-  providerReference: true,
-  sourceProviderReference: true,
-  currency: true,
-  amountMinor: true,
-} as const;
+async function readRequiredRentalPaymentHistory(
+  input: Parameters<typeof readRentalPaymentSettlementHistory>[0],
+) {
+  const history = await readRentalPaymentSettlementHistory(input);
+  if (!history.complete) throw new RentalPaymentConflictError(history.reason);
+  return history.transactions;
+}
 
 export async function recordRentalManualOfflinePayment(input: Readonly<{
   organizationId: string;
@@ -83,28 +81,47 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
 
-    const existing = await transaction.rentalPaymentTransaction.findUnique({
-      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
-    });
-    if (existing) {
-      if (existing.bookingId !== input.bookingId || existing.kind !== 'OFFLINE_PAYMENT' || existing.providerCode !== manualProvider.code || existing.providerReference !== reference) {
-        throw new RentalPaymentConflictError('Rental payment idempotency key was already used for a different operation.');
-      }
-      return Object.freeze({ transaction: existing, idempotent: true });
-    }
-
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', reference)}, 0))`;
     const booking = await transaction.rentalBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, currency: true, totalMinor: true },
     });
     if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+
+    const existing = await transaction.rentalPaymentTransaction.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
+    });
+    if (existing) {
+      if (
+        existing.bookingId !== booking.id
+        || existing.kind !== 'OFFLINE_PAYMENT'
+        || existing.status !== 'SUCCEEDED'
+        || existing.providerCode !== manualProvider.code
+        || existing.providerReference !== reference
+        || existing.sourceProviderReference !== null
+        || existing.currency !== booking.currency
+        || existing.amountMinor !== booking.totalMinor
+      ) {
+        throw new RentalPaymentConflictError('Rental payment idempotency key was already used for different durable settlement evidence.');
+      }
+      const history = await readRequiredRentalPaymentHistory({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+      });
+      const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
+      if (!settlement.reconciled || settlement.grossSettledMinor !== booking.totalMinor) {
+        throw new RentalPaymentConflictError('Rental payment idempotent replay no longer has complete reconciled settlement evidence.');
+      }
+      return Object.freeze({ transaction: existing, idempotent: true });
+    }
+
     if (booking.status !== 'CONFIRMED') throw new RentalPaymentConflictError('Only confirmed rental bookings can receive an offline payment.');
     if (booking.totalMinor <= 0n) throw new RentalPaymentConflictError('A zero-value rental booking does not require an offline payment.');
 
-    const history = await transaction.rentalPaymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      select: paymentHistorySelect,
+    const history = await readRequiredRentalPaymentHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
     const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
     if (!settlement.reconciled) throw new RentalPaymentConflictError(settlement.reason);
@@ -112,6 +129,7 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
       throw new RentalPaymentConflictError(`Rental booking payment state ${settlement.paymentState.toLowerCase()} does not accept a new full offline payment.`);
     }
 
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', reference)}, 0))`;
     const duplicateReference = await transaction.rentalPaymentTransaction.findFirst({
       where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: reference },
       select: { id: true },
@@ -176,27 +194,54 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
 
-    const existing = await transaction.rentalPaymentTransaction.findUnique({
-      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
-    });
-    if (existing) {
-      if (existing.bookingId !== input.bookingId || existing.kind !== 'REFUND' || existing.providerCode !== manualProvider.code || existing.providerReference !== refundReference) {
-        throw new RentalPaymentConflictError('Rental refund idempotency key was already used for a different operation.');
-      }
-      return Object.freeze({ transaction: existing, idempotent: true });
-    }
-
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
     const booking = await transaction.rentalBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, currency: true, totalMinor: true },
     });
     if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+
+    const existing = await transaction.rentalPaymentTransaction.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
+    });
+    if (existing) {
+      if (
+        existing.bookingId !== booking.id
+        || existing.kind !== 'REFUND'
+        || existing.status !== 'SUCCEEDED'
+        || existing.providerCode !== manualProvider.code
+        || existing.providerReference !== refundReference
+        || existing.sourceProviderReference === null
+        || existing.currency !== booking.currency
+        || existing.amountMinor <= 0n
+        || existing.amountMinor > booking.totalMinor
+      ) {
+        throw new RentalPaymentConflictError('Rental refund idempotency key was already used for different durable settlement evidence.');
+      }
+      const history = await readRequiredRentalPaymentHistory({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+      });
+      const sourceExists = history.some((candidate) => (
+        candidate.kind === 'OFFLINE_PAYMENT'
+        && candidate.status === 'SUCCEEDED'
+        && candidate.providerCode === manualProvider.code
+        && candidate.providerReference === existing.sourceProviderReference
+        && candidate.currency === booking.currency
+      ));
+      const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
+      if (!sourceExists || !settlement.reconciled || settlement.paymentState !== 'REFUNDED') {
+        throw new RentalPaymentConflictError('Rental refund idempotent replay no longer has complete reconciled source evidence.');
+      }
+      return Object.freeze({ transaction: existing, idempotent: true });
+    }
+
     if (booking.status !== 'CONFIRMED') throw new RentalPaymentConflictError('Refund rental payments before cancelling the rental booking.');
 
-    const history = await transaction.rentalPaymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      select: paymentHistorySelect,
+    const history = await readRequiredRentalPaymentHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
     const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
     if (!settlement.reconciled) throw new RentalPaymentConflictError(settlement.reason);
@@ -215,6 +260,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
     if (!plan.planned) throw new RentalPaymentConflictError(plan.reason);
     if (plan.sourceKind !== 'OFFLINE_PAYMENT') throw new RentalPaymentConflictError('Rental manual refund did not resolve to a successful offline payment source.');
 
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
     const duplicateReference = await transaction.rentalPaymentTransaction.findFirst({
       where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: refundReference },
       select: { id: true },
@@ -275,21 +321,32 @@ export async function listRentalBookingPaymentTransactions(input: Readonly<{
   assertUuidIdentifier(input.bookingId, 'bookingId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:read' });
 
-  const booking = await db.rentalBooking.findFirst({
-    where: { id: input.bookingId, organizationId: input.organizationId },
-    select: { id: true, status: true, currency: true, totalMinor: true },
-  });
-  if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+  return db.$transaction(async (transaction) => {
+    const booking = await transaction.rentalBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      select: { id: true, status: true, currency: true, totalMinor: true },
+    });
+    if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
 
-  const pagination = normalizePagination(input.page ?? 1, input.pageSize ?? 25);
-  const where = { organizationId: input.organizationId, bookingId: input.bookingId };
-  const [total, settlementHistory] = await Promise.all([
-    db.rentalPaymentTransaction.count({ where }),
-    db.rentalPaymentTransaction.findMany({ where, select: paymentHistorySelect }),
-  ]);
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const transactions = await db.rentalPaymentTransaction.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * pagination.pageSize, take: pagination.pageSize });
-  const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: settlementHistory });
-  return Object.freeze({ booking, transactions, settlement, total, page, pageSize: pagination.pageSize, totalPages });
+    const pagination = normalizePagination(input.page ?? 1, input.pageSize ?? 25);
+    const where = { organizationId: input.organizationId, bookingId: input.bookingId };
+    const history = await readRentalPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+    });
+    const total = await transaction.rentalPaymentTransaction.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const transactions = await transaction.rentalPaymentTransaction.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+    });
+    const settlement = history.complete
+      ? deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history.transactions })
+      : Object.freeze({ reconciled: false as const, reason: history.reason });
+    return Object.freeze({ booking, transactions, settlement, total, page, pageSize: pagination.pageSize, totalPages });
+  }, { isolationLevel: 'RepeatableRead' });
 }

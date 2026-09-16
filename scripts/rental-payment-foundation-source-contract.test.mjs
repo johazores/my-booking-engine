@@ -6,6 +6,7 @@ const schema = readFileSync('prisma/rental-payment-transactions.prisma', 'utf8')
 const rentalSchema = readFileSync('prisma/rental-inventory.prisma', 'utf8');
 const migration = readFileSync('prisma/migrations/20260915235000_rental_payment_foundation/migration.sql', 'utf8');
 const domain = readFileSync('src/server/payments/rental-payment-domain.ts', 'utf8');
+const history = readFileSync('src/server/payments/rental-payment-history.ts', 'utf8');
 const service = readFileSync('src/server/payments/rental-payment-service.ts', 'utf8');
 const cancellation = readFileSync('src/server/bookings/rental-booking-cancellation-service.ts', 'utf8');
 const paymentRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/payments/manual/route.ts', 'utf8');
@@ -35,14 +36,19 @@ test('rental payment persistence is tenant-owned and refund-source attributed', 
   assert.match(migration, /rental payment transaction evidence is append-only/);
 });
 
-test('manual rental settlement uses provider adapters, server idempotency, booking serialization, and complete history', () => {
+test('manual rental settlement uses provider adapters, exact idempotent replay evidence, and bounded complete history', () => {
   assert.match(service, /permission: 'payment:manage'/);
   assert.match(service, /ManualPaymentProvider/);
   assert.match(service, /buildRentalPaymentIdempotencyKey/);
   assert.match(service, /rentalBookingLockKey\(input\.organizationId, input\.bookingId\)/);
   assert.match(service, /where: \{ id: input\.bookingId, organizationId: input\.organizationId \}/);
-  assert.match(service, /rentalPaymentTransaction\.findMany/);
-  assert.match(service, /deriveRentalPaymentSettlement/);
+  assert.match(service, /readRentalPaymentSettlementHistory/);
+  assert.match(service, /existing\.status !== 'SUCCEEDED'/);
+  assert.match(service, /existing\.sourceProviderReference !== null/);
+  assert.match(service, /existing\.amountMinor !== booking\.totalMinor/);
+  assert.match(service, /settlement\.grossSettledMinor !== booking\.totalMinor/);
+  assert.match(service, /existing\.sourceProviderReference === null/);
+  assert.match(service, /settlement\.paymentState !== 'REFUNDED'/);
   assert.match(service, /recordOfflinePayment/);
   assert.match(service, /recordOfflineRefund/);
   assert.match(service, /sourceProviderReference: plan\.sourceProviderReference/);
@@ -51,12 +57,25 @@ test('manual rental settlement uses provider adapters, server idempotency, booki
   assert.match(service, /attempt < 2/);
   assert.match(service, /Rental payment write could not be serialized after bounded retries/);
   assert.match(service, /isolationLevel: 'Serializable'/);
+  assert.match(service, /isolationLevel: 'RepeatableRead'/);
   assert.match(domain, /createHash\('sha256'\)/);
   assert.match(domain, /settlement\.grossSettledMinor === 0n/);
 });
 
-test('rental cancellation fails closed until payment settlement is reconciled to zero', () => {
-  assert.match(cancellation, /rentalPaymentTransaction\.findMany/);
+test('complete settlement history is tenant-scoped, cursor-paginated, and fails closed at its safety limit', () => {
+  assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE = 100/);
+  assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_MAX_TRANSACTIONS = 1_000/);
+  assert.match(history, /where: \{ organizationId: input\.organizationId, bookingId: input\.bookingId \}/);
+  assert.match(history, /take: RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE/);
+  assert.match(history, /cursor: \{ id: cursorId \}/);
+  assert.match(history, /take: 1/);
+  assert.match(history, /reconciliation safety limit/);
+  assert.doesNotMatch(service, /settlementHistory\s*=\s*await .*rentalPaymentTransaction\.findMany/s);
+});
+
+test('rental cancellation fails closed until bounded payment settlement is reconciled to zero', () => {
+  assert.match(cancellation, /readRentalPaymentSettlementHistory/);
+  assert.doesNotMatch(cancellation, /rentalPaymentTransaction\.findMany/);
   assert.match(cancellation, /deriveRentalPaymentSettlement/);
   assert.match(cancellation, /paymentSettlement\.netSettledMinor !== 0n/);
   assert.match(cancellation, /Refund all settled rental money before cancelling/);
@@ -99,6 +118,8 @@ test('guarded PostgreSQL coverage exercises tenant scope, settlement cancellatio
 test('documentation keeps unsupported rental commercial workflows explicit', () => {
   assert.match(docs, /not a deposit workflow/i);
   assert.match(docs, /not an online checkout workflow/i);
+  assert.match(docs, /bounded 100-row cursor pages/i);
+  assert.match(docs, /1,000-transaction reconciliation safety limit/i);
   assert.match(docs, /does not implement deposits, card authorization, Stripe rental checkout/i);
   assert.match(docs, /No placeholder route or dead payment action/);
   assert.match(docs, /GitHub Actions are not required or used/);

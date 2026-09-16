@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
+import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
@@ -141,22 +142,18 @@ export async function cancelRentalBooking(input: Readonly<{
       throw new RentalBookingCancellationConflictError('Only a confirmed rental booking can be cancelled.');
     }
 
-    const paymentHistory = await transaction.rentalPaymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
+    const paymentHistory = await readRentalPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
+    if (!paymentHistory.complete) {
+      throw new RentalBookingCancellationConflictError(`Rental payment history must be reconciled before cancellation. ${paymentHistory.reason}`);
+    }
     const paymentSettlement = deriveRentalPaymentSettlement({
       bookingTotalMinor: booking.totalMinor,
       currency: booking.currency,
-      transactions: paymentHistory,
+      transactions: paymentHistory.transactions,
     });
     if (!paymentSettlement.reconciled) {
       throw new RentalBookingCancellationConflictError(`Rental payment history must be reconciled before cancellation. ${paymentSettlement.reason}`);
