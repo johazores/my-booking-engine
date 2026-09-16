@@ -1,62 +1,45 @@
 # Rental unit operational availability
 
-SF now treats a physical rental unit's commercial lifecycle and its operational availability as separate production concerns.
+Rental operational availability is separate from the rental unit lifecycle. `RentalUnit.status` still represents active versus archived inventory; `RentalUnitOperationalState.status` represents whether an active physical unit can currently accept fresh rental work.
 
-`RentalUnit.status` still answers whether the inventory record is active or archived. `RentalUnitOperationalState.status` answers whether an otherwise active physical unit may accept new rental authority:
+## State model
 
-- `AVAILABLE` means no operational hold is active.
-- `OUT_OF_SERVICE` means the unit is unavailable until authorized staff explicitly returns it to `AVAILABLE`.
+- `AVAILABLE` means the unit can participate in fresh availability, holds, booking confirmation, allocation, substitution, rescheduling, and pickup when every other rule also passes.
+- `OUT_OF_SERVICE` is an unbounded operational block. It requires a retained reason of at most 500 characters.
+- A missing state row is treated as `AVAILABLE` for backward compatibility with rental units created before the operational-state model was introduced.
+- Returning a unit to `AVAILABLE` clears the retained reason.
 
-A unit without a persisted operational-state row is treated as `AVAILABLE` for backward compatibility. Taking a unit out of service requires a retained reason of at most 500 characters. Returning it to available clears that reason.
+The state row uses the same `(organizationId, unitId)` ownership boundary as the rental inventory model. PostgreSQL authors `changedAt` with `clock_timestamp()`, prevents the state identity from being rewritten, and prevents the state row from being deleted to bypass the outage.
 
-## Authorization and tenant scope
+## Authorization and locking
 
-Reading operational state requires `inventory:read`. Changing it requires `inventory:manage`.
+Reading the state requires `inventory:read`. Changing it requires `inventory:manage`. The service validates organization, actor, and unit UUIDs before database access and repeats `organizationId` on the unit and state reads/writes.
 
-The service validates organization, actor, and unit identifiers, repeats `organizationId` on unit/state lookups, takes the existing tenant/unit advisory lock, and updates only an active unit owned by the authenticated organization. Every real transition records an `inventory.rental-unit.operational-status-changed` audit event. Repeating the current status and reason is idempotent and does not manufacture another audit event.
+The mutation uses the existing rental physical-unit advisory lock. That is the same lock namespace used by holds, booking allocation, substitution, reschedule, fulfillment, early-return release, and maintenance, so an operational-state transition serializes with competing inventory work.
 
-PostgreSQL authors `changedAt` with `clock_timestamp()` at the state-row write boundary. The operational-state identity (`organizationId`, `unitId`) is immutable after insertion, and persisted state rows cannot be deleted; returning a unit to service is an explicit `AVAILABLE` transition.
+## Booking and availability enforcement
 
-## Availability and lifecycle behavior
+An out-of-service unit is excluded from fresh availability. PostgreSQL independently rejects attempts to create or retarget:
 
-`OUT_OF_SERVICE` is an unbounded operational block, not a date-range booking amendment.
+- an active rental hold;
+- a new rental booking;
+- a booking allocation;
+- a physical-unit substitution target;
+- a reschedule on the effective unit; or
+- pickup custody evidence.
 
-Fresh rental availability search excludes out-of-service units before pricing or staff selection. PostgreSQL independently rejects new authority that would place an out-of-service unit into an active rental commitment:
+A return remains allowed if the unit is marked out of service while it is already with a customer. Existing bookings are deliberately not automatically cancelled, refunded, extended, or moved when an outage is recorded.
 
-- activating or creating an availability hold;
-- inserting a rental booking for the unit;
-- inserting an allocation or changing an allocation to that unit;
-- inserting a same-unit reschedule while the effective unit is out of service;
-- inserting a physical-unit substitution that targets the unit;
-- recording `PICKED_UP` custody for the unit.
+## Maintenance integration
 
-The database guards deliberately do **not** reject `RETURNED`. A unit may be taken out of service while it is physically in customer custody, and staff must still be able to record its return.
+Rental maintenance work orders now use this operational state as their physical availability authority. Opening maintenance moves an available unit to `OUT_OF_SERVICE` in the same serializable transaction. If the unit already has a retained outage reason, maintenance preserves it. An active `OPEN` or `IN_PROGRESS` work order prevents staff or a direct database update from returning the unit to `AVAILABLE`.
 
-Existing bookings are not silently cancelled, refunded, extended, or moved when staff mark a unit out of service. Supported remediation remains explicit: authorized staff may use the existing pre-custody substitution, reschedule, cancellation, and settlement workflows when their own acceptance criteria permit them.
+Completing or cancelling maintenance does not automatically clear the outage. Staff must explicitly verify the unit and return it to service after all active maintenance work is terminal. See `docs/rental-maintenance-work-orders.md` for the lifecycle contract.
 
-Unavailable-date blocks remain appropriate for known bounded calendar outages. Operational status is for an indefinite physical-unit outage that ends only through an explicit staff transition.
+## Staff UX
 
-## Staff workflow
-
-The rental-unit detail page shows the current operational status and retained reason. Staff with inventory-management permission can move the unit between **Available** and **Out of service** from the existing unit controls.
-
-This is a real inventory authority control. It is not a cosmetic label: discovery and database write boundaries both consume the state.
+The rental-unit detail page shows the current operational state and reason and links to the maintenance workspace. Authorized staff can change the operational state from the unit controls. Attempts to return a unit to service while maintenance remains active surface as a conflict instead of silently weakening the maintenance hold.
 
 ## Deliberate boundaries
 
-This foundation does not invent a maintenance work-order system, inspection checklist, damage assessment, security-bond flow, repair vendor workflow, cost estimate, late-return fee, or automatic customer notification.
-
-Those remain separate Phase 17 commercial workflows. A future inspection or maintenance workflow can transition the same operational state once its own evidence and authorization contract is defined, without weakening the current availability boundary.
-
-## Validation
-
-The dependency-free domain test `src/server/inventory/rental-unit-operational-domain.test.ts` protects status/reason normalization. The source contract `scripts/rental-unit-operational-availability-source-contract.test.mjs` protects:
-
-- the Prisma enum/model and tenant/unit relation;
-- authorization, tenant scope, unit locking, database time, idempotent writes, and audit evidence;
-- availability-search exclusion;
-- database guards across holds, booking confirmation, allocation/substitution, reschedule, and pickup;
-- the explicit ability to record return while a unit is out of service;
-- the staff unit-detail control and deliberate commercial boundaries.
-
-Repository validation remains `npm run validate` on the Node version declared in `package.json`. Migration and trigger behavior should additionally be exercised through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
+Operational availability and the maintenance work-order foundation do not implement inspection checklists, damage assessment, security-bond handling, repair-vendor workflows, cost estimates, customer damage charging, late-return fees, notifications, or external maintenance synchronization. Those remain separate Phase 17 commercial workflows.

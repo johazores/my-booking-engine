@@ -65,6 +65,7 @@ model RentalUnit {
   unitType                   RentalUnitType                    @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   location                   RentalLocation?                   @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   operationalState           RentalUnitOperationalState?
+  maintenanceWorkOrders      RentalMaintenanceWorkOrder[]
   availabilityBlocks         RentalAvailabilityBlock[]
   availabilityHolds          RentalAvailabilityHold[]
   bookings                   RentalBooking[]                   @relation("RentalBookingUnit")

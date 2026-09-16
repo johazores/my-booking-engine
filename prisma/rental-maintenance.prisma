@@ -1,0 +1,36 @@
+enum RentalMaintenanceWorkOrderStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model RentalMaintenanceWorkOrder {
+  id                 String                           @id @default(uuid()) @db.Uuid
+  organizationId     String                           @db.Uuid
+  unitId             String                           @db.Uuid
+  idempotencyKey     String                           @db.VarChar(120)
+  title              String                           @db.VarChar(160)
+  description        String?                          @db.VarChar(2000)
+  status             RentalMaintenanceWorkOrderStatus @default(OPEN)
+  openedAt           DateTime                         @default(now()) @db.Timestamptz(6)
+  openedByUserId     String                           @db.Uuid
+  startedAt          DateTime?                        @db.Timestamptz(6)
+  startedByUserId    String?                          @db.Uuid
+  completedAt        DateTime?                        @db.Timestamptz(6)
+  completedByUserId  String?                          @db.Uuid
+  completionNotes    String?                          @db.VarChar(2000)
+  cancelledAt        DateTime?                        @db.Timestamptz(6)
+  cancelledByUserId  String?                          @db.Uuid
+  cancellationReason String?                          @db.VarChar(500)
+  createdAt          DateTime                         @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime                         @updatedAt @db.Timestamptz(6)
+
+  unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_maintenance_work_orders_unit_fkey")
+
+  @@unique([id, organizationId], map: "rental_maintenance_work_orders_id_organization_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_maintenance_work_orders_org_idempotency_key")
+  @@index([organizationId, unitId, status, openedAt], map: "rental_maintenance_work_orders_unit_status_opened_idx")
+  @@index([organizationId, status, openedAt], map: "rental_maintenance_work_orders_org_status_opened_idx")
+  @@map("rental_maintenance_work_orders")
+}
