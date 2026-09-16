@@ -102,7 +102,7 @@ export async function cancelRentalBooking(input: Readonly<{
       throw new RentalAvailabilityIntegrityError('Database clock is unavailable for rental booking cancellation.');
     }
 
-    const [booking, latestReschedule, latestSubstitution] = await Promise.all([
+    const [booking, latestReschedule, latestSubstitution, fulfillmentEvent] = await Promise.all([
       transaction.rentalBooking.findFirst({
         where: { id: input.bookingId, organizationId: input.organizationId },
         include: { allocation: true },
@@ -114,6 +114,10 @@ export async function cancelRentalBooking(input: Readonly<{
       transaction.rentalBookingUnitSubstitution.findFirst({
         where: { bookingId: input.bookingId, organizationId: input.organizationId },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingFulfillmentEvent.findFirst({
+        where: { bookingId: input.bookingId, organizationId: input.organizationId },
+        select: { id: true, kind: true },
       }),
     ]);
     if (!booking) throw new RentalBookingCancellationUnavailableError();
@@ -136,10 +140,18 @@ export async function cancelRentalBooking(input: Readonly<{
       if (!booking.cancelledAt) {
         throw new RentalAvailabilityIntegrityError('Cancelled rental booking is missing its cancellation timestamp.');
       }
+      if (fulfillmentEvent) {
+        throw new RentalAvailabilityIntegrityError('Cancelled rental booking cannot retain physical-custody evidence.');
+      }
       return Object.freeze({ booking, allocation: booking.allocation, idempotent: true });
     }
     if (booking.status !== 'CONFIRMED' || booking.cancelledAt) {
       throw new RentalBookingCancellationConflictError('Only a confirmed rental booking can be cancelled.');
+    }
+    if (fulfillmentEvent) {
+      throw new RentalBookingCancellationConflictError(
+        `Rental booking cannot be cancelled after physical custody has started (${fulfillmentEvent.kind}).`,
+      );
     }
 
     const paymentHistory = await readRentalPaymentSettlementHistory({

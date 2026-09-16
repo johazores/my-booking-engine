@@ -114,7 +114,13 @@ export async function applyRentalBookingReschedule(input: Readonly<{
 
     const [bookingLocator, allocationLocator, latestSubstitutionLocator] = await Promise.all([
       transaction.rentalBooking.findFirst({
-        where: { id: input.bookingId, organizationId: input.organizationId, status: 'CONFIRMED', cancelledAt: null },
+        where: {
+          id: input.bookingId,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          cancelledAt: null,
+          fulfillmentEvents: { none: { organizationId: input.organizationId } },
+        },
         select: { unitId: true },
       }),
       transaction.rentalBookingAllocation.findFirst({
@@ -155,6 +161,7 @@ export async function applyRentalBookingReschedule(input: Readonly<{
           organizationId: input.organizationId,
           status: 'CONFIRMED',
           cancelledAt: null,
+          fulfillmentEvents: { none: { organizationId: input.organizationId } },
         },
         include: {
           allocation: {

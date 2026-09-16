@@ -28,9 +28,11 @@ Early-return inventory release uses the same permissions and lock order. It deri
 
 ## Neighboring mutation safety
 
-Pickup is the custody handoff boundary. After any fulfillment event exists, database guards reject new rental reschedules, physical-unit substitutions, or booking cancellation. The staff booking detail hides those actions once pickup is recorded.
+Pickup is the custody handoff boundary. After any fulfillment event exists, fresh cancellation and reschedule writers now recheck tenant-owned fulfillment evidence inside the shared booking serialization boundary and fail closed before committing a lifecycle change. Physical-unit substitution already applies the same pre-custody application check. Completed reschedule or substitution requests can still replay their already-persisted idempotent result after later pickup; the custody rule blocks only a new mutation.
 
-These guards use the same tenant/booking advisory lock namespace as the lifecycle writers, so direct database writes cannot race a pickup into an unsafe post-handoff cancellation, date change, or unit change.
+Database guards remain defense in depth for all three neighboring mutations: new rental reschedules, physical-unit substitutions, or booking cancellation are rejected after custody begins. The staff booking detail also hides those actions once pickup is recorded.
+
+These application and database checks use the same tenant/booking advisory lock namespace as the fulfillment writer, so a concurrent pickup cannot race between a pre-custody check and a cancellation, date change, or unit change commit.
 
 Return does **not** release the booking allocation early by itself. Availability remains protected through the committed booking end date until an authorized staff user explicitly applies early-return inventory release. That release only frees complete remaining rental days and does not change accepted money, payment evidence, or the committed rental period.
 
@@ -57,6 +59,7 @@ The paginated rental booking list marks overdue picked-up rows and missed-pickup
 - `src/server/inventory/rental-custody-availability.test.ts` covers location-timezone date authority and the exclusive-end overdue boundary.
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers whole-day early-return release semantics and deterministic idempotency.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, replay revalidation, route authority, neighboring mutation guards, and staff action wiring.
+- `scripts/rental-booking-pre-custody-writer-source-contract.test.mjs` protects application-level pre-custody enforcement for fresh cancellation/reschedule writes while preserving completed idempotent replay semantics.
 - `scripts/rental-booking-pickup-window-source-contract.test.mjs` protects the pickup-window service, database guard, staff action visibility, and documentation boundary.
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects overdue-custody exclusion across availability and booking authority, database hold/allocation/substitution guards, and staff list/detail visibility.
 - `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects the pre-pagination overdue operational queue.
