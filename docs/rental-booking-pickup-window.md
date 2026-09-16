@@ -18,16 +18,22 @@ Booking detail uses the PostgreSQL custody observation time already returned by 
 
 Before the window opens, staff see the committed opening date. Once the exclusive committed end date is reached without pickup, staff see that the pickup window is closed instead of a primary action that the server will reject. Existing supported reschedule, settlement/refund, and cancellation rules remain separate and can be used where their own authority allows them.
 
+The paginated booking list derives the same closed-window condition as a read-only **Missed pickup** operational state. Its tenant-wide count and optional `MISSED_PICKUP` queue are selected in PostgreSQL before pagination using one database observation time, the retained booking-location timezone, the latest supported reschedule end date, `CONFIRMED` booking state, and the absence of any fulfillment event. Booking, location, reschedule, and fulfillment predicates repeat `organizationId`, and the final page rows are re-read with tenant scope and re-derived through the pickup-window domain. A missing row or SQL/domain disagreement fails closed.
+
+The missed-pickup queue does not create a second mutable booking status. It exists so staff can find expired handoff commitments that can no longer be picked up under the current period.
+
 ## Deliberate boundaries
 
-This guard does not automatically extend a rental, create a late fee, convert a missed pickup into a cancellation, change accepted money, issue a refund, or invent a no-show policy. Those are separate commercial decisions. It only prevents physical custody from being handed over outside the retained committed rental window.
+This guard does not automatically extend a rental, create a late fee, convert a missed pickup into a cancellation, change accepted money, issue a refund, or invent a no-show policy. Those are separate commercial decisions. It only prevents physical custody from being handed over outside the retained committed rental window and surfaces the resulting missed-pickup condition for staff review.
 
 Existing pickup evidence remains append-only. Return and overdue-custody behavior are unchanged: a valid pickup that remains open at the exclusive committed end becomes overdue custody until return is recorded.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-pickup-window-domain.test.ts` covers start-date opening, pre-start rejection, exclusive-end closure, timezone authority, and invalid date evidence.
-- `scripts/rental-booking-pickup-window-source-contract.test.mjs` protects the service, database trigger, staff action, and documentation boundaries.
+- `src/server/bookings/rental-booking-pickup-read-domain.test.ts` covers read-only missed-pickup derivation for confirmed awaiting-pickup bookings without misclassifying pre-start, picked-up, returned, or cancelled records.
+- `scripts/rental-booking-pickup-window-source-contract.test.mjs` protects the pickup-window service, database guard, staff action, and documentation boundaries.
+- `scripts/rental-missed-pickup-queue-source-contract.test.mjs` protects tenant-scoped missed-pickup count/page selection, current effective end-date authority, pre-pagination queueing, final domain revalidation, staff filtering, and no-automatic-commerce boundaries.
 - Full migration execution remains part of the guarded disposable-PostgreSQL validation path under the Node version declared in `package.json`.
 
 GitHub Actions are not required or used.

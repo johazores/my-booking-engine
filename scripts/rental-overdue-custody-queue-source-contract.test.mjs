@@ -7,7 +7,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 test('overdue custody queue uses tenant-scoped PostgreSQL authority before pagination', async () => {
   const service = await read('src/server/bookings/rental-booking-read-service.ts');
 
-  assert.match(service, /RentalBookingListCustody = 'ALL' \| 'OVERDUE'/);
+  assert.match(service, /RentalBookingListCustody = 'ALL' \| 'OVERDUE' \| 'MISSED_PICKUP'/);
   assert.match(service, /readOverdueRentalBookingCount/);
   assert.match(service, /readOverdueRentalBookingPageIds/);
   assert.match(service, /COUNT\(\*\)::text AS "total"/);
@@ -53,7 +53,7 @@ test('staff list exposes a real overdue queue without inventing late-return comm
   const readDoc = await read('docs/rental-booking-read-consistency.md');
 
   assert.match(listPage, /name="custody"/);
-  assert.match(listPage, /Overdue only/);
+  assert.match(listPage, /Overdue custody only/);
   assert.match(listPage, /Review \{result\.overdueCount\} overdue custody/);
   assert.match(listPage, /custody: 'OVERDUE'/);
   assert.match(listPage, /No overdue rental custody matches this filter/);

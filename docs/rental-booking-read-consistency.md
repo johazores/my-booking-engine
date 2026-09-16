@@ -6,7 +6,7 @@ SF rental booking staff reads use a bounded, tenant-scoped snapshot contract. Bo
 
 `getRentalBooking` runs the retained booking row, reschedule history, physical-unit substitution history, fulfillment history, and one PostgreSQL custody observation time inside one PostgreSQL `RepeatableRead` transaction after `booking:read` authorization and UUID validation. Every resource query repeats both `organizationId` and `bookingId` where applicable.
 
-`listRentalBookings` obtains one PostgreSQL observation time and keeps its ordinary booking count/page reads, overdue-custody count, optional overdue queue page-ID query, and final page rows inside the same `RepeatableRead` transaction. This prevents the staff page from reporting totals or operational custody from one database state while rendering rows from another concurrent state, and every booking row on the page receives the same database-time reference for overdue-custody display.
+`listRentalBookings` obtains one PostgreSQL observation time and keeps its ordinary booking count/page reads, overdue-custody count, missed-pickup count, optional operational queue page-ID query, and final page rows inside the same `RepeatableRead` transaction. This prevents the staff page from reporting totals or operational states from one database state while rendering rows from another concurrent state, and every booking row on the page receives the same database-time reference for overdue-custody and missed-pickup display.
 
 The read transaction does not create write authority. Confirmation, cancellation, reschedule, substitution, settlement, pickup/return, and early-return release continue to revalidate their own server authority inside their existing serializable write boundaries.
 
@@ -30,9 +30,17 @@ An overdue queue is inherently confirmed custody; combining `CANCELLED` status w
 
 The resulting flag and queue do not mutate booking status, extend the rental, calculate a late fee, or replace the database/service availability guards.
 
+## Missed pickup operational queue
+
+`deriveRentalBookingPickupReadState` is also read-only. A booking is considered missed pickup only when it remains `CONFIRMED`, fulfillment is still `AWAITING_PICKUP`, and the same retained-location local-date pickup window has reached `CLOSED`. Pre-start, picked-up, returned, and cancelled records are not classified as missed pickup.
+
+The `MISSED_PICKUP` queue is selected in PostgreSQL before pagination. The count/page queries repeat tenant scope on booking and location, derive the current effective exclusive end from the latest tenant-owned reschedule ordered by `appliedAt`, `createdAt`, and `id`, fall back to the immutable booking end when no reschedule exists, and require no tenant-owned fulfillment evidence. They use the same captured PostgreSQL observation timestamp and retained location timezone as the final row projection. Final booking rows repeat `organizationId`, every selected ID must be re-read, and the pickup read domain must agree that every row is missed; otherwise the read fails closed.
+
+A missed-pickup queue is inherently a confirmed pre-handoff condition; combining `CANCELLED` status with `MISSED_PICKUP` returns no matching rows. The tenant-wide missed-pickup count remains available as an operational indicator. This queue does not cancel or extend bookings, calculate fees, issue refunds, or invent a no-show policy.
+
 ## Failure behavior
 
-A missing tenant-owned booking remains `RentalBookingUnavailableError`. A reschedule or substitution history that cannot be proven complete within the safety boundary raises `RentalBookingHistoryUnavailableError`. Missing/invalid PostgreSQL observation time, invalid database queue counts, invalid queue pagination bounds, and inconsistent picked-up custody evidence also fail closed rather than returning a misleading non-overdue state.
+A missing tenant-owned booking remains `RentalBookingUnavailableError`. A reschedule or substitution history that cannot be proven complete within the safety boundary raises `RentalBookingHistoryUnavailableError`. Missing/invalid PostgreSQL observation time, invalid database queue counts, invalid queue pagination bounds, and inconsistent custody or pickup-window evidence also fail closed rather than returning a misleading operational state.
 
 No customer, payment, provider, delivery, inspection, damage, fee, or maintenance semantics are introduced by this read hardening.
 
@@ -40,9 +48,11 @@ No customer, payment, provider, delivery, inspection, damage, fee, or maintenanc
 
 - `src/server/bookings/rental-booking-history.test.ts` covers multi-page completion, exact-limit completion, overflow failure, and page-bound violations.
 - `src/server/bookings/rental-booking-custody-read-domain.test.ts` covers overdue staff-read derivation and fail-closed custody evidence.
+- `src/server/bookings/rental-booking-pickup-read-domain.test.ts` covers read-only missed-pickup derivation from the retained local-date pickup window.
 - `scripts/rental-booking-read-consistency-source-contract.test.mjs` protects tenant-scoped cursor pagination, bounded fulfillment reads, and `RepeatableRead` snapshot use for detail and list queries.
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects PostgreSQL-time custody read derivation and staff list/detail visibility.
 - `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects tenant-scoped overdue count/page SQL, pre-pagination queue selection, snapshot ordering, final tenant-scoped row reads, staff filtering, and deliberate no-fee/no-extension boundaries.
+- `scripts/rental-missed-pickup-queue-source-contract.test.mjs` protects tenant-scoped missed-pickup count/page SQL, effective reschedule authority, pre-pagination queue selection, final domain agreement, staff filtering, and deliberate no-automatic-commerce boundaries.
 - Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`; PostgreSQL execution remains `npm run test:database` against an explicitly disposable database.
 
 GitHub Actions are not required or used.

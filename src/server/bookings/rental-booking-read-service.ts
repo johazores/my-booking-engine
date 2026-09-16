@@ -5,6 +5,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveRentalBookingCustodyReadState } from './rental-booking-custody-read-domain.ts';
 import { deriveRentalBookingFulfillmentState } from './rental-booking-fulfillment-domain.ts';
 import { readBoundedRentalBookingHistory } from './rental-booking-history.ts';
+import { deriveRentalBookingPickupReadState } from './rental-booking-pickup-read-domain.ts';
 
 export class RentalBookingUnavailableError extends Error {
   constructor() {
@@ -21,7 +22,7 @@ export class RentalBookingHistoryUnavailableError extends Error {
 }
 
 export type RentalBookingListStatus = 'ALL' | 'CONFIRMED' | 'CANCELLED';
-export type RentalBookingListCustody = 'ALL' | 'OVERDUE';
+export type RentalBookingListCustody = 'ALL' | 'OVERDUE' | 'MISSED_PICKUP';
 
 function normalizePagination(page: number, pageSize: number) {
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
@@ -138,6 +139,91 @@ async function readOverdueRentalBookingPageIds(
   return Object.freeze(rows.map((row) => row.id));
 }
 
+async function readMissedPickupRentalBookingCount(
+  transaction: RentalBookingReadTransaction,
+  input: Readonly<{ organizationId: string; observedAt: Date }>,
+) {
+  const rows = await transaction.$queryRaw<Array<{ total: string }>>`
+    SELECT COUNT(*)::text AS "total"
+      FROM "rental_bookings" booking
+      JOIN "rental_locations" location
+        ON location."id" = booking."locationId"
+       AND location."organizationId" = booking."organizationId"
+     WHERE booking."organizationId" = ${input.organizationId}::uuid
+       AND location."organizationId" = ${input.organizationId}::uuid
+       AND booking."status" = 'CONFIRMED'
+       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= COALESCE(
+            (
+              SELECT reschedule."targetEndsOn"
+                FROM "rental_booking_reschedules" reschedule
+               WHERE reschedule."organizationId" = ${input.organizationId}::uuid
+                 AND reschedule."bookingId" = booking."id"
+               ORDER BY reschedule."appliedAt" DESC, reschedule."createdAt" DESC, reschedule."id" DESC
+               LIMIT 1
+            ),
+            booking."endsOn"
+       )
+       AND NOT EXISTS (
+            SELECT 1
+              FROM "rental_booking_fulfillment_events" fulfillment
+             WHERE fulfillment."organizationId" = ${input.organizationId}::uuid
+               AND fulfillment."bookingId" = booking."id"
+       )
+  `;
+
+  return requireDatabaseCount(rows[0]?.total, 'Missed rental pickup');
+}
+
+async function readMissedPickupRentalBookingPageIds(
+  transaction: RentalBookingReadTransaction,
+  input: Readonly<{
+    organizationId: string;
+    observedAt: Date;
+    offset: number;
+    limit: number;
+  }>,
+) {
+  if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
+    throw new RentalBookingHistoryUnavailableError('Missed rental pickup pagination offset is invalid.');
+  }
+  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+    throw new RentalBookingHistoryUnavailableError('Missed rental pickup pagination limit is invalid.');
+  }
+
+  const rows = await transaction.$queryRaw<Array<{ id: string }>>`
+    SELECT booking."id"
+      FROM "rental_bookings" booking
+      JOIN "rental_locations" location
+        ON location."id" = booking."locationId"
+       AND location."organizationId" = booking."organizationId"
+     WHERE booking."organizationId" = ${input.organizationId}::uuid
+       AND location."organizationId" = ${input.organizationId}::uuid
+       AND booking."status" = 'CONFIRMED'
+       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= COALESCE(
+            (
+              SELECT reschedule."targetEndsOn"
+                FROM "rental_booking_reschedules" reschedule
+               WHERE reschedule."organizationId" = ${input.organizationId}::uuid
+                 AND reschedule."bookingId" = booking."id"
+               ORDER BY reschedule."appliedAt" DESC, reschedule."createdAt" DESC, reschedule."id" DESC
+               LIMIT 1
+            ),
+            booking."endsOn"
+       )
+       AND NOT EXISTS (
+            SELECT 1
+              FROM "rental_booking_fulfillment_events" fulfillment
+             WHERE fulfillment."organizationId" = ${input.organizationId}::uuid
+               AND fulfillment."bookingId" = booking."id"
+       )
+     ORDER BY booking."createdAt" DESC, booking."id" DESC
+     OFFSET ${input.offset}
+     LIMIT ${input.limit}
+  `;
+
+  return Object.freeze(rows.map((row) => row.id));
+}
+
 const effectiveAllocationInclude = {
   unit: { select: { id: true, code: true, name: true, status: true, locationId: true, unitTypeId: true } },
 } satisfies Prisma.RentalBookingAllocationInclude;
@@ -231,7 +317,6 @@ export async function getRentalBooking(input: Readonly<{ organizationId: string;
       observedAt,
       timeZone: booking.location.timeZone,
     });
-
     return Object.freeze({
       ...booking,
       reschedules: Object.freeze(reschedules),
@@ -264,10 +349,16 @@ export async function listRentalBookings(input: Readonly<{
   return db.$transaction(async (transaction) => {
     const databaseClock = await transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
     const observedAt = requireDatabaseObservation(databaseClock);
-    const overdueCount = await readOverdueRentalBookingCount(transaction, {
-      organizationId: input.organizationId,
-      observedAt,
-    });
+    const [overdueCount, missedPickupCount] = await Promise.all([
+      readOverdueRentalBookingCount(transaction, {
+        organizationId: input.organizationId,
+        observedAt,
+      }),
+      readMissedPickupRentalBookingCount(transaction, {
+        organizationId: input.organizationId,
+        observedAt,
+      }),
+    ]);
 
     let total: number;
     let page: number;
@@ -295,6 +386,28 @@ export async function listRentalBookings(input: Readonly<{
           'Overdue rental custody queue could not re-read every tenant-scoped booking in its snapshot.',
         );
       }
+    } else if (custody === 'MISSED_PICKUP') {
+      total = status === 'CANCELLED' ? 0 : missedPickupCount;
+      const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+      page = Math.min(pagination.page, totalPages);
+      const bookingIds = total === 0
+        ? Object.freeze([] as string[])
+        : await readMissedPickupRentalBookingPageIds(transaction, {
+          organizationId: input.organizationId,
+          observedAt,
+          offset: (page - 1) * pagination.pageSize,
+          limit: pagination.pageSize,
+        });
+      bookingRows = await transaction.rentalBooking.findMany({
+        where: { organizationId: input.organizationId, id: { in: bookingIds } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: rentalBookingListInclude,
+      });
+      if (bookingRows.length !== bookingIds.length) {
+        throw new RentalBookingHistoryUnavailableError(
+          'Missed rental pickup queue could not re-read every tenant-scoped booking in its snapshot.',
+        );
+      }
     } else {
       total = await transaction.rentalBooking.count({ where });
       const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
@@ -310,6 +423,7 @@ export async function listRentalBookings(input: Readonly<{
 
     const bookings = bookingRows.map((booking) => {
       const fulfillment = deriveRentalBookingFulfillmentState(booking.fulfillmentEvents);
+      const latestReschedule = booking.reschedules[0];
       return Object.freeze({
         ...booking,
         fulfillment,
@@ -320,11 +434,24 @@ export async function listRentalBookings(input: Readonly<{
           observedAt,
           timeZone: booking.location.timeZone,
         }),
+        pickup: deriveRentalBookingPickupReadState({
+          bookingStatus: booking.status,
+          fulfillmentState: fulfillment.state,
+          observedAt,
+          startsOn: latestReschedule?.targetStartsOn ?? booking.startsOn,
+          endsOn: latestReschedule?.targetEndsOn ?? booking.endsOn,
+          timeZone: booking.location.timeZone,
+        }),
       });
     });
     if (custody === 'OVERDUE' && bookings.some((booking) => !booking.custody.overdue)) {
       throw new RentalBookingHistoryUnavailableError(
         'Overdue rental custody queue disagreed with retained booking custody evidence.',
+      );
+    }
+    if (custody === 'MISSED_PICKUP' && bookings.some((booking) => !booking.pickup.missed)) {
+      throw new RentalBookingHistoryUnavailableError(
+        'Missed rental pickup queue disagreed with retained booking pickup-window evidence.',
       );
     }
     const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
@@ -333,6 +460,7 @@ export async function listRentalBookings(input: Readonly<{
       bookings: Object.freeze(bookings),
       total,
       overdueCount,
+      missedPickupCount,
       page,
       pageSize: pagination.pageSize,
       totalPages,
