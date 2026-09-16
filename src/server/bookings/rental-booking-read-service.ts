@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { deriveRentalBookingFulfillmentState } from './rental-booking-fulfillment-domain.ts';
 
 export class RentalBookingUnavailableError extends Error {
   constructor() {
@@ -26,62 +27,23 @@ const rentalBookingListInclude = {
   allocation: { include: effectiveAllocationInclude },
   unit: { select: { id: true, code: true, name: true, status: true } },
   unitType: { select: { id: true, code: true, name: true, status: true } },
-  location: {
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      city: true,
-      countryCode: true,
-      timeZone: true,
-      status: true,
-    },
-  },
+  location: { select: { id: true, code: true, name: true, city: true, countryCode: true, timeZone: true, status: true } },
 } satisfies Prisma.RentalBookingInclude;
 
 const rentalBookingDetailInclude = {
   ...rentalBookingListInclude,
-  customer: {
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      phone: true,
-      status: true,
-      archivedAt: true,
-    },
-  },
-  hold: {
-    select: {
-      id: true,
-      status: true,
-      expiresAt: true,
-      endedAt: true,
-      idempotencyKey: true,
-    },
-  },
+  customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, status: true, archivedAt: true } },
+  hold: { select: { id: true, status: true, expiresAt: true, endedAt: true, idempotencyKey: true } },
 } satisfies Prisma.RentalBookingInclude;
 
-export async function getRentalBooking(input: Readonly<{
-  organizationId: string;
-  actorUserId: string;
-  bookingId: string;
-}>) {
+export async function getRentalBooking(input: Readonly<{ organizationId: string; actorUserId: string; bookingId: string }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'booking:read',
-  });
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
 
-  const [booking, reschedules, unitSubstitutions] = await Promise.all([
-    db.rentalBooking.findFirst({
-      where: { id: input.bookingId, organizationId: input.organizationId },
-      include: rentalBookingDetailInclude,
-    }),
+  const [booking, reschedules, unitSubstitutions, fulfillmentEvents] = await Promise.all([
+    db.rentalBooking.findFirst({ where: { id: input.bookingId, organizationId: input.organizationId }, include: rentalBookingDetailInclude }),
     db.rentalBookingReschedule.findMany({
       where: { bookingId: input.bookingId, organizationId: input.organizationId },
       orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
@@ -89,14 +51,21 @@ export async function getRentalBooking(input: Readonly<{
     db.rentalBookingUnitSubstitution.findMany({
       where: { bookingId: input.bookingId, organizationId: input.organizationId },
       orderBy: [{ appliedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      include: {
-        sourceUnit: { select: { id: true, code: true, name: true } },
-        targetUnit: { select: { id: true, code: true, name: true } },
-      },
+      include: { sourceUnit: { select: { id: true, code: true, name: true } }, targetUnit: { select: { id: true, code: true, name: true } } },
+    }),
+    db.rentalBookingFulfillmentEvent.findMany({
+      where: { bookingId: input.bookingId, organizationId: input.organizationId },
+      orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     }),
   ]);
   if (!booking) throw new RentalBookingUnavailableError();
-  return Object.freeze({ ...booking, reschedules, unitSubstitutions });
+  return Object.freeze({
+    ...booking,
+    reschedules,
+    unitSubstitutions,
+    fulfillmentEvents,
+    fulfillment: deriveRentalBookingFulfillmentState(fulfillmentEvents),
+  });
 }
 
 export async function listRentalBookings(input: Readonly<{
@@ -108,11 +77,7 @@ export async function listRentalBookings(input: Readonly<{
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'booking:read',
-  });
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
 
   const pagination = normalizePagination(input.page ?? 1, input.pageSize ?? 25);
   const where: Prisma.RentalBookingWhereInput = { organizationId: input.organizationId };

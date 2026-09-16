@@ -1,0 +1,26 @@
+enum RentalBookingFulfillmentEventKind {
+  PICKED_UP
+  RETURNED
+}
+
+model RentalBookingFulfillmentEvent {
+  id             String                            @id @default(uuid()) @db.Uuid
+  organizationId String                            @db.Uuid
+  bookingId      String                            @db.Uuid
+  kind           RentalBookingFulfillmentEventKind
+  unitId         String                            @db.Uuid
+  unitCode       String                            @db.VarChar(32)
+  unitName       String                            @db.VarChar(160)
+  startsOn       DateTime                          @db.Date
+  endsOn         DateTime                          @db.Date
+  idempotencyKey String                            @db.VarChar(120)
+  occurredAt     DateTime                          @db.Timestamptz(6)
+  createdAt      DateTime                          @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId], map: "rental_booking_fulfillment_events_id_org_key")
+  @@unique([organizationId, bookingId, kind], map: "rental_booking_fulfillment_events_org_booking_kind_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_fulfillment_events_org_idempotency_key")
+  @@index([organizationId, bookingId, occurredAt], map: "rental_booking_fulfillment_events_booking_occurred_idx")
+  @@index([organizationId, unitId, occurredAt], map: "rental_booking_fulfillment_events_unit_occurred_idx")
+  @@map("rental_booking_fulfillment_events")
+}
