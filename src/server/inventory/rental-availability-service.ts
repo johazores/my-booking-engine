@@ -86,6 +86,10 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
               },
             },
           }),
+      OR: [
+        { operationalState: { is: null } },
+        { operationalState: { is: { status: 'AVAILABLE' as const } } },
+      ],
       availabilityBlocks: {
         none: {
           organizationId: input.organizationId,

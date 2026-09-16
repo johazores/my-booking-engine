@@ -1,0 +1,23 @@
+enum RentalUnitOperationalStatus {
+  AVAILABLE
+  OUT_OF_SERVICE
+}
+
+model RentalUnitOperationalState {
+  id              String                      @id @default(uuid()) @db.Uuid
+  organizationId  String                      @db.Uuid
+  unitId          String                      @db.Uuid
+  status          RentalUnitOperationalStatus @default(AVAILABLE)
+  reason          String?                     @db.VarChar(500)
+  changedAt       DateTime                    @default(now()) @db.Timestamptz(6)
+  changedByUserId String                      @db.Uuid
+  createdAt       DateTime                    @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime                    @updatedAt @db.Timestamptz(6)
+
+  unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, unitId])
+  @@index([organizationId, status, unitId])
+  @@map("rental_unit_operational_states")
+}
