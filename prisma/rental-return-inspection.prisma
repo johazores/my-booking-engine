@@ -1,0 +1,30 @@
+enum RentalReturnInspectionOutcome {
+  CLEAR
+  DAMAGE_REPORTED
+  UNSAFE
+}
+
+model RentalReturnInspection {
+  id                String                        @id @default(uuid()) @db.Uuid
+  organizationId    String                        @db.Uuid
+  bookingId         String                        @db.Uuid
+  returnEventId     String                        @db.Uuid
+  unitId            String                        @db.Uuid
+  idempotencyKey    String                        @db.VarChar(120)
+  outcome           RentalReturnInspectionOutcome
+  notes             String?                       @db.VarChar(2000)
+  inspectedAt       DateTime                      @db.Timestamptz(6)
+  inspectedByUserId String                        @db.Uuid
+  createdAt         DateTime                      @default(now()) @db.Timestamptz(6)
+
+  booking     RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_booking_fkey")
+  returnEvent RentalBookingFulfillmentEvent @relation("RentalReturnInspectionReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_return_event_fkey")
+  unit        RentalUnit                    @relation("RentalReturnInspectionUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_unit_fkey")
+
+  @@unique([id, organizationId], map: "rental_return_inspections_id_org_key")
+  @@unique([organizationId, bookingId], map: "rental_return_inspections_org_booking_key")
+  @@unique([organizationId, returnEventId], map: "rental_return_inspections_org_return_event_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_return_inspections_org_idempotency_key")
+  @@index([organizationId, unitId, inspectedAt], map: "rental_return_inspections_org_unit_inspected_idx")
+  @@map("rental_return_inspections")
+}

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { RentalBookingCancelAction } from '@/components/rental-booking-cancel-action.tsx';
 import { RentalBookingPaymentPanel } from '@/components/rental-booking-payment-panel.tsx';
+import { RentalReturnInspectionPanel } from '@/components/rental-return-inspection-panel.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
@@ -169,6 +170,14 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
       {canReleaseRemainingInventory && releaseCandidateEndsOn ? <p id="rental-early-return-release-hint" className="sf-field-hint">This will make the effective unit available from {releaseCandidateEndsOn.toISOString().slice(0, 10)} onward. The committed rental end, accepted amount, payment evidence, and custody history remain unchanged.</p> : null}
       <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Pickup is allowed only from the committed start date until the exclusive committed end in the retained operating-location timezone. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
     </section> : null}
+
+    <RentalReturnInspectionPanel
+      organizationId={activeContext.organization.id}
+      actorUserId={session.user.id}
+      bookingId={booking.id}
+      fulfillmentState={booking.fulfillment.state}
+      canManage={canManageBooking && canManageInventory}
+    />
 
     {paymentData ? <RentalBookingPaymentPanel bookingId={booking.id} bookingStatus={booking.status} bookingCurrency={booking.currency} settlement={paymentData.settlement} transactions={paymentData.transactions} canManage={canManagePayments} /> : null}
 

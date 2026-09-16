@@ -48,15 +48,23 @@ Completing or cancelling the final active work order deliberately does **not** r
 
 See `docs/rental-maintenance-work-orders.md` for the work-order lifecycle and evidence contract.
 
+## Return-inspection integration
+
+A retained `DAMAGE_REPORTED` or `UNSAFE` return inspection uses the same physical-unit lock and operational-state writer. If the returned unit is currently available, the inspection transaction moves it to `OUT_OF_SERVICE` before inserting inspection evidence. If another operational hold already exists, its reason is preserved.
+
+PostgreSQL independently rejects non-clear return-inspection evidence unless the retained returned unit is already out of service. A clear inspection never changes operational state, and no inspection automatically returns a unit to service.
+
+See `docs/rental-return-inspection.md` for the append-only return-condition evidence contract.
+
 ## Staff workflow
 
 The rental-unit detail page shows the current operational status and retained reason. Staff with inventory-management permission can move the unit between **Available** and **Out of service** from the existing unit controls and can open the dedicated maintenance workspace from the same page.
 
-This is a real inventory authority control. It is not a cosmetic label: discovery, maintenance, and database write boundaries consume the state. Attempts to return a unit to service while active maintenance remains fail closed as a conflict.
+This is a real inventory authority control. It is not a cosmetic label: discovery, maintenance, return inspection, and database write boundaries consume the state. Attempts to return a unit to service while active maintenance remains fail closed as a conflict.
 
 ## Deliberate boundaries
 
-Operational availability plus the maintenance work-order foundation do not invent inspection checklists, damage assessment, security-bond handling, repair-vendor dispatch, purchase orders, parts inventory, labor/cost estimates, customer damage charging, late-return fees, automatic notifications, or external maintenance-provider synchronization.
+Operational availability, maintenance work orders, and return-condition inspection do not invent customer damage liability/charging, security-bond handling, repair-vendor dispatch, purchase orders, parts inventory, labor/cost estimates, late-return fees, automatic notifications, or external maintenance-provider synchronization.
 
 Those remain separate Phase 17 commercial workflows and require their own evidence, authorization, settlement, and policy contracts.
 
@@ -71,6 +79,6 @@ The dependency-free domain test `src/server/inventory/rental-unit-operational-do
 - the explicit ability to record return while a unit is out of service;
 - the staff unit-detail control and deliberate commercial boundaries.
 
-The maintenance domain and source-contract tests additionally protect work-order lifecycle validation, tenant-scoped idempotency, shared locking, operational coupling, active-maintenance release protection, archive protection, database-authored lifecycle timestamps, audit evidence, and real staff actions.
+The maintenance domain and source-contract tests additionally protect work-order lifecycle validation, tenant-scoped idempotency, shared locking, operational coupling, active-maintenance release protection, archive protection, database-authored lifecycle timestamps, audit evidence, and real staff actions. The return-inspection source contract protects returned-custody binding, dual write permissions, idempotency, database-authored immutable evidence, non-clear operational quarantine, and the real booking-detail action.
 
 Repository validation remains `npm run validate` on the Node version declared in `package.json`. Migration and trigger behavior should additionally be exercised through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

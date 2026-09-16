@@ -66,10 +66,11 @@ model RentalUnit {
   location                   RentalLocation?                   @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   operationalState           RentalUnitOperationalState?
   maintenanceWorkOrders      RentalMaintenanceWorkOrder[]
+  returnInspections          RentalReturnInspection[]          @relation("RentalReturnInspectionUnit")
   availabilityBlocks         RentalAvailabilityBlock[]
   availabilityHolds          RentalAvailabilityHold[]
   bookings                   RentalBooking[]                   @relation("RentalBookingUnit")
-  bookingAllocations RentalBookingAllocation[] @relation("RentalBookingAllocationUnit")
+  bookingAllocations         RentalBookingAllocation[]         @relation("RentalBookingAllocationUnit")
   sourceBookingSubstitutions RentalBookingUnitSubstitution[]   @relation("RentalBookingUnitSubstitutionSourceUnit")
   targetBookingSubstitutions RentalBookingUnitSubstitution[]   @relation("RentalBookingUnitSubstitutionTargetUnit")
   fulfillmentEvents          RentalBookingFulfillmentEvent[]   @relation("RentalBookingFulfillmentEventUnit")
@@ -180,6 +181,7 @@ model RentalBooking {
   paymentTransactions RentalPaymentTransaction[]
   fulfillmentEvents RentalBookingFulfillmentEvent[]
   earlyReturnRelease RentalBookingEarlyReturnRelease?
+  returnInspection RentalReturnInspection?
 
   @@unique([id, organizationId], map: "rental_bookings_id_organization_key")
   @@unique([organizationId, idempotencyKey], map: "rental_bookings_org_idempotency_key")
