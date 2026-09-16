@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { RentalBookingCancelAction } from '@/components/rental-booking-cancel-action.tsx';
+import { RentalBookingPaymentPanel } from '@/components/rental-booking-payment-panel.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
@@ -9,6 +10,10 @@ import {
   getRentalBooking,
   RentalBookingUnavailableError,
 } from '@/server/bookings/rental-booking-read-service.ts';
+import {
+  listRentalBookingPaymentTransactions,
+  RentalPaymentUnavailableError,
+} from '@/server/payments/rental-payment-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
@@ -21,6 +26,10 @@ const statuses: Record<string, string> = {
   'booking-reschedule-existing': 'This rental reschedule request already completed earlier. The current effective booking is shown below.',
   'booking-unit-substituted': 'Rental booking physical unit replaced. The new effective unit now protects the current rental period.',
   'booking-unit-substitution-existing': 'This replacement request already completed earlier. The current effective booking is shown below.',
+  'rental-payment-recorded': 'Rental offline payment recorded against the full accepted booking amount.',
+  'rental-payment-existing': 'This rental offline payment was already recorded earlier. No duplicate transaction was created.',
+  'rental-refund-recorded': 'Rental offline refund recorded against the remaining manual settlement source.',
+  'rental-refund-existing': 'This rental offline refund was already recorded earlier. No duplicate transaction was created.',
 };
 
 const errors: Record<string, string> = {
@@ -29,6 +38,11 @@ const errors: Record<string, string> = {
   unavailable: 'This rental booking is no longer available in the active organization.',
   validation: 'The rental booking request was invalid.',
   server: 'The rental booking change could not be completed. No successful change was recorded.',
+  'payment-permission': 'Your organization role cannot record rental payments or refunds.',
+  'payment-conflict': 'The rental payment history or booking state changed. Review the current settlement before trying again.',
+  'payment-unavailable': 'This rental booking is no longer available for payment operations in the active organization.',
+  'payment-validation': 'The rental payment reference was invalid.',
+  'payment-server': 'The rental payment operation could not be completed. No successful transaction was recorded.',
 };
 
 export default async function RentalBookingDetailPage({
@@ -60,6 +74,8 @@ export default async function RentalBookingDetailPage({
   const canReadPricing = hasPermission('pricing:read');
   const canManageBooking = hasPermission('booking:manage');
   const canManageAvailability = hasPermission('availability:manage');
+  const canReadPayments = hasPermission('payment:read');
+  const canManagePayments = hasPermission('payment:manage');
   if (!canRead) {
     return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental bookings</p><h1>Booking access is restricted</h1><p>Your organization role does not include booking access.</p></section>;
   }
@@ -80,10 +96,28 @@ export default async function RentalBookingDetailPage({
     throw error;
   }
 
+  let paymentData: Awaited<ReturnType<typeof listRentalBookingPaymentTransactions>> | null = null;
+  if (canReadPayments) {
+    try {
+      paymentData = await listRentalBookingPaymentTransactions({
+        organizationId: activeContext.organization.id,
+        actorUserId: session.user.id,
+        bookingId: booking.id,
+        pageSize: 100,
+      });
+    } catch (error) {
+      if (!(error instanceof RentalPaymentUnavailableError)) throw error;
+    }
+  }
+
+  const paymentClearedForCancellation = paymentData !== null
+    && paymentData.settlement.reconciled
+    && paymentData.settlement.netSettledMinor === 0n;
   const canCancel = booking.status === 'CONFIRMED'
     && Boolean(booking.allocation)
     && canManageBooking
-    && canManageAvailability;
+    && canManageAvailability
+    && paymentClearedForCancellation;
   const canReviewReschedule = booking.status === 'CONFIRMED'
     && Boolean(booking.allocation)
     && canManageBooking
@@ -101,7 +135,7 @@ export default async function RentalBookingDetailPage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
+      <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking, settlement, and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory && booking.allocation ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.allocation.unitId}`}>Effective unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Reschedule rental</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Replace unit</Link> : null}</div>
     </header>
 
@@ -120,8 +154,10 @@ export default async function RentalBookingDetailPage({
         {booking.unitSubstitutions.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time unit</strong><span>{booking.unit.name} ({booking.unit.code}) · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Authorized staff can apply same-unit, price-neutral date reschedules, same-type same-location physical-unit substitutions, and terminal cancellation. Unit-type/location changes, price-changing amendments, payment/deposit collection, pickup, delivery, return, and fulfillment remain separate unsupported contracts.</p>
+      <p className="sf-field-hint">Authorized staff can apply same-unit price-neutral date reschedules, same-type same-location physical-unit substitutions, manual/offline full settlement and refunds, and terminal cancellation after settled money is fully refunded. Deposits, online rental checkout, price-changing amendments, pickup, delivery, return, and fulfillment remain separate contracts.</p>
     </section>
+
+    {paymentData ? <RentalBookingPaymentPanel bookingId={booking.id} bookingStatus={booking.status} bookingCurrency={booking.currency} settlement={paymentData.settlement} transactions={paymentData.transactions} canManage={canManagePayments} /> : null}
 
     {booking.unitSubstitutions.length > 0 ? <section className="sf-inventory-card" aria-labelledby="rental-booking-unit-substitution-history-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Append-only history</p><h2 id="rental-booking-unit-substitution-history-title">Physical-unit substitution evidence</h2></div><span>{booking.unitSubstitutions.length} applied</span></div>
@@ -133,6 +169,7 @@ export default async function RentalBookingDetailPage({
       <ul className="sf-inventory-list">{booking.reschedules.map((reschedule) => <li key={reschedule.id}><div className="sf-inventory-list__primary"><div><strong>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} → {reschedule.targetStartsOn.toISOString().slice(0, 10)}</strong><span>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} through {reschedule.sourceEndsOn.toISOString().slice(0, 10)} became {reschedule.targetStartsOn.toISOString().slice(0, 10)} through {reschedule.targetEndsOn.toISOString().slice(0, 10)}</span><span>Pricing fingerprint <code>{reschedule.targetPricingFingerprint}</code> · applied <time dateTime={reschedule.appliedAt.toISOString()}>{reschedule.appliedAt.toISOString()}</time></span></div></div></li>)}</ul>
     </section> : null}
 
+    {booking.status === 'CONFIRMED' && !paymentClearedForCancellation ? <p className="sf-alert sf-alert--error" role="status">This booking still has settled or unreconciled payment money. Refund and reconcile it before cancellation can release inventory.</p> : null}
     {canCancel ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory release</p><h2 id="rental-booking-cancel-title">Cancel rental booking</h2></div></div>
       <RentalBookingCancelAction bookingId={booking.id} />

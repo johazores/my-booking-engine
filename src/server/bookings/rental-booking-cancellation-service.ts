@@ -2,6 +2,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
+import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
@@ -34,7 +35,7 @@ async function runRentalBookingCancellation<T>(operation: () => Promise<T>) {
       }
       if (disposition === 'CONFLICT') {
         throw new RentalBookingCancellationConflictError(
-          'Rental booking cancellation no longer satisfies the durable inventory or lifecycle contract.',
+          'Rental booking cancellation no longer satisfies the durable inventory, payment, or lifecycle contract.',
         );
       }
       throw error;
@@ -140,6 +141,30 @@ export async function cancelRentalBooking(input: Readonly<{
       throw new RentalBookingCancellationConflictError('Only a confirmed rental booking can be cancelled.');
     }
 
+    const paymentHistory = await transaction.rentalPaymentTransaction.findMany({
+      where: { organizationId: input.organizationId, bookingId: booking.id },
+      select: {
+        kind: true,
+        status: true,
+        providerCode: true,
+        providerReference: true,
+        sourceProviderReference: true,
+        currency: true,
+        amountMinor: true,
+      },
+    });
+    const paymentSettlement = deriveRentalPaymentSettlement({
+      bookingTotalMinor: booking.totalMinor,
+      currency: booking.currency,
+      transactions: paymentHistory,
+    });
+    if (!paymentSettlement.reconciled) {
+      throw new RentalBookingCancellationConflictError(`Rental payment history must be reconciled before cancellation. ${paymentSettlement.reason}`);
+    }
+    if (paymentSettlement.netSettledMinor !== 0n) {
+      throw new RentalBookingCancellationConflictError('Refund all settled rental money before cancelling this booking.');
+    }
+
     const cancelled = await transaction.rentalBooking.updateMany({
       where: {
         id: booking.id,
@@ -196,6 +221,8 @@ export async function cancelRentalBooking(input: Readonly<{
           allocationId: booking.allocation.id,
           latestRescheduleId: latestReschedule?.id ?? null,
           latestUnitSubstitutionId: latestSubstitution?.id ?? null,
+          paymentState: paymentSettlement.paymentState,
+          netSettledMinor: paymentSettlement.netSettledMinor.toString(),
         },
         afterData: {
           status: current.status,

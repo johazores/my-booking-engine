@@ -67,6 +67,7 @@ run(process.execPath, [
   'src/server/suppliers/hospitality-supplier-reservation-recovery-write.integration.ts',
   'src/server/suppliers/hospitality-supplier-reservation-reconciliation.integration.ts',
   'src/server/payments/payment.integration.ts',
+  'src/server/payments/rental-payment.integration.ts',
   'src/server/payments/hospitality-invoice-preparation.integration.ts',
   'src/server/payments/hospitality-invoice-issuance.integration.ts',
   'src/server/payments/stripe-payment.integration.ts',

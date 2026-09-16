@@ -1,22 +1,24 @@
 # Rental booking staff workflow
 
-SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, apply supported same-type/same-location physical-unit substitutions, and cancel a confirmed booking to release its physical inventory.
+SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, apply supported same-type/same-location physical-unit substitutions, record supported manual/offline settlement evidence, refund settled manual money, and cancel a confirmed booking only after payment settlement is reconciled to zero.
 
-The workflow does not invent payment, deposit, unit-type/location-changing amendments, price-changing amendment, pickup, delivery, return, or fulfillment semantics.
+The workflow does not invent deposits, online payment collection, unit-type/location-changing amendments, price-changing amendment, pickup, delivery, return, or fulfillment semantics.
 
 ## Routes
 
 - `/inventory/rentals/holds/[hold-id]` reviews one effective rental hold against an active tenant customer.
 - `POST /api/inventory/rentals/holds/[hold-id]/confirm` derives tenant, actor, and confirmation idempotency authority from authenticated server context before calling `confirmRentalBookingFromHold`.
 - `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering and current effective allocation dates/unit.
-- `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, current effective allocation, append-only reschedule/substitution history, and cancellation evidence.
+- `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, current effective allocation, append-only reschedule/substitution history, tenant-scoped manual settlement history, and cancellation evidence.
 - `/inventory/rentals/bookings/[booking-id]/reschedule` reviews target dates and only renders Apply when fresh authority is ready and the actor can manage availability.
 - `POST /api/inventory/rentals/bookings/[booking-id]/reschedule` derives tenant, actor, and idempotency authority server-side and calls the durable reschedule writer.
 - `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs fresh target-inventory authority review. Apply is rendered only for ready authority plus availability-management permission.
 - `POST /api/inventory/rentals/bookings/[booking-id]/unit-substitution` derives tenant, actor, and idempotency server-side and calls the durable substitution writer.
-- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer.
+- `POST /api/inventory/rentals/bookings/[booking-id]/payments/manual` derives tenant, actor, exact accepted amount, and idempotency server-side. The form supplies only the real external offline payment reference.
+- `POST /api/inventory/rentals/bookings/[booking-id]/payments/refunds` derives tenant, actor, refund source/amount, and idempotency server-side. The form supplies only the real external refund reference.
+- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer, which refuses to release inventory while settled money remains.
 
-All routes remain inside the authenticated SF application shell. No public/customer rental booking or modification route is introduced.
+All routes remain inside the authenticated SF application shell. No public/customer rental booking, payment, or modification route is introduced.
 
 ## Authorization and tenant scope
 
@@ -28,7 +30,9 @@ Reschedule review requires `booking:manage`, `availability:read`, `inventory:rea
 
 Replacement-unit candidate search requires `booking:manage` plus `inventory:read`; fresh substitution authority review additionally requires `availability:read`; apply additionally requires `availability:manage`. Candidate IDs never grant ownership authority.
 
-Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking and current effective allocation inside its serializable transaction.
+Rental payment history requires `payment:read`. Manual payment/refund recording requires `payment:manage`; service queries always repeat tenant scope and use the same rental booking lock as lifecycle writers.
+
+Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking, current effective allocation, and complete rental payment history inside its serializable transaction.
 
 UI permission checks are usability only. Review and write services independently enforce server-side permissions and tenant ownership.
 
@@ -56,11 +60,21 @@ Server-derived idempotency replay succeeds only while the same substitution rema
 
 See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
 
+## Payment settlement authority
+
+The supported payment boundary is staff-recorded manual/offline evidence only. Full payment derives the exact authoritative amount from `RentalBooking`; refund derives the current refundable source and remaining amount from the complete transaction history. Browser forms cannot submit amount, tenant identity, actor identity, or idempotency authority.
+
+`RentalPaymentTransaction` retains tenant-owned payment/refund evidence. The staff detail derives `UNPAID`, `PAID`, `PARTIALLY_REFUNDED`, or `REFUNDED` from transaction history instead of mutating immutable rental booking commercial evidence.
+
+Cancellation is withheld in the UI until settlement is readable, reconciled, and net zero. The cancellation service and database guard independently enforce this rule.
+
+See [rental-payment-foundation.md](./rental-payment-foundation.md).
+
 ## Cancellation authority
 
-Cancellation is an inventory-release lifecycle mutation, not a financial action. It uses the same tenant/booking lock namespace plus the **current effective physical-unit lock**, validates the current allocation after any reschedule/substitution, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED`.
+Cancellation is an inventory-release lifecycle mutation, not a refund action. It uses the same tenant/booking lock namespace plus the **current effective physical-unit lock**, validates the current allocation after any reschedule/substitution, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED` after rental payment history reconciles to zero.
 
-The allocation and append-only reschedule/substitution rows remain retained as historical evidence. Rental inventory queries ignore allocations whose parent booking is cancelled, so inventory is released only after cancellation commits. Repeated cancellation is idempotent.
+The allocation and append-only reschedule/substitution/payment rows remain retained as historical evidence. Rental inventory queries ignore allocations whose parent booking is cancelled, so inventory is released only after cancellation commits. Repeated cancellation is idempotent.
 
 ## Read model
 
@@ -68,16 +82,20 @@ The allocation and append-only reschedule/substitution rows remain retained as h
 
 `getRentalBooking` resolves one tenant booking plus append-only reschedule and substitution history. Detail distinguishes immutable booking-time unit/dates/customer/commercial evidence from current effective allocation and terminal cancellation evidence. A missing or inconsistent allocation remains an integrity incident.
 
+`listRentalBookingPaymentTransactions` separately requires `payment:read`, caps display pagination at 100, and reconciles payment state from the complete tenant-owned history rather than only the visible page.
+
 ## Deliberate boundaries
 
-This workflow does not implement or imply rental payment collection/payment status, deposits/card authorization, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, cancellation financial side effects, pickup/delivery/return/inspection/damage lifecycle, public self-service, notifications, or external synchronization.
+This workflow does not implement or imply deposits/card authorization, Stripe rental checkout, public payment collection, split/tendered settlement, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, cancellation fees, pickup/delivery/return/inspection/damage lifecycle, public self-service, notifications, invoices, or external synchronization.
 
 Those features require separate commercial state machines and acceptance criteria. No dead primary action is exposed for them.
 
 ## Validation
 
-`scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects tenant-scoped reads, server-derived mutation authority, staff list/detail routes, cancellation/reschedule/substitution wiring, and the no-fake-payment/fulfillment boundary.
+`scripts/rental-booking-staff-workflow-source-contract.test.mjs` protects tenant-scoped reads, server-derived mutation authority, staff list/detail routes, cancellation/reschedule/substitution wiring, and unsupported downstream workflow boundaries.
 
 `scripts/rental-booking-unit-substitution-lifecycle-source-contract.test.mjs` protects append-only substitution persistence, effective-unit database authority, deterministic locking, idempotency, neighboring mutation compatibility, and route scope.
+
+`scripts/rental-payment-foundation-source-contract.test.mjs` protects the rental settlement schema/migration, tenant scope, booking-lock serialization, provider-adapter use, payment/refund route authority, and cancellation financial guard.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

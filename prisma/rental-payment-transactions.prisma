@@ -1,0 +1,25 @@
+model RentalPaymentTransaction {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  organizationId          String                   @db.Uuid
+  bookingId               String                   @db.Uuid
+  idempotencyKey          String                   @db.VarChar(120)
+  requestFingerprint      String?                  @db.Char(64)
+  kind                    PaymentTransactionKind
+  status                  PaymentTransactionStatus @default(PENDING)
+  providerCode            String                   @db.VarChar(40)
+  providerReference       String                   @db.VarChar(160)
+  sourceProviderReference String?                  @db.VarChar(160)
+  currency                String                   @db.Char(3)
+  amountMinor             BigInt
+  createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
+
+  booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_payment_transactions_booking_fkey")
+
+  @@unique([id, organizationId], map: "rental_payment_transactions_id_organization_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_payment_transactions_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "rental_payment_transactions_org_provider_reference_key")
+  @@index([organizationId, providerCode, sourceProviderReference], map: "rental_payment_transactions_org_provider_source_reference_idx")
+  @@index([organizationId, bookingId, createdAt], map: "rental_payment_transactions_booking_created_idx")
+  @@index([organizationId, status, createdAt], map: "rental_payment_transactions_status_created_idx")
+  @@map("rental_payment_transactions")
+}
