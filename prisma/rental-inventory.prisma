@@ -62,14 +62,14 @@ model RentalUnit {
   createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
-  unitType                   RentalUnitType                   @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
-  location                   RentalLocation?                  @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  unitType                   RentalUnitType                    @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  location                   RentalLocation?                   @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   availabilityBlocks         RentalAvailabilityBlock[]
   availabilityHolds          RentalAvailabilityHold[]
-  bookings                   RentalBooking[]                  @relation("RentalBookingUnit")
-  bookingAllocations         RentalBookingAllocation[]        @relation("RentalBookingAllocationUnit")
-  sourceBookingSubstitutions RentalBookingUnitSubstitution[] @relation("RentalBookingUnitSubstitutionSourceUnit")
-  targetBookingSubstitutions RentalBookingUnitSubstitution[] @relation("RentalBookingUnitSubstitutionTargetUnit")
+  bookings                   RentalBooking[]                   @relation("RentalBookingUnit")
+  bookingAllocations         RentalBookingAllocation[]         @relation("RentalBookingAllocationUnit")
+  sourceBookingSubstitutions RentalBookingUnitSubstitution[]  @relation("RentalBookingUnitSubstitutionSourceUnit")
+  targetBookingSubstitutions RentalBookingUnitSubstitution[]  @relation("RentalBookingUnitSubstitutionTargetUnit")
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
@@ -165,14 +165,14 @@ model RentalBooking {
   confirmedAt          DateTime                 @db.Timestamptz(6)
   cancelledAt          DateTime?                @db.Timestamptz(6)
 
-  customer            Customer                        @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_customer_fkey")
-  hold                RentalAvailabilityHold          @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_hold_fkey")
-  unit                RentalUnit                      @relation("RentalBookingUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_fkey")
-  unitType            RentalUnitType                  @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_type_fkey")
-  location            RentalLocation                  @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_location_fkey")
-  allocation          RentalBookingAllocation?
-  reschedules         RentalBookingReschedule[]
-  unitSubstitutions   RentalBookingUnitSubstitution[]
+  customer          Customer                        @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_customer_fkey")
+  hold              RentalAvailabilityHold          @relation(fields: [holdId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_hold_fkey")
+  unit              RentalUnit                      @relation("RentalBookingUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_fkey")
+  unitType          RentalUnitType                  @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_unit_type_fkey")
+  location          RentalLocation                  @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_location_fkey")
+  allocation        RentalBookingAllocation?
+  reschedules       RentalBookingReschedule[]
+  unitSubstitutions RentalBookingUnitSubstitution[]
   paymentTransactions RentalPaymentTransaction[]
 
   @@unique([id, organizationId], map: "rental_bookings_id_organization_key")

@@ -16,7 +16,7 @@ This is not a deposit workflow and is not an online checkout workflow.
 - exact currency and minor-unit amount;
 - creation time.
 
-Database checks reject non-positive money, invalid currency/provider identity, malformed request fingerprints, and refund rows without source attribution. Tenant-scoped uniqueness protects idempotency replay.
+Database checks reject non-positive money, invalid currency/provider identity, malformed request fingerprints, and refund rows without source attribution. Tenant-scoped uniqueness protects both idempotency replay and provider-reference identity so two booking writes cannot claim the same manual evidence concurrently.
 
 ## Manual full payment
 
@@ -31,6 +31,8 @@ The transaction then:
 5. requires the provider result to match the authoritative booking currency and full accepted amount;
 6. appends a successful `RentalPaymentTransaction`;
 7. writes a secret-free audit event.
+
+Expected serialization, uniqueness, relation, and durable-constraint races are normalized through the shared rental write classifier. Serialization/idempotency races are retried at most three transaction attempts; exhausted or constraint-rejected writes fail closed as rental payment conflicts, while unknown infrastructure/programming errors still surface unchanged.
 
 No browser-provided amount, tenant, actor, or idempotency authority is accepted.
 
