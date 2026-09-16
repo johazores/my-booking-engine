@@ -57,15 +57,69 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
     confirmation: { holdId: hold.id, customerId: customer.id, idempotencyKey: `rental-payment-booking:${runId}`, authorityFingerprint: review.authorityFingerprint as string },
   });
 
+  await assert.rejects(
+    db.rentalPaymentTransaction.create({
+      data: {
+        organizationId: organization.id,
+        bookingId: confirmed.booking.id,
+        idempotencyKey: `rental:manual-payment:${'a'.repeat(48)}`,
+        kind: 'OFFLINE_PAYMENT',
+        status: 'SUCCEEDED',
+        providerCode: 'manual',
+        providerReference: `NO-FP-${runId.slice(0, 12)}`,
+        currency: confirmed.booking.currency,
+        amountMinor: confirmed.booking.totalMinor,
+      },
+    }),
+    /request fingerprint/i,
+  );
+  await assert.rejects(
+    db.rentalPaymentTransaction.create({
+      data: {
+        organizationId: organization.id,
+        bookingId: confirmed.booking.id,
+        idempotencyKey: `rental:direct:${runId}`,
+        requestFingerprint: 'b'.repeat(64),
+        kind: 'OFFLINE_PAYMENT',
+        status: 'SUCCEEDED',
+        providerCode: 'manual',
+        providerReference: `BAD-KEY-${runId.slice(0, 12)}`,
+        currency: confirmed.booking.currency,
+        amountMinor: confirmed.booking.totalMinor,
+      },
+    }),
+    /idempotency key/i,
+  );
+  await assert.rejects(
+    db.rentalPaymentTransaction.create({
+      data: {
+        organizationId: organization.id,
+        bookingId: confirmed.booking.id,
+        idempotencyKey: `rental:manual-payment:${'c'.repeat(48)}`,
+        requestFingerprint: 'd'.repeat(64),
+        kind: 'OFFLINE_PAYMENT',
+        status: 'SUCCEEDED',
+        providerCode: 'manual',
+        providerReference: `BAD-TIME-${runId.slice(0, 12)}`,
+        currency: confirmed.booking.currency,
+        amountMinor: confirmed.booking.totalMinor,
+        createdAt: new Date('2099-01-01T00:00:00.000Z'),
+      },
+    }),
+    /creation time/i,
+  );
+
   const paymentReference = `PAYMENT-${runId.slice(0, 12)}`;
   const payment = await payments.recordRentalManualOfflinePayment({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: paymentReference });
   assert.equal(payment.idempotent, false);
   assert.equal(payment.transaction.amountMinor, confirmed.booking.totalMinor);
   assert.equal(payment.transaction.currency, confirmed.booking.currency);
+  assert.match(payment.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
   const replay = await payments.recordRentalManualOfflinePayment({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: paymentReference });
   assert.equal(replay.idempotent, true);
   assert.equal(replay.transaction.id, payment.transaction.id);
+  assert.equal(replay.transaction.requestFingerprint, payment.transaction.requestFingerprint);
 
   const paidHistory = await payments.listRentalBookingPaymentTransactions({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(paidHistory.settlement.reconciled, true);
@@ -89,6 +143,7 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
   assert.equal(refund.idempotent, false);
   assert.equal(refund.transaction.sourceProviderReference, paymentReference);
   assert.equal(refund.transaction.amountMinor, confirmed.booking.totalMinor);
+  assert.match(refund.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
   const refundedHistory = await payments.listRentalBookingPaymentTransactions({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(refundedHistory.settlement.reconciled, true);
@@ -112,7 +167,8 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
       data: {
         organizationId: organization.id,
         bookingId: confirmed.booking.id,
-        idempotencyKey: `rental:direct:${runId}`,
+        idempotencyKey: `rental:manual-payment:${'e'.repeat(48)}`,
+        requestFingerprint: 'f'.repeat(64),
         kind: 'OFFLINE_PAYMENT',
         status: 'SUCCEEDED',
         providerCode: 'manual',

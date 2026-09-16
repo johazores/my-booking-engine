@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildRentalPaymentIdempotencyKey, deriveRentalPaymentSettlement } from './rental-payment-domain.ts';
+import {
+  buildRentalPaymentIdempotencyKey,
+  buildRentalPaymentRequestFingerprint,
+  deriveRentalPaymentSettlement,
+} from './rental-payment-domain.ts';
 
 const payment = {
   kind: 'OFFLINE_PAYMENT' as const,
@@ -88,4 +92,26 @@ test('rental payment idempotency is stable and operation-scoped', () => {
   assert.equal(first, replay);
   assert.notEqual(first, refund);
   assert.match(first, /^rental:manual-payment:[a-f0-9]{48}$/);
+});
+
+test('rental payment request fingerprint binds tenant, operation, idempotency, source, and exact money', () => {
+  const base = {
+    organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    bookingId: '11111111-1111-4111-8111-111111111111',
+    idempotencyKey: 'rental:manual-refund:' + 'a'.repeat(48),
+    kind: 'REFUND' as const,
+    providerCode: 'manual',
+    providerReference: 'REF-001',
+    sourceProviderReference: 'BANK-001',
+    currency: 'USD',
+    amountMinor: 10_000n,
+  };
+  const first = buildRentalPaymentRequestFingerprint(base);
+  assert.equal(first, buildRentalPaymentRequestFingerprint(base));
+  assert.match(first, /^[a-f0-9]{64}$/);
+  assert.notEqual(first, buildRentalPaymentRequestFingerprint({ ...base, organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }));
+  assert.notEqual(first, buildRentalPaymentRequestFingerprint({ ...base, idempotencyKey: 'rental:manual-refund:' + 'b'.repeat(48) }));
+  assert.notEqual(first, buildRentalPaymentRequestFingerprint({ ...base, sourceProviderReference: 'BANK-002' }));
+  assert.notEqual(first, buildRentalPaymentRequestFingerprint({ ...base, amountMinor: 9_999n }));
+  assert.notEqual(first, buildRentalPaymentRequestFingerprint({ ...base, kind: 'OFFLINE_PAYMENT', sourceProviderReference: null }));
 });

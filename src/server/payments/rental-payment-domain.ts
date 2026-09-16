@@ -79,3 +79,30 @@ export function buildRentalPaymentIdempotencyKey(input: Readonly<{
     .digest('hex');
   return `rental:${input.kind}:${digest.slice(0, 48)}`;
 }
+
+export function buildRentalPaymentRequestFingerprint(input: Readonly<{
+  organizationId: string;
+  bookingId: string;
+  idempotencyKey: string;
+  kind: 'OFFLINE_PAYMENT' | 'REFUND';
+  providerCode: string;
+  providerReference: string;
+  sourceProviderReference: string | null;
+  currency: string;
+  amountMinor: bigint;
+}>) {
+  return createHash('sha256')
+    .update([
+      'rental-payment-request-v1',
+      input.organizationId,
+      input.bookingId,
+      input.idempotencyKey,
+      input.kind,
+      input.providerCode,
+      input.providerReference,
+      input.sourceProviderReference ?? '',
+      input.currency,
+      input.amountMinor.toString(),
+    ].join('\u001f'), 'utf8')
+    .digest('hex');
+}

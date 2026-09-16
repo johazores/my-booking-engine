@@ -6,7 +6,11 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import { assertPaymentProviderCapability } from './payment-provider.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
-import { buildRentalPaymentIdempotencyKey, deriveRentalPaymentSettlement } from './rental-payment-domain.ts';
+import {
+  buildRentalPaymentIdempotencyKey,
+  buildRentalPaymentRequestFingerprint,
+  deriveRentalPaymentSettlement,
+} from './rental-payment-domain.ts';
 import { readRentalPaymentSettlementHistory } from './rental-payment-history.ts';
 
 export class RentalPaymentConflictError extends Error {
@@ -87,6 +91,17 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
     });
     if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
 
+    const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      kind: 'OFFLINE_PAYMENT',
+      providerCode: manualProvider.code,
+      providerReference: reference,
+      sourceProviderReference: null,
+      currency: booking.currency,
+      amountMinor: booking.totalMinor,
+    });
     const existing = await transaction.rentalPaymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
     });
@@ -100,6 +115,7 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
         || existing.sourceProviderReference !== null
         || existing.currency !== booking.currency
         || existing.amountMinor !== booking.totalMinor
+        || (existing.requestFingerprint !== null && existing.requestFingerprint !== expectedRequestFingerprint)
       ) {
         throw new RentalPaymentConflictError('Rental payment idempotency key was already used for different durable settlement evidence.');
       }
@@ -147,11 +163,27 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
       throw new RentalPaymentConflictError('Manual payment provider returned a result that does not match the authoritative rental booking total.');
     }
 
+    const requestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      kind: 'OFFLINE_PAYMENT',
+      providerCode: providerResult.providerCode,
+      providerReference: providerResult.providerReference,
+      sourceProviderReference: null,
+      currency: providerResult.money.currency,
+      amountMinor: providerResult.money.amountMinor,
+    });
+    if (requestFingerprint !== expectedRequestFingerprint) {
+      throw new RentalPaymentConflictError('Manual payment provider result changed the durable rental payment request identity.');
+    }
+
     const payment = await transaction.rentalPaymentTransaction.create({
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
         idempotencyKey,
+        requestFingerprint,
         kind: 'OFFLINE_PAYMENT',
         status: 'SUCCEEDED',
         providerCode: providerResult.providerCode,
@@ -204,6 +236,17 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
     });
     if (existing) {
+      const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        idempotencyKey,
+        kind: 'REFUND',
+        providerCode: manualProvider.code,
+        providerReference: refundReference,
+        sourceProviderReference: existing.sourceProviderReference,
+        currency: booking.currency,
+        amountMinor: existing.amountMinor,
+      });
       if (
         existing.bookingId !== booking.id
         || existing.kind !== 'REFUND'
@@ -214,6 +257,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
         || existing.currency !== booking.currency
         || existing.amountMinor <= 0n
         || existing.amountMinor > booking.totalMinor
+        || (existing.requestFingerprint !== null && existing.requestFingerprint !== expectedRequestFingerprint)
       ) {
         throw new RentalPaymentConflictError('Rental refund idempotency key was already used for different durable settlement evidence.');
       }
@@ -280,11 +324,23 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       throw new RentalPaymentConflictError('Manual payment provider returned a refund result that does not match the authoritative rental refund plan.');
     }
 
+    const requestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      kind: 'REFUND',
+      providerCode: providerResult.providerCode,
+      providerReference: providerResult.refundReference,
+      sourceProviderReference: plan.sourceProviderReference,
+      currency: providerResult.money.currency,
+      amountMinor: providerResult.money.amountMinor,
+    });
     const refund = await transaction.rentalPaymentTransaction.create({
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
         idempotencyKey,
+        requestFingerprint,
         kind: 'REFUND',
         status: 'SUCCEEDED',
         providerCode: providerResult.providerCode,
