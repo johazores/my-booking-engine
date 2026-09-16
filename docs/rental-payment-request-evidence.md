@@ -20,13 +20,17 @@ The fingerprint is versioned with the `rental-payment-request-v1` domain separat
 
 The application computes the fingerprint only from server-derived booking authority, the normalized manual provider result, and the refund plan. The browser does not submit the fingerprint, amount, source payment, tenant, actor, or idempotency key.
 
-For a new manual payment, the provider result must rebuild to the same request fingerprint as the pre-provider authoritative request before the transaction is inserted. This catches an adapter result that unexpectedly changes durable payment identity even when the coarse amount/currency checks still pass.
+For a new manual payment, SF derives the expected fingerprint from the authoritative booking total and normalized external reference before accepting provider evidence. The provider result must rebuild to that exact fingerprint before the transaction is inserted.
+
+For a new manual refund, SF now applies the same two-sided authority check. After bounded settlement reconciliation selects the exact refundable source and remaining amount, the service builds the expected refund fingerprint before invoking the provider adapter. The returned provider code, refund reference, source payment reference, currency, and amount must rebuild to that same fingerprint before any refund row is persisted. This prevents an adapter result from changing durable refund identity after the server has authorized a specific refund plan.
 
 ## Idempotent replay
 
 Payment and refund replay still re-read the tenant-owned booking and bounded complete settlement history. When a retained row has a request fingerprint, replay additionally requires an exact match to the fingerprint rebuilt from the expected operation evidence.
 
 Rows created before this migration may legitimately have `requestFingerprint = NULL`. Those legacy rows remain replayable only through the existing exact field checks plus full settlement/source reconciliation. New rows cannot use that legacy path.
+
+A completed refund remains replayable after the booking is later cancelled only when the retained refund, its source payment, request fingerprint when present, and complete settlement evidence still reconcile. Replay never creates a second provider record and never bypasses tenant scope merely because the deterministic key exists.
 
 The bounded settlement-history reader applies the same evidence checks before any payment, refund, cancellation, or staff settlement decision consumes the history. For enabled manual payment/refund rows it rebuilds the deterministic idempotency key from booking + operation + retained provider reference, and when a request fingerprint is present it rebuilds and verifies the exact fingerprint. A mismatched key or fingerprint therefore makes the entire settlement history incomplete and fails the caller closed. Legacy null fingerprints remain readable only when their deterministic idempotency evidence is intact.
 
@@ -49,7 +53,7 @@ This change does not add Stripe rental checkout, deposits, split tenders, card a
 ## Validation
 
 - `src/server/payments/rental-payment-domain.test.ts` covers deterministic fingerprinting and sensitivity to tenant, idempotency, source, operation, and exact money.
-- `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects service persistence/replay checks, migration guards, integration coverage, and the legacy-compatibility boundary.
-- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable PostgreSQL suite and now exercises missing fingerprint, malformed operation idempotency, caller-authored creation time, persisted fingerprints, replay, settlement, refund, append-only evidence, and cancellation safety.
+- `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects service persistence/replay checks, pre-provider payment/refund authority binding, migration guards, integration coverage, and the legacy-compatibility boundary.
+- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable PostgreSQL suite and now exercises missing fingerprint, malformed operation idempotency, caller-authored creation time, persisted fingerprints, payment replay, refund replay before and after cancellation, settlement, append-only evidence, and cancellation safety.
 
 Full repository validation remains `npm run validate` on the Node version declared in `package.json`. Live migration/database validation remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

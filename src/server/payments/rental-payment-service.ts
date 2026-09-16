@@ -159,8 +159,14 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
       money: { currency: booking.currency, amountMinor: booking.totalMinor },
       reference,
     });
-    if (providerResult.status !== 'PAID' || providerResult.money.currency !== booking.currency || providerResult.money.amountMinor !== booking.totalMinor) {
-      throw new RentalPaymentConflictError('Manual payment provider returned a result that does not match the authoritative rental booking total.');
+    if (
+      providerResult.status !== 'PAID'
+      || providerResult.providerCode !== manualProvider.code
+      || providerResult.providerReference !== reference
+      || providerResult.money.currency !== booking.currency
+      || providerResult.money.amountMinor !== booking.totalMinor
+    ) {
+      throw new RentalPaymentConflictError('Manual payment provider returned a result that does not match the authoritative rental booking request.');
     }
 
     const requestFingerprint = buildRentalPaymentRequestFingerprint({
@@ -304,6 +310,18 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
     if (!plan.planned) throw new RentalPaymentConflictError(plan.reason);
     if (plan.sourceKind !== 'OFFLINE_PAYMENT') throw new RentalPaymentConflictError('Rental manual refund did not resolve to a successful offline payment source.');
 
+    const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      kind: 'REFUND',
+      providerCode: manualProvider.code,
+      providerReference: refundReference,
+      sourceProviderReference: plan.sourceProviderReference,
+      currency: booking.currency,
+      amountMinor: plan.amountMinor,
+    });
+
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
     const duplicateReference = await transaction.rentalPaymentTransaction.findFirst({
       where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: refundReference },
@@ -320,7 +338,14 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       paymentReference: plan.sourceProviderReference,
       refundReference,
     });
-    if (providerResult.status !== 'REFUNDED' || providerResult.providerReference !== plan.sourceProviderReference || providerResult.refundReference !== refundReference || providerResult.money.currency !== booking.currency || providerResult.money.amountMinor !== plan.amountMinor) {
+    if (
+      providerResult.status !== 'REFUNDED'
+      || providerResult.providerCode !== manualProvider.code
+      || providerResult.providerReference !== plan.sourceProviderReference
+      || providerResult.refundReference !== refundReference
+      || providerResult.money.currency !== booking.currency
+      || providerResult.money.amountMinor !== plan.amountMinor
+    ) {
       throw new RentalPaymentConflictError('Manual payment provider returned a refund result that does not match the authoritative rental refund plan.');
     }
 
@@ -331,10 +356,14 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       kind: 'REFUND',
       providerCode: providerResult.providerCode,
       providerReference: providerResult.refundReference,
-      sourceProviderReference: plan.sourceProviderReference,
+      sourceProviderReference: providerResult.providerReference,
       currency: providerResult.money.currency,
       amountMinor: providerResult.money.amountMinor,
     });
+    if (requestFingerprint !== expectedRequestFingerprint) {
+      throw new RentalPaymentConflictError('Manual refund provider result changed the durable rental refund request identity.');
+    }
+
     const refund = await transaction.rentalPaymentTransaction.create({
       data: {
         organizationId: input.organizationId,
@@ -345,7 +374,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
         status: 'SUCCEEDED',
         providerCode: providerResult.providerCode,
         providerReference: providerResult.refundReference,
-        sourceProviderReference: plan.sourceProviderReference,
+        sourceProviderReference: providerResult.providerReference,
         currency: providerResult.money.currency,
         amountMinor: providerResult.money.amountMinor,
       },

@@ -145,6 +145,11 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
   assert.equal(refund.transaction.amountMinor, confirmed.booking.totalMinor);
   assert.match(refund.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
+  const refundReplay = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: refundReference });
+  assert.equal(refundReplay.idempotent, true);
+  assert.equal(refundReplay.transaction.id, refund.transaction.id);
+  assert.equal(refundReplay.transaction.requestFingerprint, refund.transaction.requestFingerprint);
+
   const refundedHistory = await payments.listRentalBookingPaymentTransactions({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(refundedHistory.settlement.reconciled, true);
   assert.equal(refundedHistory.settlement.reconciled && refundedHistory.settlement.paymentState, 'REFUNDED');
@@ -157,6 +162,11 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
 
   const cancelled = await cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(cancelled.booking.status, 'CANCELLED');
+
+  const refundReplayAfterCancellation = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: refundReference });
+  assert.equal(refundReplayAfterCancellation.idempotent, true);
+  assert.equal(refundReplayAfterCancellation.transaction.id, refund.transaction.id);
+  assert.equal(refundReplayAfterCancellation.transaction.requestFingerprint, refund.transaction.requestFingerprint);
 
   await assert.rejects(
     payments.recordRentalManualOfflinePayment({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: `AFTER-${runId.slice(0, 12)}` }),
