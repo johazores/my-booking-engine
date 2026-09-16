@@ -1,0 +1,28 @@
+# Rental booking source-evidence integrity
+
+A consumed rental availability hold becomes retained confirmation evidence when it is converted into a durable `RentalBooking`. The booking keeps immutable customer, physical-unit, date, money, pricing, and conversion-authority evidence; the source hold must therefore remain consistent with that accepted state instead of becoming mutable historical input after confirmation.
+
+## Idempotent confirmation replay
+
+`confirmRentalBookingFromHold` still supports exact idempotent replay after later supported booking lifecycle changes. Replay does not require the live allocation to remain at the original unit or dates because rescheduling, unit substitution, and early-return release may legitimately change live inventory protection while retaining the original booking evidence.
+
+Replay now revalidates the retained source hold before returning success. The hold must remain tenant-owned, `CONSUMED`, ended, and complete; its original physical unit, dates, currency, exact amount, pricing fingerprint, and pricing snapshot must match the immutable booking-time evidence. The service also rebuilds the original conversion-authority fingerprint using the retained hold expiry and immutable booking identity. A mismatch fails closed as an integrity error rather than treating the idempotency key alone as authority.
+
+## Database authority
+
+PostgreSQL adds two complementary guards:
+
+- a new booking insert must persist the same JSON pricing snapshot retained by its source hold, not only the same currency, total, and fingerprint;
+- once a hold is referenced by a rental booking, its source identity, unit, dates, lifecycle/expiry evidence, idempotency key, pricing evidence, and creation evidence cannot be rewritten, and the hold cannot be deleted.
+
+Unbooked holds retain their existing lifecycle behavior. Pricing evidence was already immutable from hold creation; this additional guard freezes the remaining source evidence only after the hold becomes part of accepted booking history.
+
+## Scope
+
+This hardening does not add deposits, online checkout, late fees, delivery, inspection, maintenance, or customer self-service. It does not change valid reschedule, substitution, cancellation, pickup/return, or early-return release behavior. It only strengthens the evidence boundary of the existing hold-to-booking workflow.
+
+## Validation
+
+`scripts/rental-booking-source-evidence-integrity-source-contract.test.mjs` protects replay revalidation, exact source pricing-snapshot persistence, post-confirmation source-hold immutability, and registration of `src/server/bookings/rental-booking-source-evidence.integration.ts` in the guarded database suite. The database integration covers direct source-hold mutation rejection and mismatched booking pricing-snapshot rejection.
+
+Database execution still requires the repository's explicitly disposable PostgreSQL path before the open Phase 1 database gates can be claimed. Full repository validation requires the Node version declared in `package.json`. GitHub Actions are not used.

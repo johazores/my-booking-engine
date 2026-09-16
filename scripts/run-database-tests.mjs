@@ -54,6 +54,7 @@ run(process.execPath, [
   'src/server/pricing/hospitality-addon.integration.ts',
   'src/server/bookings/hospitality-booking.integration.ts',
   'src/server/bookings/rental-booking.integration.ts',
+  'src/server/bookings/rental-booking-source-evidence.integration.ts',
   'src/server/bookings/hospitality-booking-reschedule.integration.ts',
   'src/server/bookings/hospitality-booking-commercial-modification.integration.ts',
   'src/server/bookings/hospitality-booking-guest-modification.integration.ts',

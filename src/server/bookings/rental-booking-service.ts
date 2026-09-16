@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
@@ -93,13 +95,71 @@ export async function confirmRentalBookingFromHold(input: Readonly<{
 
     const existing = await transaction.rentalBooking.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey: confirmation.idempotencyKey } },
-      include: { allocation: true },
+      include: {
+        allocation: true,
+        hold: {
+          select: {
+            id: true,
+            organizationId: true,
+            unitId: true,
+            startsOn: true,
+            endsOn: true,
+            status: true,
+            expiresAt: true,
+            endedAt: true,
+            quotedCurrency: true,
+            quotedTotalMinor: true,
+            pricingFingerprint: true,
+            pricingSnapshot: true,
+            pricingObservedAt: true,
+          },
+        },
+      },
     });
     if (existing) {
       if (!rentalBookingConfirmationPayloadMatches({ booking: existing, requested: confirmation })) {
         throw new RentalBookingConflictError('That rental booking idempotency key was already used for a different hold, customer, or authority review.');
       }
       if (!existing.allocation) throw new RentalAvailabilityIntegrityError('Rental booking is missing its physical-unit allocation.');
+
+      const sourceHold = existing.hold;
+      const sourceHoldMatchesBooking = sourceHold.id === existing.holdId
+        && sourceHold.organizationId === existing.organizationId
+        && sourceHold.status === 'CONSUMED'
+        && sourceHold.endedAt !== null
+        && sourceHold.unitId === existing.unitId
+        && sourceHold.startsOn.getTime() === existing.startsOn.getTime()
+        && sourceHold.endsOn.getTime() === existing.endsOn.getTime()
+        && sourceHold.quotedCurrency === existing.currency
+        && sourceHold.quotedTotalMinor === existing.totalMinor
+        && sourceHold.pricingFingerprint === existing.pricingFingerprint
+        && isDeepStrictEqual(sourceHold.pricingSnapshot, existing.pricingSnapshot);
+      if (!hasCompletePricingEvidence(sourceHold) || !sourceHoldMatchesBooking) {
+        throw new RentalAvailabilityIntegrityError(
+          'Rental booking replay source-hold evidence no longer matches the retained booking.',
+        );
+      }
+
+      const expectedAuthorityFingerprint = buildRentalBookingConversionAuthorityFingerprint({
+        organizationId: existing.organizationId,
+        holdId: existing.holdId,
+        customerId: existing.customerId,
+        unitId: existing.unitId,
+        unitTypeId: existing.unitTypeId,
+        locationId: existing.locationId,
+        startsOn: existing.startsOn,
+        endsOn: existing.endsOn,
+        holdExpiresAt: sourceHold.expiresAt,
+        currency: existing.currency,
+        totalMinor: existing.totalMinor,
+        pricingFingerprint: existing.pricingFingerprint,
+      });
+      if (existing.authorityFingerprint !== expectedAuthorityFingerprint) {
+        throw new RentalAvailabilityIntegrityError(
+          'Rental booking replay authority no longer matches its retained source evidence.',
+        );
+      }
+
       return Object.freeze({ booking: existing, allocation: existing.allocation, idempotent: true });
     }
 
