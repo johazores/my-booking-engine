@@ -26,7 +26,9 @@ The read-only reschedule and substitution surfaces also refuse bookings that alr
 
 The migration adds a tenant-aware `sf_rental_unit_has_overdue_custody` predicate using pickup evidence, absence of return evidence, confirmed booking state, and the booking location timezone. Separate guards reject new/effective holds, allocation writes, and substitution targets that would use a unit with overdue open custody.
 
-Application writers still acquire the existing physical-unit advisory lock before their final custody check. The database guards are defense in depth for stale or bypassed write paths; they do not replace server authorization, tenant scope, idempotency, or service-level conflict handling.
+Supported hold creation and hold-to-booking confirmation acquire the existing physical-unit advisory lock before their service-level custody recheck. Allocation and substitution database guards acquire the same unit-lock namespace before evaluating overdue custody, so reschedule and replacement final writes also fail closed even if a stale or bypassed application path reaches persistence.
+
+These database guards are defense in depth; they do not replace server authorization, tenant scope, idempotency, or service-level conflict handling.
 
 ## Deliberate boundaries
 
