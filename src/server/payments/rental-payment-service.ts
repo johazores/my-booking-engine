@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '../../generated/prisma/client.ts';
 
 import { rentalBookingLockKey } from '../bookings/rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
