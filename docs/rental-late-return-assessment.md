@@ -6,9 +6,11 @@ This is a commercial authority boundary, not an automatic fee engine. The overdu
 
 ## Source and time authority
 
-The assessment uses the immutable pickup/return fulfillment snapshot for the physical unit and committed dates. The return event must belong to the same tenant booking and unit, must match the pickup event's retained dates, and cannot predate pickup. Lateness is calculated from the return timestamp in the retained booking location's IANA timezone.
+The assessment uses immutable pickup and return fulfillment snapshots for the physical unit and committed dates. Both events must belong to the same tenant booking and physical unit, the committed start cannot change after pickup, and return cannot predate pickup. When no custody extension occurred, pickup and return retain the same committed end. When an authorized same-unit, current-start, later-end extension occurred after pickup, the immutable pickup snapshot intentionally keeps the earlier handoff commitment while the immutable return snapshot carries the later effective committed end that was authoritative at handback. A return snapshot may therefore move the committed end later than pickup, but never earlier.
 
-Because rental `endsOn` is exclusive, returning on that local calendar date is late day 1. Each later local date adds one late day. PostgreSQL independently recomputes that rule before persistence instead of trusting browser or application-derived timing.
+The fulfillment writer and its database guard establish that return snapshot from the current tenant-owned allocation after any supported custody extension. Late-return assessment treats the retained return end as the commercial lateness boundary instead of incorrectly requiring it to equal the historical pickup end.
+
+Because rental `endsOn` is exclusive, returning on that local calendar date is late day 1. Each later local date adds one late day. PostgreSQL independently recomputes that rule from the retained return snapshot and booking-location IANA timezone before persistence instead of trusting browser or application-derived timing.
 
 ## Grace and fee decision
 
@@ -25,7 +27,7 @@ The fee is not calculated automatically from daily rates because no production l
 
 Reads require both `booking:read` and `payment:read`. Writes require both `booking:manage` and `payment:manage`. Every booking, fulfillment, and assessment lookup repeats `organizationId`.
 
-The writer uses the shared tenant/booking advisory lock, serializable transaction retries, and the deterministic key `rental-late-return-assessment:<bookingId>`. PostgreSQL independently requires that exact key, exact tenant booking, exact return event, exact unit/date chronology, booking currency, and derived day counts. `assessedAt` and `createdAt` are authored with `clock_timestamp()` and update/delete are rejected.
+The writer uses the shared tenant/booking advisory lock, serializable transaction retries, and the deterministic key `rental-late-return-assessment:<bookingId>`. PostgreSQL independently requires that exact key, exact tenant booking, exact return event, same physical unit, unchanged committed start, a return committed end that is equal to or later than the retained pickup end, booking currency, and derived day counts. `assessedAt` and `createdAt` are authored with `clock_timestamp()` and update/delete are rejected.
 
 The staff booking detail surfaces late-return evidence after return and exposes the assessment form only to actors with both management permissions. Retained assessments are read-only.
 
@@ -41,6 +43,6 @@ This workflow does not extend a rental, reopen custody, shorten or lengthen live
 
 ## Validation
 
-`src/server/bookings/rental-late-return-domain.test.ts` covers timezone-aware late-day derivation, grace handling, exact-money validation, and waiver rules. `scripts/rental-late-return-source-contract.test.mjs` protects tenant/permission scope, shared locking, deterministic idempotency, PostgreSQL source authority, append-only persistence, safe form parsing, and separation between assessment authority and settlement.
+`src/server/bookings/rental-late-return-domain.test.ts` covers timezone-aware late-day derivation, grace handling, exact-money validation, and waiver rules. `src/server/bookings/rental-custody-return-snapshot-domain.test.ts` covers unchanged handback evidence, valid later-end custody extensions, and fail-closed shortened/changed custody snapshots. `scripts/rental-late-return-source-contract.test.mjs` protects the original tenant/permission/persistence boundary, while `scripts/rental-custody-extension-return-reconciliation-source-contract.test.mjs` protects extension-aware return assessment and idempotent pickup replay semantics.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Live migration/trigger execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

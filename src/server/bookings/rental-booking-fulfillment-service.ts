@@ -123,20 +123,23 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       const effectiveUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
       const effectiveStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
       const effectiveEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
+      const pickupReplay = input.kind === 'PICKED_UP';
       if (
         existing.unitId !== effectiveUnitId
         || !sameDate(existing.startsOn, effectiveStartsOn)
-        || !sameDate(existing.endsOn, effectiveEndsOn)
+        || (pickupReplay
+          ? existing.endsOn.getTime() > effectiveEndsOn.getTime()
+          : !sameDate(existing.endsOn, effectiveEndsOn))
       ) {
         throw new RentalBookingFulfillmentConflictError(
           'Existing rental fulfillment evidence no longer matches the retained physical assignment.',
         );
       }
-      if (input.kind === 'PICKED_UP') {
+      if (pickupReplay) {
         const pickupWindow = deriveRentalBookingPickupWindow({
           observedAt: existing.occurredAt,
-          startsOn: effectiveStartsOn,
-          endsOn: effectiveEndsOn,
+          startsOn: existing.startsOn,
+          endsOn: existing.endsOn,
           timeZone: booking.location.timeZone,
         });
         if (pickupWindow.state !== 'OPEN') {

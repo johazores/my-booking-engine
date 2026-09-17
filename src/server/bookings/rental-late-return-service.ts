@@ -2,6 +2,10 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { RentalInventoryConflictError, RentalInventoryUnavailableError } from '../inventory/rental-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import {
+  RentalCustodySnapshotIntegrityError,
+  validateRentalCustodyReturnSnapshot,
+} from './rental-custody-return-snapshot-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import {
@@ -48,6 +52,23 @@ async function requireLateReturnWritePermissions(input: Readonly<{ organizationI
   ]);
 }
 
+function requireConsistentLateReturnCustody(
+  pickupEvent: Readonly<{ unitId: string; startsOn: Date; endsOn: Date; occurredAt: Date }> | null | undefined,
+  returnEvent: Readonly<{ unitId: string; startsOn: Date; endsOn: Date; occurredAt: Date }> | null | undefined,
+) {
+  if (!pickupEvent || !returnEvent) {
+    throw new RentalInventoryConflictError('Late-return assessment requires complete pickup and return custody evidence.');
+  }
+  try {
+    return validateRentalCustodyReturnSnapshot({ pickup: pickupEvent, returned: returnEvent });
+  } catch (error) {
+    if (error instanceof RentalCustodySnapshotIntegrityError) {
+      throw new RentalInventoryConflictError('Retained rental custody evidence is inconsistent for late-return assessment.');
+    }
+    throw error;
+  }
+}
+
 export async function readRentalLateReturnAssessment(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -66,7 +87,7 @@ export async function readRentalLateReturnAssessment(input: Readonly<{
       fulfillmentEvents: {
         where: { organizationId: input.organizationId },
         orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-        select: { id: true, kind: true, unitId: true, endsOn: true, occurredAt: true },
+        select: { id: true, kind: true, unitId: true, startsOn: true, endsOn: true, occurredAt: true },
       },
       lateReturnAssessment: true,
     },
@@ -77,14 +98,7 @@ export async function readRentalLateReturnAssessment(input: Readonly<{
   const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP') ?? null;
   let lateDays = 0;
   if (returnEvent) {
-    if (
-      !pickupEvent
-      || returnEvent.unitId !== pickupEvent.unitId
-      || returnEvent.endsOn.getTime() !== pickupEvent.endsOn.getTime()
-      || returnEvent.occurredAt.getTime() < pickupEvent.occurredAt.getTime()
-    ) {
-      throw new RentalInventoryConflictError('Retained rental custody evidence is inconsistent for late-return assessment.');
-    }
+    requireConsistentLateReturnCustody(pickupEvent, returnEvent);
     lateDays = deriveRentalLateReturnTiming({
       returnedAt: returnEvent.occurredAt,
       committedEndsOn: returnEvent.endsOn,
@@ -134,16 +148,8 @@ export async function assessRentalLateReturn(input: Readonly<{
 
     const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP');
     const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED');
-    if (
-      !pickupEvent
-      || !returnEvent
-      || pickupEvent.unitId !== returnEvent.unitId
-      || pickupEvent.startsOn.getTime() !== returnEvent.startsOn.getTime()
-      || pickupEvent.endsOn.getTime() !== returnEvent.endsOn.getTime()
-      || returnEvent.occurredAt.getTime() < pickupEvent.occurredAt.getTime()
-    ) {
-      throw new RentalInventoryConflictError('Late-return assessment requires complete consistent pickup and return custody evidence.');
-    }
+    requireConsistentLateReturnCustody(pickupEvent, returnEvent);
+    if (!returnEvent) throw new RentalInventoryConflictError('Late-return assessment requires retained return evidence.');
 
     const normalized = normalizeRentalLateReturnAssessmentInput(input.assessment, {
       currency: booking.currency,
