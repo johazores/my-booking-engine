@@ -19,16 +19,17 @@ import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.t
 
 const blockerMessages = {
   NO_CHANGE: 'Choose dates that differ from the current effective rental period.',
+  CUSTODY_EXTENSION_REQUIRED: 'After pickup, the current start date is fixed. Only a later committed end date can be reviewed.',
   INVENTORY_CONFLICT: 'The current effective physical unit has another live inventory commitment in the requested target range.',
-  PRICE_CHANGED: 'Current target-date pricing changes the accepted aggregate amount. Price-changing rental amendments are not implemented.',
+  PRICE_CHANGED: 'Current target-date pricing changes the accepted aggregate amount. Price-changing rental amendments and extensions are not implemented.',
 } as const;
 
 const applyErrors: Record<string, string> = {
-  permission: 'Your organization role cannot apply this rental reschedule.',
-  unavailable: 'The rental booking is no longer available for rescheduling in this organization.',
-  conflict: 'The booking, inventory, pricing, or review authority changed. Review the target dates again.',
-  validation: 'The rental reschedule request was invalid. Review the target dates again.',
-  server: 'The rental reschedule could not be completed. No successful reschedule was recorded.',
+  permission: 'Your organization role cannot apply this rental date change.',
+  unavailable: 'The rental booking is no longer available for rescheduling or extension in this organization.',
+  conflict: 'The booking, custody, inventory, pricing, or review authority changed. Review the target dates again.',
+  validation: 'The rental date-change request was invalid. Review the target dates again.',
+  server: 'The rental date change could not be completed. No successful change was recorded.',
 };
 
 export default async function RentalBookingRescheduleReviewPage({
@@ -76,19 +77,24 @@ export default async function RentalBookingRescheduleReviewPage({
     });
   } catch (error) {
     if (error instanceof RentalBookingUnavailableError) {
-      return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental reschedule</p><h1>Booking not available</h1><p>This rental booking does not exist in the active organization.</p><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Back to rental bookings</Link></section>;
+      return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental date change</p><h1>Booking not available</h1><p>This rental booking does not exist in the active organization.</p><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Back to rental bookings</Link></section>;
     }
     throw error;
   }
 
   if (!canReview) {
-    return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental reschedule</p><h1>Reschedule review is restricted</h1><p>Your organization role does not include the booking, availability, inventory, and pricing authority required for this review.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
+    return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental date change</p><h1>Date-change review is restricted</h1><p>Your organization role does not include the booking, availability, inventory, and pricing authority required for this review.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
   }
 
-  if (booking.status !== 'CONFIRMED' || !booking.allocation) {
-    return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental reschedule</p><h1>Booking is not eligible</h1><p>Only a confirmed rental booking with its retained physical allocation can be reviewed for new dates.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
+  if (
+    booking.status !== 'CONFIRMED'
+    || !booking.allocation
+    || booking.fulfillment.state === 'RETURNED'
+  ) {
+    return <section className="sf-inventory-empty"><p className="sf-eyebrow">Rental date change</p><h1>Booking is not eligible</h1><p>Only a confirmed rental with its retained physical allocation and no recorded return can be reviewed. Picked-up rentals may only extend their current committed end date.</p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link></section>;
   }
 
+  const custodyExtension = booking.fulfillment.state === 'PICKED_UP';
   const requested = Boolean(query.startsOn || query.endsOn);
   let review: Awaited<ReturnType<typeof reviewRentalBookingRescheduleAuthority>> | null = null;
   let reviewError: string | null = null;
@@ -103,19 +109,23 @@ export default async function RentalBookingRescheduleReviewPage({
     } catch (error) {
       if (error instanceof RentalInventoryValidationError) reviewError = error.message;
       else if (error instanceof RentalBookingRescheduleUnavailableError) reviewError = error.message;
-      else if (error instanceof RentalAvailabilityIntegrityError) reviewError = 'The booking or rental inventory evidence is inconsistent. Treat this as an integrity incident before rescheduling.';
+      else if (error instanceof RentalAvailabilityIntegrityError) reviewError = 'The booking or rental inventory evidence is inconsistent. Treat this as an integrity incident before changing dates.';
       else throw error;
     }
   } else if (requested) {
     reviewError = 'Both target start and end dates are required.';
   }
 
-  const defaultStartsOn = query.startsOn ?? booking.allocation.startsOn.toISOString().slice(0, 10);
-  const defaultEndsOn = query.endsOn ?? booking.allocation.endsOn.toISOString().slice(0, 10);
+  const currentStartsOn = booking.allocation.startsOn.toISOString().slice(0, 10);
+  const currentEndsOn = booking.allocation.endsOn.toISOString().slice(0, 10);
+  const minimumExtendedEndsOn = new Date(booking.allocation.endsOn.getTime() + 86_400_000).toISOString().slice(0, 10);
+  const defaultStartsOn = custodyExtension ? currentStartsOn : query.startsOn ?? currentStartsOn;
+  const defaultEndsOn = query.endsOn ?? currentEndsOn;
+  const pageTitle = custodyExtension ? 'Extend rental' : 'Reschedule rental';
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental booking</p><h1>Reschedule rental</h1><p>Review and apply a price-neutral date change for {booking.customerFirstName} {booking.customerLastName} on the current effective physical unit.</p></div>
+      <div><p className="sf-eyebrow">Rental booking</p><h1>{pageTitle}</h1><p>{custodyExtension ? `Review a same-unit, price-neutral extension for ${booking.customerFirstName} ${booking.customerLastName}. The current start date and physical unit stay fixed after pickup.` : `Review and apply a price-neutral date change for ${booking.customerFirstName} ${booking.customerLastName} on the current effective physical unit.`}</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
@@ -123,33 +133,36 @@ export default async function RentalBookingRescheduleReviewPage({
     {reviewError ? <p className="sf-alert sf-alert--error" role="alert">{reviewError}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-reschedule-review-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh authority</p><h2 id="rental-reschedule-review-title">Target date review</h2></div><span>{booking.allocation.unit.name} ({booking.allocation.unit.code})</span></div>
-      <p>Current effective period: <strong>{booking.allocation.startsOn.toISOString().slice(0, 10)}</strong> through <strong>{booking.allocation.endsOn.toISOString().slice(0, 10)}</strong> (end exclusive). Original booking-time period and unit evidence remain retained separately as history.</p>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh authority</p><h2 id="rental-reschedule-review-title">{custodyExtension ? 'Extension review' : 'Target date review'}</h2></div><span>{booking.allocation.unit.name} ({booking.allocation.unit.code})</span></div>
+      <p>Current effective period: <strong>{currentStartsOn}</strong> through <strong>{currentEndsOn}</strong> (end exclusive). Original booking-time period and unit evidence remain retained separately as history.</p>
       <form method="get" className="sf-inventory-form">
-        <label className="sf-field"><span>Target start date</span><input name="startsOn" type="date" required defaultValue={defaultStartsOn} /></label>
-        <label className="sf-field"><span>Target end date</span><input name="endsOn" type="date" required defaultValue={defaultEndsOn} /></label>
-        <button className="sf-button sf-button--primary" type="submit">Review target dates</button>
+        {custodyExtension
+          ? <label className="sf-field"><span>Committed start date</span><input type="date" value={currentStartsOn} readOnly aria-readonly="true" /><input name="startsOn" type="hidden" value={currentStartsOn} /></label>
+          : <label className="sf-field"><span>Target start date</span><input name="startsOn" type="date" required defaultValue={defaultStartsOn} /></label>}
+        <label className="sf-field"><span>{custodyExtension ? 'Extended end date' : 'Target end date'}</span><input name="endsOn" type="date" required defaultValue={defaultEndsOn} min={custodyExtension ? minimumExtendedEndsOn : undefined} /></label>
+        <button className="sf-button sf-button--primary" type="submit">{custodyExtension ? 'Review extension' : 'Review target dates'}</button>
       </form>
-      <p className="sf-field-hint">The review does not reserve inventory. Apply performs a second server-side validation under booking and current effective physical-unit locks before changing the effective allocation dates.</p>
+      <p className="sf-field-hint">{custodyExtension ? 'Pickup evidence fixes the current start date and physical unit. Review does not reserve the extra days; Apply revalidates custody, inventory, and pricing under booking/unit locks before extending the effective allocation.' : 'The review does not reserve inventory. Apply performs a second server-side validation under booking and current effective physical-unit locks before changing the effective allocation dates.'}</p>
     </section>
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-reschedule-result-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Authority result</p><h2 id="rental-reschedule-result-title">{review.ready ? 'Ready to apply' : 'Target dates blocked'}</h2></div><span>{review.targetPricing.currency} {moneyMinorToMajorString(review.targetPricing.totalMinor, review.targetPricing.currency)}</span></div>
-      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">Inventory and current aggregate pricing are compatible with the supported price-neutral reschedule contract on the current effective unit.</p>}
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Authority result</p><h2 id="rental-reschedule-result-title">{review.ready ? custodyExtension ? 'Extension ready to apply' : 'Ready to apply' : custodyExtension ? 'Extension blocked' : 'Target dates blocked'}</h2></div><span>{review.targetPricing.currency} {moneyMinorToMajorString(review.targetPricing.totalMinor, review.targetPricing.currency)}</span></div>
+      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">{custodyExtension ? 'The later end date preserves the current physical unit and accepted aggregate price, with no conflicting inventory authority.' : 'Inventory and current aggregate pricing are compatible with the supported price-neutral reschedule contract on the current effective unit.'}</p>}
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Source period</strong><span>{review.booking.startsOn.toISOString().slice(0, 10)} through {review.booking.endsOn.toISOString().slice(0, 10)}</span></div></div></li>
-        <li><div className="sf-inventory-list__primary"><div><strong>Target period</strong><span>{review.target.startsOn.toISOString().slice(0, 10)} through {review.target.endsOn.toISOString().slice(0, 10)} · {review.target.days} day(s)</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>{custodyExtension ? 'Extended period' : 'Target period'}</strong><span>{review.target.startsOn.toISOString().slice(0, 10)} through {review.target.endsOn.toISOString().slice(0, 10)} · {review.target.days} day(s)</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Authority mode</strong><span>{review.mode === 'CUSTODY_EXTENSION' ? 'Picked-up same-unit extension' : 'Pre-pickup reschedule'}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Target pricing fingerprint</strong><span><code>{review.targetPricing.fingerprint}</code></span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Checked</strong><span><time dateTime={review.checkedAt.toISOString()}>{review.checkedAt.toISOString()}</time></span></div></div></li>
-        {review.authorityFingerprint ? <li><div className="sf-inventory-list__primary"><div><strong>Reschedule authority fingerprint</strong><span><code>{review.authorityFingerprint}</code></span></div></div></li> : null}
+        {review.authorityFingerprint ? <li><div className="sf-inventory-list__primary"><div><strong>Date-change authority fingerprint</strong><span><code>{review.authorityFingerprint}</code></span></div></div></li> : null}
       </ul>
       {review.ready && review.authorityFingerprint && canApply ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/reschedule`} className="sf-inventory-form">
         <input type="hidden" name="startsOn" value={review.target.startsOn.toISOString().slice(0, 10)} />
         <input type="hidden" name="endsOn" value={review.target.endsOn.toISOString().slice(0, 10)} />
         <input type="hidden" name="authorityFingerprint" value={review.authorityFingerprint} />
-        <button className="sf-button sf-button--primary" type="submit">Apply reschedule</button>
+        <button className="sf-button sf-button--primary" type="submit">{custodyExtension ? 'Apply extension' : 'Apply reschedule'}</button>
       </form> : review.ready ? <p className="sf-field-hint">Your role can review this change but does not include availability management required to apply it.</p> : null}
-      <p className="sf-field-hint">Apply remains server-authoritative: it rebuilds inventory and price evidence under locks, writes append-only reschedule evidence, moves only effective allocation dates, versions the booking, and records an audit event. Same-type same-location unit substitution is supported separately; unit-type/location changes and price-changing amendments remain unsupported.</p>
+      <p className="sf-field-hint">Apply remains server-authoritative: it rebuilds custody, inventory, and price evidence under locks, writes append-only reschedule evidence, moves only effective allocation dates, versions the booking, and records an audit event. After pickup only the current-start/later-end extension shape is accepted. Unit-type/location changes and price-changing amendments or extensions remain unsupported.</p>
     </section> : null}
   </div>;
 }

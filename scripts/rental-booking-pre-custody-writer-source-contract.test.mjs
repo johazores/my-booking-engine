@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const cancellation = readFileSync('src/server/bookings/rental-booking-cancellation-service.ts', 'utf8');
 const reschedule = readFileSync('src/server/bookings/rental-booking-reschedule-service.ts', 'utf8');
+const custodyMigration = readFileSync('prisma/migrations/20260917102000_rental_booking_custody_extension/migration.sql', 'utf8');
 const docs = readFileSync('docs/rental-booking-fulfillment-foundation.md', 'utf8');
 
 test('cancellation rechecks tenant-owned custody evidence inside the booking lock before settlement work', () => {
@@ -25,24 +26,36 @@ test('cancelled replay fails closed if impossible custody evidence is retained',
   );
 });
 
-test('fresh reschedule apply authority excludes fulfillment evidence at both pre-lock lookup and post-unit-lock re-read', () => {
-  const preCustodyPredicates = reschedule.match(
-    /fulfillmentEvents: \{ none: \{ organizationId: input\.organizationId \} \}/g,
-  ) ?? [];
-  assert.equal(preCustodyPredicates.length, 2);
+test('fresh rental date changes inspect tenant-owned custody after the booking lock and reject returned bookings', () => {
   assert.match(reschedule, /rentalBookingLockKey\(input\.organizationId, input\.bookingId\)/);
-  assert.match(reschedule, /rentalUnitLockKey\(input\.organizationId, effectiveUnitId\)/);
+  assert.match(reschedule, /fulfillmentEvents: \{/);
+  assert.match(reschedule, /where: \{ organizationId: input\.organizationId \}/);
+  assert.match(reschedule, /event\.kind === 'RETURNED'/);
+  assert.match(reschedule, /event\.kind === 'PICKED_UP'/);
+  assert.match(reschedule, /Returned rentals cannot be rescheduled or extended/);
 });
 
-test('completed reschedule replay remains idempotent after later custody while only fresh mutations are pre-custody', () => {
+test('picked-up date changes are limited to a same-start later-end extension under the effective-unit lock', () => {
+  assert.match(reschedule, /rentalUnitLockKey\(input\.organizationId, effectiveUnitId\)/);
+  assert.match(reschedule, /mode === 'CUSTODY_EXTENSION'/);
+  assert.match(reschedule, /isRentalBookingCustodyExtensionTarget/);
+  assert.match(reschedule, /A picked-up rental may only keep its current start date and extend the committed end date/);
+  assert.match(custodyMigration, /NEW\."sourceStartsOn" <> current_starts_on/);
+  assert.match(custodyMigration, /NEW\."sourceEndsOn" <> current_ends_on/);
+  assert.match(custodyMigration, /NEW\."targetStartsOn" <> current_starts_on/);
+  assert.match(custodyMigration, /NEW\."targetEndsOn" <= current_ends_on/);
+});
+
+test('completed reschedule replay remains idempotent after later custody while only fresh mutations inspect custody state', () => {
   const replay = reschedule.indexOf('if (existing) {');
-  const firstPreCustodyPredicate = reschedule.indexOf('fulfillmentEvents: { none: { organizationId: input.organizationId } }');
-  assert.ok(replay >= 0 && firstPreCustodyPredicate > replay);
+  const freshLocator = reschedule.indexOf('const [bookingLocator, allocationLocator, latestSubstitutionLocator]');
+  assert.ok(replay >= 0 && freshLocator > replay);
   assert.match(reschedule, /idempotent: true/);
 });
 
-test('fulfillment documentation describes application and database pre-custody enforcement separately', () => {
-  assert.match(docs, /fresh cancellation and reschedule writers/i);
-  assert.match(docs, /tenant-owned fulfillment evidence/i);
-  assert.match(docs, /database guards remain defense in depth/i);
+test('fulfillment documentation separates locked custody mutations from the supported price-neutral extension exception', () => {
+  assert.match(docs, /cancellation and physical-unit substitution remain closed/i);
+  assert.match(docs, /same-unit, current-start, later-end extension/i);
+  assert.match(docs, /database custody guard/i);
+  assert.match(docs, /price-changing extensions remain unsupported/i);
 });

@@ -37,7 +37,7 @@ See [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Deliberate boundaries
 
-This workflow does not extend a rental, reopen custody, shorten or lengthen live allocation, authorize a card, automatically charge a customer or security bond, create an invoice, notify the customer, or synchronize an external fleet. The separate settlement workflow currently records only real full-value manual/offline payment and refund evidence; provider-backed, partial, split-tender, and automatic collection remain separate production contracts. Rental extensions also remain separate.
+This workflow does not extend a rental, reopen custody, shorten or lengthen live allocation, authorize a card, automatically charge a customer or security bond, create an invoice, notify the customer, or synchronize an external fleet. The separate settlement workflow currently records only real full-value manual/offline payment and refund evidence; provider-backed, partial, split-tender, and automatic collection remain separate production contracts. While custody is still open, the separate reschedule lifecycle now supports only a same-unit, current-start, later-end price-neutral extension; this post-return assessment never reopens that authority. Price-changing and broader rental extensions remain separate.
 
 ## Validation
 

@@ -8,12 +8,15 @@ import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-ava
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
+  isRentalBookingCustodyExtensionTarget,
   normalizeRentalBookingRescheduleReviewInput,
+  type RentalBookingRescheduleMode,
   type RentalBookingRescheduleReviewInput,
 } from './rental-booking-reschedule-domain.ts';
 
 export type RentalBookingRescheduleBlocker =
   | 'NO_CHANGE'
+  | 'CUSTODY_EXTENSION_REQUIRED'
   | 'INVENTORY_CONFLICT'
   | 'PRICE_CHANGED';
 
@@ -56,7 +59,6 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         organizationId: input.organizationId,
         status: 'CONFIRMED',
         cancelledAt: null,
-        fulfillmentEvents: { none: { organizationId: input.organizationId } },
       },
       include: {
         allocation: {
@@ -84,9 +86,25 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
             },
           },
         },
+        fulfillmentEvents: {
+          where: { organizationId: input.organizationId },
+          orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true, kind: true, occurredAt: true },
+        },
       },
     });
     if (!booking) throw new RentalBookingRescheduleUnavailableError();
+
+    const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP') ?? null;
+    const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
+    if (returnEvent) {
+      throw new RentalBookingRescheduleUnavailableError(
+        'Returned rentals cannot be rescheduled or extended.',
+      );
+    }
+    const mode: RentalBookingRescheduleMode = pickupEvent
+      ? 'CUSTODY_EXTENSION'
+      : 'PRE_PICKUP_RESCHEDULE';
 
     const [latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
@@ -198,6 +216,15 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       target.startsOn.getTime() === sourceStartsOn.getTime()
       && target.endsOn.getTime() === sourceEndsOn.getTime()
     ) blocker = 'NO_CHANGE';
+    else if (
+      mode === 'CUSTODY_EXTENSION'
+      && !isRentalBookingCustodyExtensionTarget({
+        sourceStartsOn,
+        sourceEndsOn,
+        targetStartsOn: target.startsOn,
+        targetEndsOn: target.endsOn,
+      })
+    ) blocker = 'CUSTODY_EXTENSION_REQUIRED';
     else if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) blocker = 'INVENTORY_CONFLICT';
     else if (
       targetPricing.currency !== booking.currency
@@ -220,12 +247,15 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
           totalMinor: BigInt(targetPricing.totalMinor),
           sourcePricingFingerprint,
           targetPricingFingerprint: targetPricing.fingerprint,
+          mode,
+          pickupEventId: pickupEvent?.id ?? null,
         })
       : null;
 
     return Object.freeze({
       ready: blocker === null,
       blocker,
+      mode,
       checkedAt: databaseClock.now,
       authorityFingerprint,
       booking: Object.freeze({
@@ -241,6 +271,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         pricingFingerprint: sourcePricingFingerprint,
         originalPricingFingerprint: booking.pricingFingerprint,
         updatedAt: booking.updatedAt,
+        pickupEventId: pickupEvent?.id ?? null,
       }),
       target: Object.freeze({ startsOn: target.startsOn, endsOn: target.endsOn, days: target.days }),
       unit: Object.freeze({

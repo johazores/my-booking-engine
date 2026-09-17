@@ -1,3 +1,4 @@
+import { RentalCustodyExtensionPanel } from '@/components/rental-custody-extension-panel.tsx';
 import { RentalDamageCasePanel } from '@/components/rental-damage-case-panel.tsx';
 import { RentalLateReturnAssessmentPanel } from '@/components/rental-late-return-assessment-panel.tsx';
 import { readRentalReturnInspection } from '@/server/bookings/rental-return-inspection-service.ts';
@@ -21,6 +22,9 @@ export async function RentalReturnInspectionPanel({
   fulfillmentState: 'AWAITING_PICKUP' | 'PICKED_UP' | 'RETURNED';
   canManage: boolean;
 }>) {
+  if (fulfillmentState === 'PICKED_UP') {
+    return <RentalCustodyExtensionPanel bookingId={bookingId} canReview={canManage} />;
+  }
   if (fulfillmentState !== 'RETURNED') return null;
 
   const inspection = await readRentalReturnInspection({

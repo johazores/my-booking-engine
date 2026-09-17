@@ -76,9 +76,11 @@ test('staff UI is connected after return and route uses the safe mutation form b
   assert.match(route, /assessRentalLateReturn/);
 });
 
-test('documentation keeps assessment authority distinct from settlement and extensions', () => {
+test('documentation keeps assessment authority distinct from settlement and custody extension', () => {
   assert.match(docs, /not an automatic fee engine/i);
   assert.match(docs, /assessment itself never moves money/i);
   assert.match(docs, /separate full-value manual\/offline late-return settlement workflow/i);
-  assert.match(docs, /Rental extensions also remain separate/i);
+  assert.match(docs, /same-unit, current-start, later-end price-neutral extension/i);
+  assert.match(docs, /post-return assessment never reopens that authority/i);
+  assert.match(docs, /Price-changing and broader rental extensions remain separate/i);
 });

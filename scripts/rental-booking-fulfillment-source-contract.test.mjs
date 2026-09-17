@@ -6,11 +6,14 @@ const read = (path) => readFileSync(path, 'utf8');
 const schema = read('prisma/rental-booking-fulfillment.prisma');
 const inventorySchema = read('prisma/rental-inventory.prisma');
 const migration = read('prisma/migrations/20260916024500_rental_booking_fulfillment_foundation/migration.sql');
+const custodyExtensionMigration = read('prisma/migrations/20260917102000_rental_booking_custody_extension/migration.sql');
 const service = read('src/server/bookings/rental-booking-fulfillment-service.ts');
 const readService = read('src/server/bookings/rental-booking-read-service.ts');
 const pickupRoute = read('app/api/inventory/rentals/bookings/[booking-id]/pickup/route.ts');
 const returnRoute = read('app/api/inventory/rentals/bookings/[booking-id]/return/route.ts');
 const detail = read('app/inventory/rentals/bookings/[booking-id]/page.tsx');
+const custodyExtensionPanel = read('src/components/rental-custody-extension-panel.tsx');
+const returnInspectionPanel = read('src/components/rental-return-inspection-panel.tsx');
 
 test('fulfillment evidence is append-only, tenant-owned, ordered, and Prisma/database relations stay aligned', () => {
   for (const token of [
@@ -52,11 +55,18 @@ test('idempotent fulfillment replay re-derives and validates the retained physic
   assert.match(service, /Existing rental fulfillment evidence no longer matches the retained physical assignment/);
 });
 
-test('pickup freezes unsafe neighboring booking mutations at the database boundary', () => {
+test('pickup freezes cancellation, replacement, and arbitrary date changes while later migration allows only safe extension', () => {
   assert.match(migration, /rental_booking_reschedules_pre_fulfillment_guard/);
   assert.match(migration, /rental_booking_unit_substitutions_pre_fulfillment_guard/);
   assert.match(migration, /rental_bookings_cancellation_pre_fulfillment_guard/);
   assert.match(migration, /cannot be cancelled, rescheduled, or reassigned after pickup/);
+
+  assert.match(custodyExtensionMigration, /DROP TRIGGER IF EXISTS rental_booking_reschedules_pre_fulfillment_guard/);
+  assert.match(custodyExtensionMigration, /sf_guard_rental_booking_reschedule_custody_boundary/);
+  assert.match(custodyExtensionMigration, /event\."kind" = 'RETURNED'/);
+  assert.match(custodyExtensionMigration, /picked-up rental bookings may only extend the current committed end date/);
+  assert.match(custodyExtensionMigration, /NEW\."targetStartsOn" <> current_starts_on/);
+  assert.match(custodyExtensionMigration, /NEW\."targetEndsOn" <= current_ends_on/);
 });
 
 test('staff routes accept no browser-controlled tenant, actor, time, unit, dates, or idempotency authority', () => {
@@ -70,5 +80,7 @@ test('staff routes accept no browser-controlled tenant, actor, time, unit, dates
   assert.match(detail, /Record pickup/);
   assert.match(detail, /Record return/);
   assert.match(detail, /beforePickup/);
+  assert.match(custodyExtensionPanel, /Extend rental/);
+  assert.match(returnInspectionPanel, /fulfillmentState === 'PICKED_UP'/);
   assert.match(detail, /Return does not release inventory before the booking's effective end date/);
 });

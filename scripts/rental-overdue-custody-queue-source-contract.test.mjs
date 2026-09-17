@@ -62,7 +62,8 @@ test('staff list exposes a real overdue queue without inventing late-return comm
   assert.match(custodyDoc, /filtered in PostgreSQL before pagination/);
   assert.match(custodyDoc, /Booking, location, pickup, and return predicates all repeat `organizationId`/);
   assert.match(custodyDoc, /queue is read-only/);
-  assert.match(custodyDoc, /does \*\*not\*\* implement rental extensions, grace periods, late fees/);
+  assert.match(custodyDoc, /does not itself implement a rental extension/i);
+  assert.match(custodyDoc, /same-unit, current-start, later-end price-neutral custody extension/i);
 
   assert.match(readDoc, /overdue booking IDs in PostgreSQL before final page loading/);
   assert.match(readDoc, /An overdue queue is inherently confirmed custody/);

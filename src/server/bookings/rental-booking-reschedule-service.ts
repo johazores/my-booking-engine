@@ -5,13 +5,16 @@ import {
   buildRentalPricingEvidence,
   RentalAvailabilityIntegrityError,
 } from '../inventory/rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
+  isRentalBookingCustodyExtensionTarget,
   normalizeRentalBookingRescheduleApplyInput,
   rentalBookingLockKey,
   type RentalBookingRescheduleApplyInput,
+  type RentalBookingRescheduleMode,
 } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
@@ -119,9 +122,14 @@ export async function applyRentalBookingReschedule(input: Readonly<{
           organizationId: input.organizationId,
           status: 'CONFIRMED',
           cancelledAt: null,
-          fulfillmentEvents: { none: { organizationId: input.organizationId } },
         },
-        select: { unitId: true },
+        select: {
+          unitId: true,
+          fulfillmentEvents: {
+            where: { organizationId: input.organizationId },
+            select: { id: true, kind: true },
+          },
+        },
       }),
       transaction.rentalBookingAllocation.findFirst({
         where: { bookingId: input.bookingId, organizationId: input.organizationId },
@@ -133,7 +141,11 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         select: { targetUnitId: true },
       }),
     ]);
-    if (!bookingLocator || !allocationLocator) throw new RentalBookingRescheduleUnavailableError();
+    if (
+      !bookingLocator
+      || !allocationLocator
+      || bookingLocator.fulfillmentEvents.some((event) => event.kind === 'RETURNED')
+    ) throw new RentalBookingRescheduleUnavailableError();
     const effectiveUnitId = latestSubstitutionLocator?.targetUnitId ?? bookingLocator.unitId;
     if (allocationLocator.unitId !== effectiveUnitId) {
       throw new RentalAvailabilityIntegrityError(
@@ -161,7 +173,6 @@ export async function applyRentalBookingReschedule(input: Readonly<{
           organizationId: input.organizationId,
           status: 'CONFIRMED',
           cancelledAt: null,
-          fulfillmentEvents: { none: { organizationId: input.organizationId } },
         },
         include: {
           allocation: {
@@ -185,6 +196,11 @@ export async function applyRentalBookingReschedule(input: Readonly<{
               },
             },
           },
+          fulfillmentEvents: {
+            where: { organizationId: input.organizationId },
+            orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, kind: true, occurredAt: true },
+          },
         },
       }),
       transaction.rentalBookingReschedule.findFirst({
@@ -200,6 +216,17 @@ export async function applyRentalBookingReschedule(input: Readonly<{
     if (!booking.allocation) {
       throw new RentalAvailabilityIntegrityError('Rental booking reschedule requires its retained physical-unit allocation.');
     }
+
+    const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP') ?? null;
+    const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
+    if (returnEvent) {
+      throw new RentalBookingRescheduleConflictError(
+        'Returned rentals cannot be rescheduled or extended.',
+      );
+    }
+    const mode: RentalBookingRescheduleMode = pickupEvent
+      ? 'CUSTODY_EXTENSION'
+      : 'PRE_PICKUP_RESCHEDULE';
 
     const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const sourceEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
@@ -239,8 +266,21 @@ export async function applyRentalBookingReschedule(input: Readonly<{
     ) {
       throw new RentalBookingRescheduleConflictError('Rental booking target dates must change.');
     }
+    if (
+      mode === 'CUSTODY_EXTENSION'
+      && !isRentalBookingCustodyExtensionTarget({
+        sourceStartsOn,
+        sourceEndsOn,
+        targetStartsOn: requested.startsOn,
+        targetEndsOn: requested.endsOn,
+      })
+    ) {
+      throw new RentalBookingRescheduleConflictError(
+        'A picked-up rental may only keep its current start date and extend the committed end date.',
+      );
+    }
 
-    const [blockOverlap, competingHold, bookingOverlap, ratePeriods] = await Promise.all([
+    const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -272,6 +312,12 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         },
         select: { id: true },
       }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: databaseClock.now,
+        unitId: currentUnitId,
+        excludeBookingId: booking.id,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -283,7 +329,7 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         select: { startsOn: true, endsOn: true, dailyRateMinor: true },
       }),
     ]);
-    if (blockOverlap || competingHold || bookingOverlap) {
+    if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
       throw new RentalBookingRescheduleConflictError(
         'The target rental dates now conflict with another inventory commitment.',
       );
@@ -299,7 +345,9 @@ export async function applyRentalBookingReschedule(input: Readonly<{
     });
     if (targetPricing.currency !== booking.currency || BigInt(targetPricing.totalMinor) !== booking.totalMinor) {
       throw new RentalBookingRescheduleConflictError(
-        'Current target-date pricing changes the accepted rental amount. Run a new review; price-changing amendments are not supported.',
+        mode === 'CUSTODY_EXTENSION'
+          ? 'Current extension pricing changes the accepted rental amount. Price-changing rental extensions are not supported.'
+          : 'Current target-date pricing changes the accepted rental amount. Run a new review; price-changing amendments are not supported.',
       );
     }
 
@@ -318,10 +366,14 @@ export async function applyRentalBookingReschedule(input: Readonly<{
       totalMinor: BigInt(targetPricing.totalMinor),
       sourcePricingFingerprint,
       targetPricingFingerprint: targetPricing.fingerprint,
+      mode,
+      pickupEventId: pickupEvent?.id ?? null,
     });
     if (requested.authorityFingerprint !== expectedAuthorityFingerprint) {
       throw new RentalBookingRescheduleConflictError(
-        'Rental reschedule authority changed. Review the target dates again before applying.',
+        mode === 'CUSTODY_EXTENSION'
+          ? 'Rental extension authority changed. Review the later end date again before applying.'
+          : 'Rental reschedule authority changed. Review the target dates again before applying.',
       );
     }
 
@@ -393,10 +445,12 @@ export async function applyRentalBookingReschedule(input: Readonly<{
       data: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
-        action: 'booking.rental.rescheduled',
+        action: mode === 'CUSTODY_EXTENSION' ? 'booking.rental.extended' : 'booking.rental.rescheduled',
         resourceType: 'rental-booking',
         resourceId: booking.id,
         beforeData: {
+          mode,
+          pickupEventId: pickupEvent?.id ?? null,
           unitId: currentUnitId,
           startsOn: sourceStartsOn.toISOString(),
           endsOn: sourceEndsOn.toISOString(),
@@ -404,6 +458,8 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         },
         afterData: {
           rescheduleId: reschedule.id,
+          mode,
+          pickupEventId: pickupEvent?.id ?? null,
           unitId: currentUnitId,
           startsOn: requested.startsOn.toISOString(),
           endsOn: requested.endsOn.toISOString(),
@@ -430,6 +486,12 @@ export async function applyRentalBookingReschedule(input: Readonly<{
       );
     }
 
-    return Object.freeze({ booking: currentBooking, allocation: currentAllocation, reschedule, idempotent: false });
+    return Object.freeze({
+      booking: currentBooking,
+      allocation: currentAllocation,
+      reschedule,
+      mode,
+      idempotent: false,
+    });
   }, { isolationLevel: 'Serializable' }));
 }

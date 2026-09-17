@@ -12,12 +12,11 @@ import {
 } from '@/server/bookings/rental-booking-reschedule-service.ts';
 import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-availability-domain.ts';
 import { RentalInventoryValidationError } from '@/server/inventory/rental-domain.ts';
-import { prepareInventoryMutationRequest } from '@/server/inventory/inventory-http.ts';
-
-function formField(formData: FormData, name: string) {
-  const value = formData.get(name);
-  return typeof value === 'string' ? value : '';
-}
+import {
+  formField,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
 
 function rentalBookingRescheduleErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'permission';
@@ -42,7 +41,19 @@ export async function POST(
   const { finish, organization, session } = mutation;
   const params = await context.params;
   const bookingId = params['booking-id'];
-  const formData = await request.formData();
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(
+      NextResponse.redirect(
+        new URL(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/reschedule?error=validation`,
+          request.url,
+        ),
+        303,
+      ),
+      'rejected',
+    );
+  }
   const authorityFingerprint = formField(formData, 'authorityFingerprint').trim().toLowerCase();
   const startsOn = formField(formData, 'startsOn');
   const endsOn = formField(formData, 'endsOn');

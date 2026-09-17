@@ -8,6 +8,8 @@ const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 
 export class RentalBookingRescheduleValidationError extends Error {}
 
+export type RentalBookingRescheduleMode = 'PRE_PICKUP_RESCHEDULE' | 'CUSTODY_EXTENSION';
+
 export type RentalBookingRescheduleReviewInput = Readonly<{
   startsOn: string;
   endsOn: string;
@@ -46,6 +48,16 @@ export function normalizeRentalBookingRescheduleApplyInput(input: RentalBookingR
   return Object.freeze({ ...range, idempotencyKey, authorityFingerprint });
 }
 
+export function isRentalBookingCustodyExtensionTarget(input: Readonly<{
+  sourceStartsOn: Date;
+  sourceEndsOn: Date;
+  targetStartsOn: Date;
+  targetEndsOn: Date;
+}>) {
+  return input.targetStartsOn.getTime() === input.sourceStartsOn.getTime()
+    && input.targetEndsOn.getTime() > input.sourceEndsOn.getTime();
+}
+
 export function buildRentalBookingRescheduleIdempotencyKey(bookingId: string, authorityFingerprint: string) {
   const digest = createHash('sha256').update(`${bookingId}:${authorityFingerprint}`).digest('hex');
   return `rental-reschedule:${digest}`;
@@ -70,9 +82,11 @@ export function buildRentalBookingRescheduleAuthorityFingerprint(input: Readonly
   totalMinor: bigint;
   sourcePricingFingerprint: string;
   targetPricingFingerprint: string;
+  mode: RentalBookingRescheduleMode;
+  pickupEventId: string | null;
 }>) {
   const snapshot = {
-    version: 2,
+    version: 3,
     organizationId: input.organizationId,
     bookingId: input.bookingId,
     bookingUpdatedAt: input.bookingUpdatedAt.toISOString(),
@@ -87,6 +101,8 @@ export function buildRentalBookingRescheduleAuthorityFingerprint(input: Readonly
     totalMinor: input.totalMinor.toString(),
     sourcePricingFingerprint: input.sourcePricingFingerprint,
     targetPricingFingerprint: input.targetPricingFingerprint,
+    mode: input.mode,
+    pickupEventId: input.pickupEventId,
   };
   return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
 }

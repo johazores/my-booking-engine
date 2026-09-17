@@ -23,6 +23,8 @@ test('reschedule and unit substitution reviews do not advertise overdue inventor
   const reschedule = await read('src/server/bookings/rental-booking-reschedule-authority-service.ts');
   const substitution = await read('src/server/bookings/rental-booking-unit-substitution-authority-service.ts');
   assert.match(reschedule, /findOverdueRentalCustodyUnitIds/);
+  assert.match(reschedule, /excludeBookingId: booking\.id/);
+  assert.match(reschedule, /CUSTODY_EXTENSION/);
   assert.match(substitution, /findOverdueRentalCustodyUnitIds/);
   assert.match(substitution, /fulfillmentEvents:\s*\{\s*none:/);
 });
@@ -36,7 +38,7 @@ test('database guards protect holds allocations and substitution targets', async
   assert.match(migration, /AT TIME ZONE location\."timeZone"/);
 });
 
-test('staff booking reads and UI surface overdue custody from database time without inventing commercial policy', async () => {
+test('staff booking reads and UI surface overdue custody without inventing commercial policy', async () => {
   const custodyReadDomain = await read('src/server/bookings/rental-booking-custody-read-domain.ts');
   const readService = await read('src/server/bookings/rental-booking-read-service.ts');
   const listPage = await read('app/inventory/rentals/bookings/page.tsx');
@@ -52,6 +54,8 @@ test('staff booking reads and UI surface overdue custody from database time with
   assert.match(listPage, /Overdue custody/);
   assert.match(detailPage, /OVERDUE CUSTODY/);
   assert.match(detailPage, /does not create a fee or change the committed rental period/);
+  assert.match(detailPage, /supported extension is applied/);
   assert.match(documentation, /Staff operational visibility/);
-  assert.match(documentation, /does \*\*not\*\* implement rental extensions, grace periods, late fees/);
+  assert.match(documentation, /same-unit, current-start, later-end price-neutral custody extension/i);
+  assert.match(documentation, /Price-changing or broader extensions remain a separate commercial amendment contract/i);
 });
