@@ -100,16 +100,30 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
   }
 
   if (input.operational.status === 'AVAILABLE') {
-    const activeMaintenance = await input.transaction.rentalMaintenanceWorkOrder.count({
-      where: {
-        organizationId: input.organizationId,
-        unitId: input.unit.id,
-        status: { in: ['OPEN', 'IN_PROGRESS'] },
-      },
-    });
+    const [activeMaintenance, activeDamageCases] = await Promise.all([
+      input.transaction.rentalMaintenanceWorkOrder.count({
+        where: {
+          organizationId: input.organizationId,
+          unitId: input.unit.id,
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+        },
+      }),
+      input.transaction.rentalDamageCase.count({
+        where: {
+          organizationId: input.organizationId,
+          unitId: input.unit.id,
+          status: { in: ['OPEN', 'ASSESSED'] },
+        },
+      }),
+    ]);
     if (activeMaintenance > 0) {
       throw new RentalInventoryConflictError(
         'Complete or cancel active maintenance work before returning this rental unit to service.',
+      );
+    }
+    if (activeDamageCases > 0) {
+      throw new RentalInventoryConflictError(
+        'Waive or close unresolved damage cases before returning this rental unit to service.',
       );
     }
   }

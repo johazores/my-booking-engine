@@ -159,7 +159,8 @@ void test('documentation reflects durable rental booking infrastructure without 
   assert.match(inventoryDocs, /overlapping non-cancelled rental booking allocations/i);
   assert.match(inventoryDocs, /same-unit, price-neutral date rescheduling/i);
   assert.match(inventoryDocs, /unit substitution and price-changing rental amendments/i);
-  assert.match(docs, /staff-only conversion review\/confirmation, booking list\/detail, same-unit price-neutral date rescheduling, and terminal inventory-release cancellation/i);
+  assert.match(docs, /staff-only conversion review\/confirmation, booking list\/detail, same-unit price-neutral date rescheduling/i);
+  assert.match(docs, /damage-case assessment records operational repair-estimate evidence only/i);
   assert.match(docs, /does not imply payment or fulfillment/i);
   assert.match(docs, /Full database validation must run through `npm run test:database`/);
   assert.match(docs, /No GitHub Actions are required or used/);

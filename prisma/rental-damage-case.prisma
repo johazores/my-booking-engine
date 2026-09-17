@@ -1,0 +1,44 @@
+enum RentalDamageCaseStatus {
+  OPEN
+  ASSESSED
+  WAIVED
+  CLOSED
+}
+
+model RentalDamageCase {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  organizationId           String                 @db.Uuid
+  bookingId                String                 @db.Uuid
+  inspectionId             String                 @db.Uuid
+  unitId                   String                 @db.Uuid
+  idempotencyKey           String                 @db.VarChar(120)
+  status                   RentalDamageCaseStatus @default(OPEN)
+  summary                  String                 @db.VarChar(1000)
+  currency                 String                 @db.Char(3)
+  estimatedRepairCostMinor BigInt?                @db.BigInt
+  assessmentNotes          String?                @db.VarChar(2000)
+  assessedAt               DateTime?              @db.Timestamptz(6)
+  assessedByUserId         String?                @db.Uuid
+  waivedAt                 DateTime?              @db.Timestamptz(6)
+  waivedByUserId           String?                @db.Uuid
+  waiverReason             String?                @db.VarChar(1000)
+  closedAt                 DateTime?              @db.Timestamptz(6)
+  closedByUserId           String?                @db.Uuid
+  resolutionNotes          String?                @db.VarChar(2000)
+  openedAt                 DateTime                @default(now()) @db.Timestamptz(6)
+  openedByUserId           String                 @db.Uuid
+  createdAt                DateTime                @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime                @updatedAt @db.Timestamptz(6)
+
+  booking    RentalBooking          @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_booking_fkey")
+  inspection RentalReturnInspection @relation(fields: [inspectionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_inspection_fkey")
+  unit       RentalUnit             @relation("RentalDamageCaseUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_unit_fkey")
+
+  @@unique([id, organizationId], map: "rental_damage_cases_id_org_key")
+  @@unique([organizationId, bookingId], map: "rental_damage_cases_org_booking_key")
+  @@unique([organizationId, inspectionId], map: "rental_damage_cases_org_inspection_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_damage_cases_org_idempotency_key")
+  @@index([organizationId, unitId, status, openedAt], map: "rental_damage_cases_org_unit_status_opened_idx")
+  @@index([organizationId, status, openedAt], map: "rental_damage_cases_org_status_opened_idx")
+  @@map("rental_damage_cases")
+}

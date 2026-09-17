@@ -53,7 +53,7 @@ test('operational transitions require inventory authority, tenant scope, seriali
   assert.match(service, /rentalUnitLockKey\(input\.organizationId, input\.unitId\)/);
   assert.match(service, /organizationId: input\.organizationId/);
   assert.match(service, /SELECT clock_timestamp\(\) AS "now"/);
-  assert.match(service, /currentStatus === operational\.status && currentReason === operational\.reason/);
+  assert.match(service, /currentStatus === input\.operational\.status && currentReason === input\.operational\.reason/);
   assert.match(service, /inventory\.rental-unit\.operational-status-changed/);
   assert.match(migration, /NEW\."changedAt" := clock_timestamp\(\)/);
   assert.match(migration, /operational-state identity is immutable/);
@@ -80,14 +80,15 @@ test('out-of-service state is consumed by availability and protected at database
   assert.doesNotMatch(migration, /NEW\."kind" = 'RETURNED'[\s\S]*sf_assert_rental_unit_operationally_available/);
 });
 
-test('staff unit controls expose real operational state without presenting maintenance workflows as complete', () => {
+test('staff unit controls expose real operational state and retain current operational dependencies', () => {
   assert.match(route, /setRentalUnitOperationalStatus/);
   assert.match(route, /inventory\.rental-unit\.operational-status/);
   assert.match(page, /readRentalUnitOperationalState/);
   assert.match(page, /Operational status/);
   assert.match(page, /OUT_OF_SERVICE/);
   assert.match(page, /Existing bookings are not cancelled automatically/);
-  assert.match(docs, /does not invent a maintenance work-order system/i);
+  assert.match(docs, /Rental maintenance work orders use this operational state/i);
+  assert.match(docs, /unresolved damage case/i);
   assert.match(docs, /database guards deliberately do \*\*not\*\* reject `RETURNED`/);
   assert.match(docs, /GitHub Actions are not required or used/);
 });

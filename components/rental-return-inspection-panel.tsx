@@ -1,3 +1,4 @@
+import { RentalDamageCasePanel } from '@/components/rental-damage-case-panel.tsx';
 import { readRentalReturnInspection } from '@/server/bookings/rental-return-inspection-service.ts';
 
 const outcomeLabels = {
@@ -28,31 +29,40 @@ export async function RentalReturnInspectionPanel({
   });
 
   if (inspection) {
-    return <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
-      <div className="sf-inventory-card__heading">
-        <div>
-          <p className="sf-eyebrow">Condition evidence</p>
-          <h2 id="rental-return-inspection-title">Return inspection</h2>
-        </div>
-        <span>{outcomeLabels[inspection.outcome]}</span>
-      </div>
-      <ul className="sf-inventory-list">
-        <li>
-          <div className="sf-inventory-list__primary">
-            <div>
-              <strong>{outcomeLabels[inspection.outcome]}</strong>
-              <span>
-                Inspected <time dateTime={inspection.inspectedAt.toISOString()}>{inspection.inspectedAt.toISOString()}</time>
-              </span>
-              {inspection.notes ? <span>{inspection.notes}</span> : null}
-            </div>
+    return <>
+      <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
+        <div className="sf-inventory-card__heading">
+          <div>
+            <p className="sf-eyebrow">Condition evidence</p>
+            <h2 id="rental-return-inspection-title">Return inspection</h2>
           </div>
-        </li>
-      </ul>
-      <p className="sf-field-hint">
-        This is append-only return-condition evidence. Damage and unsafe outcomes quarantine an available unit out of service; they do not charge the customer, create a security-bond decision, or change the rental settlement.
-      </p>
-    </section>;
+          <span>{outcomeLabels[inspection.outcome]}</span>
+        </div>
+        <ul className="sf-inventory-list">
+          <li>
+            <div className="sf-inventory-list__primary">
+              <div>
+                <strong>{outcomeLabels[inspection.outcome]}</strong>
+                <span>
+                  Inspected <time dateTime={inspection.inspectedAt.toISOString()}>{inspection.inspectedAt.toISOString()}</time>
+                </span>
+                {inspection.notes ? <span>{inspection.notes}</span> : null}
+              </div>
+            </div>
+          </li>
+        </ul>
+        <p className="sf-field-hint">
+          This is append-only return-condition evidence. Damage and unsafe outcomes quarantine an available unit out of service; they do not charge the customer, establish customer liability, or create a security-bond decision.
+        </p>
+      </section>
+      <RentalDamageCasePanel
+        organizationId={organizationId}
+        actorUserId={actorUserId}
+        bookingId={bookingId}
+        inspectionOutcome={inspection.outcome}
+        canManage={canManage}
+      />
+    </>;
   }
 
   if (!canManage) {

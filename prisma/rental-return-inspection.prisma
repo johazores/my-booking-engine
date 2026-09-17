@@ -20,6 +20,7 @@ model RentalReturnInspection {
   booking     RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_booking_fkey")
   returnEvent RentalBookingFulfillmentEvent @relation("RentalReturnInspectionReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_return_event_fkey")
   unit        RentalUnit                    @relation("RentalReturnInspectionUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_return_inspections_unit_fkey")
+  damageCase  RentalDamageCase?
 
   @@unique([id, organizationId], map: "rental_return_inspections_id_org_key")
   @@unique([organizationId, bookingId], map: "rental_return_inspections_org_booking_key")
