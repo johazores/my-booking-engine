@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+
 import { rentalBookingLockKey } from '../bookings/rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
@@ -34,6 +36,27 @@ function paymentLockKey(organizationId: string, scope: string, value: string) {
   return `rental-payment:${organizationId}:${scope}:${value}`;
 }
 
+function manualReferenceLockKey(organizationId: string, reference: string) {
+  return `sf:rental-manual-reference:${organizationId}:${reference}`;
+}
+
+async function assertRentalManualReferenceUnused(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  reference: string,
+) {
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0))`;
+  const [booking, damage, bond, lateReturn] = await Promise.all([
+    transaction.rentalPaymentTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalDamageSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalSecurityBondTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalLateReturnSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+  ]);
+  if (booking || damage || bond || lateReturn) {
+    throw new RentalPaymentConflictError('Manual rental reference has already been recorded as commercial evidence in this organization.');
+  }
+}
+
 async function runRentalPaymentWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -59,6 +82,16 @@ function normalizePagination(page: number, pageSize: number) {
   return { page: safePage, pageSize: safePageSize };
 }
 
+function parseOptionalRentalPaymentAmount(value: unknown, currency: string) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new Error('Rental payment amount must be a valid money value.');
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const parsed = parseMoneyMajorToMinor(normalized, currency);
+  if (parsed.amountMinor <= 0n) throw new Error('Rental payment amount must be greater than zero.');
+  return parsed.amountMinor;
+}
+
 function parseOptionalRentalRefundAmount(value: unknown, currency: string) {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') throw new Error('Rental refund amount must be a valid money value.');
@@ -82,6 +115,7 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
   actorUserId: string;
   bookingId: string;
   reference: unknown;
+  amount?: unknown;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -101,22 +135,23 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
       select: { id: true, status: true, currency: true, totalMinor: true },
     });
     if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+    const requestedAmountMinor = parseOptionalRentalPaymentAmount(input.amount, booking.currency);
 
-    const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
-      organizationId: input.organizationId,
-      bookingId: booking.id,
-      idempotencyKey,
-      kind: 'OFFLINE_PAYMENT',
-      providerCode: manualProvider.code,
-      providerReference: reference,
-      sourceProviderReference: null,
-      currency: booking.currency,
-      amountMinor: booking.totalMinor,
-    });
     const existing = await transaction.rentalPaymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
     });
     if (existing) {
+      const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        idempotencyKey,
+        kind: 'OFFLINE_PAYMENT',
+        providerCode: manualProvider.code,
+        providerReference: reference,
+        sourceProviderReference: null,
+        currency: booking.currency,
+        amountMinor: existing.amountMinor,
+      });
       if (
         existing.bookingId !== booking.id
         || existing.kind !== 'OFFLINE_PAYMENT'
@@ -125,7 +160,9 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
         || existing.providerReference !== reference
         || existing.sourceProviderReference !== null
         || existing.currency !== booking.currency
-        || existing.amountMinor !== booking.totalMinor
+        || existing.amountMinor <= 0n
+        || existing.amountMinor > booking.totalMinor
+        || (requestedAmountMinor !== null && existing.amountMinor !== requestedAmountMinor)
         || (existing.requestFingerprint !== null && existing.requestFingerprint !== expectedRequestFingerprint)
       ) {
         throw new RentalPaymentConflictError('Rental payment idempotency key was already used for different durable settlement evidence.');
@@ -136,7 +173,7 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
         bookingId: booking.id,
       });
       const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
-      if (!settlement.reconciled || settlement.grossSettledMinor !== booking.totalMinor) {
+      if (!settlement.reconciled) {
         throw new RentalPaymentConflictError('Rental payment idempotent replay no longer has complete reconciled settlement evidence.');
       }
       return Object.freeze({ transaction: existing, idempotent: true });
@@ -152,22 +189,33 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
     });
     const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
     if (!settlement.reconciled) throw new RentalPaymentConflictError(settlement.reason);
-    if (settlement.paymentState !== 'UNPAID') {
-      throw new RentalPaymentConflictError(`Rental booking payment state ${settlement.paymentState.toLowerCase()} does not accept a new full offline payment.`);
+    if (settlement.outstandingMinor <= 0n) {
+      throw new RentalPaymentConflictError('Rental booking does not have an outstanding balance for another offline payment.');
+    }
+    const paymentAmountMinor = requestedAmountMinor ?? settlement.outstandingMinor;
+    if (paymentAmountMinor > settlement.outstandingMinor) {
+      throw new RentalPaymentConflictError('Rental payment amount exceeds the current outstanding booking balance.');
     }
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', reference)}, 0))`;
-    const duplicateReference = await transaction.rentalPaymentTransaction.findFirst({
-      where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: reference },
-      select: { id: true },
+    const expectedRequestFingerprint = buildRentalPaymentRequestFingerprint({
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+      idempotencyKey,
+      kind: 'OFFLINE_PAYMENT',
+      providerCode: manualProvider.code,
+      providerReference: reference,
+      sourceProviderReference: null,
+      currency: booking.currency,
+      amountMinor: paymentAmountMinor,
     });
-    if (duplicateReference) throw new RentalPaymentConflictError('Manual payment reference has already been recorded in this organization.');
+
+    await assertRentalManualReferenceUnused(transaction, input.organizationId, reference);
 
     const providerResult = await manualProvider.recordOfflinePayment({
       organizationId: input.organizationId,
       bookingId: booking.id,
       idempotencyKey,
-      money: { currency: booking.currency, amountMinor: booking.totalMinor },
+      money: { currency: booking.currency, amountMinor: paymentAmountMinor },
       reference,
     });
     if (
@@ -175,7 +223,7 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
       || providerResult.providerCode !== manualProvider.code
       || providerResult.providerReference !== reference
       || providerResult.money.currency !== booking.currency
-      || providerResult.money.amountMinor !== booking.totalMinor
+      || providerResult.money.amountMinor !== paymentAmountMinor
     ) {
       throw new RentalPaymentConflictError('Manual payment provider returned a result that does not match the authoritative rental booking request.');
     }
@@ -217,7 +265,15 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
         action: 'payment.rental.offline-recorded',
         resourceType: 'rental-payment-transaction',
         resourceId: payment.id,
-        afterData: { bookingId: booking.id, providerCode: payment.providerCode, kind: payment.kind, status: payment.status, currency: payment.currency, amountMinor: payment.amountMinor.toString() },
+        afterData: {
+          bookingId: booking.id,
+          providerCode: payment.providerCode,
+          kind: payment.kind,
+          status: payment.status,
+          currency: payment.currency,
+          amountMinor: payment.amountMinor.toString(),
+          outstandingMinorAfter: (settlement.outstandingMinor - payment.amountMinor).toString(),
+        },
       },
     });
     return Object.freeze({ transaction: payment, idempotent: false });
@@ -309,12 +365,19 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
     });
     const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
     if (!settlement.reconciled) throw new RentalPaymentConflictError(settlement.reason);
-    if (settlement.paymentState !== 'PAID' && settlement.paymentState !== 'PARTIALLY_REFUNDED') {
+    if (settlement.netSettledMinor <= 0n) {
+      throw new RentalPaymentConflictError(`Rental booking payment state ${settlement.paymentState.toLowerCase()} does not accept a refund.`);
+    }
+
+    const refundPlannerPaymentState = settlement.paymentState === 'PARTIALLY_PAID'
+      ? 'PARTIALLY_REFUNDED'
+      : settlement.paymentState;
+    if (refundPlannerPaymentState !== 'PAID' && refundPlannerPaymentState !== 'PARTIALLY_REFUNDED') {
       throw new RentalPaymentConflictError(`Rental booking payment state ${settlement.paymentState.toLowerCase()} does not accept a refund.`);
     }
 
     const plan = deriveBookingRefundExecutionPlan({
-      bookingPaymentStatus: settlement.paymentState,
+      bookingPaymentStatus: refundPlannerPaymentState,
       bookingTotalMinor: booking.totalMinor,
       currency: booking.currency,
       transactions: history,
@@ -336,12 +399,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       amountMinor: plan.amountMinor,
     });
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
-    const duplicateReference = await transaction.rentalPaymentTransaction.findFirst({
-      where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: refundReference },
-      select: { id: true },
-    });
-    if (duplicateReference) throw new RentalPaymentConflictError('Manual refund reference has already been recorded in this organization.');
+    await assertRentalManualReferenceUnused(transaction, input.organizationId, refundReference);
     if (!manualProvider.recordOfflineRefund) throw new RentalPaymentConflictError('Manual payment provider cannot record refunds.');
 
     const providerResult = await manualProvider.recordOfflineRefund({

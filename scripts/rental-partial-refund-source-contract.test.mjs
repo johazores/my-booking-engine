@@ -34,43 +34,43 @@ test('partial refund replay remains exact without requiring the whole booking to
   assert.match(integration, /different durable settlement evidence/i);
 });
 
-test('staff routes fail closed on malformed form bodies and only refund accepts browser money input', () => {
+test('staff routes fail closed on malformed form bodies while payment and refund amounts remain non-authoritative requests', () => {
   for (const route of [paymentRoute, refundRoute]) {
     assert.match(route, /readInventoryFormData\(request\)/);
     assert.match(route, /if \(!formData\)/);
     assert.match(route, /organizationId: organization\.id/);
     assert.match(route, /actorUserId: session\.user\.id/);
+    assert.match(route, /formField\(formData, 'amount'\)/);
+    assert.doesNotMatch(route, /formField\(formData, 'organizationId'\)/);
+    assert.doesNotMatch(route, /formField\(formData, 'sourceProviderReference'\)/);
   }
-  assert.doesNotMatch(paymentRoute, /formField\(formData, 'amount'\)/);
-  assert.match(refundRoute, /amount: formField\(formData, 'amount'\)/);
-  assert.doesNotMatch(refundRoute, /formField\(formData, 'organizationId'\)/);
-  assert.doesNotMatch(refundRoute, /formField\(formData, 'sourceProviderReference'\)/);
 });
 
-test('staff UI exposes explicit bounded refund amount without implying online settlement', () => {
+test('staff UI defaults refunds to the next source boundary and does not imply online settlement', () => {
   assert.match(panel, /Refund amount \(\{bookingCurrency\}\)/);
   assert.match(panel, /inputMode="decimal"/);
-  assert.match(panel, /defaultValue=\{moneyMinorToMajorString\(refundableAmount, bookingCurrency\)\}/);
-  assert.match(panel, /current refundable balance/);
+  assert.match(panel, /defaultValue=\{moneyMinorToMajorString\(nextRefundableSourceAmount, bookingCurrency\)\}/);
+  assert.match(panel, /next server-selected payment source/);
+  assert.match(panel, /Total refundable booking balance/);
   assert.match(panel, /Partial refunds remain settled and continue blocking cancellation/);
-  assert.match(panel, /split-tender payments/);
+  assert.match(panel, /mixed-provider settlement/);
   assert.match(panel, /customer self-service are not enabled/);
 });
 
-test('guarded database scenario covers partial refund, replay, later full refund, and cancellation ordering', () => {
+test('guarded database scenario covers partial refund, replay, replacement funding, full refund, and cancellation ordering', () => {
   assert.match(integration, /partialRefundMinor/);
   assert.match(integration, /paymentState, 'PARTIALLY_REFUNDED'/);
-  assert.match(integration, /cancelRentalBooking/);
-  assert.match(integration, /finalRefund/);
+  assert.match(integration, /replacementPayment/);
   assert.match(integration, /paymentState, 'REFUNDED'/);
   assert.match(integration, /partialRefundReplayAfterCancellation/);
+  assert.match(integration, /cancelRentalBooking/);
 });
 
-test('documentation clearly separates partial refund capability from unsupported funding and provider workflows', () => {
-  assert.match(docs, /refunds may be partial or may refund the full remaining source balance/i);
-  assert.match(docs, /partial refunds remain financially settled/i);
-  assert.match(docs, /split-tender or partial booking-price payments/i);
-  assert.match(docs, /online checkout/i);
+test('documentation clearly separates partial refund capability from manual partial funding and unsupported provider workflows', () => {
+  assert.match(docs, /Both payments and refunds may be partial/i);
+  assert.match(docs, /Partial refunds remain financially settled/i);
+  assert.match(docs, /mixed-provider settlement/i);
+  assert.match(docs, /online checkout workflow/i);
   assert.match(requestDocs, /source and exact minor-unit amount are bound/i);
   assert.match(requestDocs, /partial refund remains replayable while the booking is still `PARTIALLY_REFUNDED`/);
   assert.match(requestDocs, /does not add Stripe rental checkout/i);

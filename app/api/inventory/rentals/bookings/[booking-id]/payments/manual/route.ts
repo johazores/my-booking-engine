@@ -12,7 +12,7 @@ function rentalPaymentErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'payment-permission';
   if (error instanceof RentalPaymentConflictError) return 'payment-conflict';
   if (error instanceof RentalPaymentUnavailableError) return 'payment-unavailable';
-  if (error instanceof Error && /invalid|required|must|cannot|only|zero-value/i.test(error.message)) return 'payment-validation';
+  if (error instanceof Error && /invalid|required|must|cannot|only|zero-value|amount|balance/i.test(error.message)) return 'payment-validation';
   return 'payment-server';
 }
 
@@ -33,12 +33,21 @@ export async function POST(
     );
   }
 
+  const amount = formField(formData, 'amount');
+  if (!amount.trim()) {
+    return finish(
+      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`, request.url), 303),
+      'rejected',
+    );
+  }
+
   try {
     const result = await recordRentalManualOfflinePayment({
       organizationId: organization.id,
       actorUserId: session.user.id,
       bookingId,
       reference: formField(formData, 'reference'),
+      amount,
     });
     const status = result.idempotent ? 'rental-payment-existing' : 'rental-payment-recorded';
     return finish(NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`, request.url), 303));

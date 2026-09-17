@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { deriveBookingSettlementSummary, type BookingSettlementTransaction } from './payment-settlement-domain.ts';
 
-export type RentalPaymentState = 'UNPAID' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
+export type RentalPaymentState = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
 
 export type RentalPaymentSettlement = Readonly<
   | {
@@ -11,6 +11,8 @@ export type RentalPaymentSettlement = Readonly<
     grossSettledMinor: bigint;
     refundedMinor: bigint;
     netSettledMinor: bigint;
+    outstandingMinor: bigint;
+    nextRefundableSourceMinor: bigint;
   }
   | { reconciled: false; reason: string }
 >;
@@ -32,33 +34,28 @@ export function deriveRentalPaymentSettlement(input: Readonly<{
         reason: 'Rental payment history contains successful settlement evidence outside the enabled manual/offline contract.',
       };
     }
-    if (transaction.kind === 'OFFLINE_PAYMENT' && transaction.amountMinor !== input.bookingTotalMinor) {
-      return {
-        reconciled: false,
-        reason: 'Rental offline payment history does not match the full authoritative booking total.',
-      };
-    }
   }
 
   const settlement = deriveBookingSettlementSummary({ currency: input.currency, transactions: input.transactions });
   if (!settlement.reconciled) return settlement;
-  if (settlement.grossSettledMinor !== 0n && settlement.grossSettledMinor !== input.bookingTotalMinor) {
-    return {
-      reconciled: false,
-      reason: 'Rental payment history contains more than the enabled full-value settlement contract.',
-    };
-  }
   if (settlement.netSettledMinor < 0n || settlement.netSettledMinor > input.bookingTotalMinor) {
     return { reconciled: false, reason: 'Rental payment history does not reconcile to the authoritative booking total.' };
   }
 
+  const outstandingMinor = input.bookingTotalMinor - settlement.netSettledMinor;
+  const nextRefundableSourceMinor = settlement.sources.reduce(
+    (largest, source) => source.remainingMinor > largest ? source.remainingMinor : largest,
+    0n,
+  );
   const paymentState: RentalPaymentState = settlement.grossSettledMinor === 0n
     ? 'UNPAID'
-    : settlement.refundedMinor === 0n
-      ? 'PAID'
-      : settlement.netSettledMinor === 0n
-        ? 'REFUNDED'
-        : 'PARTIALLY_REFUNDED';
+    : settlement.netSettledMinor === 0n
+      ? 'REFUNDED'
+      : settlement.netSettledMinor === input.bookingTotalMinor
+        ? 'PAID'
+        : settlement.refundedMinor === 0n
+          ? 'PARTIALLY_PAID'
+          : 'PARTIALLY_REFUNDED';
 
   return Object.freeze({
     reconciled: true as const,
@@ -66,6 +63,8 @@ export function deriveRentalPaymentSettlement(input: Readonly<{
     grossSettledMinor: settlement.grossSettledMinor,
     refundedMinor: settlement.refundedMinor,
     netSettledMinor: settlement.netSettledMinor,
+    outstandingMinor,
+    nextRefundableSourceMinor,
   });
 }
 

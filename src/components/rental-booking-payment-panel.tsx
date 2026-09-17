@@ -31,12 +31,11 @@ export function RentalBookingPaymentPanel({
   canManage: boolean;
 }>) {
   const confirmed = bookingStatus === 'CONFIRMED';
-  const canRecordPayment = confirmed && settlement.reconciled && settlement.paymentState === 'UNPAID' && canManage;
-  const canRefund = confirmed
-    && settlement.reconciled
-    && (settlement.paymentState === 'PAID' || settlement.paymentState === 'PARTIALLY_REFUNDED')
-    && canManage;
+  const canRecordPayment = confirmed && settlement.reconciled && settlement.outstandingMinor > 0n && canManage;
+  const canRefund = confirmed && settlement.reconciled && settlement.netSettledMinor > 0n && canManage;
+  const outstandingAmount = settlement.reconciled ? settlement.outstandingMinor : 0n;
   const refundableAmount = settlement.reconciled ? settlement.netSettledMinor : 0n;
+  const nextRefundableSourceAmount = settlement.reconciled ? settlement.nextRefundableSourceMinor : 0n;
 
   return <section className="sf-inventory-card" aria-labelledby="rental-payment-title">
     <div className="sf-inventory-card__heading">
@@ -45,7 +44,7 @@ export function RentalBookingPaymentPanel({
     </div>
 
     {!settlement.reconciled ? <p className="sf-alert sf-alert--error" role="alert">{settlement.reason}</p> : <ul className="sf-inventory-list">
-      <li><div className="sf-inventory-list__primary"><div><strong>Net settled</strong><span>{moneyMinorToMajorString(settlement.netSettledMinor, bookingCurrency)} · gross {moneyMinorToMajorString(settlement.grossSettledMinor, bookingCurrency)} · refunded {moneyMinorToMajorString(settlement.refundedMinor, bookingCurrency)}</span></div></div></li>
+      <li><div className="sf-inventory-list__primary"><div><strong>Net settled</strong><span>{moneyMinorToMajorString(settlement.netSettledMinor, bookingCurrency)} · outstanding {moneyMinorToMajorString(settlement.outstandingMinor, bookingCurrency)} · gross {moneyMinorToMajorString(settlement.grossSettledMinor, bookingCurrency)} · refunded {moneyMinorToMajorString(settlement.refundedMinor, bookingCurrency)}</span></div></div></li>
     </ul>}
 
     {transactions.length > 0 ? <ul className="sf-inventory-list">
@@ -53,23 +52,23 @@ export function RentalBookingPaymentPanel({
     </ul> : <p className="sf-field-hint">No payment transaction has been recorded for this rental booking.</p>}
 
     {canRecordPayment ? <form className="sf-inventory-form" method="post" action={`/api/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/payments/manual`}>
+      <label className="sf-field"><span>Payment amount ({bookingCurrency})</span><input name="amount" type="text" inputMode="decimal" pattern="[0-9]+(?:\.[0-9]+)?" defaultValue={moneyMinorToMajorString(outstandingAmount, bookingCurrency)} required autoComplete="off" aria-describedby="rental-payment-amount-hint" /></label>
+      <p id="rental-payment-amount-hint" className="sf-field-hint">Enter a positive amount up to the current outstanding balance of {moneyMinorToMajorString(outstandingAmount, bookingCurrency)} {bookingCurrency}. Multiple real manual/offline receipts may settle the booking over time.</p>
       <label className="sf-field"><span>Offline payment reference</span><input name="reference" type="text" maxLength={120} required autoComplete="off" aria-describedby="rental-payment-reference-hint" /></label>
-      <p id="rental-payment-reference-hint" className="sf-field-hint">Record only a real external receipt, bank, cash, or accounting reference. This action records the full accepted rental amount.</p>
-      <button className="sf-button" type="submit">Record full payment</button>
+      <p id="rental-payment-reference-hint" className="sf-field-hint">Record only a real external receipt, bank, cash, or accounting reference. Each reference is retained as a separate payment source.</p>
+      <button className="sf-button" type="submit">Record payment</button>
     </form> : null}
 
     {canRefund ? <form className="sf-inventory-form" method="post" action={`/api/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/payments/refunds`}>
-      <label className="sf-field"><span>Refund amount ({bookingCurrency})</span><input name="amount" type="text" inputMode="decimal" pattern="[0-9]+(?:\.[0-9]+)?" defaultValue={moneyMinorToMajorString(refundableAmount, bookingCurrency)} required autoComplete="off" aria-describedby="rental-refund-amount-hint" /></label>
-      <p id="rental-refund-amount-hint" className="sf-field-hint">Enter a positive amount up to the current refundable balance of {moneyMinorToMajorString(refundableAmount, bookingCurrency)} {bookingCurrency}. The server selects and verifies the retained settlement source.</p>
+      <label className="sf-field"><span>Refund amount ({bookingCurrency})</span><input name="amount" type="text" inputMode="decimal" pattern="[0-9]+(?:\.[0-9]+)?" defaultValue={moneyMinorToMajorString(nextRefundableSourceAmount, bookingCurrency)} required autoComplete="off" aria-describedby="rental-refund-amount-hint" /></label>
+      <p id="rental-refund-amount-hint" className="sf-field-hint">Enter a positive amount up to {moneyMinorToMajorString(nextRefundableSourceAmount, bookingCurrency)} {bookingCurrency} for the next server-selected payment source. Total refundable booking balance is {moneyMinorToMajorString(refundableAmount, bookingCurrency)} {bookingCurrency}.</p>
       <label className="sf-field"><span>Offline refund reference</span><input name="reference" type="text" maxLength={120} required autoComplete="off" aria-describedby="rental-refund-reference-hint" /></label>
       <p id="rental-refund-reference-hint" className="sf-field-hint">Record only a real external refund reference. Partial refunds remain settled and continue blocking cancellation until all booking-price money is refunded.</p>
       <button className="sf-button sf-button--secondary" type="submit">Record refund</button>
     </form> : null}
 
-    <p>
-      <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/security-bond`}>Security bond</Link>
-    </p>
+    <p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/security-bond`}>Security bond</Link></p>
     {!canManage ? <p className="sf-field-hint">Your organization role can view rental payment evidence but cannot record payments or refunds.</p> : null}
-    <p className="sf-field-hint">Booking-price settlement supports one staff-recorded manual/offline full payment plus source-attributed partial or full manual refunds. A real manual/offline security bond requirement, collection, release, and supported forfeiture are managed separately. Online checkout, card authorization/capture, split-tender payments, chargebacks, automatic fees, and customer self-service are not enabled.</p>
+    <p className="sf-field-hint">Booking-price settlement supports multiple staff-recorded manual/offline payment sources up to the accepted booking total, plus source-attributed partial or full manual refunds. Security bonds remain separate. Online checkout, card authorization/capture, mixed-provider settlement, chargebacks, automatic deposit rules, and customer self-service are not enabled.</p>
   </section>;
 }
