@@ -1,4 +1,5 @@
 import { RentalDamageCasePanel } from '@/components/rental-damage-case-panel.tsx';
+import { RentalLateReturnAssessmentPanel } from '@/components/rental-late-return-assessment-panel.tsx';
 import { readRentalReturnInspection } from '@/server/bookings/rental-return-inspection-service.ts';
 
 const outcomeLabels = {
@@ -27,6 +28,11 @@ export async function RentalReturnInspectionPanel({
     actorUserId,
     bookingId,
   });
+  const lateReturnAssessment = <RentalLateReturnAssessmentPanel
+    organizationId={organizationId}
+    actorUserId={actorUserId}
+    bookingId={bookingId}
+  />;
 
   if (inspection) {
     return <>
@@ -62,52 +68,59 @@ export async function RentalReturnInspectionPanel({
         inspectionOutcome={inspection.outcome}
         canManage={canManage}
       />
+      {lateReturnAssessment}
     </>;
   }
 
   if (!canManage) {
-    return <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
+    return <>
+      <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
+        <div className="sf-inventory-card__heading">
+          <div>
+            <p className="sf-eyebrow">Condition evidence</p>
+            <h2 id="rental-return-inspection-title">Return inspection</h2>
+          </div>
+        </div>
+        <p className="sf-field-hint">
+          Return has been recorded, but no return inspection evidence exists. Your role cannot record inventory condition.
+        </p>
+      </section>
+      {lateReturnAssessment}
+    </>;
+  }
+
+  return <>
+    <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
       <div className="sf-inventory-card__heading">
         <div>
           <p className="sf-eyebrow">Condition evidence</p>
-          <h2 id="rental-return-inspection-title">Return inspection</h2>
+          <h2 id="rental-return-inspection-title">Record return inspection</h2>
         </div>
       </div>
-      <p className="sf-field-hint">
-        Return has been recorded, but no return inspection evidence exists. Your role cannot record inventory condition.
-      </p>
-    </section>;
-  }
-
-  return <section className="sf-inventory-card" aria-labelledby="rental-return-inspection-title">
-    <div className="sf-inventory-card__heading">
-      <div>
-        <p className="sf-eyebrow">Condition evidence</p>
-        <h2 id="rental-return-inspection-title">Record return inspection</h2>
-      </div>
-    </div>
-    <form className="sf-form" method="post" action={`/api/inventory/rentals/bookings/${bookingId}/return-inspection`}>
-      <label className="sf-field">
-        Outcome
-        <select name="outcome" defaultValue="CLEAR" required>
-          <option value="CLEAR">Clear</option>
-          <option value="DAMAGE_REPORTED">Damage reported</option>
-          <option value="UNSAFE">Unsafe</option>
-        </select>
-      </label>
-      <label className="sf-field">
-        Inspection notes
-        <textarea
-          name="notes"
-          maxLength={2000}
-          rows={4}
-          aria-describedby="rental-return-inspection-notes-hint"
-        />
-      </label>
-      <p id="rental-return-inspection-notes-hint" className="sf-field-hint">
-        Notes are required when damage or an unsafe condition is reported. A non-clear outcome takes an available unit out of service before the evidence is saved. It does not create a customer charge or security-bond decision.
-      </p>
-      <button className="sf-button sf-button--primary" type="submit">Record return inspection</button>
-    </form>
-  </section>;
+      <form className="sf-form" method="post" action={`/api/inventory/rentals/bookings/${bookingId}/return-inspection`}>
+        <label className="sf-field">
+          Outcome
+          <select name="outcome" defaultValue="CLEAR" required>
+            <option value="CLEAR">Clear</option>
+            <option value="DAMAGE_REPORTED">Damage reported</option>
+            <option value="UNSAFE">Unsafe</option>
+          </select>
+        </label>
+        <label className="sf-field">
+          Inspection notes
+          <textarea
+            name="notes"
+            maxLength={2000}
+            rows={4}
+            aria-describedby="rental-return-inspection-notes-hint"
+          />
+        </label>
+        <p id="rental-return-inspection-notes-hint" className="sf-field-hint">
+          Notes are required when damage or an unsafe condition is reported. A non-clear outcome takes an available unit out of service before the evidence is saved. It does not create a customer charge or security-bond decision.
+        </p>
+        <button className="sf-button sf-button--primary" type="submit">Record return inspection</button>
+      </form>
+    </section>
+    {lateReturnAssessment}
+  </>;
 }

@@ -187,6 +187,7 @@ model RentalBooking {
   earlyReturnRelease RentalBookingEarlyReturnRelease?
   returnInspection RentalReturnInspection?
   damageCase RentalDamageCase?
+  lateReturnAssessment RentalLateReturnAssessment?
 
   @@unique([id, organizationId], map: "rental_bookings_id_organization_key")
   @@unique([organizationId, idempotencyKey], map: "rental_bookings_org_idempotency_key")

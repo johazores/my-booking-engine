@@ -30,7 +30,13 @@ The booking list marks affected rows as **Overdue custody**. Booking detail show
 
 The booking list also provides an **Overdue only** operational queue. The queue is filtered in PostgreSQL before pagination rather than filtering an already paginated page in memory. Its count and page IDs use the same database observation time and the same confirmed + pickup + no-return + local exclusive-end rule as the row-level custody projection. Booking, location, pickup, and return predicates all repeat `organizationId`, and the final row read repeats tenant scope again before rendering. The returned page is then re-derived through the normal custody domain and fails closed if the SQL queue and retained evidence disagree or any selected ID cannot be re-read in the same snapshot. This keeps the queue useful for large tenants without turning a resource ID or fulfillment row into tenant authority.
 
-The queue is read-only. It does not create a late-return workflow, automatically extend a rental, assess a fee, or close custody. Staff still use the existing authorized `Record return` action to append return evidence.
+The queue is read-only. It does not automatically extend a rental, assess a fee, or close custody. Staff still use the existing authorized `Record return` action to append return evidence.
+
+## Post-return commercial assessment
+
+Once a real `RETURNED` event exists, the separate late-return assessment boundary can retain an explicit case-specific grace decision and either an exact positive fee authority or a waiver. It uses the same exclusive committed end and retained location timezone, but it does not participate in inventory blocking while custody is still open and it does not move money.
+
+See [rental-late-return-assessment.md](./rental-late-return-assessment.md).
 
 ## Database safety
 
@@ -54,6 +60,6 @@ When an early-return release is valid, SF keeps the committed custody dates unch
 
 ## Deliberate boundaries
 
-This protection does **not** implement rental extensions, grace periods, late fees, damage charges, security-bond decisions, automatic customer notifications, replacement dispatch, maintenance transitions, or forced cancellation of later bookings. Those require separate commercial rules.
+This protection does **not** implement rental extensions, automatic tenant-wide late-fee policy, fee settlement, damage charges, security-bond decisions, automatic customer notifications, replacement dispatch, maintenance transitions, or forced cancellation of later bookings. The post-return late-return assessment is a separate append-only commercial authority; settlement and extensions still require separate contracts.
 
 GitHub Actions are not required or used.
