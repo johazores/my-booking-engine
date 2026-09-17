@@ -6,9 +6,11 @@ This is an inventory-integrity rule, not a late-fee or extension workflow. It do
 
 ## Time authority
 
-Overdue status is evaluated from PostgreSQL `clock_timestamp()` and the retained booking location timezone. The effective pickup event snapshots the post-reschedule dates and post-substitution physical unit. Pickup freezes cancellation, physical-unit replacement, and arbitrary date moves. The only supported post-pickup date mutation is the separate same-unit, current-start, later-end price-neutral custody extension; if one is applied, latest append-only reschedule evidence becomes the effective committed end used by custody reads and eventual return evidence.
+Overdue status is evaluated from PostgreSQL `clock_timestamp()` and the retained booking location timezone. The pickup event remains immutable historical custody evidence and keeps the effective dates that existed when handoff occurred. If a supported post-pickup extension is later applied, the latest append-only reschedule target end becomes the current committed end for overdue authority while the pickup snapshot remains unchanged.
 
-The application reconciliation helper bounds open-custody evidence to 1,000 rows per scoped decision and fails closed if that safety limit is exceeded. This avoids silently returning incomplete availability when a tenant has an unexpectedly large unresolved custody set.
+Pickup freezes cancellation, physical-unit replacement, and arbitrary date moves. The only supported post-pickup date mutation is the separate same-unit, current-start, later-end price-neutral custody extension; if one is applied, latest append-only reschedule evidence becomes the effective committed end used by custody reads and eventual return evidence.
+
+The application reconciliation helper bounds open-custody evidence to 1,000 rows per scoped decision and fails closed if that safety limit is exceeded. This avoids silently returning incomplete availability when a tenant has an unexpectedly large unresolved custody set. For each picked-up booking it reads the latest tenant-scoped reschedule end and falls back to the immutable pickup end only when no later date-change evidence exists. An effective end earlier than the pickup snapshot is treated as an integrity error because supported in-custody changes can only extend custody.
 
 ## Protected decision surfaces
 
@@ -28,7 +30,7 @@ Rental booking list and detail reads derive the same overdue-custody condition f
 
 The booking list marks affected rows as **Overdue custody**. Booking detail shows an alert and changes the custody badge to **OVERDUE CUSTODY** while still exposing the real `Record return` action to authorized staff. When the actor also has date-change authority, the detail may expose the separate `Extend rental` review path; overdue visibility itself does not create a new mutable booking status and does not bypass the server/database inventory guards.
 
-The booking list also provides an **Overdue only** operational queue. The queue is filtered in PostgreSQL before pagination rather than filtering an already paginated page in memory. Its count and page IDs use the same database observation time and the same confirmed + pickup + no-return + local exclusive-end rule as the row-level custody projection. Booking, location, pickup, and return predicates all repeat `organizationId`, and the final row read repeats tenant scope again before rendering. The returned page is then re-derived through the normal custody domain and fails closed if the SQL queue and retained evidence disagree or any selected ID cannot be re-read in the same snapshot. This keeps the queue useful for large tenants without turning a resource ID or fulfillment row into tenant authority.
+The booking list also provides an **Overdue only** operational queue. The queue is filtered in PostgreSQL before pagination rather than filtering an already paginated page in memory. Its count and page IDs use the same database observation time and the same confirmed + pickup + no-return + current effective local exclusive-end rule as the row-level custody projection. The SQL resolves that effective end from the latest tenant-scoped reschedule and falls back to the retained pickup end. Booking, location, pickup, return, and reschedule predicates all repeat `organizationId`, and the final row read repeats tenant scope again before rendering. The returned page is then re-derived through the normal custody domain and fails closed if the SQL queue and retained evidence disagree or any selected ID cannot be re-read in the same snapshot. This keeps the queue useful for large tenants without turning a resource ID or fulfillment row into tenant authority.
 
 The queue is read-only. It does not automatically extend a rental, assess a fee, or close custody. Staff use the authorized `Record return` action to append return evidence or, when the separate date-change contract is eligible, explicitly review and apply a supported custody extension.
 
@@ -40,7 +42,7 @@ See [rental-late-return-assessment.md](./rental-late-return-assessment.md).
 
 ## Database safety
 
-The migration adds a tenant-aware `sf_rental_unit_has_overdue_custody` predicate using pickup evidence, absence of return evidence, confirmed booking state, and the booking location timezone. Separate guards reject new/effective holds, allocation writes, and substitution targets that would use a unit with overdue open custody.
+The original overdue-custody migration added a tenant-aware `sf_rental_unit_has_overdue_custody` predicate using pickup evidence, absence of return evidence, confirmed booking state, and the booking location timezone. The custody-extension reconciliation migration replaces that database overdue predicate in place so it resolves the latest append-only reschedule target end before falling back to immutable pickup evidence. Existing hold, allocation, and substitution guards continue calling the same function and therefore inherit extension-aware custody authority without duplicating provider or commercial policy.
 
 Supported hold creation and hold-to-booking confirmation acquire the existing physical-unit advisory lock before their service-level custody recheck. Allocation and substitution database guards acquire the same unit-lock namespace before evaluating overdue custody, so reschedule/extension and replacement final writes also fail closed if a stale or bypassed application path reaches persistence. A custody extension excludes its own booking from overdue-conflict detection while retaining conflicts from any other booking that physically holds the unit.
 
@@ -55,8 +57,10 @@ When an early-return release is valid, SF keeps the committed custody dates unch
 ## Validation
 
 - `src/server/inventory/rental-custody-availability.test.ts` covers retained-location date authority and the exclusive-end overdue boundary.
+- `src/server/bookings/rental-booking-custody-read-domain.test.ts` covers extension-aware staff custody projection and rejects impossible effective ends earlier than retained pickup evidence.
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects inventory exclusion, write guards, current date-change semantics, and base staff visibility.
 - `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects the tenant-scoped pre-pagination staff queue, shared PostgreSQL observation time, final row re-scope, and deliberate read-only commercial boundary.
+- `scripts/rental-custody-extension-overdue-source-contract.test.mjs` protects application, staff-read, database, and documentation agreement on the latest effective custody end after extension.
 
 ## Deliberate boundaries
 

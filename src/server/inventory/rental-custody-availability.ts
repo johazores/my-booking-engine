@@ -80,6 +80,12 @@ export async function findOverdueRentalCustodyUnitIds(
       booking: {
         select: {
           location: { select: { timeZone: true } },
+          reschedules: {
+            where: { organizationId: input.organizationId },
+            orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: { targetEndsOn: true },
+          },
         },
       },
     },
@@ -93,9 +99,15 @@ export async function findOverdueRentalCustodyUnitIds(
 
   const overdue = new Set<string>();
   for (const event of events) {
+    const committedEndsOn = event.booking.reschedules[0]?.targetEndsOn ?? event.endsOn;
+    if (committedEndsOn.getTime() < event.endsOn.getTime()) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental custody effective end cannot predate retained pickup commitment.',
+      );
+    }
     if (rentalCustodyIsOverdue({
       observedAt: input.observedAt,
-      endsOn: event.endsOn,
+      endsOn: committedEndsOn,
       timeZone: event.booking.location.timeZone,
     })) {
       overdue.add(event.unitId);

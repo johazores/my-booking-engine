@@ -20,12 +20,18 @@ export function deriveRentalBookingCustodyReadState(input: Readonly<{
   bookingStatus: 'CONFIRMED' | 'CANCELLED';
   fulfillmentState: RentalBookingFulfillmentState;
   fulfillmentEvents: readonly RentalBookingCustodyReadEvent[];
+  committedEndsOn: Date;
   observedAt: Date;
   timeZone: string;
 }>): RentalBookingCustodyReadState {
   if (!(input.observedAt instanceof Date) || Number.isNaN(input.observedAt.getTime())) {
     throw new RentalBookingFulfillmentIntegrityError(
       'Rental custody read evidence has an invalid database observation timestamp.',
+    );
+  }
+  if (!(input.committedEndsOn instanceof Date) || Number.isNaN(input.committedEndsOn.getTime())) {
+    throw new RentalBookingFulfillmentIntegrityError(
+      'Rental custody read evidence has an invalid effective committed end date.',
     );
   }
 
@@ -56,14 +62,19 @@ export function deriveRentalBookingCustodyReadState(input: Readonly<{
       'Picked-up rental custody state is missing its retained pickup evidence.',
     );
   }
+  if (input.committedEndsOn.getTime() < pickup.endsOn.getTime()) {
+    throw new RentalBookingFulfillmentIntegrityError(
+      'Rental custody effective end cannot predate retained pickup commitment.',
+    );
+  }
 
   return Object.freeze({
     overdue: rentalCustodyIsOverdue({
       observedAt: input.observedAt,
-      endsOn: pickup.endsOn,
+      endsOn: input.committedEndsOn,
       timeZone: input.timeZone,
     }),
     observedAt: input.observedAt,
-    expectedReturnOn: pickup.endsOn,
+    expectedReturnOn: input.committedEndsOn,
   });
 }

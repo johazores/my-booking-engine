@@ -80,7 +80,17 @@ async function readOverdueRentalBookingCount(
      WHERE booking."organizationId" = ${input.organizationId}::uuid
        AND location."organizationId" = ${input.organizationId}::uuid
        AND booking."status" = 'CONFIRMED'
-       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= pickup."endsOn"
+       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= COALESCE(
+            (
+              SELECT reschedule."targetEndsOn"
+                FROM "rental_booking_reschedules" reschedule
+               WHERE reschedule."organizationId" = ${input.organizationId}::uuid
+                 AND reschedule."bookingId" = booking."id"
+               ORDER BY reschedule."appliedAt" DESC, reschedule."createdAt" DESC, reschedule."id" DESC
+               LIMIT 1
+            ),
+            pickup."endsOn"
+       )
        AND NOT EXISTS (
             SELECT 1
               FROM "rental_booking_fulfillment_events" returned
@@ -123,7 +133,17 @@ async function readOverdueRentalBookingPageIds(
      WHERE booking."organizationId" = ${input.organizationId}::uuid
        AND location."organizationId" = ${input.organizationId}::uuid
        AND booking."status" = 'CONFIRMED'
-       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= pickup."endsOn"
+       AND (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date >= COALESCE(
+            (
+              SELECT reschedule."targetEndsOn"
+                FROM "rental_booking_reschedules" reschedule
+               WHERE reschedule."organizationId" = ${input.organizationId}::uuid
+                 AND reschedule."bookingId" = booking."id"
+               ORDER BY reschedule."appliedAt" DESC, reschedule."createdAt" DESC, reschedule."id" DESC
+               LIMIT 1
+            ),
+            pickup."endsOn"
+       )
        AND NOT EXISTS (
             SELECT 1
               FROM "rental_booking_fulfillment_events" returned
@@ -309,11 +329,13 @@ export async function getRentalBooking(input: Readonly<{ organizationId: string;
 
     const reschedules = [...rescheduleHistory.rows].sort(compareAppliedHistory);
     const unitSubstitutions = [...substitutionHistory.rows].sort(compareAppliedHistory);
+    const latestReschedule = reschedules[reschedules.length - 1];
     const fulfillment = deriveRentalBookingFulfillmentState(fulfillmentEvents);
     const custody = deriveRentalBookingCustodyReadState({
       bookingStatus: booking.status,
       fulfillmentState: fulfillment.state,
       fulfillmentEvents,
+      committedEndsOn: latestReschedule?.targetEndsOn ?? booking.endsOn,
       observedAt,
       timeZone: booking.location.timeZone,
     });
@@ -431,6 +453,7 @@ export async function listRentalBookings(input: Readonly<{
           bookingStatus: booking.status,
           fulfillmentState: fulfillment.state,
           fulfillmentEvents: booking.fulfillmentEvents,
+          committedEndsOn: latestReschedule?.targetEndsOn ?? booking.endsOn,
           observedAt,
           timeZone: booking.location.timeZone,
         }),
