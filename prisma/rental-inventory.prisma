@@ -182,6 +182,7 @@ model RentalBooking {
   paymentTransactions RentalPaymentTransaction[]
   securityBondRequirement RentalSecurityBondRequirement?
   securityBondTransactions RentalSecurityBondTransaction[]
+  securityBondForfeiture RentalSecurityBondForfeiture?
   fulfillmentEvents RentalBookingFulfillmentEvent[]
   earlyReturnRelease RentalBookingEarlyReturnRelease?
   returnInspection RentalReturnInspection?

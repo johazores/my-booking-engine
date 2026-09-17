@@ -1,5 +1,6 @@
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readRentalDamageSettlement } from '@/server/payments/rental-damage-settlement-service.ts';
+import { readRentalSecurityBondForfeiture } from '@/server/payments/rental-security-bond-forfeiture-service.ts';
 
 const settlementLabels = {
   UNPAID: 'Unpaid',
@@ -24,8 +25,17 @@ export async function RentalDamageSettlementPanel({
   liableAmountMinor: bigint;
   canManage: boolean;
 }>) {
-  const result = await readRentalDamageSettlement({ organizationId, actorUserId, bookingId, damageCaseId });
+  const [result, bondDisposition] = await Promise.all([
+    readRentalDamageSettlement({ organizationId, actorUserId, bookingId, damageCaseId }),
+    readRentalSecurityBondForfeiture({ organizationId, actorUserId, bookingId }),
+  ]);
   const amount = `${currency} ${moneyMinorToMajorString(liableAmountMinor, currency)}`;
+  const forfeiture = bondDisposition.forfeiture?.liabilityDecisionId === result.liability.id
+    ? bondDisposition.forfeiture
+    : null;
+  if (forfeiture && result.transactions.length > 0) {
+    throw new Error('Rental damage liability cannot have both bond forfeiture and separate settlement evidence.');
+  }
 
   return <section className="sf-inventory-card" aria-labelledby="rental-damage-settlement-title">
     <div className="sf-inventory-card__heading">
@@ -33,7 +43,7 @@ export async function RentalDamageSettlementPanel({
         <p className="sf-eyebrow">Damage settlement</p>
         <h2 id="rental-damage-settlement-title">Customer damage payment</h2>
       </div>
-      <span>{settlementLabels[result.settlement.state]}</span>
+      <span>{forfeiture ? 'Settled by bond' : settlementLabels[result.settlement.state]}</span>
     </div>
 
     <ul className="sf-inventory-list">
@@ -41,6 +51,11 @@ export async function RentalDamageSettlementPanel({
         <strong>Liability authority {amount}</strong>
         <span>Settlement is separate from the immutable rental booking price and its payment history.</span>
       </div></div></li>
+      {forfeiture ? <li><div className="sf-inventory-list__primary"><div>
+        <strong>Security bond forfeiture {forfeiture.currency} {moneyMinorToMajorString(forfeiture.amountMinor, forfeiture.currency)}</strong>
+        <span>The exact retained liability was satisfied by explicit full-value security-bond forfeiture. Separate damage payment is blocked.</span>
+        <span>Recorded <time dateTime={forfeiture.createdAt.toISOString()}>{forfeiture.createdAt.toISOString()}</time></span>
+      </div></div></li> : null}
       {result.transactions.map((transaction) => <li key={transaction.id}><div className="sf-inventory-list__primary"><div>
         <strong>{transaction.kind === 'OFFLINE_PAYMENT' ? 'Offline payment' : 'Offline refund'} {transaction.currency} {moneyMinorToMajorString(transaction.amountMinor, transaction.currency)}</strong>
         <span>Manual reference {transaction.providerReference}</span>
@@ -49,7 +64,7 @@ export async function RentalDamageSettlementPanel({
       </div></div></li>)}
     </ul>
 
-    {canManage && result.settlement.state === 'UNPAID' ? <form
+    {canManage && !forfeiture && result.settlement.state === 'UNPAID' ? <form
       className="sf-form"
       method="post"
       action={`/api/inventory/rentals/bookings/${bookingId}/damage-case/${damageCaseId}/settlement/manual`}
@@ -64,7 +79,7 @@ export async function RentalDamageSettlementPanel({
       <button className="sf-button sf-button--primary" type="submit">Record damage payment</button>
     </form> : null}
 
-    {canManage && result.settlement.state === 'PAID' ? <form
+    {canManage && !forfeiture && result.settlement.state === 'PAID' ? <form
       className="sf-form"
       method="post"
       action={`/api/inventory/rentals/bookings/${bookingId}/damage-case/${damageCaseId}/settlement/refund`}
@@ -81,7 +96,7 @@ export async function RentalDamageSettlementPanel({
 
     {!canManage ? <p className="sf-field-hint">Your role can read retained damage settlement evidence but cannot record payment or refund evidence.</p> : null}
     <p className="sf-field-hint">
-      Security-bond authorization, capture, release, forfeiture, online checkout, split tenders, and partial damage settlement remain separate workflows and are not represented here.
+      Exact full-value security-bond forfeiture is represented as an alternative terminal settlement. Card/provider-backed damage collection, partial bond offsets, partial damage settlement, and split tenders remain separate workflows.
     </p>
   </section>;
 }

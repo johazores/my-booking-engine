@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type RentalSecurityBondState = 'REQUIRED' | 'COLLECTED' | 'RELEASED';
+export type RentalSecurityBondState = 'REQUIRED' | 'COLLECTED' | 'RELEASED' | 'FORFEITED';
 
 export type RentalSecurityBondTransactionEvidence = Readonly<{
   kind: 'OFFLINE_PAYMENT' | 'REFUND';
@@ -13,12 +13,20 @@ export type RentalSecurityBondTransactionEvidence = Readonly<{
   createdAt: Date;
 }>;
 
+export type RentalSecurityBondForfeitureEvidence = Readonly<{
+  liabilityDecisionId: string;
+  currency: string;
+  amountMinor: bigint;
+  createdAt: Date;
+}>;
+
 export type RentalSecurityBondSettlement = Readonly<
   | {
     reconciled: true;
     state: RentalSecurityBondState;
     collectedMinor: bigint;
     releasedMinor: bigint;
+    forfeitedMinor: bigint;
     netHeldMinor: bigint;
     sourceProviderReference: string | null;
   }
@@ -29,6 +37,7 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
   requiredAmountMinor: bigint;
   currency: string;
   transactions: readonly RentalSecurityBondTransactionEvidence[];
+  forfeiture?: RentalSecurityBondForfeitureEvidence | null;
 }>): RentalSecurityBondSettlement {
   if (input.requiredAmountMinor <= 0n) {
     return { reconciled: false, reason: 'Rental security bond requirement must be positive before settlement can be reconciled.' };
@@ -51,15 +60,25 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
     }
   }
 
+  const forfeiture = input.forfeiture ?? null;
+  if (forfeiture && (
+    !forfeiture.liabilityDecisionId
+    || forfeiture.currency !== input.currency
+    || forfeiture.amountMinor !== input.requiredAmountMinor
+  )) {
+    return { reconciled: false, reason: 'Security bond forfeiture does not match the retained full-value bond authority.' };
+  }
+
   const collection = collections[0] ?? null;
   const release = releases[0] ?? null;
   if (!collection) {
-    if (release) return { reconciled: false, reason: 'Security bond release has no retained collection source.' };
+    if (release || forfeiture) return { reconciled: false, reason: 'Security bond disposition has no retained collection source.' };
     return Object.freeze({
       reconciled: true as const,
       state: 'REQUIRED' as const,
       collectedMinor: 0n,
       releasedMinor: 0n,
+      forfeitedMinor: 0n,
       netHeldMinor: 0n,
       sourceProviderReference: null,
     });
@@ -67,12 +86,30 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
   if (collection.sourceProviderReference !== null) {
     return { reconciled: false, reason: 'Security bond collection cannot point at a release source.' };
   }
+  if (release && forfeiture) {
+    return { reconciled: false, reason: 'Security bond cannot be both released and forfeited.' };
+  }
+  if (forfeiture) {
+    if (forfeiture.createdAt.getTime() < collection.createdAt.getTime()) {
+      return { reconciled: false, reason: 'Security bond forfeiture cannot predate retained collection evidence.' };
+    }
+    return Object.freeze({
+      reconciled: true as const,
+      state: 'FORFEITED' as const,
+      collectedMinor: input.requiredAmountMinor,
+      releasedMinor: 0n,
+      forfeitedMinor: input.requiredAmountMinor,
+      netHeldMinor: 0n,
+      sourceProviderReference: collection.providerReference,
+    });
+  }
   if (!release) {
     return Object.freeze({
       reconciled: true as const,
       state: 'COLLECTED' as const,
       collectedMinor: input.requiredAmountMinor,
       releasedMinor: 0n,
+      forfeitedMinor: 0n,
       netHeldMinor: input.requiredAmountMinor,
       sourceProviderReference: collection.providerReference,
     });
@@ -89,6 +126,7 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
     state: 'RELEASED' as const,
     collectedMinor: input.requiredAmountMinor,
     releasedMinor: input.requiredAmountMinor,
+    forfeitedMinor: 0n,
     netHeldMinor: 0n,
     sourceProviderReference: collection.providerReference,
   });
@@ -114,6 +152,16 @@ export function buildRentalSecurityBondTransactionIdempotencyKey(input: Readonly
     .update(`${input.kind}\u0000${input.bondId}\u0000${input.reference}`, 'utf8')
     .digest('hex');
   return `rental-bond:${input.kind}:${digest.slice(0, 48)}`;
+}
+
+export function buildRentalSecurityBondForfeitureIdempotencyKey(input: Readonly<{
+  bondId: string;
+  liabilityDecisionId: string;
+}>) {
+  const digest = createHash('sha256')
+    .update(`${input.bondId}\u0000${input.liabilityDecisionId}`, 'utf8')
+    .digest('hex');
+  return `rental-bond:forfeiture:${digest.slice(0, 48)}`;
 }
 
 export function buildRentalSecurityBondRequestFingerprint(input: Readonly<{

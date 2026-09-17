@@ -10,21 +10,18 @@ const component = readFileSync(new URL('../src/components/rental-damage-liabilit
 const route = readFileSync(new URL('../app/api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/liability/route.ts', import.meta.url), 'utf8');
 const docs = readFileSync(new URL('../docs/rental-damage-liability.md', import.meta.url), 'utf8');
 
-
 test('liability persistence is tenant-owned, unique, and linked to retained damage authority', () => {
   assert.match(schema, /model RentalDamageLiabilityDecision/);
   assert.match(schema, /damageCase\s+RentalDamageCase\s+@relation\(fields: \[damageCaseId, organizationId\]/);
   assert.match(schema, /@@unique\(\[organizationId, bookingId\]/);
   assert.match(schema, /@@unique\(\[organizationId, damageCaseId\]/);
   assert.match(schema, /@@unique\(\[organizationId, idempotencyKey\]/);
+  assert.match(schema, /securityBondForfeiture\s+RentalSecurityBondForfeiture\?/);
   assert.match(damageSchema, /liabilityDecision\s+RentalDamageLiabilityDecision\?/);
 });
 
-
 test('server authority requires booking and payment permissions with scoped serialization', () => {
-  for (const permission of ['booking:read', 'payment:read', 'booking:manage', 'payment:manage']) {
-    assert.match(service, new RegExp(`permission: '${permission.replace(':', '\\:')}'`));
-  }
+  for (const permission of ['booking:read', 'payment:read', 'booking:manage', 'payment:manage']) assert.match(service, new RegExp(`permission: '${permission.replace(':', '\\:')}'`));
   assert.match(service, /rentalUnitLockKey\(input\.organizationId, located\.unitId\)/);
   assert.match(service, /rental-damage-liability:idempotency:/);
   assert.match(service, /organizationId: input\.organizationId/);
@@ -33,7 +30,6 @@ test('server authority requires booking and payment permissions with scoped seri
   assert.match(service, /damageCase\.status !== 'CLOSED'/);
   assert.match(service, /damageCase\.estimatedRepairCostMinor === null/);
 });
-
 
 test('database independently enforces closed source authority, exact amount shape, append-only evidence, and wall-clock time', () => {
   assert.match(migration, /'rental-damage-liability:' \|\| NEW\."damageCaseId"::text/);
@@ -46,7 +42,6 @@ test('database independently enforces closed source authority, exact amount shap
   assert.match(migration, /BEFORE INSERT OR UPDATE OR DELETE/);
 });
 
-
 test('real staff UI is wired to the server decision boundary without fake collection controls', () => {
   assert.match(component, /Customer damage liability/);
   assert.match(component, /Record liability decision/);
@@ -58,10 +53,10 @@ test('real staff UI is wired to the server decision boundary without fake collec
   assert.doesNotMatch(component, /Charge customer|Capture payment|Collect bond/);
 });
 
-
-test('documentation keeps liability authority separate from booking-price settlement and security bonds', () => {
+test('documentation keeps liability authority separate while allowing explicit exact-match bond settlement', () => {
   assert.match(docs, /decision itself does not collect money/);
   assert.match(docs, /Booking-price settlement stays in `RentalPaymentTransaction`/);
-  assert.match(docs, /post-return customer-damage settlement stays in `RentalDamageSettlementTransaction`/);
-  assert.match(docs, /Security-bond authorization\/capture\/release\/forfeiture/);
+  assert.match(docs, /explicit exact-match `RentalSecurityBondForfeiture` path/);
+  assert.match(docs, /Bond forfeiture is not automatic/);
+  assert.match(docs, /same liability cannot be collected twice/);
 });

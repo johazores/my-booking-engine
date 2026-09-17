@@ -1,75 +1,70 @@
 # Rental security bond foundation
 
-SF supports an explicit rental security-bond contract that stays separate from the immutable rental booking price and from post-return damage-liability settlement.
+SF supports an explicit rental security-bond contract that stays separate from the immutable rental booking price and from post-return customer-damage settlement.
 
-The enabled scope is deliberately narrow and real: authorized staff may establish one immutable positive bond requirement before custody begins, record one full-value manual/offline collection after money was actually received outside SF, and record one full-value manual/offline release after that money was actually returned outside SF. SF does not pretend that these evidence actions move money.
+Authorized staff may establish one immutable positive bond requirement before custody begins, record one full-value manual/offline collection after money was actually received outside SF, and choose one terminal disposition: a full manual/offline release after the money was actually returned outside SF, or an explicit exact-full-value forfeiture against the same booking's retained customer damage liability. SF does not pretend that these evidence actions move money.
 
 ## Authority and tenant scope
 
 Reads require both `booking:read` and `payment:read`. Writes require both `booking:manage` and `payment:manage`. Organization and actor identity come only from authenticated server context.
 
-Every service query repeats `organizationId` plus booking/bond identity. The requirement amount is parsed against the retained booking currency; browser input cannot choose tenant, currency, actor, idempotency, provider, timestamps, or settlement amount.
+Every service query repeats `organizationId` plus booking/bond identity. The requirement amount is parsed against the retained booking currency; browser input cannot choose tenant, currency, actor, idempotency, provider, timestamps, liability identity, or settlement amount.
 
-Requirement, collection, and release writes serialize under the existing tenant/booking advisory lock plus bond-specific idempotency locks. Expected serialization/constraint races use the bounded rental write retry contract.
+Requirement, collection, release, and forfeiture writes serialize through tenant-owned advisory locks. Forfeiture additionally shares the physical-unit lock used by the damage workflow. Expected serialization/constraint races use the bounded rental write retry contract.
 
 ## Persisted evidence
 
-`RentalSecurityBondRequirement` retains one immutable requirement per tenant booking:
+`RentalSecurityBondRequirement` retains one immutable requirement per tenant booking. `RentalSecurityBondTransaction` retains append-only real manual/offline collection and release evidence with deterministic idempotency, request fingerprints, source attribution, exact money, and PostgreSQL-authored chronology.
 
-- tenant and booking identity;
-- server-derived idempotency key;
-- booking currency;
-- positive minor-unit amount;
-- PostgreSQL-authored creation time.
+`RentalSecurityBondForfeiture` is separate append-only accounting authority. It binds the tenant booking, bond, exact successful collection transaction, exact `CUSTOMER_LIABLE` damage decision, deterministic server-derived idempotency, exact bond currency/amount, actor, and PostgreSQL-authored timestamp. Composite foreign keys keep every retained relationship inside the tenant-owned booking and source evidence.
 
-`RentalSecurityBondTransaction` is append-only evidence for the real manual/offline collection and release. It retains deterministic idempotency, a SHA-256 request fingerprint, provider/reference evidence, source collection reference for release, exact currency/amount, and PostgreSQL-authored chronology.
-
-Both retained models are now also linked to `RentalBooking` by composite `(bookingId, organizationId)` foreign keys with `ON DELETE RESTRICT`. The existing PostgreSQL authority triggers still validate tenant booking state, currency, custody, settlement source, and chronology at write time; the foreign keys add independent relational protection so bond evidence cannot outlive or point outside the tenant-owned booking even if application code is bypassed.
-
-The derived state is one of:
+The derived bond states are:
 
 - `REQUIRED` — a bond is required but no collection evidence exists;
-- `COLLECTED` — the full required bond is retained as collected and not released;
-- `RELEASED` — the full collected bond has matching release evidence.
+- `COLLECTED` — the exact bond is retained as collected and has no terminal disposition;
+- `RELEASED` — the full collected bond has matching release evidence;
+- `FORFEITED` — the full collected bond has explicit exact-match damage-liability forfeiture evidence.
 
-Any partial amount, unsupported provider/kind, duplicate collection/release, mismatched currency, bad request fingerprint, missing source attribution, or release chronology failure fails closed.
+Release and forfeiture are mutually exclusive terminal dispositions. Partial amounts, unsupported transaction evidence, duplicate dispositions, currency mismatch, bad source attribution, invalid chronology, or mixed release/forfeiture evidence fail closed.
 
 ## Pickup and cancellation guards
 
-A booking with no retained security-bond requirement preserves the existing pickup behavior.
+A booking with no retained security-bond requirement preserves the existing pickup behavior. Once a requirement exists, PostgreSQL independently blocks `PICKED_UP` evidence unless the exact full bond is actively `COLLECTED`.
 
-Once a requirement exists, PostgreSQL independently blocks `PICKED_UP` evidence unless the exact full bond is actively `COLLECTED`. A merely required or already released bond cannot satisfy pickup authority.
+Cancellation remains blocked while a collected bond has no terminal disposition. A full release or a valid explicit forfeiture resolves that held-bond condition; neither outcome silently changes booking price evidence.
 
-Cancellation remains allowed when a requirement was never collected or after it was released. PostgreSQL independently blocks `CONFIRMED -> CANCELLED` while a collected bond remains unreleased. This prevents inventory release while SF still retains evidence that customer bond money is being held.
+## Exact damage forfeiture
+
+Forfeiture is deliberately narrow. It is available only after retained return custody evidence and a `CUSTOMER_LIABLE` decision for the same tenant booking. The liability currency and amount must exactly equal the collected bond requirement.
+
+SF does not calculate a remainder, partially consume the bond, or partially satisfy customer damage liability. If the bond and liability differ, the forfeiture action is unavailable until a future partial-offset accounting contract exists.
+
+The database independently serializes the liability settlement boundary and refuses forfeiture if any separate damage payment/refund evidence already exists. The inverse is also guarded: after forfeiture, a damage settlement transaction for that liability is rejected. The same terminal-disposition lock prevents a bond release and forfeiture from racing each other.
 
 ## Manual reference isolation
 
-Manual security-bond collection/release references share the same tenant-wide rental reference namespace as booking-price settlement and damage-liability settlement. The database cross-scope guard takes one advisory lock keyed by tenant + manual reference and rejects the same real-world reference if it has already been retained in any of the three ledgers.
+Manual security-bond collection/release references share the same tenant-wide rental reference namespace as booking-price settlement and damage-liability settlement. The database cross-scope guard takes one advisory lock keyed by tenant + manual reference and rejects reuse across those ledgers, including concurrent inserts.
 
-This prevents one bank/cash/accounting reference from being presented as evidence for multiple commercial purposes, including concurrent inserts.
+Forfeiture has no provider reference because it is internal accounting authority over money already retained as a collected bond; it does not fabricate a new provider transaction.
 
 ## Staff workflow
 
-The rental booking payment panel links to the dedicated security-bond workspace. The workspace exposes only actions that map to persisted production behavior:
+The dedicated security-bond workspace exposes only actions backed by persisted production behavior: require a bond, record a real full manual/offline collection, release the full bond, or—when exact retained damage authority exists—type `FORFEIT` and explicitly apply the full collected bond to that liability.
 
-1. optionally require a positive bond before custody;
-2. record a real full manual/offline collection;
-3. after collection, record a real full manual/offline release.
-
-Each action uses authenticated same-origin form handling and returns to the persisted bond state. Collection and release routes use the shared inventory form parser and convert malformed form bodies into the existing validation response instead of allowing request parsing failures to escape as generic server errors. No placeholder action is shown for unsupported behavior.
+The destructive action is shown only when the exact-match contract is eligible. After forfeiture, the retained evidence is read-only, separate damage collection is suppressed, and bond release is unavailable.
 
 ## Deliberate boundaries
 
-This foundation does not implement card authorization or capture, online bond checkout, partial bond collection/release, split tenders, bond forfeiture, automatic damage offset, insurance claims, chargebacks, or customer self-service.
+This contract does not implement card authorization or capture, online bond checkout, partial bond collection/release, partial damage offset, split tenders, excess-bond remainder handling, undersecured liability allocation, insurance claims, chargebacks, provider-backed bond settlement, or customer self-service.
 
-In particular, a `CUSTOMER_LIABLE` damage decision and its separate damage-settlement ledger do not automatically consume or forfeit a collected security bond. Forfeiture/offset needs its own explicit authority, accounting semantics, double-collection protection, and audit contract before it can be production-safe.
+Forfeiture is never automatic. A damage decision alone cannot consume the bond; an authorized staff member must explicitly confirm the separate append-only forfeiture action.
 
 ## Validation
 
-- `src/server/payments/rental-security-bond-domain.test.ts` covers the required/collected/released state machine, fail-closed reconciliation, and deterministic server idempotency.
-- `scripts/rental-security-bond-source-contract.test.mjs` protects tenant permissions, server-derived authority, append-only database evidence, composite booking foreign keys, pickup/cancellation guards, cross-ledger reference isolation, safe collection/release form parsing, real staff routes, guarded database-test registration, and the no-forfeiture/no-card boundary.
-- `src/server/payments/rental-security-bond.integration.ts` is registered in the disposable-PostgreSQL runner and exercises tenant isolation, requirement idempotency, append-only evidence, pickup blocking before collection, collection replay, cross-ledger manual-reference isolation, cancellation blocking while bond money is held, release replay, and cancellation after full release.
+- `src/server/payments/rental-security-bond-domain.test.ts` covers required/collected/released/forfeited reconciliation, mutually exclusive dispositions, chronology, and deterministic idempotency.
+- `scripts/rental-security-bond-source-contract.test.mjs` protects the existing requirement/collection/release foundation.
+- `scripts/rental-security-bond-forfeiture-source-contract.test.mjs` protects exact-match forfeiture persistence, tenant/permission authority, server-derived idempotency, database serialization against release and separate damage settlement, confirmation UI, and the partial-offset boundary.
+- `src/server/payments/rental-security-bond.integration.ts` remains the guarded disposable-PostgreSQL coverage for the base bond lifecycle. The new migration guards must also execute through `npm run test:database` before live database verification is claimed.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
-- Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; this migration's foreign keys and triggers must be exercised there before claiming live database verification.
 
 GitHub Actions are not required or used.

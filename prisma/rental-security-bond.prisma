@@ -9,6 +9,7 @@ model RentalSecurityBondRequirement {
 
   booking      RentalBooking                   @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_requirements_booking_fkey")
   transactions RentalSecurityBondTransaction[]
+  forfeiture   RentalSecurityBondForfeiture?
 
   @@unique([id, organizationId], map: "rental_security_bond_requirements_id_org_key")
   @@unique([organizationId, bookingId], map: "rental_security_bond_requirements_org_booking_key")
@@ -33,8 +34,9 @@ model RentalSecurityBondTransaction {
   amountMinor             BigInt
   createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
 
-  booking RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_booking_fkey")
-  bond    RentalSecurityBondRequirement @relation(fields: [bondId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_bond_fkey")
+  booking                RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_booking_fkey")
+  bond                   RentalSecurityBondRequirement @relation(fields: [bondId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_bond_fkey")
+  forfeitureAsCollection RentalSecurityBondForfeiture? @relation("RentalSecurityBondForfeitureCollection")
 
   @@unique([id, organizationId], map: "rental_security_bond_transactions_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "rental_security_bond_transactions_org_idempotency_key")
@@ -42,4 +44,32 @@ model RentalSecurityBondTransaction {
   @@unique([organizationId, bondId, kind], map: "rental_security_bond_transactions_org_bond_kind_key")
   @@index([organizationId, bookingId, createdAt], map: "rental_security_bond_transactions_booking_created_idx")
   @@map("rental_security_bond_transactions")
+}
+
+model RentalSecurityBondForfeiture {
+  id                      String   @id @default(uuid()) @db.Uuid
+  organizationId          String   @db.Uuid
+  bookingId               String   @db.Uuid
+  bondId                  String   @db.Uuid
+  liabilityDecisionId     String   @db.Uuid
+  collectionTransactionId String   @db.Uuid
+  idempotencyKey          String   @db.VarChar(120)
+  currency                String   @db.Char(3)
+  amountMinor             BigInt
+  forfeitedByUserId       String   @db.Uuid
+  createdAt               DateTime @default(now()) @db.Timestamptz(6)
+
+  booking               RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_forfeitures_booking_fkey")
+  bond                  RentalSecurityBondRequirement @relation(fields: [bondId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_forfeitures_bond_fkey")
+  liabilityDecision     RentalDamageLiabilityDecision @relation(fields: [liabilityDecisionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_forfeitures_liability_fkey")
+  collectionTransaction RentalSecurityBondTransaction @relation("RentalSecurityBondForfeitureCollection", fields: [collectionTransactionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_forfeitures_collection_fkey")
+
+  @@unique([id, organizationId], map: "rental_security_bond_forfeitures_id_org_key")
+  @@unique([organizationId, bookingId], map: "rental_security_bond_forfeitures_org_booking_key")
+  @@unique([organizationId, bondId], map: "rental_security_bond_forfeitures_org_bond_key")
+  @@unique([organizationId, liabilityDecisionId], map: "rental_security_bond_forfeitures_org_liability_key")
+  @@unique([organizationId, collectionTransactionId], map: "rental_security_bond_forfeitures_org_collection_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_security_bond_forfeitures_org_idempotency_key")
+  @@index([organizationId, createdAt], map: "rental_security_bond_forfeitures_org_created_idx")
+  @@map("rental_security_bond_forfeitures")
 }

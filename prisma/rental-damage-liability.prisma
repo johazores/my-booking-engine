@@ -20,6 +20,7 @@ model RentalDamageLiabilityDecision {
 
   damageCase             RentalDamageCase                    @relation(fields: [damageCaseId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_liability_decisions_damage_case_fkey")
   settlementTransactions RentalDamageSettlementTransaction[]
+  securityBondForfeiture RentalSecurityBondForfeiture?
 
   @@unique([id, organizationId], map: "rental_damage_liability_decisions_id_org_key")
   @@unique([organizationId, bookingId], map: "rental_damage_liability_decisions_org_booking_key")

@@ -69,11 +69,12 @@ test('manual references are isolated across booking, damage, and security-bond l
   assert.match(service, /assertManualReferenceUnused/);
 });
 
-test('staff surface exposes only real requirement, collection, and release actions with safe form parsing', () => {
+test('staff surface exposes only persisted requirement, collection, release, and explicit forfeiture actions', () => {
   assert.match(paymentPanel, /security-bond/);
   assert.match(page, /Require security bond/);
   assert.match(page, /Record bond collection/);
   assert.match(page, /Record bond release/);
+  assert.match(page, /Forfeit bond against damage liability/);
   assert.match(requirementRoute, /createRentalSecurityBondRequirement/);
   assert.match(collectionRoute, /recordRentalSecurityBondManualCollection/);
   assert.match(releaseRoute, /recordRentalSecurityBondManualRelease/);
@@ -83,8 +84,8 @@ test('staff surface exposes only real requirement, collection, and release actio
     assert.doesNotMatch(route, /request\.formData\(\)/);
   }
   assert.match(docs, /does not implement card authorization or capture/i);
-  assert.match(docs, /do not automatically consume or forfeit/i);
-  assert.doesNotMatch(page, /Forfeit bond|Capture bond|Authorize card/);
+  assert.match(docs, /Forfeiture is never automatic/i);
+  assert.doesNotMatch(page, /Capture bond|Authorize card/);
 });
 
 test('guarded PostgreSQL coverage is registered for tenant scope, custody, cancellation, append-only evidence, and reference isolation', () => {

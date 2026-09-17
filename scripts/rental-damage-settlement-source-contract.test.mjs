@@ -10,6 +10,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 const schema = read('prisma/rental-damage-settlement.prisma');
 const migration = read('prisma/migrations/20260917013000_rental_damage_settlement/migration.sql');
 const referenceIsolationMigration = read('prisma/migrations/20260917014500_rental_manual_reference_cross_scope/migration.sql');
+const forfeitureMigration = read('prisma/migrations/20260917060000_rental_security_bond_forfeiture/migration.sql');
 const service = read('src/server/payments/rental-damage-settlement-service.ts');
 const domain = read('src/server/payments/rental-damage-settlement-domain.ts');
 const panel = read('src/components/rental-damage-settlement-panel.tsx');
@@ -30,9 +31,7 @@ test('damage settlement persistence is tenant-owned, append-only, and tied to li
 });
 
 test('damage settlement requires dual booking/payment authority and tenant-scoped retained evidence', () => {
-  for (const permission of ['booking:read', 'payment:read', 'booking:manage', 'payment:manage']) {
-    assert.match(service, new RegExp(`permission: '${permission}'`));
-  }
+  for (const permission of ['booking:read', 'payment:read', 'booking:manage', 'payment:manage']) assert.match(service, new RegExp(`permission: '${permission}'`));
   assert.match(service, /organizationId: input\.organizationId/);
   assert.match(service, /outcome: 'CUSTOMER_LIABLE'/);
   assert.match(service, /rentalUnitLockKey/);
@@ -54,7 +53,16 @@ test('manual provider settlement is full-value, source-attributed, and request-b
   assert.match(referenceIsolationMigration, /pg_advisory_xact_lock/);
 });
 
-test('staff UI and routes expose real offline evidence actions without pretending to move money', () => {
+test('security-bond forfeiture is an alternative exact settlement and cannot double-collect the liability', () => {
+  assert.match(forfeitureMigration, /sf:rental-damage-liability-settlement:/);
+  assert.match(forfeitureMigration, /rental_damage_settlement_transactions_bond_forfeiture_guard/);
+  assert.match(forfeitureMigration, /customer damage liability is already settled by security bond forfeiture/);
+  assert.match(panel, /Settled by bond/);
+  assert.match(panel, /!forfeiture && result\.settlement\.state === 'UNPAID'/);
+  assert.match(docs, /Partial bond offsets are intentionally unsupported/);
+});
+
+test('staff UI and routes expose real evidence actions without pretending to move money', () => {
   assert.match(liabilityPanel, /RentalDamageSettlementPanel/);
   assert.match(damageCasePanel, /organizationId=\{organizationId\}/);
   assert.match(damageCasePanel, /actorUserId=\{actorUserId\}/);
@@ -64,6 +72,6 @@ test('staff UI and routes expose real offline evidence actions without pretendin
   assert.match(manualRoute, /recordRentalDamageManualOfflinePayment/);
   assert.match(refundRoute, /recordRentalDamageManualOfflineRefund/);
   assert.match(docs, /separate from the rental booking price/);
-  assert.match(docs, /security-bond authorization\/capture\/release\/forfeiture/);
-  assert.match(docs, /from being claimed by both booking-price settlement and damage-liability settlement/);
+  assert.match(docs, /Security-bond forfeiture alternative/);
+  assert.match(docs, /manual\/offline settlement evidence/i);
 });
