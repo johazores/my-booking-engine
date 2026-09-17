@@ -27,7 +27,7 @@ Every write stores a versioned SHA-256 request fingerprint binding tenant, booki
 
 PostgreSQL independently requires successful manual payment/refund evidence, the operation-specific idempotency namespace, a lowercase 64-hex request fingerprint, exact liability amount/currency, and the same tenant booking/damage/liability chain. Refunds must reference the retained successful payment and cannot predate it.
 
-The database authors `createdAt` with `clock_timestamp()` and rejects update/delete attempts. Unique tenant/liability/kind evidence prevents a second payment or refund from being added to the narrow contract.
+The database authors `createdAt` with `clock_timestamp()` and rejects update/delete attempts. Unique tenant/liability/kind evidence prevents a second payment or refund from being added to the narrow contract. A shared PostgreSQL advisory-lock guard also prevents the same tenant manual provider reference from being claimed by both booking-price settlement and damage-liability settlement, including concurrent cross-ledger inserts.
 
 ## Staff workflow
 

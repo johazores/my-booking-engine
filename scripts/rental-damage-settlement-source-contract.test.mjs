@@ -9,6 +9,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const schema = read('prisma/rental-damage-settlement.prisma');
 const migration = read('prisma/migrations/20260917013000_rental_damage_settlement/migration.sql');
+const referenceIsolationMigration = read('prisma/migrations/20260917014500_rental_manual_reference_cross_scope/migration.sql');
 const service = read('src/server/payments/rental-damage-settlement-service.ts');
 const domain = read('src/server/payments/rental-damage-settlement-domain.ts');
 const panel = read('components/rental-damage-settlement-panel.tsx');
@@ -47,6 +48,10 @@ test('manual provider settlement is full-value, source-attributed, and request-b
   assert.match(migration, /\^rental-damage:manual-payment:\[a-f0-9\]\{48\}\$/);
   assert.match(migration, /\^rental-damage:manual-refund:\[a-f0-9\]\{48\}\$/);
   assert.match(migration, /matching retained payment evidence/);
+  assert.match(referenceIsolationMigration, /sf:rental-manual-reference:/);
+  assert.match(referenceIsolationMigration, /rental_payment_transactions_cross_scope_reference_guard/);
+  assert.match(referenceIsolationMigration, /rental_damage_settlement_transactions_cross_scope_reference_guard/);
+  assert.match(referenceIsolationMigration, /pg_advisory_xact_lock/);
 });
 
 test('staff UI and routes expose real offline evidence actions without pretending to move money', () => {
@@ -60,4 +65,5 @@ test('staff UI and routes expose real offline evidence actions without pretendin
   assert.match(refundRoute, /recordRentalDamageManualOfflineRefund/);
   assert.match(docs, /separate from the rental booking price/);
   assert.match(docs, /security-bond authorization\/capture\/release\/forfeiture/);
+  assert.match(docs, /from being claimed by both booking-price settlement and damage-liability settlement/);
 });
