@@ -20,7 +20,7 @@ const page = fs.readFileSync(
   'utf8',
 );
 const panel = fs.readFileSync(
-  'components/rental-return-inspection-panel.tsx',
+  'src/components/rental-return-inspection-panel.tsx',
   'utf8',
 );
 const docs = fs.readFileSync('docs/rental-return-inspection.md', 'utf8');

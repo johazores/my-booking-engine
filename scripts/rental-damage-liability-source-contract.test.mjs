@@ -6,7 +6,7 @@ const schema = readFileSync(new URL('../prisma/rental-damage-liability.prisma', 
 const damageSchema = readFileSync(new URL('../prisma/rental-damage-case.prisma', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../prisma/migrations/20260917005000_rental_damage_liability_decisions/migration.sql', import.meta.url), 'utf8');
 const service = readFileSync(new URL('../src/server/bookings/rental-damage-liability-service.ts', import.meta.url), 'utf8');
-const component = readFileSync(new URL('../components/rental-damage-liability-panel.tsx', import.meta.url), 'utf8');
+const component = readFileSync(new URL('../src/components/rental-damage-liability-panel.tsx', import.meta.url), 'utf8');
 const route = readFileSync(new URL('../app/api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/liability/route.ts', import.meta.url), 'utf8');
 const docs = readFileSync(new URL('../docs/rental-damage-liability.md', import.meta.url), 'utf8');
 
