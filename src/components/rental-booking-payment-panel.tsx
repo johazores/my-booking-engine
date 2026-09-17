@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import type { RentalPaymentSettlement } from '@/server/payments/rental-payment-domain.ts';
 
@@ -61,7 +63,10 @@ export function RentalBookingPaymentPanel({
       <button className="sf-button sf-button--secondary" type="submit">Record remaining refund</button>
     </form> : null}
 
+    <p>
+      <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/security-bond`}>Security bond</Link>
+    </p>
     {!canManage ? <p className="sf-field-hint">Your organization role can view rental payment evidence but cannot record payments or refunds.</p> : null}
-    <p className="sf-field-hint">This foundation supports staff-recorded manual/offline full payment and refund evidence only. It does not implement deposits, online checkout, Stripe rental settlement, chargebacks, fees, or customer self-service.</p>
+    <p className="sf-field-hint">Booking-price settlement supports staff-recorded manual/offline full payment and refund evidence only. A real manual/offline security bond requirement, collection, and release is managed separately. Online checkout, card authorization/capture, bond forfeiture, chargebacks, fees, and customer self-service are not enabled.</p>
   </section>;
 }
