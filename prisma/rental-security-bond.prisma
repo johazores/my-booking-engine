@@ -7,6 +7,7 @@ model RentalSecurityBondRequirement {
   amountMinor    BigInt
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
+  booking      RentalBooking                   @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_requirements_booking_fkey")
   transactions RentalSecurityBondTransaction[]
 
   @@unique([id, organizationId], map: "rental_security_bond_requirements_id_org_key")
@@ -32,7 +33,8 @@ model RentalSecurityBondTransaction {
   amountMinor             BigInt
   createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
 
-  bond RentalSecurityBondRequirement @relation(fields: [bondId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_bond_fkey")
+  booking RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_booking_fkey")
+  bond    RentalSecurityBondRequirement @relation(fields: [bondId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_security_bond_transactions_bond_fkey")
 
   @@unique([id, organizationId], map: "rental_security_bond_transactions_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "rental_security_bond_transactions_org_idempotency_key")

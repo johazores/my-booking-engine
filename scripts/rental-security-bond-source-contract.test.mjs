@@ -8,7 +8,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const schema = read('prisma/rental-security-bond.prisma');
+const rentalSchema = read('prisma/rental-inventory.prisma');
 const migration = read('prisma/migrations/20260917030000_rental_security_bond_foundation/migration.sql');
+const integrityMigration = read('prisma/migrations/20260917033000_rental_security_bond_booking_integrity/migration.sql');
 const service = read('src/server/payments/rental-security-bond-service.ts');
 const domain = read('src/server/payments/rental-security-bond-domain.ts');
 const page = read('app/inventory/rentals/bookings/[booking-id]/security-bond/page.tsx');
@@ -20,11 +22,19 @@ const docs = read('docs/rental-security-bond.md');
 const databaseRunner = read('scripts/run-database-tests.mjs');
 const integration = read('src/server/payments/rental-security-bond.integration.ts');
 
-test('security bond persistence is tenant-owned, unique, append-only, and amount-bound', () => {
+test('security bond persistence is tenant-owned, booking-bound, unique, append-only, and amount-bound', () => {
   assert.match(schema, /model RentalSecurityBondRequirement/);
   assert.match(schema, /model RentalSecurityBondTransaction/);
+  assert.match(schema, /booking\s+RentalBooking\s+@relation\(fields: \[bookingId, organizationId\]/);
+  assert.match(schema, /rental_security_bond_requirements_booking_fkey/);
+  assert.match(schema, /rental_security_bond_transactions_booking_fkey/);
+  assert.match(rentalSchema, /securityBondRequirement\s+RentalSecurityBondRequirement\?/);
+  assert.match(rentalSchema, /securityBondTransactions\s+RentalSecurityBondTransaction\[\]/);
   assert.match(schema, /@@unique\(\[organizationId, bookingId\]/);
   assert.match(schema, /@@unique\(\[organizationId, bondId, kind\]/);
+  assert.match(integrityMigration, /FOREIGN KEY \("bookingId", "organizationId"\)/);
+  assert.match(integrityMigration, /REFERENCES "rental_bookings"\("id", "organizationId"\)/);
+  assert.match(integrityMigration, /ON DELETE RESTRICT ON UPDATE CASCADE/);
   assert.match(migration, /rental security bond requirements are append-only/);
   assert.match(migration, /rental security bond transactions are append-only/);
   assert.match(migration, /transaction must match retained requirement exactly/);
@@ -59,7 +69,7 @@ test('manual references are isolated across booking, damage, and security-bond l
   assert.match(service, /assertManualReferenceUnused/);
 });
 
-test('staff surface exposes only real requirement, collection, and release actions', () => {
+test('staff surface exposes only real requirement, collection, and release actions with safe form parsing', () => {
   assert.match(paymentPanel, /security-bond/);
   assert.match(page, /Require security bond/);
   assert.match(page, /Record bond collection/);
@@ -67,11 +77,15 @@ test('staff surface exposes only real requirement, collection, and release actio
   assert.match(requirementRoute, /createRentalSecurityBondRequirement/);
   assert.match(collectionRoute, /recordRentalSecurityBondManualCollection/);
   assert.match(releaseRoute, /recordRentalSecurityBondManualRelease/);
+  for (const route of [collectionRoute, releaseRoute]) {
+    assert.match(route, /readInventoryFormData\(request\)/);
+    assert.match(route, /formField\(formData, 'reference'\)/);
+    assert.doesNotMatch(route, /request\.formData\(\)/);
+  }
   assert.match(docs, /does not implement card authorization or capture/i);
   assert.match(docs, /do not automatically consume or forfeit/i);
   assert.doesNotMatch(page, /Forfeit bond|Capture bond|Authorize card/);
 });
-
 
 test('guarded PostgreSQL coverage is registered for tenant scope, custody, cancellation, append-only evidence, and reference isolation', () => {
   assert.match(databaseRunner, /src\/server\/payments\/rental-security-bond\.integration\.ts/);

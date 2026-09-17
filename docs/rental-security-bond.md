@@ -24,6 +24,8 @@ Requirement, collection, and release writes serialize under the existing tenant/
 
 `RentalSecurityBondTransaction` is append-only evidence for the real manual/offline collection and release. It retains deterministic idempotency, a SHA-256 request fingerprint, provider/reference evidence, source collection reference for release, exact currency/amount, and PostgreSQL-authored chronology.
 
+Both retained models are now also linked to `RentalBooking` by composite `(bookingId, organizationId)` foreign keys with `ON DELETE RESTRICT`. The existing PostgreSQL authority triggers still validate tenant booking state, currency, custody, settlement source, and chronology at write time; the foreign keys add independent relational protection so bond evidence cannot outlive or point outside the tenant-owned booking even if application code is bypassed.
+
 The derived state is one of:
 
 - `REQUIRED` — a bond is required but no collection evidence exists;
@@ -54,7 +56,7 @@ The rental booking payment panel links to the dedicated security-bond workspace.
 2. record a real full manual/offline collection;
 3. after collection, record a real full manual/offline release.
 
-Each action uses authenticated same-origin form handling and returns to the persisted bond state. No placeholder action is shown for unsupported behavior.
+Each action uses authenticated same-origin form handling and returns to the persisted bond state. Collection and release routes use the shared inventory form parser and convert malformed form bodies into the existing validation response instead of allowing request parsing failures to escape as generic server errors. No placeholder action is shown for unsupported behavior.
 
 ## Deliberate boundaries
 
@@ -65,9 +67,9 @@ In particular, a `CUSTOMER_LIABLE` damage decision and its separate damage-settl
 ## Validation
 
 - `src/server/payments/rental-security-bond-domain.test.ts` covers the required/collected/released state machine, fail-closed reconciliation, and deterministic server idempotency.
-- `scripts/rental-security-bond-source-contract.test.mjs` protects tenant permissions, server-derived authority, append-only database evidence, pickup/cancellation guards, cross-ledger reference isolation, real staff routes, guarded database-test registration, and the no-forfeiture/no-card boundary.
+- `scripts/rental-security-bond-source-contract.test.mjs` protects tenant permissions, server-derived authority, append-only database evidence, composite booking foreign keys, pickup/cancellation guards, cross-ledger reference isolation, safe collection/release form parsing, real staff routes, guarded database-test registration, and the no-forfeiture/no-card boundary.
 - `src/server/payments/rental-security-bond.integration.ts` is registered in the disposable-PostgreSQL runner and exercises tenant isolation, requirement idempotency, append-only evidence, pickup blocking before collection, collection replay, cross-ledger manual-reference isolation, cancellation blocking while bond money is held, release replay, and cancellation after full release.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
-- Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; this migration's triggers must be exercised there before claiming live database verification.
+- Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; this migration's foreign keys and triggers must be exercised there before claiming live database verification.
 
 GitHub Actions are not required or used.

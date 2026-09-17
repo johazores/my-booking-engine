@@ -180,6 +180,8 @@ model RentalBooking {
   reschedules RentalBookingReschedule[]
   unitSubstitutions RentalBookingUnitSubstitution[]
   paymentTransactions RentalPaymentTransaction[]
+  securityBondRequirement RentalSecurityBondRequirement?
+  securityBondTransactions RentalSecurityBondTransaction[]
   fulfillmentEvents RentalBookingFulfillmentEvent[]
   earlyReturnRelease RentalBookingEarlyReturnRelease?
   returnInspection RentalReturnInspection?
