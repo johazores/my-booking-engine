@@ -27,7 +27,7 @@ const statuses: Record<string, string> = {
   'rental-payment-existing': 'This rental offline payment was already recorded earlier. No duplicate transaction was created.',
   'rental-refund-recorded': 'Rental offline refund recorded against the remaining manual settlement source.',
   'rental-refund-existing': 'This rental offline refund was already recorded earlier. No duplicate transaction was created.',
-  'rental-picked-up': 'Rental pickup recorded. Rescheduling, unit replacement, and cancellation are now locked for this booking.',
+  'rental-picked-up': 'Rental pickup recorded. Cancellation and unit replacement are now locked; authorized staff may still review a same-unit price-neutral extension until return.',
   'rental-pickup-existing': 'Rental pickup was already recorded earlier. No duplicate custody event was created.',
   'rental-returned': 'Rental return recorded. The immutable pickup and return custody evidence is retained.',
   'rental-return-existing': 'Rental return was already recorded earlier. No duplicate custody event was created.',
@@ -98,9 +98,10 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
   }
 
   const beforePickup = booking.fulfillment.state === 'AWAITING_PICKUP';
+  const inCustody = booking.fulfillment.state === 'PICKED_UP';
   const paymentClearedForCancellation = paymentData !== null && paymentData.settlement.reconciled && paymentData.settlement.netSettledMinor === 0n;
   const canCancel = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canManageAvailability && paymentClearedForCancellation;
-  const canReviewReschedule = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory && canReadPricing;
+  const canReviewReschedule = booking.status === 'CONFIRMED' && (beforePickup || inCustody) && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory && canReadPricing;
   const canReviewUnitSubstitutionPermission = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory;
   const canFulfill = booking.status === 'CONFIRMED' && Boolean(booking.allocation) && canManageBooking && canManageInventory;
   const latestReschedule = booking.reschedules.at(-1);
@@ -135,7 +136,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
       <div><p className="sf-eyebrow">Rental booking</p><h1>{booking.customerFirstName} {booking.customerLastName}</h1><p>Durable booking, settlement, fulfillment, and physical-unit allocation evidence for {activeContext.organization.name}.</p></div>
-      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory && booking.allocation ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.allocation.unitId}`}>Effective unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Reschedule rental</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Replace unit</Link> : null}</div>
+      <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory && booking.allocation ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.allocation.unitId}`}>Effective unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>{beforePickup ? 'Reschedule rental' : 'Extend rental'}</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Replace unit</Link> : null}</div>
     </header>
 
     {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
@@ -156,7 +157,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
         {booking.unitSubstitutions.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time unit</strong><span>{booking.unit.name} ({booking.unit.code}) · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Before pickup and before the committed pickup window closes, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Once pickup is recorded, cancellation, rescheduling, and unit replacement fail closed. After a missed pickup, unit replacement also closes; staff must review the supported reschedule or cancellation path. Return records custody handback; a separate explicit release can free only complete remaining rental days without changing accepted money or the committed rental period.</p>
+      <p className="sf-field-hint">Before pickup and before the committed pickup window closes, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Once pickup is recorded, cancellation and unit replacement fail closed; date changes narrow to a same-unit, same-start, later-end price-neutral custody extension until return. After a missed pickup, unit replacement also closes; staff must review the supported reschedule or cancellation path. Return records custody handback and closes further date changes; a separate explicit release can free only complete remaining rental days without changing accepted money or the committed rental period.</p>
     </section>
 
     {booking.status === 'CONFIRMED' ? <section className="sf-inventory-card" aria-labelledby="rental-booking-fulfillment-title">
@@ -192,7 +193,8 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     </section> : null}
 
     {booking.status === 'CONFIRMED' && beforePickup && !paymentClearedForCancellation ? <p className="sf-alert sf-alert--error" role="status">This booking still has settled or unreconciled payment money. Refund and reconcile it before cancellation can release inventory.</p> : null}
-    {booking.status === 'CONFIRMED' && !beforePickup ? <p className="sf-alert sf-alert--error" role="status">Pickup has been recorded. Cancellation, rescheduling, and physical-unit replacement are locked to preserve custody evidence.</p> : null}
+    {booking.status === 'CONFIRMED' && inCustody ? <p className="sf-alert sf-alert--error" role="status">Pickup has been recorded. Cancellation and physical-unit replacement are locked to preserve custody evidence. Authorized staff may still review a same-unit, same-start, later-end price-neutral extension until return.</p> : null}
+    {booking.status === 'CONFIRMED' && booking.fulfillment.state === 'RETURNED' ? <p className="sf-alert sf-alert--error" role="status">Return has been recorded. Cancellation, further date changes, and physical-unit replacement are locked to preserve completed custody evidence.</p> : null}
     {canCancel ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory release</p><h2 id="rental-booking-cancel-title">Cancel rental booking</h2></div></div><RentalBookingCancelAction bookingId={booking.id} /></section> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-customer-title">
