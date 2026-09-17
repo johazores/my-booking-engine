@@ -1,0 +1,29 @@
+enum RentalDamageLiabilityOutcome {
+  CUSTOMER_LIABLE
+  NO_CUSTOMER_LIABILITY
+}
+
+model RentalDamageLiabilityDecision {
+  id                String                       @id @default(uuid()) @db.Uuid
+  organizationId    String                       @db.Uuid
+  bookingId         String                       @db.Uuid
+  damageCaseId      String                       @db.Uuid
+  unitId            String                       @db.Uuid
+  idempotencyKey    String                       @db.VarChar(140)
+  outcome           RentalDamageLiabilityOutcome
+  currency          String                       @db.Char(3)
+  liableAmountMinor BigInt?                      @db.BigInt
+  reason            String                       @db.VarChar(2000)
+  decidedAt         DateTime                     @default(now()) @db.Timestamptz(6)
+  decidedByUserId   String                       @db.Uuid
+  createdAt         DateTime                     @default(now()) @db.Timestamptz(6)
+
+  damageCase RentalDamageCase @relation(fields: [damageCaseId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_liability_decisions_damage_case_fkey")
+
+  @@unique([id, organizationId], map: "rental_damage_liability_decisions_id_org_key")
+  @@unique([organizationId, bookingId], map: "rental_damage_liability_decisions_org_booking_key")
+  @@unique([organizationId, damageCaseId], map: "rental_damage_liability_decisions_org_case_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_damage_liability_decisions_org_idempotency_key")
+  @@index([organizationId, outcome, decidedAt], map: "rental_damage_liability_decisions_org_outcome_decided_idx")
+  @@map("rental_damage_liability_decisions")
+}

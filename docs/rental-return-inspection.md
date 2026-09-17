@@ -30,32 +30,34 @@ The database trigger independently requires `OUT_OF_SERVICE` for non-clear inspe
 
 A `CLEAR` inspection does not automatically return a unit to service. An unrelated operational hold or maintenance order may still exist, so returning a unit to `AVAILABLE` remains an explicit inventory-management decision.
 
-## Damage-case follow-up
+## Damage-case and liability follow-up
 
-A retained `DAMAGE_REPORTED` or `UNSAFE` inspection can now feed one explicit tenant-owned rental damage case. The case retains operational follow-up, exact repair-cost estimate evidence, waiver, and resolution without rewriting the immutable inspection.
+A retained `DAMAGE_REPORTED` or `UNSAFE` inspection can feed one explicit tenant-owned rental damage case. The case retains operational follow-up, exact repair-cost estimate evidence, waiver, and resolution without rewriting the immutable inspection.
 
-An unresolved damage case keeps the unit out of service and blocks archival. The damage case does not establish customer liability and its repair estimate is not a customer balance or payment instruction.
+An unresolved damage case keeps the unit out of service and blocks archival. The damage-case repair estimate itself does not establish customer liability and is not a customer balance or payment instruction.
 
-See `docs/rental-damage-case.md` for the lifecycle, authority, and commercial boundaries.
+After an assessed damage case is explicitly resolved and `CLOSED`, commercial staff with booking/payment authority can record one separate append-only customer-liability decision. That downstream decision is based on retained damage evidence and remains separate from any future payment or security-bond settlement.
+
+See `docs/rental-damage-case.md` and `docs/rental-damage-liability.md` for those lifecycles and authority boundaries.
 
 ## Staff workflow
 
 The rental booking detail shows retained inspection evidence after return. When the booking is returned and no inspection exists, authorized staff get a real `Record return inspection` form with outcome and notes.
 
-After a non-clear inspection, the same booking detail shows the real damage-case follow-up controls. A clear inspection has no damage-case action.
+After a non-clear inspection, the same booking detail shows the real damage-case follow-up controls. A clear inspection has no damage-case action. After a non-waived damage case is assessed and closed, users with the required payment visibility can review or record the separate customer-liability decision.
 
-These actions do not change the booking dates, allocation, accepted money, settlement evidence, return evidence, or early-return release evidence.
+These actions do not change the booking dates, allocation, accepted booking price, booking settlement evidence, return evidence, or early-return release evidence.
 
 ## Deliberate boundaries
 
-This inspection and damage-case foundation does not:
+The inspection does not itself determine customer liability or create a customer amount due. The downstream closed-damage-case liability decision can now retain that commercial determination, but this overall slice still does not:
 
-- determine customer damage liability or create a customer amount due;
 - authorize, capture, release, or forfeit a security bond/deposit;
+- collect a damage payment or mark liability as paid;
 - add photos/files or external assessor/vendor dispatch;
 - create maintenance automatically;
 - assess late-return fees;
-- refund or charge a customer; or
+- change the accepted rental booking price or refund it; or
 - notify customers or external systems.
 
-Those require separate commercial or operational acceptance criteria. The durable inspection and damage-case evidence are prerequisites that later workflows can reference without rewriting custody history.
+Those require separate commercial or operational acceptance criteria. The durable inspection, damage case, and liability decision provide immutable source evidence that later workflows can reference without rewriting custody history.

@@ -27,6 +27,7 @@ test('damage case schema is tenant-bound, one-per-booking/inspection, and linked
   assert.match(schema, /booking\s+RentalBooking\s+@relation\(fields: \[bookingId, organizationId\]/);
   assert.match(schema, /inspection\s+RentalReturnInspection\s+@relation\(fields: \[inspectionId, organizationId\]/);
   assert.match(schema, /unit\s+RentalUnit\s+@relation\("RentalDamageCaseUnit", fields: \[unitId, organizationId\]/);
+  assert.match(schema, /liabilityDecision\s+RentalDamageLiabilityDecision\?/);
   assert.match(inspectionSchema, /damageCase\s+RentalDamageCase\?/);
   assert.match(inventorySchema, /damageCases\s+RentalDamageCase\[\]/);
   assert.match(inventorySchema, /damageCase\s+RentalDamageCase\?/);
@@ -75,14 +76,13 @@ test('staff workflow exposes real case actions without presenting repair estimat
   assert.doesNotMatch(production, /recordRentalManualPayment|refundRentalManualPayment|stripe|paymentTransaction\.create/);
 });
 
-test('documentation keeps customer liability, security bond, and automatic service restoration outside this slice', () => {
-  assert.match(docs, /customer balance or amount due/i);
-  assert.match(docs, /does not implement customer damage liability/i);
+test('documentation keeps repair evidence operational while linking the separate post-closure liability decision', () => {
+  assert.match(docs, /separate append-only customer-liability decision/i);
   assert.match(docs, /security bonds\/deposits/i);
   assert.match(docs, /does not automatically make the unit available/i);
   assert.match(operationalDocs, /unresolved damage case/i);
   assert.match(operationalDocs, /repair estimate is operational evidence only/i);
   assert.match(bookingDocs, /damage-case assessment records operational repair-estimate evidence only/i);
-  assert.match(readme, /return-inspection\/damage-case infrastructure/i);
+  assert.match(readme, /return-inspection\/damage-case\/damage-liability infrastructure/i);
   assert.match(readme, /docs\/rental-damage-case\.md/);
 });

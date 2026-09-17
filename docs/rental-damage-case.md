@@ -39,11 +39,13 @@ Waiving or closing the final active damage case does not automatically make the 
 
 ## Repair estimate semantics
 
-An assessment records an exact non-negative repair-cost estimate using the booking currency and the shared exact-money parser. The estimate is retained operational evidence only.
+An assessment records an exact non-negative repair-cost estimate using the booking currency and the shared exact-money parser. During `OPEN` and `ASSESSED`, that estimate remains operational evidence rather than an amount due from the customer.
 
-It is not a customer balance or amount due, a determination of customer liability, a payment authorization/capture, a refund adjustment, a security-bond/deposit forfeiture decision, or a tax/accounting settlement.
+After an assessed case is resolved and `CLOSED`, authorized commercial staff can record one separate append-only customer-liability decision. That decision is intentionally downstream of the closed operational case and cannot exceed the retained repair estimate under the current contract.
 
-Any future customer liability, security-bond, insurance, or payment workflow must reference durable damage evidence but requires separate policy, authorization, settlement, and legal acceptance criteria.
+See `docs/rental-damage-liability.md` for the liability authority and settlement boundary.
+
+The repair estimate itself is not a payment authorization/capture, refund adjustment, security-bond/deposit forfeiture decision, or tax/accounting settlement.
 
 ## Audit and time authority
 
@@ -55,18 +57,20 @@ PostgreSQL authors `openedAt`, `assessedAt`, `waivedAt`, `closedAt`, `createdAt`
 
 The rental booking detail displays the damage-case workflow immediately below a retained non-clear return inspection. Authorized staff can open a case with a required summary; an open case can be assessed with an exact repair estimate and required notes, or waived with a required reason; an assessed case can be closed with required resolution notes, or waived with a required reason; terminal evidence remains read-only.
 
-The same UI states explicitly that repair estimates do not charge the customer.
+After a closed assessed case, actors with booking/payment commercial permissions can see the separate customer-liability decision workflow. The UI keeps operational repair evidence distinct from commercial liability and explicitly states that neither action by itself collects money.
 
 ## Deliberate boundaries
 
-This foundation does not implement customer damage liability, automatic charges, security bonds/deposits, insurance claims, repair vendors, purchase orders, parts/labor line items, file/photo evidence, notifications, or external maintenance synchronization.
+This foundation now implements operational damage assessment/resolution plus a separate post-closure customer-liability decision. It still does not implement automatic charges, damage settlement, security bonds/deposits, insurance claims, repair vendors, purchase orders, parts/labor line items, file/photo evidence, notifications, or external maintenance synchronization.
 
-It provides the durable tenant-scoped operational case and exact estimate evidence required before those commercial workflows can be designed safely.
+Future collection or security-bond workflows must consume the immutable liability decision rather than rewriting inspection or damage-case evidence.
 
 ## Validation
 
 `src/server/bookings/rental-damage-case-domain.test.ts` covers normalization, exact-money assessment input, required terminal evidence, and lifecycle transitions.
 
 `scripts/rental-damage-case-source-contract.test.mjs` protects schema ownership, deterministic idempotency, non-clear inspection binding, dual permissions, tenant/unit locking, operational quarantine, unresolved-case release/archive guards, PostgreSQL time authority, real staff actions, and the deliberate no-charge boundary.
+
+The downstream commercial decision has its own validation documented in `docs/rental-damage-liability.md`.
 
 Full repository validation remains `npm run validate` on the Node version declared in `package.json`. Migration and trigger behavior should also be executed through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
