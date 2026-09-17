@@ -18,6 +18,8 @@ Only the existing `ManualPaymentProvider` adapter is enabled. Recording a row me
 
 Every transaction stores deterministic idempotency and a versioned request fingerprint. PostgreSQL independently requires exact liability amount/currency, source attribution, successful manual evidence, database-authored chronology, and append-only retention.
 
+Before manual provider-adapter I/O, the service acquires the same tenant-wide `sf:rental-manual-reference` advisory lock used by the other rental commercial ledgers and verifies that the external reference is unused across booking-price, damage, security-bond, and late-return ledgers. PostgreSQL independently repeats the cross-ledger exclusion at insert time, so one real manual reference cannot represent multiple rental commercial events even under concurrent or direct database writes.
+
 ## Security-bond forfeiture alternative
 
 `RentalSecurityBondForfeiture` is an alternative terminal settlement authority, not a damage payment transaction. It is permitted only when a collected bond, returned-custody evidence, and the retained customer-liability decision all belong to the same tenant booking and the bond amount/currency exactly equal the liability amount/currency.

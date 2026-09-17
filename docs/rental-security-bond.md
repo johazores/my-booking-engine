@@ -43,7 +43,7 @@ The database independently serializes the liability settlement boundary and refu
 
 ## Manual reference isolation
 
-Manual security-bond collection/release references share the same tenant-wide rental reference namespace as booking-price settlement and damage-liability settlement. The database cross-scope guard takes one advisory lock keyed by tenant + manual reference and rejects reuse across those ledgers, including concurrent inserts.
+Manual security-bond collection/release references share the same tenant-wide rental reference namespace as booking-price, damage-liability, and late-return settlement. Before manual provider-adapter I/O, the service acquires the shared `sf:rental-manual-reference` advisory lock and verifies that the external reference is unused across booking-price, damage, security-bond, and late-return ledgers. The database independently repeats the same cross-scope guard at insert time, including concurrent and direct database writes.
 
 Forfeiture has no provider reference because it is internal accounting authority over money already retained as a collected bond; it does not fabricate a new provider transaction.
 

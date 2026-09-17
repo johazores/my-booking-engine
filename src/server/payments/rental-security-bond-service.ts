@@ -24,6 +24,7 @@ export class RentalSecurityBondUnavailableError extends Error {
 
 const manualProvider = new ManualPaymentProvider();
 const lockKey = (organizationId: string, scope: string, value: string) => `rental-security-bond:${organizationId}:${scope}:${value}`;
+const manualReferenceLockKey = (organizationId: string, reference: string) => `sf:rental-manual-reference:${organizationId}:${reference}`;
 
 async function runBondWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -129,12 +130,14 @@ export async function createRentalSecurityBondRequirement(input: Readonly<{ orga
 }
 
 async function assertManualReferenceUnused(transaction: Prisma.TransactionClient, organizationId: string, reference: string) {
-  const [booking, damage, bond] = await Promise.all([
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0))`;
+  const [booking, damage, bond, lateReturn] = await Promise.all([
     transaction.rentalPaymentTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
     transaction.rentalDamageSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
     transaction.rentalSecurityBondTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalLateReturnSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
   ]);
-  if (booking || damage || bond) throw new RentalSecurityBondConflictError('Manual reference has already been retained as rental settlement evidence in this organization.');
+  if (booking || damage || bond || lateReturn) throw new RentalSecurityBondConflictError('Manual reference has already been retained as rental settlement evidence in this organization.');
 }
 
 type ManualBondOperation = 'collection' | 'release';
@@ -171,7 +174,6 @@ async function recordManualBondEvidence(input: Readonly<{ organizationId: string
       if (state.settlement.state !== 'COLLECTED' || !source) throw new RentalSecurityBondConflictError('Security bond is not currently collected or has already been released.');
     }
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'manual-reference', reference)}, 0))`;
     await assertManualReferenceUnused(transaction, input.organizationId, reference);
     const money = { currency: state.bond.currency, amountMinor: state.bond.amountMinor };
     let providerReference: string;

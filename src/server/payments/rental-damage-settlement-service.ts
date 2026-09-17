@@ -32,6 +32,27 @@ function settlementLockKey(organizationId: string, scope: string, value: string)
   return `rental-damage-settlement:${organizationId}:${scope}:${value}`;
 }
 
+function manualReferenceLockKey(organizationId: string, reference: string) {
+  return `sf:rental-manual-reference:${organizationId}:${reference}`;
+}
+
+async function assertManualReferenceUnused(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  reference: string,
+) {
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0))`;
+  const [booking, damage, bond, lateReturn] = await Promise.all([
+    transaction.rentalPaymentTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalDamageSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalSecurityBondTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+    transaction.rentalLateReturnSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
+  ]);
+  if (booking || damage || bond || lateReturn) {
+    throw new RentalDamageSettlementConflictError('Manual rental reference has already been retained as commercial evidence in this organization.');
+  }
+}
+
 async function runRentalDamageSettlementWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -266,12 +287,7 @@ export async function recordRentalDamageManualOfflinePayment(input: Readonly<{
     const before = reconcileRows(liability, rows);
     if (before.state !== 'UNPAID') throw new RentalDamageSettlementConflictError('Customer damage liability already has retained payment evidence.');
 
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'manual-reference', reference)}, 0))`;
-    const duplicateReference = await transaction.rentalDamageSettlementTransaction.findFirst({
-      where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: reference },
-      select: { id: true },
-    });
-    if (duplicateReference) throw new RentalDamageSettlementConflictError('Manual damage payment reference has already been recorded in this organization.');
+    await assertManualReferenceUnused(transaction, input.organizationId, reference);
 
     const result = await manualProvider.recordOfflinePayment({
       organizationId: input.organizationId,
@@ -375,12 +391,7 @@ export async function recordRentalDamageManualOfflineRefund(input: Readonly<{
     }
 
     if (before.state !== 'PAID') throw new RentalDamageSettlementConflictError('Only paid customer damage liability can receive the enabled full manual refund.');
-    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'manual-reference', refundReference)}, 0))`;
-    const duplicateReference = await transaction.rentalDamageSettlementTransaction.findFirst({
-      where: { organizationId: input.organizationId, providerCode: manualProvider.code, providerReference: refundReference },
-      select: { id: true },
-    });
-    if (duplicateReference) throw new RentalDamageSettlementConflictError('Manual damage refund reference has already been recorded in this organization.');
+    await assertManualReferenceUnused(transaction, input.organizationId, refundReference);
     if (!manualProvider.recordOfflineRefund) throw new RentalDamageSettlementConflictError('Manual payment provider cannot record refunds.');
     const result = await manualProvider.recordOfflineRefund({
       organizationId: input.organizationId,
