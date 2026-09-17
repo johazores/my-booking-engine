@@ -1,31 +1,34 @@
 # Rental booking staff workflow
 
-SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, apply supported same-type/same-location physical-unit substitutions, record supported manual/offline settlement evidence, refund settled manual money, cancel a confirmed booking only after payment settlement is reconciled to zero, record the supported pickup/return physical-custody lifecycle, explicitly release complete remaining rental days after an early return, record one append-only condition inspection after return, manage an explicit operational damage case after a non-clear inspection, and record one post-closure customer-damage-liability decision from retained assessed damage evidence.
+SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules, apply supported same-type/same-location physical-unit substitutions, record supported manual/offline booking settlement evidence and refunds, cancel a confirmed booking only after booking-price settlement is reconciled to zero, record pickup/return custody, explicitly release complete remaining rental days after an early return, record append-only return-condition inspection and damage-case evidence, retain customer-damage-liability decisions and supported exact manual/offline damage settlement, manage supported security-bond evidence/disposition, and retain explicit late-return assessment plus supported exact manual/offline late-fee settlement.
 
-The workflow does not invent deposits, public/online rental payment collection, unit-type/location-changing amendments, price-changing amendments, delivery, late-return fees, damage-payment collection, security-bond settlement, notifications, or external fulfillment integrations.
+The workflow does not invent public/online rental payment collection, unit-type/location-changing amendments, price-changing amendments, delivery, automatic late-fee policy, partial/split/provider-backed settlement, notifications, or external fulfillment integrations.
 
 ## Routes
 
 - `/inventory/rentals/holds/[hold-id]` reviews one effective rental hold against an active tenant customer.
 - `POST /api/inventory/rentals/holds/[hold-id]/confirm` derives tenant, actor, and confirmation idempotency authority from authenticated server context before calling `confirmRentalBookingFromHold`.
 - `/inventory/rentals/bookings` is the tenant-scoped, paginated staff read model with lifecycle filtering, committed dates, current effective unit, current fulfillment state, overdue-custody/missed-pickup operational queues, and any early-return inventory-release indicator.
-- `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, committed dates, current live inventory protection, append-only reschedule/substitution/fulfillment/early-return-release history, tenant-scoped manual settlement history, cancellation evidence, retained return-inspection evidence, retained damage-case evidence, and authorized damage-liability evidence when present.
+- `/inventory/rentals/bookings/[booking-id]` renders immutable booking-time evidence, current allocation, append-only reschedule/substitution/fulfillment/return evidence, operational return workflows, and separately permissioned commercial evidence.
 - `/inventory/rentals/bookings/[booking-id]/reschedule` reviews target dates and only renders Apply when fresh authority is ready and the actor can manage availability.
 - `POST /api/inventory/rentals/bookings/[booking-id]/reschedule` derives tenant, actor, and idempotency authority server-side and calls the durable reschedule writer.
-- `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs fresh target-inventory authority review only before custody transfer and before the exclusive committed pickup end. Apply is rendered only for ready authority plus availability-management permission.
-- `POST /api/inventory/rentals/bookings/[booking-id]/unit-substitution` derives tenant, actor, and idempotency server-side and calls the durable substitution writer, which rechecks fulfillment and pickup-window authority under locks.
-- `POST /api/inventory/rentals/bookings/[booking-id]/payments/manual` derives tenant, actor, exact accepted amount, and idempotency server-side. The form supplies only the real external offline payment reference.
-- `POST /api/inventory/rentals/bookings/[booking-id]/payments/refunds` derives tenant, actor, refund source/amount, and idempotency server-side. The form supplies only the real external refund reference.
-- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer, which refuses to release inventory while settled money remains or after pickup has transferred custody.
-- `POST /api/inventory/rentals/bookings/[booking-id]/pickup` derives tenant, actor, effective unit/date evidence, event time, and idempotency server-side before appending pickup custody evidence.
-- `POST /api/inventory/rentals/bookings/[booking-id]/return` derives the same authority server-side and appends return evidence only after pickup.
-- `POST /api/inventory/rentals/bookings/[booking-id]/inventory-release` derives tenant, actor, exact return evidence, retained booking-location calendar, release cutoff, and idempotency server-side before shortening only live inventory protection.
-- `POST /api/inventory/rentals/bookings/[booking-id]/return-inspection` derives tenant and actor from authenticated context, accepts only condition outcome/notes, derives deterministic idempotency server-side, and binds the write to retained `RETURNED` custody evidence.
-- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case` derives tenant/actor and deterministic case idempotency server-side, accepts only a required operational summary, and binds the case to retained non-clear inspection evidence.
-- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]` performs only supported assess/waive/close transitions. Assessment accepts exact repair-estimate input and notes; waiver/closure accept retained reason evidence. None of these actions changes customer settlement.
-- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/liability` derives tenant/actor and deterministic liability idempotency server-side and accepts only outcome, exact customer-liability amount when applicable, and a required reason. It can write only from a closed assessed damage case and does not collect money.
+- `/inventory/rentals/bookings/[booking-id]/unit-substitution` searches bounded same-type/same-location candidate units and runs fresh target-inventory authority review only before custody transfer and before the exclusive committed pickup end.
+- `POST /api/inventory/rentals/bookings/[booking-id]/unit-substitution` derives tenant, actor, and idempotency server-side and rechecks fulfillment and pickup-window authority under locks.
+- `POST /api/inventory/rentals/bookings/[booking-id]/payments/manual` records only real external manual/offline booking-price payment evidence for the server-derived exact amount.
+- `POST /api/inventory/rentals/bookings/[booking-id]/payments/refunds` records only real external booking-price refund evidence for the server-derived source and amount.
+- `POST /api/inventory/rentals/bookings/[booking-id]/cancel` derives tenant and actor server-side and calls the terminal cancellation writer.
+- `POST /api/inventory/rentals/bookings/[booking-id]/pickup` and `/return` append server-authorized physical-custody evidence.
+- `POST /api/inventory/rentals/bookings/[booking-id]/inventory-release` shortens only live inventory protection after an eligible early return.
+- `POST /api/inventory/rentals/bookings/[booking-id]/return-inspection` binds one condition outcome to retained `RETURNED` custody evidence.
+- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case` opens the supported operational damage case from retained non-clear inspection evidence.
+- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]` performs only supported assess/waive/close damage transitions.
+- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/liability` retains the post-closure customer-liability decision.
+- `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/settlement/manual` and `/refund` retain supported exact full-value manual/offline customer-damage settlement evidence.
+- Security-bond requirement, collection, release, and supported exact forfeiture actions remain separate booking-scoped payment evidence routes and do not mutate the booking price.
+- `POST /api/inventory/rentals/bookings/[booking-id]/late-return-assessment` retains the explicit post-return grace/fee-or-waiver decision from immutable custody evidence.
+- `POST /api/inventory/rentals/bookings/[booking-id]/late-return-assessment/[assessment-id]/settlement/manual` and `/refund` retain supported exact full-value manual/offline settlement evidence for an assessed late-return fee.
 
-All routes remain inside the authenticated SF application shell. No public/customer rental booking, payment, modification, pickup, return, inventory-release, inspection, damage-case, or damage-liability route is introduced.
+All routes remain inside the authenticated SF application shell. No public/customer rental booking, payment, modification, custody, inspection, damage, bond, late-return, or settlement route is introduced.
 
 ## Authorization and tenant scope
 
@@ -37,94 +40,74 @@ Reschedule review requires `booking:manage`, `availability:read`, `inventory:rea
 
 Replacement-unit candidate search requires `booking:manage` plus `inventory:read`; fresh substitution authority review additionally requires `availability:read`; apply additionally requires `availability:manage`. Candidate IDs never grant ownership authority.
 
-Rental payment history requires `payment:read`. Manual payment/refund recording requires `payment:manage`; service queries always repeat tenant scope and use the same rental booking lock as lifecycle writers.
+Booking-price payment history requires `payment:read`; manual payment/refund recording requires `payment:manage`. Damage liability, damage settlement, security-bond settlement/disposition, and late-return assessment/settlement also repeat their documented booking/payment permission combinations and tenant scope server-side. UI permission checks remain usability only.
 
-Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking, current effective allocation, complete rental payment history, and pre-pickup lifecycle inside its serializable transaction/database guard boundary.
+Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking, current effective allocation, settlement state, and pre-pickup lifecycle.
 
-Pickup, return, early-return inventory release, return-inspection recording, and damage-case writes require both `booking:manage` and `inventory:manage`. The fulfillment/release/inspection/damage writers repeat tenant scope and never trust browser-supplied tenant, actor, unit, custody timestamp, or booking authority. Return-inspection and damage-case reads require `booking:read`.
+Pickup, return, early-return inventory release, return-inspection recording, and damage-case writes require both `booking:manage` and `inventory:manage`. Their writers repeat tenant scope and never trust browser-supplied tenant, actor, unit, custody timestamp, or booking authority.
 
-Damage-liability reads require both `booking:read` and `payment:read`. Recording the decision requires both `booking:manage` and `payment:manage`; the service derives booking currency, retained repair estimate, unit, idempotency, actor, and decision chronology server-side/database-side.
-
-UI permission checks are usability only. Review and write services independently enforce server-side permissions and tenant ownership.
+Commercial damage and late-return reads require both `booking:read` and `payment:read`; their writes require both `booking:manage` and `payment:manage`. Currency, amount authority, source evidence, actor, tenant, and idempotency are derived server-side/database-side.
 
 ## Confirmation authority
 
-The browser-visible conversion review is never write authority. Confirmation reacquires the idempotency and physical-unit locks, uses PostgreSQL time, revalidates active tenant customer/hold/unit/location state, checks inventory and current pricing, compares the conversion fingerprint, consumes the hold, creates the durable booking/allocation, and writes an audit event atomically.
+The browser-visible conversion review is never write authority. Confirmation reacquires idempotency and physical-unit locks, uses PostgreSQL time, revalidates active tenant customer/hold/unit/location state, checks inventory and current pricing, compares the conversion fingerprint, consumes the hold, creates the durable booking/allocation, and writes an audit event atomically.
 
-## Reschedule authority
+## Reschedule and substitution authority
 
-Rental rescheduling is intentionally narrow: the current effective physical unit, retained unit type, and retained location do not change; accepted currency and aggregate amount do not change; original booking-time commercial evidence stays immutable; and current target inventory/pricing are rebuilt at review and again under write locks.
+Rental rescheduling remains intentionally narrow: the current effective physical unit, retained unit type/location, currency, and aggregate accepted amount do not change. Original booking-time evidence remains immutable while target inventory and pricing are rebuilt at review and again under write locks.
 
-Successful apply inserts append-only reschedule evidence, moves only effective allocation dates, advances the booking version, and writes an audit event. Database guards derive the effective unit from substitution history and require the current allocation to match both latest date and unit authority. New reschedules fail closed after pickup custody evidence exists.
+Successful reschedule inserts append-only evidence, moves only effective allocation dates, advances the booking version, and writes an audit event. New reschedules fail closed after pickup custody evidence exists.
 
-See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
+Physical-unit substitution remains same-type/same-location and price-neutral. Apply locks the booking plus source/target physical units in deterministic order, revalidates the source allocation and target availability/lifecycle, inserts append-only substitution evidence, and changes only the effective allocation unit. Immutable booking-time `RentalBooking.unitId` remains unchanged.
 
-## Physical-unit substitution authority
+See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md), [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md), and [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
 
-Physical-unit substitution is intentionally narrow: source and target are active tenant units with the same retained unit type and operating location; current effective dates do not change; accepted currency/amount and effective pricing fingerprint do not change.
+## Payment and commercial settlement authority
 
-Candidate discovery is bounded to 50 rows and is not availability authority. Fresh review checks the current effective pickup window using PostgreSQL time plus the retained location timezone before checking target blocks, effective holds, overdue open custody, and other non-cancelled allocations. Once the exclusive effective end date has been reached without pickup, the booking is a missed pickup and candidate/review authority closes instead of permitting a replacement under an expired period.
+Booking-price settlement, customer-damage settlement, security-bond settlement/disposition, and late-return fee settlement are separate ledgers/authority boundaries. None is allowed to silently mutate the immutable accepted rental booking total.
 
-`applyRentalBookingUnitSubstitution` takes the booking lock, then source and target physical-unit locks in deterministic order. It revalidates the absence of fulfillment evidence, retained location timezone, current source allocation, target inventory, lifecycle/type/location constraints, and reviewed fingerprint before inserting append-only substitution evidence and moving only the effective allocation unit. Immutable booking-time `RentalBooking.unitId` remains unchanged.
+The enabled booking-price, damage, bond, and late-return payment paths use real manual/offline evidence only where explicitly documented. Browser forms do not submit authoritative tenant identity, actor identity, currency, amount, refund source, or idempotency. Manual references are isolated across rental settlement ledgers at the PostgreSQL boundary so one real-world receipt/refund identifier cannot represent multiple commercial events in the same tenant.
 
-See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md) and [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
+Late-return assessment is also separate from settlement: staff first retain explicit case-specific grace and fee/waiver authority from immutable return evidence. Only a retained positive `FEE_ASSESSED` decision can feed the full-value manual/offline late-return settlement workflow. A waived assessment cannot be paid.
 
-## Payment settlement authority
-
-The supported booking-payment boundary is staff-recorded manual/offline evidence only. Full payment derives the exact authoritative amount from `RentalBooking`; refund derives the current refundable source and remaining amount from the complete transaction history. Browser forms cannot submit amount, tenant identity, actor identity, or idempotency authority.
-
-`RentalPaymentTransaction` retains tenant-owned booking payment/refund evidence. The staff detail derives `UNPAID`, `PAID`, `PARTIALLY_REFUNDED`, or `REFUNDED` from transaction history instead of mutating immutable rental booking commercial evidence.
-
-Customer damage liability is intentionally separate from that booking-price settlement history. Recording a liability decision does not insert a `RentalPaymentTransaction`, collect money, or mutate the accepted booking total.
-
-Cancellation is withheld in the UI until booking settlement is readable, reconciled, and net zero. The cancellation service and database guard independently enforce this rule.
-
-See [rental-payment-foundation.md](./rental-payment-foundation.md) and [rental-damage-liability.md](./rental-damage-liability.md).
+See [rental-payment-foundation.md](./rental-payment-foundation.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-damage-settlement.md](./rental-damage-settlement.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Cancellation authority
 
-Cancellation is an inventory-release lifecycle mutation, not a refund action. It uses the same tenant/booking lock namespace plus the current effective physical-unit lock, validates the current allocation after any reschedule/substitution, and changes only a still-matching `CONFIRMED` record to terminal `CANCELLED` after rental payment history reconciles to zero.
+Cancellation is an inventory-release lifecycle mutation, not a refund action. It uses the shared tenant/booking lock plus current effective physical-unit lock and validates current allocation after reschedule/substitution. It is pre-pickup only and fails closed when commercial evidence that requires disposition has not been reconciled according to its own contract.
 
-Cancellation is pre-pickup only. The fulfillment database guard uses the same tenant/booking lock namespace and rejects cancellation once custody evidence exists, including direct database writes that bypass the application service.
-
-## Fulfillment, inspection, damage case, and liability authority
+## Fulfillment, inspection, damage, and late-return authority
 
 The supported physical-custody state machine is `AWAITING_PICKUP -> PICKED_UP -> RETURNED`. Pickup and return are append-only tenant-owned evidence, not mutable booking status values.
 
-Pickup/return writers lock the tenant booking and current effective physical unit, validate the exact allocation after any prior reschedule/substitution, require the current unit to remain active at the retained booking assignment, use PostgreSQL `clock_timestamp()`, derive idempotency server-side, and write secret-free audit evidence atomically.
+Pickup/return writers lock the tenant booking and current effective physical unit, validate the exact allocation after reschedule/substitution, use PostgreSQL time, derive idempotency server-side, and write audit evidence atomically. Once pickup exists, cancellation, rescheduling, and physical-unit substitution are blocked. Return requires prior pickup and cannot predate it.
 
-Pickup is the custody handoff boundary. Once pickup exists, cancellation, rescheduling, and physical-unit substitution are blocked at both UI and database boundaries. Return requires prior pickup and cannot predate it. Return does not automatically shorten the booking allocation.
+After return, early-return release can shorten only live inventory protection for complete remaining rental days. Separately, return inspection can retain one condition outcome against the exact returned unit/event. Non-clear outcomes quarantine an available unit before inspection evidence is inserted.
 
-After return, `releaseRentalBookingInventoryAfterEarlyReturn` can shorten only live inventory protection for complete remaining rental days. Separately, `recordRentalReturnInspection` records one append-only condition outcome against the exact `RETURNED` event and returned unit. Non-clear outcomes require notes and move an available unit to `OUT_OF_SERVICE` before inspection evidence is inserted. PostgreSQL independently requires the same returned-custody binding and operational quarantine. The inspection itself does not create customer liability or change accepted money.
+A retained non-clear inspection can feed one operational damage case. Assessment stores an exact repair estimate in booking currency; customer liability is a separate post-closure commercial decision. Supported damage settlement and security-bond forfeiture remain separate from those operational facts.
 
-A retained non-clear inspection can feed one `RentalDamageCase`. Opening the case uses deterministic server idempotency and the shared physical-unit lock; `OPEN` and `ASSESSED` cases keep the unit unavailable and unarchivable. Assessment stores an exact repair estimate in the retained booking currency. That estimate is operational evidence only. Waiver and closure are explicit terminal transitions and do not automatically return the unit to service.
+Late-return assessment uses the immutable pickup/return snapshot, retained location timezone, and exclusive committed end date. Staff explicitly retain a 0–30 day case-specific grace decision and either positive fee authority or a waiver. PostgreSQL independently derives the late-day chronology. A fee assessment can then feed the separate exact manual/offline settlement workflow without reopening custody or changing allocation.
 
-A closed assessed damage case can feed one `RentalDamageLiabilityDecision`. `CUSTOMER_LIABLE` requires a positive exact amount no greater than the retained repair estimate; `NO_CUSTOMER_LIABILITY` retains no amount. PostgreSQL independently enforces closed source authority, amount/currency constraints, deterministic idempotency, append-only evidence, and database-authored decision time. The decision is commercial evidence only and does not collect or settle money.
-
-See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), and [rental-damage-liability.md](./rental-damage-liability.md).
+See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Read model
 
 `listRentalBookings` requires `booking:read`, enforces tenant scope, caps page size at 100, and supports lifecycle filters plus overdue-custody and missed-pickup operational queues.
 
-`getRentalBooking` resolves one tenant booking plus bounded append-only reschedule, substitution, fulfillment, and early-return release evidence. Return-inspection and damage-case evidence are read through dedicated tenant-scoped read services and shown on booking detail after return when applicable. Customer damage-liability evidence is separately permissioned with `payment:read` and appears only after a closed assessed damage case.
+`getRentalBooking` resolves one tenant booking plus bounded append-only reschedule, substitution, fulfillment, and early-return-release evidence. Dedicated tenant-scoped services read condition/damage/commercial evidence according to their additional permissions.
 
-`listRentalBookingPaymentTransactions` separately requires `payment:read`, caps display pagination at 100, and reconciles booking payment state from the complete tenant-owned history rather than only the visible page.
+Settlement readers reconcile complete bounded evidence for their enabled contracts instead of inferring state from the visible UI or mutating the booking row.
 
 ## Deliberate boundaries
 
-This workflow does not implement or imply deposits/card authorization, Stripe rental checkout, public payment collection, split/tendered settlement, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, cancellation fees, customer pickup/drop-off location selection, delivery, late-return fees, damage-payment collection, security-bond capture/release/forfeit, repair-cost settlement collection, automatic maintenance creation from inspection/damage case, public self-service, notifications, invoices, or external synchronization.
+This workflow does not implement or imply public card collection, Stripe rental checkout, split/tendered settlement, partial late-return settlement, partial security-bond offsets, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, automatic tenant-wide late-fee policy, delivery, public self-service, notifications, invoices, external fleet synchronization, or provider-backed late-return/damage/bond collection.
 
-Customer damage liability determination is now an explicit post-closure evidence workflow; its collection/settlement and security-bond consequences remain separate commercial state machines and acceptance criteria. No dead primary action is exposed for them.
+Implemented manual/offline settlement actions record evidence only after real external money movement. No dead primary action or mock provider behavior is presented as real.
 
 ## Validation
 
-Existing rental staff-workflow, substitution, payment, fulfillment, and early-return source contracts continue to protect their respective boundaries.
+Focused domain tests protect the relevant booking, fulfillment, damage, security-bond, late-return, and settlement state derivations. Source-contract tests protect tenant/permission scope, safe route parsing, locking/idempotency, PostgreSQL authority, append-only evidence, database-authored time, real UI wiring, and deliberate provider boundaries.
 
-`scripts/rental-return-inspection-source-contract.test.mjs` protects append-only tenant inspection persistence, exact returned-custody binding, dual write authorization, physical-unit locking, non-clear operational quarantine, PostgreSQL-authored immutable evidence, and the real booking-detail action.
-
-`scripts/rental-damage-case-source-contract.test.mjs` protects deterministic case authority, tenant/source binding, exact estimate evidence, unresolved-case operational guards, lifecycle immutability, real staff actions, and separation from booking settlement.
-
-`scripts/rental-damage-liability-source-contract.test.mjs` protects closed damage authority, booking/payment permissions, exact amount limits, append-only PostgreSQL evidence, database time, real staff UI/action wiring, and the deliberate no-settlement boundary.
+`scripts/rental-late-return-source-contract.test.mjs` protects assessment source/time authority. `scripts/rental-late-return-settlement-source-contract.test.mjs` protects exact manual/offline late-fee settlement and four-ledger manual-reference isolation. `scripts/rental-damage-settlement-source-contract.test.mjs` also protects safe form parsing for the neighboring damage-settlement routes.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

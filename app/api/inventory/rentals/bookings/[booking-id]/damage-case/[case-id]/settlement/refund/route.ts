@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
-import { prepareInventoryMutationRequest } from '@/server/inventory/inventory-http.ts';
+import {
+  formField,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
 import {
   recordRentalDamageManualOfflineRefund,
   RentalDamageSettlementConflictError,
@@ -25,15 +29,18 @@ export async function POST(
   const { finish, organization, session } = mutation;
   const { 'booking-id': bookingId, 'case-id': damageCaseId } = await params;
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}`;
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(NextResponse.redirect(new URL(`${path}?error=payment-validation`, request.url), 303), 'rejected');
+  }
 
   try {
-    const formData = await request.formData();
     await recordRentalDamageManualOfflineRefund({
       organizationId: organization.id,
       actorUserId: session.user.id,
       bookingId,
       damageCaseId,
-      reference: formData.get('reference'),
+      reference: formField(formData, 'reference'),
     });
     return finish(NextResponse.redirect(new URL(path, request.url), 303));
   } catch (error) {

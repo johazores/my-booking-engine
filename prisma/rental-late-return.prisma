@@ -23,8 +23,9 @@ model RentalLateReturnAssessment {
   assessedByUserId String                            @db.Uuid
   createdAt        DateTime                          @default(now()) @db.Timestamptz(6)
 
-  booking     RentalBooking                 @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_booking_fkey")
-  returnEvent RentalBookingFulfillmentEvent @relation("RentalLateReturnAssessmentReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_return_event_fkey")
+  booking                RentalBooking                          @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_booking_fkey")
+  returnEvent            RentalBookingFulfillmentEvent          @relation("RentalLateReturnAssessmentReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_return_event_fkey")
+  settlementTransactions RentalLateReturnSettlementTransaction[]
 
   @@unique([id, organizationId], map: "rental_late_return_assessments_id_org_key")
   @@unique([organizationId, bookingId], map: "rental_late_return_assessments_org_booking_key")

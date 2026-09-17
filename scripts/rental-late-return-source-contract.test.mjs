@@ -65,7 +65,7 @@ test('service repeats permissions, tenant scope, shared booking serialization, i
 test('staff UI is connected after return and route uses the safe mutation form boundary', () => {
   assert.match(returnPanel, /RentalLateReturnAssessmentPanel/);
   assert.match(panel, /Record late-return assessment/);
-  assert.match(panel, /does not move money/);
+  assert.match(panel, /does not itself move money/);
   assert.match(panel, /booking:manage/);
   assert.match(panel, /payment:manage/);
   assert.match(route, /prepareInventoryMutationRequest/);
@@ -76,9 +76,9 @@ test('staff UI is connected after return and route uses the safe mutation form b
   assert.match(route, /assessRentalLateReturn/);
 });
 
-test('documentation keeps assessment distinct from settlement and extensions', () => {
-  assert.match(docs, /not an automatic fee engine or payment workflow/i);
-  assert.match(docs, /does not extend a rental/i);
-  assert.match(docs, /does not.*collect or refund money/i);
-  assert.match(docs, /Fee settlement and rental extensions require separate production contracts/i);
+test('documentation keeps assessment authority distinct from settlement and extensions', () => {
+  assert.match(docs, /not an automatic fee engine/i);
+  assert.match(docs, /assessment itself never moves money/i);
+  assert.match(docs, /separate full-value manual\/offline late-return settlement workflow/i);
+  assert.match(docs, /Rental extensions also remain separate/i);
 });

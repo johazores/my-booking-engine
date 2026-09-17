@@ -1,8 +1,8 @@
 # Rental late-return assessment
 
-SF now supports an explicit post-return commercial assessment when retained rental custody evidence proves that a physical unit was returned after the booking's exclusive committed end date.
+SF supports an explicit post-return commercial assessment when retained rental custody evidence proves that a physical unit was returned after the booking's exclusive committed end date.
 
-This is a commercial authority boundary, not an automatic fee engine or payment workflow. The overdue-custody guard remains operational inventory protection while the unit is still out. Only a retained `RETURNED` event can become the source of a late-return assessment.
+This is a commercial authority boundary, not an automatic fee engine. The overdue-custody guard remains operational inventory protection while the unit is still out. Only a retained `RETURNED` event can become the source of a late-return assessment.
 
 ## Source and time authority
 
@@ -29,12 +29,18 @@ The writer uses the shared tenant/booking advisory lock, serializable transactio
 
 The staff booking detail surfaces late-return evidence after return and exposes the assessment form only to actors with both management permissions. Retained assessments are read-only.
 
+## Settlement boundary
+
+The assessment itself never moves money. A retained `FEE_ASSESSED` decision can now feed the separate full-value manual/offline late-return settlement workflow. That workflow retains payment/refund evidence without mutating this assessment or the immutable rental booking price. A `WAIVED` assessment has no settlement action.
+
+See [rental-late-return-settlement.md](./rental-late-return-settlement.md).
+
 ## Deliberate boundaries
 
-This workflow does not extend a rental, reopen custody, shorten or lengthen live allocation, collect or refund money, authorize a card, create a provider transaction, automatically charge a security bond, create an invoice, notify the customer, or synchronize an external fleet. Fee settlement and rental extensions require separate production contracts.
+This workflow does not extend a rental, reopen custody, shorten or lengthen live allocation, authorize a card, automatically charge a customer or security bond, create an invoice, notify the customer, or synchronize an external fleet. The separate settlement workflow currently records only real full-value manual/offline payment and refund evidence; provider-backed, partial, split-tender, and automatic collection remain separate production contracts. Rental extensions also remain separate.
 
 ## Validation
 
-`src/server/bookings/rental-late-return-domain.test.ts` covers timezone-aware late-day derivation, grace handling, exact-money validation, and waiver rules. `scripts/rental-late-return-source-contract.test.mjs` protects tenant/permission scope, shared locking, deterministic idempotency, PostgreSQL source authority, append-only persistence, safe form parsing, and the no-fake-settlement boundary.
+`src/server/bookings/rental-late-return-domain.test.ts` covers timezone-aware late-day derivation, grace handling, exact-money validation, and waiver rules. `scripts/rental-late-return-source-contract.test.mjs` protects tenant/permission scope, shared locking, deterministic idempotency, PostgreSQL source authority, append-only persistence, safe form parsing, and separation between assessment authority and settlement.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Live migration/trigger execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

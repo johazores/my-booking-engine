@@ -7,27 +7,27 @@ import {
   readInventoryFormData,
 } from '@/server/inventory/inventory-http.ts';
 import {
-  recordRentalDamageManualOfflinePayment,
-  RentalDamageSettlementConflictError,
-  RentalDamageSettlementUnavailableError,
-} from '@/server/payments/rental-damage-settlement-service.ts';
+  recordRentalLateReturnManualOfflinePayment,
+  RentalLateReturnSettlementConflictError,
+  RentalLateReturnSettlementUnavailableError,
+} from '@/server/payments/rental-late-return-settlement-service.ts';
 
 function errorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'payment-permission';
-  if (error instanceof RentalDamageSettlementConflictError) return 'payment-conflict';
-  if (error instanceof RentalDamageSettlementUnavailableError) return 'payment-unavailable';
+  if (error instanceof RentalLateReturnSettlementConflictError) return 'payment-conflict';
+  if (error instanceof RentalLateReturnSettlementUnavailableError) return 'payment-unavailable';
   if (error instanceof Error && /invalid|required|must|cannot|only/i.test(error.message)) return 'payment-validation';
   return 'payment-server';
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ 'booking-id': string; 'case-id': string }> },
+  { params }: { params: Promise<{ 'booking-id': string; 'assessment-id': string }> },
 ) {
-  const mutation = await prepareInventoryMutationRequest(request, 'payment.rental.damage.manual.record');
+  const mutation = await prepareInventoryMutationRequest(request, 'payment.rental.late-return.manual.record');
   if (!mutation.ok) return mutation.response;
   const { finish, organization, session } = mutation;
-  const { 'booking-id': bookingId, 'case-id': damageCaseId } = await params;
+  const { 'booking-id': bookingId, 'assessment-id': assessmentId } = await params;
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
@@ -35,11 +35,11 @@ export async function POST(
   }
 
   try {
-    await recordRentalDamageManualOfflinePayment({
+    await recordRentalLateReturnManualOfflinePayment({
       organizationId: organization.id,
       actorUserId: session.user.id,
       bookingId,
-      damageCaseId,
+      assessmentId,
       reference: formField(formData, 'reference'),
     });
     return finish(NextResponse.redirect(new URL(path, request.url), 303));

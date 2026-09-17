@@ -71,6 +71,10 @@ test('staff UI and routes expose real evidence actions without pretending to mov
   assert.match(panel, /does not move money or charge a card/);
   assert.match(manualRoute, /recordRentalDamageManualOfflinePayment/);
   assert.match(refundRoute, /recordRentalDamageManualOfflineRefund/);
+  assert.match(manualRoute, /readInventoryFormData/);
+  assert.match(refundRoute, /readInventoryFormData/);
+  assert.match(manualRoute, /formField\(formData, 'reference'\)/);
+  assert.match(refundRoute, /formField\(formData, 'reference'\)/);
   assert.match(docs, /separate from the rental booking price/);
   assert.match(docs, /Security-bond forfeiture alternative/);
   assert.match(docs, /manual\/offline settlement evidence/i);
