@@ -74,7 +74,11 @@ export async function POST(
         idempotencyKey,
       },
     });
-    const status = result.idempotent ? 'booking-reschedule-existing' : 'booking-rescheduled';
+    const status = result.idempotent
+      ? 'booking-reschedule-existing'
+      : result.mode === 'CUSTODY_EXTENSION'
+        ? 'booking-extended'
+        : 'booking-rescheduled';
     return finish(
       NextResponse.redirect(
         new URL(

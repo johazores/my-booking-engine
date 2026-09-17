@@ -20,7 +20,8 @@ const statuses: Record<string, string> = {
   'booking-cancelled': 'Rental booking cancelled. Its physical unit and date range are available for new inventory decisions again.',
   'booking-already-cancelled': 'This rental booking was already cancelled. No duplicate lifecycle change was applied.',
   'booking-rescheduled': 'Rental booking rescheduled. The effective physical-unit allocation now uses the reviewed target dates.',
-  'booking-reschedule-existing': 'This rental reschedule request already completed earlier. The current effective booking is shown below.',
+  'booking-extended': 'Rental booking extended. The effective physical-unit allocation now protects the reviewed later committed end date.',
+  'booking-reschedule-existing': 'This rental date-change request already completed earlier. The current effective rental period is shown below.',
   'booking-unit-substituted': 'Rental booking physical unit replaced. The new effective unit now protects the current rental period.',
   'booking-unit-substitution-existing': 'This replacement request already completed earlier. The current effective booking is shown below.',
   'rental-payment-recorded': 'Rental offline payment recorded against the full accepted booking amount.',
@@ -188,7 +189,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     </section> : null}
 
     {booking.reschedules.length > 0 ? <section className="sf-inventory-card" aria-labelledby="rental-booking-reschedule-history-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Append-only history</p><h2 id="rental-booking-reschedule-history-title">Reschedule evidence</h2></div><span>{booking.reschedules.length} applied</span></div>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Append-only history</p><h2 id="rental-booking-reschedule-history-title">Reschedule and extension evidence</h2></div><span>{booking.reschedules.length} applied</span></div>
       <ul className="sf-inventory-list">{booking.reschedules.map((reschedule) => <li key={reschedule.id}><div className="sf-inventory-list__primary"><div><strong>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} → {reschedule.targetStartsOn.toISOString().slice(0, 10)}</strong><span>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} through {reschedule.sourceEndsOn.toISOString().slice(0, 10)} became {reschedule.targetStartsOn.toISOString().slice(0, 10)} through {reschedule.targetEndsOn.toISOString().slice(0, 10)}</span><span>Pricing fingerprint <code>{reschedule.targetPricingFingerprint}</code> · applied <time dateTime={reschedule.appliedAt.toISOString()}>{reschedule.appliedAt.toISOString()}</time></span></div></div></li>)}</ul>
     </section> : null}
 

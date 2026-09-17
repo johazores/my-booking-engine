@@ -14,7 +14,6 @@ const readService = readFileSync('src/server/bookings/rental-booking-read-servic
 const route = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/reschedule/route.ts', 'utf8');
 const page = readFileSync('app/inventory/rentals/bookings/[booking-id]/reschedule/page.tsx', 'utf8');
 const detail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
-const custodyExtensionPanel = readFileSync('src/components/rental-custody-extension-panel.tsx', 'utf8');
 const returnInspectionPanel = readFileSync('src/components/rental-return-inspection-panel.tsx', 'utf8');
 const list = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const docs = readFileSync('docs/rental-booking-reschedule-lifecycle.md', 'utf8');
@@ -134,6 +133,8 @@ test('staff route derives tenant actor idempotency and safe form authority serve
   assert.doesNotMatch(route, /formField\(formData, 'organizationId'\)/);
   assert.doesNotMatch(route, /formField\(formData, 'actorUserId'\)/);
   assert.doesNotMatch(route, /formField\(formData, 'idempotencyKey'\)/);
+  assert.match(route, /result\.mode === 'CUSTODY_EXTENSION'/);
+  assert.match(route, /'booking-extended'/);
   assert.match(page, /Apply reschedule/);
   assert.match(page, /Apply extension/);
   assert.match(page, /custodyExtension/);
@@ -150,10 +151,10 @@ test('read and cancellation paths use current effective allocation after resched
   assert.match(detail, /Original booking-time period/);
   assert.match(detail, /Physical-unit substitution evidence/);
   assert.match(detail, /Reschedule and extension evidence/);
-  assert.match(custodyExtensionPanel, /Extend rental/);
-  assert.match(custodyExtensionPanel, /\/reschedule/);
-  assert.match(returnInspectionPanel, /fulfillmentState === 'PICKED_UP'/);
-  assert.match(returnInspectionPanel, /RentalCustodyExtensionPanel/);
+  assert.match(detail, /const inCustody = booking\.fulfillment\.state === 'PICKED_UP'/);
+  assert.match(detail, /\{beforePickup \? 'Reschedule rental' : 'Extend rental'\}/);
+  assert.doesNotMatch(returnInspectionPanel, /RentalCustodyExtensionPanel/);
+  assert.match(returnInspectionPanel, /fulfillmentState !== 'RETURNED'/);
   assert.match(list, /booking\.allocation\.startsOn/);
   assert.match(list, /booking\.allocation\.endsOn/);
   assert.match(list, /booking\.allocation\.unit\.name/);

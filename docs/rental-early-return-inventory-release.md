@@ -13,10 +13,10 @@ The browser submits no tenant, actor, unit, date, money, return timestamp, relea
 The writer takes the tenant/booking advisory lock followed by the current physical-unit lock and runs in a serializable transaction. It requires:
 
 - a still-confirmed tenant booking;
-- the exact effective unit after any pre-pickup substitution;
-- the exact committed dates after any pre-pickup reschedule;
+- the exact effective unit after any supported pre-pickup substitution;
+- the exact committed dates after the latest supported date change, including an in-custody same-unit extension when one exists;
 - an intact allocation still protecting the full committed period;
-- append-only `RETURNED` evidence for that exact unit and committed date range; and
+- append-only `RETURNED` evidence for that exact unit and effective committed date range; and
 - an active physical unit at the retained booking assignment.
 
 The release time comes from PostgreSQL `clock_timestamp()`. The inventory cutoff is derived from the immutable return timestamp in the retained booking location timezone.
@@ -38,9 +38,9 @@ For example, a booking committed for October 10 through October 16 that is retur
 
 `RentalBookingEarlyReturnRelease` is append-only tenant-owned evidence. It retains the booking, effective unit, exact return event, committed start/end, shortened allocation end, immutable return timestamp, server-derived idempotency key, and PostgreSQL release timestamp.
 
-The database insert guard repeats the booking/unit lock boundary and requires exact return custody evidence plus the still-full committed allocation. The allocation guard then allows only the shortened end recorded by that release evidence. A deferred constraint requires the evidence and shortened allocation to commit together.
+The database insert guard repeats the booking/unit lock boundary, derives committed dates from the latest tenant-owned reschedule/extension evidence, and requires exact return custody evidence plus the still-full committed allocation. The allocation guard then allows only the shortened end recorded by that release evidence. A deferred constraint requires the evidence and shortened allocation to commit together.
 
-Repeated requests replay an existing release only after re-deriving the retained confirmed booking's effective unit and committed dates, reacquiring the effective-unit lock, matching the exact linked `RETURNED` event and immutable return timestamp, and verifying that the live allocation still ends at the retained released date. An idempotency key match by itself is not sufficient.
+Repeated requests replay an existing release only after re-deriving the retained confirmed booking's effective unit and latest committed dates, reacquiring the effective-unit lock, matching the exact linked `RETURNED` event and immutable return timestamp, and verifying that the live allocation still ends at the retained released date. An idempotency key match by itself is not sufficient.
 
 ## Commercial boundary
 
@@ -52,7 +52,7 @@ Payment and refund evidence remains governed by the separate rental payment cont
 
 The booking detail distinguishes:
 
-- **Committed rental period** — retained customer/commercial dates after supported pre-pickup rescheduling.
+- **Committed rental period** — retained customer/commercial dates after the latest supported reschedule or custody extension.
 - **Live inventory protection** — the current allocation date range used by availability decisions.
 
 After `RETURNED`, when at least one complete future rental day can be freed and no release exists, authorized staff see `Release remaining inventory`. The UI shows the exact date from which inventory will become available. Once applied, append-only release evidence is displayed and the action disappears.
@@ -62,7 +62,7 @@ The booking list continues to show the committed rental period while separately 
 ## Validation
 
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers location-calendar release dates, whole-day semantics, no-op rejection, and deterministic idempotency.
-- `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects tenant ownership, append-only persistence, booking/unit serialization, replay revalidation, exact return-event authority, server-derived route authority, exact allocation shortening, database guards, and staff read/UI semantics.
+- `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects tenant ownership, append-only persistence, booking/unit serialization, latest reschedule/extension date derivation, replay revalidation, exact return-event authority, server-derived route authority, exact allocation shortening, database guards, and staff read/UI semantics.
 - Full Prisma, migration, PostgreSQL, typecheck, lint, test, and build validation remains part of the repository-supported Node 24 workflow and guarded disposable-database tests.
 
 GitHub Actions are not required or used.

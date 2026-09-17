@@ -4,8 +4,11 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const bookingDetail = read('app/inventory/rentals/bookings/[booking-id]/page.tsx');
+const rescheduleRoute = read('app/api/inventory/rentals/bookings/[booking-id]/reschedule/route.ts');
+const returnInspectionPanel = read('src/components/rental-return-inspection-panel.tsx');
 const staffWorkflow = read('docs/rental-booking-staff-workflow.md');
 const lifecycleDocs = read('docs/rental-booking-reschedule-lifecycle.md');
+const earlyReturnDocs = read('docs/rental-early-return-inventory-release.md');
 
 test('booking detail keeps custody-extension review discoverable after pickup', () => {
   assert.match(bookingDetail, /const inCustody = booking\.fulfillment\.state === 'PICKED_UP';/);
@@ -21,10 +24,21 @@ test('booking detail no longer tells staff that all rescheduling locks immediate
   assert.doesNotMatch(bookingDetail, /Cancellation, rescheduling, and physical-unit replacement are locked to preserve custody evidence/);
 });
 
+test('fresh custody extension applies return extension-specific feedback without duplicating the action in inspection UI', () => {
+  assert.match(rescheduleRoute, /result\.mode === 'CUSTODY_EXTENSION'/);
+  assert.match(rescheduleRoute, /'booking-extended'/);
+  assert.match(bookingDetail, /'booking-extended': 'Rental booking extended\./);
+  assert.match(bookingDetail, /Reschedule and extension evidence/);
+  assert.doesNotMatch(returnInspectionPanel, /RentalCustodyExtensionPanel/);
+  assert.match(returnInspectionPanel, /fulfillmentState !== 'RETURNED'/);
+});
+
 test('staff documentation matches the implemented pre-pickup reschedule and in-custody extension split', () => {
   assert.match(staffWorkflow, /labeled `Reschedule rental` before pickup and `Extend rental` while custody is active/);
   assert.match(staffWorkflow, /date-change authority narrows to the same-unit, same-start, later-end price-neutral custody extension/);
   assert.doesNotMatch(staffWorkflow, /New reschedules fail closed after pickup custody evidence exists/);
   assert.doesNotMatch(staffWorkflow, /Once pickup exists, cancellation, rescheduling, and physical-unit substitution are blocked/);
   assert.match(lifecycleDocs, /The booking detail exposes `Reschedule rental` before pickup and `Extend rental` while picked up/);
+  assert.match(earlyReturnDocs, /latest supported reschedule or custody extension/i);
+  assert.doesNotMatch(earlyReturnDocs, /committed dates after any pre-pickup reschedule/i);
 });

@@ -43,6 +43,9 @@ test('release writer derives immutable authority, serializes booking and unit, a
   assert.match(service, /fulfillment\.state !== 'RETURNED'/);
   assert.match(service, /deriveRentalBookingEarlyReturnReleaseEndsOn/);
   assert.match(service, /rentalBookingEarlyReturnReleaseIdempotencyKey\(input\.bookingId\)/);
+  assert.match(service, /rentalBookingReschedule\.findFirst/);
+  assert.match(service, /const committedStartsOn = latestReschedule\?\.targetStartsOn \?\? booking\.startsOn/);
+  assert.match(service, /const committedEndsOn = latestReschedule\?\.targetEndsOn \?\? booking\.endsOn/);
   assert.match(service, /rentalBookingAllocation\.updateMany/);
   assert.match(service, /endsOn: committedEndsOn/);
   assert.match(service, /data: \{ endsOn: releasedEndsOn \}/);
@@ -66,6 +69,8 @@ test('idempotent release replay revalidates assignment, exact return evidence, a
 test('database guards allow only whole-day post-return release and keep committed booking evidence unchanged', () => {
   assert.match(migration, /event\."kind" = 'RETURNED'/);
   assert.match(migration, /return_event\."unitId" <> expected_unit_id/);
+  assert.match(migration, /latest_reschedule\."targetStartsOn"/);
+  assert.match(migration, /latest_reschedule\."targetEndsOn"/);
   assert.match(migration, /expected_released_ends_on := GREATEST/);
   assert.match(migration, /AT TIME ZONE parent_booking\.location_time_zone/);
   assert.match(migration, /expected_starts_on \+ 1/);
@@ -90,5 +95,6 @@ test('staff route accepts no browser-controlled inventory release authority and 
   assert.match(detailPage, /Return does not release inventory before the booking's effective end date by itself/);
   assert.match(listPage, /booking\.fulfillment\.state === 'AWAITING_PICKUP'/);
   assert.match(listPage, /Inventory released after early return/);
+  assert.match(documentation, /latest supported reschedule or custody extension/i);
   assert.match(documentation, /does not refund, reprice, shorten the customer's committed rental period, or create an inspection outcome/i);
 });
