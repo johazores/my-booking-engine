@@ -1,6 +1,6 @@
 # Rental booking foundation
 
-SF supports a staff-only rental booking writer that converts one reviewed tenant-owned `ACTIVE` rental hold into one durable `RentalBooking` and one durable physical-unit `RentalBookingAllocation`. The production booking surface now also includes tenant-scoped history/detail, same-unit price-neutral rescheduling before pickup, a narrow same-unit current-start/later-end price-neutral custody extension after pickup, same-type/same-location physical-unit substitution before pickup, terminal pre-pickup inventory-release cancellation, append-only manual/offline booking-price payment/refund evidence, append-only pickup/return custody evidence, explicit whole-day early-return inventory release, overdue open-custody availability protection, missed-pickup visibility, operational availability/maintenance work orders, return inspection and damage-case follow-up, customer-liability authority with exact manual settlement or exact bond forfeiture, security-bond collection/release evidence, and explicit late-return assessment plus exact manual/offline fee settlement. Online/card or other provider-backed rental settlement, price-changing/broader extensions, delivery, notifications/external synchronization, and customer self-service remain separate production contracts.
+SF supports a staff-only rental booking writer that converts one reviewed tenant-owned `ACTIVE` rental hold into one durable `RentalBooking` and one durable physical-unit `RentalBookingAllocation`. The production booking surface now also includes tenant-scoped history/detail, same-unit price-neutral rescheduling before pickup, a narrow same-unit current-start/later-end price-neutral custody extension after pickup, same-type/same-location physical-unit substitution before pickup, terminal pre-pickup inventory-release cancellation, append-only multi-source partial/full manual/offline booking-price payment evidence with source-attributed partial/full refunds, append-only pickup/return custody evidence, explicit whole-day early-return inventory release, overdue open-custody availability protection, missed-pickup visibility, operational availability/maintenance work orders, return inspection and damage-case follow-up, customer-liability authority with exact manual settlement or exact bond forfeiture, security-bond collection/release evidence, and explicit late-return assessment plus exact manual/offline fee settlement. Online/card or other provider-backed rental settlement, price-changing/broader extensions, delivery, notifications/external synchronization, and customer self-service remain separate production contracts.
 
 ## Confirmation contract
 
@@ -74,11 +74,13 @@ See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substi
 
 ## Booking-price payment evidence
 
-A confirmed booking may retain one real full-value manual/offline payment recorded after external settlement actually occurred. It may later retain manual/offline refund evidence against the successful source payment. The browser supplies only the normalized external reference; tenant, actor, booking, amount, currency, chronology, and idempotency authority are server-derived.
+A confirmed booking may retain multiple real manual/offline payments recorded after each external settlement actually occurred. Authorized staff provide a normalized external reference and positive major-unit amount up to the current outstanding balance; tenant, actor, booking, currency, exact minor-unit conversion, deterministic idempotency, and outstanding-balance authority are server-derived. Manual references are isolated tenant-wide across booking-price, damage, security-bond, and late-return ledgers before provider-adapter I/O, with PostgreSQL independently enforcing the same cross-ledger boundary.
+
+A later manual/offline refund may retain a partial or full amount against the next server-selected successful source payment. The exact source, remaining refundable source balance, booking refundable balance, and refund amount ceiling come from complete settlement evidence rather than browser authority. Every refund retains explicit source attribution.
 
 Settlement reads complete tenant-owned payment history through bounded cursor pages and fail closed if the reconciliation safety limit is exceeded. Booking cancellation cannot commit while booking-price settlement is non-zero.
 
-This workflow does not present card authorization, online checkout, split tenders, chargebacks, cancellation fees, or provider-backed rental payment as implemented. Security bonds, customer-damage settlement, and late-return settlement use separate append-only evidence streams.
+This workflow does not present card authorization, online checkout, online split-tender checkout, mixed-provider settlement, chargebacks, cancellation fees, or provider-backed rental payment as implemented. Security bonds, customer-damage settlement, and late-return settlement use separate append-only evidence streams.
 
 See [rental-payment-foundation.md](./rental-payment-foundation.md).
 
@@ -180,7 +182,7 @@ These require separate acceptance criteria, commercial authority, and adapter-ba
 
 ## Validation
 
-Focused domain and source-contract tests protect confirmation authority, same-unit reschedule/custody-extension authority, substitution, cancellation, payment settlement, pickup/return, pickup-window and missed-pickup behavior, overdue custody, early-return release, operational availability/maintenance, inspection/damage/liability, security bonds, late-return assessment/settlement, tenant isolation, database guard intent, server-derived idempotency, immutable booking evidence, and staff route/UI wiring.
+Focused domain and source-contract tests protect confirmation authority, same-unit reschedule/custody-extension authority, substitution, cancellation, multi-source partial/full manual booking-price settlement and source-attributed refunds, pickup/return, pickup-window and missed-pickup behavior, overdue custody, early-return release, operational availability/maintenance, inspection/damage/liability, security bonds, late-return assessment/settlement, tenant isolation, database guard intent, server-derived idempotency, immutable booking evidence, and staff route/UI wiring.
 
 The custody-extension work is specifically covered by:
 
