@@ -16,6 +16,8 @@ const migration = read('prisma/migrations/20260917084900_rental_commercial_booki
 const liabilityDocs = read('docs/rental-damage-liability.md');
 const damageSettlementDocs = read('docs/rental-damage-settlement.md');
 const lateReturnSettlementDocs = read('docs/rental-late-return-settlement.md');
+const bookingFoundationDocs = read('docs/rental-booking-foundation.md');
+const inventoryDocs = read('docs/rental-inventory.md');
 
 test('customer damage liability has a direct tenant-owned booking relation', () => {
   assert.match(
@@ -61,4 +63,16 @@ test('commercial docs describe direct booking referential integrity as defense i
   assert.match(damageSettlementDocs, /direct composite tenant foreign keys to both `RentalBooking` and `RentalDamageCase`/);
   assert.match(lateReturnSettlementDocs, /direct composite `\(bookingId, organizationId\)` foreign key to `RentalBooking`/);
   assert.match(lateReturnSettlementDocs, /GitHub Actions are not required or used/);
+});
+
+
+test('aggregate rental docs reflect implemented phase 17 commercial and operational workflows', () => {
+  assert.match(bookingFoundationDocs, /exact full-value manual\/offline damage settlement/);
+  assert.match(bookingFoundationDocs, /late-return assessment/);
+  assert.match(bookingFoundationDocs, /security-bond requirement\/collection\/release\/exact forfeiture/);
+  assert.doesNotMatch(bookingFoundationDocs, /Late-return handling, delivery, damage-payment collection, security bonds/);
+  assert.match(inventoryDocs, /operational availability and maintenance work orders/);
+  assert.match(inventoryDocs, /late-return assessment plus exact manual\/offline fee settlement/);
+  assert.match(inventoryDocs, /security-bond requirement\/collection\/release\/exact forfeiture/);
+  assert.doesNotMatch(inventoryDocs, /inspection\/damage\/security-bond workflows, maintenance transitions/);
 });
