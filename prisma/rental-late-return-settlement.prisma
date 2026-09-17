@@ -14,6 +14,7 @@ model RentalLateReturnSettlementTransaction {
   amountMinor             BigInt
   createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
 
+  booking    RentalBooking              @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_settlement_transactions_booking_fkey")
   assessment RentalLateReturnAssessment @relation(fields: [assessmentId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_settlement_transactions_assessment_fkey")
 
   @@unique([id, organizationId], map: "rental_late_return_settlement_transactions_id_org_key")

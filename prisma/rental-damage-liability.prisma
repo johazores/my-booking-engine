@@ -18,7 +18,8 @@ model RentalDamageLiabilityDecision {
   decidedByUserId   String                       @db.Uuid
   createdAt         DateTime                     @default(now()) @db.Timestamptz(6)
 
-  damageCase             RentalDamageCase                    @relation(fields: [damageCaseId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_liability_decisions_damage_case_fkey")
+  booking                RentalBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_liability_decisions_booking_fkey")
+  damageCase             RentalDamageCase                   @relation(fields: [damageCaseId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_liability_decisions_damage_case_fkey")
   settlementTransactions RentalDamageSettlementTransaction[]
   securityBondForfeiture RentalSecurityBondForfeiture?
 

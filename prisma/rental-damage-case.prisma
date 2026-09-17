@@ -30,10 +30,11 @@ model RentalDamageCase {
   createdAt                DateTime                @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime                @updatedAt @db.Timestamptz(6)
 
-  booking           RentalBooking                   @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_booking_fkey")
-  inspection        RentalReturnInspection          @relation(fields: [inspectionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_inspection_fkey")
-  unit              RentalUnit                      @relation("RentalDamageCaseUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_unit_fkey")
-  liabilityDecision RentalDamageLiabilityDecision?
+  booking                RentalBooking                       @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_booking_fkey")
+  inspection             RentalReturnInspection              @relation(fields: [inspectionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_inspection_fkey")
+  unit                   RentalUnit                          @relation("RentalDamageCaseUnit", fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_damage_cases_unit_fkey")
+  liabilityDecision      RentalDamageLiabilityDecision?
+  settlementTransactions RentalDamageSettlementTransaction[]
 
   @@unique([id, organizationId], map: "rental_damage_cases_id_org_key")
   @@unique([organizationId, bookingId], map: "rental_damage_cases_org_booking_key")

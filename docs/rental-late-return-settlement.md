@@ -21,6 +21,8 @@ Reads require both `booking:read` and `payment:read`. Writes require both `booki
 
 Every assessment and transaction lookup repeats the authenticated `organizationId`, booking ID, and assessment ID. Writes serialize on the shared tenant/booking advisory lock and use bounded serializable retries. Retained reads use a repeatable-read snapshot.
 
+`RentalLateReturnSettlementTransaction` also carries a direct composite `(bookingId, organizationId)` foreign key to `RentalBooking` in addition to its tenant-owned assessment relation. This makes the retained booking identifier database-enforced referential evidence rather than a denormalized value protected only by application/trigger checks.
+
 ## Idempotency and request evidence
 
 Payment and refund idempotency keys are derived server-side from the assessment ID, operation, and normalized real-world manual reference. Each row also retains a SHA-256 request fingerprint over the tenant, booking, assessment, operation, provider/source references, currency, and exact amount.
@@ -57,5 +59,7 @@ Those are separate production workflows with different authority and recovery re
 `src/server/payments/rental-late-return-settlement-domain.test.ts` covers unpaid/paid/refunded reconciliation, exact-value/source/chronology failure cases, and deterministic operation-bound idempotency/fingerprints.
 
 `scripts/rental-late-return-settlement-source-contract.test.mjs` protects tenant/permission scope, bounded settlement history, serializable locking, manual-provider capability use, PostgreSQL source authority, append-only/database-time evidence, four-ledger manual-reference isolation, real staff actions, safe form parsing, and the deliberate no-fake-provider boundary.
+
+`scripts/rental-commercial-booking-integrity-source-contract.test.mjs` protects the direct tenant-owned booking foreign key on retained late-return settlement evidence.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Live migration/trigger execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

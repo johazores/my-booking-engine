@@ -12,7 +12,7 @@ The liability decision is the amount and currency authority. The browser cannot 
 
 ## Manual/offline settlement evidence
 
-`RentalDamageSettlementTransaction` is append-only tenant-owned evidence linked to the immutable liability decision. The current manual contract allows at most one successful full-value `OFFLINE_PAYMENT` and one successful full-value `REFUND` attributed to that payment reference.
+`RentalDamageSettlementTransaction` is append-only tenant-owned evidence linked to the immutable liability decision. It also has direct composite tenant foreign keys to both `RentalBooking` and `RentalDamageCase`, so the denormalized booking/case identifiers cannot point outside the authority chain even under direct database writes. The current manual contract allows at most one successful full-value `OFFLINE_PAYMENT` and one successful full-value `REFUND` attributed to that payment reference.
 
 Only the existing `ManualPaymentProvider` adapter is enabled. Recording a row means staff confirm money was actually received or refunded outside SF. SF does not initiate a transfer, charge a card, or synthesize provider success.
 
@@ -42,6 +42,7 @@ Provider-backed rental damage collection must remain behind payment adapters and
 
 - `src/server/payments/rental-damage-settlement-domain.test.ts` covers unpaid/paid/refunded reconciliation and exact source evidence.
 - `scripts/rental-damage-settlement-source-contract.test.mjs` protects the manual/offline settlement boundary.
+- `scripts/rental-commercial-booking-integrity-source-contract.test.mjs` protects the direct tenant booking/damage-case foreign keys on retained settlement evidence.
 - `src/server/payments/rental-security-bond-domain.test.ts` and `scripts/rental-security-bond-forfeiture-source-contract.test.mjs` protect the exact-match bond-forfeiture alternative and double-settlement database guard.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
 - Migration/trigger verification remains `npm run test:database` against an explicitly disposable PostgreSQL target.
