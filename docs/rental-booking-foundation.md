@@ -1,138 +1,192 @@
 # Rental booking foundation
 
-SF has a durable rental booking persistence and staff lifecycle boundary. It converts one active physical-unit hold into one confirmed tenant booking, exposes tenant-scoped staff history/detail, supports same-unit price-neutral date rescheduling through append-only evidence, supports same-type/same-location physical-unit substitution through append-only evidence, supports terminal pre-pickup cancellation that releases live inventory while retaining history, supports append-only pickup/return physical-custody evidence, supports explicit post-return release of complete remaining rental days, records one append-only return-condition inspection after custody handback, supports explicit operational damage-case follow-up for non-clear inspections, records one post-closure customer-damage-liability decision, supports exact full-value manual/offline damage settlement or exact security-bond forfeiture, and supports retained late-return assessment with exact full-value manual/offline fee settlement.
+SF supports a staff-only rental booking writer that converts one reviewed tenant-owned `ACTIVE` rental hold into one durable `RentalBooking` and one durable physical-unit `RentalBookingAllocation`. The production booking surface now also includes tenant-scoped history/detail, same-unit price-neutral rescheduling before pickup, a narrow same-unit current-start/later-end price-neutral custody extension after pickup, same-type/same-location physical-unit substitution before pickup, terminal pre-pickup inventory-release cancellation, append-only manual/offline booking-price payment/refund evidence, append-only pickup/return custody evidence, explicit whole-day early-return inventory release, overdue open-custody availability protection, missed-pickup visibility, operational availability/maintenance work orders, return inspection and damage-case follow-up, customer-liability authority with exact manual settlement or exact bond forfeiture, security-bond collection/release evidence, and explicit late-return assessment plus exact manual/offline fee settlement. Online/card or other provider-backed rental settlement, price-changing/broader extensions, delivery, notifications/external synchronization, and customer self-service remain separate production contracts.
 
-The commercial contract remains intentionally narrow: it establishes ownership, immutable booking-time customer/commercial evidence, effective physical-unit allocation, idempotency, inventory protection/release, reschedule/substitution authority, physical custody handoff/return evidence, early-return inventory release evidence, return-condition evidence, operational damage-case/repair-estimate evidence, customer-damage-liability authority, security-bond evidence, explicit late-return commercial evidence, auditability, and staff review without inventing online checkout/card authorization, unit-type/location changes, price-changing amendments or extensions, delivery, partial/split settlement, automatic late-fee policy, provider-backed rental collection, notifications, external synchronization, or customer self-service behavior.
+## Confirmation contract
 
-## Durable records
+`confirmRentalBookingFromHold` requires:
 
-`RentalBooking` stores tenant/customer identity, immutable customer snapshot, source hold, original booking-time physical unit/type/location, confirmation idempotency key, lifecycle, original booking-time dates, currency, exact accepted total, immutable pricing evidence, conversion-authority fingerprint, and confirmation/cancellation timestamps.
+- an authenticated tenant ID and actor ID
+- `booking:manage`
+- `availability:read`
+- `availability:manage`
+- `customer:read`
+- an active tenant hold with immutable pricing evidence
+- an active tenant customer
+- active unit/type/location evidence matching the hold
+- no unavailable block, competing effective hold, non-cancelled booking allocation, or overdue open custody on the held physical unit
+- current pricing equal to the held currency, total, and pricing fingerprint
+- a valid server-rebuilt confirmation authority fingerprint
 
-`RentalBookingAllocation` is the current physical inventory commitment. It binds one booking to one tenant-owned effective unit and live inventory-protection range. Cancellation retains the allocation as historical evidence; inventory guards treat it as non-blocking once the parent booking is `CANCELLED`. After explicit early-return release, its exclusive end may be shorter than the retained committed rental end.
+The booking writer ignores browser authority for tenant, actor, customer, unit, dates, pricing, idempotency, or conversion chronology except the reviewed hold ID and authority fingerprint. The canonical idempotency key is derived from the tenant hold.
 
-`RentalBookingReschedule` is append-only evidence for a supported same-unit, price-neutral date change. It stores effective source/target dates, unchanged money, source/target pricing fingerprints, target pricing snapshot, reviewed authority fingerprint, stable idempotency key, and application timestamp.
+## Durable booking evidence
 
-`RentalBookingUnitSubstitution` is append-only evidence for a supported same-type/same-location physical-unit replacement. It stores source/target unit IDs, effective dates, unchanged money/pricing evidence, reviewed authority fingerprint, stable idempotency key, and application timestamp. The original `RentalBooking.unitId` is never rewritten.
+A successful conversion persists immutable booking-time evidence including:
 
-`RentalBookingFulfillmentEvent` is append-only physical-custody evidence. It snapshots the current effective physical unit ID/code/name, committed dates, server-derived idempotency key, PostgreSQL event time, and either `PICKED_UP` or `RETURNED`. Return requires prior pickup; pickup is the boundary after which cancellation, rescheduling, and physical-unit substitution fail closed.
+- organization
+- source hold
+- customer link plus booking-time customer name/contact snapshot
+- physical unit, unit type, location, and accepted date range
+- accepted currency and exact minor-unit total
+- pricing fingerprint and bounded pricing snapshot
+- conversion authority fingerprint
+- confirmation timestamp from PostgreSQL time
+- deterministic confirmation idempotency key
 
-`RentalBookingEarlyReturnRelease` is append-only tenant-owned evidence linking the exact return event, effective unit, committed rental period, shortened live allocation end, immutable return timestamp, server-derived idempotency key, and PostgreSQL release time.
+`RentalBookingAllocation` is the operational physical-unit/date commitment. It starts equal to booking-time dates and unit, then may move only through supported append-only reschedule/extension and substitution lifecycles. `RentalBooking` retains the original booking-time commercial and physical-assignment evidence.
 
-`RentalReturnInspection` is append-only tenant-owned condition evidence linked to the exact `RETURNED` event and returned physical unit. It records one `CLEAR`, `DAMAGE_REPORTED`, or `UNSAFE` outcome per booking, retained notes, inspecting actor, organization-scoped idempotency, and PostgreSQL-authored inspection time.
+## Tenant isolation and authorization
 
-`RentalDamageCase` is tenant-owned operational follow-up for one non-clear return inspection. It retains one case per booking/inspection, deterministic server-derived idempotency, `OPEN -> ASSESSED -> CLOSED` or waiver lifecycle evidence, exact repair estimate in the retained booking currency, audit actors, and PostgreSQL-authored lifecycle times. Its estimate is not customer liability or settlement authority by itself.
+Every read and mutation repeats authenticated `organizationId`. IDs such as hold ID, booking ID, customer ID, unit ID, target-unit ID, payment reference, idempotency key, and authority fingerprint never grant tenant scope by themselves.
 
-`RentalDamageLiabilityDecision` is append-only tenant-owned commercial evidence downstream of a `CLOSED` assessed damage case. It records exactly one `CUSTOMER_LIABLE` or `NO_CUSTOMER_LIABILITY` outcome, retained reason, exact liability amount when applicable, deterministic server idempotency, deciding actor, and PostgreSQL-authored decision time. A liable amount must be positive and cannot exceed the retained repair estimate under the current contract.
+Booking reads require `booking:read`. Booking confirmation requires booking/availability/customer authority. Reschedule/extension review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`; apply additionally requires `availability:manage`. Unit substitution requires booking/availability/inventory authority. Cancellation requires `booking:manage` plus `availability:manage` and zero net booking-price settlement. Pickup/return and early-return inventory release require `booking:manage` plus `inventory:manage`. Payment, liability, bond, and late-return settlement surfaces add the relevant `payment:*` permissions.
 
-`RentalDamageSettlementTransaction` retains exact full-value manual/offline payment or refund evidence for a customer-liable damage decision. `RentalSecurityBondRequirement`, `RentalSecurityBondTransaction`, and `RentalSecurityBondForfeiture` retain the explicit exact-match security-bond path. `RentalLateReturnAssessment` retains a post-return `FEE_ASSESSED` or `WAIVED` decision, and `RentalLateReturnSettlementTransaction` separately retains exact full-value manual/offline fee payment/refund evidence when a fee exists.
+## Booking locks and database authority
 
-Rental booking/customer, reschedule, substitution, fulfillment, early-return release, return-inspection, damage-case, damage-liability, damage-settlement, security-bond, late-return assessment, and late-return settlement relationships use tenant-composite database foreign keys or tenant-bound database constraints. Denormalized booking identifiers on the damage-liability, damage-settlement, and late-return-settlement commercial evidence are also constrained directly back to the same tenant-owned `RentalBooking`.
+Confirmation uses serializable application transactions, tenant/hold serialization, and the shared tenant/physical-unit advisory lock before consuming hold authority and writing booking/allocation evidence. Database guards independently validate tenant ownership, immutable evidence, pricing/hold consistency, exact allocation, and live inventory conflicts.
 
-## Confirmation writer
+Later booking mutations reuse the tenant/booking advisory lock and, where physical inventory can change, the effective physical-unit lock. Direct-write database guards repeat critical lifecycle boundaries instead of treating application code as the only source of truth.
 
-`confirmRentalBookingFromHold` is server-only and requires `booking:manage`, `availability:manage`, `inventory:read`, `pricing:read`, and `customer:read`.
+## Date rescheduling and custody extension
 
-It runs in a serializable transaction under tenant/idempotency and tenant/physical-unit locks, uses PostgreSQL time, and revalidates active hold/customer/unit/type/location, unavailable blocks, effective holds, live booking allocations, complete hold pricing evidence, current pricing, and exact conversion authority.
+Before pickup, authorized staff may review a different date range for the current effective physical unit. Current target inventory and pricing must be compatible with the existing accepted commercial contract; SF does not silently reprice an accepted booking.
 
-Only after exact hold consumption does the transaction create booking, allocation, and audit evidence. Replay succeeds only for the same tenant-local hold/customer/authority identity.
+After pickup and before return, the same append-only reschedule lifecycle becomes a narrow custody-extension contract. The current effective start date and physical unit are fixed; the target end must move strictly later; fresh inventory authority must still be available; and current target pricing must preserve the accepted currency and exact aggregate amount. Arbitrary in-custody rescheduling, shortening, changing the start, changing unit/type/location, and price-changing extension authority remain unsupported.
 
-## Reschedule lifecycle
+The review authority fingerprint is custody-aware. It binds the current booking version, effective unit, source and target dates, exact money, pricing fingerprints, mutation mode, and the immutable pickup-event ID when custody has started. A pre-pickup review cannot cross the pickup boundary unnoticed.
 
-Same-unit, price-neutral rescheduling is documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
+Apply reacquires booking and effective-unit locks, rechecks tenant lifecycle/custody, blocks/holds/other allocations/overdue custody, rebuilds pricing, verifies reviewed authority, inserts append-only `RentalBookingReschedule` evidence, moves only operational allocation dates, advances booking `updatedAt`, and records either `booking.rental.rescheduled` or `booking.rental.extended` audit evidence.
 
-Review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`. Apply additionally requires `availability:manage`.
+The database custody guard mirrors the distinction. Before pickup, the existing supported price-neutral reschedule contract remains available. After pickup, only source=current effective period, target start=current start, target end>current end is accepted, and the write cannot predate pickup evidence. Once return exists, no new reschedule or extension row is accepted. Cancellation and physical-unit substitution remain hard-locked after pickup.
 
-Review and apply derive the current effective physical unit from latest substitution evidence and the current effective source period from latest reschedule evidence. Target dates are rejected when they overlap an unavailable block, effective hold, or another non-cancelled booking. Target pricing must preserve accepted currency and exact aggregate amount.
+See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
 
-Apply reacquires the tenant/booking plus effective physical-unit lock, rebuilds authority, derives idempotency server-side, inserts append-only reschedule evidence, changes only effective allocation dates, advances booking `updatedAt`, and records an audit event. Database guards reject new reschedules after pickup custody evidence exists.
+## Physical-unit substitution
 
-## Physical-unit substitution lifecycle
+Before pickup, authorized staff may replace the current effective unit with another active unit under the same retained unit type and operating location while dates and accepted money remain unchanged.
 
-Same-type/same-location substitution is documented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
+Candidate discovery is bounded and non-reserving. Fresh review uses PostgreSQL time plus the retained booking-location timezone and rejects missed-pickup bookings whose exclusive effective end has already been reached. Apply serializes the booking and both source/target unit locks in deterministic order, rechecks that no fulfillment evidence exists, revalidates target inventory authority, inserts append-only substitution evidence, moves only `RentalBookingAllocation.unitId`, advances booking version, and records audit evidence.
 
-Candidate search requires `booking:manage` and `inventory:read`; review additionally requires `availability:read`; apply additionally requires `availability:manage`.
+Original `RentalBooking.unitId` stays immutable booking-time evidence. Database guards derive the current effective unit from latest substitution history for later allocation, reschedule/extension, cancellation, and fulfillment authority.
 
-Review derives current source unit from latest substitution history, current dates from latest reschedule history, and checks target lifecycle/type/location plus blocks, effective holds, overdue open custody, and other live allocations. A version-2 authority fingerprint binds the current booking version, source/target unit, retained type/location, effective dates, exact accepted money, and effective pricing fingerprint.
+See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md) and [rental-booking-pickup-window.md](./rental-booking-pickup-window.md).
 
-Apply locks the booking and both source/target units in deterministic order, rebuilds authority, inserts append-only substitution evidence, changes only the effective allocation unit, advances booking `updatedAt`, and records an audit event. Idempotent replay is accepted only while the matching substitution is still current. Database guards reject new substitutions after pickup custody evidence exists.
+## Booking-price payment evidence
 
-## Cancellation lifecycle
+A confirmed booking may retain one real full-value manual/offline payment recorded after external settlement actually occurred. It may later retain manual/offline refund evidence against the successful source payment. The browser supplies only the normalized external reference; tenant, actor, booking, amount, currency, chronology, and idempotency authority are server-derived.
 
-`cancelRentalBooking` requires `booking:manage` and `availability:manage`, runs in a serializable transaction under the tenant/booking plus current effective physical-unit lock, and validates the current allocation including latest reschedule and substitution evidence.
+Settlement reads complete tenant-owned payment history through bounded cursor pages and fail closed if the reconciliation safety limit is exceeded. Booking cancellation cannot commit while booking-price settlement is non-zero.
 
-The final `CONFIRMED -> CANCELLED` write remains an exact compare-and-swap over immutable booking evidence plus observed version. Allocation and append-only modification history remain retained. Live inventory guards ignore the retained allocation only after the parent booking is cancelled.
+This workflow does not present card authorization, online checkout, split tenders, chargebacks, cancellation fees, or provider-backed rental payment as implemented. Security bonds, customer-damage settlement, and late-return settlement use separate append-only evidence streams.
 
-Cancellation is pre-pickup only. A database guard using the same tenant/booking lock namespace rejects cancellation after any fulfillment custody event exists.
+See [rental-payment-foundation.md](./rental-payment-foundation.md).
+
+## Cancellation
+
+A confirmed booking can be cancelled only before physical pickup, by authorized staff, after current payment settlement reconciles to zero. Cancellation is terminal. It retains immutable booking/allocation/reschedule/substitution/payment evidence while making the retained allocation non-blocking for new inventory authority.
+
+Cancellation does not itself refund money or perform provider actions. If real money was previously recorded, authorized staff must record the real refund through the payment workflow first. A database guard rejects cancellation once pickup evidence exists.
 
 See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
 
-## Fulfillment, early-return release, inspection, damage follow-up, and liability
+## Fulfillment and custody
 
-The supported custody state machine is `AWAITING_PICKUP -> PICKED_UP -> RETURNED` and is documented in [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md).
+Pickup/return are append-only physical-custody evidence. Pickup snapshots the current effective physical unit and effective committed dates after any supported pre-pickup reschedule/substitution. Pickup is allowed only within the current committed local-date pickup window derived from PostgreSQL time and the retained location timezone.
 
-Pickup and return require `booking:manage` plus `inventory:manage`. The server derives tenant, actor, effective unit/dates, event time, and idempotency authority; the browser submits no custody authority fields.
+Pickup is the custody handoff boundary. Cancellation, physical-unit replacement, and arbitrary date moves fail closed after pickup. While custody remains open, authorized staff may still use the separate narrow same-unit price-neutral extension contract described above. Return closes that date-change exception and records immutable custody handback evidence.
 
-Each writer takes the booking lock followed by the effective physical-unit lock, validates the exact allocation after prior reschedule/substitution evidence, requires the effective unit to remain active at the retained booking assignment, uses PostgreSQL time, inserts append-only fulfillment evidence, and records an audit event in one serializable transaction.
+If pickup never occurs and the exclusive effective end date is reached, the booking is surfaced as **Missed pickup**. The system does not automatically cancel, refund, fee, or extend it.
 
-Return requires prior pickup and cannot predate it. Return itself does not release or shorten the live allocation. After return, authorized staff may explicitly release only complete remaining rental days. The release derives its cutoff from the immutable return event in the retained booking-location timezone, keeps the committed rental dates and accepted money unchanged, inserts append-only release evidence, and shortens only `RentalBookingAllocation.endsOn`.
+If pickup exists and the exclusive effective end is reached without return, the current effective unit becomes **Overdue custody** and is excluded from new inventory authority. Authorized staff can record return or, where still eligible, explicitly review the narrow custody extension. Overdue state itself does not create a fee or mutate the booking.
 
-After `RETURNED`, authorized staff may record one durable return inspection. The inspection is bound to the exact return event and returned unit. `DAMAGE_REPORTED` and `UNSAFE` require retained notes and move an available unit to `OUT_OF_SERVICE` before the inspection is inserted; the database independently enforces that quarantine boundary. A clear inspection does not alter operational state.
+Return by itself does not shorten the live allocation. When a real early return leaves complete future rental days, authorized staff may explicitly create append-only early-return release evidence and shorten only `RentalBookingAllocation.endsOn`, keeping committed commercial/custody evidence unchanged.
 
-A non-clear inspection can feed one explicit damage case. Opening the case preserves physical-unit quarantine; `OPEN` and `ASSESSED` cases prevent the unit from returning to `AVAILABLE` or being archived. Assessment stores an exact repair estimate in the booking currency, but that amount remains operational evidence until the case is resolved. Waiver or closure is explicit and terminal, and neither automatically restores unit availability.
+See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-overdue-custody-availability.md](./rental-overdue-custody-availability.md), and [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
 
-A `CLOSED` assessed damage case can feed one separate customer-liability decision. Reading that evidence requires `booking:read` plus `payment:read`; recording it requires `booking:manage` plus `payment:manage`. The service and database bind the decision to the same tenant booking, damage case, physical unit, booking currency, retained repair estimate, deterministic idempotency, and PostgreSQL decision time. `CUSTOMER_LIABLE` requires a positive amount no greater than the repair estimate; `NO_CUSTOMER_LIABILITY` carries no amount.
+## Operational availability and maintenance
 
-The liability decision is not booking-price settlement. It does not mutate `RentalBooking.totalMinor` or itself claim money moved. Customer-liable damage can be settled by the dedicated exact full-value manual/offline damage ledger or, when the collected bond exactly matches the liability, by explicit security-bond forfeiture. Returned bookings can also retain a separate late-return fee/waiver assessment and exact full-value manual/offline fee settlement.
+Physical inventory archive lifecycle is distinct from operational serviceability. `RentalUnitOperationalState` retains `AVAILABLE` or `OUT_OF_SERVICE` evidence under tenant/inventory authorization. Live maintenance or non-clear return-condition evidence prevents unsafe return to service.
 
-See [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-damage-settlement.md](./rental-damage-settlement.md), [rental-security-bond.md](./rental-security-bond.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md). Rental extensions/price-changing amendments, delivery, provider-backed settlement, fulfillment notifications, customer self-service, and external synchronization remain separate contracts.
+Maintenance work orders retain `OPEN -> IN_PROGRESS -> COMPLETED/CANCELLED` evidence. Opening maintenance quarantines an available unit. Completion/cancellation does not automatically declare the unit ready; staff must explicitly verify readiness after all active maintenance is terminal.
 
-## Staff booking interaction
+See [rental-unit-operational-availability.md](./rental-unit-operational-availability.md) and [rental-maintenance-work-orders.md](./rental-maintenance-work-orders.md).
 
-The authenticated hold detail supports bounded active-customer search, conversion review, and confirmation only after ready server authority.
+## Return inspection, damage, and customer liability
 
-`/inventory/rentals/bookings` and `/inventory/rentals/bookings/[booking-id]` provide `booking:read`-protected tenant history/detail. List/detail show the committed rental period and current effective physical unit; after early-return release they separately show the shorter live inventory-protection end. Detail preserves original booking-time dates/unit, append-only reschedule/substitution/fulfillment/release history, accepted money, customer snapshot, source evidence, cancellation evidence, retained return inspection, damage-case/liability evidence, security-bond evidence, and retained late-return assessment/settlement evidence when the actor has the corresponding permissions.
+After return, SF may retain one append-only `CLEAR`, `DAMAGE_REPORTED`, or `UNSAFE` inspection. Damage/unsafe outcomes quarantine an available unit out of service. This operational condition does not itself establish customer liability or move money.
 
-Reschedule and unit-substitution pages provide fresh GET review and POST Apply only when review is ready and the actor has the corresponding write authority. Mutation routes never accept tenant, actor, money, pricing snapshot, source-unit authority, or commercial idempotency authority from the browser.
+A non-clear inspection may feed one damage case with retained assessment/repair-cost evidence. Once that case is assessed and closed, staff may retain one append-only customer-liability decision: `CUSTOMER_LIABLE` or `NO_CUSTOMER_LIABILITY`. A customer-liable amount must be exact, positive, in booking currency, and cannot exceed retained repair-cost authority.
 
-The booking detail exposes a real pickup POST only while custody is awaiting pickup and a real return POST only after pickup, gated in the UI by `booking:manage` plus `inventory:manage`. After return, the same permissions expose `Release remaining inventory` only when at least one complete rental day can be released and expose `Record return inspection` only while no inspection evidence exists. A retained non-clear inspection exposes real open/assess/waive/close damage-case actions under the same dual write permissions. A closed assessed case exposes a real liability decision only to actors with the corresponding booking/payment permissions. Server and database checks remain authoritative.
+A customer-liable decision can then be settled only through the currently supported exact full-value manual/offline damage payment/refund workflow or, when an exact-match collected security bond exists, through append-only bond forfeiture. The accepted booking price is never rewritten.
 
-## Database inventory and commercial protection
+See [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), [rental-damage-liability.md](./rental-damage-liability.md), and [rental-damage-settlement.md](./rental-damage-settlement.md).
 
-Database guards complement server authorization:
+## Security bonds
 
-- booking insert validates active customer, consumed hold, and current unit/type/location ownership;
-- composite customer, reschedule, substitution, fulfillment, early-return release, return-inspection, damage-case, damage-liability, damage-settlement, security-bond, late-return assessment, and late-return-settlement foreign keys/constraints preserve same-tenant ownership;
-- original booking commercial/ownership evidence is immutable;
-- reschedule, substitution, fulfillment, early-return release, return-inspection, and damage-liability evidence is append-only; damage-case source evidence and terminal states are immutable;
-- the effective unit is derived from latest substitution history while committed dates are derived from latest reschedule history;
-- allocation writes take per-unit advisory locks and must match current effective unit and either the committed dates or the exact shortened end retained by early-return release evidence;
-- allocation/substitution writes reject unavailable blocks, effective holds, or overlapping non-cancelled allocations;
-- deferred constraints require confirmed bookings, reschedules, substitutions, and early-return release evidence to commit with the exact effective allocation;
-- cancellation is terminal and serialized with the effective physical unit;
-- fulfillment insert validates the exact committed allocation/unit snapshot and pickup-before-return order under booking/unit locks;
-- early-return release requires exact `RETURNED` evidence and a still-full committed allocation before it can shorten inventory protection;
-- return inspection requires exact tenant `RETURNED` evidence for the same unit, database-authored timestamps, and `OUT_OF_SERVICE` state for non-clear outcomes;
-- damage-case insert requires exact non-clear tenant inspection evidence, matching booking currency, active retained unit, deterministic idempotency, and `OUT_OF_SERVICE`; lifecycle timestamps are database-authored;
-- damage-liability insert requires a closed assessed tenant damage case, matching confirmed booking currency/unit/source evidence, deterministic idempotency, and amount shape bounded by the retained repair estimate; decision timestamps are database-authored;
-- unresolved damage cases prevent `AVAILABLE` operational state and unit archival at both application/database boundaries where applicable;
-- after pickup, database guards reject new cancellation, reschedule, and unit-substitution writes;
-- rental units with a non-cancelled booking allocation cannot be archived, relocated, or retyped;
-- hold/block/unit mutation guards account for non-cancelled booking allocations.
+Security-bond evidence is separate from booking-price payment evidence. A booking may retain a bond requirement, real manual/offline collection/release evidence, and exact-match forfeiture against customer damage liability. The database enforces tenant-composite booking relationships and terminal disposition integrity so a collected bond cannot be both released and forfeited.
 
-## Customer lifecycle integration
+Partial offsets, undersecured allocations, excess-bond remainders, split tenders, provider-backed bond settlement, and automatic authorization/capture are deliberately unsupported.
 
-Rental bookings retain immutable customer snapshots and remain customer-data retention boundaries after rescheduling, substitution, fulfillment, early-return release, return inspection, damage follow-up, damage-liability decision, or cancellation. Customer-detail eligibility and final de-identification mutations count both hospitality and rental booking references and fail closed when references exist.
+See [rental-security-bond.md](./rental-security-bond.md).
 
-## Explicit boundaries
+## Late-return assessment and settlement
 
-This foundation exposes staff-only conversion review/confirmation, booking list/detail, same-unit price-neutral date rescheduling, same-type/same-location physical-unit substitution, pre-pickup terminal inventory-release cancellation, pickup/return custody evidence, explicit whole-day post-return inventory release, one append-only return-condition inspection with non-clear operational quarantine, explicit non-clear damage-case assessment/waiver/resolution evidence, one post-closure customer-damage-liability decision, exact manual/offline damage settlement, security-bond requirement/collection/release/exact forfeiture, and explicit late-return assessment plus exact manual/offline fee settlement.
+After a real return, if retained custody proves the unit came back after the effective exclusive committed end, staff may retain one explicit `FEE_ASSESSED` or `WAIVED` decision. Grace days are explicit case evidence; no tenant-wide automatic fee policy is inferred.
 
-It does not expose public/customer rental checkout or modification, online/card or other provider-backed rental settlement, unit-type/location-changing substitution, price-changing amendments/rescheduling or rental extensions, customer pickup/drop-off location selection, delivery, automatic tenant late-fee policy, partial/split damage/bond/late-fee settlement, tax/fee workflows beyond the retained explicit authorities, automatic maintenance creation from inspection/damage case, fulfillment notifications, or external synchronization.
+An assessed exact fee can feed one separate full-value manual/offline payment/refund settlement boundary. That settlement does not mutate the accepted rental price, change custody evidence, or pretend a provider charge occurred.
 
-`CONFIRMED` means physical inventory is durably committed under reviewed commercial evidence. It does not imply payment or fulfillment; custody transfer remains a separate append-only lifecycle. `PICKED_UP` and `RETURNED` are derived from immutable fulfillment events. An early-return release changes only live physical inventory protection; it does not alter the committed rental period or money. A return inspection records condition evidence only. A damage-case assessment records operational repair-estimate evidence only; the separate post-closure liability decision can establish a customer amount due from that damage case but still does not settle or collect it. `CANCELLED` releases SF inventory protection only and does not imply refund or financial side effects.
+See [rental-late-return-assessment.md](./rental-late-return-assessment.md) and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
+
+## Database integrity highlights
+
+Current migrations enforce, among other safeguards:
+
+- tenant-composite foreign keys for booking roots and commercial evidence
+- immutable booking-time customer/commercial/physical evidence
+- one durable booking per source hold
+- append-only reschedule, substitution, fulfillment, early-return release, operational, maintenance, inspection/damage/liability, bond, late-return, and settlement evidence where applicable
+- exact current effective allocation validation
+- booking/unit advisory serialization for compatible writer boundaries
+- unavailable-block/effective-hold/other-booking/overdue-custody conflicts
+- cancellation only before pickup and only after booking-price settlement reconciles to zero
+- substitution only before pickup and before missed-pickup closure
+- custody-aware reschedule rules: pre-pickup price-neutral date moves or, after pickup, only current-start/later-end price-neutral extension; no new date changes after return
+- pickup/return ordering and pickup-window authority
+- operational availability and active-maintenance safety
+- cross-ledger manual reference isolation where settlement ledgers share real-world reference authority
+
+Database guards are defense in depth and do not replace application authorization or tenant scoping.
+
+## Customer retention
+
+Booking-time customer name/contact is immutable evidence. The linked mutable customer profile may later change or be archived without rewriting the booking snapshot. Customer de-identification treats hospitality and rental bookings, including cancelled rental bookings, as retention boundaries.
+
+## Deliberate boundaries
+
+The current implementation must not be represented as supporting:
+
+- customer-facing rental checkout, payment, or self-service booking management
+- unit-type changes or location-changing substitutions
+- price-changing or broader rental amendments/extensions, proration, partial/split adjustment, or automatic extension charging
+- online/card/provider-backed rental booking-price, damage, security-bond, or late-fee settlement
+- automatic tenant late-fee policy or automatic damage liability
+- delivery, transfer routing, one-way returns, opening-hour promises, or location-specific customer pickup selection
+- external fleet/calendar/marketplace synchronization
+- automatic customer notifications
+- richer vendor/parts/labor/purchase-order/actual-cost maintenance beyond the retained work-order/damage evidence now implemented
+
+These require separate acceptance criteria, commercial authority, and adapter-backed provider behavior where external systems are involved.
 
 ## Validation
 
-Dependency-free source contracts protect schema relationships, tenant/database guards, confirmation authority, staff reads, reschedule/substitution authority and write scope, cancellation, pickup/return custody authority, early-return inventory release, return-inspection evidence/quarantine, damage-case lifecycle/quarantine, post-closure damage-liability authority, damage/security-bond/late-return commercial evidence, direct tenant-booking referential integrity, customer retention, and explicit unsupported-workflow boundaries.
+Focused domain and source-contract tests protect confirmation authority, same-unit reschedule/custody-extension authority, substitution, cancellation, payment settlement, pickup/return, pickup-window and missed-pickup behavior, overdue custody, early-return release, operational availability/maintenance, inspection/damage/liability, security bonds, late-return assessment/settlement, tenant isolation, database guard intent, server-derived idempotency, immutable booking evidence, and staff route/UI wiring.
 
-Full database validation must run through `npm run test:database` with an explicitly disposable PostgreSQL target. Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. No GitHub Actions are required or used.
+The custody-extension work is specifically covered by:
+
+- `src/server/bookings/rental-booking-reschedule-domain.test.ts`
+- `scripts/rental-booking-reschedule-source-contract.test.mjs`
+- `scripts/rental-booking-pre-custody-writer-source-contract.test.mjs`
+- `scripts/rental-booking-fulfillment-source-contract.test.mjs`
+
+Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Prisma generation/validation, migration/drift checks, and live PostgreSQL trigger scenarios must target the repository-supported runtime and an explicitly disposable database. GitHub Actions are not required or used.
