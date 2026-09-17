@@ -124,7 +124,7 @@ test('documentation keeps partial manual funding real and unsupported provider b
   assert.match(docs, /`PARTIALLY_PAID`/);
   assert.match(docs, /browser never chooses the tenant, actor, provider/i);
   assert.match(docs, /current outstanding balance/i);
-  assert.match(docs, /does not implement deposits, card authorization, Stripe rental checkout/i);
+  assert.match(docs, /does not implement deposits or deposit policy, card authorization, Stripe rental checkout/i);
   assert.match(docs, /mixed-provider settlement/i);
   assert.match(docs, /No placeholder route or fake provider action/i);
   assert.match(docs, /GitHub Actions are not required or used/);
