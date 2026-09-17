@@ -2,6 +2,7 @@ import { rentalBookingLockKey } from '../bookings/rental-booking-reschedule-doma
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { parseMoneyMajorToMinor } from '../pricing/money.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import { assertPaymentProviderCapability } from './payment-provider.ts';
@@ -56,6 +57,16 @@ function normalizePagination(page: number, pageSize: number) {
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
   const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 100) : 25;
   return { page: safePage, pageSize: safePageSize };
+}
+
+function parseOptionalRentalRefundAmount(value: unknown, currency: string) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new Error('Rental refund amount must be a valid money value.');
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const parsed = parseMoneyMajorToMinor(normalized, currency);
+  if (parsed.amountMinor <= 0n) throw new Error('Rental refund amount must be greater than zero.');
+  return parsed.amountMinor;
 }
 
 async function readRequiredRentalPaymentHistory(
@@ -218,6 +229,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
   actorUserId: string;
   bookingId: string;
   reference: unknown;
+  amount?: unknown;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -237,6 +249,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       select: { id: true, status: true, currency: true, totalMinor: true },
     });
     if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+    const requestedAmountMinor = parseOptionalRentalRefundAmount(input.amount, booking.currency);
 
     const existing = await transaction.rentalPaymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
@@ -263,6 +276,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
         || existing.currency !== booking.currency
         || existing.amountMinor <= 0n
         || existing.amountMinor > booking.totalMinor
+        || (requestedAmountMinor !== null && existing.amountMinor !== requestedAmountMinor)
         || (existing.requestFingerprint !== null && existing.requestFingerprint !== expectedRequestFingerprint)
       ) {
         throw new RentalPaymentConflictError('Rental refund idempotency key was already used for different durable settlement evidence.');
@@ -280,7 +294,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
         && candidate.currency === booking.currency
       ));
       const settlement = deriveRentalPaymentSettlement({ bookingTotalMinor: booking.totalMinor, currency: booking.currency, transactions: history });
-      if (!sourceExists || !settlement.reconciled || settlement.paymentState !== 'REFUNDED') {
+      if (!sourceExists || !settlement.reconciled) {
         throw new RentalPaymentConflictError('Rental refund idempotent replay no longer has complete reconciled source evidence.');
       }
       return Object.freeze({ transaction: existing, idempotent: true });
@@ -305,7 +319,7 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
       currency: booking.currency,
       transactions: history,
       expectedProviderCode: 'manual',
-      requestedAmountMinor: null,
+      requestedAmountMinor,
     });
     if (!plan.planned) throw new RentalPaymentConflictError(plan.reason);
     if (plan.sourceKind !== 'OFFLINE_PAYMENT') throw new RentalPaymentConflictError('Rental manual refund did not resolve to a successful offline payment source.');

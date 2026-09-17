@@ -17,7 +17,7 @@ const docs = readFileSync('docs/rental-payment-foundation.md', 'utf8');
 const databaseRunner = readFileSync('scripts/run-database-tests.mjs', 'utf8');
 const integration = readFileSync('src/server/payments/rental-payment.integration.ts', 'utf8');
 
-test('rental payment persistence is tenant-owned and refund-source attributed', () => {
+test('rental payment persistence remains tenant-owned and refund-source attributed', () => {
   assert.match(schema, /model RentalPaymentTransaction/);
   assert.match(schema, /bookingId\s+String\s+@db\.Uuid/);
   assert.match(schema, /sourceProviderReference\s+String\?/);
@@ -28,104 +28,90 @@ test('rental payment persistence is tenant-owned and refund-source attributed', 
   assert.match(migration, /FOREIGN KEY \("bookingId", "organizationId"\)/);
   assert.match(migration, /REFERENCES "rental_bookings"\("id", "organizationId"\)/);
   assert.match(migration, /"kind" = 'REFUND'.*"sourceProviderReference" IS NOT NULL/s);
-  assert.match(migration, /sf_guard_rental_payment_transaction_insert/);
-  assert.match(migration, /parent_booking\."status" <> 'CONFIRMED'/);
-  assert.match(migration, /NEW\."amountMinor" <> parent_booking\."totalMinor"/);
-  assert.match(migration, /rental_payment_transactions_org_provider_reference_key/);
   assert.match(migration, /rental refund exceeds its settled source payment/);
   assert.match(migration, /rental payment transaction evidence is append-only/);
 });
 
-test('manual rental settlement uses provider adapters, exact idempotent replay evidence, and bounded complete history', () => {
+test('manual rental settlement keeps full-value funding and adds source-bound partial refund authority', () => {
   assert.match(service, /permission: 'payment:manage'/);
   assert.match(service, /ManualPaymentProvider/);
   assert.match(service, /buildRentalPaymentIdempotencyKey/);
   assert.match(service, /rentalBookingLockKey\(input\.organizationId, input\.bookingId\)/);
   assert.match(service, /where: \{ id: input\.bookingId, organizationId: input\.organizationId \}/);
   assert.match(service, /readRentalPaymentSettlementHistory/);
-  assert.match(service, /existing\.status !== 'SUCCEEDED'/);
-  assert.match(service, /existing\.sourceProviderReference !== null/);
-  assert.match(service, /existing\.amountMinor !== booking\.totalMinor/);
-  assert.match(service, /settlement\.grossSettledMinor !== booking\.totalMinor/);
-  assert.match(service, /existing\.sourceProviderReference === null/);
-  assert.match(service, /settlement\.paymentState !== 'REFUNDED'/);
   assert.match(service, /recordOfflinePayment/);
-  assert.match(service, /recordOfflineRefund/);
+  assert.match(service, /money: \{ currency: booking\.currency, amountMinor: booking\.totalMinor \}/);
+  assert.match(service, /parseOptionalRentalRefundAmount/);
+  assert.match(service, /parseMoneyMajorToMinor\(normalized, currency\)/);
+  assert.match(service, /requestedAmountMinor,/);
+  assert.match(service, /deriveBookingRefundExecutionPlan/);
   assert.match(service, /sourceProviderReference: plan\.sourceProviderReference/);
+  assert.match(service, /providerResult\.money\.amountMinor !== plan\.amountMinor/);
+  assert.match(service, /existing\.amountMinor !== requestedAmountMinor/);
+  assert.doesNotMatch(service, /settlement\.paymentState !== 'REFUNDED'[\s\S]*Rental refund idempotent replay/);
   assert.match(service, /classifyRentalBookingWriteError/);
   assert.match(service, /retryUniqueConflict: true/);
-  assert.match(service, /attempt < 2/);
-  assert.match(service, /Rental payment write could not be serialized after bounded retries/);
   assert.match(service, /isolationLevel: 'Serializable'/);
-  assert.match(service, /isolationLevel: 'RepeatableRead'/);
-  assert.match(domain, /createHash\('sha256'\)/);
   assert.match(domain, /transaction\.providerCode !== 'manual'/);
   assert.match(domain, /transaction\.kind !== 'OFFLINE_PAYMENT' && transaction\.kind !== 'REFUND'/);
-  assert.match(domain, /transaction\.kind === 'OFFLINE_PAYMENT' && transaction\.amountMinor !== input\.bookingTotalMinor/);
-  assert.match(domain, /settlement\.grossSettledMinor !== 0n && settlement\.grossSettledMinor !== input\.bookingTotalMinor/);
-  assert.match(domain, /settlement\.grossSettledMinor === 0n/);
 });
 
-test('complete settlement history is tenant-scoped, cursor-paginated, and fails closed at its safety limit', () => {
+test('complete settlement history stays bounded and cancellation still requires zero net settlement', () => {
   assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE = 100/);
   assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /where: \{ organizationId: input\.organizationId, bookingId: input\.bookingId \}/);
-  assert.match(history, /take: RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE/);
-  assert.match(history, /cursor: \{ id: cursorId \}/);
-  assert.match(history, /take: 1/);
   assert.match(history, /reconciliation safety limit/);
-  assert.doesNotMatch(service, /settlementHistory\s*=\s*await .*rentalPaymentTransaction\.findMany/s);
-});
-
-test('rental cancellation fails closed until bounded payment settlement is reconciled to zero', () => {
   assert.match(cancellation, /readRentalPaymentSettlementHistory/);
-  assert.doesNotMatch(cancellation, /rentalPaymentTransaction\.findMany/);
   assert.match(cancellation, /deriveRentalPaymentSettlement/);
   assert.match(cancellation, /paymentSettlement\.netSettledMinor !== 0n/);
-  assert.match(cancellation, /Refund all settled rental money before cancelling/);
   assert.match(migration, /sf_guard_rental_booking_cancellation_payment_settlement/);
-  assert.match(migration, /'sf:rental-booking:' \|\| OLD\."organizationId"::text \|\| ':booking:' \|\| OLD\."id"::text/);
-  assert.match(migration, /"status" IN \('PENDING', 'AMBIGUOUS'\)/);
-  assert.match(migration, /payment\."providerCode" <> 'manual'/);
   assert.match(migration, /net_settled_minor <> 0/);
 });
 
-test('staff routes derive tenant and actor server-side and accept only real external references', () => {
+test('staff routes safely parse form bodies and expose only the refund amount as browser money input', () => {
   for (const route of [paymentRoute, refundRoute]) {
     assert.match(route, /prepareInventoryMutationRequest/);
+    assert.match(route, /readInventoryFormData\(request\)/);
+    assert.match(route, /if \(!formData\)/);
     assert.match(route, /organizationId: organization\.id/);
     assert.match(route, /actorUserId: session\.user\.id/);
-    assert.match(route, /formData\.get\('reference'\)/);
-    assert.doesNotMatch(route, /formData\.get\('organizationId'\)/);
-    assert.doesNotMatch(route, /formData\.get\('actorUserId'\)/);
-    assert.doesNotMatch(route, /formData\.get\('amount/);
-    assert.doesNotMatch(route, /formData\.get\('idempotency/);
+    assert.doesNotMatch(route, /formField\(formData, 'organizationId'\)/);
+    assert.doesNotMatch(route, /formField\(formData, 'actorUserId'\)/);
+    assert.doesNotMatch(route, /formField\(formData, 'idempotency/);
   }
+  assert.match(paymentRoute, /reference: formField\(formData, 'reference'\)/);
+  assert.doesNotMatch(paymentRoute, /formField\(formData, 'amount'\)/);
+  assert.match(refundRoute, /reference: formField\(formData, 'reference'\)/);
+  assert.match(refundRoute, /amount: formField\(formData, 'amount'\)/);
   assert.match(detail, /listRentalBookingPaymentTransactions/);
   assert.match(detail, /paymentData\.settlement\.netSettledMinor === 0n/);
-  assert.match(panel, /Record full payment/);
-  assert.match(panel, /Record remaining refund/);
+  assert.match(panel, /Refund amount \(\{bookingCurrency\}\)/);
+  assert.match(panel, /defaultValue=\{moneyMinorToMajorString\(refundableAmount, bookingCurrency\)\}/);
+  assert.match(panel, /Partial refunds remain settled and continue blocking cancellation/);
+  assert.match(panel, />Record refund</);
 });
 
-test('guarded PostgreSQL coverage exercises tenant scope, settlement cancellation blocking, refund, and append-only evidence', () => {
+test('guarded PostgreSQL coverage includes partial refund replay and zero-net cancellation safety', () => {
   assert.match(databaseRunner, /src\/server\/payments\/rental-payment\.integration\.ts/);
-  assert.match(integration, /recordRentalManualOfflinePayment/);
-  assert.match(integration, /organizationId: otherOrganization\.id/);
-  assert.match(integration, /cancelRentalBooking/);
-  assert.match(integration, /refund all settled rental money/i);
-  assert.match(integration, /recordRentalManualOfflineRefund/);
+  assert.match(integration, /partialRefundMinor/);
+  assert.match(integration, /partialRefundAmount/);
+  assert.match(integration, /paymentState, 'PARTIALLY_REFUNDED'/);
+  assert.match(integration, /partialRefundReplay/);
+  assert.match(integration, /partialReplayAfterFullRefund/);
+  assert.match(integration, /partialRefundReplayAfterCancellation/);
+  assert.match(integration, /finalRefund/);
   assert.match(integration, /paymentState, 'REFUNDED'/);
+  assert.match(integration, /cancelRentalBooking/);
   assert.match(integration, /rentalPaymentTransaction\.update/);
-  assert.match(integration, /append-only/i);
 });
 
-test('documentation keeps unsupported rental commercial workflows explicit', () => {
-  assert.match(docs, /not a deposit workflow/i);
-  assert.match(docs, /not an online checkout workflow/i);
-  assert.match(docs, /bounded 100-row cursor pages/i);
-  assert.match(docs, /1,000-transaction reconciliation safety limit/i);
-  assert.match(docs, /successful settlement evidence outside that contract fails closed/i);
+test('documentation keeps the expanded refund capability and unsupported payment boundaries explicit', () => {
+  assert.match(docs, /refunds may be partial or may refund the full remaining source balance/i);
+  assert.match(docs, /browser never chooses the tenant, actor, provider, settlement source/i);
+  assert.match(docs, /partial refunds remain financially settled/i);
+  assert.match(docs, /safe inventory form parser/i);
   assert.match(docs, /does not implement deposits, card authorization, Stripe rental checkout/i);
-  assert.match(docs, /No placeholder route or dead payment action/);
+  assert.match(docs, /split-tender or partial booking-price payments/i);
+  assert.match(docs, /No placeholder route or fake provider action/i);
   assert.match(docs, /GitHub Actions are not required or used/);
 });

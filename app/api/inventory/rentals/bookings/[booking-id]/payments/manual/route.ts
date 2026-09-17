@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
-import { prepareInventoryMutationRequest } from '@/server/inventory/inventory-http.ts';
+import { formField, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
 import {
   recordRentalManualOfflinePayment,
   RentalPaymentConflictError,
@@ -25,14 +25,20 @@ export async function POST(
   const { finish, organization, session } = mutation;
   const params = await context.params;
   const bookingId = params['booking-id'];
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(
+      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`, request.url), 303),
+      'rejected',
+    );
+  }
 
   try {
-    const formData = await request.formData();
     const result = await recordRentalManualOfflinePayment({
       organizationId: organization.id,
       actorUserId: session.user.id,
       bookingId,
-      reference: formData.get('reference'),
+      reference: formField(formData, 'reference'),
     });
     const status = result.idempotent ? 'rental-payment-existing' : 'rental-payment-recorded';
     return finish(NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`, request.url), 303));

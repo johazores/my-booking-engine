@@ -8,14 +8,15 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental payment integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental manual settlement is tenant-scoped, idempotent, append-only, and blocks cancellation until fully refunded', async () => {
-  const [{ db }, holds, bookings, authority, cancellations, payments] = await Promise.all([
+test('rental manual settlement is tenant-scoped, idempotent, append-only, supports partial refunds, and blocks cancellation until fully refunded', async () => {
+  const [{ db }, holds, bookings, authority, cancellations, payments, pricing] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('../bookings/rental-booking-service.ts'),
     import('../bookings/rental-booking-authority-service.ts'),
     import('../bookings/rental-booking-cancellation-service.ts'),
     import('./rental-payment-service.ts'),
+    import('../pricing/money.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -149,17 +150,70 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
     /settled money|payment/i,
   );
 
-  const refundReference = `REFUND-${runId.slice(0, 12)}`;
-  const refund = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: refundReference });
-  assert.equal(refund.idempotent, false);
-  assert.equal(refund.transaction.sourceProviderReference, paymentReference);
-  assert.equal(refund.transaction.amountMinor, confirmed.booking.totalMinor);
-  assert.match(refund.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
+  const partialRefundMinor = confirmed.booking.totalMinor / 3n;
+  assert.ok(partialRefundMinor > 0n && partialRefundMinor < confirmed.booking.totalMinor);
+  const partialRefundAmount = pricing.moneyMinorToMajorString(partialRefundMinor, confirmed.booking.currency);
+  const partialRefundReference = `REFUND-PART-${runId.slice(0, 10)}`;
+  const partialRefund = await payments.recordRentalManualOfflineRefund({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: confirmed.booking.id,
+    reference: partialRefundReference,
+    amount: partialRefundAmount,
+  });
+  assert.equal(partialRefund.idempotent, false);
+  assert.equal(partialRefund.transaction.sourceProviderReference, paymentReference);
+  assert.equal(partialRefund.transaction.amountMinor, partialRefundMinor);
+  assert.match(partialRefund.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
-  const refundReplay = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: refundReference });
-  assert.equal(refundReplay.idempotent, true);
-  assert.equal(refundReplay.transaction.id, refund.transaction.id);
-  assert.equal(refundReplay.transaction.requestFingerprint, refund.transaction.requestFingerprint);
+  const partialRefundReplay = await payments.recordRentalManualOfflineRefund({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: confirmed.booking.id,
+    reference: partialRefundReference,
+    amount: partialRefundAmount,
+  });
+  assert.equal(partialRefundReplay.idempotent, true);
+  assert.equal(partialRefundReplay.transaction.id, partialRefund.transaction.id);
+
+  await assert.rejects(
+    payments.recordRentalManualOfflineRefund({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+      reference: partialRefundReference,
+      amount: pricing.moneyMinorToMajorString(partialRefundMinor + 1n, confirmed.booking.currency),
+    }),
+    /different durable settlement evidence/i,
+  );
+
+  const partiallyRefundedHistory = await payments.listRentalBookingPaymentTransactions({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
+  assert.equal(partiallyRefundedHistory.settlement.reconciled, true);
+  assert.equal(partiallyRefundedHistory.settlement.reconciled && partiallyRefundedHistory.settlement.paymentState, 'PARTIALLY_REFUNDED');
+  assert.equal(partiallyRefundedHistory.settlement.reconciled && partiallyRefundedHistory.settlement.refundedMinor, partialRefundMinor);
+  assert.equal(partiallyRefundedHistory.settlement.reconciled && partiallyRefundedHistory.settlement.netSettledMinor, confirmed.booking.totalMinor - partialRefundMinor);
+
+  await assert.rejects(
+    cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id }),
+    /refund all settled rental money/i,
+  );
+
+  const finalRefundReference = `REFUND-FINAL-${runId.slice(0, 9)}`;
+  const finalRefund = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: finalRefundReference });
+  assert.equal(finalRefund.idempotent, false);
+  assert.equal(finalRefund.transaction.sourceProviderReference, paymentReference);
+  assert.equal(finalRefund.transaction.amountMinor, confirmed.booking.totalMinor - partialRefundMinor);
+  assert.match(finalRefund.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
+
+  const partialReplayAfterFullRefund = await payments.recordRentalManualOfflineRefund({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: confirmed.booking.id,
+    reference: partialRefundReference,
+    amount: partialRefundAmount,
+  });
+  assert.equal(partialReplayAfterFullRefund.idempotent, true);
+  assert.equal(partialReplayAfterFullRefund.transaction.id, partialRefund.transaction.id);
 
   const refundedHistory = await payments.listRentalBookingPaymentTransactions({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(refundedHistory.settlement.reconciled, true);
@@ -174,10 +228,16 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, and bl
   const cancelled = await cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
   assert.equal(cancelled.booking.status, 'CANCELLED');
 
-  const refundReplayAfterCancellation = await payments.recordRentalManualOfflineRefund({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: refundReference });
-  assert.equal(refundReplayAfterCancellation.idempotent, true);
-  assert.equal(refundReplayAfterCancellation.transaction.id, refund.transaction.id);
-  assert.equal(refundReplayAfterCancellation.transaction.requestFingerprint, refund.transaction.requestFingerprint);
+  const partialRefundReplayAfterCancellation = await payments.recordRentalManualOfflineRefund({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: confirmed.booking.id,
+    reference: partialRefundReference,
+    amount: partialRefundAmount,
+  });
+  assert.equal(partialRefundReplayAfterCancellation.idempotent, true);
+  assert.equal(partialRefundReplayAfterCancellation.transaction.id, partialRefund.transaction.id);
+  assert.equal(partialRefundReplayAfterCancellation.transaction.requestFingerprint, partialRefund.transaction.requestFingerprint);
 
   await assert.rejects(
     payments.recordRentalManualOfflinePayment({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id, reference: `AFTER-${runId.slice(0, 12)}` }),
