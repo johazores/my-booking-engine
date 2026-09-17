@@ -47,20 +47,21 @@ test('database independently enforces closed source authority, exact amount shap
 });
 
 
-test('real staff UI is wired to the server decision boundary without a fake settlement action', () => {
+test('real staff UI is wired to the server decision boundary without fake collection controls', () => {
   assert.match(component, /Customer damage liability/);
   assert.match(component, /Record liability decision/);
   assert.match(component, /does not collect money/);
   assert.match(component, /cannot exceed the retained repair estimate/);
+  assert.match(component, /RentalDamageSettlementPanel/);
   assert.match(route, /decideRentalDamageLiability/);
   assert.match(route, /prepareInventoryMutationRequest\(request, 'booking\.rental\.damage-liability\.decide'\)/);
   assert.doesNotMatch(component, /Charge customer|Capture payment|Collect bond/);
 });
 
 
-test('documentation keeps liability evidence separate from booking settlement and security bonds', () => {
-  assert.match(docs, /Customer liability is not settlement\./);
-  assert.match(docs, /not inserted into `RentalPaymentTransaction`/);
-  assert.match(docs, /security-bond workflow must reference this immutable decision/);
-  assert.match(docs, /does not collect money/);
+test('documentation keeps liability authority separate from booking-price settlement and security bonds', () => {
+  assert.match(docs, /decision itself does not collect money/);
+  assert.match(docs, /Booking-price settlement stays in `RentalPaymentTransaction`/);
+  assert.match(docs, /post-return customer-damage settlement stays in `RentalDamageSettlementTransaction`/);
+  assert.match(docs, /Security-bond authorization\/capture\/release\/forfeiture/);
 });

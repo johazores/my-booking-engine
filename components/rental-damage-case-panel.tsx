@@ -172,6 +172,8 @@ export async function RentalDamageCasePanel({
     </section>
 
     {canReadLiability && hasClosedAssessedAuthority ? <RentalDamageLiabilityPanel
+      organizationId={organizationId}
+      actorUserId={actorUserId}
       bookingId={bookingId}
       damageCaseId={damageCase.id}
       currency={damageCase.currency}

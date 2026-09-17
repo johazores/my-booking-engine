@@ -1,3 +1,4 @@
+import { RentalDamageSettlementPanel } from '@/components/rental-damage-settlement-panel.tsx';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 
 type DamageLiabilityDecisionEvidence = Readonly<{
@@ -9,6 +10,8 @@ type DamageLiabilityDecisionEvidence = Readonly<{
 }>;
 
 export function RentalDamageLiabilityPanel({
+  organizationId,
+  actorUserId,
   bookingId,
   damageCaseId,
   currency,
@@ -16,6 +19,8 @@ export function RentalDamageLiabilityPanel({
   decision,
   canManage,
 }: Readonly<{
+  organizationId: string;
+  actorUserId: string;
   bookingId: string;
   damageCaseId: string;
   currency: string;
@@ -29,26 +34,37 @@ export function RentalDamageLiabilityPanel({
     const liableAmount = decision.liableAmountMinor === null
       ? null
       : `${decision.currency} ${moneyMinorToMajorString(decision.liableAmountMinor, decision.currency)}`;
-    return <section className="sf-inventory-card" aria-labelledby="rental-damage-liability-title">
-      <div className="sf-inventory-card__heading">
-        <div>
-          <p className="sf-eyebrow">Commercial decision</p>
-          <h2 id="rental-damage-liability-title">Customer damage liability</h2>
+    return <>
+      <section className="sf-inventory-card" aria-labelledby="rental-damage-liability-title">
+        <div className="sf-inventory-card__heading">
+          <div>
+            <p className="sf-eyebrow">Commercial decision</p>
+            <h2 id="rental-damage-liability-title">Customer damage liability</h2>
+          </div>
+          <span>{decision.outcome === 'CUSTOMER_LIABLE' ? 'Customer liable' : 'No customer liability'}</span>
         </div>
-        <span>{decision.outcome === 'CUSTOMER_LIABLE' ? 'Customer liable' : 'No customer liability'}</span>
-      </div>
-      <ul className="sf-inventory-list">
-        <li><div className="sf-inventory-list__primary"><div>
-          <strong>{liableAmount ? `Liability ${liableAmount}` : 'No customer amount due from this damage case'}</strong>
-          <span>{decision.reason}</span>
-          <span>Repair estimate authority {estimate}</span>
-          <span>Decided <time dateTime={decision.decidedAt.toISOString()}>{decision.decidedAt.toISOString()}</time></span>
-        </div></div></li>
-      </ul>
-      <p className="sf-field-hint">
-        This append-only decision records commercial liability evidence only. It does not charge the customer, authorize a card, collect a security bond, or mark any amount as paid.
-      </p>
-    </section>;
+        <ul className="sf-inventory-list">
+          <li><div className="sf-inventory-list__primary"><div>
+            <strong>{liableAmount ? `Liability ${liableAmount}` : 'No customer amount due from this damage case'}</strong>
+            <span>{decision.reason}</span>
+            <span>Repair estimate authority {estimate}</span>
+            <span>Decided <time dateTime={decision.decidedAt.toISOString()}>{decision.decidedAt.toISOString()}</time></span>
+          </div></div></li>
+        </ul>
+        <p className="sf-field-hint">
+          This append-only decision establishes commercial liability authority only. Any retained damage payment evidence remains separate from the immutable rental booking price and settlement history.
+        </p>
+      </section>
+      {decision.outcome === 'CUSTOMER_LIABLE' && decision.liableAmountMinor !== null ? <RentalDamageSettlementPanel
+        organizationId={organizationId}
+        actorUserId={actorUserId}
+        bookingId={bookingId}
+        damageCaseId={damageCaseId}
+        currency={decision.currency}
+        liableAmountMinor={decision.liableAmountMinor}
+        canManage={canManage}
+      /> : null}
+    </>;
   }
 
   return <section className="sf-inventory-card" aria-labelledby="rental-damage-liability-title">

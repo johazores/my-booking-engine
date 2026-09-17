@@ -2,7 +2,7 @@
 
 SF records an explicit commercial liability decision only after a rental damage case has completed its operational lifecycle with retained assessment and resolution evidence.
 
-This boundary answers whether the customer is liable for the retained damage case and, when liable, the exact amount attributed to that decision. It does not collect money, authorize a card, forfeit a security bond, issue an invoice, or mark settlement as paid.
+This boundary answers whether the customer is liable for the retained damage case and, when liable, the exact amount attributed to that decision. The decision itself does not collect money, authorize a card, forfeit a security bond, issue an invoice, or mark settlement as paid. A separate full-value manual/offline damage-settlement boundary may later record real payment/refund evidence against a retained `CUSTOMER_LIABLE` decision.
 
 ## Source authority
 
@@ -43,20 +43,23 @@ This prevents a direct database caller from creating customer liability from an 
 
 Actors who can read both booking and payment evidence see a `Customer damage liability` card after the operational damage case is closed.
 
-Authorized staff can record exactly one decision with outcome, reason, and—only for `CUSTOMER_LIABLE`—an exact amount. The interface shows the retained repair estimate as the upper authority boundary and states that recording the decision does not collect money.
+Authorized staff can record exactly one decision with outcome, reason, and—only for `CUSTOMER_LIABLE`—an exact amount. The interface shows the retained repair estimate as the upper authority boundary.
 
-After persistence, the decision is rendered read-only with its PostgreSQL-authored timestamp. There is no edit, delete, reverse, charge, refund, or security-bond action in this foundation.
+After persistence, the decision is rendered read-only with its PostgreSQL-authored timestamp. A customer-liable decision then exposes the separate damage-settlement card described in `docs/rental-damage-settlement.md`; a no-liability decision exposes no collection action.
 
-## Deliberate settlement boundary
+## Settlement boundary
 
-Customer liability is not settlement. The existing rental payment workflow remains the narrow full-booking manual/offline payment and refund contract; damage liability is not inserted into `RentalPaymentTransaction` because doing so would incorrectly mix booking-price settlement with a separate post-return commercial obligation.
+Customer liability remains distinct from settlement. Booking-price settlement stays in `RentalPaymentTransaction`; post-return customer-damage settlement stays in `RentalDamageSettlementTransaction` so damage collection cannot silently mutate or inflate the accepted booking price.
 
-A future damage settlement or security-bond workflow must reference this immutable decision, define collection/release/forfeiture semantics, keep provider-specific behavior behind payment adapters, enforce idempotency on every external/commercial write, and reconcile provider truth before SF can claim money was collected.
+The enabled damage-settlement contract is intentionally narrow: one full-value real manual/offline payment and, if necessary, one full-value real manual/offline refund. It references this immutable decision, uses the existing manual provider adapter, derives idempotency server-side, retains request fingerprints, and reconciles exact source evidence before SF calls it paid or refunded.
+
+Security-bond authorization/capture/release/forfeiture, card collection, partial damage settlement, split tenders, provider-backed damage payment, and automated collection remain future commercial contracts.
 
 ## Validation
 
 - `src/server/bookings/rental-damage-liability-domain.test.ts` covers outcome normalization, exact money, the retained-estimate cap, no-liability amount rules, and invalid source evidence.
-- `scripts/rental-damage-liability-source-contract.test.mjs` protects tenant scoping, dual booking/payment permissions, physical-unit/idempotency serialization, closed damage authority, append-only PostgreSQL checks, database time authority, real staff UI/action wiring, and the no-settlement boundary.
+- `scripts/rental-damage-liability-source-contract.test.mjs` protects tenant scoping, dual booking/payment permissions, physical-unit/idempotency serialization, closed damage authority, append-only PostgreSQL checks, database time authority, and real staff UI/action wiring.
+- `src/server/payments/rental-damage-settlement-domain.test.ts` and `scripts/rental-damage-settlement-source-contract.test.mjs` protect the separate manual/offline settlement boundary.
 - Full repository validation remains `npm run validate` on the Node version declared in `package.json`.
 - Migration/trigger verification remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
