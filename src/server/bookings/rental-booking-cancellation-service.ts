@@ -5,7 +5,10 @@ import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
 import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { normalizeRentalBookingCancellationReason } from './rental-booking-cancellation-domain.ts';
+import {
+  classifyRentalBookingCancellationReplayEvidence,
+  normalizeRentalBookingCancellationReason,
+} from './rental-booking-cancellation-domain.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
@@ -146,6 +149,41 @@ export async function cancelRentalBooking(input: Readonly<{
       if (fulfillmentEvent) {
         throw new RentalAvailabilityIntegrityError('Cancelled rental booking cannot retain physical-custody evidence.');
       }
+
+      const cancellationAudits = await transaction.auditEvent.findMany({
+        where: {
+          organizationId: input.organizationId,
+          action: 'booking.rental.cancelled',
+          resourceType: 'rental-booking',
+          resourceId: booking.id,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, afterData: true },
+        take: 2,
+      });
+      if (cancellationAudits.length !== 1) {
+        throw new RentalAvailabilityIntegrityError(
+          'Cancelled rental booking must retain exactly one cancellation audit event.',
+        );
+      }
+
+      const replayDisposition = classifyRentalBookingCancellationReplayEvidence({
+        afterData: cancellationAudits[0]?.afterData,
+        cancellationReason,
+        cancelledAt: booking.cancelledAt.toISOString(),
+        allocationId: booking.allocation.id,
+      });
+      if (replayDisposition === 'EVIDENCE_MISMATCH') {
+        throw new RentalAvailabilityIntegrityError(
+          'Cancelled rental booking audit evidence does not match its retained terminal lifecycle state.',
+        );
+      }
+      if (replayDisposition === 'REASON_MISMATCH') {
+        throw new RentalBookingCancellationConflictError(
+          'Rental booking is already cancelled with different retained cancellation reason evidence.',
+        );
+      }
+
       return Object.freeze({ booking, allocation: booking.allocation, idempotent: true });
     }
     if (booking.status !== 'CONFIRMED' || booking.cancelledAt) {
