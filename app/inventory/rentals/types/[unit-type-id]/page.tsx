@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { RentalLateReturnPolicyPanel } from '@/components/rental-late-return-policy-panel.tsx';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
@@ -20,6 +21,7 @@ const statuses: Record<string, string> = {
   'unit-created': 'Rental unit created.',
   'rate-created': 'Pricing period created.',
   'rate-removed': 'Pricing period removed.',
+  'late-return-policy-updated': 'Late-return fee policy revision saved.',
 };
 
 function dateOnly(value: Date) {
@@ -93,5 +95,11 @@ export default async function RentalUnitTypePage({
       </section>
       {canManage ? <aside className="sf-inventory-card sf-inventory-card--create"><p className="sf-eyebrow">Price override</p><h2>Add pricing period</h2><form className="sf-form" action={`/api/inventory/rentals/unit-types/${inventory.unitType.id}/rates`} method="post"><label className="sf-field">Start date<input name="startsOn" type="date" required /></label><label className="sf-field">End date (exclusive)<input name="endsOn" type="date" required /></label><label className="sf-field">Daily rate (minor units)<input name="dailyRateMinor" type="number" min={1} max={100000000} step={1} required /></label><button className="sf-button sf-button--primary" type="submit">Add pricing period</button></form><hr /><form className="sf-form" action={`/api/inventory/rentals/unit-types/${inventory.unitType.id}/archive`} method="post"><label className="sf-field">Type ARCHIVE to archive this unit type<input name="confirmation" required autoComplete="off" /></label><button className="sf-button sf-button--secondary" type="submit">Archive unit type</button></form></aside> : null}
     </div>
+
+    <RentalLateReturnPolicyPanel
+      organizationId={activeContext.organization.id}
+      actorUserId={session.user.id}
+      unitTypeId={inventory.unitType.id}
+    />
   </div>;
 }

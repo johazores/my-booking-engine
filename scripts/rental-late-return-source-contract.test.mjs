@@ -7,6 +7,7 @@ const schema = read('prisma/rental-late-return.prisma');
 const inventorySchema = read('prisma/rental-inventory.prisma');
 const fulfillmentSchema = read('prisma/rental-booking-fulfillment.prisma');
 const migration = read('prisma/migrations/20260917072000_rental_late_return_assessment/migration.sql');
+const policyMigration = read('prisma/migrations/20260918002500_rental_late_return_policy/migration.sql');
 const service = read('src/server/bookings/rental-late-return-service.ts');
 const domain = read('src/server/bookings/rental-late-return-domain.ts');
 const panel = read('src/components/rental-late-return-assessment-panel.tsx');
@@ -24,8 +25,8 @@ test('late-return persistence is tenant-owned, source-linked, append-only, and d
   assert.match(migration, /rental_late_return_assessments_booking_fkey/);
   assert.match(migration, /rental_late_return_assessments_return_event_fkey/);
   assert.match(migration, /rental late-return assessments are append-only/);
-  assert.match(migration, /clock_timestamp\(\)/);
-  assert.match(migration, /'rental-late-return-assessment:' \|\| NEW\."bookingId"::text/);
+  assert.match(policyMigration, /clock_timestamp\(\)/);
+  assert.match(policyMigration, /'rental-late-return-assessment:' \|\| NEW\."bookingId"::text/);
 });
 
 test('PostgreSQL independently derives late timing from retained tenant custody and location timezone', () => {
@@ -39,9 +40,9 @@ test('PostgreSQL independently derives late timing from retained tenant custody 
     'actual_late_days',
     'NEW."committedEndsOn" <> return_ends_on',
     'NEW."currency" <> booking_currency',
-  ]) assert.ok(migration.includes(evidence), evidence);
+  ]) assert.ok(policyMigration.includes(evidence), evidence);
   assert.match(migration, /"graceDays" BETWEEN 0 AND 30/);
-  assert.match(migration, /"chargeableDays" = GREATEST\(0, "lateDays" - "graceDays"\)/);
+  assert.match(policyMigration, /NEW\."chargeableDays" <> GREATEST\(0, actual_late_days - NEW\."graceDays"\)/);
 });
 
 test('service repeats permissions, tenant scope, shared booking serialization, idempotency, and audit', () => {
@@ -58,13 +59,13 @@ test('service repeats permissions, tenant scope, shared booking serialization, i
     "action: 'booking.rental.late-return-assessed'",
   ]) assert.ok(service.includes(evidence), evidence);
   assert.match(domain, /rentalLocalDateKey/);
-  assert.match(domain, /lateDays === 0/);
-  assert.match(domain, /chargeableDays === 0/);
+  assert.match(domain, /timing\.lateDays === 0/);
+  assert.match(domain, /timing\.chargeableDays === 0/);
 });
 
 test('staff UI is connected after return and route uses the safe mutation form boundary', () => {
   assert.match(returnPanel, /RentalLateReturnAssessmentPanel/);
-  assert.match(panel, /Record late-return assessment/);
+  assert.match(panel, /Record late-return assessment|Record no-fee policy assessment/);
   assert.match(panel, /does not itself move money/);
   assert.match(panel, /booking:manage/);
   assert.match(panel, /payment:manage/);
@@ -77,9 +78,9 @@ test('staff UI is connected after return and route uses the safe mutation form b
 });
 
 test('documentation keeps assessment authority distinct from settlement and custody extension', () => {
-  assert.match(docs, /not an automatic fee engine/i);
+  assert.match(docs, /not an automatic collection engine/i);
   assert.match(docs, /assessment itself never moves money/i);
-  assert.match(docs, /separate full-value manual\/offline late-return settlement workflow/i);
+  assert.match(docs, /separate manual\/offline late-return settlement workflow/i);
   assert.match(docs, /same-unit, current-start, later-end price-neutral extension/i);
   assert.match(docs, /post-return assessment never reopens that authority/i);
   assert.match(docs, /Price-changing and broader rental extensions remain separate/i);

@@ -1,0 +1,19 @@
+model RentalLateReturnPolicyRevision {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  unitTypeId      String   @db.Uuid
+  version         Int
+  enabled         Boolean
+  graceDays       Int
+  dailyFeeMinor   BigInt?  @db.BigInt
+  currency        String   @db.Char(3)
+  reason          String   @db.VarChar(1000)
+  effectiveAt     DateTime @db.Timestamptz(6)
+  createdByUserId String   @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, organizationId], map: "rental_late_return_policy_revisions_id_org_key")
+  @@unique([organizationId, unitTypeId, version], map: "rental_late_return_policy_revisions_org_type_version_key")
+  @@index([organizationId, unitTypeId, effectiveAt], map: "rental_late_return_policy_revisions_org_type_effective_idx")
+  @@map("rental_late_return_policy_revisions")
+}

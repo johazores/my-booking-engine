@@ -11,7 +11,15 @@ export type RentalLateReturnAssessmentInput = Readonly<{
   reason: string;
 }>;
 
+export type RentalLateReturnPolicyAuthority = Readonly<{
+  id: string;
+  currency: string;
+  graceDays: number;
+  dailyFeeMinor: bigint;
+}>;
+
 const MAX_GRACE_DAYS = 30;
+const MAX_MONEY_MINOR = 9_000_000_000_000_000n;
 const MILLIS_PER_DAY = 86_400_000;
 
 function normalizeRequiredText(value: string, field: string, maxLength: number) {
@@ -80,11 +88,61 @@ export function normalizeRentalLateReturnAssessmentInput(
     returnedAt: Date;
     committedEndsOn: Date;
     timeZone: string;
+    policy?: RentalLateReturnPolicyAuthority | null;
   }>,
 ) {
   const outcome = normalizeOutcome(input.outcome);
-  const graceDays = normalizeGraceDays(input.graceDays);
   const reason = normalizeRequiredText(input.reason, 'Late-return assessment reason', 2000);
+  const policy = source.policy ?? null;
+
+  if (policy) {
+    if (
+      policy.currency !== source.currency
+      || !Number.isSafeInteger(policy.graceDays)
+      || policy.graceDays < 0
+      || policy.graceDays > MAX_GRACE_DAYS
+      || policy.dailyFeeMinor <= 0n
+      || policy.dailyFeeMinor > MAX_MONEY_MINOR
+    ) {
+      throw new RentalInventoryValidationError('Retained late-return policy authority is invalid.');
+    }
+    if (input.graceDays.trim() || input.feeAmountMajor.trim()) {
+      throw new RentalInventoryValidationError('Late-return policy-controlled grace and fee values cannot be overridden.');
+    }
+
+    const timing = deriveRentalLateReturnTiming({
+      returnedAt: source.returnedAt,
+      committedEndsOn: source.committedEndsOn,
+      timeZone: source.timeZone,
+      graceDays: policy.graceDays,
+    });
+    if (timing.lateDays === 0) {
+      throw new RentalInventoryValidationError('A late-return assessment requires return evidence after the committed rental period.');
+    }
+
+    if (outcome === 'FEE_ASSESSED' && timing.chargeableDays === 0) {
+      throw new RentalInventoryValidationError('The retained return is inside the active late-return policy grace period.');
+    }
+
+    const policyFeeMinor = policy.dailyFeeMinor * BigInt(timing.chargeableDays);
+    if (outcome === 'FEE_ASSESSED' && policyFeeMinor > MAX_MONEY_MINOR) {
+      throw new RentalInventoryValidationError('Calculated late-return policy fee exceeds the supported money range.');
+    }
+
+    return Object.freeze({
+      outcome,
+      graceDays: policy.graceDays,
+      lateDays: timing.lateDays,
+      chargeableDays: timing.chargeableDays,
+      currency: source.currency,
+      feeMinor: outcome === 'FEE_ASSESSED' ? policyFeeMinor : null,
+      policyRevisionId: policy.id,
+      policyDailyFeeMinor: policy.dailyFeeMinor,
+      reason,
+    });
+  }
+
+  const graceDays = normalizeGraceDays(input.graceDays);
   const timing = deriveRentalLateReturnTiming({
     returnedAt: source.returnedAt,
     committedEndsOn: source.committedEndsOn,
@@ -107,6 +165,8 @@ export function normalizeRentalLateReturnAssessmentInput(
       chargeableDays: timing.chargeableDays,
       currency: source.currency,
       feeMinor: null,
+      policyRevisionId: null,
+      policyDailyFeeMinor: null,
       reason,
     });
   }
@@ -135,6 +195,8 @@ export function normalizeRentalLateReturnAssessmentInput(
     chargeableDays: timing.chargeableDays,
     currency: source.currency,
     feeMinor,
+    policyRevisionId: null,
+    policyDailyFeeMinor: null,
     reason,
   });
 }

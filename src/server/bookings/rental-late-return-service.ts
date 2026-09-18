@@ -12,6 +12,7 @@ import {
   deriveRentalLateReturnTiming,
   normalizeRentalLateReturnAssessmentInput,
   type RentalLateReturnAssessmentInput,
+  type RentalLateReturnPolicyAuthority,
 } from './rental-late-return-domain.ts';
 
 async function runLateReturnWrite<T>(operation: () => Promise<T>) {
@@ -69,6 +70,27 @@ function requireConsistentLateReturnCustody(
   }
 }
 
+function activePolicyAuthority(
+  revision: Readonly<{
+    id: string;
+    enabled: boolean;
+    graceDays: number;
+    dailyFeeMinor: bigint | null;
+    currency: string;
+  }> | null,
+): RentalLateReturnPolicyAuthority | null {
+  if (!revision?.enabled) return null;
+  if (revision.dailyFeeMinor === null || revision.dailyFeeMinor <= 0n) {
+    throw new RentalInventoryConflictError('Enabled late-return policy is missing positive daily-fee authority.');
+  }
+  return Object.freeze({
+    id: revision.id,
+    currency: revision.currency,
+    graceDays: revision.graceDays,
+    dailyFeeMinor: revision.dailyFeeMinor,
+  });
+}
+
 export async function readRentalLateReturnAssessment(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -82,6 +104,7 @@ export async function readRentalLateReturnAssessment(input: Readonly<{
     select: {
       id: true,
       status: true,
+      unitTypeId: true,
       currency: true,
       location: { select: { timeZone: true } },
       fulfillmentEvents: {
@@ -97,6 +120,11 @@ export async function readRentalLateReturnAssessment(input: Readonly<{
   const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
   const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP') ?? null;
   let lateDays = 0;
+  let applicablePolicyRevision = null;
+  let policy: RentalLateReturnPolicyAuthority | null = null;
+  let policyChargeableDays: number | null = null;
+  let policyFeeMinor: bigint | null = null;
+
   if (returnEvent) {
     requireConsistentLateReturnCustody(pickupEvent, returnEvent);
     lateDays = deriveRentalLateReturnTiming({
@@ -105,13 +133,48 @@ export async function readRentalLateReturnAssessment(input: Readonly<{
       timeZone: booking.location.timeZone,
       graceDays: 0,
     }).lateDays;
+
+    applicablePolicyRevision = await db.rentalLateReturnPolicyRevision.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        unitTypeId: booking.unitTypeId,
+        effectiveAt: { lte: returnEvent.occurredAt },
+      },
+      orderBy: [{ effectiveAt: 'desc' }, { version: 'desc' }, { id: 'desc' }],
+    });
+    policy = activePolicyAuthority(applicablePolicyRevision);
+    if (policy) {
+      const policyTiming = deriveRentalLateReturnTiming({
+        returnedAt: returnEvent.occurredAt,
+        committedEndsOn: returnEvent.endsOn,
+        timeZone: booking.location.timeZone,
+        graceDays: policy.graceDays,
+      });
+      policyChargeableDays = policyTiming.chargeableDays;
+      policyFeeMinor = policy.dailyFeeMinor * BigInt(policyTiming.chargeableDays);
+    }
   }
+
+  const assessmentPolicyRevision = booking.lateReturnAssessment?.policyRevisionId
+    ? await db.rentalLateReturnPolicyRevision.findFirst({
+        where: {
+          id: booking.lateReturnAssessment.policyRevisionId,
+          organizationId: input.organizationId,
+          unitTypeId: booking.unitTypeId,
+        },
+      })
+    : null;
 
   return Object.freeze({
     booking: Object.freeze({ id: booking.id, status: booking.status, currency: booking.currency }),
     returnEvent,
     lateDays,
     assessment: booking.lateReturnAssessment,
+    assessmentPolicyRevision,
+    applicablePolicyRevision,
+    policy,
+    policyChargeableDays,
+    policyFeeMinor,
   });
 }
 
@@ -135,6 +198,7 @@ export async function assessRentalLateReturn(input: Readonly<{
       },
       select: {
         id: true,
+        unitTypeId: true,
         currency: true,
         location: { select: { timeZone: true } },
         fulfillmentEvents: {
@@ -151,11 +215,22 @@ export async function assessRentalLateReturn(input: Readonly<{
     requireConsistentLateReturnCustody(pickupEvent, returnEvent);
     if (!returnEvent) throw new RentalInventoryConflictError('Late-return assessment requires retained return evidence.');
 
+    const policyRevision = await transaction.rentalLateReturnPolicyRevision.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        unitTypeId: booking.unitTypeId,
+        effectiveAt: { lte: returnEvent.occurredAt },
+      },
+      orderBy: [{ effectiveAt: 'desc' }, { version: 'desc' }, { id: 'desc' }],
+    });
+    const policy = activePolicyAuthority(policyRevision);
+
     const normalized = normalizeRentalLateReturnAssessmentInput(input.assessment, {
       currency: booking.currency,
       returnedAt: returnEvent.occurredAt,
       committedEndsOn: returnEvent.endsOn,
       timeZone: booking.location.timeZone,
+      policy,
     });
     const idempotencyKey = assessmentIdempotencyKey(booking.id);
 
@@ -174,6 +249,8 @@ export async function assessRentalLateReturn(input: Readonly<{
         || existing.chargeableDays !== normalized.chargeableDays
         || existing.currency !== normalized.currency
         || existing.feeMinor !== normalized.feeMinor
+        || existing.policyRevisionId !== normalized.policyRevisionId
+        || existing.policyDailyFeeMinor !== normalized.policyDailyFeeMinor
         || existing.reason !== normalized.reason
         || existing.idempotencyKey !== idempotencyKey
       ) {
@@ -200,6 +277,8 @@ export async function assessRentalLateReturn(input: Readonly<{
         chargeableDays: normalized.chargeableDays,
         currency: normalized.currency,
         feeMinor: normalized.feeMinor,
+        policyRevisionId: normalized.policyRevisionId,
+        policyDailyFeeMinor: normalized.policyDailyFeeMinor,
         reason: normalized.reason,
         assessedAt: databaseClock.now,
         assessedByUserId: input.actorUserId,
@@ -224,6 +303,8 @@ export async function assessRentalLateReturn(input: Readonly<{
           chargeableDays: created.chargeableDays,
           currency: created.currency,
           feeMinor: created.feeMinor?.toString() ?? null,
+          policyRevisionId: created.policyRevisionId,
+          policyDailyFeeMinor: created.policyDailyFeeMinor?.toString() ?? null,
           assessedAt: created.assessedAt.toISOString(),
         },
       },

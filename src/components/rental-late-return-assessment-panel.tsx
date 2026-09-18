@@ -27,6 +27,9 @@ export async function RentalLateReturnAssessmentPanel({
     const fee = data.assessment.feeMinor === null
       ? null
       : `${data.assessment.currency} ${moneyMinorToMajorString(data.assessment.feeMinor, data.assessment.currency)}`;
+    const policyDailyFee = data.assessment.policyDailyFeeMinor === null
+      ? null
+      : `${data.assessment.currency} ${moneyMinorToMajorString(data.assessment.policyDailyFeeMinor, data.assessment.currency)}`;
     return <>
       <section className="sf-inventory-card" aria-labelledby="rental-late-return-assessment-title">
         <div className="sf-inventory-card__heading">
@@ -38,6 +41,7 @@ export async function RentalLateReturnAssessmentPanel({
             <strong>{data.assessment.lateDays} late day{data.assessment.lateDays === 1 ? '' : 's'} · {data.assessment.graceDays} grace day{data.assessment.graceDays === 1 ? '' : 's'}</strong>
             <span>{data.assessment.chargeableDays} chargeable day{data.assessment.chargeableDays === 1 ? '' : 's'} · committed end {data.assessment.committedEndsOn.toISOString().slice(0, 10)}</span>
             <span>{fee ? `Retained fee authority ${fee}` : 'Fee waived'}</span>
+            {data.assessment.policyRevisionId && data.assessmentPolicyRevision ? <span>Automatic policy revision v{data.assessmentPolicyRevision.version} · {policyDailyFee} per chargeable day · policy effective {data.assessmentPolicyRevision.effectiveAt.toISOString()}</span> : <span>Case-specific manual assessment · no automatic policy revision applied at return</span>}
             <span>{data.assessment.reason}</span>
             <span>Assessed <time dateTime={data.assessment.assessedAt.toISOString()}>{data.assessment.assessedAt.toISOString()}</time> · append-only evidence</span>
           </div></div></li>
@@ -56,19 +60,40 @@ export async function RentalLateReturnAssessmentPanel({
     </>;
   }
 
+  const policyFee = data.policyFeeMinor === null
+    ? null
+    : `${data.booking.currency} ${moneyMinorToMajorString(data.policyFeeMinor, data.booking.currency)}`;
+  const policyApplies = Boolean(data.policy && data.applicablePolicyRevision);
+  const policyInsideGrace = policyApplies && data.policyChargeableDays === 0;
+
   return <section className="sf-inventory-card" aria-labelledby="rental-late-return-assessment-title">
     <div className="sf-inventory-card__heading">
       <div><p className="sf-eyebrow">Commercial return evidence</p><h2 id="rental-late-return-assessment-title">Late-return assessment</h2></div>
       <span>{data.lateDays} late day{data.lateDays === 1 ? '' : 's'}</span>
     </div>
+
+    {policyApplies && data.applicablePolicyRevision ? <p className="sf-field-hint">
+      Automatic policy revision v{data.applicablePolicyRevision.version} was already effective at the retained return time:
+      {' '}{data.applicablePolicyRevision.graceDays} grace day{data.applicablePolicyRevision.graceDays === 1 ? '' : 's'} and
+      {' '}{data.booking.currency} {moneyMinorToMajorString(data.applicablePolicyRevision.dailyFeeMinor!, data.booking.currency)} per chargeable day.
+      {policyInsideGrace ? ' This return is inside policy grace, so no fee is due.' : ` The authoritative policy fee is ${policyFee}.`}
+    </p> : null}
+
     {canManage ? <form className="sf-form" method="post" action={`/api/inventory/rentals/bookings/${bookingId}/late-return-assessment`} aria-describedby="rental-late-return-assessment-hint">
-      <label className="sf-field">Outcome<select name="outcome" defaultValue="FEE_ASSESSED" required><option value="FEE_ASSESSED">Assess fee</option><option value="WAIVED">Waive fee</option></select></label>
-      <label className="sf-field">Grace days<input name="graceDays" type="number" min="0" max="30" step="1" defaultValue="0" required /></label>
-      <label className="sf-field">Fee amount ({data.booking.currency})<input name="feeAmountMajor" inputMode="decimal" /></label>
+      {policyApplies ? policyInsideGrace
+        ? <input type="hidden" name="outcome" value="WAIVED" />
+        : <label className="sf-field">Outcome<select name="outcome" defaultValue="FEE_ASSESSED" required><option value="FEE_ASSESSED">Apply policy fee</option><option value="WAIVED">Waive policy fee</option></select></label>
+      : <label className="sf-field">Outcome<select name="outcome" defaultValue="FEE_ASSESSED" required><option value="FEE_ASSESSED">Assess fee</option><option value="WAIVED">Waive fee</option></select></label>}
+      {!policyApplies ? <>
+        <label className="sf-field">Grace days<input name="graceDays" type="number" min="0" max="30" step="1" defaultValue="0" required /></label>
+        <label className="sf-field">Fee amount ({data.booking.currency})<input name="feeAmountMajor" inputMode="decimal" /></label>
+      </> : null}
       <label className="sf-field">Assessment reason<textarea name="reason" maxLength={2000} rows={4} required /></label>
-      <p id="rental-late-return-assessment-hint" className="sf-field-hint">The retained return occurred {data.lateDays} calendar day{data.lateDays === 1 ? '' : 's'} late in the booking location timezone. Grace days are an explicit case decision, not an automatic tenant policy. A fee requires at least one day beyond grace and a positive exact amount; leave the amount blank when waiving. This decision is irreversible and does not itself move money.</p>
+      <p id="rental-late-return-assessment-hint" className="sf-field-hint">{policyApplies
+        ? 'Grace and fee values are derived server-side from the immutable policy revision effective at return and cannot be overridden by the browser. A waiver still requires an explicit reason. This decision is irreversible and does not itself move money.'
+        : `The retained return occurred ${data.lateDays} calendar day${data.lateDays === 1 ? '' : 's'} late in the booking location timezone. No enabled policy revision applied at return, so grace and exact fee remain an explicit case decision. Leave the amount blank when waiving. This decision is irreversible and does not itself move money.`}</p>
       <label className="sf-field"><span><input name="confirmation" type="checkbox" value="ACKNOWLEDGED" required /> I confirm this append-only assessment matches the approved commercial decision.</span></label>
-      <button className="sf-button sf-button--primary" type="submit">Record late-return assessment</button>
+      <button className="sf-button sf-button--primary" type="submit">{policyInsideGrace ? 'Record no-fee policy assessment' : 'Record late-return assessment'}</button>
     </form> : <p className="sf-field-hint">Return evidence is late, but no commercial assessment has been retained. Your role can view the evidence but cannot assess or waive a fee.</p>}
   </section>;
 }

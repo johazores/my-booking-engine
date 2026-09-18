@@ -43,7 +43,7 @@ test('late-return timing uses the retained location local date and exclusive com
   });
 });
 
-test('fee assessment requires a late return beyond grace and exact positive money', () => {
+test('manual fee assessment remains available when no automatic policy applied at return', () => {
   assert.deepEqual(normalizeRentalLateReturnAssessmentInput({
     outcome: 'fee_assessed',
     graceDays: '1',
@@ -61,6 +61,8 @@ test('fee assessment requires a late return beyond grace and exact positive mone
     chargeableDays: 1,
     currency: 'USD',
     feeMinor: 7550n,
+    policyRevisionId: null,
+    policyDailyFeeMinor: null,
     reason: 'Approved late return fee.',
   });
 
@@ -75,21 +77,123 @@ test('fee assessment requires a late return beyond grace and exact positive mone
     committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
     timeZone: 'UTC',
   }), /inside the selected grace period/);
+});
+
+test('active policy derives grace and exact fee without trusting browser money', () => {
+  assert.deepEqual(normalizeRentalLateReturnAssessmentInput({
+    outcome: 'FEE_ASSESSED',
+    graceDays: '',
+    feeAmountMajor: '',
+    reason: 'Policy fee applied.',
+  }, {
+    currency: 'PHP',
+    returnedAt: new Date('2026-09-15T08:00:00.000Z'),
+    committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
+    timeZone: 'UTC',
+    policy: {
+      id: 'policy-revision-2',
+      currency: 'PHP',
+      graceDays: 1,
+      dailyFeeMinor: 12500n,
+    },
+  }), {
+    outcome: 'FEE_ASSESSED',
+    graceDays: 1,
+    lateDays: 4,
+    chargeableDays: 3,
+    currency: 'PHP',
+    feeMinor: 37500n,
+    policyRevisionId: 'policy-revision-2',
+    policyDailyFeeMinor: 12500n,
+    reason: 'Policy fee applied.',
+  });
+
+  assert.throws(() => normalizeRentalLateReturnAssessmentInput({
+    outcome: 'FEE_ASSESSED',
+    graceDays: '',
+    feeAmountMajor: '',
+    reason: 'Overflowing policy total.',
+  }, {
+    currency: 'USD',
+    returnedAt: new Date('2026-09-13T08:00:00.000Z'),
+    committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
+    timeZone: 'UTC',
+    policy: {
+      id: 'policy-overflow',
+      currency: 'USD',
+      graceDays: 0,
+      dailyFeeMinor: 9_000_000_000_000_000n,
+    },
+  }), /exceeds the supported money range/);
 
   assert.throws(() => normalizeRentalLateReturnAssessmentInput({
     outcome: 'FEE_ASSESSED',
     graceDays: '0',
-    feeAmountMajor: '0',
-    reason: 'Invalid fee',
+    feeAmountMajor: '1.00',
+    reason: 'Tampered override.',
   }, {
-    currency: 'USD',
-    returnedAt: new Date('2026-09-12T12:00:00.000Z'),
+    currency: 'PHP',
+    returnedAt: new Date('2026-09-15T08:00:00.000Z'),
     committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
     timeZone: 'UTC',
-  }), /greater than zero/);
+    policy: {
+      id: 'policy-revision-2',
+      currency: 'PHP',
+      graceDays: 1,
+      dailyFeeMinor: 12500n,
+    },
+  }), /cannot be overridden/);
+
+  assert.throws(() => normalizeRentalLateReturnAssessmentInput({
+    outcome: 'FEE_ASSESSED',
+    graceDays: '',
+    feeAmountMajor: '',
+    reason: 'Inside policy grace.',
+  }, {
+    currency: 'PHP',
+    returnedAt: new Date('2026-09-12T08:00:00.000Z'),
+    committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
+    timeZone: 'UTC',
+    policy: {
+      id: 'policy-revision-2',
+      currency: 'PHP',
+      graceDays: 1,
+      dailyFeeMinor: 12500n,
+    },
+  }), /inside the active late-return policy grace period/);
 });
 
-test('waiver preserves explicit reason and rejects money while invalid evidence fails closed', () => {
+test('policy waiver retains policy evidence but never a fee', () => {
+  assert.deepEqual(normalizeRentalLateReturnAssessmentInput({
+    outcome: 'WAIVED',
+    graceDays: '',
+    feeAmountMajor: '',
+    reason: 'Manager goodwill exception.',
+  }, {
+    currency: 'AUD',
+    returnedAt: new Date('2026-09-14T01:00:00.000Z'),
+    committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
+    timeZone: 'UTC',
+    policy: {
+      id: 'policy-aud-1',
+      currency: 'AUD',
+      graceDays: 1,
+      dailyFeeMinor: 5000n,
+    },
+  }), {
+    outcome: 'WAIVED',
+    graceDays: 1,
+    lateDays: 3,
+    chargeableDays: 2,
+    currency: 'AUD',
+    feeMinor: null,
+    policyRevisionId: 'policy-aud-1',
+    policyDailyFeeMinor: 5000n,
+    reason: 'Manager goodwill exception.',
+  });
+});
+
+test('manual waiver preserves explicit reason and invalid evidence fails closed', () => {
   assert.deepEqual(normalizeRentalLateReturnAssessmentInput({
     outcome: 'WAIVED',
     graceDays: '3',
@@ -107,20 +211,10 @@ test('waiver preserves explicit reason and rejects money while invalid evidence 
     chargeableDays: 0,
     currency: 'AUD',
     feeMinor: null,
+    policyRevisionId: null,
+    policyDailyFeeMinor: null,
     reason: 'Manager approved goodwill waiver.',
   });
-
-  assert.throws(() => normalizeRentalLateReturnAssessmentInput({
-    outcome: 'WAIVED',
-    graceDays: '0',
-    feeAmountMajor: '1.00',
-    reason: 'Waived',
-  }, {
-    currency: 'AUD',
-    returnedAt: new Date('2026-09-12T01:00:00.000Z'),
-    committedEndsOn: new Date('2026-09-12T00:00:00.000Z'),
-    timeZone: 'UTC',
-  }), /must be blank/);
 
   assert.throws(() => normalizeRentalLateReturnAssessmentInput({
     outcome: 'WAIVED',

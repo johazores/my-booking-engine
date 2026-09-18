@@ -4,24 +4,26 @@ enum RentalLateReturnAssessmentOutcome {
 }
 
 model RentalLateReturnAssessment {
-  id               String                            @id @default(uuid()) @db.Uuid
-  organizationId   String                            @db.Uuid
-  bookingId        String                            @db.Uuid
-  unitId           String                            @db.Uuid
-  returnEventId    String                            @db.Uuid
-  idempotencyKey   String                            @db.VarChar(160)
-  outcome          RentalLateReturnAssessmentOutcome
-  committedEndsOn  DateTime                          @db.Date
-  returnedAt       DateTime                          @db.Timestamptz(6)
-  lateDays         Int
-  graceDays        Int
-  chargeableDays   Int
-  currency         String                            @db.Char(3)
-  feeMinor         BigInt?                           @db.BigInt
-  reason           String                            @db.VarChar(2000)
-  assessedAt       DateTime                          @db.Timestamptz(6)
-  assessedByUserId String                            @db.Uuid
-  createdAt        DateTime                          @default(now()) @db.Timestamptz(6)
+  id                  String                            @id @default(uuid()) @db.Uuid
+  organizationId      String                            @db.Uuid
+  bookingId           String                            @db.Uuid
+  unitId              String                            @db.Uuid
+  returnEventId       String                            @db.Uuid
+  idempotencyKey      String                            @db.VarChar(160)
+  outcome             RentalLateReturnAssessmentOutcome
+  committedEndsOn     DateTime                          @db.Date
+  returnedAt          DateTime                          @db.Timestamptz(6)
+  lateDays            Int
+  graceDays           Int
+  chargeableDays      Int
+  currency            String                            @db.Char(3)
+  feeMinor            BigInt?                           @db.BigInt
+  policyRevisionId    String?                           @db.Uuid
+  policyDailyFeeMinor BigInt?                           @db.BigInt
+  reason              String                            @db.VarChar(2000)
+  assessedAt          DateTime                          @db.Timestamptz(6)
+  assessedByUserId    String                            @db.Uuid
+  createdAt           DateTime                          @default(now()) @db.Timestamptz(6)
 
   booking                RentalBooking                          @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_booking_fkey")
   returnEvent            RentalBookingFulfillmentEvent          @relation("RentalLateReturnAssessmentReturnEvent", fields: [returnEventId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_late_return_assessments_return_event_fkey")
@@ -31,5 +33,6 @@ model RentalLateReturnAssessment {
   @@unique([organizationId, bookingId], map: "rental_late_return_assessments_org_booking_key")
   @@unique([organizationId, idempotencyKey], map: "rental_late_return_assessments_org_idempotency_key")
   @@index([organizationId, outcome, assessedAt], map: "rental_late_return_assessments_org_outcome_assessed_idx")
+  @@index([organizationId, policyRevisionId], map: "rental_late_return_assessments_org_policy_revision_idx")
   @@map("rental_late_return_assessments")
 }
