@@ -50,7 +50,7 @@ export async function cancelRentalBooking(input: Readonly<{
   organizationId: string;
   actorUserId: string;
   bookingId: string;
-  reason?: string;
+  reason: string;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -60,9 +60,7 @@ export async function cancelRentalBooking(input: Readonly<{
     requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' }),
     requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:manage' }),
   ]);
-  const cancellationReason = input.reason === undefined
-    ? null
-    : normalizeRentalBookingCancellationReason(input.reason);
+  const cancellationReason = normalizeRentalBookingCancellationReason(input.reason);
 
   return runRentalBookingCancellation(() => db.$transaction(async (transaction) => {
     await transaction.$queryRaw`

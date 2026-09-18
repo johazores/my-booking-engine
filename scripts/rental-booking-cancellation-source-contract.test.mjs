@@ -6,6 +6,9 @@ const domain = readFileSync('src/server/bookings/rental-booking-cancellation-dom
 const service = readFileSync('src/server/bookings/rental-booking-cancellation-service.ts', 'utf8');
 const route = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
 const action = readFileSync('src/components/rental-booking-cancel-action.tsx', 'utf8');
+const bookingIntegration = readFileSync('src/server/bookings/rental-booking.integration.ts', 'utf8');
+const paymentIntegration = readFileSync('src/server/payments/rental-payment.integration.ts', 'utf8');
+const securityBondIntegration = readFileSync('src/server/payments/rental-security-bond.integration.ts', 'utf8');
 const lifecycleMigration = readFileSync('prisma/migrations/20260915142000_rental_booking_cancellation_lifecycle/migration.sql', 'utf8');
 const substitutionMigration = readFileSync('prisma/migrations/20260915232000_rental_booking_unit_substitution_lifecycle/migration.sql', 'utf8');
 
@@ -63,13 +66,28 @@ test('final cancellation write is an exact tenant-owned compare-and-swap and ret
   assert.match(service, /idempotent: true/);
 });
 
-test('cancellation reason is required, normalized, bounded, and retained as staff-route audit evidence', () => {
+test('cancellation reason is required at every service boundary, normalized, bounded, and retained as audit evidence', () => {
   assert.match(domain, /RENTAL_BOOKING_CANCELLATION_REASON_MAX_LENGTH = 1000/);
   assert.match(domain, /value\.trim\(\)\.replace\(\/\\s\+\/g, ' '\)/);
   assert.match(domain, /reason is required/);
   assert.match(domain, /reason is too long/);
-  assert.match(service, /normalizeRentalBookingCancellationReason\(input\.reason\)/);
+  assert.match(service, /reason:\s*string;/);
+  assert.doesNotMatch(service, /reason\?:\s*string/);
+  assert.match(service, /const cancellationReason = normalizeRentalBookingCancellationReason\(input\.reason\);/);
+  assert.doesNotMatch(service, /input\.reason === undefined/);
   assert.match(service, /cancellationReason,/);
+
+  for (const [name, content] of [
+    ['rental booking integration', bookingIntegration],
+    ['rental payment integration', paymentIntegration],
+    ['rental security-bond integration', securityBondIntegration],
+  ]) {
+    const calls = [...content.matchAll(/cancelRentalBooking\(\{([\s\S]*?)\}\)/g)];
+    assert.ok(calls.length > 0, `${name} must exercise cancellation`);
+    for (const call of calls) {
+      assert.match(call[1] ?? '', /\breason\s*:/, `${name} cancellation call must retain explicit reason evidence`);
+    }
+  }
 
   assert.match(route, /readInventoryFormData\(request\)/);
   assert.match(route, /formField\(formData, 'reason'\)/);

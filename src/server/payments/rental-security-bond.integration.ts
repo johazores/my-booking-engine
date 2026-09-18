@@ -163,8 +163,14 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     bookingId: cancellationBooking.booking.id,
     reference: cancellationCollectionReference,
   });
+  const cancellationReason = 'Customer requested cancellation during security-bond integration coverage';
   await assert.rejects(
-    cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: cancellationBooking.booking.id }),
+    cancellations.cancelRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: cancellationBooking.booking.id,
+      reason: cancellationReason,
+    }),
     /cancellation contract|security bond|release/i,
   );
 
@@ -186,6 +192,11 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   assert.equal(releaseReplay.idempotent, true);
   assert.equal(releaseReplay.transaction.id, release.transaction.id);
 
-  const cancelled = await cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: cancellationBooking.booking.id });
+  const cancelled = await cancellations.cancelRentalBooking({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: cancellationBooking.booking.id,
+    reason: cancellationReason,
+  });
   assert.equal(cancelled.booking.status, 'CANCELLED');
 });

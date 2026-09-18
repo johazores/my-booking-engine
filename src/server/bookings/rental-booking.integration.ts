@@ -254,14 +254,17 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
         organizationId: otherOrganization.id,
         actorUserId: otherAdmin.id,
         bookingId: confirmed.booking.id,
+        reason: 'Cross-tenant cancellation probe',
       }),
       /not available/i,
     );
 
+    const cancellationReason = 'Customer requested cancellation during booking integration coverage';
     const cancelled = await cancellations.cancelRentalBooking({
       organizationId: organization.id,
       actorUserId: admin.id,
       bookingId: confirmed.booking.id,
+      reason: cancellationReason,
     });
     assert.equal(cancelled.idempotent, false);
     assert.equal(cancelled.booking.status, 'CANCELLED');
@@ -272,6 +275,7 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       organizationId: organization.id,
       actorUserId: admin.id,
       bookingId: confirmed.booking.id,
+      reason: cancellationReason,
     });
     assert.equal(cancellationReplay.idempotent, true);
     assert.equal(cancellationReplay.booking.status, 'CANCELLED');

@@ -144,8 +144,14 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
   assert.equal(partiallyPaid.settlement.reconciled && partiallyPaid.settlement.netSettledMinor, partialPaymentMinor);
   assert.equal(partiallyPaid.settlement.reconciled && partiallyPaid.settlement.outstandingMinor, confirmed.booking.totalMinor - partialPaymentMinor);
 
+  const cancellationReason = 'Customer requested cancellation during payment integration coverage';
   await assert.rejects(
-    cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id }),
+    cancellations.cancelRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+      reason: cancellationReason,
+    }),
     /refund all settled rental money/i,
   );
 
@@ -281,7 +287,12 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
     /append-only/i,
   );
 
-  const cancelled = await cancellations.cancelRentalBooking({ organizationId: organization.id, actorUserId: admin.id, bookingId: confirmed.booking.id });
+  const cancelled = await cancellations.cancelRentalBooking({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: confirmed.booking.id,
+    reason: cancellationReason,
+  });
   assert.equal(cancelled.booking.status, 'CANCELLED');
 
   const partialRefundReplayAfterCancellation = await payments.recordRentalManualOfflineRefund({
