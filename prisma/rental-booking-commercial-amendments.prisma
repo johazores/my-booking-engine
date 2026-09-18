@@ -1,0 +1,54 @@
+enum RentalBookingCommercialAmendmentStatus {
+  PREPARED
+  CANCELLED
+  EXPIRED
+}
+
+enum RentalBookingCommercialAmendmentDirection {
+  ADDITIONAL_CHARGE
+  REFUND
+}
+
+enum RentalBookingCommercialAmendmentMode {
+  PRE_PICKUP_RESCHEDULE
+  CUSTODY_EXTENSION
+}
+
+model RentalBookingCommercialAmendment {
+  id                       String                                    @id @default(uuid()) @db.Uuid
+  organizationId           String                                    @db.Uuid
+  bookingId                String                                    @db.Uuid
+  idempotencyKey           String                                    @db.VarChar(120)
+  status                   RentalBookingCommercialAmendmentStatus    @default(PREPARED)
+  direction                RentalBookingCommercialAmendmentDirection
+  mode                     RentalBookingCommercialAmendmentMode
+  bookingVersion           DateTime                                  @db.Timestamptz(6)
+  unitId                   String                                    @db.Uuid
+  unitTypeId               String                                    @db.Uuid
+  locationId               String                                    @db.Uuid
+  pickupEventId            String?                                   @db.Uuid
+  sourceStartsOn           DateTime                                  @db.Date
+  sourceEndsOn             DateTime                                  @db.Date
+  targetStartsOn           DateTime                                  @db.Date
+  targetEndsOn             DateTime                                  @db.Date
+  currency                 String                                    @db.Char(3)
+  beforeTotalMinor         BigInt                                    @db.BigInt
+  afterTotalMinor          BigInt                                    @db.BigInt
+  deltaMinor               BigInt                                    @db.BigInt
+  sourcePricingFingerprint String                                    @db.Char(64)
+  targetPricingFingerprint String                                    @db.Char(64)
+  targetPricingSnapshot    Json
+  reviewFingerprint        String                                    @db.Char(64)
+  expiresAt                DateTime                                  @db.Timestamptz(6)
+  endedAt                  DateTime?                                 @db.Timestamptz(6)
+  createdAt                DateTime                                  @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime                                  @updatedAt @db.Timestamptz(6)
+
+  booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_booking_fkey")
+
+  @@unique([id, organizationId], map: "rental_booking_commercial_amendments_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_commercial_amendments_org_idempotency_key")
+  @@index([organizationId, bookingId, status, expiresAt], map: "rental_booking_commercial_amendments_org_booking_status_expiry_idx")
+  @@index([organizationId, status, expiresAt], map: "rental_booking_commercial_amendments_org_status_expiry_idx")
+  @@map("rental_booking_commercial_amendments")
+}

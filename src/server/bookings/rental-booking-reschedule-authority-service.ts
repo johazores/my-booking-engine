@@ -6,6 +6,7 @@ import {
 } from '../inventory/rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { buildRentalBookingCommercialAmendmentReviewFingerprint } from './rental-booking-commercial-amendment-domain.ts';
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
   buildRentalBookingRescheduleCommercialImpact,
@@ -257,6 +258,28 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
           pickupEventId: pickupEvent?.id ?? null,
         })
       : null;
+    const commercialAmendmentFingerprint = blocker === 'PRICE_CHANGED'
+      && (commercialImpact.kind === 'INCREASE' || commercialImpact.kind === 'DECREASE')
+      ? buildRentalBookingCommercialAmendmentReviewFingerprint({
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          bookingUpdatedAt: booking.updatedAt,
+          unitId: effectiveUnitId,
+          unitTypeId: booking.unitTypeId,
+          locationId: booking.locationId,
+          sourceStartsOn,
+          sourceEndsOn,
+          targetStartsOn: target.startsOn,
+          targetEndsOn: target.endsOn,
+          currency: targetPricing.currency,
+          beforeTotalMinor: booking.totalMinor,
+          afterTotalMinor: BigInt(targetPricing.totalMinor),
+          sourcePricingFingerprint,
+          targetPricingFingerprint: targetPricing.fingerprint,
+          mode,
+          pickupEventId: pickupEvent?.id ?? null,
+        })
+      : null;
 
     return Object.freeze({
       ready: blocker === null,
@@ -264,6 +287,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       mode,
       checkedAt: databaseClock.now,
       authorityFingerprint,
+      commercialAmendmentFingerprint,
       booking: Object.freeze({
         id: booking.id,
         unitId: effectiveUnitId,

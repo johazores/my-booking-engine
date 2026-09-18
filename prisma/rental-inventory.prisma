@@ -178,6 +178,7 @@ model RentalBooking {
   location RentalLocation @relation(fields: [locationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_bookings_location_fkey")
   allocation RentalBookingAllocation?
   reschedules RentalBookingReschedule[]
+  commercialAmendments RentalBookingCommercialAmendment[]
   unitSubstitutions RentalBookingUnitSubstitution[]
   paymentTransactions RentalPaymentTransaction[]
   securityBondRequirement RentalSecurityBondRequirement?
