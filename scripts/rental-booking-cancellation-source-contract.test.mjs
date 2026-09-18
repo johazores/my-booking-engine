@@ -68,6 +68,7 @@ test('final cancellation write is an exact tenant-owned compare-and-swap and ret
 
 test('cancellation reason is required at every service boundary, normalized, bounded, and retained as audit evidence', () => {
   assert.match(domain, /RENTAL_BOOKING_CANCELLATION_REASON_MAX_LENGTH = 1000/);
+  assert.match(domain, /typeof value !== 'string'/);
   assert.match(domain, /value\.trim\(\)\.replace\(\/\\s\+\/g, ' '\)/);
   assert.match(domain, /reason is required/);
   assert.match(domain, /reason is too long/);

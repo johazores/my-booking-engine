@@ -15,10 +15,12 @@ test('cancellation reason is normalized for durable audit evidence', () => {
 });
 
 test('cancellation reason is required and bounded', () => {
-  assert.throws(
-    () => normalizeRentalBookingCancellationReason(' \n\t '),
-    RentalBookingCancellationValidationError,
-  );
+  for (const value of [undefined, null, 42, false, {}, [], ' \n\t ']) {
+    assert.throws(
+      () => normalizeRentalBookingCancellationReason(value),
+      RentalBookingCancellationValidationError,
+    );
+  }
   assert.equal(
     normalizeRentalBookingCancellationReason('a'.repeat(RENTAL_BOOKING_CANCELLATION_REASON_MAX_LENGTH)).length,
     RENTAL_BOOKING_CANCELLATION_REASON_MAX_LENGTH,

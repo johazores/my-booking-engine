@@ -7,7 +7,10 @@ export class RentalBookingCancellationValidationError extends Error {
   }
 }
 
-export function normalizeRentalBookingCancellationReason(value: string) {
+export function normalizeRentalBookingCancellationReason(value: unknown) {
+  if (typeof value !== 'string') {
+    throw new RentalBookingCancellationValidationError('Rental booking cancellation reason is required.');
+  }
   const reason = value.trim().replace(/\s+/g, ' ');
   if (!reason) {
     throw new RentalBookingCancellationValidationError('Rental booking cancellation reason is required.');
