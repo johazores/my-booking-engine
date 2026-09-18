@@ -63,7 +63,9 @@ Same-unit price-neutral date rescheduling is implemented separately in [rental-b
 
 ## Validation
 
-`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, route authority, staff cancellation-readiness disclosure, payment-read privacy, retained evidence, and the no-fake-financial-workflow boundary.
+`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, route authority, retained evidence, and the no-fake-financial-workflow boundary.
+
+`scripts/rental-booking-cancellation-readiness-source-contract.test.mjs` protects staff cancellation discoverability, payment-read privacy, zero-settlement submit gating, partial-payment-aware status copy, and the removal of stale pre-payment-workflow messaging.
 
 `src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL cancellation scenario. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
