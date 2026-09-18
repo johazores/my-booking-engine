@@ -37,13 +37,21 @@ test('database independently enforces applied amendment authority and per-source
   assert.match(migration, /NEW\."createdAt" := authored_at/);
 });
 
-test('manual reference namespace includes post-apply refund evidence', () => {
+test('manual reference namespace uses the central tenant registry before post-apply provider evidence', () => {
   assert.match(migration, /sf:rental-manual-reference:/);
   assert.match(migration, /rental_booking_effective_refund_transactions/);
   assert.match(migration, /manual rental provider reference is already retained as post-apply effective refund evidence/);
-  assert.match(service, /rentalBookingEffectiveRefundTransaction\.findFirst/);
-  assert.match(service, /rentalBookingCommercialAmendmentSettlementTransaction\.findFirst/);
-  assert.match(service, /rentalLateReturnSettlementTransaction\.findFirst/);
+  assert.match(service, /rentalManualProviderReference\.findUnique/);
+  assert.match(service, /organizationId_providerReference/);
+  assert.match(service, /assertManualReferenceUnused\(transaction, input\.organizationId, reference\)/);
+  assert.ok(
+    service.indexOf('assertManualReferenceUnused(transaction, input.organizationId, reference)')
+      < service.indexOf('manualProvider.recordOfflineRefund'),
+  );
+  assert.doesNotMatch(
+    service,
+    /rentalLateReturnSettlementTransaction\.findFirst\(\{\s*where: \{ organizationId, providerCode: 'manual', providerReference: reference/s,
+  );
 });
 
 test('writer derives source server-side under permission and serializable booking authority', () => {
