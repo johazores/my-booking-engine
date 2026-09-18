@@ -44,7 +44,7 @@ Refund `sourceProviderReference` is intentionally allowed to point at an existin
 
 A `SETTLED` adjustment can now be consumed only by `applyRentalBookingCommercialAmendment`, documented in [rental-booking-commercial-amendment-apply.md](./rental-booking-commercial-amendment-apply.md). Apply revalidates settlement under the same amendment-settlement lock before mutating allocation dates or terminally linking the amendment.
 
-After apply, settlement rows cannot be extended or compensated by this contract because the amendment is no longer `PREPARED`. Current post-apply booking-price refund/cancellation semantics are intentionally blocked at the database boundary until they can reconcile original booking-price transactions together with applied amendment adjustment evidence.
+After apply, settlement rows cannot be extended or compensated by this contract because the amendment is no longer `PREPARED`. The protected [effective settlement read model](./rental-booking-effective-settlement.md) now reconciles original booking-price transactions together with the applied adjustment for authoritative post-apply balances. Post-apply refund **writes** and booking cancellation remain intentionally blocked at the database boundary until the same combined authority is enforced transactionally for source allocation, idempotency, manual-reference isolation, and zero-net cancellation.
 
 No route or primary staff action exposes settlement yet.
 
@@ -53,6 +53,7 @@ No route or primary staff action exposes settlement yet.
 - `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact direction-aware settlement, compensation, conflicts, and deterministic request evidence.
 - `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects tenant relations, database authority, global reference isolation, provider-adapter usage, refund-source capacity, compensation, permissions, locks, audit evidence, and the no-UI boundary.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects settlement consumption during final apply and post-apply fail-closed guards.
+- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` and `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protect the combined read-only post-apply settlement authority without weakening write guards.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
