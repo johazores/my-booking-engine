@@ -1,6 +1,6 @@
 # Rental booking cancellation
 
-SF implements a staff-only rental booking cancellation lifecycle for the durable confirmed rental booking contract. Cancellation is an inventory-release state transition, not deletion and not a financial workflow. It changes one tenant-owned `CONFIRMED` rental booking to `CANCELLED`, records database cancellation time and audit evidence, retains immutable booking/customer evidence plus append-only reschedule/substitution history and the current physical allocation as historical evidence, and releases that effective physical-unit/date commitment from live availability.
+SF implements a staff-only rental booking cancellation lifecycle for the durable confirmed rental booking contract. Cancellation is an inventory-release state transition, not deletion and not a financial workflow. It changes one tenant-owned `CONFIRMED` rental booking to `CANCELLED`, records database cancellation time plus a required normalized cancellation reason in durable audit evidence, retains immutable booking/customer evidence plus append-only reschedule/substitution history and the current physical allocation as historical evidence, and releases that effective physical-unit/date commitment from live availability.
 
 ## Authority and tenant scope
 
@@ -9,7 +9,9 @@ SF implements a staff-only rental booking cancellation lifecycle for the durable
 - `booking:manage`, because the operation changes durable booking lifecycle
 - `availability:manage`, because cancellation releases protected physical inventory
 
-The staff route derives organization and actor from authenticated server context. The browser cannot choose tenant, actor, unit, dates, customer, price, cancellation time, or inventory-release authority.
+The staff route derives organization and actor from authenticated server context. The browser may submit only the human cancellation reason. It cannot choose tenant, actor, unit, dates, customer, price, cancellation time, payment authority, or inventory-release authority.
+
+The reason is normalized server-side by trimming outer whitespace, collapsing internal whitespace, requiring a non-empty value, and enforcing the 1000-character retention bound before any lifecycle mutation is attempted.
 
 Every booking, reschedule, and substitution read repeats authenticated `organizationId`. A booking ID from another tenant resolves as unavailable rather than becoming cross-tenant mutation authority.
 
@@ -37,7 +39,9 @@ Cancellation intentionally does not delete `RentalBookingAllocation`, `RentalBoo
 
 ## Audit and retained evidence
 
-A successful transition records `booking.rental.cancelled` with actor, tenant, booking, prior state, current effective physical-unit/date allocation, latest reschedule reference, latest substitution reference, cancellation timestamp, and `inventoryProtectionReleased: true`.
+A successful staff transition records `booking.rental.cancelled` with actor, tenant, booking, prior state, current effective physical-unit/date allocation, latest reschedule reference, latest substitution reference, cancellation timestamp, the normalized staff-supplied cancellation reason, and `inventoryProtectionReleased: true`.
+
+The reason is retained as audit evidence rather than being copied into a mutable booking field. Audit creation remains in the same serializable database transaction as the terminal booking mutation, so an audit-write failure rolls the cancellation back rather than leaving an unaudited lifecycle change.
 
 Immutable customer snapshot, source hold, accepted money, original pricing/conversion evidence, append-only modification evidence, confirmation time, and physical allocation remain retained. Customer de-identification continues to treat a cancelled rental booking as a retention boundary.
 
@@ -47,11 +51,11 @@ The cancellation section remains visible while a booking is still `CONFIRMED`, b
 
 When the actor also has `payment:read`, the page may show the server-derived booking-price cancellation blocker. Reconciled positive net settlement shows the exact remaining amount that must be represented by real retained refund evidence. Unreconciled settlement shows a reconciliation blocker. Without `payment:read`, the section exposes no payment amount and states only that authorized settlement verification is required.
 
-The destructive submit control is rendered only when booking-price settlement is readable, reconciled, and net settlement is zero. This is a usability gate only: `cancelRentalBooking` still independently re-reads and reconciles the complete bounded payment history under the booking lock, and PostgreSQL independently enforces its cancellation guards. A concurrent payment/refund, custody change, held security bond, allocation change, or other protected state can still make the final write fail closed.
+The destructive submit control is rendered only when booking-price settlement is readable, reconciled, and net settlement is zero. Staff must enter a cancellation reason before submitting. HTML `required`/`maxLength` attributes improve usability, while `cancelRentalBooking` independently normalizes and validates the reason server-side and then re-reads and reconciles the complete bounded payment history under the booking lock. PostgreSQL independently enforces its cancellation guards. A concurrent payment/refund, custody change, held security bond, allocation change, or other protected state can still make the final write fail closed.
 
-The action uses explicit confirmation. Success returns to booking detail; repeated cancellation reports existing terminal state. Permission, unavailable, conflict, validation, and server failures have explicit feedback.
+The action uses explicit confirmation and warns staff not to place payment-card or other sensitive secrets in the reason. Success returns to booking detail; repeated cancellation reports existing terminal state. Permission, unavailable, conflict, validation, and server failures have explicit feedback.
 
-Cancelled details preserve original booking-time evidence, reschedule/substitution history, current effective allocation, and cancellation timestamp while explaining that live inventory protection has ended.
+Cancelled details preserve original booking-time evidence, reschedule/substitution history, current effective allocation, and cancellation timestamp while explaining that live inventory protection has ended. The normalized reason remains available through retained audit evidence.
 
 ## Deliberate commercial boundary
 
@@ -63,7 +67,9 @@ Same-unit price-neutral date rescheduling is implemented separately in [rental-b
 
 ## Validation
 
-`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, route authority, retained evidence, and the no-fake-financial-workflow boundary.
+`src/server/bookings/rental-booking-cancellation-domain.test.ts` protects cancellation-reason normalization, required-value behavior, and the 1000-character retention boundary.
+
+`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, safe reason parsing/validation, route authority, retained audit evidence, and the no-fake-financial-workflow boundary.
 
 `scripts/rental-booking-cancellation-readiness-source-contract.test.mjs` protects staff cancellation discoverability, payment-read privacy, zero-settlement submit gating, partial-payment-aware status copy, and the removal of stale pre-payment-workflow messaging.
 

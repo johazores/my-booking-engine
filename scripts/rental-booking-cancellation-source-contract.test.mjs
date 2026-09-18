@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+const domain = readFileSync('src/server/bookings/rental-booking-cancellation-domain.ts', 'utf8');
 const service = readFileSync('src/server/bookings/rental-booking-cancellation-service.ts', 'utf8');
 const route = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
 const action = readFileSync('src/components/rental-booking-cancel-action.tsx', 'utf8');
@@ -54,11 +55,32 @@ test('final cancellation write is an exact tenant-owned compare-and-swap and ret
     "action: 'booking.rental.cancelled'",
     'latestRescheduleId',
     'latestUnitSubstitutionId',
+    'cancellationReason',
     'inventoryProtectionReleased: true',
   ]) assert.ok(service.includes(token), `missing cancellation write-scope token: ${token}`);
   assert.match(service, /cancelled\.count !== 1/);
   assert.match(service, /booking\.status === 'CANCELLED'/);
   assert.match(service, /idempotent: true/);
+});
+
+test('cancellation reason is required, normalized, bounded, and retained as staff-route audit evidence', () => {
+  assert.match(domain, /RENTAL_BOOKING_CANCELLATION_REASON_MAX_LENGTH = 1000/);
+  assert.match(domain, /value\.trim\(\)\.replace\(\/\\s\+\/g, ' '\)/);
+  assert.match(domain, /reason is required/);
+  assert.match(domain, /reason is too long/);
+  assert.match(service, /normalizeRentalBookingCancellationReason\(input\.reason\)/);
+  assert.match(service, /cancellationReason,/);
+
+  assert.match(route, /readInventoryFormData\(request\)/);
+  assert.match(route, /formField\(formData, 'reason'\)/);
+  assert.match(route, /reason,/);
+  assert.doesNotMatch(route, /formField\(formData, '(organizationId|actorUserId|unitId|startsOn|endsOn|currency|amount)'\)/);
+
+  assert.match(action, /Cancellation reason/);
+  assert.match(action, /name="reason"/);
+  assert.match(action, /maxLength=\{1000\}/);
+  assert.match(action, /required/);
+  assert.match(action, /durable audit evidence/i);
 });
 
 test('database lifecycle guard makes cancellation terminal and later migration locks current effective unit', () => {
@@ -77,7 +99,6 @@ test('staff route and UI expose explicit cancellation without accepting tenant o
   assert.match(route, /organizationId: organization\.id/);
   assert.match(route, /actorUserId: session\.user\.id/);
   assert.match(route, /bookingId/);
-  assert.doesNotMatch(route, /formData|formField/);
   assert.match(action, /Cancel rental booking/);
   assert.match(action, /Confirm cancellation/);
   assert.match(action, /does not collect, refund, or change money/i);

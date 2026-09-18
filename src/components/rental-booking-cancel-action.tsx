@@ -43,7 +43,20 @@ export function RentalBookingCancelAction({
       <p>Cancelling releases this physical unit and date range back to rental availability. The booking, allocation, commercial evidence, customer snapshot, and audit history are retained.</p>
       <p>Booking-price settlement is reconciled to zero. This cancellation action does not collect, refund, or change money; it also does not create a fee, provider action, security-bond disposition, notification, or external synchronization.</p>
       <p className="sf-field-hint">The server will recheck payment, custody, allocation, tenant, and other cancellation guards before committing the lifecycle change.</p>
-      <form action={`/api/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/cancel`} method="post">
+      <form className="sf-form" action={`/api/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/cancel`} method="post">
+        <label className="sf-field">
+          Cancellation reason
+          <textarea
+            name="reason"
+            maxLength={1000}
+            rows={4}
+            required
+            aria-describedby="rental-booking-cancellation-reason-hint"
+          />
+        </label>
+        <p id="rental-booking-cancellation-reason-hint" className="sf-field-hint">
+          Required for durable audit evidence. Describe the real operational or customer reason; do not enter payment-card or other sensitive secrets.
+        </p>
         <button className="sf-button" type="submit">Confirm cancellation</button>
       </form>
     </div>

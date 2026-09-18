@@ -5,6 +5,7 @@ import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
 import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { normalizeRentalBookingCancellationReason } from './rental-booking-cancellation-domain.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
@@ -49,6 +50,7 @@ export async function cancelRentalBooking(input: Readonly<{
   organizationId: string;
   actorUserId: string;
   bookingId: string;
+  reason?: string;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -58,6 +60,9 @@ export async function cancelRentalBooking(input: Readonly<{
     requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:manage' }),
     requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:manage' }),
   ]);
+  const cancellationReason = input.reason === undefined
+    ? null
+    : normalizeRentalBookingCancellationReason(input.reason);
 
   return runRentalBookingCancellation(() => db.$transaction(async (transaction) => {
     await transaction.$queryRaw`
@@ -236,6 +241,7 @@ export async function cancelRentalBooking(input: Readonly<{
         afterData: {
           status: current.status,
           cancelledAt: current.cancelledAt.toISOString(),
+          cancellationReason,
           allocationId: current.allocation.id,
           inventoryProtectionReleased: true,
         },
