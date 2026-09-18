@@ -1,0 +1,12 @@
+model RentalManualProviderReference {
+  organizationId    String   @db.Uuid
+  providerReference String   @db.VarChar(160)
+  sourceLedger      String   @db.VarChar(96)
+  sourceId          String   @db.Uuid
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([organizationId, providerReference], map: "rental_manual_provider_references_pkey")
+  @@unique([organizationId, sourceLedger, sourceId], map: "rental_manual_provider_references_source_key")
+  @@index([organizationId, createdAt], map: "rental_manual_provider_references_org_created_idx")
+  @@map("rental_manual_provider_references")
+}
