@@ -1,8 +1,8 @@
 # Rental booking staff workflow
 
-SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules before pickup, apply the supported same-unit same-start later-end price-neutral custody extension after pickup and before return, apply supported same-type/same-location physical-unit substitutions, record supported manual/offline booking settlement evidence and refunds, cancel a confirmed booking only after booking-price settlement is reconciled to zero, record pickup/return custody, explicitly release complete remaining rental days after an early return, record append-only return-condition inspection and damage-case evidence, retain customer-damage-liability decisions and supported exact manual/offline damage settlement, manage supported security-bond evidence/disposition, and retain explicit late-return assessment plus supported exact manual/offline late-fee settlement.
+SF exposes a staff-facing interaction layer for the durable rental booking foundation. Staff can review an effective physical-unit hold against an active tenant customer, confirm the booking through the atomic writer, read paginated rental booking history/detail, apply supported same-unit price-neutral date reschedules before pickup, apply the supported same-unit same-start later-end price-neutral custody extension after pickup and before return, apply supported same-type/same-location physical-unit substitutions, record supported manual/offline booking settlement evidence and refunds, cancel a confirmed booking only after booking-price settlement is reconciled to zero, record pickup/return custody, explicitly release complete remaining rental days after an early return, record append-only return-condition inspection and damage-case evidence, retain customer-damage-liability decisions and supported exact manual/offline damage settlement, manage supported security-bond evidence/disposition, manage versioned unit-type late-return fee policy revisions, and retain explicit late-return assessment plus supported exact manual/offline late-fee settlement.
 
-The workflow does not invent public/online rental payment collection, unit-type/location-changing amendments, price-changing amendments, delivery, automatic late-fee policy, partial/split/provider-backed settlement, notifications, or external fulfillment integrations.
+The workflow does not invent public/online rental payment collection, unit-type/location-changing amendments, price-changing amendments, delivery, partial/split/provider-backed settlement, notifications, or external fulfillment integrations.
 
 ## Routes
 
@@ -25,7 +25,9 @@ The workflow does not invent public/online rental payment collection, unit-type/
 - `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/liability` retains the post-closure customer-liability decision.
 - `POST /api/inventory/rentals/bookings/[booking-id]/damage-case/[case-id]/settlement/manual` and `/refund` retain supported exact full-value manual/offline customer-damage settlement evidence.
 - Security-bond requirement, collection, release, and supported exact forfeiture actions remain separate booking-scoped payment evidence routes and do not mutate the booking price.
-- `POST /api/inventory/rentals/bookings/[booking-id]/late-return-assessment` retains the explicit post-return grace/fee-or-waiver decision from immutable custody evidence.
+- `/inventory/rentals/types/[unit-type-id]` shows the current late-return policy revision to pricing readers and real enable/update/disable controls to authorized pricing managers.
+- `POST /api/inventory/rentals/unit-types/[unit-type-id]/late-return-policy` creates the next append-only policy revision under tenant/unit-type serialization and optimistic version authority.
+- `POST /api/inventory/rentals/bookings/[booking-id]/late-return-assessment` retains the explicit post-return policy-derived or manual grace/fee-or-waiver decision from immutable custody evidence.
 - `POST /api/inventory/rentals/bookings/[booking-id]/late-return-assessment/[assessment-id]/settlement/manual` and `/refund` retain supported exact full-value manual/offline settlement evidence for an assessed late-return fee.
 
 All routes remain inside the authenticated SF application shell. No public/customer rental booking, payment, modification, custody, inspection, damage, bond, late-return, or settlement route is introduced.
@@ -41,6 +43,8 @@ Reschedule review requires `booking:manage`, `availability:read`, `inventory:rea
 Replacement-unit candidate search requires `booking:manage` plus `inventory:read`; fresh substitution authority review additionally requires `availability:read`; apply additionally requires `availability:manage`. Candidate IDs never grant ownership authority.
 
 Booking-price payment history requires `payment:read`; manual payment/refund recording requires `payment:manage`. Damage liability, damage settlement, security-bond settlement/disposition, and late-return assessment/settlement also repeat their documented booking/payment permission combinations and tenant scope server-side. UI permission checks remain usability only.
+
+Late-return policy reads require `inventory:read` plus `pricing:read`. Creating the next append-only policy revision requires `inventory:read` plus `pricing:manage`; the service independently repeats authenticated tenant/unit-type scope and ignores browser authority for currency, revision number, effective time, actor, or tenant.
 
 Cancellation requires `booking:manage` plus `availability:manage` and independently rechecks the tenant booking, current effective allocation, settlement state, and pre-pickup lifecycle.
 
@@ -68,9 +72,9 @@ Booking-price settlement, customer-damage settlement, security-bond settlement/d
 
 The enabled booking-price, damage, bond, and late-return payment paths use real manual/offline evidence only where explicitly documented. Browser forms do not submit authoritative tenant identity, actor identity, currency, amount, refund source, or idempotency. Manual references are isolated across rental settlement ledgers at the PostgreSQL boundary so one real-world receipt/refund identifier cannot represent multiple commercial events in the same tenant.
 
-Late-return assessment is also separate from settlement: staff first retain explicit case-specific grace and fee/waiver authority from immutable return evidence. Only a retained positive `FEE_ASSESSED` decision can feed the full-value manual/offline late-return settlement workflow. A waived assessment cannot be paid.
+Late-return assessment is also separate from settlement. If an enabled unit-type policy revision was already effective at immutable return time, the server derives grace and daily-fee authority from that retained revision and the browser cannot override the math. When no enabled policy applied, the existing case-specific manual grace/fee path remains available. Staff still retain an explicit assessment or waiver with a required reason, and only a retained positive `FEE_ASSESSED` decision can feed the full-value manual/offline settlement workflow.
 
-See [rental-payment-foundation.md](./rental-payment-foundation.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-damage-settlement.md](./rental-damage-settlement.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
+See [rental-payment-foundation.md](./rental-payment-foundation.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-damage-settlement.md](./rental-damage-settlement.md), [rental-late-return-policy.md](./rental-late-return-policy.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Cancellation authority
 
@@ -86,9 +90,9 @@ After return, early-return release can shorten only live inventory protection fo
 
 A retained non-clear inspection can feed one operational damage case. Assessment stores an exact repair estimate in booking currency; customer liability is a separate post-closure commercial decision. Supported damage settlement and security-bond forfeiture remain separate from those operational facts.
 
-Late-return assessment uses the immutable pickup/return snapshot, retained location timezone, and exclusive committed end date. Staff explicitly retain a 0–30 day case-specific grace decision and either positive fee authority or a waiver. PostgreSQL independently derives the late-day chronology. A fee assessment can then feed the separate exact manual/offline settlement workflow without reopening custody or changing allocation.
+Late-return assessment uses the immutable pickup/return snapshot, retained location timezone, and exclusive committed end date. It resolves the latest unit-type policy revision already effective at the immutable return timestamp. An enabled revision supplies non-retroactive grace and exact daily-fee authority; otherwise staff use the supported case-specific manual grace/fee path. PostgreSQL independently derives late-day chronology and verifies policy-derived totals. A retained positive fee assessment can then feed the separate exact manual/offline settlement workflow without reopening custody or changing allocation.
 
-See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
+See [rental-booking-fulfillment-foundation.md](./rental-booking-fulfillment-foundation.md), [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md), [rental-return-inspection.md](./rental-return-inspection.md), [rental-damage-case.md](./rental-damage-case.md), [rental-damage-liability.md](./rental-damage-liability.md), [rental-late-return-policy.md](./rental-late-return-policy.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Read model
 
@@ -100,7 +104,7 @@ Settlement readers reconcile complete bounded evidence for their enabled contrac
 
 ## Deliberate boundaries
 
-This workflow does not implement or imply public card collection, Stripe rental checkout, split/tendered settlement, partial late-return settlement, partial security-bond offsets, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, automatic tenant-wide late-fee policy, delivery, public self-service, notifications, invoices, external fleet synchronization, or provider-backed late-return/damage/bond collection.
+This workflow does not implement or imply public card collection, Stripe rental checkout, split/tendered settlement, partial late-return settlement, partial security-bond offsets, unit-type changes, location-changing substitutions, price-changing reschedules/amendments, delivery, public self-service, notifications, invoices, external fleet synchronization, or provider-backed late-return/damage/bond collection.
 
 Implemented manual/offline settlement actions record evidence only after real external money movement. No dead primary action or mock provider behavior is presented as real.
 
@@ -108,6 +112,6 @@ Implemented manual/offline settlement actions record evidence only after real ex
 
 Focused domain tests protect the relevant booking, fulfillment, damage, security-bond, late-return, and settlement state derivations. Source-contract tests protect tenant/permission scope, safe route parsing, locking/idempotency, PostgreSQL authority, append-only evidence, database-authored time, real UI wiring, and deliberate provider boundaries.
 
-`scripts/rental-late-return-source-contract.test.mjs` protects assessment source/time authority. `scripts/rental-late-return-settlement-source-contract.test.mjs` protects exact manual/offline late-fee settlement and four-ledger manual-reference isolation. `scripts/rental-damage-settlement-source-contract.test.mjs` also protects safe form parsing for the neighboring damage-settlement routes. `scripts/rental-custody-extension-staff-discoverability-source-contract.test.mjs` protects the booking-detail extension action and extension-aware staff guidance after pickup.
+`scripts/rental-late-return-source-contract.test.mjs` protects assessment source/time authority. `scripts/rental-late-return-policy-source-contract.test.mjs` protects policy revision authority and effective-at-return fee math. `scripts/rental-late-return-policy-followup-source-contract.test.mjs` protects truthful policy staff feedback, independent unit/rate pagination, and reconciled source-of-truth docs. `scripts/rental-late-return-settlement-source-contract.test.mjs` protects exact manual/offline late-fee settlement and four-ledger manual-reference isolation. `scripts/rental-damage-settlement-source-contract.test.mjs` also protects safe form parsing for the neighboring damage-settlement routes. `scripts/rental-custody-extension-staff-discoverability-source-contract.test.mjs` protects the booking-detail extension action and extension-aware staff guidance after pickup.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

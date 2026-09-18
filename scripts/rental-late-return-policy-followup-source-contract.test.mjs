@@ -7,6 +7,8 @@ const route = read('app/api/inventory/rentals/unit-types/[unit-type-id]/late-ret
 const page = read('app/inventory/rentals/types/[unit-type-id]/page.tsx');
 const readme = read('README.md');
 const foundation = read('docs/rental-booking-foundation.md');
+const inventoryDocs = read('docs/rental-inventory.md');
+const staffWorkflowDocs = read('docs/rental-booking-staff-workflow.md');
 
 test('late-return policy mutation reports real replay and policy-specific failure states', () => {
   assert.match(route, /const result = await reviseRentalLateReturnPolicy/);
@@ -32,8 +34,9 @@ test('rental unit-type pagination keeps units and rate-period pages independent'
 test('top-level rental source docs describe automatic late-return policy as implemented', () => {
   assert.match(readme, /versioned unit-type late-return fee policy revisions with non-retroactive automatic fee math/i);
   assert.match(foundation, /versioned unit-type late-return fee policy revisions with non-retroactive automatic fee math/i);
-  assert.doesNotMatch(readme, /automatic tenant late-fee policy/i);
-  assert.doesNotMatch(foundation, /automatic tenant late-fee policy/i);
+  for (const source of [readme, foundation, inventoryDocs, staffWorkflowDocs]) {
+    assert.doesNotMatch(source, /automatic tenant(?:-wide)? late-fee policy/i);
+    assert.match(source, /rental-late-return-policy\.md|versioned unit-type late-return fee policy/i);
+  }
   assert.match(readme, /docs\/rental-late-return-policy\.md/);
-  assert.match(foundation, /rental-late-return-policy\.md/);
 });
