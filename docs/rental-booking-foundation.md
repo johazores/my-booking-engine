@@ -1,6 +1,6 @@
 # Rental booking foundation
 
-SF supports a staff-only rental booking writer that converts one reviewed tenant-owned `ACTIVE` rental hold into one durable `RentalBooking` and one durable physical-unit `RentalBookingAllocation`. The production booking surface now also includes tenant-scoped history/detail, same-unit price-neutral rescheduling before pickup, a narrow same-unit current-start/later-end price-neutral custody extension after pickup, same-type/same-location physical-unit substitution before pickup, terminal pre-pickup inventory-release cancellation, append-only multi-source partial/full manual/offline booking-price payment evidence with source-attributed partial/full refunds, append-only pickup/return custody evidence, explicit whole-day early-return inventory release, overdue open-custody availability protection, missed-pickup visibility, operational availability/maintenance work orders, return inspection and damage-case follow-up, customer-liability authority with exact manual settlement or exact bond forfeiture, security-bond collection/release evidence, and explicit late-return assessment plus exact manual/offline fee settlement. Online/card or other provider-backed rental settlement, price-changing/broader extensions, delivery, notifications/external synchronization, and customer self-service remain separate production contracts.
+SF supports a staff-only rental booking writer that converts one reviewed tenant-owned `ACTIVE` rental hold into one durable `RentalBooking` and one durable physical-unit `RentalBookingAllocation`. The production booking surface now also includes tenant-scoped history/detail, same-unit price-neutral rescheduling before pickup, a narrow same-unit current-start/later-end price-neutral custody extension after pickup, same-type/same-location physical-unit substitution before pickup, terminal pre-pickup inventory-release cancellation, append-only multi-source partial/full manual/offline booking-price payment evidence with source-attributed partial/full refunds, append-only pickup/return custody evidence, explicit whole-day early-return inventory release, overdue open-custody availability protection, missed-pickup visibility, operational availability/maintenance work orders, return inspection and damage-case follow-up, customer-liability authority with exact manual settlement or exact bond forfeiture, security-bond collection/release evidence, versioned unit-type late-return fee policy revisions with non-retroactive automatic fee math, and explicit late-return assessment plus exact manual/offline fee settlement. Online/card or other provider-backed rental settlement, price-changing/broader extensions, delivery, notifications/external synchronization, and customer self-service remain separate production contracts.
 
 ## Confirmation contract
 
@@ -40,7 +40,7 @@ A successful conversion persists immutable booking-time evidence including:
 
 Every read and mutation repeats authenticated `organizationId`. IDs such as hold ID, booking ID, customer ID, unit ID, target-unit ID, payment reference, idempotency key, and authority fingerprint never grant tenant scope by themselves.
 
-Booking reads require `booking:read`. Booking confirmation requires booking/availability/customer authority. Reschedule/extension review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`; apply additionally requires `availability:manage`. Unit substitution requires booking/availability/inventory authority. Cancellation requires `booking:manage` plus `availability:manage` and zero net booking-price settlement. Pickup/return and early-return inventory release require `booking:manage` plus `inventory:manage`. Payment, liability, bond, and late-return settlement surfaces add the relevant `payment:*` permissions.
+Booking reads require `booking:read`. Booking confirmation requires booking/availability/customer authority. Reschedule/extension review requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`; apply additionally requires `availability:manage`. Unit substitution requires booking/availability/inventory authority. Cancellation requires `booking:manage` plus `availability:manage` and zero net booking-price settlement. Pickup/return and early-return inventory release require `booking:manage` plus `inventory:manage`. Payment, liability, bond, and late-return settlement surfaces add the relevant `payment:*` permissions. Late-return fee-policy reads require `inventory:read` plus `pricing:read`; append-only policy revisions require `inventory:read` plus `pricing:manage`.
 
 ## Booking locks and database authority
 
@@ -132,13 +132,15 @@ Partial offsets, undersecured allocations, excess-bond remainders, split tenders
 
 See [rental-security-bond.md](./rental-security-bond.md).
 
-## Late-return assessment and settlement
+## Late-return policy, assessment, and settlement
 
-After a real return, if retained custody proves the unit came back after the effective exclusive committed end, staff may retain one explicit `FEE_ASSESSED` or `WAIVED` decision. Grace days are explicit case evidence; no tenant-wide automatic fee policy is inferred.
+After a real return, if retained custody proves the unit came back after the effective exclusive committed end, SF resolves the latest unit-type late-return policy revision that was already effective at the immutable return timestamp. When that revision is enabled, grace days and daily fee authority come from retained policy evidence, the exact chargeable-day math is derived server-side, and PostgreSQL independently rejects browser overrides or mismatched totals. Later policy changes are non-retroactive.
 
-An assessed exact fee can feed one separate full-value manual/offline payment/refund settlement boundary. That settlement does not mutate the accepted rental price, change custody evidence, or pretend a provider charge occurred.
+Staff still retain an explicit `FEE_ASSESSED` or `WAIVED` assessment with a required reason. When no enabled revision applied at return, the case-specific manual grace and fee path remains available rather than inventing retroactive policy authority.
 
-See [rental-late-return-assessment.md](./rental-late-return-assessment.md) and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
+An assessed exact fee can feed one separate full-value manual/offline payment/refund settlement boundary. Policy calculation itself does not charge a provider, debit a bond, send an invoice, or mutate the accepted rental price.
+
+See [rental-late-return-policy.md](./rental-late-return-policy.md), [rental-late-return-assessment.md](./rental-late-return-assessment.md), and [rental-late-return-settlement.md](./rental-late-return-settlement.md).
 
 ## Database integrity highlights
 
@@ -147,7 +149,7 @@ Current migrations enforce, among other safeguards:
 - tenant-composite foreign keys for booking roots and commercial evidence
 - immutable booking-time customer/commercial/physical evidence
 - one durable booking per source hold
-- append-only reschedule, substitution, fulfillment, early-return release, operational, maintenance, inspection/damage/liability, bond, late-return, and settlement evidence where applicable
+- append-only reschedule, substitution, fulfillment, early-return release, operational, maintenance, inspection/damage/liability, bond, late-return policy, late-return assessment, and settlement evidence where applicable
 - exact current effective allocation validation
 - booking/unit advisory serialization for compatible writer boundaries
 - unavailable-block/effective-hold/other-booking/overdue-custody conflicts
@@ -156,6 +158,7 @@ Current migrations enforce, among other safeguards:
 - custody-aware reschedule rules: pre-pickup price-neutral date moves or, after pickup, only current-start/later-end price-neutral extension; no new date changes after return
 - pickup/return ordering and pickup-window authority
 - operational availability and active-maintenance safety
+- effective-at-return late-fee policy selection, exact policy-derived grace/daily-fee authority, and non-retroactive assessment evidence
 - cross-ledger manual reference isolation where settlement ledgers share real-world reference authority
 
 Database guards are defense in depth and do not replace application authorization or tenant scoping.
@@ -172,7 +175,7 @@ The current implementation must not be represented as supporting:
 - unit-type changes or location-changing substitutions
 - price-changing or broader rental amendments/extensions, proration, partial/split adjustment, or automatic extension charging
 - online/card/provider-backed rental booking-price, damage, security-bond, or late-fee settlement
-- automatic tenant late-fee policy or automatic damage liability
+- automatic damage liability
 - delivery, transfer routing, one-way returns, opening-hour promises, or location-specific customer pickup selection
 - external fleet/calendar/marketplace synchronization
 - automatic customer notifications
@@ -182,7 +185,7 @@ These require separate acceptance criteria, commercial authority, and adapter-ba
 
 ## Validation
 
-Focused domain and source-contract tests protect confirmation authority, same-unit reschedule/custody-extension authority, substitution, cancellation, multi-source partial/full manual booking-price settlement and source-attributed refunds, pickup/return, pickup-window and missed-pickup behavior, overdue custody, early-return release, operational availability/maintenance, inspection/damage/liability, security bonds, late-return assessment/settlement, tenant isolation, database guard intent, server-derived idempotency, immutable booking evidence, and staff route/UI wiring.
+Focused domain and source-contract tests protect confirmation authority, same-unit reschedule/custody-extension authority, substitution, cancellation, multi-source partial/full manual booking-price settlement and source-attributed refunds, pickup/return, pickup-window and missed-pickup behavior, overdue custody, early-return release, operational availability/maintenance, inspection/damage/liability, security bonds, late-return policy/assessment/settlement, tenant isolation, database guard intent, server-derived idempotency, immutable booking evidence, and staff route/UI wiring.
 
 The custody-extension work is specifically covered by:
 
@@ -190,5 +193,12 @@ The custody-extension work is specifically covered by:
 - `scripts/rental-booking-reschedule-source-contract.test.mjs`
 - `scripts/rental-booking-pre-custody-writer-source-contract.test.mjs`
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs`
+
+The automatic late-return policy is specifically covered by:
+
+- `src/server/pricing/rental-late-return-policy-domain.test.ts`
+- `src/server/bookings/rental-late-return-domain.test.ts`
+- `scripts/rental-late-return-policy-source-contract.test.mjs`
+- `scripts/rental-late-return-policy-followup-source-contract.test.mjs`
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Prisma generation/validation, migration/drift checks, and live PostgreSQL trigger scenarios must target the repository-supported runtime and an explicitly disposable database. GitHub Actions are not required or used.

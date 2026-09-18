@@ -15,6 +15,11 @@ const errors: Record<string, string> = {
   dependency: 'Clear dependent rental inventory before archiving this record.',
   unavailable: 'That rental inventory record or location is not available in this organization.',
   validation: 'Check the rental inventory details and try again.',
+  'late-return-policy-permission': 'You do not have permission to revise rental pricing policy.',
+  'late-return-policy-conflict': 'Late-return fee policy changed since this page was loaded. Refresh and try again.',
+  'late-return-policy-dependency': 'Resolve dependent rental pricing configuration before changing this late-return policy.',
+  'late-return-policy-unavailable': 'This rental unit type is not available for late-return policy changes.',
+  'late-return-policy-validation': 'Check the late-return fee policy details and try again.',
   server: 'The rental inventory operation could not be completed. Try again.',
 };
 const statuses: Record<string, string> = {
@@ -22,6 +27,7 @@ const statuses: Record<string, string> = {
   'rate-created': 'Pricing period created.',
   'rate-removed': 'Pricing period removed.',
   'late-return-policy-updated': 'Late-return fee policy revision saved.',
+  'late-return-policy-current': 'Late-return fee policy already matches this configuration; no duplicate revision was created.',
 };
 
 function dateOnly(value: Date) {
@@ -91,7 +97,7 @@ export default async function RentalUnitTypePage({
       <section className="sf-inventory-card"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Pricing calendar</p><h2>Daily price overrides</h2></div><span>{inventory.rates.total} periods</span></div>
         {inventory.rates.items.length === 0 ? <div className="sf-empty-state"><h3>No overrides</h3><p>The default daily rate applies until a date-range override is added.</p></div> :
           <ul className="sf-inventory-list">{inventory.rates.items.map((rate) => <li key={rate.id}><div className="sf-inventory-list__link"><div className="sf-inventory-list__primary"><div><strong>{rate.dailyRateMinor} minor units/day</strong><span>{dateOnly(rate.startsOn)} through {dateOnly(rate.endsOn)} (end exclusive)</span></div></div>{canManage ? <form className="sf-form" action={`/api/inventory/rentals/unit-types/${inventory.unitType.id}/rates/${rate.id}/remove`} method="post"><label className="sf-field">Type REMOVE to confirm<input name="confirmation" required autoComplete="off" /></label><button className="sf-button sf-button--secondary sf-button--compact" type="submit">Remove</button></form> : null}</div></li>)}</ul>}
-        {inventory.rates.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental rate period pages">{inventory.rates.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={unitTypeHref(inventory.unitType.id, inventory.units.page - 1, inventory.rates.page, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.rates.page} of {inventory.rates.totalPages}</span>{inventory.rates.page < inventory.rates.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={unitTypeHref(inventory.unitType.id, inventory.units.page, inventory.rates.page + 1, pageSize)}>Next</Link> : <span />}</nav> : null}
+        {inventory.rates.totalPages > 1 ? <nav className="sf-pagination" aria-label="Rental rate period pages">{inventory.rates.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={unitTypeHref(inventory.unitType.id, inventory.units.page, inventory.rates.page - 1, pageSize)}>Previous</Link> : <span />}<span>Page {inventory.rates.page} of {inventory.rates.totalPages}</span>{inventory.rates.page < inventory.rates.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={unitTypeHref(inventory.unitType.id, inventory.units.page, inventory.rates.page + 1, pageSize)}>Next</Link> : <span />}</nav> : null}
       </section>
       {canManage ? <aside className="sf-inventory-card sf-inventory-card--create"><p className="sf-eyebrow">Price override</p><h2>Add pricing period</h2><form className="sf-form" action={`/api/inventory/rentals/unit-types/${inventory.unitType.id}/rates`} method="post"><label className="sf-field">Start date<input name="startsOn" type="date" required /></label><label className="sf-field">End date (exclusive)<input name="endsOn" type="date" required /></label><label className="sf-field">Daily rate (minor units)<input name="dailyRateMinor" type="number" min={1} max={100000000} step={1} required /></label><button className="sf-button sf-button--primary" type="submit">Add pricing period</button></form><hr /><form className="sf-form" action={`/api/inventory/rentals/unit-types/${inventory.unitType.id}/archive`} method="post"><label className="sf-field">Type ARCHIVE to archive this unit type<input name="confirmation" required autoComplete="off" /></label><button className="sf-button sf-button--secondary" type="submit">Archive unit type</button></form></aside> : null}
     </div>

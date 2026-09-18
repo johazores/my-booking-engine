@@ -16,11 +16,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
   const path = `/inventory/rentals/types/${encodeURIComponent(unitTypeId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+    return finish(NextResponse.redirect(new URL(`${path}?error=late-return-policy-validation`, request.url), 303), 'rejected');
   }
 
   try {
-    await reviseRentalLateReturnPolicy({
+    const result = await reviseRentalLateReturnPolicy({
       organizationId: organization.id,
       actorUserId: session.user.id,
       unitTypeId,
@@ -32,11 +32,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
         expectedVersion: formField(formData, 'expectedVersion'),
       },
     });
-    return finish(NextResponse.redirect(new URL(`${path}?status=late-return-policy-updated`, request.url), 303));
+    const status = result.idempotent ? 'late-return-policy-current' : 'late-return-policy-updated';
+    return finish(NextResponse.redirect(new URL(`${path}?status=${status}`, request.url), 303));
   } catch (error) {
     const code = inventoryErrorCode(error);
+    const pageCode = code === 'server' ? 'server' : `late-return-policy-${code}`;
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303),
+      NextResponse.redirect(new URL(`${path}?error=${pageCode}`, request.url), 303),
       code === 'server' ? 'failed' : 'rejected',
     );
   }
