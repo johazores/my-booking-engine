@@ -47,9 +47,10 @@ model RentalBookingCommercialAmendment {
   createdAt                DateTime                                  @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime                                  @updatedAt @db.Timestamptz(6)
 
-  booking                RentalBooking                                            @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_booking_fkey")
-  appliedReschedule      RentalBookingReschedule?                                  @relation("RentalBookingCommercialAmendmentAppliedReschedule", fields: [appliedRescheduleId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_applied_reschedule_fkey")
-  settlementTransactions RentalBookingCommercialAmendmentSettlementTransaction[]
+  booking                     RentalBooking                                            @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_booking_fkey")
+  appliedReschedule           RentalBookingReschedule?                                  @relation("RentalBookingCommercialAmendmentAppliedReschedule", fields: [appliedRescheduleId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_applied_reschedule_fkey")
+  settlementTransactions      RentalBookingCommercialAmendmentSettlementTransaction[]
+  effectiveRefundTransactions RentalBookingEffectiveRefundTransaction[]
 
   @@unique([id, organizationId], map: "rental_booking_commercial_amendments_id_org_key")
   @@unique([id, bookingId, organizationId], map: "rental_booking_commercial_amendments_id_booking_org_key")

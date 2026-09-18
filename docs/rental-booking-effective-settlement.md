@@ -1,51 +1,60 @@
 # Rental booking effective settlement
 
-SF now has a protected **read-only** effective-settlement model for rental bookings. It reconciles the immutable original booking-price ledger with the one currently supported applied price-changing rental commercial amendment without rewriting either evidence stream.
+SF has a protected effective-settlement model for rental bookings plus a server-only post-apply manual refund writer. The model reconciles the immutable original booking-price ledger, the one supported applied price-changing commercial amendment, and append-only post-apply refund evidence without rewriting accepted booking money.
 
-This read model exists because `RentalBooking.totalMinor` intentionally remains the accepted booking-time snapshot after a commercial date amendment. Once an amendment is applied, later refund and cancellation decisions must use the effective accepted total and the retained amendment adjustment instead of pretending the original booking amount is still the complete commercial truth.
+`RentalBooking.totalMinor` remains the accepted booking-time snapshot. After a commercial date amendment, effective money authority therefore comes from the combined evidence streams rather than from the original booking total alone.
 
 ## Authority and tenant scope
 
-`readRentalBookingEffectiveSettlement` validates organization, actor, and booking UUIDs, requires both `booking:read` and `payment:read`, and runs under `RepeatableRead`. The internal transaction reader always scopes the booking, applied amendment, original payment history, and amendment settlement rows by the same organization and booking.
+`readRentalBookingEffectiveSettlement` validates organization, actor, and booking UUIDs, requires both `booking:read` and `payment:read`, and runs under `RepeatableRead`.
 
-Original booking-price evidence is read through the existing bounded `readRentalPaymentSettlementHistory` contract. The applied-amendment query reads at most two rows and fails reconciliation if more than one applied amendment exists even though the database already has a one-applied-amendment guard. Amendment settlement reads are likewise bounded and re-derive every retained request fingerprint before the evidence can contribute to an effective balance.
+Original booking-price evidence uses the bounded `readRentalPaymentSettlementHistory` reader. Applied amendment settlement evidence is fingerprint checked. Post-apply refund evidence uses its own bounded reader, is scoped by organization, booking, and applied amendment, must not predate the amendment apply timestamp, and re-derives deterministic idempotency and request fingerprints before contributing to balances.
+
+`recordRentalBookingPostApplyManualRefund` requires `booking:manage` and `payment:manage`. It runs under `Serializable`, takes the shared tenant/booking advisory lock, re-reads the effective settlement inside the transaction, and accepts only a confirmed booking with exactly one applied amendment.
 
 ## Effective commercial math
 
-Without an applied amendment, the read model is the existing reconciled booking-price settlement.
+Without an applied amendment, effective settlement remains the normal reconciled booking-price settlement.
 
-For the single supported applied amendment, the server verifies that:
+For an applied `ADDITIONAL_CHARGE`, the amendment adjustment payment is a separate source. Post-apply refunds unwind that amendment charge first. Only after its remaining balance reaches zero does the server allocate later refunds to original booking-price sources. This makes source selection deterministic and keeps amendment money separate from the immutable original ledger.
 
-- amendment currency equals booking currency;
-- `beforeTotalMinor` equals the immutable original rental total;
-- the positive delta exactly reconciles `beforeTotalMinor` and `afterTotalMinor` for the retained direction;
-- the amendment settlement itself is exactly `SETTLED`, meaning one successful uncompensated manual adjustment with the expected kind, currency, amount, and source attribution.
+For an applied `REFUND`, the amendment adjustment is already a source-attributed refund against an original booking-price payment. The effective model consumes that refund against its retained source before considering later post-apply booking-price refunds.
 
-An `ADDITIONAL_CHARGE` adds the retained amendment payment to the original booking-price net. The effective accepted total is `afterTotalMinor`. Refund-to-zero decomposition remains explicit: original booking-price money is one remainder and the amendment charge is a separate remainder because it lives in the amendment ledger.
+Post-apply refund requests do not accept a client-selected payment source. The server derives the next authoritative source. One refund record cannot span sources; the requested amount must fit inside the currently selected source balance.
 
-A `REFUND` amendment is different. Its adjustment is already a real source-attributed refund against the original booking-price payment. The read model injects that retained adjustment into settlement reconciliation as a refund against its original source before calculating the current effective net. This prevents a future refund planner from treating already-refunded source money as still available.
+The returned settlement exposes the immutable original total, effective accepted total, current combined net, booking-price and amendment-charge refund remainders, full-funding/refund state, and the next authoritative refund source.
 
-The returned read model exposes the immutable original total, effective accepted total, original booking-price net, signed amendment effect, current combined net, exact refund amount still required before cancellation could be financially safe, and the split between booking-price refund remainder and applied-amendment charge refund remainder.
+## Durable post-apply refund evidence
+
+`RentalBookingEffectiveRefundTransaction` is append-only and retains organization, booking, applied amendment, deterministic idempotency key, request fingerprint, source ledger, provider/refund reference, retained source payment reference, currency, amount, and database-authored time.
+
+Only the manual/offline provider contract is enabled. Provider interaction remains behind `ManualPaymentProvider`.
+
+PostgreSQL independently requires a tenant-owned `APPLIED` amendment and successful manual evidence. For `BOOKING_PRICE`, the source must be a retained successful original manual payment and total refunds across original booking refunds, the applied-decrease adjustment when relevant, and post-apply refunds cannot exceed that source. For `COMMERCIAL_AMENDMENT`, the applied amendment must be an increase and the source must be its exact retained adjustment payment. Refunds cannot exceed that payment.
+
+The tenant-wide manual provider-reference namespace now includes post-apply refund evidence at the database boundary.
 
 ## Fail-closed behavior
 
-Reconciliation fails rather than guessing when original payment history is incomplete, more than one applied amendment exists, terminal apply evidence is missing, amendment request fingerprints are invalid, settlement rows exceed the supported adjustment/compensation contract, currencies differ, commercial arithmetic is inconsistent, the amendment is not exactly settled, a decrease over-refunds its retained original source, or the resulting effective net falls outside zero through the effective accepted total.
+Reconciliation fails instead of guessing on incomplete histories, multiple applied amendments, invalid terminal reschedule evidence, invalid request fingerprints, inconsistent currencies/arithmetic, compensated or malformed adjustment evidence, wrong-ledger refunds, wrong sources, duplicate refund references, source over-refunds, chronology violations, or balances outside the accepted effective total.
 
-The read model does not derive commercial truth from browser values and does not create provider actions.
+The writer also fails closed on stale settlement state, unsupported providers, duplicate/conflicting idempotency evidence, cross-scope manual reference reuse, or a requested amount that would span sources.
 
-## Current write boundary
+## Current boundary
 
-This implementation does **not enable a post-apply refund**, does **not enable cancellation after an applied amendment**, and does not enable chained commercial amendments or reschedules. Existing PostgreSQL guards intentionally continue blocking those writes.
+Post-apply refund recording is now implemented as a backend contract, but it is not exposed as a primary staff action yet.
 
-That boundary is important: reading an exact combined balance is not enough to make money movement safe. The next write contract must serialize the booking and both settlement streams, allocate refunds to the correct original or amendment payment source, retain deterministic idempotency/request evidence, preserve the tenant-wide manual-reference namespace, and update the database cancellation guard only after the same effective-total math is enforced independently in PostgreSQL.
+Booking cancellation after an applied commercial amendment remains blocked until the cancellation writer and PostgreSQL cancellation guard both consume the same combined effective settlement and require the effective net to be exactly zero. Chained commercial amendments and later reschedules also remain blocked. Provider-backed/online refund execution remains later adapter-backed scope.
 
 Only one applied price-changing amendment per rental remains supported.
 
 ## Validation
 
-- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers unchanged bookings, applied increases, applied decreases, later source refunds, arithmetic conflicts, compensation conflicts, and source over-refund rejection.
-- `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects tenant scoping, permissions, bounded reads, retained request fingerprint verification, and the deliberately read-only product boundary.
-- Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
+- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers effective combined money reconciliation.
+- `src/server/bookings/rental-booking-effective-refund-domain.test.ts` covers post-apply source ordering, source-aware refunds, fail-closed evidence, requested-amount authority, and deterministic request evidence.
+- `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects the protected read boundary.
+- `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database source caps, tenant/manual-reference isolation, writer permissions/locking/provider usage, bounded history, and the no-UI boundary.
+- Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 GitHub Actions are not required or used.

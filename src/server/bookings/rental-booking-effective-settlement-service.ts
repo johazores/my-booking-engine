@@ -8,6 +8,7 @@ import {
   buildRentalBookingCommercialAmendmentSettlementRequestFingerprint,
   type RentalBookingCommercialAmendmentSettlementRow,
 } from './rental-booking-commercial-amendment-settlement-domain.ts';
+import { readRentalBookingEffectiveRefundHistory } from './rental-booking-effective-refund-history.ts';
 import {
   deriveRentalBookingEffectiveSettlement,
   type RentalBookingEffectiveSettlement,
@@ -35,6 +36,7 @@ async function readAppliedAmendment(
     take: 2,
     select: {
       id: true,
+      status: true,
       direction: true,
       currency: true,
       beforeTotalMinor: true,
@@ -71,7 +73,9 @@ async function readAppliedAmendment(
   if (amendments.length > 1) {
     return Object.freeze({
       amendment: amendments[0] ?? null,
-      settlement: reconciliationFailure('Rental booking retains more than one applied commercial amendment. Reconcile commercial history before continuing.'),
+      settlement: reconciliationFailure(
+        'Rental booking retains more than one applied commercial amendment. Reconcile commercial history before continuing.',
+      ),
     });
   }
   return Object.freeze({ amendment: amendments[0] ?? null, settlement: null });
@@ -106,7 +110,9 @@ async function readAmendmentSettlementRows(
   if (rows.length > 2) {
     return Object.freeze({
       rows: [] as readonly RentalBookingCommercialAmendmentSettlementRow[],
-      settlement: reconciliationFailure('Applied rental commercial amendment settlement exceeds the supported adjustment and compensation contract.'),
+      settlement: reconciliationFailure(
+        'Applied rental commercial amendment settlement exceeds the supported adjustment and compensation contract.',
+      ),
     });
   }
 
@@ -119,7 +125,9 @@ async function readAmendmentSettlementRows(
     ) {
       return Object.freeze({
         rows: [] as readonly RentalBookingCommercialAmendmentSettlementRow[],
-        settlement: reconciliationFailure('Applied rental commercial amendment settlement contains unsupported lifecycle or provider evidence.'),
+        settlement: reconciliationFailure(
+          'Applied rental commercial amendment settlement contains unsupported lifecycle or provider evidence.',
+        ),
       });
     }
     const expectedFingerprint = buildRentalBookingCommercialAmendmentSettlementRequestFingerprint({
@@ -138,7 +146,9 @@ async function readAmendmentSettlementRows(
     if (row.requestFingerprint !== expectedFingerprint) {
       return Object.freeze({
         rows: [] as readonly RentalBookingCommercialAmendmentSettlementRow[],
-        settlement: reconciliationFailure('Applied rental commercial amendment settlement contains invalid retained request evidence.'),
+        settlement: reconciliationFailure(
+          'Applied rental commercial amendment settlement contains invalid retained request evidence.',
+        ),
       });
     }
     normalized.push({
@@ -183,7 +193,11 @@ export async function readRentalBookingEffectiveSettlementInTransaction(input: R
     });
   }
   if (appliedResult.settlement) {
-    return Object.freeze({ booking, appliedAmendment: appliedResult.amendment, settlement: appliedResult.settlement });
+    return Object.freeze({
+      booking,
+      appliedAmendment: appliedResult.amendment,
+      settlement: appliedResult.settlement,
+    });
   }
   if (!appliedResult.amendment) {
     return Object.freeze({
@@ -196,57 +210,82 @@ export async function readRentalBookingEffectiveSettlementInTransaction(input: R
       }),
     });
   }
-  const appliedReschedule = appliedResult.amendment.appliedReschedule;
+
+  const amendment = appliedResult.amendment;
+  const appliedReschedule = amendment.appliedReschedule;
   if (
-    !appliedResult.amendment.appliedAt
-    || !appliedResult.amendment.appliedRescheduleId
+    !amendment.appliedAt
+    || !amendment.appliedRescheduleId
     || !appliedReschedule
-    || appliedReschedule.id !== appliedResult.amendment.appliedRescheduleId
+    || appliedReschedule.id !== amendment.appliedRescheduleId
     || appliedReschedule.organizationId !== input.organizationId
     || appliedReschedule.bookingId !== input.bookingId
-    || appliedReschedule.sourceStartsOn.getTime() !== appliedResult.amendment.sourceStartsOn.getTime()
-    || appliedReschedule.sourceEndsOn.getTime() !== appliedResult.amendment.sourceEndsOn.getTime()
-    || appliedReschedule.targetStartsOn.getTime() !== appliedResult.amendment.targetStartsOn.getTime()
-    || appliedReschedule.targetEndsOn.getTime() !== appliedResult.amendment.targetEndsOn.getTime()
-    || appliedReschedule.currency !== appliedResult.amendment.currency
-    || appliedReschedule.totalMinor !== appliedResult.amendment.afterTotalMinor
-    || appliedReschedule.sourcePricingFingerprint !== appliedResult.amendment.sourcePricingFingerprint
-    || appliedReschedule.targetPricingFingerprint !== appliedResult.amendment.targetPricingFingerprint
-    || appliedReschedule.authorityFingerprint !== appliedResult.amendment.reviewFingerprint
-    || appliedReschedule.appliedAt.getTime() !== appliedResult.amendment.appliedAt.getTime()
+    || appliedReschedule.sourceStartsOn.getTime() !== amendment.sourceStartsOn.getTime()
+    || appliedReschedule.sourceEndsOn.getTime() !== amendment.sourceEndsOn.getTime()
+    || appliedReschedule.targetStartsOn.getTime() !== amendment.targetStartsOn.getTime()
+    || appliedReschedule.targetEndsOn.getTime() !== amendment.targetEndsOn.getTime()
+    || appliedReschedule.currency !== amendment.currency
+    || appliedReschedule.totalMinor !== amendment.afterTotalMinor
+    || appliedReschedule.sourcePricingFingerprint !== amendment.sourcePricingFingerprint
+    || appliedReschedule.targetPricingFingerprint !== amendment.targetPricingFingerprint
+    || appliedReschedule.authorityFingerprint !== amendment.reviewFingerprint
+    || appliedReschedule.appliedAt.getTime() !== amendment.appliedAt.getTime()
   ) {
     return Object.freeze({
       booking,
-      appliedAmendment: appliedResult.amendment,
-      settlement: reconciliationFailure('Applied rental commercial amendment does not retain matching terminal reschedule evidence.'),
+      appliedAmendment: amendment,
+      settlement: reconciliationFailure(
+        'Applied rental commercial amendment does not retain matching terminal reschedule evidence.',
+      ),
     });
   }
 
-  const amendmentRows = await readAmendmentSettlementRows(input.transaction, {
-    organizationId: input.organizationId,
-    bookingId: input.bookingId,
-    amendmentId: appliedResult.amendment.id,
-  });
+  const [amendmentRows, effectiveRefundHistory] = await Promise.all([
+    readAmendmentSettlementRows(input.transaction, {
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      amendmentId: amendment.id,
+    }),
+    readRentalBookingEffectiveRefundHistory({
+      transaction: input.transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      amendmentId: amendment.id,
+      appliedAt: amendment.appliedAt,
+    }),
+  ]);
   if (amendmentRows.settlement) {
-    return Object.freeze({ booking, appliedAmendment: appliedResult.amendment, settlement: amendmentRows.settlement });
+    return Object.freeze({
+      booking,
+      appliedAmendment: amendment,
+      settlement: amendmentRows.settlement,
+    });
+  }
+  if (!effectiveRefundHistory.complete) {
+    return Object.freeze({
+      booking,
+      appliedAmendment: amendment,
+      settlement: reconciliationFailure(effectiveRefundHistory.reason),
+    });
   }
 
   return Object.freeze({
     booking,
-    appliedAmendment: appliedResult.amendment,
+    appliedAmendment: amendment,
     settlement: deriveRentalBookingEffectiveSettlement({
       originalBookingTotalMinor: booking.totalMinor,
       currency: booking.currency,
       originalTransactions: paymentHistory.transactions,
       appliedAmendment: {
-        id: appliedResult.amendment.id,
-        direction: appliedResult.amendment.direction,
-        currency: appliedResult.amendment.currency,
-        beforeTotalMinor: appliedResult.amendment.beforeTotalMinor,
-        afterTotalMinor: appliedResult.amendment.afterTotalMinor,
-        deltaMinor: appliedResult.amendment.deltaMinor,
+        id: amendment.id,
+        direction: amendment.direction,
+        currency: amendment.currency,
+        beforeTotalMinor: amendment.beforeTotalMinor,
+        afterTotalMinor: amendment.afterTotalMinor,
+        deltaMinor: amendment.deltaMinor,
         settlementRows: amendmentRows.rows,
       },
+      postApplyRefunds: effectiveRefundHistory.transactions,
     }),
   });
 }

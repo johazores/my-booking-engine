@@ -1,0 +1,30 @@
+enum RentalBookingEffectiveRefundSourceLedger {
+  BOOKING_PRICE
+  COMMERCIAL_AMENDMENT
+}
+
+model RentalBookingEffectiveRefundTransaction {
+  id                      String                                   @id @default(uuid()) @db.Uuid
+  organizationId          String                                   @db.Uuid
+  bookingId               String                                   @db.Uuid
+  amendmentId             String                                   @db.Uuid
+  idempotencyKey          String                                   @db.VarChar(120)
+  requestFingerprint      String                                   @db.Char(64)
+  sourceLedger            RentalBookingEffectiveRefundSourceLedger
+  status                  PaymentTransactionStatus                 @default(PENDING)
+  providerCode            String                                   @db.VarChar(40)
+  providerReference       String                                   @db.VarChar(160)
+  sourceProviderReference String                                   @db.VarChar(160)
+  currency                String                                   @db.Char(3)
+  amountMinor             BigInt                                   @db.BigInt
+  createdAt               DateTime                                 @default(now()) @db.Timestamptz(6)
+
+  amendment RentalBookingCommercialAmendment @relation(fields: [amendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_effective_refund_transactions_amendment_fkey")
+
+  @@unique([id, organizationId], map: "rental_booking_effective_refund_transactions_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_effective_refund_transactions_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "rental_booking_effective_refund_transactions_org_provider_reference_key")
+  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_booking_effective_refund_transactions_booking_created_idx")
+  @@index([organizationId, providerCode, sourceProviderReference], map: "rental_booking_effective_refund_transactions_source_reference_idx")
+  @@map("rental_booking_effective_refund_transactions")
+}
