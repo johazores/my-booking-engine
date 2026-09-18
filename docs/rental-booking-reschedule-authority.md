@@ -1,6 +1,6 @@
 # Rental booking reschedule authority
 
-SF has a server-authoritative preflight for same-unit rental date changes. The existing writer remains deliberately price-neutral, but the review derives and exposes the exact commercial impact of current target-date pricing before deciding whether apply authority exists.
+SF has a server-authoritative preflight for same-unit rental date changes. The existing ordinary writer remains deliberately price-neutral, while the review derives and exposes the exact commercial impact of current target-date pricing before deciding which backend contract owns the change.
 
 `reviewRentalBookingRescheduleAuthority` accepts the authenticated organization, actor, booking ID, and proposed exclusive-end date range. It requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`; every booking, allocation, inventory, and pricing query remains tenant-scoped.
 
@@ -10,7 +10,7 @@ Current target inventory is rejected when it overlaps an unavailable block, an e
 
 ## Commercial impact
 
-Current rate periods are rebuilt with the rental pricing engine. The review compares that fresh server-derived quote with the immutable accepted booking amount and returns one commercial-impact classification:
+Current rate periods are rebuilt with the rental pricing engine. The review compares that fresh server-derived quote with the current effective accepted amount and returns one commercial-impact classification:
 
 - `UNCHANGED` — same currency and exact aggregate amount;
 - `INCREASE` — same currency with a positive target-price delta;
@@ -23,11 +23,11 @@ For same-currency changes, the review returns the exact absolute minor-unit delt
 
 The review blocker set is `NO_CHANGE`, `CUSTODY_EXTENSION_REQUIRED`, `INVENTORY_CONFLICT`, `CURRENCY_CHANGED`, and `PRICE_CHANGED`. `PRICE_CHANGED` is used only for a same-currency increase or decrease. The staff review page shows accepted amount, fresh target amount, and exact delta; it exposes no apply action for a commercial change and no commercial settlement action.
 
-Apply authority is ready only when the commercial impact is `UNCHANGED` and every lifecycle/inventory check passes. This keeps the existing date-change writer price-neutral.
+Ordinary apply authority is ready only when the commercial impact is `UNCHANGED` and every lifecycle/inventory check passes. This keeps `applyRentalBookingReschedule` price-neutral.
 
-A review blocked only by `PRICE_CHANGED` now also receives a server-derived commercial-amendment review fingerprint. That fingerprint binds tenant/booking identity, booking version, current effective unit/type/location, source and target dates, exact before/after money and direction, source and target pricing fingerprints, custody mode, and pickup-event identity when custody has started. The fingerprint is never created for currency drift or an inventory/lifecycle blocker.
+A review blocked only by `PRICE_CHANGED` also receives a server-derived commercial-amendment review fingerprint. That fingerprint binds tenant/booking identity, booking version, current effective unit/type/location, source and target dates, exact before/after money and direction, source and target pricing fingerprints, custody mode, and pickup-event identity when custody has started. The fingerprint is never created for currency drift or an inventory/lifecycle blocker.
 
-The fingerprint is the stale-review input for the internal commercial-amendment preparation service described in [rental-booking-commercial-amendments.md](./rental-booking-commercial-amendments.md). Preparation remains a backend contract only in the current product surface; no staff action is rendered for price-changing changes until real adjustment settlement and final apply authority exist end to end.
+The fingerprint is the stale-review input for the internal commercial-amendment workflow described in [rental-booking-commercial-amendments.md](./rental-booking-commercial-amendments.md). Preparation, exact manual/offline adjustment settlement, compensation, and final locked apply are implemented as backend contracts. They remain intentionally absent from staff primary actions until the post-apply refund/cancellation boundary and authenticated orchestration are complete.
 
 ## Stale-authority protection
 
@@ -37,8 +37,12 @@ The review itself reserves nothing. `applyRentalBookingReschedule` later reacqui
 
 Commercial amendment preparation likewise reserves nothing. It reacquires the booking and effective-unit locks, re-derives current target pricing and inventory authority, requires the accepted booking price to be fully reconciled as paid, and verifies the commercial review fingerprint before it can persist immutable adjustment evidence.
 
-The durable design keeps original booking commercial evidence immutable. Successful price-neutral changes are recorded in append-only `rental_booking_reschedules` rows and only the effective `RentalBookingAllocation` dates move. Prepared price-changing evidence is stored separately and does not mutate the booking or allocation. See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
+Commercial final apply is separate from the ordinary price-neutral writer. After exact adjustment settlement, `applyRentalBookingCommercialAmendment` reacquires booking/amendment/unit locks, revalidates lifecycle, inventory, pricing and settlement authority, appends the durable reschedule, moves the effective allocation, and links the amendment terminally as `APPLIED`. The original `RentalBooking` money snapshot is not rewritten.
 
-Physical-unit substitution, unit-type/location changes, commercial-amendment settlement/apply, cancellation financial policy, delivery, and other fulfillment changes remain separate contracts. A same-currency `INCREASE` or `DECREASE` can now be prepared as durable internal evidence, but it remains non-applicable until a real settlement/refund executor and final locked apply contract are implemented.
+The protected [effective settlement read model](./rental-booking-effective-settlement.md) then combines the immutable original booking-price ledger with the one supported applied commercial amendment for later refund/cancellation planning. Post-apply money writes remain blocked until the same effective-total authority is enforced transactionally and at the database boundary.
+
+The durable design keeps original booking commercial evidence immutable. Successful price-neutral changes are recorded in append-only `rental_booking_reschedules` rows and only the effective `RentalBookingAllocation` dates move. Price-changing changes use separate amendment and adjustment evidence plus the linked applied reschedule. See [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md).
+
+Physical-unit substitution, unit-type/location changes, post-apply refund/cancellation settlement, cancellation fee policy, delivery, and other fulfillment changes remain separate contracts. Only one applied price-changing rental amendment is currently supported; another reschedule or commercial amendment after it remains fail-closed.
 
 Repository-wide validation remains `npm run validate` under the Node version declared by `package.json`. Database-backed validation remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

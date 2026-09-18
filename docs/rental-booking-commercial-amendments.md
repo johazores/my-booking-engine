@@ -2,7 +2,7 @@
 
 SF has a server-only preparation, manual/offline settlement, compensation, and final-apply foundation for a same-unit rental date change whose fresh target price differs from the current effective rental total in the same currency. Durable amendment evidence and adjustment money remain separate from the immutable original booking-price ledger.
 
-The current product does **not** expose a staff prepare button, commercial-settlement button, or final commercial apply action. The backend can safely apply one settled amendment, but authenticated end-to-end orchestration and adjustment-aware post-apply cancellation/refund behavior are not complete, so the product does not present the workflow as generally available.
+The current product does **not** expose a staff prepare button, commercial-settlement button, or final commercial apply action. The backend can safely apply one settled amendment, and a protected effective settlement read model now reconciles that applied amendment with the immutable original booking-price ledger. Authenticated end-to-end orchestration and adjustment-aware post-apply refund/cancellation writes are not complete, so the product does not present the workflow as generally available.
 
 ## Reviewed authority
 
@@ -34,6 +34,14 @@ The server-only final writer is documented in [rental-booking-commercial-amendme
 
 The original `RentalBooking` money snapshot remains immutable. The applied reschedule carries the new effective target total and pricing evidence. PostgreSQL independently enforces the terminal settlement and linked-reschedule shape.
 
+## Effective post-apply settlement read model
+
+The protected read-only model in [rental-booking-effective-settlement.md](./rental-booking-effective-settlement.md) now reconciles the immutable original booking-price ledger with the single applied commercial amendment.
+
+For an increase it combines original booking-price net settlement with the retained amendment payment and keeps the future refund decomposition explicit between those two ledgers. For a decrease it treats the retained amendment adjustment as an already-completed source-attributed refund against the original booking-price payment before calculating the remaining effective net. This prevents later refund logic from double-counting money that the applied decrease already returned.
+
+The effective settlement read model fails closed on multiple applied amendments, incomplete original history, invalid retained adjustment request evidence, inconsistent currency/arithmetic, non-settled amendment evidence, source over-refunds, or a combined balance outside the effective accepted total.
+
 ## Durable evidence
 
 `RentalBookingCommercialAmendment` retains immutable source/target dates, current effective unit/type/location IDs, custody mode and pickup-event ID, booking version, before/after totals, delta/direction, source/target pricing fingerprints, target pricing snapshot, review fingerprint, and database-time expiry.
@@ -44,9 +52,9 @@ PostgreSQL independently enforces amendment date/money/custody/lifecycle shape, 
 
 ## Current one-amendment boundary
 
-Only one applied price-changing amendment per rental is currently supported. After apply, the database blocks another reschedule, another commercial amendment, new booking-price settlement writes, and booking cancellation until an adjustment-aware effective-total settlement/cancellation contract exists. This is a deliberate fail-closed boundary, not a claimed completed workflow.
+Only one applied price-changing amendment per rental is currently supported. After apply, the database blocks another reschedule, another commercial amendment, new booking-price settlement writes, and booking cancellation. The effective settlement read model is implemented, but post-apply refund writes and cancellation remain blocked until a write contract can enforce the same combined money authority transactionally and at the database boundary. This is a deliberate fail-closed boundary, not a claimed completed workflow.
 
-The next dependency is unified post-apply commercial settlement semantics: safely reconciling original booking-price money plus applied amendment money for later refunds/cancellation, then exposing a complete authenticated staff workflow. Provider-backed/online adjustment settlement remains separate later scope behind provider adapters.
+The next dependency is the post-apply write contract: safely allocating exact manual refunds across original booking-price sources and an applied increase payment, preserving the tenant-wide manual-reference namespace and idempotent request evidence, then allowing cancellation only when the effective combined net reaches zero. Authenticated staff orchestration follows that write boundary. Provider-backed/online adjustment settlement remains separate later scope behind provider adapters.
 
 ## Product surface
 
@@ -56,9 +64,11 @@ No route or primary staff action exposes preparation, settlement, compensation, 
 
 - `src/server/bookings/rental-booking-commercial-amendment-domain.test.ts` covers preparation authority and deterministic amendment evidence.
 - `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact manual adjustment and compensation state.
+- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers combined original/amendment post-apply read reconciliation.
 - `scripts/rental-booking-commercial-amendment-source-contract.test.mjs` protects preparation persistence and authority.
 - `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects settlement persistence, database guards, provider boundaries, recovery, and no-UI exposure.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final apply persistence and the fail-closed post-apply boundary.
+- `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects the effective read model, tenant scope, bounded history, retained request evidence, and post-apply write boundary.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

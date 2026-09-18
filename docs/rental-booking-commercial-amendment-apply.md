@@ -1,6 +1,6 @@
 # Rental booking commercial amendment final apply
 
-SF now has a server-only final apply contract for a prepared, exactly settled, same-unit rental commercial date amendment. The apply service closes the backend transaction from reviewed price change through durable adjustment evidence into an effective rental date change without rewriting the original accepted booking-price snapshot.
+SF has a server-only final apply contract for a prepared, exactly settled, same-unit rental commercial date amendment. The apply service closes the backend transaction from reviewed price change through durable adjustment evidence into an effective rental date change without rewriting the original accepted booking-price snapshot.
 
 This is still **not** exposed as a staff primary action. The current product does not present a workflow that can prepare an amendment, move adjustment money, and invoke final apply. Keeping the route/UI absent avoids presenting partial commercial orchestration as complete.
 
@@ -34,11 +34,19 @@ PostgreSQL independently checks that an `APPLIED` amendment has exactly one unco
 
 Idempotent replay of an already-applied amendment only succeeds when the linked reschedule evidence is still complete and matching.
 
+## Effective settlement read authority
+
+The protected read model in [rental-booking-effective-settlement.md](./rental-booking-effective-settlement.md) now reconciles the immutable original booking-price ledger with the one supported applied commercial amendment.
+
+For an applied increase, it adds the retained amendment payment to original booking-price net settlement and keeps the future refund remainder split between the original ledger and the amendment charge. For an applied decrease, it treats the retained amendment adjustment as an already-completed source-attributed refund against the original payment before calculating remaining effective net. Terminal reschedule linkage and adjustment request fingerprints are rechecked before those values are trusted.
+
+This removes ambiguity from post-apply read semantics without weakening write safety.
+
 ## Current commercial boundary
 
-The current rental money model deliberately supports **one applied price-changing amendment per rental**. Chained commercial amendments need a unified effective settlement model that can safely source later refunds from both the original booking-price ledger and prior amendment adjustments. That model is not implemented yet.
+The current rental money model deliberately supports **one applied price-changing amendment per rental**. A unified effective settlement **read model is implemented**, but chained commercial amendments still require a write model that can safely source later refunds from both the original booking-price ledger and prior amendment adjustments.
 
-For the same reason, the migration fails closed after an applied commercial amendment for:
+The migration therefore continues to fail closed after an applied commercial amendment for:
 
 - additional rental reschedule rows;
 - new booking-price settlement transactions; and
@@ -46,7 +54,7 @@ For the same reason, the migration fails closed after an applied commercial amen
 
 These guards prevent existing original-price cancellation/refund logic from silently over-refunding, under-refunding, or ignoring amendment adjustment money. Damage, security-bond, late-return, and physical fulfillment evidence remain separate concerns and are not reclassified as booking-price settlement.
 
-The next commercial dependency is adjustment-aware post-apply lifecycle support: effective-total read/payment semantics, cancellation/refund settlement across original and amendment ledgers, and then a complete authenticated staff orchestration surface. Provider-backed/online amendment money remains a later adapter-backed scope.
+The next commercial dependency is the adjustment-aware post-apply **write** contract: exact refund allocation across original and amendment ledgers, database enforcement of the combined effective net, cancellation only after that net reaches zero, and then a complete authenticated staff orchestration surface. Provider-backed/online amendment money remains a later adapter-backed scope.
 
 ## Product surface
 
@@ -55,6 +63,8 @@ There is no route or primary staff action for commercial amendment preparation, 
 ## Validation
 
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects schema linkage, database apply authority, tenant/permission/lock checks, exact settlement, append-only reschedule evidence, original booking-price immutability, and the fail-closed post-apply boundary.
+- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers the combined post-apply money read model.
+- `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects tenant scope, bounded settlement reads, retained request/reschedule evidence, and the deliberately blocked post-apply write boundary.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database migration/drift/integration verification remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
