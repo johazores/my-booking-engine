@@ -16,12 +16,12 @@ test('commercial amendment persistence is tenant-owned, single-active, immutable
     'PREPARED',
     'CANCELLED',
     'EXPIRED',
+    'APPLIED',
     '@@unique([organizationId, idempotencyKey]',
     '@@index([organizationId, bookingId, status, expiresAt]',
   ]) assert.ok(schema.includes(token), `missing schema token: ${token}`);
   assert.match(schema, /booking\s+RentalBooking\s+@relation\(fields: \[bookingId, organizationId\], references: \[id, organizationId\]/);
   assert.match(rentalSchema, /commercialAmendments\s+RentalBookingCommercialAmendment\[\]/);
-  assert.doesNotMatch(schema, /APPLIED/);
 
   assert.match(migration, /rental_booking_commercial_amendments_org_booking_prepared_key/);
   assert.match(migration, /WHERE "status" = 'PREPARED'/);
@@ -67,9 +67,9 @@ test('preparation revalidates tenant lifecycle inventory pricing custody and ful
   assert.match(service, /booking\.rental\.commercial-amendment\.expired/);
 });
 
-test('preparation documentation keeps unsupported settlement and apply outside the current product surface', () => {
+test('preparation documentation keeps commercial orchestration outside the current product surface', () => {
   assert.match(docs, /does \*\*not\*\* expose a staff prepare button/i);
-  assert.match(docs, /no route or primary staff action exposes preparation yet/i);
-  assert.match(docs, /does not mutate the booking or allocation/i);
-  assert.match(docs, /does not.*collect money/i);
+  assert.match(docs, /No route or primary staff action exposes preparation, settlement, compensation, or final apply yet/i);
+  assert.match(docs, /Preparation itself does not mutate the booking or allocation/i);
+  assert.match(docs, /does not collect money/i);
 });

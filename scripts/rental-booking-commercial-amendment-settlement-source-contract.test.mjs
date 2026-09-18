@@ -70,9 +70,10 @@ test('settlement domain has only exact unsettled, settled, compensated, or confl
   assert.match(domain, /buildRentalBookingCommercialAmendmentSettlementRequestFingerprint/);
 });
 
-test('product surface remains truthful until final commercial apply exists', () => {
-  assert.match(docs, /does not expose a staff settlement button or final amendment apply action/);
-  assert.match(docs, /final locked commercial-amendment apply service/);
+test('product surface remains truthful while commercial orchestration is withheld', () => {
+  assert.match(docs, /still not exposed as a staff primary action/i);
+  assert.match(docs, /can now be consumed only by `applyRentalBookingCommercialAmendment`/);
+  assert.match(docs, /No route or primary staff action exposes settlement yet/i);
   if (page) {
     assert.doesNotMatch(page, /recordRentalBookingCommercialAmendmentManualSettlement/);
     assert.doesNotMatch(page, /commercial-amendment-settlement/);
