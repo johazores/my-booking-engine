@@ -2,13 +2,12 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
-import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
-import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   classifyRentalBookingCancellationReplayEvidence,
   normalizeRentalBookingCancellationReason,
 } from './rental-booking-cancellation-domain.ts';
+import { readRentalBookingEffectiveSettlementInTransaction } from './rental-booking-effective-settlement-service.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
@@ -195,24 +194,40 @@ export async function cancelRentalBooking(input: Readonly<{
       );
     }
 
-    const paymentHistory = await readRentalPaymentSettlementHistory({
+    const effectiveSettlementResult = await readRentalBookingEffectiveSettlementInTransaction({
       transaction,
       organizationId: input.organizationId,
       bookingId: booking.id,
     });
-    if (!paymentHistory.complete) {
-      throw new RentalBookingCancellationConflictError(`Rental payment history must be reconciled before cancellation. ${paymentHistory.reason}`);
+    if (
+      effectiveSettlementResult.booking.id !== booking.id
+      || effectiveSettlementResult.booking.status !== booking.status
+      || effectiveSettlementResult.booking.currency !== booking.currency
+      || effectiveSettlementResult.booking.totalMinor !== booking.totalMinor
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking cancellation effective-settlement evidence does not match the locked booking.',
+      );
     }
-    const paymentSettlement = deriveRentalPaymentSettlement({
-      bookingTotalMinor: booking.totalMinor,
-      currency: booking.currency,
-      transactions: paymentHistory.transactions,
-    });
-    if (!paymentSettlement.reconciled) {
-      throw new RentalBookingCancellationConflictError(`Rental payment history must be reconciled before cancellation. ${paymentSettlement.reason}`);
+
+    const effectiveSettlement = effectiveSettlementResult.settlement;
+    if (!effectiveSettlement.reconciled) {
+      throw new RentalBookingCancellationConflictError(
+        `Rental effective settlement must be reconciled before cancellation. ${effectiveSettlement.reason}`,
+      );
     }
-    if (paymentSettlement.netSettledMinor !== 0n) {
-      throw new RentalBookingCancellationConflictError('Refund all settled rental money before cancelling this booking.');
+    if (
+      effectiveSettlement.currency !== booking.currency
+      || effectiveSettlement.originalBookingTotalMinor !== booking.totalMinor
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking cancellation effective-settlement money does not match immutable booking evidence.',
+      );
+    }
+    if (!effectiveSettlement.fullyRefunded || effectiveSettlement.currentNetSettledMinor !== 0n) {
+      throw new RentalBookingCancellationConflictError(
+        'Refund all effective rental settlement before cancelling this booking.',
+      );
     }
 
     const cancelled = await transaction.rentalBooking.updateMany({
@@ -271,8 +286,14 @@ export async function cancelRentalBooking(input: Readonly<{
           allocationId: booking.allocation.id,
           latestRescheduleId: latestReschedule?.id ?? null,
           latestUnitSubstitutionId: latestSubstitution?.id ?? null,
-          paymentState: paymentSettlement.paymentState,
-          netSettledMinor: paymentSettlement.netSettledMinor.toString(),
+          settlementScope: effectiveSettlementResult.appliedAmendment
+            ? 'EFFECTIVE_AFTER_COMMERCIAL_AMENDMENT'
+            : 'BOOKING_PRICE',
+          originalBookingTotalMinor: effectiveSettlement.originalBookingTotalMinor.toString(),
+          effectiveAcceptedTotalMinor: effectiveSettlement.effectiveAcceptedTotalMinor.toString(),
+          currentNetSettledMinor: effectiveSettlement.currentNetSettledMinor.toString(),
+          fullyRefunded: effectiveSettlement.fullyRefunded,
+          appliedCommercialAmendmentId: effectiveSettlementResult.appliedAmendment?.id ?? null,
         },
         afterData: {
           status: current.status,

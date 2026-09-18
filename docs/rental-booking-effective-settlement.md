@@ -32,28 +32,37 @@ Only the manual/offline provider contract is enabled. Provider interaction remai
 
 PostgreSQL independently requires a tenant-owned `APPLIED` amendment and successful manual evidence. For `BOOKING_PRICE`, the source must be a retained successful original manual payment and total refunds across original booking refunds, the applied-decrease adjustment when relevant, and post-apply refunds cannot exceed that source. For `COMMERCIAL_AMENDMENT`, the applied amendment must be an increase and the source must be its exact retained adjustment payment. Refunds cannot exceed that payment.
 
-The tenant-wide manual provider-reference namespace now includes post-apply refund evidence at the database boundary.
+The tenant-wide manual provider-reference namespace includes post-apply refund evidence at the database boundary.
+
+## Cancellation authority
+
+The rental cancellation writer now consumes this combined effective settlement under the same shared booking lock. Cancellation requires reconciled evidence, immutable booking money agreement, `fullyRefunded: true`, and `currentNetSettledMinor === 0n` before inventory can be released.
+
+PostgreSQL independently enforces the same commercial boundary. For bookings without an applied amendment the existing original booking-price net must be zero. For the one supported applied amendment, the original ledger must still equal the amendment `beforeTotalMinor`, the exact uncompensated adjustment must remain intact, and successful post-apply effective refunds must total the amendment `afterTotalMinor`. The former blanket block on every applied-amendment cancellation is removed because exact zero combined settlement is now provable.
+
+Cancellation itself never records a refund or performs provider I/O. See [rental-booking-cancellation.md](./rental-booking-cancellation.md).
 
 ## Fail-closed behavior
 
 Reconciliation fails instead of guessing on incomplete histories, multiple applied amendments, invalid terminal reschedule evidence, invalid request fingerprints, inconsistent currencies/arithmetic, compensated or malformed adjustment evidence, wrong-ledger refunds, wrong sources, duplicate refund references, source over-refunds, chronology violations, or balances outside the accepted effective total.
 
-The writer also fails closed on stale settlement state, unsupported providers, duplicate/conflicting idempotency evidence, cross-scope manual reference reuse, or a requested amount that would span sources.
+The refund writer also fails closed on stale settlement state, unsupported providers, duplicate/conflicting idempotency evidence, cross-scope manual reference reuse, or a requested amount that would span sources.
 
 ## Current boundary
 
-Post-apply refund recording is now implemented as a backend contract, but it is not exposed as a primary staff action yet.
+Post-apply manual refund recording and exact-zero effective-settlement cancellation are implemented as protected backend contracts. The cancellation section reads this effective model when the actor has `payment:read`, so it does not rely on stale original-booking-only money after an applied amendment.
 
-Booking cancellation after an applied commercial amendment remains blocked until the cancellation writer and PostgreSQL cancellation guard both consume the same combined effective settlement and require the effective net to be exactly zero. Chained commercial amendments and later reschedules also remain blocked. Provider-backed/online refund execution remains later adapter-backed scope.
+Chained commercial amendments and later reschedules remain blocked after the one supported applied price-changing amendment. Direct writes to the original booking-price ledger also remain blocked so older settlement paths cannot bypass effective money authority. Provider-backed/online refund execution remains later adapter-backed scope.
 
-Only one applied price-changing amendment per rental remains supported.
+The end-to-end staff workflow for preparing, settling, and finally applying a commercial amendment is still not exposed as a primary action. No fake commercial orchestration is presented as complete.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers effective combined money reconciliation.
 - `src/server/bookings/rental-booking-effective-refund-domain.test.ts` covers post-apply source ordering, source-aware refunds, fail-closed evidence, requested-amount authority, and deterministic request evidence.
 - `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects the protected read boundary.
-- `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database source caps, tenant/manual-reference isolation, writer permissions/locking/provider usage, bounded history, and the no-UI boundary.
+- `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database source caps, tenant/manual-reference isolation, writer permissions/locking/provider usage, bounded history, and the no-fake-refund boundary.
+- `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero effective-settlement consumption in the cancellation writer and PostgreSQL guard.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

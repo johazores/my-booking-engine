@@ -26,23 +26,28 @@ For an applied increase, refund authority unwinds the retained amendment payment
 
 PostgreSQL independently caps refunds per source and preserves the tenant-wide manual reference namespace across booking payments, damage, security bonds, late return, commercial amendment settlement, and post-apply refund evidence.
 
+## Post-apply cancellation
+
+Cancellation after an applied commercial amendment is supported only after the combined effective settlement reaches exact zero. The cancellation writer reuses the protected effective-settlement reader under the shared booking lock and requires `fullyRefunded` plus zero `currentNetSettledMinor`.
+
+PostgreSQL independently verifies the original booking ledger still equals the amendment before-total, the exact uncompensated applied adjustment remains intact, and post-apply effective refund evidence totals the amendment after-total. The prior blanket cancellation block has been replaced by this exact commercial condition. Cancellation does not create refund evidence or call a provider.
+
 ## Current commercial boundary
 
-The money model supports one applied price-changing amendment per rental. Post-apply manual refund recording is implemented, but cancellation after an applied amendment remains blocked until both the cancellation writer and database guard use the combined effective settlement and require exact zero net.
+The money model supports one applied price-changing amendment per rental. Another rental reschedule, another commercial amendment, and direct writes to the original booking-price ledger remain blocked after an applied commercial amendment. This prevents older original-total logic from bypassing the dedicated effective settlement contract.
 
-Another rental reschedule, another commercial amendment, and direct writes to the original booking-price ledger remain blocked after an applied commercial amendment. This prevents older original-total logic from bypassing the dedicated effective settlement contract.
-
-Authenticated staff orchestration remains later work. Provider-backed/online amendment and refund execution remains behind provider adapters as a separate scope.
+Authenticated staff orchestration for preparing, settling, and applying the commercial amendment remains later work. Provider-backed/online amendment and refund execution remains behind provider adapters as a separate scope.
 
 ## Product surface
 
-There is no route or primary staff action for commercial amendment preparation, settlement, final apply, or post-apply refund recording in this slice. Existing UI stays truthful and does not expose dead commercial actions.
+There is no route or primary staff action for commercial amendment preparation, settlement, final apply, or post-apply refund recording in this slice. The existing cancellation section does consume effective settlement when such retained commercial evidence exists, so it does not expose an original-ledger-only cancellation decision.
 
 ## Validation
 
 - Commercial amendment preparation/settlement/apply source-contract tests protect the existing final-apply boundary.
 - `src/server/bookings/rental-booking-effective-refund-domain.test.ts` covers source-aware post-apply refund authority.
-- `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database source caps, permissions, locking, provider-adapter usage, and no-UI exposure.
+- `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database source caps, permissions, locking, provider-adapter usage, and no fake refund UI.
+- `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero post-apply cancellation authority.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database migration/drift/integration verification remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

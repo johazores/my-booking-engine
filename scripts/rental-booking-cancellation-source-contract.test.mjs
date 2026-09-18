@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const domain = readFileSync('src/server/bookings/rental-booking-cancellation-domain.ts', 'utf8');
 const service = readFileSync('src/server/bookings/rental-booking-cancellation-service.ts', 'utf8');
+const effectiveSettlementService = readFileSync('src/server/bookings/rental-booking-effective-settlement-service.ts', 'utf8');
 const route = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
 const action = readFileSync('src/components/rental-booking-cancel-action.tsx', 'utf8');
 const bookingIntegration = readFileSync('src/server/bookings/rental-booking.integration.ts', 'utf8');
@@ -11,6 +12,7 @@ const paymentIntegration = readFileSync('src/server/payments/rental-payment.inte
 const securityBondIntegration = readFileSync('src/server/payments/rental-security-bond.integration.ts', 'utf8');
 const lifecycleMigration = readFileSync('prisma/migrations/20260915142000_rental_booking_cancellation_lifecycle/migration.sql', 'utf8');
 const substitutionMigration = readFileSync('prisma/migrations/20260915232000_rental_booking_unit_substitution_lifecycle/migration.sql', 'utf8');
+const effectiveCancellationMigration = readFileSync('prisma/migrations/20260918184500-rental-effective-cancellation-settlement/migration.sql', 'utf8');
 
 test('rental cancellation requires booking and availability authority and serializes with current effective inventory', () => {
   assert.match(service, /permission: 'booking:manage'/);
@@ -32,6 +34,21 @@ test('rental cancellation requires booking and availability authority and serial
   assert.match(service, /disposition === 'RETRYABLE' && attempt < 2/);
   assert.match(service, /Rental booking cancellation could not be serialized after bounded retries/);
   assert.match(service, /disposition === 'CONFLICT'/);
+});
+
+test('cancellation consumes the protected effective settlement and requires exact zero combined net', () => {
+  assert.match(service, /readRentalBookingEffectiveSettlementInTransaction/);
+  assert.match(service, /transaction,/);
+  assert.match(service, /effectiveSettlementResult\.booking\.status !== booking\.status/);
+  assert.match(service, /effectiveSettlementResult\.booking\.currency !== booking\.currency/);
+  assert.match(service, /effectiveSettlementResult\.booking\.totalMinor !== booking\.totalMinor/);
+  assert.match(service, /!effectiveSettlement\.reconciled/);
+  assert.match(service, /!effectiveSettlement\.fullyRefunded \|\| effectiveSettlement\.currentNetSettledMinor !== 0n/);
+  assert.match(service, /effectiveAcceptedTotalMinor/);
+  assert.match(service, /appliedCommercialAmendmentId/);
+  assert.doesNotMatch(service, /readRentalPaymentSettlementHistory/);
+  assert.doesNotMatch(service, /deriveRentalPaymentSettlement/);
+  assert.match(effectiveSettlementService, /readRentalBookingEffectiveSettlementInTransaction/);
 });
 
 test('final cancellation write is an exact tenant-owned compare-and-swap and retains audit evidence', () => {
@@ -58,6 +75,10 @@ test('final cancellation write is an exact tenant-owned compare-and-swap and ret
     "action: 'booking.rental.cancelled'",
     'latestRescheduleId',
     'latestUnitSubstitutionId',
+    'settlementScope',
+    'effectiveAcceptedTotalMinor',
+    'currentNetSettledMinor',
+    'appliedCommercialAmendmentId',
     'cancellationReason',
     'inventoryProtectionReleased: true',
   ]) assert.ok(service.includes(token), `missing cancellation write-scope token: ${token}`);
@@ -105,6 +126,20 @@ test('cancellation reason is required at every service boundary, normalized, bou
   assert.match(action, /maxLength=\{1000\}/);
   assert.match(action, /required/);
   assert.match(action, /durable audit evidence/i);
+});
+
+test('database cancellation authority accepts applied amendments only after exact effective refund settlement', () => {
+  assert.match(effectiveCancellationMigration, /CREATE OR REPLACE FUNCTION sf_guard_rental_booking_cancellation_payment_settlement/);
+  assert.match(effectiveCancellationMigration, /sf:rental-booking:/);
+  assert.match(effectiveCancellationMigration, /"status" = 'APPLIED'/);
+  assert.match(effectiveCancellationMigration, /original_net_settled_minor IS DISTINCT FROM applied_amendment\."beforeTotalMinor"/);
+  assert.match(effectiveCancellationMigration, /adjustment_count <> 1/);
+  assert.match(effectiveCancellationMigration, /compensation_count <> 0/);
+  assert.match(effectiveCancellationMigration, /rental_booking_effective_refund_transactions/);
+  assert.match(effectiveCancellationMigration, /post_apply_refunded_minor IS DISTINCT FROM applied_amendment\."afterTotalMinor"::NUMERIC/);
+  assert.match(effectiveCancellationMigration, /effective settlement to be fully refunded first/);
+  assert.match(effectiveCancellationMigration, /DROP TRIGGER IF EXISTS rental_bookings_post_commercial_apply_cancellation_guard/);
+  assert.match(effectiveCancellationMigration, /DROP FUNCTION IF EXISTS sf_guard_rental_booking_cancellation_after_commercial_amendment/);
 });
 
 test('database lifecycle guard makes cancellation terminal and later migration locks current effective unit', () => {

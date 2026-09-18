@@ -6,6 +6,7 @@ const schema = readFileSync('prisma/rental-payment-transactions.prisma', 'utf8')
 const rentalSchema = readFileSync('prisma/rental-inventory.prisma', 'utf8');
 const foundationMigration = readFileSync('prisma/migrations/20260915235000_rental_payment_foundation/migration.sql', 'utf8');
 const partialPaymentMigration = readFileSync('prisma/migrations/20260917180000_rental_partial_manual_payments/migration.sql', 'utf8');
+const effectiveCancellationMigration = readFileSync('prisma/migrations/20260918184500-rental-effective-cancellation-settlement/migration.sql', 'utf8');
 const domain = readFileSync('src/server/payments/rental-payment-domain.ts', 'utf8');
 const history = readFileSync('src/server/payments/rental-payment-history.ts', 'utf8');
 const service = readFileSync('src/server/payments/rental-payment-service.ts', 'utf8');
@@ -68,15 +69,19 @@ test('PostgreSQL caps each new manual payment at the current net outstanding bal
   assert.match(partialPaymentMigration, /rental refund exceeds its settled source payment/);
 });
 
-test('complete settlement history stays bounded and cancellation still requires zero net settlement', () => {
+test('complete settlement history stays bounded and cancellation uses the combined effective zero-net contract', () => {
   assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE = 100/);
   assert.match(history, /RENTAL_PAYMENT_SETTLEMENT_MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /where: \{ organizationId: input\.organizationId, bookingId: input\.bookingId \}/);
-  assert.match(cancellation, /readRentalPaymentSettlementHistory/);
-  assert.match(cancellation, /deriveRentalPaymentSettlement/);
-  assert.match(cancellation, /paymentSettlement\.netSettledMinor !== 0n/);
-  assert.match(foundationMigration, /sf_guard_rental_booking_cancellation_payment_settlement/);
-  assert.match(foundationMigration, /net_settled_minor <> 0/);
+  assert.match(cancellation, /readRentalBookingEffectiveSettlementInTransaction/);
+  assert.match(cancellation, /effectiveSettlement\.currentNetSettledMinor !== 0n/);
+  assert.match(cancellation, /effectiveSettlement\.fullyRefunded/);
+  assert.doesNotMatch(cancellation, /deriveRentalPaymentSettlement/);
+  assert.match(effectiveCancellationMigration, /CREATE OR REPLACE FUNCTION sf_guard_rental_booking_cancellation_payment_settlement/);
+  assert.match(effectiveCancellationMigration, /applied_amendment_count = 0/);
+  assert.match(effectiveCancellationMigration, /original_net_settled_minor <> 0/);
+  assert.match(effectiveCancellationMigration, /rental_booking_effective_refund_transactions/);
+  assert.match(effectiveCancellationMigration, /post_apply_refunded_minor IS DISTINCT FROM applied_amendment\."afterTotalMinor"::NUMERIC/);
 });
 
 test('staff routes safely parse explicit payment and refund amounts without accepting tenant authority', () => {
@@ -124,6 +129,7 @@ test('documentation keeps partial manual funding real and unsupported provider b
   assert.match(docs, /`PARTIALLY_PAID`/);
   assert.match(docs, /browser never chooses the tenant, actor, provider/i);
   assert.match(docs, /current outstanding balance/i);
+  assert.match(docs, /effective settlement/i);
   assert.match(docs, /does not implement deposits or deposit policy, card authorization, Stripe rental checkout/i);
   assert.match(docs, /mixed-provider settlement/i);
   assert.match(docs, /No placeholder route or fake provider action/i);

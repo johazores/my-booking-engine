@@ -42,7 +42,7 @@ The browser never chooses the tenant, actor, provider, currency, minor-unit conv
 
 ## Manual partial and full refunds
 
-`recordRentalManualOfflineRefund` also requires `payment:manage` and the same booking serialization boundary. A refund can be recorded whenever the confirmed rental has positive reconciled net settlement, including a `PARTIALLY_PAID` rental.
+`recordRentalManualOfflineRefund` also requires `payment:manage` and the same booking serialization boundary. A refund can be recorded whenever the confirmed rental has positive reconciled original booking-price net settlement, including a `PARTIALLY_PAID` rental, provided no applied commercial amendment has moved authority to the effective-settlement ledger.
 
 The staff form submits a requested refund amount in booking currency. The server parses it with the shared currency-aware money parser, requires a positive amount, derives current bounded settlement, selects the next retained refundable source deterministically, and rejects an amount larger than that source's remaining refundable balance. If no amount is supplied by an internal caller, the service refunds the selected source's full remaining balance.
 
@@ -52,7 +52,7 @@ The browser never chooses the tenant, actor, provider, settlement source, curren
 
 Before provider-adapter I/O, the exact selected source and exact refund amount are bound into the request fingerprint. The returned manual-provider result must rebuild to the same provider, refund reference, source reference, currency, and amount before persistence.
 
-Partial refunds remain financially settled. Cancellation remains blocked until booking-price net settlement reaches zero.
+Partial refunds remain financially settled. For a rental without an applied commercial amendment, cancellation remains blocked until this booking-price net settlement reaches zero. After an applied commercial amendment, direct writes to this original ledger are blocked and later refunds use the adjustment-aware effective settlement contract instead.
 
 ## Idempotent replay
 
@@ -68,25 +68,33 @@ For a new manual payment PostgreSQL reacquires the tenant/booking advisory lock,
 
 Refunds still require a matching retained successful manual source and cannot cumulatively exceed that source amount. Provider references remain tenant-unique and cross-ledger isolated.
 
+After one commercial amendment is applied, the existing database post-apply guard freezes this original booking-price ledger. Further commercial refunds are written only as dedicated `RentalBookingEffectiveRefundTransaction` evidence so the immutable original ledger cannot be silently repurposed.
+
 ## Cancellation financial guard
 
-Rental cancellation is an inventory lifecycle mutation but fails closed while booking-price settlement is non-zero, unresolved, or unreconciled. Staff must record real refund evidence until net settled money is zero before cancellation can release physical inventory.
+Rental cancellation is an inventory lifecycle mutation but fails closed while the **effective settlement** is non-zero, incomplete, or unreconciled. The application derives the combined settlement under the booking lock and requires exact zero `currentNetSettledMinor` plus `fullyRefunded` before cancellation can release physical inventory.
 
-The application derives settlement under the booking lock. PostgreSQL independently blocks cancellation when unresolved evidence exists, unsupported successful provider/kind evidence exists, or net manual settlement is non-zero. This guard already sums multiple manual payment/refund rows, so partial funding does not weaken cancellation safety.
+Without an applied commercial amendment, effective settlement is the ordinary bounded booking-price ledger described above and the database still requires original net settlement to be zero.
+
+With the one supported applied price-changing amendment, PostgreSQL independently requires the original ledger to remain equal to the amendment before-total, exact uncompensated adjustment evidence, and post-apply effective refunds totaling the amendment after-total. Per-source effective-refund guards continue to prevent over-refunds. This replaces the former blanket applied-amendment cancellation block with an exact zero-net condition.
+
+Cancellation itself never creates or assumes refund evidence. See [rental-booking-effective-settlement.md](./rental-booking-effective-settlement.md) and [rental-booking-cancellation.md](./rental-booking-cancellation.md).
 
 ## Staff interaction and request handling
 
-The authenticated rental booking detail renders settlement state, net settled amount, outstanding balance, gross retained funding, refunded amount, and tenant-scoped transaction history to actors with `payment:read`.
+The authenticated rental booking detail renders original booking-price settlement state, net settled amount, outstanding balance, gross retained funding, refunded amount, and tenant-scoped transaction history to actors with `payment:read`.
 
-Actors with `payment:manage` can enter a positive manual/offline payment amount up to the current outstanding balance plus the real external receipt/reference. While positive net money exists they can enter a positive partial or full source-bound refund plus the real external refund reference.
+Actors with `payment:manage` can enter a positive manual/offline payment amount up to the current outstanding balance plus the real external receipt/reference. While positive original booking-price money exists and no commercial amendment has moved settlement authority, they can enter a positive partial or full source-bound refund plus the real external refund reference.
 
-Both payment mutation routes use the shared safe inventory form parser. Malformed or missing amount/form bodies are rejected as validation failures rather than escaping as generic server errors. Tenant and actor always come from authenticated server context.
+The cancellation section independently resolves the protected effective settlement for actors with `payment:read`, so post-amendment cancellation readiness is never inferred from the original booking-price panel alone.
+
+Both original payment mutation routes use the shared safe inventory form parser. Malformed or missing amount/form bodies are rejected as validation failures rather than escaping as generic server errors. Tenant and actor always come from authenticated server context.
 
 ## Deliberate boundaries
 
 This foundation does not implement deposits or deposit policy, card authorization, Stripe rental checkout, customer self-service, mixed-provider settlement, card/manual tender mixing, chargebacks, cancellation fees, automatic refund policy, invoices, or external accounting synchronization.
 
-Security bonds, damage liability, and late-return settlement remain separate append-only evidence streams with their own authority rules. Multiple manual booking-price receipts are supported, but this must not be represented as a generic payment-plan engine, automatic installment scheduler, online split-tender checkout, or provider-backed partial capture workflow.
+Security bonds, damage liability, late-return settlement, commercial-amendment adjustment settlement, and post-apply effective refunds remain separate append-only evidence streams with their own authority rules. Multiple manual booking-price receipts are supported, but this must not be represented as a generic payment-plan engine, automatic installment scheduler, online split-tender checkout, or provider-backed partial capture workflow.
 
 No placeholder route or fake provider action is exposed for unsupported workflows.
 
@@ -95,9 +103,9 @@ No placeholder route or fake provider action is exposed for unsupported workflow
 - `src/server/payments/rental-payment-domain.test.ts` covers unpaid/partial-paid/paid/partial-refund/refunded states, multiple manual sources, replacement funding after retained refunds, outstanding balance, next refundable source amount, and fail-closed reconciliation.
 - `src/server/payments/payment-refund-execution-domain.test.ts` covers requested partial refund allocation and source-boundary enforcement in the shared refund planner.
 - `src/server/payments/rental-payment-history.test.ts` covers bounded cursor pagination, deterministic evidence verification, and refund/source chronology.
-- `scripts/rental-payment-foundation-source-contract.test.mjs` protects tenant ownership, explicit payment/refund amount parsing, server-derived authority, bounded outstanding funding, source-bound refunds, PostgreSQL balance authority, cancellation guards, live-database coverage registration, and staff UI wiring.
+- `scripts/rental-payment-foundation-source-contract.test.mjs` protects tenant ownership, explicit payment/refund amount parsing, server-derived authority, bounded outstanding funding, source-bound refunds, PostgreSQL balance authority, effective cancellation guards, live-database coverage registration, and staff UI wiring.
 - `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects pre-provider request binding and idempotent replay semantics.
-- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable-PostgreSQL runner and covers partial manual funding, replay, multi-source full settlement, direct overpayment rejection, refunds, cancellation blocking before zero settlement, append-only evidence, and cancellation after full refund.
+- `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable-PostgreSQL runner and covers partial manual funding, replay, multi-source full settlement, direct overpayment rejection, refunds, cancellation blocking before zero original settlement, append-only evidence, and cancellation after full refund for the no-amendment path.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

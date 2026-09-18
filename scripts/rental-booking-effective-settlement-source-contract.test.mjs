@@ -46,9 +46,10 @@ test('protected reader remains tenant scoped, bounded, fingerprint checked, and 
   assert.match(history, /row\.createdAt\.getTime\(\) < input\.appliedAt\.getTime\(\)/);
 });
 
-test('documentation states implemented post-apply refunds and retains fail-closed cancellation boundary', () => {
+test('documentation states implemented post-apply refunds and exact-zero effective cancellation authority', () => {
   assert.match(docs, /post-apply manual refund writer/i);
   assert.match(docs, /do not accept a client-selected payment source/i);
-  assert.match(docs, /cancellation after an applied commercial amendment remains blocked/i);
+  assert.match(docs, /cancellation writer now consumes this combined effective settlement/i);
+  assert.match(docs, /former blanket block/i);
   assert.match(docs, /one applied price-changing amendment/i);
 });

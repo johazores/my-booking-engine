@@ -1,6 +1,6 @@
 # Rental booking commercial amendments
 
-SF has server-only preparation, manual/offline settlement, compensation, final apply, effective settlement, and post-apply refund foundations for a same-unit rental date change whose fresh target price differs from the current effective total in the same currency. Durable amendment evidence remains separate from the immutable original booking-price ledger.
+SF has server-only preparation, manual/offline settlement, compensation, final apply, effective settlement, post-apply refund, and exact-zero cancellation foundations for a same-unit rental date change whose fresh target price differs from the current effective total in the same currency. Durable amendment evidence remains separate from the immutable original booking-price ledger.
 
 The product still does not expose the end-to-end commercial amendment workflow as primary staff actions. The backend contracts are intentionally ahead of the product surface so incomplete money orchestration is not presented as complete.
 
@@ -26,25 +26,31 @@ For an increase, effective settlement includes the original booking ledger plus 
 
 For a decrease, the applied adjustment is already a source-attributed refund against the original booking-price ledger. Later post-apply refunds cannot reuse that consumed source value.
 
-`recordRentalBookingPostApplyManualRefund` now provides the protected backend write contract. It does not accept a client-selected source. Source ledger/reference and allowed amount are derived from current effective settlement under the shared booking lock. Durable rows retain deterministic idempotency/request fingerprints and are re-read into effective settlement immediately after write.
+`recordRentalBookingPostApplyManualRefund` provides the protected backend write contract. It does not accept a client-selected source. Source ledger/reference and allowed amount are derived from current effective settlement under the shared booking lock. Durable rows retain deterministic idempotency/request fingerprints and are re-read into effective settlement immediately after write.
 
 PostgreSQL independently caps each refund source and extends the tenant-wide manual reference namespace to this ledger.
+
+## Exact-zero cancellation after apply
+
+`cancelRentalBooking` now consumes the same effective settlement instead of the immutable original booking total alone. A booking with one applied commercial amendment may be cancelled only when retained evidence reconciles and the combined effective net is exactly zero.
+
+The database independently requires the original ledger to remain fully settled to the amendment before-total, exact uncompensated adjustment evidence, and post-apply effective refunds totaling the amendment after-total. This replaces the former blanket applied-amendment cancellation block without weakening source caps or tenant isolation.
+
+Cancellation remains an inventory lifecycle mutation only. It never moves money, manufactures refund evidence, or invokes a provider.
 
 ## Current one-amendment boundary
 
 Only one applied price-changing amendment per rental is supported. Direct post-apply booking-price settlement writes, another reschedule, and another commercial amendment remain blocked so older logic cannot bypass the effective-settlement boundary.
 
-Post-apply booking cancellation is also still blocked. The next dependency is to make cancellation use the same combined effective settlement in the service and PostgreSQL, allowing terminal cancellation only at exact zero effective net.
-
-Authenticated staff orchestration follows that safety boundary. Provider-backed/online adjustment and refund execution remains later scope behind provider adapters.
+Authenticated staff orchestration for the full commercial amendment lifecycle remains later work. Provider-backed/online adjustment and refund execution remains later scope behind provider adapters.
 
 ## Product surface
 
-No primary staff action exposes preparation, adjustment settlement, compensation, final apply, or post-apply refund recording yet. The existing reschedule UI may show exact commercial impact but does not expose a dead money-moving action.
+No primary staff action exposes preparation, adjustment settlement, compensation, final apply, or post-apply refund recording yet. The existing reschedule UI may show exact commercial impact but does not expose a dead money-moving action. The cancellation section does use the effective settlement read model when commercial amendment evidence exists.
 
 ## Validation
 
-- Domain/source-contract tests protect preparation, settlement, final apply, effective settlement, and post-apply refund authority.
+- Domain/source-contract tests protect preparation, settlement, final apply, effective settlement, post-apply refund authority, and exact-zero cancellation authority.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
 - Database verification remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

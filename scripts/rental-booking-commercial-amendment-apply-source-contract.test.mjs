@@ -6,6 +6,7 @@ const read = (path) => readFileSync(path, 'utf8');
 const amendmentSchema = read('prisma/rental-booking-commercial-amendments.prisma');
 const rescheduleSchema = read('prisma/rental-booking-reschedule.prisma');
 const migration = read('prisma/migrations/20260918121500-rental-commercial-amendment-apply/migration.sql');
+const effectiveCancellationMigration = read('prisma/migrations/20260918184500-rental-effective-cancellation-settlement/migration.sql');
 const service = read('src/server/bookings/rental-booking-commercial-amendment-apply-service.ts');
 const docs = read('docs/rental-booking-commercial-amendment-apply.md');
 
@@ -63,15 +64,17 @@ test('final apply appends a reschedule, versions allocation/booking, and audits 
   assert.match(service, /booking\.rental\.commercial-amendment\.applied/);
 });
 
-test('current one-amendment boundary fails closed for unsupported chained money and cancellation settlement', () => {
+test('one-amendment boundary keeps chained writes closed while exact-zero effective cancellation is enabled', () => {
   for (const token of [
     'sf_guard_rental_commercial_amendment_chain',
     'sf_guard_rental_reschedule_after_commercial_amendment',
-    'sf_guard_rental_booking_cancellation_after_commercial_amendment',
     'sf_guard_rental_payment_after_commercial_amendment',
   ]) assert.ok(migration.includes(token), `missing post-apply fail-closed guard: ${token}`);
+  assert.match(effectiveCancellationMigration, /DROP FUNCTION IF EXISTS sf_guard_rental_booking_cancellation_after_commercial_amendment/);
+  assert.match(effectiveCancellationMigration, /rental_booking_effective_refund_transactions/);
+  assert.match(effectiveCancellationMigration, /effective settlement to be fully refunded first/);
   assert.match(docs, /one applied price-changing amendment per rental/i);
-  assert.match(docs, /cancellation/i);
-  assert.match(docs, /booking-price settlement/i);
+  assert.match(docs, /Post-apply cancellation/i);
+  assert.match(docs, /exact zero/i);
   assert.match(docs, /no route or primary staff action/i);
 });
