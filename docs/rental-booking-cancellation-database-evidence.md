@@ -13,7 +13,7 @@ For a tenant booking that is not `CANCELLED`, no `booking.rental.cancelled` / `r
 The cancellation audit `afterData` must retain the same bounded evidence used by application replay verification:
 
 - `status` is exactly `CANCELLED`;
-- `cancelledAt` is a string timestamp equal to `RentalBooking.cancelledAt`;
+- `cancelledAt` is the canonical UTC ISO string emitted for `RentalBooking.cancelledAt`;
 - `allocationId` is a string equal to the tenant-owned retained allocation ID;
 - `inventoryProtectionReleased` is exactly the JSON boolean `true`;
 - `cancellationReason` is a non-empty canonical string, already whitespace-normalized and at most 1000 characters.

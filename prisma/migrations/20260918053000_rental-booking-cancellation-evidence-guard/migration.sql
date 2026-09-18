@@ -85,8 +85,11 @@ BEGIN
   IF jsonb_typeof(v_after_data -> 'cancelledAt') IS DISTINCT FROM 'string' THEN
     RAISE EXCEPTION 'rental cancellation audit timestamp must be retained as a string';
   END IF;
-  IF (v_after_data ->> 'cancelledAt')::timestamptz IS DISTINCT FROM v_cancelled_at THEN
-    RAISE EXCEPTION 'rental cancellation audit timestamp does not match booking cancelledAt';
+  IF v_after_data ->> 'cancelledAt' <> to_char(
+    v_cancelled_at AT TIME ZONE 'UTC',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+  ) THEN
+    RAISE EXCEPTION 'rental cancellation audit timestamp does not match canonical booking cancelledAt';
   END IF;
 
   SELECT allocation."id"

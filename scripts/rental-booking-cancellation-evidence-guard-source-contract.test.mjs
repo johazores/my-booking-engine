@@ -34,7 +34,9 @@ test('terminal audit evidence matches reason timestamp release flag and allocati
   assert.match(migration, /v_after_data ->> 'inventoryProtectionReleased' <> 'true'/);
   assert.match(migration, /char_length\(v_reason\) > 1000/);
   assert.match(migration, /regexp_replace\(btrim\(v_reason\), '\[\[:space:\]\]\+', ' ', 'g'\)/);
-  assert.match(migration, /\(v_after_data ->> 'cancelledAt'\)::timestamptz IS DISTINCT FROM v_cancelled_at/);
+  assert.match(migration, /v_after_data ->> 'cancelledAt' <> to_char/);
+  assert.match(migration, /v_cancelled_at AT TIME ZONE 'UTC'/);
+  assert.ok(migration.includes('\'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\''));
   assert.match(migration, /FROM "rental_booking_allocations" allocation/);
   assert.match(migration, /v_after_data ->> 'allocationId' <> v_allocation_id::text/);
 });
