@@ -2,7 +2,7 @@
 
 SF supports two narrow production date-change contracts for an existing confirmed rental booking on its **current effective physical unit**:
 
-1. before pickup, authorized staff may move the effective dates when fresh target inventory is available and current target-date pricing preserves the accepted currency and exact aggregate amount;
+1. before pickup, authorized staff may move the effective dates when fresh target inventory is available and current target pricing preserves the accepted currency and exact aggregate amount;
 2. after pickup and before return, authorized staff may only keep the current effective start date and move the committed end date later, again only when fresh inventory is available and the accepted aggregate amount remains unchanged.
 
 The second path is a custody extension, not an arbitrary in-custody reschedule. It cannot move the start date, shorten the period, replace the physical unit, or change the accepted price.
@@ -19,7 +19,11 @@ The review also reads tenant-owned fulfillment evidence. A retained `RETURNED` e
 
 The review uses PostgreSQL `clock_timestamp()` and revalidates confirmed, non-cancelled lifecycle, exact tenant-owned effective allocation, active physical assignment, unavailable blocks, effective active holds, every other non-cancelled allocation, overdue custody from other bookings, and current target pricing.
 
-The current booking allocation is the only booking allocation and overdue-custody source excluded from the target conflict query. Review can be blocked with `NO_CHANGE`, `CUSTODY_EXTENSION_REQUIRED`, `INVENTORY_CONFLICT`, or `PRICE_CHANGED`.
+The current booking allocation is the only booking allocation and overdue-custody source excluded from the target conflict query. Review can be blocked with `NO_CHANGE`, `CUSTODY_EXTENSION_REQUIRED`, `INVENTORY_CONFLICT`, `CURRENCY_CHANGED`, or `PRICE_CHANGED`.
+
+Current pricing is always reported back as server-derived evidence. The review classifies commercial impact as `UNCHANGED`, `INCREASE`, `DECREASE`, or `CURRENCY_CHANGED`. Same-currency increases/decreases include the exact absolute minor-unit delta between immutable accepted total and fresh target total. Currency drift is separated from a normal price amendment because an accepted booking cannot silently change currency.
+
+A `PRICE_CHANGED` review is therefore useful to staff for exact commercial impact, but it does not produce apply authority. The page exposes no commercial-write action from that state. A separate append-only commercial amendment and settlement contract is still required before a price-changing date change can be committed.
 
 ## Stale-authority protection
 
@@ -72,18 +76,19 @@ An extension itself does not create or waive a late fee, perform settlement, or 
 
 The booking detail exposes `Reschedule rental` before pickup and `Extend rental` while picked up when the actor has the required review permissions. Returned bookings expose neither action.
 
-The shared review page fixes the start date in custody-extension mode and accepts only a later end date. UI restrictions are usability only; service and database rules remain authoritative. Apply records a distinct `booking.rental.extended` audit action for the custody path and `booking.rental.rescheduled` before pickup.
+The shared review page fixes the start date in custody-extension mode and accepts only a later end date. For every valid target it shows the immutable accepted amount and fresh target amount; same-currency changes include the exact increase/decrease. UI restrictions are usability only; service and database rules remain authoritative. Apply is rendered only for a price-neutral ready review. Apply records a distinct `booking.rental.extended` audit action for the custody path and `booking.rental.rescheduled` before pickup.
 
 ## Deliberate boundaries
 
-This lifecycle does not implement unit-type changes, location-changing substitution, price-changing amendments or extensions, partial/split payment adjustment, automatic proration, delivery, customer self-service, or external provider synchronization.
+This lifecycle does not implement unit-type changes, location-changing substitution, price-changing amendment persistence or settlement, partial/split payment adjustment, automatic proration, delivery, customer self-service, or external provider synchronization.
 
-A target whose current price changes the accepted aggregate amount remains `PRICE_CHANGED` and must not be forced through the price-neutral writer. Any future price-changing extension needs a separate commercial amendment/settlement contract.
+A target whose current same-currency price changes the accepted aggregate amount remains `PRICE_CHANGED` and must not be forced through the price-neutral writer. A target whose current pricing currency differs from the accepted booking is `CURRENCY_CHANGED` and must be treated as pricing-configuration drift. Any future price-changing reschedule or extension needs a separate append-only commercial amendment/settlement contract.
 
 ## Validation
 
-- `src/server/bookings/rental-booking-reschedule-domain.test.ts` covers custody-extension shape and custody-bound authority fingerprints.
+- `src/server/bookings/rental-booking-reschedule-domain.test.ts` covers custody-extension shape, custody-bound authority fingerprints, and commercial-impact classification/delta math.
 - `scripts/rental-booking-reschedule-source-contract.test.mjs` protects append-only persistence, effective-unit guards, tenant/permission boundaries, locks, custody modes, exact write scope, server-derived idempotency, staff apply wiring, and immutable commercial evidence.
+- `scripts/rental-booking-reschedule-commercial-review-source-contract.test.mjs` protects server-derived commercial impact, separate currency-drift blocking, exact staff review evidence, and the absence of a price-changing apply path.
 - `scripts/rental-booking-pre-custody-writer-source-contract.test.mjs` protects cancellation's hard custody boundary, custody-aware date-change writers, and idempotent replay behavior.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects the database transition from the original hard reschedule lock to the narrow custody-extension exception while cancellation and replacement remain locked.
 

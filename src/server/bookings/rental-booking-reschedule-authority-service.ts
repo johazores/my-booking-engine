@@ -8,6 +8,7 @@ import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-ava
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
+  buildRentalBookingRescheduleCommercialImpact,
   isRentalBookingCustodyExtensionTarget,
   normalizeRentalBookingRescheduleReviewInput,
   type RentalBookingRescheduleMode,
@@ -18,6 +19,7 @@ export type RentalBookingRescheduleBlocker =
   | 'NO_CHANGE'
   | 'CUSTODY_EXTENSION_REQUIRED'
   | 'INVENTORY_CONFLICT'
+  | 'CURRENCY_CHANGED'
   | 'PRICE_CHANGED';
 
 export class RentalBookingRescheduleUnavailableError extends Error {
@@ -210,6 +212,12 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       defaultDailyRateMinor: unit.unitType.defaultDailyRateMinor,
       ratePeriods,
     });
+    const commercialImpact = buildRentalBookingRescheduleCommercialImpact({
+      acceptedCurrency: booking.currency,
+      acceptedTotalMinor: booking.totalMinor,
+      targetCurrency: targetPricing.currency,
+      targetTotalMinor: BigInt(targetPricing.totalMinor),
+    });
 
     let blocker: RentalBookingRescheduleBlocker | null = null;
     if (
@@ -226,10 +234,8 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       })
     ) blocker = 'CUSTODY_EXTENSION_REQUIRED';
     else if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) blocker = 'INVENTORY_CONFLICT';
-    else if (
-      targetPricing.currency !== booking.currency
-      || BigInt(targetPricing.totalMinor) !== booking.totalMinor
-    ) blocker = 'PRICE_CHANGED';
+    else if (commercialImpact.kind === 'CURRENCY_CHANGED') blocker = 'CURRENCY_CHANGED';
+    else if (commercialImpact.kind !== 'UNCHANGED') blocker = 'PRICE_CHANGED';
 
     const authorityFingerprint = blocker === null
       ? buildRentalBookingRescheduleAuthorityFingerprint({
@@ -287,6 +293,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         fingerprint: targetPricing.fingerprint,
         quote: targetPricing.quote,
       }),
+      commercialImpact,
     });
   }, { isolationLevel: 'Serializable' });
 }

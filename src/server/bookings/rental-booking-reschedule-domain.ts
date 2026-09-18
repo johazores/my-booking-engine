@@ -5,10 +5,16 @@ import { normalizeRentalDateRange, RentalInventoryValidationError } from '../inv
 const MAX_RENTAL_RESCHEDULE_DAYS = 90;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,120}$/;
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
 export class RentalBookingRescheduleValidationError extends Error {}
 
 export type RentalBookingRescheduleMode = 'PRE_PICKUP_RESCHEDULE' | 'CUSTODY_EXTENSION';
+export type RentalBookingRescheduleCommercialImpactKind =
+  | 'UNCHANGED'
+  | 'INCREASE'
+  | 'DECREASE'
+  | 'CURRENCY_CHANGED';
 
 export type RentalBookingRescheduleReviewInput = Readonly<{
   startsOn: string;
@@ -46,6 +52,49 @@ export function normalizeRentalBookingRescheduleApplyInput(input: RentalBookingR
     throw new RentalBookingRescheduleValidationError('Rental reschedule authority fingerprint is invalid.');
   }
   return Object.freeze({ ...range, idempotencyKey, authorityFingerprint });
+}
+
+export function buildRentalBookingRescheduleCommercialImpact(input: Readonly<{
+  acceptedCurrency: string;
+  acceptedTotalMinor: bigint;
+  targetCurrency: string;
+  targetTotalMinor: bigint;
+}>) {
+  const acceptedCurrency = input.acceptedCurrency.trim().toUpperCase();
+  const targetCurrency = input.targetCurrency.trim().toUpperCase();
+  if (!CURRENCY_PATTERN.test(acceptedCurrency) || !CURRENCY_PATTERN.test(targetCurrency)) {
+    throw new RentalBookingRescheduleValidationError('Rental reschedule commercial impact requires valid ISO currency codes.');
+  }
+  if (input.acceptedTotalMinor < 0n || input.targetTotalMinor < 0n) {
+    throw new RentalBookingRescheduleValidationError('Rental reschedule commercial impact cannot use negative totals.');
+  }
+
+  if (acceptedCurrency !== targetCurrency) {
+    return Object.freeze({
+      kind: 'CURRENCY_CHANGED' as const,
+      acceptedCurrency,
+      acceptedTotalMinor: input.acceptedTotalMinor,
+      targetCurrency,
+      targetTotalMinor: input.targetTotalMinor,
+      deltaMinor: null,
+    });
+  }
+
+  const signedDeltaMinor = input.targetTotalMinor - input.acceptedTotalMinor;
+  const kind: Exclude<RentalBookingRescheduleCommercialImpactKind, 'CURRENCY_CHANGED'> = signedDeltaMinor === 0n
+    ? 'UNCHANGED'
+    : signedDeltaMinor > 0n
+      ? 'INCREASE'
+      : 'DECREASE';
+
+  return Object.freeze({
+    kind,
+    acceptedCurrency,
+    acceptedTotalMinor: input.acceptedTotalMinor,
+    targetCurrency,
+    targetTotalMinor: input.targetTotalMinor,
+    deltaMinor: signedDeltaMinor < 0n ? -signedDeltaMinor : signedDeltaMinor,
+  });
 }
 
 export function isRentalBookingCustodyExtensionTarget(input: Readonly<{

@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import {
   buildRentalBookingRescheduleAuthorityFingerprint,
+  buildRentalBookingRescheduleCommercialImpact,
   isRentalBookingCustodyExtensionTarget,
+  RentalBookingRescheduleValidationError,
 } from './rental-booking-reschedule-domain.ts';
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -29,6 +31,65 @@ test('picked-up rental extension keeps the current start and moves only the end 
     targetStartsOn: date('2026-09-10'),
     targetEndsOn: date('2026-09-15'),
   }), false);
+});
+
+test('reschedule review derives exact same-currency commercial impact without browser authority', () => {
+  const unchanged = buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'aud',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 50_000n,
+  });
+  assert.deepEqual(unchanged, {
+    kind: 'UNCHANGED',
+    acceptedCurrency: 'AUD',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 50_000n,
+    deltaMinor: 0n,
+  });
+
+  const increase = buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'AUD',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 62_500n,
+  });
+  assert.equal(increase.kind, 'INCREASE');
+  assert.equal(increase.deltaMinor, 12_500n);
+
+  const decrease = buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'AUD',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 41_000n,
+  });
+  assert.equal(decrease.kind, 'DECREASE');
+  assert.equal(decrease.deltaMinor, 9_000n);
+});
+
+test('reschedule review separates currency drift from a same-currency price amendment', () => {
+  const impact = buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'AUD',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'USD',
+    targetTotalMinor: 50_000n,
+  });
+  assert.equal(impact.kind, 'CURRENCY_CHANGED');
+  assert.equal(impact.deltaMinor, null);
+
+  assert.throws(() => buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'AU',
+    acceptedTotalMinor: 50_000n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 50_000n,
+  }), RentalBookingRescheduleValidationError);
+  assert.throws(() => buildRentalBookingRescheduleCommercialImpact({
+    acceptedCurrency: 'AUD',
+    acceptedTotalMinor: -1n,
+    targetCurrency: 'AUD',
+    targetTotalMinor: 0n,
+  }), RentalBookingRescheduleValidationError);
 });
 
 test('reschedule authority fingerprint changes across the pickup custody boundary', () => {
