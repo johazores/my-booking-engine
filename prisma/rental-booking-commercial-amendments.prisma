@@ -44,9 +44,11 @@ model RentalBookingCommercialAmendment {
   createdAt                DateTime                                  @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime                                  @updatedAt @db.Timestamptz(6)
 
-  booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_booking_fkey")
+  booking                RentalBooking                                            @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendments_booking_fkey")
+  settlementTransactions RentalBookingCommercialAmendmentSettlementTransaction[]
 
   @@unique([id, organizationId], map: "rental_booking_commercial_amendments_id_org_key")
+  @@unique([id, bookingId, organizationId], map: "rental_booking_commercial_amendments_id_booking_org_key")
   @@unique([organizationId, idempotencyKey], map: "rental_booking_commercial_amendments_org_idempotency_key")
   @@index([organizationId, bookingId, status, expiresAt], map: "rental_booking_commercial_amendments_org_booking_status_expiry_idx")
   @@index([organizationId, status, expiresAt], map: "rental_booking_commercial_amendments_org_status_expiry_idx")

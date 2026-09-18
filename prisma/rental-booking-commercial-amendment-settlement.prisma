@@ -1,0 +1,31 @@
+enum RentalBookingCommercialAmendmentSettlementPurpose {
+  ADJUSTMENT
+  COMPENSATION
+}
+
+model RentalBookingCommercialAmendmentSettlementTransaction {
+  id                      String                                            @id @default(uuid()) @db.Uuid
+  organizationId          String                                            @db.Uuid
+  bookingId               String                                            @db.Uuid
+  amendmentId             String                                            @db.Uuid
+  idempotencyKey          String                                            @db.VarChar(120)
+  requestFingerprint      String                                            @db.Char(64)
+  purpose                 RentalBookingCommercialAmendmentSettlementPurpose
+  kind                    PaymentTransactionKind
+  status                  PaymentTransactionStatus                          @default(PENDING)
+  providerCode            String                                            @db.VarChar(40)
+  providerReference       String                                            @db.VarChar(160)
+  sourceProviderReference String?                                           @db.VarChar(160)
+  currency                String                                            @db.Char(3)
+  amountMinor             BigInt                                            @db.BigInt
+  createdAt               DateTime                                          @default(now()) @db.Timestamptz(6)
+
+  amendment RentalBookingCommercialAmendment @relation(fields: [amendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendment_settlement_transactions_amendment_fkey")
+
+  @@unique([id, organizationId], map: "rental_booking_commercial_amendment_settlement_transactions_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_booking_commercial_amendment_settlement_transactions_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "rental_booking_commercial_amendment_settlement_transactions_org_provider_reference_key")
+  @@unique([organizationId, amendmentId, purpose], map: "rental_booking_commercial_amendment_settlement_transactions_org_amendment_purpose_key")
+  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_booking_commercial_amendment_settlement_transactions_booking_amendment_created_idx")
+  @@map("rental_booking_commercial_amendment_settlement_transactions")
+}
