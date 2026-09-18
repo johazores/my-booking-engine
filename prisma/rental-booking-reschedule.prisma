@@ -16,7 +16,8 @@ model RentalBookingReschedule {
   appliedAt                DateTime @db.Timestamptz(6)
   createdAt                DateTime @default(now()) @db.Timestamptz(6)
 
-  booking RentalBooking @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_reschedules_booking_fkey")
+  booking                     RentalBooking                      @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_reschedules_booking_fkey")
+  appliedCommercialAmendment RentalBookingCommercialAmendment? @relation("RentalBookingCommercialAmendmentAppliedReschedule")
 
   @@unique([id, organizationId], map: "rental_booking_reschedules_id_organization_key")
   @@unique([organizationId, idempotencyKey], map: "rental_booking_reschedules_org_idempotency_key")
