@@ -259,7 +259,7 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       /not available/i,
     );
 
-    const cancellationReason = 'Customer requested cancellation during booking integration coverage';
+    const cancellationReason = '  Customer   requested cancellation during booking integration coverage  ';
     const cancelled = await cancellations.cancelRentalBooking({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -270,6 +270,19 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
     assert.equal(cancelled.booking.status, 'CANCELLED');
     assert.ok(cancelled.booking.cancelledAt);
     assert.equal(cancelled.allocation.id, confirmed.allocation.id);
+
+    const cancellationAudit = await db.auditEvent.findFirstOrThrow({
+      where: {
+        organizationId: organization.id,
+        action: 'booking.rental.cancelled',
+        resourceType: 'rental-booking',
+        resourceId: confirmed.booking.id,
+      },
+    });
+    assert.equal(
+      (cancellationAudit.afterData as { cancellationReason?: string } | null)?.cancellationReason,
+      'Customer requested cancellation during booking integration coverage',
+    );
 
     const cancellationReplay = await cancellations.cancelRentalBooking({
       organizationId: organization.id,

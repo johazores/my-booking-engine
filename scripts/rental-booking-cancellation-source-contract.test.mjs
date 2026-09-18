@@ -90,6 +90,11 @@ test('cancellation reason is required at every service boundary, normalized, bou
     }
   }
 
+  assert.match(bookingIntegration, /auditEvent\.findFirstOrThrow/);
+  assert.match(bookingIntegration, /action: 'booking\.rental\.cancelled'/);
+  assert.match(bookingIntegration, /cancellationAudit\.afterData/);
+  assert.match(bookingIntegration, /Customer requested cancellation during booking integration coverage/);
+
   assert.match(route, /readInventoryFormData\(request\)/);
   assert.match(route, /formField\(formData, 'reason'\)/);
   assert.match(route, /reason,/);

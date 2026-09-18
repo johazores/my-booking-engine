@@ -11,7 +11,7 @@ SF implements a staff-only rental booking cancellation lifecycle for the durable
 
 The staff route derives organization and actor from authenticated server context. The browser may submit only the human cancellation reason. It cannot choose tenant, actor, unit, dates, customer, price, cancellation time, payment authority, or inventory-release authority.
 
-The reason is normalized server-side by trimming outer whitespace, collapsing internal whitespace, requiring a non-empty value, and enforcing the 1000-character retention bound before any lifecycle mutation is attempted.
+The service contract requires a cancellation reason for every caller. Runtime normalization rejects non-string input, trims outer whitespace, collapses internal whitespace, requires a non-empty value, and enforces the 1000-character retention bound before any lifecycle mutation is attempted.
 
 Every booking, reschedule, and substitution read repeats authenticated `organizationId`. A booking ID from another tenant resolves as unavailable rather than becoming cross-tenant mutation authority.
 
@@ -67,12 +67,12 @@ Same-unit price-neutral date rescheduling is implemented separately in [rental-b
 
 ## Validation
 
-`src/server/bookings/rental-booking-cancellation-domain.test.ts` protects cancellation-reason normalization, required-value behavior, and the 1000-character retention boundary.
+`src/server/bookings/rental-booking-cancellation-domain.test.ts` protects cancellation-reason normalization, non-string/empty rejection, and the 1000-character retention boundary.
 
-`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, safe reason parsing/validation, route authority, retained audit evidence, and the no-fake-financial-workflow boundary.
+`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, required reason evidence at direct service call sites, safe reason parsing/validation, route authority, retained audit evidence, and the no-fake-financial-workflow boundary.
 
 `scripts/rental-booking-cancellation-readiness-source-contract.test.mjs` protects staff cancellation discoverability, payment-read privacy, zero-settlement submit gating, partial-payment-aware status copy, and the removal of stale pre-payment-workflow messaging.
 
-`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL cancellation scenario. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
+`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL cancellation scenario, including an assertion that normalized cancellation reason evidence is retained in the cancellation audit event. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. GitHub Actions are not required or used.
