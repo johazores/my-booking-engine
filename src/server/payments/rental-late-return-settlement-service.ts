@@ -165,13 +165,16 @@ async function assertManualReferenceUnused(
   reference: string,
 ) {
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0))`;
-  const [booking, damage, bond, lateReturn] = await Promise.all([
-    transaction.rentalPaymentTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalDamageSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalSecurityBondTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalLateReturnSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-  ]);
-  if (booking || damage || bond || lateReturn) {
+  const retainedReference = await transaction.rentalManualProviderReference.findUnique({
+    where: {
+      organizationId_providerReference: {
+        organizationId,
+        providerReference: reference,
+      },
+    },
+    select: { sourceLedger: true, sourceId: true },
+  });
+  if (retainedReference) {
     throw new RentalLateReturnSettlementConflictError('Manual rental payment reference has already been retained in this organization.');
   }
 }

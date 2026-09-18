@@ -96,14 +96,16 @@ async function lock(transaction: Prisma.TransactionClient, organizationId: strin
 
 async function assertManualReferenceUnused(transaction: Prisma.TransactionClient, organizationId: string, reference: string) {
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0))`;
-  const rows = await Promise.all([
-    transaction.rentalPaymentTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalDamageSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalSecurityBondTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalLateReturnSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-    transaction.rentalBookingCommercialAmendmentSettlementTransaction.findFirst({ where: { organizationId, providerCode: 'manual', providerReference: reference }, select: { id: true } }),
-  ]);
-  if (rows.some(Boolean)) throw new RentalBookingCommercialAmendmentConflictError('Manual rental payment reference has already been retained in this organization.');
+  const retainedReference = await transaction.rentalManualProviderReference.findUnique({
+    where: {
+      organizationId_providerReference: {
+        organizationId,
+        providerReference: reference,
+      },
+    },
+    select: { sourceLedger: true, sourceId: true },
+  });
+  if (retainedReference) throw new RentalBookingCommercialAmendmentConflictError('Manual rental payment reference has already been retained in this organization.');
 }
 
 async function assertRefundSourceCapacity(transaction: Prisma.TransactionClient, input: Readonly<{

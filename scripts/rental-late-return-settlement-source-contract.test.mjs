@@ -42,7 +42,7 @@ test('late-return settlement requires dual booking/payment authority, tenant sco
   assert.match(service, /attempt < 3/);
 });
 
-test('manual settlement is deterministic, source-attributed, provider-adapted, and cross-ledger isolated', () => {
+test('manual settlement is deterministic, source-attributed, provider-adapted, and registry-isolated', () => {
   assert.match(service, /ManualPaymentProvider/);
   assert.match(service, /OFFLINE_RECORDING/);
   assert.match(service, /OFFLINE_REFUND_RECORDING/);
@@ -59,9 +59,11 @@ test('manual settlement is deterministic, source-attributed, provider-adapted, a
     'rental_late_return_settlement_transactions',
   ]) assert.match(migration, new RegExp(table));
   assert.match(service, /manualReferenceLockKey/);
-  assert.match(service, /rentalSecurityBondTransaction\.findFirst/);
-  assert.match(service, /rentalDamageSettlementTransaction\.findFirst/);
-  assert.match(service, /rentalPaymentTransaction\.findFirst/);
+  assert.match(service, /rentalManualProviderReference\.findUnique/);
+  assert.match(service, /organizationId_providerReference/);
+  assert.doesNotMatch(service, /rentalSecurityBondTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/);
+  assert.doesNotMatch(service, /rentalDamageSettlementTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/);
+  assert.doesNotMatch(service, /rentalPaymentTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/);
 });
 
 test('staff UI and routes expose only real full-value manual payment/refund evidence with safe parsing', () => {

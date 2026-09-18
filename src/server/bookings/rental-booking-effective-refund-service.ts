@@ -58,33 +58,16 @@ async function assertManualReferenceUnused(
       hashtextextended(${manualReferenceLockKey(organizationId, reference)}, 0)
     )
   `;
-  const rows = await Promise.all([
-    transaction.rentalPaymentTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-    transaction.rentalDamageSettlementTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-    transaction.rentalSecurityBondTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-    transaction.rentalLateReturnSettlementTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-    transaction.rentalBookingCommercialAmendmentSettlementTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-    transaction.rentalBookingEffectiveRefundTransaction.findFirst({
-      where: { organizationId, providerCode: 'manual', providerReference: reference },
-      select: { id: true },
-    }),
-  ]);
-  if (rows.some(Boolean)) {
+  const retainedReference = await transaction.rentalManualProviderReference.findUnique({
+    where: {
+      organizationId_providerReference: {
+        organizationId,
+        providerReference: reference,
+      },
+    },
+    select: { sourceLedger: true, sourceId: true },
+  });
+  if (retainedReference) {
     throw new RentalBookingEffectiveRefundConflictError(
       'Manual rental payment reference has already been retained in this organization.',
     );

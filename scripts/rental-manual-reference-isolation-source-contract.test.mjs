@@ -43,19 +43,44 @@ test('all manual rental money writers retain the shared tenant-reference seriali
   }
 });
 
-test('existing application checks still execute before manual provider adapter calls', () => {
-  assert.ok(
-    damageSettlementService.indexOf('assertManualReferenceUnused(transaction, input.organizationId, reference)')
-      < damageSettlementService.indexOf('manualProvider.recordOfflinePayment'),
-  );
-  assert.ok(
-    damageSettlementService.indexOf('assertManualReferenceUnused(transaction, input.organizationId, refundReference)')
-      < damageSettlementService.indexOf('manualProvider.recordOfflineRefund'),
-  );
-  assert.ok(
-    securityBondService.indexOf('assertManualReferenceUnused(transaction, input.organizationId, reference)')
-      < securityBondService.indexOf('manualProvider.recordOfflinePayment'),
-  );
+test('all application preflight checks use the central tenant-scoped reference registry', () => {
+  for (const service of serviceSources) {
+    assert.match(service, /rentalManualProviderReference\.findUnique/);
+    assert.match(service, /organizationId_providerReference/);
+    assert.doesNotMatch(
+      service,
+      /rentalDamageSettlementTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/,
+    );
+    assert.doesNotMatch(
+      service,
+      /rentalSecurityBondTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/,
+    );
+    assert.doesNotMatch(
+      service,
+      /rentalLateReturnSettlementTransaction\.findFirst\(\{ where: \{ organizationId, providerCode: 'manual', providerReference: reference/,
+    );
+  }
+});
+
+test('application collision checks execute before every manual provider adapter call', () => {
+  const checks = [
+    [bookingPaymentService, 'assertRentalManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflinePayment'],
+    [bookingPaymentService, 'assertRentalManualReferenceUnused(transaction, input.organizationId, refundReference)', 'manualProvider.recordOfflineRefund'],
+    [damageSettlementService, 'assertManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflinePayment'],
+    [damageSettlementService, 'assertManualReferenceUnused(transaction, input.organizationId, refundReference)', 'manualProvider.recordOfflineRefund'],
+    [securityBondService, 'assertManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflinePayment'],
+    [lateReturnSettlementService, 'assertManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflinePayment'],
+    [lateReturnSettlementService, 'assertManualReferenceUnused(transaction, input.organizationId, refundReference)', 'manualProvider.recordOfflineRefund'],
+    [commercialAmendmentSettlementService, 'assertManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflinePayment'],
+    [effectiveRefundService, 'assertManualReferenceUnused(transaction, input.organizationId, reference)', 'manualProvider.recordOfflineRefund'],
+  ];
+
+  for (const [service, guard, providerCall] of checks) {
+    const guardIndex = service.indexOf(guard);
+    const providerIndex = service.indexOf(providerCall, guardIndex);
+    assert.ok(guardIndex >= 0, `missing pre-provider reference guard: ${guard}`);
+    assert.ok(providerIndex > guardIndex, `${guard} must execute before ${providerCall}`);
+  }
 });
 
 test('the registry is a tenant-scoped immutable identity index rather than another settlement ledger', () => {
@@ -94,7 +119,7 @@ test('registration remains transactional and the reference itself is the global 
   assert.match(registryMigration, /sourceId" UUID/);
 });
 
-test('documentation names all six ledgers and the fail-closed migration behavior', () => {
+test('documentation names all six ledgers and the fail-closed application and migration behavior', () => {
   for (const name of [
     'RentalPaymentTransaction',
     'RentalDamageSettlementTransaction',
@@ -105,6 +130,7 @@ test('documentation names all six ledgers and the fail-closed migration behavior
   ]) assert.match(docs, new RegExp(name));
 
   assert.match(docs, /sourceProviderReference.*not globally unique/s);
+  assert.match(docs, /application.*registry.*before.*ManualPaymentProvider/is);
   assert.match(docs, /fails closed if historical duplicate tenant references are discovered/i);
   assert.match(docs, /GitHub Actions are not required or used/i);
 });

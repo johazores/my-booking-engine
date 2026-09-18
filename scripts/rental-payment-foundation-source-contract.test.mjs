@@ -37,9 +37,8 @@ test('manual rental settlement accepts bounded partial funding and source-bound 
   assert.match(service, /ManualPaymentProvider/);
   assert.match(service, /assertRentalManualReferenceUnused/);
   assert.match(service, /sf:rental-manual-reference:/);
-  assert.match(service, /rentalDamageSettlementTransaction\.findFirst/);
-  assert.match(service, /rentalSecurityBondTransaction\.findFirst/);
-  assert.match(service, /rentalLateReturnSettlementTransaction\.findFirst/);
+  assert.match(service, /rentalManualProviderReference\.findUnique/);
+  assert.match(service, /organizationId_providerReference/);
   assert.match(service, /parseOptionalRentalPaymentAmount/);
   assert.match(service, /const requestedAmountMinor = parseOptionalRentalPaymentAmount\(input\.amount, booking\.currency\)/);
   assert.match(service, /const paymentAmountMinor = requestedAmountMinor \?\? settlement\.outstandingMinor/);
