@@ -43,7 +43,11 @@ Immutable customer snapshot, source hold, accepted money, original pricing/conve
 
 ## Staff UX
 
-Cancellation is shown only when the booking is still `CONFIRMED`, its current allocation exists, and the actor has `booking:manage` plus `availability:manage`.
+The cancellation section remains visible while a booking is still `CONFIRMED`, before pickup, has its current allocation, and the actor has `booking:manage` plus `availability:manage`. It is not hidden merely because booking-price settlement is non-zero or the actor lacks `payment:read`; this keeps the required next step discoverable without weakening authorization.
+
+When the actor also has `payment:read`, the page may show the server-derived booking-price cancellation blocker. Reconciled positive net settlement shows the exact remaining amount that must be represented by real retained refund evidence. Unreconciled settlement shows a reconciliation blocker. Without `payment:read`, the section exposes no payment amount and states only that authorized settlement verification is required.
+
+The destructive submit control is rendered only when booking-price settlement is readable, reconciled, and net settlement is zero. This is a usability gate only: `cancelRentalBooking` still independently re-reads and reconciles the complete bounded payment history under the booking lock, and PostgreSQL independently enforces its cancellation guards. A concurrent payment/refund, custody change, held security bond, allocation change, or other protected state can still make the final write fail closed.
 
 The action uses explicit confirmation. Success returns to booking detail; repeated cancellation reports existing terminal state. Permission, unavailable, conflict, validation, and server failures have explicit feedback.
 
@@ -51,13 +55,15 @@ Cancelled details preserve original booking-time evidence, reschedule/substituti
 
 ## Deliberate commercial boundary
 
-Rental cancellation releases SF-owned physical inventory only. It does not perform refund, capture, authorization release, deposit action, provider call, fee/penalty calculation, tax adjustment, customer notification, fulfillment reversal, or external synchronization.
+Rental cancellation releases SF-owned physical inventory only. It does not automatically refund booking-price money, release or forfeit a security bond, call a payment provider, calculate a cancellation fee/penalty, create a tax adjustment, notify a customer, reverse fulfillment, or synchronize an external system.
 
-Same-unit price-neutral date rescheduling is implemented separately in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md), and same-type/same-location physical-unit substitution is implemented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md). Unit-type/location changes, price-changing amendments/rescheduling, and payment/deposit consequences remain separate commercial contracts.
+Booking-price manual/offline settlement and source-attributed refunds are implemented separately in [rental-payment-foundation.md](./rental-payment-foundation.md). Any real refund must be recorded there before cancellation can commit. Security-bond disposition is a separate retained contract documented in [rental-security-bond.md](./rental-security-bond.md). Cancellation-fee policy, automatic refund policy, and provider-backed cancellation settlement remain separate future commercial contracts rather than being inferred from cancellation.
+
+Same-unit price-neutral date rescheduling is implemented separately in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md), and same-type/same-location physical-unit substitution is implemented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md). Unit-type/location changes and price-changing amendments/rescheduling remain separate commercial contracts.
 
 ## Validation
 
-`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, route authority, staff confirmation, retained evidence, and the no-fake-financial-workflow boundary.
+`scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, exact final mutation predicates, terminal database lifecycle enforcement, route authority, staff cancellation-readiness disclosure, payment-read privacy, retained evidence, and the no-fake-financial-workflow boundary.
 
 `src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL cancellation scenario. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

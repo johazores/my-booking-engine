@@ -24,15 +24,15 @@ const statuses: Record<string, string> = {
   'booking-reschedule-existing': 'This rental date-change request already completed earlier. The current effective rental period is shown below.',
   'booking-unit-substituted': 'Rental booking physical unit replaced. The new effective unit now protects the current rental period.',
   'booking-unit-substitution-existing': 'This replacement request already completed earlier. The current effective booking is shown below.',
-  'rental-payment-recorded': 'Rental offline payment recorded against the full accepted booking amount.',
+  'rental-payment-recorded': 'Rental offline payment recorded against the current accepted booking balance.',
   'rental-payment-existing': 'This rental offline payment was already recorded earlier. No duplicate transaction was created.',
-  'rental-refund-recorded': 'Rental offline refund recorded against the remaining manual settlement source.',
+  'rental-refund-recorded': 'Rental offline refund recorded against the server-selected retained payment source.',
   'rental-refund-existing': 'This rental offline refund was already recorded earlier. No duplicate transaction was created.',
   'rental-picked-up': 'Rental pickup recorded. Cancellation and unit replacement are now locked; authorized staff may still review a same-unit price-neutral extension until return.',
   'rental-pickup-existing': 'Rental pickup was already recorded earlier. No duplicate custody event was created.',
   'rental-returned': 'Rental return recorded. The immutable pickup and return custody evidence is retained.',
   'rental-return-existing': 'Rental return was already recorded earlier. No duplicate custody event was created.',
-  'rental-inventory-released': 'Remaining whole-day inventory after the recorded early return is now available for new inventory decisions.',
+  'rental-inventory-released': 'Remaining whole-day inventory after the recorded early return is now available for new inventory decisions again.',
   'rental-inventory-release-existing': 'This early-return inventory release was already applied earlier. No duplicate release evidence was created.',
 };
 
@@ -46,7 +46,7 @@ const errors: Record<string, string> = {
   'payment-permission': 'Your organization role cannot record rental payments or refunds.',
   'payment-conflict': 'The rental payment history or booking state changed. Review the current settlement before trying again.',
   'payment-unavailable': 'This rental booking is no longer available for payment operations in the active organization.',
-  'payment-validation': 'The rental payment reference was invalid.',
+  'payment-validation': 'The rental payment amount or reference was invalid.',
   'payment-server': 'The rental payment operation could not be completed. No successful transaction was recorded.',
 };
 
@@ -100,8 +100,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
 
   const beforePickup = booking.fulfillment.state === 'AWAITING_PICKUP';
   const inCustody = booking.fulfillment.state === 'PICKED_UP';
-  const paymentClearedForCancellation = paymentData !== null && paymentData.settlement.reconciled && paymentData.settlement.netSettledMinor === 0n;
-  const canCancel = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canManageAvailability && paymentClearedForCancellation;
+  const canReviewCancellation = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canManageAvailability;
   const canReviewReschedule = booking.status === 'CONFIRMED' && (beforePickup || inCustody) && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory && canReadPricing;
   const canReviewUnitSubstitutionPermission = booking.status === 'CONFIRMED' && beforePickup && Boolean(booking.allocation) && canManageBooking && canReadAvailability && canReadInventory;
   const canFulfill = booking.status === 'CONFIRMED' && Boolean(booking.allocation) && canManageBooking && canManageInventory;
@@ -193,10 +192,9 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
       <ul className="sf-inventory-list">{booking.reschedules.map((reschedule) => <li key={reschedule.id}><div className="sf-inventory-list__primary"><div><strong>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} → {reschedule.targetStartsOn.toISOString().slice(0, 10)}</strong><span>{reschedule.sourceStartsOn.toISOString().slice(0, 10)} through {reschedule.sourceEndsOn.toISOString().slice(0, 10)} became {reschedule.targetStartsOn.toISOString().slice(0, 10)} through {reschedule.targetEndsOn.toISOString().slice(0, 10)}</span><span>Pricing fingerprint <code>{reschedule.targetPricingFingerprint}</code> · applied <time dateTime={reschedule.appliedAt.toISOString()}>{reschedule.appliedAt.toISOString()}</time></span></div></div></li>)}</ul>
     </section> : null}
 
-    {booking.status === 'CONFIRMED' && beforePickup && !paymentClearedForCancellation ? <p className="sf-alert sf-alert--error" role="status">This booking still has settled or unreconciled payment money. Refund and reconcile it before cancellation can release inventory.</p> : null}
     {booking.status === 'CONFIRMED' && inCustody ? <p className="sf-alert sf-alert--error" role="status">Pickup has been recorded. Cancellation and physical-unit replacement are locked to preserve custody evidence. Authorized staff may still review a same-unit, same-start, later-end price-neutral extension until return.</p> : null}
     {booking.status === 'CONFIRMED' && booking.fulfillment.state === 'RETURNED' ? <p className="sf-alert sf-alert--error" role="status">Return has been recorded. Cancellation, further date changes, and physical-unit replacement are locked to preserve completed custody evidence.</p> : null}
-    {canCancel ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory release</p><h2 id="rental-booking-cancel-title">Cancel rental booking</h2></div></div><RentalBookingCancelAction bookingId={booking.id} /></section> : null}
+    {canReviewCancellation ? <section className="sf-inventory-card" aria-labelledby="rental-booking-cancel-title"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory release</p><h2 id="rental-booking-cancel-title">Cancel rental booking</h2></div></div><RentalBookingCancelAction bookingId={booking.id} bookingCurrency={booking.currency} settlement={paymentData?.settlement ?? null} /></section> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-customer-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Immutable snapshot</p><h2 id="rental-booking-customer-title">Customer evidence</h2></div><span>{booking.customer.status.toLowerCase()} profile</span></div>
