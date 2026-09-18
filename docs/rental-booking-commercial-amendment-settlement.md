@@ -1,62 +1,74 @@
 # Rental booking commercial amendment settlement
 
-SF has a server-side manual/offline settlement and compensation contract for a prepared same-unit rental commercial amendment. It is deliberately separate from `RentalPaymentTransaction`, which remains the immutable original booking-price ledger and is capped by the original booking total.
+SF has a tenant-scoped manual/offline settlement and compensation contract for a prepared same-unit rental commercial amendment. It is separate from `RentalPaymentTransaction`, which remains the immutable original booking-price ledger.
 
-This settlement service is still not exposed as a staff primary action. It supplies durable adjustment evidence to the server-only final apply contract without allowing browser-authored money or fake provider state.
+Authenticated staff orchestration now consumes this contract. The UI records real external manual/offline evidence only; it never treats a browser action as payment execution and never allows browser-authored currency, delta, provider code, tenant, actor, or idempotency authority.
 
 ## Settlement states
 
-`deriveRentalBookingCommercialAmendmentSettlementState` recognizes only three valid retained states:
+`deriveRentalBookingCommercialAmendmentSettlementState` recognizes only:
 
-- `UNSETTLED` — no adjustment provider evidence exists;
-- `SETTLED` — exactly one successful manual adjustment matches the prepared amendment delta; and
-- `COMPENSATED` — the exact adjustment was reversed with one successful manual compensation operation.
+- `UNSETTLED` — no adjustment evidence;
+- `SETTLED` — exactly one successful manual adjustment matching the retained amendment delta;
+- `COMPENSATED` — that exact adjustment plus one exact reverse compensation; or
+- `CONFLICT` — any unsupported or inconsistent evidence.
 
-Anything else is a conflict and fails closed. The contract does not support partial adjustment money, multiple concurrent adjustment operations, currency changes, or ambiguous provider state.
+For `ADDITIONAL_CHARGE`, adjustment is one exact `OFFLINE_PAYMENT`; compensation is a source-attributed refund against that payment.
 
-For `ADDITIONAL_CHARGE`, settlement is one exact `OFFLINE_PAYMENT`. Compensation is one exact source-attributed `REFUND` against that adjustment payment. For `REFUND`, settlement is one exact source-attributed `REFUND` against an existing successful manual booking-price payment with enough remaining refundable value. Compensation is one exact `OFFLINE_PAYMENT` restoring the refunded delta.
+For `REFUND`, adjustment is one exact source-attributed refund against a retained successful manual booking-price payment with enough remaining capacity; compensation is one exact `OFFLINE_PAYMENT` restoring the delta.
 
-## Durable evidence
+Partial adjustment money, multiple adjustments, ambiguous provider states, or currency drift are not supported.
 
-`RentalBookingCommercialAmendmentSettlementTransaction` is append-only tenant evidence linked to one prepared amendment by `(amendmentId, bookingId, organizationId)`. It stores deterministic idempotency, a versioned request fingerprint, lifecycle purpose (`ADJUSTMENT` or `COMPENSATION`), payment kind, successful manual-provider reference, refund source attribution when applicable, currency, exact positive amount, and database-authored creation time.
+## Durable evidence and database authority
 
-PostgreSQL independently enforces tenant/booking/amendment ownership, at most one adjustment and one compensation, successful manual provider evidence only, exact amendment currency and delta, direction-correct payment/refund shape, adjustment execution only while prepared authority is live, compensation only after retained adjustment evidence, exact reverse compensation semantics, append-only settlement rows, and tenant-wide manual reference isolation across all current rental cash ledgers.
+`RentalBookingCommercialAmendmentSettlementTransaction` is append-only tenant evidence linked by `(amendmentId, bookingId, organizationId)`. It retains deterministic idempotency, request fingerprint, lifecycle purpose, kind, successful provider/reference evidence, source attribution when relevant, exact currency/amount, and database-authored time.
 
-The database blocks `PREPARED -> CANCELLED/EXPIRED` while successful adjustment money is uncompensated. It also blocks `PREPARED -> APPLIED` unless exactly one successful adjustment exists and no compensation exists.
+PostgreSQL independently enforces tenant ownership, exact currency/delta, supported direction/kind shape, one adjustment and one compensation, live preparation for new adjustment money, exact reverse compensation, append-only rows, and tenant-wide manual-reference isolation.
+
+`PREPARED -> CANCELLED/EXPIRED` is blocked while successful adjustment money remains uncompensated. `PREPARED -> APPLIED` is blocked unless exactly one successful uncompensated adjustment exists.
 
 ## Server services
 
-`recordRentalBookingCommercialAmendmentManualSettlement` requires `booking:manage` and `payment:manage`, repeats tenant scope on every read/write, uses the shared rental booking lock plus an amendment-settlement lock, and uses the existing `ManualPaymentProvider` adapter. Currency, direction, amount, booking, amendment, provider code, and settlement purpose are server-derived.
+`recordRentalBookingCommercialAmendmentManualSettlement` requires `booking:manage` plus `payment:manage`, uses the shared booking lock and amendment-settlement lock, and calls the existing `ManualPaymentProvider` adapter.
 
-For a refund amendment, the caller identifies the real manual booking-payment reference being refunded. The server proves that the source is a successful tenant-owned manual booking-price payment and calculates its remaining refundable capacity after existing booking refunds and prior commercial-amendment refunds. The adjustment is rejected unless that single retained source can fund the exact prepared delta.
+For a refund amendment, staff select a retained manual booking-payment reference in the authenticated workspace. The server still proves tenant/booking ownership, successful source status, matching currency, and remaining refundable capacity before accepting the exact amendment refund.
 
-`recordRentalBookingCommercialAmendmentManualCompensation` is the recovery boundary. It can run after prepared authority expiry while the amendment is still `PREPARED`, because real adjustment money may still need to be reversed. It never changes amendment terms, booking money, allocation, custody evidence, or provider history; it only appends exact reverse settlement evidence through the manual adapter.
+`recordRentalBookingCommercialAmendmentManualCompensation` is the recovery boundary. It remains available after preparation expiry while the amendment stays `PREPARED`, because already-moved real money may need to be reversed. It appends only exact reverse evidence.
 
-`readRentalBookingCommercialAmendmentSettlement` requires `booking:read` and `payment:read` and returns retained amendment, settlement rows, and derived state.
+`readRentalBookingCommercialAmendmentSettlement` requires `booking:read` plus `payment:read`.
 
-## Manual reference isolation
+## Authenticated staff orchestration
 
-Commercial-amendment provider references join the existing tenant-wide `sf:rental-manual-reference` namespace. Inserts in any current rental cash ledger reject a provider reference already retained by another ledger. The service also acquires the same reference advisory lock before manual adapter execution and performs an application-level collision check.
+The commercial workspace at `/inventory/rentals/bookings/[booking-id]/commercial-amendments/[amendment-id]` renders the retained state and only enables operations compatible with it:
 
-Refund `sourceProviderReference` is intentionally allowed to point at an existing payment reference. Only the new refund/payment `providerReference` must be globally unique.
+- live `UNSETTLED` preparation: record exact adjustment evidence;
+- `SETTLED`: final apply while live, or exact compensation;
+- expired `SETTLED`: compensation only;
+- `UNSETTLED` or `COMPENSATED`: close/expire without apply;
+- `APPLIED`: combined effective settlement and supported post-apply refund recording;
+- terminal states: read-only evidence.
+
+Manual/offline staff actions record evidence only after real money has moved outside SF. No card collection, online refund execution, or fake provider workflow is represented as real.
+
+The action route derives tenant and actor from authenticated mutation context. Final apply additionally requires an explicit `APPLY` confirmation, then the apply service independently revalidates all durable authority.
 
 ## Final apply and post-apply boundary
 
-A `SETTLED` adjustment can now be consumed only by `applyRentalBookingCommercialAmendment`, documented in [rental-booking-commercial-amendment-apply.md](./rental-booking-commercial-amendment-apply.md). Apply revalidates settlement under the same amendment-settlement lock before mutating allocation dates or terminally linking the amendment.
+A `SETTLED` adjustment is consumed only by `applyRentalBookingCommercialAmendment`. Final apply re-locks and revalidates booking version, custody, unit allocation, inventory, pricing, original booking settlement, and exact uncompensated adjustment evidence.
 
-After apply, settlement rows cannot be extended or compensated by this contract because the amendment is no longer `PREPARED`. The protected [effective settlement contract](./rental-booking-effective-settlement.md) reconciles original booking-price transactions together with the applied adjustment and append-only post-apply refunds for authoritative balances.
+After apply, the protected [effective settlement contract](./rental-booking-effective-settlement.md) combines original booking-price transactions, the retained amendment adjustment, and append-only post-apply refunds.
 
-Post-apply manual refund writes are implemented through `recordRentalBookingPostApplyManualRefund`. Exact-zero cancellation is also implemented: `cancelRentalBooking` consumes the same combined effective settlement and PostgreSQL independently requires the original before-total, exact uncompensated adjustment, and post-apply refunds to prove zero remaining effective money before terminal inventory release.
+`recordRentalBookingPostApplyManualRefund` derives the next source server-side. Exact-zero cancellation consumes the same combined settlement.
 
-Another commercial amendment, another reschedule, and direct writes to the original booking-price ledger remain blocked after apply. No route or primary staff action exposes amendment settlement yet.
+Another commercial amendment, another reschedule, and direct writes to the original booking-price ledger remain blocked after the one supported applied amendment.
 
 ## Validation
 
-- `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact direction-aware settlement, compensation, conflicts, and deterministic request evidence.
-- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects tenant relations, database authority, global reference isolation, provider-adapter usage, refund-source capacity, compensation, permissions, locks, audit evidence, and the no-UI boundary.
-- `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects settlement consumption during final apply and post-apply fail-closed guards.
-- `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` and `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protect the combined post-apply settlement authority.
-- `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero effective cancellation authority.
+- `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact direction-aware settlement/compensation.
+- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects persistence, database authority, reference isolation, provider-adapter use, compensation, and real staff wiring.
+- `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated UI/route lifecycle.
+- `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final apply.
+- `scripts/rental-booking-effective-settlement-source-contract.test.mjs` and `scripts/rental-booking-effective-refund-source-contract.test.mjs` protect post-apply money authority.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

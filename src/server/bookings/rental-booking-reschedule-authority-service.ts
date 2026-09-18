@@ -21,7 +21,9 @@ export type RentalBookingRescheduleBlocker =
   | 'CUSTODY_EXTENSION_REQUIRED'
   | 'INVENTORY_CONFLICT'
   | 'CURRENCY_CHANGED'
-  | 'PRICE_CHANGED';
+  | 'PRICE_CHANGED'
+  | 'COMMERCIAL_AMENDMENT_ACTIVE'
+  | 'COMMERCIAL_AMENDMENT_APPLIED';
 
 export class RentalBookingRescheduleUnavailableError extends Error {
   constructor(message = 'Rental booking is not available for reschedule review in this organization.') {
@@ -109,7 +111,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       ? 'CUSTODY_EXTENSION'
       : 'PRE_PICKUP_RESCHEDULE';
 
-    const [latestReschedule, latestSubstitution] = await Promise.all([
+    const [latestReschedule, latestSubstitution, existingCommercialAmendment] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
         where: { organizationId: input.organizationId, bookingId: booking.id },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
@@ -117,6 +119,15 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       transaction.rentalBookingUnitSubstitution.findFirst({
         where: { organizationId: input.organizationId, bookingId: booking.id },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingCommercialAmendment.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          status: { in: ['PREPARED', 'APPLIED'] },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, status: true, expiresAt: true, appliedAt: true },
       }),
     ]);
     const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
@@ -225,6 +236,8 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       target.startsOn.getTime() === sourceStartsOn.getTime()
       && target.endsOn.getTime() === sourceEndsOn.getTime()
     ) blocker = 'NO_CHANGE';
+    else if (existingCommercialAmendment?.status === 'APPLIED') blocker = 'COMMERCIAL_AMENDMENT_APPLIED';
+    else if (existingCommercialAmendment?.status === 'PREPARED') blocker = 'COMMERCIAL_AMENDMENT_ACTIVE';
     else if (
       mode === 'CUSTODY_EXTENSION'
       && !isRentalBookingCustodyExtensionTarget({
@@ -288,6 +301,14 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       checkedAt: databaseClock.now,
       authorityFingerprint,
       commercialAmendmentFingerprint,
+      existingCommercialAmendment: existingCommercialAmendment
+        ? Object.freeze({
+            id: existingCommercialAmendment.id,
+            status: existingCommercialAmendment.status,
+            expiresAt: existingCommercialAmendment.expiresAt,
+            appliedAt: existingCommercialAmendment.appliedAt,
+          })
+        : null,
       booking: Object.freeze({
         id: booking.id,
         unitId: effectiveUnitId,

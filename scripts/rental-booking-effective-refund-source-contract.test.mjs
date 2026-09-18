@@ -9,6 +9,8 @@ const domain = await readFile(new URL('../src/server/bookings/rental-booking-eff
 const service = await readFile(new URL('../src/server/bookings/rental-booking-effective-refund-service.ts', import.meta.url), 'utf8');
 const history = await readFile(new URL('../src/server/bookings/rental-booking-effective-refund-history.ts', import.meta.url), 'utf8');
 const effectiveService = await readFile(new URL('../src/server/bookings/rental-booking-effective-settlement-service.ts', import.meta.url), 'utf8');
+const page = await readFile(new URL('../app/inventory/rentals/bookings/[booking-id]/commercial-amendments/[amendment-id]/page.tsx', import.meta.url), 'utf8');
+const actionRoute = await readFile(new URL('../app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/[amendment-id]/route.ts', import.meta.url), 'utf8');
 const docs = await readFile(new URL('../docs/rental-booking-effective-settlement.md', import.meta.url), 'utf8');
 
 test('schema retains tenant-owned append-only post-apply refund evidence', () => {
@@ -59,11 +61,17 @@ test('writer derives source server-side under permission and serializable bookin
   assert.doesNotMatch(service, /sourceProviderReference\?: unknown/);
 });
 
-test('reader consumes bounded fingerprint-checked post-apply history and docs keep UI honest', () => {
+test('bounded reader and staff orchestration keep post-apply refund source authority on the server', () => {
   assert.match(history, /MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /expectedIdempotencyKey/);
   assert.match(history, /expectedFingerprint/);
   assert.match(effectiveService, /postApplyRefunds: effectiveRefundHistory\.transactions/);
-  assert.match(docs, /not exposed as a primary staff action/i);
+  assert.match(page, /nextRefundSource/);
+  assert.match(page, /Record post-apply refund/);
+  assert.match(actionRoute, /readRentalBookingEffectiveSettlement/);
+  assert.match(actionRoute, /parseMoneyMajorToMinor/);
+  assert.match(actionRoute, /recordRentalBookingPostApplyManualRefund/);
+  assert.doesNotMatch(actionRoute, /sourceProviderReference: formField/);
+  assert.match(docs, /authenticated staff workspace/i);
   assert.match(docs, /Provider-backed\/online refund execution remains later adapter-backed scope/i);
 });
