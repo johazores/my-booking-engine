@@ -35,6 +35,23 @@ test('rental hold list, pricing review, and release share database time authorit
   assert.match(holdService, /endedAt: now/);
 });
 
+test('create-route hold feedback uses a tenant-scoped database-clock state read', async () => {
+  const [stateService, route] = await Promise.all([
+    source('src/server/inventory/rental-hold-state-service.ts'),
+    source('app/api/inventory/rentals/holds/route.ts'),
+  ]);
+
+  assert.match(stateService, /permission: 'availability:manage'/);
+  assert.match(stateService, /assertUuidIdentifier\(input\.holdId, 'holdId'\)/);
+  assert.match(stateService, /SELECT clock_timestamp\(\) AS "now"/);
+  assert.match(stateService, /id: input\.holdId,[\s\S]*organizationId: input\.organizationId/);
+  assert.match(stateService, /effective: hold\.status === 'ACTIVE' && hold\.expiresAt > databaseClock\.now/);
+  assert.match(route, /readManagedRentalAvailabilityHoldState/);
+  assert.match(route, /holdId: hold\.id/);
+  assert.match(route, /state\.effective \? 'hold-active' : 'hold-inactive'/);
+  assert.doesNotMatch(route, /hold\.expiresAt > new Date\(\)/);
+});
+
 test('related rental inventory mutations use PostgreSQL time for active-hold decisions', async () => {
   const rentalService = await source('src/server/inventory/rental-service.ts');
 
@@ -56,6 +73,7 @@ test('documentation keeps the database and application hold clocks aligned witho
   assert.match(docs, /clock_timestamp\(\)/);
   assert.match(docs, /CURRENT_TIMESTAMP/);
   assert.match(docs, /idempotent replay/i);
+  assert.match(docs, /create-hold HTTP route/i);
   assert.match(docs, /does not change hold duration policy/i);
   assert.match(docs, /GitHub Actions are not required or used/i);
 });

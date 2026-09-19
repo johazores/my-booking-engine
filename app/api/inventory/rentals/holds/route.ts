@@ -7,6 +7,7 @@ import {
   readInventoryFormData,
 } from '@/server/inventory/inventory-http.ts';
 import { createRentalAvailabilityHold } from '@/server/inventory/rental-hold-service.ts';
+import { readManagedRentalAvailabilityHoldState } from '@/server/inventory/rental-hold-state-service.ts';
 
 function availabilityReturnPath(formData: FormData) {
   const params = new URLSearchParams({
@@ -45,8 +46,12 @@ export async function POST(request: Request) {
         expiresInMinutes: formField(formData, 'expiresInMinutes'),
       },
     });
-    const effective = hold.status === 'ACTIVE' && hold.expiresAt > new Date();
-    const status = effective ? 'hold-active' : 'hold-inactive';
+    const state = await readManagedRentalAvailabilityHoldState({
+      organizationId: organization.id,
+      actorUserId: session.user.id,
+      holdId: hold.id,
+    });
+    const status = state.effective ? 'hold-active' : 'hold-inactive';
     return finish(NextResponse.redirect(new URL(`${path}&status=${status}`, request.url), 303));
   } catch (error) {
     const code = inventoryErrorCode(error);
