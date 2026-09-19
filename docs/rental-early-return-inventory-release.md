@@ -32,7 +32,17 @@ The new allocation end is the later of:
 
 A release is allowed only when that exclusive end is still earlier than the committed rental end. This guarantees that the allocation remains a valid non-empty range and that only complete remaining rental days are released.
 
-For example, a booking committed for October 10 through October 16 that is returned on October 12 local time may shorten live inventory protection to October 13. October 13 onward can then participate in new availability decisions. The booking still retains October 16 as its committed commercial end.
+For example, a booking committed for October 10 through October 16 that is returned on October 12 local time may shorten live allocation protection to October 13. October 13 onward is no longer occupied by that booking allocation, but the returned physical unit remains operationally unavailable until its return inspection is retained and authorized inventory staff explicitly restore the unit to `AVAILABLE`.
+
+That separation is intentional: early-return release frees calendar capacity from the old booking; it does not certify physical readiness for a new customer.
+
+## Returned-unit readiness boundary
+
+The supported `RETURNED` workflow moves an otherwise available unit to `OUT_OF_SERVICE` under the same tenant/unit lock, retaining `Returned unit awaiting operational readiness review`. Existing operational outage reasons are preserved.
+
+Pending return inspection is also a database-level fresh-authority blocker. Direct SQL cannot use a returned-but-uninspected unit for a new active hold, booking/allocation, substitution, reschedule, pickup, or operational `AVAILABLE` transition. This means an early-return release cannot bypass the inspection workflow merely because it shortened the allocation first.
+
+After a `CLEAR` inspection, staff still make an explicit operational release decision. Non-clear inspections remain governed by the existing damage and maintenance readiness rules.
 
 ## Durable evidence
 
@@ -53,9 +63,9 @@ Payment and refund evidence remains governed by the separate rental payment cont
 The booking detail distinguishes:
 
 - **Committed rental period** — retained customer/commercial dates after the latest supported reschedule or custody extension.
-- **Live inventory protection** — the current allocation date range used by availability decisions.
+- **Live inventory protection** — the current allocation date range used by booking-overlap decisions.
 
-After `RETURNED`, when at least one complete future rental day can be freed and no release exists, authorized staff see `Release remaining inventory`. The UI shows the exact date from which inventory will become available. Once applied, append-only release evidence is displayed and the action disappears.
+After `RETURNED`, when at least one complete future rental day can be freed and no release exists, authorized staff see `Release remaining inventory`. Once applied, append-only release evidence is displayed and the action disappears. The physical unit still remains out of service until inspection and explicit operational release complete, so the shortened allocation is not presented as proof that the unit is immediately sellable.
 
 The booking list continues to show the committed rental period while separately identifying an early-return inventory release. Post-pickup replacement-unit actions are not shown.
 
@@ -63,6 +73,7 @@ The booking list continues to show the committed rental period while separately 
 
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers location-calendar release dates, whole-day semantics, no-op rejection, and deterministic idempotency.
 - `scripts/rental-early-return-inventory-release-source-contract.test.mjs` protects tenant ownership, append-only persistence, booking/unit serialization, latest reschedule/extension date derivation, replay revalidation, exact return-event authority, server-derived route authority, exact allocation shortening, database guards, and staff read/UI semantics.
+- `scripts/rental-return-readiness-source-contract.test.mjs` protects the additional rule that released calendar capacity cannot make a returned physical unit sellable before inspection and explicit operational readiness release.
 - Full Prisma, migration, PostgreSQL, typecheck, lint, test, and build validation remains part of the repository-supported Node 24 workflow and guarded disposable-database tests.
 
 GitHub Actions are not required or used.

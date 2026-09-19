@@ -2,7 +2,7 @@
 
 SF treats a physical rental unit's commercial lifecycle and operational availability as separate production concerns.
 
-`RentalUnit.status` still answers whether the inventory record is active or archived. `RentalUnitOperationalState.status` answers whether an otherwise active physical unit may accept new rental authority:
+`RentalUnit.status` answers whether the inventory record is active or archived. `RentalUnitOperationalState.status` answers whether an otherwise active physical unit may accept new rental authority:
 
 - `AVAILABLE` means no operational hold is active.
 - `OUT_OF_SERVICE` means the unit is unavailable until authorized staff explicitly returns it to `AVAILABLE`.
@@ -27,14 +27,26 @@ Fresh rental availability search excludes out-of-service units before pricing or
 - inserting a rental booking for the unit;
 - inserting an allocation or changing an allocation to that unit;
 - inserting a same-unit reschedule while the effective unit is out of service;
-- inserting a physical-unit substitution that targets the unit;
+- inserting a physical-unit substitution that targets the unit; and
 - recording `PICKED_UP` custody for the unit.
 
-The database guards deliberately do **not** reject `RETURNED`. A unit may be taken out of service while it is physically in customer custody, and staff must still be able to record its return.
+The database guards deliberately do **not** reject `RETURNED`. A unit may already be out of service while it is physically in customer custody, and staff must still be able to record its return.
 
 Existing bookings are not silently cancelled, refunded, extended, or moved when staff mark a unit out of service. Supported remediation remains explicit: authorized staff may use the existing pre-custody substitution, reschedule, cancellation, and settlement workflows when their own acceptance criteria permit them.
 
 Unavailable-date blocks remain appropriate for known bounded calendar outages. Operational status is for an indefinite physical-unit outage that ends only through an explicit staff transition.
+
+## Returned-unit readiness
+
+Recording `RETURNED` now closes the availability gap between physical handback and the mandatory return-condition inspection. Under the existing tenant/unit lock, the supported fulfillment writer moves an otherwise available unit to `OUT_OF_SERVICE` with the retained reason `Returned unit awaiting operational readiness review` before it commits the return event. If maintenance or another operational concern already has the unit out of service, that existing reason is preserved.
+
+An idempotent return replay also repairs older supported return evidence that still lacks an inspection and operational quarantine. It does not re-quarantine a returned unit after inspection evidence already exists.
+
+A unit cannot be explicitly returned to `AVAILABLE` while any tenant-owned `RETURNED` event for that physical unit still lacks its matching `RentalReturnInspection`. The application checks that condition while holding the unit lock before an available transition. Once inspection evidence exists, the existing maintenance and unresolved-damage readiness checks still apply before staff can restore service.
+
+PostgreSQL independently uses the same tenant/unit advisory lock. The active-rental authority predicate now treats pending return inspection as unavailable in addition to persisted `OUT_OF_SERVICE` state, so direct SQL cannot create a hold, booking/allocation, substitution, reschedule, or pickup against a returned-but-uninspected unit. A separate operational-state trigger also rejects a direct `AVAILABLE` transition while inspection is pending.
+
+This defense-in-depth matters for early return. Shortening a returned booking's allocation may release future calendar days, but those days do not become sellable until return inspection is retained and authorized staff explicitly restore operational availability.
 
 ## Maintenance integration
 
@@ -50,41 +62,36 @@ See `docs/rental-maintenance-work-orders.md` for the work-order lifecycle and ev
 
 ## Return-inspection, damage-case, and liability integration
 
-A retained `DAMAGE_REPORTED` or `UNSAFE` return inspection uses the same physical-unit lock and operational-state writer. If the returned unit is currently available, the inspection transaction moves it to `OUT_OF_SERVICE` before inserting inspection evidence. If another operational hold already exists, its reason is preserved.
+Every supported return is operationally quarantined until inspection and explicit readiness release. A retained `DAMAGE_REPORTED` or `UNSAFE` inspection additionally establishes non-clear condition evidence. If another operational hold already exists, its reason is preserved.
 
-PostgreSQL independently rejects non-clear return-inspection evidence unless the retained returned unit is already out of service. A clear inspection never changes operational state, and no inspection automatically returns a unit to service.
+PostgreSQL independently requires an out-of-service unit for non-clear return-inspection evidence. A clear inspection never changes operational state and no inspection automatically returns a unit to service. This keeps release deliberate after the physical readiness review.
 
 A non-clear inspection can feed one explicit `RentalDamageCase`. Opening the case again verifies the physical unit is out of service. While the case is `OPEN` or `ASSESSED`, both the application operational-state writer and PostgreSQL reject an `AVAILABLE` transition, and PostgreSQL rejects archiving the unit. `WAIVED` and `CLOSED` are terminal damage-case states.
 
 Waiving or closing the final unresolved damage case deliberately does not return the unit to service. Staff must still verify maintenance and any other operational concerns before explicitly restoring availability.
 
-A customer-damage-liability decision is downstream commercial evidence only after a damage case is closed. It does not itself quarantine or release the unit, so operational readiness remains governed by maintenance, unresolved damage state, and the explicit operational control rather than by customer settlement status.
+A customer-damage-liability decision is downstream commercial evidence only after a damage case is closed. It does not itself quarantine or release the unit, so operational readiness remains governed by return inspection, maintenance, unresolved damage state, and the explicit operational control rather than by customer settlement status.
 
-See `docs/rental-return-inspection.md`, `docs/rental-damage-case.md`, and `docs/rental-damage-liability.md` for the retained condition, damage-follow-up, and commercial-decision contracts.
+See `docs/rental-return-inspection.md`, `docs/rental-damage-case.md`, and `docs/rental-damage-liability.md` for those contracts.
 
 ## Staff workflow
 
 The rental-unit detail page shows the current operational status and retained reason. Staff with inventory-management permission can move the unit between **Available** and **Out of service** from the existing unit controls and can open the dedicated maintenance workspace from the same page.
 
-This is a real inventory authority control. It is not a cosmetic label: discovery, maintenance, return inspection, damage follow-up, and database write boundaries consume the state. Attempts to return a unit to service while active maintenance or an unresolved damage case remains fail closed as a conflict.
+This is real inventory authority, not a cosmetic label. Discovery, fulfillment, maintenance, return inspection, damage follow-up, and database write boundaries consume the state. Attempts to return a unit to service while return inspection is pending, maintenance is active, or a damage case remains unresolved fail closed as inventory conflicts.
 
 ## Deliberate boundaries
 
 Operational availability, maintenance work orders, return-condition inspection, and damage cases do not themselves invent customer charging, security-bond handling, repair-vendor dispatch, purchase orders, parts inventory, detailed labor/cost line items, late-return fees, automatic notifications, or external maintenance-provider synchronization.
 
-The damage-case repair estimate is operational evidence only and is not a customer balance or payment instruction by itself. A separate post-closure customer-liability decision can now retain whether and how much of that estimate is attributed to the customer. Security bonds and damage settlement/collection remain separate Phase 17 commercial workflows with their own policy, provider, reconciliation, and authorization requirements.
+The damage-case repair estimate is operational evidence only and is not a customer balance or payment instruction by itself. A separate post-closure customer-liability decision can retain whether and how much of that estimate is attributed to the customer. Security bonds and damage settlement/collection remain separate Phase 17 commercial workflows with their own policy, provider, reconciliation, and authorization requirements.
 
 ## Validation
 
-The dependency-free domain test `src/server/inventory/rental-unit-operational-domain.test.ts` protects status/reason normalization. The operational source contract `scripts/rental-unit-operational-availability-source-contract.test.mjs` protects:
+The dependency-free domain test `src/server/inventory/rental-unit-operational-domain.test.ts` protects status/reason normalization. `scripts/rental-unit-operational-availability-source-contract.test.mjs` protects the established operational-state model, authorization, locking, search exclusion, active-authority database guards, staff control, and deliberate commercial boundaries.
 
-- the Prisma enum/model and tenant/unit relation;
-- authorization, tenant scope, unit locking, database time, idempotent writes, and audit evidence;
-- availability-search exclusion;
-- database guards across holds, booking confirmation, allocation/substitution, reschedule, and pickup;
-- the explicit ability to record return while a unit is out of service;
-- the staff unit-detail control and deliberate commercial boundaries.
+`scripts/rental-return-readiness-source-contract.test.mjs` protects returned-unit quarantine, idempotent legacy repair, pending-inspection release protection, the shared PostgreSQL lock boundary, and the database backstop that rejects fresh rental authority before inspection.
 
-The maintenance domain and source-contract tests additionally protect work-order lifecycle validation, tenant-scoped idempotency, shared locking, operational coupling, active-maintenance release protection, archive protection, database-authored lifecycle timestamps, audit evidence, and real staff actions. The return-inspection source contract protects returned-custody binding, dual write permissions, idempotency, database-authored immutable evidence, non-clear operational quarantine, and the real booking-detail action. The damage-case domain and source contract protect non-clear inspection binding, exact estimate evidence, unresolved-case operational release/archive protection, lifecycle immutability, and real staff actions without creating settlement behavior. The damage-liability domain and source contract protect the separate post-closure commercial decision and its no-settlement boundary.
+The maintenance, return-inspection, damage-case, and damage-liability source contracts continue protecting their narrower lifecycle and evidence rules.
 
 Repository validation remains `npm run validate` on the Node version declared in `package.json`. Migration and trigger behavior should additionally be exercised through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

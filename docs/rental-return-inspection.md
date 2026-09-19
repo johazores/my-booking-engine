@@ -20,19 +20,21 @@ Recording an inspection requires both `booking:manage` and `inventory:manage`. T
 
 Idempotent replay succeeds only when booking, outcome, and retained notes match the original operation. A booking cannot gain a second inspection under another idempotency key.
 
-## Operational quarantine
+## Returned-unit readiness quarantine
 
-A `DAMAGE_REPORTED` or `UNSAFE` inspection is not allowed to leave a currently available unit sellable.
+The supported return workflow now moves an otherwise available physical unit to `OUT_OF_SERVICE` under the shared tenant/unit lock before retaining `RETURNED` evidence. The retained reason is `Returned unit awaiting operational readiness review`. If another operational concern already has the unit out of service, its reason is preserved.
 
-While holding the physical-unit lock, the writer moves an available unit to `OUT_OF_SERVICE` before inserting non-clear inspection evidence. It uses the existing operational-state service so database time and audit behavior stay consistent. If the unit is already out of service, the existing operational reason is preserved instead of being overwritten.
+This closes the interval in which an early-return allocation release or naturally elapsed booking allocation could otherwise make a returned unit appear sellable before condition review. The unit cannot be explicitly restored to `AVAILABLE` while a retained return event still lacks inspection evidence.
 
-The database trigger independently requires `OUT_OF_SERVICE` for non-clear inspection inserts.
+PostgreSQL independently treats a pending return inspection as unavailable when fresh rental authority is created, and it rejects direct operational `AVAILABLE` transitions until inspection exists. These guards share the physical-unit advisory lock with fulfillment and inspection writes, so return, inspection, operational release, and fresh rental authority serialize on one physical-inventory boundary.
 
-A `CLEAR` inspection does not automatically return a unit to service. An unrelated operational hold or maintenance order may still exist, so returning a unit to `AVAILABLE` remains an explicit inventory-management decision.
+A `CLEAR` inspection does not automatically return a unit to service. Staff still make the explicit readiness decision after inspection, so unrelated maintenance or another operational concern cannot be silently cleared.
 
-## Damage-case and liability follow-up
+## Non-clear inspection and damage follow-up
 
-A retained `DAMAGE_REPORTED` or `UNSAFE` inspection can feed one explicit tenant-owned rental damage case. The case retains operational follow-up, exact repair-cost estimate evidence, waiver, and resolution without rewriting the immutable inspection.
+A retained `DAMAGE_REPORTED` or `UNSAFE` inspection is not allowed to leave a unit sellable. The unit is already quarantined by the return workflow in the supported path; if another path has retained it out of service, that operational state is preserved. The database trigger independently requires `OUT_OF_SERVICE` for non-clear inspection inserts.
+
+A non-clear inspection can feed one explicit `RentalDamageCase`. The case retains operational follow-up, exact repair-cost estimate evidence, waiver, and resolution without rewriting the immutable inspection.
 
 An unresolved damage case keeps the unit out of service and blocks archival. The damage-case repair estimate itself does not establish customer liability and is not a customer balance or payment instruction.
 
@@ -44,13 +46,13 @@ See `docs/rental-damage-case.md` and `docs/rental-damage-liability.md` for those
 
 The rental booking detail shows retained inspection evidence after return. When the booking is returned and no inspection exists, authorized staff get a real `Record return inspection` form with outcome and notes.
 
-After a non-clear inspection, the same booking detail shows the real damage-case follow-up controls. A clear inspection has no damage-case action. After a non-waived damage case is assessed and closed, users with the required payment visibility can review or record the separate customer-liability decision.
+The physical unit remains out of service until inspection exists and authorized inventory staff explicitly restore it to `AVAILABLE`. After a non-clear inspection, the booking detail shows the real damage-case follow-up controls. A clear inspection has no damage-case action. After a non-waived damage case is assessed and closed, users with the required payment visibility can review or record the separate customer-liability decision.
 
 These actions do not change the booking dates, allocation, accepted booking price, booking settlement evidence, return evidence, or early-return release evidence.
 
 ## Deliberate boundaries
 
-The inspection does not itself determine customer liability or create a customer amount due. The downstream closed-damage-case liability decision can now retain that commercial determination, but this overall slice still does not:
+The inspection does not itself determine customer liability or create a customer amount due. The downstream closed-damage-case liability decision can retain that commercial determination, but this overall slice still does not:
 
 - authorize, capture, release, or forfeit a security bond/deposit;
 - collect a damage payment or mark liability as paid;
@@ -61,3 +63,9 @@ The inspection does not itself determine customer liability or create a customer
 - notify customers or external systems.
 
 Those require separate commercial or operational acceptance criteria. The durable inspection, damage case, and liability decision provide immutable source evidence that later workflows can reference without rewriting custody history.
+
+## Validation
+
+`scripts/rental-return-readiness-source-contract.test.mjs` protects the handback-to-inspection quarantine and release guard. Existing return-inspection source contracts continue protecting returned-custody binding, dual write permissions, deterministic idempotency, database-authored immutable evidence, non-clear quarantine requirements, and real staff actions.
+
+Full Prisma, TypeScript, lint, production build, and live migration execution require the repository-supported Node 24 toolchain and an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.

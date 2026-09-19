@@ -85,22 +85,18 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
   });
   const currentStatus = current?.status ?? 'AVAILABLE';
   const currentReason = current?.reason ?? null;
-  if (currentStatus === input.operational.status && currentReason === input.operational.reason) {
-    return Object.freeze({
-      state: current ?? {
-        organizationId: input.organizationId,
-        unitId: input.unit.id,
-        status: 'AVAILABLE' as const,
-        reason: null,
-        changedAt: null,
-        changedByUserId: null,
-      },
-      idempotent: true as const,
-    });
-  }
 
   if (input.operational.status === 'AVAILABLE') {
-    const [activeMaintenance, activeDamageCases] = await Promise.all([
+    const [pendingReturnInspection, activeMaintenance, activeDamageCases] = await Promise.all([
+      input.transaction.rentalBookingFulfillmentEvent.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: input.unit.id,
+          kind: 'RETURNED',
+          returnInspection: { is: null },
+        },
+        select: { id: true },
+      }),
       input.transaction.rentalMaintenanceWorkOrder.count({
         where: {
           organizationId: input.organizationId,
@@ -116,6 +112,11 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
         },
       }),
     ]);
+    if (pendingReturnInspection) {
+      throw new RentalInventoryConflictError(
+        'Record the pending rental return inspection before returning this rental unit to service.',
+      );
+    }
     if (activeMaintenance > 0) {
       throw new RentalInventoryConflictError(
         'Complete or cancel active maintenance work before returning this rental unit to service.',
@@ -126,6 +127,20 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
         'Waive or close unresolved damage cases before returning this rental unit to service.',
       );
     }
+  }
+
+  if (currentStatus === input.operational.status && currentReason === input.operational.reason) {
+    return Object.freeze({
+      state: current ?? {
+        organizationId: input.organizationId,
+        unitId: input.unit.id,
+        status: 'AVAILABLE' as const,
+        reason: null,
+        changedAt: null,
+        changedByUserId: null,
+      },
+      idempotent: true as const,
+    });
   }
 
   const [databaseClock] = await input.transaction.$queryRaw<Array<{ now: Date }>>`

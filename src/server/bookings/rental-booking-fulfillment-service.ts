@@ -1,7 +1,11 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
+
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
+import { normalizeRentalUnitOperationalStatusInput } from '../inventory/rental-unit-operational-domain.ts';
+import { setLockedRentalUnitOperationalStatusInTransaction } from '../inventory/rental-unit-operational-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   deriveRentalBookingFulfillmentState,
@@ -12,6 +16,8 @@ import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import { readRentalBookingSecurityBondGuardInTransaction } from './rental-booking-security-bond-guard-service.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
+
+const RETURNED_UNIT_READINESS_REASON = 'Returned unit awaiting operational readiness review';
 
 export class RentalBookingFulfillmentConflictError extends Error {
   constructor(message: string) {
@@ -55,6 +61,46 @@ async function runRentalBookingFulfillment<T>(operation: () => Promise<T>) {
 
 function sameDate(left: Date, right: Date) {
   return left.getTime() === right.getTime();
+}
+
+async function quarantineReturnedUnitForReadiness(input: Readonly<{
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  actorUserId: string;
+  unit: Readonly<{ id: string; code: string }>;
+  returnEventId?: string;
+}>) {
+  if (input.returnEventId) {
+    const inspection = await input.transaction.rentalReturnInspection.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        returnEventId: input.returnEventId,
+        unitId: input.unit.id,
+      },
+      select: { id: true },
+    });
+    if (inspection) return;
+  }
+
+  const operationalState = await input.transaction.rentalUnitOperationalState.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      unitId: input.unit.id,
+    },
+    select: { status: true },
+  });
+  if (operationalState?.status === 'OUT_OF_SERVICE') return;
+
+  await setLockedRentalUnitOperationalStatusInTransaction({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    unit: input.unit,
+    operational: normalizeRentalUnitOperationalStatusInput({
+      status: 'OUT_OF_SERVICE',
+      reason: RETURNED_UNIT_READINESS_REASON,
+    }),
+  });
 }
 
 async function recordRentalBookingFulfillmentEvent(input: Readonly<{
@@ -161,6 +207,16 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
         )
       `;
 
+      if (input.kind === 'RETURNED') {
+        await quarantineReturnedUnitForReadiness({
+          transaction,
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          unit: { id: effectiveUnitId, code: existing.unitCode },
+          returnEventId: existing.id,
+        });
+      }
+
       return Object.freeze({ event: existing, fulfillment: deriveRentalBookingFulfillmentState(history), idempotent: true });
     }
 
@@ -262,6 +318,15 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
     }
     if (input.kind === 'RETURNED' && current.state !== 'PICKED_UP') {
       throw new RentalBookingFulfillmentConflictError('Only a picked-up rental booking can be returned.');
+    }
+
+    if (input.kind === 'RETURNED') {
+      await quarantineReturnedUnitForReadiness({
+        transaction,
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        unit,
+      });
     }
 
     const event = await transaction.rentalBookingFulfillmentEvent.create({
