@@ -10,11 +10,13 @@ The production path is now exposed to authenticated staff for the supported manu
 
 The commercial fingerprint binds tenant/booking identity, booking version, effective unit/type/location, current and target dates, accepted and target totals, exact delta/direction, source and target pricing fingerprints, custody mode, and pickup evidence when custody has started.
 
-A `PREPARED` amendment freezes another date mutation until staff complete, compensate, or close the retained workflow. An `APPLIED` amendment becomes the accepted effective commercial baseline rather than freezing every later date change: a later same-unit reschedule or custody extension can proceed only when current server pricing preserves the applied amendment `afterTotalMinor`. A later price change remains blocked because a second price-changing amendment is outside the current one-amendment contract.
+A `PREPARED` amendment freezes another date mutation, physical-unit substitution, and new original booking-price ledger writes until staff complete, compensate, or close the retained workflow. An `APPLIED` amendment becomes the accepted effective commercial baseline rather than freezing every later date change: a later same-unit reschedule or custody extension can proceed only when current server pricing preserves the applied amendment `afterTotalMinor`. A later price change remains blocked because a second price-changing amendment is outside the current one-amendment contract.
 
 Authenticated staff with the required booking, inventory, pricing, and payment authority can POST the reviewed target dates plus the server-issued review fingerprint to the preparation route. The browser does not submit tenant, actor, unit, location, currency, amount, direction, expiry, provider, or idempotency authority.
 
 `prepareRentalBookingCommercialAmendment` reacquires the booking/current-unit locks, uses PostgreSQL time, revalidates lifecycle/custody/inventory/current pricing, verifies the review fingerprint, requires the original accepted booking amount to be fully reconciled as paid, and persists a short-lived `PREPARED` amendment. Preparation does not move booking dates, reserve additional inventory, or move money.
+
+The original booking-price ledger is frozen from `PREPARED` onward because the retained amendment now owns exact before-total and adjustment authority. The application rejects new original-ledger payment/refund writes under the shared booking lock before provider-adapter execution, and PostgreSQL independently rejects direct inserts while the amendment is `PREPARED` or `APPLIED`. Durable replay of already-retained original payment/refund evidence remains valid because replay does not append new money evidence. If a prepared amendment terminates as `CANCELLED` or `EXPIRED`, the original ledger becomes writable again; an `APPLIED` amendment keeps it historical permanently.
 
 ## Staff orchestration
 
@@ -85,7 +87,7 @@ See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substi
 
 ## Post-apply effective settlement and refunds
 
-After apply, money authority comes from the protected combined settlement model rather than `RentalBooking.totalMinor` alone.
+After apply, money authority comes from the protected combined settlement model rather than `RentalBooking.totalMinor` alone. The effective settlement workflow owns later refund authority; the original booking-price ledger is retained only as immutable source evidence.
 
 An applied increase combines the original booking ledger plus the retained amendment payment. Refunds unwind the amendment payment first, then original booking-payment sources.
 
@@ -99,7 +101,7 @@ See [rental-booking-effective-settlement.md](./rental-booking-effective-settleme
 
 ## Deliberate boundaries
 
-Only one applied price-changing commercial amendment per rental is supported. Another commercial amendment and direct writes to the original booking-price ledger remain blocked after apply. Later same-unit price-neutral reschedules/extensions and same-type/same-location pre-custody unit substitutions are supported only when they preserve the applied amendment currency and exact `afterTotalMinor`.
+Only one applied price-changing commercial amendment per rental is supported. Another commercial amendment remains blocked after apply. New direct writes to the original booking-price ledger are blocked from `PREPARED` onward; `CANCELLED`/`EXPIRED` releases that freeze, while `APPLIED` keeps the original ledger historical. Later same-unit price-neutral reschedules/extensions and same-type/same-location pre-custody unit substitutions are supported only when they preserve the applied amendment currency and exact `afterTotalMinor`.
 
 The supported staff orchestration is manual/offline evidence only. Provider-backed/online adjustment collection, provider-backed/online refunds, automatic cancellation fees, automatic refund policy, delivery/one-way changes, customer self-service, notifications, invoices, and external fleet synchronization remain separate contracts. Provider-specific behavior stays behind adapters.
 
@@ -118,6 +120,7 @@ No route accepts browser authority for tenant, actor, currency, amendment delta,
 - `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline and price-neutral continuation.
 - `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects post-apply same-type/same-location substitution on the accepted effective commercial baseline.
+- `scripts/rental-commercial-ledger-freeze-source-contract.test.mjs` protects the original booking-price ownership handoff at `PREPARED`, durable replay semantics, database backstop, and staff no-dead-action behavior.
 - Full repository validation remains `npm run validate` under the Node version declared in `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

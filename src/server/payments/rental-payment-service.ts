@@ -113,6 +113,75 @@ async function readRequiredRentalPaymentHistory(
   return history.transactions;
 }
 
+async function readOriginalRentalPaymentLedgerAuthorityInTransaction(
+  transaction: Prisma.TransactionClient,
+  input: Readonly<{ organizationId: string; bookingId: string }>,
+) {
+  const amendments = await transaction.rentalBookingCommercialAmendment.findMany({
+    where: {
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      status: { in: ['PREPARED', 'APPLIED'] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: 2,
+    select: { id: true, status: true },
+  });
+
+  if (amendments.length > 1) {
+    return Object.freeze({
+      writable: false as const,
+      amendment: null,
+      reason: 'Conflicting active rental commercial amendments prevent original booking-price settlement writes.',
+    });
+  }
+
+  const amendment = amendments[0];
+  if (!amendment) {
+    return Object.freeze({ writable: true as const, amendment: null, reason: null });
+  }
+
+  const status = amendment.status === 'PREPARED' ? 'PREPARED' as const : 'APPLIED' as const;
+  return Object.freeze({
+    writable: false as const,
+    amendment: Object.freeze({ id: amendment.id, status }),
+    reason: status === 'PREPARED'
+      ? 'Original booking-price settlement is frozen while a rental commercial amendment is prepared. Finish, compensate, or close that workflow first.'
+      : 'Original booking-price settlement is historical after a rental commercial amendment is applied. Use the effective settlement workflow for later refunds.',
+  });
+}
+
+async function assertOriginalRentalPaymentLedgerWritable(
+  transaction: Prisma.TransactionClient,
+  input: Readonly<{ organizationId: string; bookingId: string }>,
+) {
+  const authority = await readOriginalRentalPaymentLedgerAuthorityInTransaction(transaction, input);
+  if (!authority.writable) throw new RentalPaymentConflictError(authority.reason);
+}
+
+export async function readRentalOriginalPaymentLedgerAuthority(input: Readonly<{
+  organizationId: string;
+  actorUserId: string;
+  bookingId: string;
+}>) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.bookingId, 'bookingId');
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:read' });
+
+  return db.$transaction(async (transaction) => {
+    const booking = await transaction.rentalBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!booking) throw new RentalPaymentUnavailableError('Rental booking is not available in this organization.');
+    return readOriginalRentalPaymentLedgerAuthorityInTransaction(transaction, {
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+    });
+  }, { isolationLevel: 'RepeatableRead' });
+}
+
 export async function recordRentalManualOfflinePayment(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -184,6 +253,10 @@ export async function recordRentalManualOfflinePayment(input: Readonly<{
 
     if (booking.status !== 'CONFIRMED') throw new RentalPaymentConflictError('Only confirmed rental bookings can receive an offline payment.');
     if (booking.totalMinor <= 0n) throw new RentalPaymentConflictError('A zero-value rental booking does not require an offline payment.');
+    await assertOriginalRentalPaymentLedgerWritable(transaction, {
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+    });
 
     const history = await readRequiredRentalPaymentHistory({
       transaction,
@@ -360,6 +433,10 @@ export async function recordRentalManualOfflineRefund(input: Readonly<{
     }
 
     if (booking.status !== 'CONFIRMED') throw new RentalPaymentConflictError('Refund rental payments before cancelling the rental booking.');
+    await assertOriginalRentalPaymentLedgerWritable(transaction, {
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+    });
 
     const history = await readRequiredRentalPaymentHistory({
       transaction,

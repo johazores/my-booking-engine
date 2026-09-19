@@ -7,9 +7,11 @@ const holdDetail = readFileSync('app/inventory/rentals/holds/[hold-id]/page.tsx'
 const confirmRoute = readFileSync('app/api/inventory/rentals/holds/[hold-id]/confirm/route.ts', 'utf8');
 const cancelRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/cancel/route.ts', 'utf8');
 const rescheduleRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/reschedule/route.ts', 'utf8');
+const commercialPrepareRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/route.ts', 'utf8');
 const unitSubstitutionRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/unit-substitution/route.ts', 'utf8');
 const bookingList = readFileSync('app/inventory/rentals/bookings/page.tsx', 'utf8');
 const bookingDetail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
+const reschedulePage = readFileSync('app/inventory/rentals/bookings/[booking-id]/reschedule/page.tsx', 'utf8');
 const unitSubstitutionPage = readFileSync('app/inventory/rentals/bookings/[booking-id]/unit-substitution/page.tsx', 'utf8');
 const documentation = readFileSync('docs/rental-booking-staff-workflow.md', 'utf8');
 const foundation = readFileSync('docs/rental-booking-foundation.md', 'utf8');
@@ -64,6 +66,8 @@ test('staff booking lifecycle exposes only supported durable mutations', () => {
   assert.match(bookingDetail, /Append-only history/);
   assert.match(rescheduleRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.reschedule'\)/);
   assert.match(rescheduleRoute, /buildRentalBookingRescheduleIdempotencyKey/);
+  assert.match(reschedulePage, /Prepare commercial amendment/);
+  assert.match(commercialPrepareRoute, /prepareRentalBookingCommercialAmendment/);
   assert.match(unitSubstitutionPage, /Apply replacement unit/);
   assert.match(unitSubstitutionRoute, /prepareInventoryMutationRequest\(request, 'booking\.rental\.unit-substitute'\)/);
   assert.match(unitSubstitutionRoute, /buildRentalBookingUnitSubstitutionIdempotencyKey/);
@@ -76,11 +80,12 @@ test('documentation preserves the production boundary and forbids fake downstrea
   assert.match(documentation, /authenticated server context/);
   assert.match(documentation, /caps page size at 100/);
   assert.match(documentation, /same-unit price-neutral date reschedules/);
-  assert.match(documentation, /Physical-unit substitution authority/);
+  assert.match(documentation, /one supported same-unit price-changing commercial/i);
+  assert.match(documentation, /same-type\/same-location physical-unit substitutions/i);
   assert.match(documentation, /deterministic order/);
   assert.match(documentation, /Cancellation is an inventory-release lifecycle mutation/);
-  assert.match(documentation, /payment collection/);
-  assert.match(documentation, /price-changing reschedules\/amendments|price-changing amendment/);
+  assert.match(documentation, /public\/online rental payment collection/);
+  assert.match(documentation, /second\/chained price-changing commercial amendment/i);
   assert.match(documentation, /GitHub Actions are not required or used/);
   assert.match(foundation, /Staff booking interaction/);
   assert.match(foundation, /Cancellation lifecycle/);

@@ -1,6 +1,6 @@
 # Rental payment foundation
 
-SF supports a deliberately narrow production settlement boundary for confirmed rental bookings. Authorized staff can record multiple real manual/offline booking-price payments until the accepted booking total is fully settled, and can later record one or more real manual/offline refunds against retained payment sources. Both payments and refunds may be partial.
+SF supports a deliberately narrow production settlement boundary for confirmed rental bookings. Authorized staff can record multiple real manual/offline booking-price payments until the accepted booking total is fully settled, and can later record one or more real manual/offline refunds against retained payment sources. Both payments and refunds may be partial while original booking-price authority remains active.
 
 This is not a deposit-policy workflow, mixed-provider settlement workflow, or online checkout workflow. No provider action is presented as successful unless the corresponding real manual/offline event already happened outside SF.
 
@@ -36,13 +36,13 @@ The staff form supplies a requested amount in booking currency and a real extern
 
 Before provider-adapter I/O, the exact amount, tenant, booking, operation, provider identity, external reference, currency, and idempotency key are bound into the request fingerprint. The adapter result must rebuild to the same exact request before persistence.
 
-A new payment is accepted only for a confirmed positive-value rental with a positive outstanding booking balance. Each successful payment becomes a separate retained settlement source. Recording additional manual payments does not rewrite the accepted booking total or prior payment evidence.
+A new payment is accepted only for a confirmed positive-value rental with a positive outstanding booking balance and no active commercial-amendment authority. Each successful payment becomes a separate retained settlement source. Recording additional manual payments does not rewrite the accepted booking total or prior payment evidence.
 
 The browser never chooses the tenant, actor, provider, currency, minor-unit conversion, request fingerprint, or idempotency key. Its amount is only a requested value and is bounded again by current server-derived settlement authority under the booking lock.
 
 ## Manual partial and full refunds
 
-`recordRentalManualOfflineRefund` also requires `payment:manage` and the same booking serialization boundary. A refund can be recorded whenever the confirmed rental has positive reconciled original booking-price net settlement, including a `PARTIALLY_PAID` rental, provided no applied commercial amendment has moved authority to the effective-settlement ledger.
+`recordRentalManualOfflineRefund` also requires `payment:manage` and the same booking serialization boundary. A refund can be recorded whenever the confirmed rental has positive reconciled original booking-price net settlement, including a `PARTIALLY_PAID` rental, provided no `PREPARED` or `APPLIED` commercial amendment has moved authority away from direct original-ledger writes.
 
 The staff form submits a requested refund amount in booking currency. The server parses it with the shared currency-aware money parser, requires a positive amount, derives current bounded settlement, selects the next retained refundable source deterministically, and rejects an amount larger than that source's remaining refundable balance. If no amount is supplied by an internal caller, the service refunds the selected source's full remaining balance.
 
@@ -52,13 +52,23 @@ The browser never chooses the tenant, actor, provider, settlement source, curren
 
 Before provider-adapter I/O, the exact selected source and exact refund amount are bound into the request fingerprint. The returned manual-provider result must rebuild to the same provider, refund reference, source reference, currency, and amount before persistence.
 
-Partial refunds remain financially settled. For a rental without an applied commercial amendment, cancellation remains blocked until this booking-price net settlement reaches zero. After an applied commercial amendment, direct writes to this original ledger are blocked and later refunds use the adjustment-aware effective settlement contract instead.
+Partial refunds remain financially settled. For a rental without active commercial-amendment authority, cancellation remains blocked until this booking-price net settlement reaches zero. The original booking-price ledger freezes as soon as a commercial amendment is `PREPARED`; settlement/compensation then belongs to that retained workflow, and an `APPLIED` amendment moves later refunds to the adjustment-aware effective settlement contract.
+
+## Commercial amendment ledger freeze
+
+Preparing a price-changing rental amendment is a financial ownership handoff. Once one tenant-owned amendment reaches `PREPARED`, new original booking-price payments and refunds are rejected before `ManualPaymentProvider` is called. This prevents staff or an internal caller from changing the source ledger while the retained amendment is carrying exact before-total, adjustment, refund-source, expiry, and final-apply authority.
+
+A terminal `CANCELLED` or `EXPIRED` amendment releases that freeze because no commercial change was applied and uncompensated adjustment money cannot terminalize. An `APPLIED` amendment keeps the original ledger permanently historical; post-apply refunds use `RentalBookingEffectiveRefundTransaction` and the effective settlement reader instead.
+
+Durable idempotent replay is intentionally different from a new write. A replay of an already retained original payment/refund remains readable and verifiable after preparation or apply because it does not append new settlement evidence. The write services check retained idempotency evidence before enforcing the new-write freeze.
+
+Application checks run under the shared rental booking lock and fail before provider-adapter execution. PostgreSQL independently reacquires the same tenant/booking advisory lock and rejects direct `rental_payment_transactions` inserts while an amendment is either `PREPARED` or `APPLIED`.
 
 ## Idempotent replay
 
 Payment and refund idempotency are operation/reference scoped. Replaying retained evidence re-resolves the tenant booking, rechecks the exact retained row and request fingerprint, and rereads complete bounded settlement history.
 
-If a caller supplies an amount on replay, it must exactly match the retained transaction amount. A legitimate payment replay remains valid after later payments, refunds, full settlement, or terminal cancellation because replay verifies immutable evidence rather than pretending the old payment is a new write. Refund replay likewise remains valid across later settlement transitions when its retained source still reconciles.
+If a caller supplies an amount on replay, it must exactly match the retained transaction amount. A legitimate payment replay remains valid after later payments, refunds, full settlement, commercial-amendment preparation/apply, or terminal cancellation because replay verifies immutable evidence rather than pretending the old payment is a new write. Refund replay likewise remains valid across later settlement transitions when its retained source still reconciles.
 
 ## Database payment authority
 
@@ -68,7 +78,7 @@ For a new manual payment PostgreSQL reacquires the tenant/booking advisory lock,
 
 Refunds still require a matching retained successful manual source and cannot cumulatively exceed that source amount. Provider references remain tenant-unique and cross-ledger isolated.
 
-After one commercial amendment is applied, the existing database post-apply guard freezes this original booking-price ledger. Further commercial refunds are written only as dedicated `RentalBookingEffectiveRefundTransaction` evidence so the immutable original ledger cannot be silently repurposed.
+The original booking-price ledger freezes as soon as a commercial amendment is `PREPARED` and stays frozen if that amendment becomes `APPLIED`. PostgreSQL checks the tenant-owned amendment state under the shared booking advisory lock before every new original-ledger insert. Further applied-amendment refunds are written only as dedicated `RentalBookingEffectiveRefundTransaction` evidence so the immutable original ledger cannot be silently repurposed.
 
 ## Cancellation financial guard
 
@@ -84,7 +94,9 @@ Cancellation itself never creates or assumes refund evidence. See [rental-bookin
 
 The authenticated rental booking detail renders original booking-price settlement state, net settled amount, outstanding balance, gross retained funding, refunded amount, and tenant-scoped transaction history to actors with `payment:read`.
 
-Actors with `payment:manage` can enter a positive manual/offline payment amount up to the current outstanding balance plus the real external receipt/reference. While positive original booking-price money exists and no commercial amendment has moved settlement authority, they can enter a positive partial or full source-bound refund plus the real external refund reference.
+The payment panel resolves protected original-ledger write authority from the active tenant. When a commercial amendment is `PREPARED` or `APPLIED`, the panel keeps historical original-ledger evidence visible but removes the payment/refund forms and links authorized staff to the retained commercial amendment workspace instead of exposing actions the server/database must reject.
+
+Actors with `payment:manage` can enter a positive manual/offline payment amount up to the current outstanding balance plus the real external receipt/reference only while original-ledger authority is writable. While positive original booking-price money exists and no commercial amendment has moved settlement authority, they can enter a positive partial or full source-bound refund plus the real external refund reference.
 
 The cancellation section independently resolves the protected effective settlement for actors with `payment:read`, so post-amendment cancellation readiness is never inferred from the original booking-price panel alone.
 
@@ -94,7 +106,7 @@ Both original payment mutation routes use the shared safe inventory form parser.
 
 This foundation does not implement deposits or deposit policy, card authorization, Stripe rental checkout, customer self-service, mixed-provider settlement, card/manual tender mixing, chargebacks, cancellation fees, automatic refund policy, invoices, or external accounting synchronization.
 
-Security bonds, damage liability, late-return settlement, commercial-amendment adjustment settlement, and post-apply effective refunds remain separate append-only evidence streams with their own authority rules. Multiple manual booking-price receipts are supported, but this must not be represented as a generic payment-plan engine, automatic installment scheduler, online split-tender checkout, or provider-backed partial capture workflow.
+Security bonds, damage liability, late-return settlement, commercial-amendment adjustment settlement, and post-apply effective refunds remain separate append-only evidence streams with their own authority rules. Multiple manual booking-price receipts are supported before commercial authority takes ownership, but this must not be represented as a generic payment-plan engine, automatic installment scheduler, online split-tender checkout, or provider-backed partial capture workflow.
 
 No placeholder route or fake provider action is exposed for unsupported workflows.
 
@@ -104,6 +116,7 @@ No placeholder route or fake provider action is exposed for unsupported workflow
 - `src/server/payments/payment-refund-execution-domain.test.ts` covers requested partial refund allocation and source-boundary enforcement in the shared refund planner.
 - `src/server/payments/rental-payment-history.test.ts` covers bounded cursor pagination, deterministic evidence verification, and refund/source chronology.
 - `scripts/rental-payment-foundation-source-contract.test.mjs` protects tenant ownership, explicit payment/refund amount parsing, server-derived authority, bounded outstanding funding, source-bound refunds, PostgreSQL balance authority, effective cancellation guards, live-database coverage registration, and staff UI wiring.
+- `scripts/rental-commercial-ledger-freeze-source-contract.test.mjs` protects the `PREPARED`/`APPLIED` original-ledger freeze, pre-provider application guard, idempotent replay ordering, tenant-scoped read authority, PostgreSQL backstop, and no-dead-action staff UI.
 - `scripts/rental-payment-request-evidence-source-contract.test.mjs` protects pre-provider request binding and idempotent replay semantics.
 - `src/server/payments/rental-payment.integration.ts` is registered in the guarded disposable-PostgreSQL runner and covers partial manual funding, replay, multi-source full settlement, direct overpayment rejection, refunds, cancellation blocking before zero original settlement, append-only evidence, and cancellation after full refund for the no-amendment path.
 - Full repository validation remains `npm run validate` on the Node version declared by `package.json`.
