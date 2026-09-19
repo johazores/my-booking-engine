@@ -412,7 +412,7 @@ export async function assignRentalUnitLocation(input: {
     const [unit, locationLocator] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
-        select: { id: true, locationId: true, code: true },
+        select: { id: true, locationId: true, unitTypeId: true, code: true },
       }),
       transaction.rentalLocation.findFirst({
         where: { organizationId: input.organizationId, code: locationCode, status: 'ACTIVE' },
@@ -423,6 +423,7 @@ export async function assignRentalUnitLocation(input: {
     if (!locationLocator) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
     if (unit.locationId === locationLocator.id) return unit;
 
+    await lockRentalUnitTypeLifecycle(transaction, input.organizationId, unit.unitTypeId);
     await lockRentalLocationLifecycle(transaction, input.organizationId, locationLocator.id);
     const location = await transaction.rentalLocation.findFirst({
       where: { id: locationLocator.id, organizationId: input.organizationId, status: 'ACTIVE' },

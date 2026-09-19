@@ -13,7 +13,7 @@ The application uses two explicit advisory-lock namespaces:
 - `sf:rental-unit-type-lifecycle:<organization-id>:<unit-type-id>`;
 - `sf:rental-location-lifecycle:<organization-id>:<location-id>`.
 
-Fresh physical-unit creation resolves the tenant location, then locks unit type followed by location, re-reads both parents as `ACTIVE`, and only then inserts the unit. Fresh rate-period creation locks and revalidates its unit type before overlap review and insert. Unit relocation keeps the existing physical-unit lock first, then locks and revalidates the target location before changing the assignment.
+Fresh physical-unit creation resolves the tenant location, then locks unit type followed by location, re-reads both parents as `ACTIVE`, and only then inserts the unit. Fresh rate-period creation locks and revalidates its unit type before overlap review and insert. Unit relocation keeps the existing physical-unit lock first, then takes retained unit-type and target-location lifecycle locks in that order before revalidating the target location and changing the assignment. Mirroring the database trigger order avoids lock inversion with concurrent unit creation or parent archival.
 
 Location and unit-type archival take their matching parent lifecycle lock before checking active physical-unit dependencies. Archival timestamps come from PostgreSQL `clock_timestamp()` after serialization rather than from the web-process clock.
 
