@@ -8,7 +8,6 @@ import { readRentalBookingCommercialAmendmentSettlement } from '@/server/booking
 import { RentalBookingCommercialAmendmentUnavailableError } from '@/server/bookings/rental-booking-commercial-amendment-service.ts';
 import { readRentalBookingEffectiveSettlement } from '@/server/bookings/rental-booking-effective-settlement-service.ts';
 import { getRentalBooking, RentalBookingUnavailableError } from '@/server/bookings/rental-booking-read-service.ts';
-import { listRentalBookingPaymentTransactions } from '@/server/payments/rental-payment-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
@@ -86,22 +85,9 @@ export default async function RentalCommercialAmendmentPage({
   const amendment = commercial.amendment;
   if (amendment.bookingId !== booking.id) throw new RentalBookingCommercialAmendmentUnavailableError();
   const prepared = amendment.status === 'PREPARED';
-  const preparationLive = prepared && amendment.expiresAt.getTime() > Date.now();
+  const preparationLive = commercial.preparationLive;
   const actionUrl = `/api/inventory/rentals/bookings/${booking.id}/commercial-amendments/${amendment.id}`;
   const delta = moneyMinorToMajorString(amendment.deltaMinor, amendment.currency);
-
-  let paymentSources: Awaited<ReturnType<typeof listRentalBookingPaymentTransactions>> | null = null;
-  if (prepared && commercial.settlement.state === 'UNSETTLED' && amendment.direction === 'REFUND') {
-    paymentSources = await listRentalBookingPaymentTransactions({
-      organizationId: activeContext.organization.id,
-      actorUserId: session.user.id,
-      bookingId,
-      page: 1,
-      pageSize: 100,
-    });
-  }
-  const manualSources = paymentSources?.transactions.filter((row) => row.kind === 'OFFLINE_PAYMENT' && row.status === 'SUCCEEDED' && row.providerCode === 'manual' && row.currency === amendment.currency) ?? [];
-  const sourceListComplete = !paymentSources || paymentSources.totalPages <= 1;
 
   const effective = amendment.status === 'APPLIED'
     ? await readRentalBookingEffectiveSettlement({ organizationId: activeContext.organization.id, actorUserId: session.user.id, bookingId })
@@ -144,13 +130,12 @@ export default async function RentalCommercialAmendmentPage({
             <p className="sf-field-hint">Record only after the exact {amendment.currency} {delta} was actually collected outside SF. This form never collects money.</p>
             <button className="sf-button sf-button--primary" type="submit">Record adjustment payment</button>
           </form>
-        : !sourceListComplete ? <p className="sf-alert sf-alert--error" role="alert">The bounded staff view cannot enumerate the complete original payment history, so source selection fails closed.</p>
-        : manualSources.length === 0 ? <p className="sf-alert sf-alert--error" role="alert">No retained successful manual booking-price payment source is available for this exact refund.</p>
+        : !commercial.adjustmentRefundSource?.available ? <p className="sf-alert sf-alert--error" role="alert">{commercial.adjustmentRefundSource?.reason ?? 'No reconciled booking-price payment source is available for this exact refund.'}</p>
         : <form className="sf-inventory-form" method="post" action={actionUrl}>
             <input type="hidden" name="operation" value="settle" />
-            <label className="sf-field"><span>Original payment source</span><select name="sourceProviderReference" required defaultValue=""><option value="" disabled>Select retained manual payment</option>{manualSources.map((source) => <option key={source.id} value={source.providerReference}>{source.providerReference} · {source.currency} {moneyMinorToMajorString(source.amountMinor, source.currency)}</option>)}</select></label>
+            <p className="sf-field-hint"><strong>Server-selected refund source:</strong> {commercial.adjustmentRefundSource.providerReference} · {commercial.adjustmentRefundSource.currency} {moneyMinorToMajorString(commercial.adjustmentRefundSource.refundableMinor, commercial.adjustmentRefundSource.currency)} remaining refundable.</p>
             <label className="sf-field"><span>Offline refund reference</span><input name="reference" maxLength={120} required autoComplete="off" /></label>
-            <p className="sf-field-hint">Record only after the exact refund was issued outside SF. The server independently rechecks remaining source capacity.</p>
+            <p className="sf-field-hint">Record only after the exact refund was issued outside SF. The server derives and rechecks the retained payment source from complete settlement history under the booking lock.</p>
             <button className="sf-button sf-button--primary" type="submit">Record adjustment refund</button>
           </form>}
     </section> : null}
