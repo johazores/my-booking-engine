@@ -30,10 +30,14 @@ function normalizePage(value: number, field: string, maximum: number) {
   return value;
 }
 
-function assertValidNow(now: Date) {
-  if (!Number.isFinite(now.getTime())) {
-    throw new RentalInventoryValidationError('Hold time is invalid.');
+async function readRentalHoldDatabaseClock(transaction: Prisma.TransactionClient, context: string) {
+  const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+    SELECT clock_timestamp() AS "now"
+  `;
+  if (!databaseClock?.now || !Number.isFinite(databaseClock.now.getTime())) {
+    throw new RentalAvailabilityIntegrityError(`Database time authority is unavailable for ${context}.`);
   }
+  return databaseClock.now;
 }
 
 function toJsonInput(value: unknown): Prisma.InputJsonValue {
@@ -65,7 +69,6 @@ export async function createRentalAvailabilityHold(input: Readonly<{
   organizationId: string;
   actorUserId: string;
   hold: RentalAvailabilityHoldInput;
-  now?: Date;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -77,9 +80,6 @@ export async function createRentalAvailabilityHold(input: Readonly<{
 
   const hold = normalizeRentalAvailabilityHoldInput(input.hold);
   assertUuidIdentifier(hold.unitId, 'unitId');
-  const now = input.now ?? new Date();
-  assertValidNow(now);
-  const expiresAt = new Date(now.getTime() + hold.expiresInMinutes * 60_000);
 
   return db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${idempotencyLockKey(input.organizationId, hold.idempotencyKey)}, 0))`;
@@ -103,12 +103,8 @@ export async function createRentalAvailabilityHold(input: Readonly<{
 
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(input.organizationId, hold.unitId)}, 0))`;
 
-    const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
-      SELECT clock_timestamp() AS "now"
-    `;
-    if (!databaseClock?.now) {
-      throw new RentalAvailabilityIntegrityError('Database time authority is unavailable for rental hold creation.');
-    }
+    const now = await readRentalHoldDatabaseClock(transaction, 'rental hold creation');
+    const expiresAt = new Date(now.getTime() + hold.expiresInMinutes * 60_000);
 
     const unit = await transaction.rentalUnit.findFirst({
       where: {
@@ -184,7 +180,7 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       }),
       findOverdueRentalCustodyUnitIds(transaction, {
         organizationId: input.organizationId,
-        observedAt: databaseClock.now,
+        observedAt: now,
         unitId: unit.id,
       }),
       transaction.rentalRatePeriod.findMany({
@@ -272,7 +268,6 @@ export async function listRentalAvailabilityHolds(input: Readonly<{
   actorUserId: string;
   page: number;
   pageSize: number;
-  now?: Date;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -283,49 +278,49 @@ export async function listRentalAvailabilityHolds(input: Readonly<{
   });
   const page = normalizePage(input.page, 'Page', 10_000);
   const pageSize = normalizePage(input.pageSize, 'Page size', 100);
-  const now = input.now ?? new Date();
-  assertValidNow(now);
 
-  const where = {
-    organizationId: input.organizationId,
-    status: 'ACTIVE' as const,
-    expiresAt: { gt: now },
-  };
-  const [total, items] = await db.$transaction([
-    db.rentalAvailabilityHold.count({ where }),
-    db.rentalAvailabilityHold.findMany({
-      where,
-      orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      include: {
-        unit: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            unitType: { select: { code: true, name: true } },
-            location: { select: { code: true, name: true } },
+  return db.$transaction(async (transaction) => {
+    const now = await readRentalHoldDatabaseClock(transaction, 'rental hold listing');
+    const where = {
+      organizationId: input.organizationId,
+      status: 'ACTIVE' as const,
+      expiresAt: { gt: now },
+    };
+    const [total, items] = await Promise.all([
+      transaction.rentalAvailabilityHold.count({ where }),
+      transaction.rentalAvailabilityHold.findMany({
+        where,
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          unit: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              unitType: { select: { code: true, name: true } },
+              location: { select: { code: true, name: true } },
+            },
           },
         },
-      },
-    }),
-  ]);
+      }),
+    ]);
 
-  return Object.freeze({
-    items: Object.freeze(items),
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  });
+    return Object.freeze({
+      items: Object.freeze(items),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readRentalAvailabilityHoldPricingReview(input: Readonly<{
   organizationId: string;
   actorUserId: string;
   holdId: string;
-  now?: Date;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -340,10 +335,9 @@ export async function readRentalAvailabilityHoldPricingReview(input: Readonly<{
     userId: input.actorUserId,
     permission: 'pricing:read',
   });
-  const now = input.now ?? new Date();
-  assertValidNow(now);
 
   return db.$transaction(async (transaction) => {
+    const now = await readRentalHoldDatabaseClock(transaction, 'rental hold pricing review');
     const hold = await transaction.rentalAvailabilityHold.findFirst({
       where: {
         id: input.holdId,
@@ -429,14 +423,13 @@ export async function readRentalAvailabilityHoldPricingReview(input: Readonly<{
         quote: current.quote,
       }),
     });
-  }, { isolationLevel: 'Serializable' });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function releaseRentalAvailabilityHold(input: Readonly<{
   organizationId: string;
   actorUserId: string;
   holdId: string;
-  now?: Date;
 }>) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -446,8 +439,6 @@ export async function releaseRentalAvailabilityHold(input: Readonly<{
     userId: input.actorUserId,
     permission: 'availability:manage',
   });
-  const now = input.now ?? new Date();
-  assertValidNow(now);
 
   return db.$transaction(async (transaction) => {
     const current = await transaction.rentalAvailabilityHold.findFirst({
@@ -463,6 +454,7 @@ export async function releaseRentalAvailabilityHold(input: Readonly<{
     }
     if (current.status !== 'ACTIVE') return current;
 
+    const now = await readRentalHoldDatabaseClock(transaction, 'rental hold release');
     const status = current.expiresAt <= now ? 'EXPIRED' as const : 'RELEASED' as const;
     const changed = await transaction.rentalAvailabilityHold.updateMany({
       where: {

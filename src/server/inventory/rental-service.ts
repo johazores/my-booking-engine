@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { RentalAvailabilityIntegrityError } from './rental-availability-domain.ts';
 import {
   assertRentalArchiveConfirmation,
   assertRentalRemoveConfirmation,
@@ -56,6 +57,16 @@ async function requireRentalPermission(input: { organizationId: string; actorUse
 
 async function lockRentalUnit(transaction: Prisma.TransactionClient, organizationId: string, unitId: string) {
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(organizationId, unitId)}, 0))`;
+}
+
+async function readRentalInventoryDatabaseClock(transaction: Prisma.TransactionClient, context: string) {
+  const [databaseClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+    SELECT clock_timestamp() AS "now"
+  `;
+  if (!databaseClock?.now || !Number.isFinite(databaseClock.now.getTime())) {
+    throw new RentalAvailabilityIntegrityError(`Database time authority is unavailable for ${context}.`);
+  }
+  return databaseClock.now;
 }
 
 function pagination(page: number, pageSize: number) {
@@ -318,12 +329,13 @@ export async function assignRentalUnitLocation(input: {
     if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
     if (unit.locationId === location.id) return unit;
 
+    const now = await readRentalInventoryDatabaseClock(transaction, 'rental unit relocation');
     const activeHold = await transaction.rentalAvailabilityHold.findFirst({
       where: {
         organizationId: input.organizationId,
         unitId: unit.id,
         status: 'ACTIVE',
-        expiresAt: { gt: new Date() },
+        expiresAt: { gt: now },
       },
       select: { id: true },
     });
@@ -362,7 +374,7 @@ export async function createRentalAvailabilityBlock(input: {
   assertUuidIdentifier(block.unitId, 'unitId');
   return db.$transaction(async (transaction) => {
     await lockRentalUnit(transaction, input.organizationId, block.unitId);
-    const now = new Date();
+    const now = await readRentalInventoryDatabaseClock(transaction, 'rental availability-block creation');
     const [unit, overlap, overlappingHold] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: block.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
@@ -545,12 +557,13 @@ export async function archiveRentalUnit(input: {
     });
     if (!current) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
 
+    const now = await readRentalInventoryDatabaseClock(transaction, 'rental unit archival');
     const activeHold = await transaction.rentalAvailabilityHold.findFirst({
       where: {
         organizationId: input.organizationId,
         unitId: current.id,
         status: 'ACTIVE',
-        expiresAt: { gt: new Date() },
+        expiresAt: { gt: now },
       },
       select: { id: true },
     });
@@ -560,7 +573,7 @@ export async function archiveRentalUnit(input: {
       );
     }
 
-    const archivedAt = new Date();
+    const archivedAt = now;
     const updated = await transaction.rentalUnit.update({
       where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
