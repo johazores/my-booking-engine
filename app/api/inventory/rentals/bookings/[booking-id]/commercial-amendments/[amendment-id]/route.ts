@@ -86,7 +86,6 @@ export async function POST(
         bookingId,
         amendmentId,
         reference: formField(formData, 'reference'),
-        sourceProviderReference: formField(formData, 'sourceProviderReference') || undefined,
       });
       const status = result.idempotent ? 'settlement-existing' : 'settlement-recorded';
       return finish(

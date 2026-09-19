@@ -33,17 +33,19 @@ The workspace exposes only operations already backed by production server contra
 - `APPLIED`: read combined effective settlement and record supported manual/offline post-apply refunds from the server-selected source.
 - `CANCELLED` / `EXPIRED`: read retained evidence only.
 
-For a refund amendment, staff select a retained successful manual booking-price payment reference from the bounded booking payment history. The service independently proves that source belongs to the same tenant/booking/currency and still has enough refundable value for the exact delta.
+For a refund amendment, SF derives the source from complete bounded booking-price settlement evidence instead of accepting a browser-selected payment reference. It verifies that the original accepted amount remains fully paid, subtracts prior retained commercial-amendment refund consumption, and deterministically chooses the manual payment with the largest remaining refundable capacity. The exact adjustment fails closed when no one retained source can cover the delta. The staff page shows this current server-derived source read-only, while the writer recomputes it under the shared booking lock before recording the refund.
+
+Prepared/live state shown in the workspace also comes from PostgreSQL time returned by the protected settlement reader rather than the application host clock. The write path independently repeats the database-time expiry check.
 
 Manual/offline staff actions are evidence-recording operations. Staff must perform or confirm the real-world cash/payment movement outside SF first, then retain the unique receipt/refund reference. SF does not collect or refund money from these forms.
 
 ## Settlement and compensation
 
-`recordRentalBookingCommercialAmendmentManualSettlement` requires `booking:manage` and `payment:manage`, locks booking and amendment settlement authority, and derives exact currency/delta from the retained amendment.
+`recordRentalBookingCommercialAmendmentManualSettlement` requires `booking:manage` and `payment:manage`, locks booking and amendment settlement authority, and derives exact currency/delta and any refund source from retained server evidence.
 
 For `ADDITIONAL_CHARGE`, the only enabled adjustment is one exact manual `OFFLINE_PAYMENT`.
 
-For `REFUND`, the only enabled adjustment is one exact source-attributed manual refund against a retained successful original booking-price payment with sufficient remaining capacity.
+For `REFUND`, the only enabled adjustment is one exact source-attributed manual refund against the server-selected retained successful original booking-price payment with sufficient remaining capacity.
 
 `recordRentalBookingCommercialAmendmentManualCompensation` reverses one settled adjustment exactly. An additional charge is compensated by a source-attributed refund against that adjustment payment. A refund amendment is compensated by an exact manual payment restoring the refunded delta. Compensation remains available after preparation expiry while the amendment is still `PREPARED`, because real money may need recovery even when apply authority has expired.
 
@@ -89,18 +91,19 @@ Only one applied price-changing commercial amendment per rental is supported. An
 
 The supported staff orchestration is manual/offline evidence only. Provider-backed/online adjustment collection, provider-backed/online refunds, automatic cancellation fees, automatic refund policy, delivery/one-way changes, customer self-service, notifications, invoices, and external fleet synchronization remain separate contracts. Provider-specific behavior stays behind adapters.
 
-No route accepts browser authority for tenant, actor, currency, amendment delta, direction, provider code, booking version, effective unit, idempotency, or post-apply refund source.
+No route accepts browser authority for tenant, actor, currency, amendment delta, direction, provider code, booking version, effective unit, idempotency, pre-apply refund source, or post-apply refund source.
 
 ## Validation
 
 - `src/server/bookings/rental-booking-commercial-amendment-domain.test.ts` protects commercial review/preparation invariants.
-- `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` protects exact adjustment and compensation state.
+- `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` protects exact adjustment, compensation, and deterministic refund-source allocation.
 - `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` and `src/server/bookings/rental-booking-effective-refund-domain.test.ts` protect combined post-apply money authority.
 - `scripts/rental-booking-commercial-amendment-source-contract.test.mjs` protects preparation persistence and server authority.
-- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects settlement persistence, manual provider evidence, compensation, and staff wiring.
+- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects settlement persistence, manual provider evidence, server-owned refund-source authority, compensation, and staff wiring.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final locked apply.
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects post-apply refund source authority.
-- `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated end-to-end staff handoff, route authority, permission gating, and no-dead-action boundary.
+- `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated end-to-end staff handoff, route authority, database-time readiness, permission gating, and no-dead-action boundary.
+- `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
 - Full repository validation remains `npm run validate` under the Node version declared in `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

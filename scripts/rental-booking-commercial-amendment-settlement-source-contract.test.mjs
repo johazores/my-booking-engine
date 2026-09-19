@@ -39,38 +39,48 @@ test('database protects uncompensated money and tenant-wide manual reference iso
   assert.match(migration, /pg_advisory_xact_lock/);
 });
 
-test('manual settlement service derives money server-side and supports exact compensation', () => {
+test('manual settlement service derives money and refund source server-side and supports exact compensation', () => {
   for (const token of [
     "'booking:manage'", "'payment:manage'", "'booking:read'", "'payment:read'",
     'rentalBookingLockKey', 'settlementLockKey', 'ManualPaymentProvider',
     "assertPaymentProviderCapability(manualProvider, 'OFFLINE_RECORDING')",
     "assertPaymentProviderCapability(manualProvider, 'OFFLINE_REFUND_RECORDING')",
-    'assertRefundSourceCapacity', 'assertManualReferenceUnused',
+    'readRentalPaymentSettlementHistory', 'deriveRentalPaymentSettlement', 'deriveBookingSettlementSummary',
+    'deriveRentalBookingCommercialAmendmentRefundSource', 'assertManualReferenceUnused',
     'payment.rental.commercial-amendment-adjustment-recorded',
     'payment.rental.commercial-amendment-compensated',
   ]) assert.ok(service.includes(token), `missing settlement service token: ${token}`);
   assert.match(service, /amountMinor: amendment\.deltaMinor/);
   assert.match(service, /currency: amendment\.currency/);
-  assert.match(service, /sourceProviderReference/);
+  assert.match(service, /purpose: 'ADJUSTMENT'/);
+  assert.match(service, /amendmentId: \{ not: input\.amendmentId \}/);
+  assert.match(service, /sourceProviderReference = source\.providerReference/);
+  assert.doesNotMatch(service, /sourceProviderReference\?: unknown/);
 });
 
-test('settlement domain has only exact unsettled, settled, compensated, or conflict states', () => {
+test('settlement domain has exact lifecycle states and deterministic one-source refund authority', () => {
   for (const state of ['UNSETTLED', 'SETTLED', 'COMPENSATED', 'CONFLICT']) assert.ok(domain.includes(`'${state}'`));
   assert.match(domain, /row\.amountMinor !== input\.deltaMinor/);
   assert.match(domain, /compensation\.sourceProviderReference !== adjustment\.providerReference/);
+  assert.match(domain, /deriveRentalBookingCommercialAmendmentRefundSource/);
+  assert.match(domain, /deriveNextBookingRefundSource/);
+  assert.match(domain, /No single retained booking-price payment source can cover/);
   assert.match(domain, /buildRentalBookingCommercialAmendmentSettlementRequestFingerprint/);
 });
 
-test('staff surface exposes the real manual settlement lifecycle without moving money in the browser', () => {
+test('staff surface exposes the real manual settlement lifecycle without browser refund-source authority', () => {
   assert.match(docs, /authenticated staff orchestration/i);
   assert.match(docs, /Manual\/offline staff actions/i);
   assert.match(reviewPage, /Prepare commercial amendment/);
   assert.match(amendmentPage, /Record adjustment payment/);
   assert.match(amendmentPage, /Record adjustment refund/);
+  assert.match(amendmentPage, /Server-selected refund source/);
   assert.match(amendmentPage, /Record full compensation/);
   assert.match(amendmentPage, /Apply commercial date change/);
   assert.match(actionRoute, /recordRentalBookingCommercialAmendmentManualSettlement/);
   assert.match(actionRoute, /recordRentalBookingCommercialAmendmentManualCompensation/);
   assert.match(actionRoute, /applyRentalBookingCommercialAmendment/);
+  assert.doesNotMatch(amendmentPage, /name="sourceProviderReference"/);
+  assert.doesNotMatch(actionRoute, /formField\(formData, 'sourceProviderReference'\)/);
   assert.doesNotMatch(amendmentPage, /fetch\(/);
 });

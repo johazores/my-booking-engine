@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildRentalBookingCommercialAmendmentSettlementIdempotencyKey,
   buildRentalBookingCommercialAmendmentSettlementRequestFingerprint,
+  deriveRentalBookingCommercialAmendmentRefundSource,
   deriveRentalBookingCommercialAmendmentSettlementState,
   type RentalBookingCommercialAmendmentSettlementRow,
 } from './rental-booking-commercial-amendment-settlement-domain.ts';
@@ -16,6 +17,16 @@ const refund: RentalBookingCommercialAmendmentSettlementRow = {
   purpose: 'ADJUSTMENT', kind: 'REFUND', status: 'SUCCEEDED', providerCode: 'manual',
   providerReference: 'adjustment-refund-1', sourceProviderReference: 'booking-payment-1', currency: 'AUD', amountMinor: 2500n,
 };
+
+const source = (providerReference: string, amountMinor: bigint, remainingMinor = amountMinor) => ({
+  kind: 'OFFLINE_PAYMENT' as const,
+  providerCode: 'manual',
+  providerReference,
+  currency: 'AUD',
+  amountMinor,
+  refundedMinor: amountMinor - remainingMinor,
+  remainingMinor,
+});
 
 test('commercial amendment settlement is exact and direction aware', () => {
   assert.deepEqual(deriveRentalBookingCommercialAmendmentSettlementState({ direction: 'ADDITIONAL_CHARGE', currency: 'AUD', deltaMinor: 2500n, rows: [] }).state, 'UNSETTLED');
@@ -35,6 +46,53 @@ test('commercial amendment compensation exactly reverses adjustment evidence', (
   };
   assert.equal(deriveRentalBookingCommercialAmendmentSettlementState({ direction: 'ADDITIONAL_CHARGE', currency: 'AUD', deltaMinor: 2500n, rows: [payment, compensation] }).state, 'COMPENSATED');
   assert.equal(deriveRentalBookingCommercialAmendmentSettlementState({ direction: 'ADDITIONAL_CHARGE', currency: 'AUD', deltaMinor: 2500n, rows: [compensation] }).state, 'CONFLICT');
+});
+
+test('refund source is selected server-side from remaining source capacity', () => {
+  const result = deriveRentalBookingCommercialAmendmentRefundSource({
+    currency: 'AUD',
+    deltaMinor: 5000n,
+    bookingSources: [source('payment-a', 10000n), source('payment-b', 8000n)],
+    priorAmendmentRefunds: [{
+      providerCode: 'manual',
+      sourceProviderReference: 'payment-a',
+      currency: 'AUD',
+      amountMinor: 7000n,
+    }],
+  });
+  assert.equal(result.available, true);
+  if (result.available) {
+    assert.equal(result.providerReference, 'payment-b');
+    assert.equal(result.refundableMinor, 8000n);
+    assert.equal(result.totalRefundableMinor, 11000n);
+  }
+});
+
+test('refund source fails closed when exact adjustment would need to span sources', () => {
+  const result = deriveRentalBookingCommercialAmendmentRefundSource({
+    currency: 'AUD',
+    deltaMinor: 5000n,
+    bookingSources: [source('payment-a', 3000n), source('payment-b', 4000n)],
+    priorAmendmentRefunds: [],
+  });
+  assert.equal(result.available, false);
+  if (!result.available) assert.match(result.reason, /No single retained booking-price payment source/);
+});
+
+test('refund source fails closed on irreconcilable prior amendment consumption', () => {
+  const result = deriveRentalBookingCommercialAmendmentRefundSource({
+    currency: 'AUD',
+    deltaMinor: 1000n,
+    bookingSources: [source('payment-a', 5000n, 2000n)],
+    priorAmendmentRefunds: [{
+      providerCode: 'manual',
+      sourceProviderReference: 'payment-a',
+      currency: 'AUD',
+      amountMinor: 2500n,
+    }],
+  });
+  assert.equal(result.available, false);
+  if (!result.available) assert.match(result.reason, /exceed the remaining value/);
 });
 
 test('commercial amendment settlement request evidence is deterministic and sensitive', () => {

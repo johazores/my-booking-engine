@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+import { deriveNextBookingRefundSource } from '../payments/payment-refund-allocation-domain.ts';
+import type { BookingSettlementSource } from '../payments/payment-settlement-domain.ts';
+
 export type RentalBookingCommercialAmendmentSettlementDirection = 'ADDITIONAL_CHARGE' | 'REFUND';
 export type RentalBookingCommercialAmendmentSettlementPurpose = 'ADJUSTMENT' | 'COMPENSATION';
 export type RentalBookingCommercialAmendmentSettlementKind = 'OFFLINE_PAYMENT' | 'REFUND';
@@ -33,6 +36,25 @@ export type RentalBookingCommercialAmendmentSettlementState = Readonly<
   | { state: 'CONFLICT'; settled: false; compensated: false; reason: string }
 >;
 
+export type RentalBookingCommercialAmendmentPriorRefund = Readonly<{
+  providerCode: string;
+  sourceProviderReference: string | null;
+  currency: string;
+  amountMinor: bigint;
+}>;
+
+export type RentalBookingCommercialAmendmentRefundSource = Readonly<
+  | {
+      available: true;
+      providerCode: 'manual';
+      providerReference: string;
+      currency: string;
+      refundableMinor: bigint;
+      totalRefundableMinor: bigint;
+    }
+  | { available: false; reason: string }
+>;
+
 type SettlementInput = Readonly<{
   direction: RentalBookingCommercialAmendmentSettlementDirection;
   currency: string;
@@ -42,6 +64,10 @@ type SettlementInput = Readonly<{
 
 function conflict(reason: string): RentalBookingCommercialAmendmentSettlementState {
   return Object.freeze({ state: 'CONFLICT', settled: false, compensated: false, reason });
+}
+
+function refundSourceUnavailable(reason: string): RentalBookingCommercialAmendmentRefundSource {
+  return Object.freeze({ available: false as const, reason });
 }
 
 function expectedAdjustmentKind(direction: RentalBookingCommercialAmendmentSettlementDirection) {
@@ -120,6 +146,78 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
     compensated: true,
     adjustment,
     compensation,
+  });
+}
+
+export function deriveRentalBookingCommercialAmendmentRefundSource(input: Readonly<{
+  currency: string;
+  deltaMinor: bigint;
+  bookingSources: readonly BookingSettlementSource[];
+  priorAmendmentRefunds: readonly RentalBookingCommercialAmendmentPriorRefund[];
+}>): RentalBookingCommercialAmendmentRefundSource {
+  if (!/^[A-Z]{3}$/.test(input.currency)) {
+    return refundSourceUnavailable('Commercial amendment refund currency is invalid.');
+  }
+  if (input.deltaMinor <= 0n) {
+    return refundSourceUnavailable('Commercial amendment refund amount must be positive.');
+  }
+
+  const sources = input.bookingSources.map((source) => ({ ...source }));
+  const sourceByReference = new Map<string, (typeof sources)[number]>();
+  for (const source of sources) {
+    if (
+      source.providerCode !== 'manual'
+      || source.kind !== 'OFFLINE_PAYMENT'
+      || source.currency !== input.currency
+    ) {
+      return refundSourceUnavailable('Commercial amendment refund source history is outside the supported manual booking-price contract.');
+    }
+    if (sourceByReference.has(source.providerReference)) {
+      return refundSourceUnavailable('Commercial amendment refund source history contains duplicate retained payment references.');
+    }
+    sourceByReference.set(source.providerReference, source);
+  }
+
+  for (const refund of input.priorAmendmentRefunds) {
+    if (
+      refund.providerCode !== 'manual'
+      || refund.currency !== input.currency
+      || refund.amountMinor <= 0n
+      || !refund.sourceProviderReference?.trim()
+    ) {
+      return refundSourceUnavailable('Prior commercial amendment refund evidence is malformed or outside the supported manual contract.');
+    }
+    const source = sourceByReference.get(refund.sourceProviderReference);
+    if (!source) {
+      return refundSourceUnavailable('Prior commercial amendment refund evidence references a booking-price source that is no longer reconcilable.');
+    }
+    if (refund.amountMinor > source.remainingMinor) {
+      return refundSourceUnavailable('Prior commercial amendment refunds exceed the remaining value of a retained booking-price source.');
+    }
+    source.refundedMinor += refund.amountMinor;
+    source.remainingMinor -= refund.amountMinor;
+  }
+
+  const allocation = deriveNextBookingRefundSource({ sources });
+  if (!allocation.allocated) return refundSourceUnavailable(allocation.reason);
+  if (
+    allocation.providerCode !== 'manual'
+    || allocation.sourceKind !== 'OFFLINE_PAYMENT'
+    || allocation.currency !== input.currency
+  ) {
+    return refundSourceUnavailable('Commercial amendment refund source does not match the supported manual booking-price contract.');
+  }
+  if (allocation.sourceRefundableMinor < input.deltaMinor) {
+    return refundSourceUnavailable('No single retained booking-price payment source can cover the exact commercial amendment refund.');
+  }
+
+  return Object.freeze({
+    available: true as const,
+    providerCode: 'manual' as const,
+    providerReference: allocation.providerReference,
+    currency: allocation.currency,
+    refundableMinor: allocation.sourceRefundableMinor,
+    totalRefundableMinor: allocation.bookingRefundableMinor,
   });
 }
 
