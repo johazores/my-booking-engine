@@ -3,6 +3,10 @@ import Link from 'next/link';
 import { readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
+  readRentalBookingEffectiveSettlement,
+  RentalBookingEffectiveSettlementUnavailableError,
+} from '@/server/bookings/rental-booking-effective-settlement-service.ts';
+import {
   readRentalOriginalPaymentLedgerAuthority,
   RentalPaymentUnavailableError,
 } from '@/server/payments/rental-payment-service.ts';
@@ -38,6 +42,7 @@ export async function RentalBookingPaymentPanel({
   canManage: boolean;
 }>) {
   let ledgerAuthority: Awaited<ReturnType<typeof readRentalOriginalPaymentLedgerAuthority>> | null = null;
+  let effectiveSettlementData: Awaited<ReturnType<typeof readRentalBookingEffectiveSettlement>> | null = null;
   const authState = await readAuthSessionState();
   if (authState.session) {
     const activeContext = await readActiveOrganizationContext(authState.session.user.id);
@@ -54,9 +59,35 @@ export async function RentalBookingPaymentPanel({
           && !(error instanceof OrganizationPermissionDeniedError)
         ) throw error;
       }
+
+      if (ledgerAuthority?.amendment?.status === 'APPLIED') {
+        try {
+          effectiveSettlementData = await readRentalBookingEffectiveSettlement({
+            organizationId: activeContext.organization.id,
+            actorUserId: authState.session.user.id,
+            bookingId,
+          });
+        } catch (error) {
+          if (
+            !(error instanceof RentalBookingEffectiveSettlementUnavailableError)
+            && !(error instanceof OrganizationPermissionDeniedError)
+          ) throw error;
+        }
+      }
     }
   }
 
+  const appliedAmendmentId = ledgerAuthority?.amendment?.status === 'APPLIED'
+    ? ledgerAuthority.amendment.id
+    : null;
+  const effectiveSettlement = appliedAmendmentId
+    && effectiveSettlementData?.appliedAmendment?.id === appliedAmendmentId
+    && (
+      effectiveSettlementData.settlement.reconciled === false
+      || effectiveSettlementData.settlement.appliedAmendment?.id === appliedAmendmentId
+    )
+      ? effectiveSettlementData.settlement
+      : null;
   const originalLedgerWritable = ledgerAuthority?.writable === true;
   const confirmed = bookingStatus === 'CONFIRMED';
   const canRecordPayment = confirmed && originalLedgerWritable && settlement.reconciled && settlement.outstandingMinor > 0n && canManage;
@@ -64,14 +95,31 @@ export async function RentalBookingPaymentPanel({
   const outstandingAmount = settlement.reconciled ? settlement.outstandingMinor : 0n;
   const refundableAmount = settlement.reconciled ? settlement.netSettledMinor : 0n;
   const nextRefundableSourceAmount = settlement.reconciled ? settlement.nextRefundableSourceMinor : 0n;
+  const settlementStatus = appliedAmendmentId
+    ? effectiveSettlement?.reconciled === true
+      ? effectiveSettlement.fullyRefunded
+        ? 'REFUNDED'
+        : effectiveSettlement.fullyFunded
+          ? 'PAID'
+          : 'PARTIALLY REFUNDED'
+      : 'RECONCILIATION REQUIRED'
+    : settlement.reconciled
+      ? settlement.paymentState
+      : 'RECONCILIATION REQUIRED';
 
   return <section className="sf-inventory-card" aria-labelledby="rental-payment-title">
     <div className="sf-inventory-card__heading">
-      <div><p className="sf-eyebrow">Payment settlement</p><h2 id="rental-payment-title">Rental payment history</h2></div>
-      <span>{settlement.reconciled ? settlement.paymentState : 'RECONCILIATION REQUIRED'}</span>
+      <div><p className="sf-eyebrow">Payment settlement</p><h2 id="rental-payment-title">{appliedAmendmentId ? 'Rental effective settlement' : 'Rental payment history'}</h2></div>
+      <span>{settlementStatus}</span>
     </div>
 
-    {!settlement.reconciled ? <p className="sf-alert sf-alert--error" role="alert">{settlement.reason}</p> : <ul className="sf-inventory-list">
+    {appliedAmendmentId ? effectiveSettlement?.reconciled === true ? <ul className="sf-inventory-list">
+      <li><div className="sf-inventory-list__primary"><div><strong>Effective accepted total</strong><span>{moneyMinorToMajorString(effectiveSettlement.effectiveAcceptedTotalMinor, effectiveSettlement.currency)} {effectiveSettlement.currency}</span><span>Current effective net {moneyMinorToMajorString(effectiveSettlement.currentNetSettledMinor, effectiveSettlement.currency)} · refund remaining before cancellation {moneyMinorToMajorString(effectiveSettlement.cancellationRefundRemainingMinor, effectiveSettlement.currency)}</span></div></div></li>
+      <li><div className="sf-inventory-list__primary"><div><strong>Applied commercial amendment</strong><span>{effectiveSettlement.appliedAmendment?.direction === 'ADDITIONAL_CHARGE' ? 'Increase' : 'Decrease'} {moneyMinorToMajorString(effectiveSettlement.appliedAmendment?.deltaMinor ?? 0n, effectiveSettlement.currency)} {effectiveSettlement.currency} · amendment <code>{appliedAmendmentId}</code></span></div></div></li>
+      <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time money</strong><span>Accepted total {moneyMinorToMajorString(effectiveSettlement.originalBookingTotalMinor, effectiveSettlement.currency)} · original ledger net {moneyMinorToMajorString(effectiveSettlement.originalBookingNetSettledMinor, effectiveSettlement.currency)} · retained as historical source evidence</span></div></div></li>
+    </ul> : <p className="sf-alert sf-alert--error" role="alert">{effectiveSettlement?.reconciled === false
+      ? effectiveSettlement.reason
+      : 'Effective rental settlement could not be verified from protected retained evidence. The original booking-price ledger is not current financial authority after an applied amendment.'}</p> : !settlement.reconciled ? <p className="sf-alert sf-alert--error" role="alert">{settlement.reason}</p> : <ul className="sf-inventory-list">
       <li><div className="sf-inventory-list__primary"><div><strong>Original booking-price ledger</strong><span>Net settled {moneyMinorToMajorString(settlement.netSettledMinor, bookingCurrency)} · outstanding {moneyMinorToMajorString(settlement.outstandingMinor, bookingCurrency)} · gross {moneyMinorToMajorString(settlement.grossSettledMinor, bookingCurrency)} · refunded {moneyMinorToMajorString(settlement.refundedMinor, bookingCurrency)}</span></div></div></li>
     </ul>}
 
@@ -81,6 +129,7 @@ export async function RentalBookingPaymentPanel({
     </div> : null}
     {!ledgerAuthority && canManage ? <p className="sf-field-hint">Original booking-price write authority could not be verified, so no payment or refund action is exposed. Refresh after confirming tenant and payment access.</p> : null}
 
+    {appliedAmendmentId ? <p className="sf-field-hint"><strong>Original booking-price transaction history.</strong> These rows remain immutable source evidence. Commercial adjustment and post-apply refund evidence are retained in the effective-settlement workspace linked above.</p> : null}
     {transactions.length > 0 ? <ul className="sf-inventory-list">
       {transactions.map((transaction) => <li key={transaction.id}><div className="sf-inventory-list__primary"><div><strong>{transaction.kind.replaceAll('_', ' ').toLowerCase()} · {transaction.status.toLowerCase()}</strong><span>{transaction.currency} {moneyMinorToMajorString(transaction.amountMinor, transaction.currency)} · {transaction.providerCode} · <code>{transaction.providerReference}</code></span>{transaction.sourceProviderReference ? <span>Refund source <code>{transaction.sourceProviderReference}</code></span> : null}<span><time dateTime={transaction.createdAt.toISOString()}>{transaction.createdAt.toISOString()}</time></span></div></div></li>)}
     </ul> : <p className="sf-field-hint">No payment transaction has been recorded for this rental booking.</p>}
