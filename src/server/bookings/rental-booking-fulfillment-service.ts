@@ -5,6 +5,7 @@ import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { normalizeRentalUnitOperationalStatusInput } from '../inventory/rental-unit-operational-domain.ts';
+import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { setLockedRentalUnitOperationalStatusInTransaction } from '../inventory/rental-unit-operational-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
@@ -288,6 +289,16 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       );
     }
     if (input.kind === 'PICKED_UP') {
+      const operationalReadinessBlocker = await findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: effectiveUnitId,
+      });
+      if (operationalReadinessBlocker) {
+        throw new RentalBookingFulfillmentConflictError(
+          'The effective rental unit is not operationally ready for pickup.',
+        );
+      }
+
       const securityBondGuard = await readRentalBookingSecurityBondGuardInTransaction({
         transaction,
         organizationId: input.organizationId,

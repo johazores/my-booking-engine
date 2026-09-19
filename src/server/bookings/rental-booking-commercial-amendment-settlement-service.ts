@@ -1,6 +1,8 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
+import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import { assertPaymentProviderCapability } from '../payments/payment-provider.ts';
@@ -244,6 +246,28 @@ export async function recordRentalBookingCommercialAmendmentManualSettlement(inp
       if (existing) return Object.freeze({ transaction: existing, settlement: before, idempotent: true as const });
       throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment already has retained adjustment settlement evidence.');
     }
+
+    await transaction.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${rentalUnitLockKey(input.organizationId, amendment.unitId)}, 0)
+      )
+    `;
+    const [lockedClock] = await transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+    if (!lockedClock?.now || amendment.expiresAt <= lockedClock.now) {
+      throw new RentalBookingCommercialAmendmentConflictError(
+        'Prepared commercial amendment authority expired before adjustment settlement could acquire inventory authority.',
+      );
+    }
+    const operationalReadinessBlocker = await findRentalUnitOperationalReadinessBlocker(transaction, {
+      organizationId: input.organizationId,
+      unitId: amendment.unitId,
+    });
+    if (operationalReadinessBlocker) {
+      throw new RentalBookingCommercialAmendmentConflictError(
+        'Rental adjustment settlement cannot be recorded while the retained physical unit is not operationally ready.',
+      );
+    }
+
     const purpose = 'ADJUSTMENT' as const;
     const idempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({ amendmentId: amendment.id, purpose, reference });
     let kind: RentalBookingCommercialAmendmentSettlementKind = 'OFFLINE_PAYMENT'; let sourceProviderReference: string | null = null;

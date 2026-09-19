@@ -7,6 +7,8 @@ const conversionAuthority = readFileSync('src/server/bookings/rental-booking-aut
 const readinessHelper = readFileSync('src/server/inventory/rental-unit-operational-readiness.ts', 'utf8');
 const rescheduleAuthority = readFileSync('src/server/bookings/rental-booking-reschedule-authority-service.ts', 'utf8');
 const substitutionAuthority = readFileSync('src/server/bookings/rental-booking-unit-substitution-authority-service.ts', 'utf8');
+const fulfillment = readFileSync('src/server/bookings/rental-booking-fulfillment-service.ts', 'utf8');
+const amendmentSettlement = readFileSync('src/server/bookings/rental-booking-commercial-amendment-settlement-service.ts', 'utf8');
 const readinessMigration = readFileSync(
   'prisma/migrations/20260920043000-rental-non-clear-return-readiness-authority/migration.sql',
   'utf8',
@@ -14,6 +16,7 @@ const readinessMigration = readFileSync(
 const authorityDocs = readFileSync('docs/rental-booking-authority.md', 'utf8');
 const rescheduleDocs = readFileSync('docs/rental-booking-reschedule-authority.md', 'utf8');
 const substitutionDocs = readFileSync('docs/rental-booking-unit-substitution-authority.md', 'utf8');
+const writeBoundaryDocs = readFileSync('docs/rental-fresh-authority-write-boundaries.md', 'utf8');
 
 test('availability discovery excludes unresolved returned-unit readiness evidence', () => {
   assert.match(availability, /fulfillmentEvents:\s*\{[\s\S]*none:\s*\{[\s\S]*kind: 'RETURNED'[\s\S]*returnInspection: \{ is: null \}/);
@@ -94,4 +97,50 @@ test('application read readiness remains backed by PostgreSQL fresh-rental autho
   assert.match(authorityDocs, /never produces an authority fingerprint for a unit that PostgreSQL would already reject/);
   assert.match(rescheduleDocs, /never emits reschedule or commercial-amendment review authority/);
   assert.match(substitutionDocs, /candidate list never advertises a replacement unit that the same PostgreSQL authority would reject/);
+});
+
+test('fresh pickup rechecks operational readiness under the physical-unit lock before custody write', () => {
+  assert.match(fulfillment, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(
+    fulfillment,
+    /rentalUnitLockKey\(input\.organizationId, effectiveUnitId\)[\s\S]*input\.kind === 'PICKED_UP'[\s\S]*findRentalUnitOperationalReadinessBlocker\(transaction,[\s\S]*unitId: effectiveUnitId/,
+  );
+  assert.match(fulfillment, /not operationally ready for pickup/);
+  assert.match(
+    fulfillment,
+    /findRentalUnitOperationalReadinessBlocker[\s\S]*readRentalBookingSecurityBondGuardInTransaction[\s\S]*rentalBookingFulfillmentEvent\.create/,
+  );
+});
+
+test('new commercial amendment adjustment settlement serializes and rechecks readiness before money evidence', () => {
+  assert.match(amendmentSettlement, /rentalUnitLockKey/);
+  assert.match(amendmentSettlement, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(
+    amendmentSettlement,
+    /before\.state !== 'UNSETTLED'[\s\S]*rentalUnitLockKey\(input\.organizationId, amendment\.unitId\)[\s\S]*clock_timestamp\(\)[\s\S]*findRentalUnitOperationalReadinessBlocker\(transaction/,
+  );
+  assert.match(amendmentSettlement, /expired before adjustment settlement could acquire inventory authority/);
+  assert.match(amendmentSettlement, /cannot be recorded while the retained physical unit is not operationally ready/);
+  assert.match(
+    amendmentSettlement,
+    /findRentalUnitOperationalReadinessBlocker[\s\S]*assertManualReferenceUnused[\s\S]*manualProvider\.recordOffline(?:Payment|Refund)/,
+  );
+});
+
+test('readiness does not block retained money recovery or idempotent adjustment replay', () => {
+  const settlementStart = amendmentSettlement.indexOf('export async function recordRentalBookingCommercialAmendmentManualSettlement');
+  const compensationStart = amendmentSettlement.indexOf('export async function recordRentalBookingCommercialAmendmentManualCompensation');
+  assert.ok(settlementStart >= 0 && compensationStart > settlementStart);
+  const settlementBody = amendmentSettlement.slice(settlementStart, compensationStart);
+  const compensationBody = amendmentSettlement.slice(compensationStart);
+  assert.match(settlementBody, /if \(before\.state !== 'UNSETTLED'\)[\s\S]*if \(existing\) return Object\.freeze/);
+  assert.doesNotMatch(compensationBody, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(writeBoundaryDocs, /compensation remains available even when the unit is operationally unavailable/);
+});
+
+test('fresh-authority write documentation preserves PostgreSQL as the final boundary', () => {
+  assert.match(writeBoundaryDocs, /PostgreSQL remains the final authority/);
+  assert.match(writeBoundaryDocs, /Idempotent replay of already-retained pickup evidence is deliberately not re-blocked/);
+  assert.match(writeBoundaryDocs, /refreshes PostgreSQL time after waiting for that lock/);
+  assert.match(writeBoundaryDocs, /If readiness changes after a valid adjustment is recorded but before final apply, apply fails closed/);
 });
