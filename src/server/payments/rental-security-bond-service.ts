@@ -1,5 +1,6 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
+import { deriveRentalBookingPickupWindow } from '../bookings/rental-booking-pickup-window-domain.ts';
 import { rentalBookingLockKey } from '../bookings/rental-booking-reschedule-domain.ts';
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
 import { db } from '../database.ts';
@@ -59,10 +60,61 @@ async function requireBondPermissions(input: Readonly<{ organizationId: string; 
 async function loadBooking(transaction: Prisma.TransactionClient, organizationId: string, bookingId: string) {
   const booking = await transaction.rentalBooking.findFirst({
     where: { id: bookingId, organizationId },
-    select: { id: true, status: true, cancelledAt: true, currency: true, customerFirstName: true, customerLastName: true },
+    select: {
+      id: true,
+      status: true,
+      cancelledAt: true,
+      currency: true,
+      startsOn: true,
+      endsOn: true,
+      customerFirstName: true,
+      customerLastName: true,
+      location: { select: { timeZone: true } },
+    },
   });
   if (!booking) throw new RentalSecurityBondUnavailableError();
   return booking;
+}
+
+type LoadedRentalSecurityBondBooking = Awaited<ReturnType<typeof loadBooking>>;
+
+async function readFreshSecurityBondAuthority(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  booking: LoadedRentalSecurityBondBooking,
+) {
+  const [latestReschedule, custody, databaseClock] = await Promise.all([
+    transaction.rentalBookingReschedule.findFirst({
+      where: { organizationId, bookingId: booking.id },
+      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      select: { targetStartsOn: true, targetEndsOn: true },
+    }),
+    transaction.rentalBookingFulfillmentEvent.findFirst({
+      where: { organizationId, bookingId: booking.id },
+      select: { id: true },
+    }),
+    transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`,
+  ]);
+  const observedAt = databaseClock[0]?.now;
+  if (!observedAt) {
+    throw new RentalSecurityBondConflictError('Database clock is unavailable for rental security-bond authority.');
+  }
+
+  const pickupWindow = deriveRentalBookingPickupWindow({
+    observedAt,
+    startsOn: latestReschedule?.targetStartsOn ?? booking.startsOn,
+    endsOn: latestReschedule?.targetEndsOn ?? booking.endsOn,
+    timeZone: booking.location.timeZone,
+  });
+
+  return Object.freeze({
+    hasCustodyEvidence: Boolean(custody),
+    pickupWindow,
+    canEstablishOrCollect: booking.status === 'CONFIRMED'
+      && !booking.cancelledAt
+      && !custody
+      && pickupWindow.state !== 'CLOSED',
+  });
 }
 
 function fingerprint(input: Readonly<{
@@ -100,8 +152,17 @@ export async function readRentalSecurityBond(input: Readonly<{ organizationId: s
   await requireBondPermissions(input, 'read');
   return db.$transaction(async (transaction) => {
     const booking = await loadBooking(transaction, input.organizationId, input.bookingId);
-    const state = await loadBondState(transaction, input.organizationId, booking.id);
-    return Object.freeze({ booking, bond: state?.bond ?? null, transactions: state?.rows ?? [], settlement: state?.settlement ?? null });
+    const [state, preCustodyAuthority] = await Promise.all([
+      loadBondState(transaction, input.organizationId, booking.id),
+      readFreshSecurityBondAuthority(transaction, input.organizationId, booking),
+    ]);
+    return Object.freeze({
+      booking,
+      bond: state?.bond ?? null,
+      transactions: state?.rows ?? [],
+      settlement: state?.settlement ?? null,
+      preCustodyAuthority,
+    });
   }, { isolationLevel: 'RepeatableRead' });
 }
 
@@ -121,8 +182,17 @@ export async function createRentalSecurityBondRequirement(input: Readonly<{ orga
       if (existing.idempotencyKey !== idempotencyKey || existing.currency !== money.currency || existing.amountMinor !== money.amountMinor) throw new RentalSecurityBondConflictError('This booking already has a different immutable security bond requirement.');
       return Object.freeze({ bond: existing, idempotent: true as const });
     }
-    const custody = await transaction.rentalBookingFulfillmentEvent.findFirst({ where: { organizationId: input.organizationId, bookingId: booking.id }, select: { id: true } });
-    if (custody) throw new RentalSecurityBondConflictError('Security bond requirement must be established before physical custody begins.');
+
+    const preCustodyAuthority = await readFreshSecurityBondAuthority(transaction, input.organizationId, booking);
+    if (preCustodyAuthority.hasCustodyEvidence) {
+      throw new RentalSecurityBondConflictError('Security bond requirement must be established before physical custody begins.');
+    }
+    if (preCustodyAuthority.pickupWindow.state === 'CLOSED') {
+      throw new RentalSecurityBondConflictError(
+        'Security bond requirement cannot be created after the committed pickup window has closed. Reschedule or cancel the booking instead.',
+      );
+    }
+
     const bond = await transaction.rentalSecurityBondRequirement.create({ data: { organizationId: input.organizationId, bookingId: booking.id, idempotencyKey, currency: money.currency, amountMinor: money.amountMinor } });
     await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'payment.rental.security-bond-required', resourceType: 'rental-security-bond', resourceId: bond.id, afterData: { bookingId: booking.id, currency: bond.currency, amountMinor: bond.amountMinor.toString() } } });
     return Object.freeze({ bond, idempotent: false as const });
@@ -170,8 +240,15 @@ async function recordManualBondEvidence(input: Readonly<{ organizationId: string
 
     if (operation === 'collection') {
       if (booking.status !== 'CONFIRMED' || booking.cancelledAt) throw new RentalSecurityBondConflictError('Security bond collection requires a confirmed rental booking.');
-      const custody = await transaction.rentalBookingFulfillmentEvent.findFirst({ where: { organizationId: input.organizationId, bookingId: booking.id }, select: { id: true } });
-      if (custody) throw new RentalSecurityBondConflictError('Security bond collection must be recorded before physical custody begins.');
+      const preCustodyAuthority = await readFreshSecurityBondAuthority(transaction, input.organizationId, booking);
+      if (preCustodyAuthority.hasCustodyEvidence) {
+        throw new RentalSecurityBondConflictError('Security bond collection must be recorded before physical custody begins.');
+      }
+      if (preCustodyAuthority.pickupWindow.state === 'CLOSED') {
+        throw new RentalSecurityBondConflictError(
+          'Security bond collection cannot be recorded after the committed pickup window has closed. Reschedule or cancel the booking instead.',
+        );
+      }
       if (state.settlement.state !== 'REQUIRED') throw new RentalSecurityBondConflictError('Security bond already has retained collection evidence.');
     } else {
       if (state.settlement.state !== 'COLLECTED' || !source) throw new RentalSecurityBondConflictError('Security bond is not currently collected or has already been released.');
