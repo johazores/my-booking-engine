@@ -42,11 +42,11 @@ Recording `RETURNED` now closes the availability gap between physical handback a
 
 An idempotent return replay also repairs older supported return evidence that still lacks an inspection and operational quarantine. It does not re-quarantine a returned unit after inspection evidence already exists.
 
-A unit cannot be explicitly returned to `AVAILABLE` while any tenant-owned `RETURNED` event for that physical unit still lacks its matching `RentalReturnInspection`. The application checks that condition while holding the unit lock before an available transition. Once inspection evidence exists, the existing maintenance and unresolved-damage readiness checks still apply before staff can restore service.
+A unit cannot be explicitly returned to `AVAILABLE` while any tenant-owned `RETURNED` event for that physical unit still lacks its matching `RentalReturnInspection`. A non-clear inspection remains unavailable until its matching damage case reaches `WAIVED` or `CLOSED`; this closes the safety gap between retaining `DAMAGE_REPORTED` / `UNSAFE` evidence and opening the damage case that resolves it. The application checks both conditions while holding the unit lock before an available transition. Active maintenance and active damage cases remain independent blockers.
 
-PostgreSQL independently uses the same tenant/unit advisory lock. The active-rental authority predicate now treats pending return inspection as unavailable in addition to persisted `OUT_OF_SERVICE` state, so direct SQL cannot create a hold, booking/allocation, substitution, reschedule, or pickup against a returned-but-uninspected unit. A separate operational-state trigger also rejects a direct `AVAILABLE` transition while inspection is pending.
+PostgreSQL independently uses the same tenant/unit advisory lock. The active-rental authority predicate treats pending return inspection and unresolved non-clear return evidence as unavailable in addition to persisted `OUT_OF_SERVICE` state, so direct SQL cannot create a hold, booking/allocation, substitution, reschedule, or pickup against a returned unit whose physical readiness is unresolved. The existing operational-state trigger is also strengthened so a direct `AVAILABLE` transition fails both before inspection and after a non-clear inspection until matching damage evidence is terminal.
 
-This defense-in-depth matters for early return. Shortening a returned booking's allocation may release future calendar days, but those days do not become sellable until return inspection is retained and authorized staff explicitly restore operational availability.
+This defense-in-depth matters for early return. Shortening a returned booking's allocation may release future calendar days, but those days do not become sellable until return inspection is retained, any non-clear condition is resolved through its damage case, and authorized staff explicitly restore operational availability.
 
 ## Maintenance integration
 
@@ -66,11 +66,11 @@ Every supported return is operationally quarantined until inspection and explici
 
 PostgreSQL independently requires an out-of-service unit for non-clear return-inspection evidence. A clear inspection never changes operational state and no inspection automatically returns a unit to service. This keeps release deliberate after the physical readiness review.
 
-A non-clear inspection can feed one explicit `RentalDamageCase`. Opening the case again verifies the physical unit is out of service. While the case is `OPEN` or `ASSESSED`, both the application operational-state writer and PostgreSQL reject an `AVAILABLE` transition, and PostgreSQL rejects archiving the unit. `WAIVED` and `CLOSED` are terminal damage-case states.
+A non-clear inspection can feed one explicit `RentalDamageCase`, but the unit remains unavailable even before that case is opened. The application and PostgreSQL treat non-clear inspection evidence as unresolved until a matching damage case reaches terminal `WAIVED` or `CLOSED`. While the case is `OPEN` or `ASSESSED`, the existing damage-case guards continue to reject an `AVAILABLE` transition and archival.
 
 Waiving or closing the final unresolved damage case deliberately does not return the unit to service. Staff must still verify maintenance and any other operational concerns before explicitly restoring availability.
 
-A customer-damage-liability decision is downstream commercial evidence only after a damage case is closed. It does not itself quarantine or release the unit, so operational readiness remains governed by return inspection, maintenance, unresolved damage state, and the explicit operational control rather than by customer settlement status.
+A customer-damage-liability decision is downstream commercial evidence only after a damage case is closed. It does not itself quarantine or release the unit, so operational readiness remains governed by return inspection, non-clear damage resolution, maintenance, and the explicit operational control rather than by customer settlement status.
 
 See `docs/rental-return-inspection.md`, `docs/rental-damage-case.md`, and `docs/rental-damage-liability.md` for those contracts.
 
@@ -78,7 +78,7 @@ See `docs/rental-return-inspection.md`, `docs/rental-damage-case.md`, and `docs/
 
 The rental-unit detail page shows the current operational status and retained reason. Staff with inventory-management permission can move the unit between **Available** and **Out of service** from the existing unit controls and can open the dedicated maintenance workspace from the same page.
 
-This is real inventory authority, not a cosmetic label. Discovery, fulfillment, maintenance, return inspection, damage follow-up, and database write boundaries consume the state. Attempts to return a unit to service while return inspection is pending, maintenance is active, or a damage case remains unresolved fail closed as inventory conflicts.
+This is real inventory authority, not a cosmetic label. Discovery, fulfillment, maintenance, return inspection, damage follow-up, and database write boundaries consume the state. Attempts to return a unit to service while return inspection is pending, a non-clear return condition remains unresolved, maintenance is active, or a damage case remains unresolved fail closed as inventory conflicts.
 
 ## Deliberate boundaries
 
@@ -90,7 +90,7 @@ The damage-case repair estimate is operational evidence only and is not a custom
 
 The dependency-free domain test `src/server/inventory/rental-unit-operational-domain.test.ts` protects status/reason normalization. `scripts/rental-unit-operational-availability-source-contract.test.mjs` protects the established operational-state model, authorization, locking, search exclusion, active-authority database guards, staff control, and deliberate commercial boundaries.
 
-`scripts/rental-return-readiness-source-contract.test.mjs` protects returned-unit quarantine, idempotent legacy repair, pending-inspection release protection, the shared PostgreSQL lock boundary, and the database backstop that rejects fresh rental authority before inspection.
+`scripts/rental-return-readiness-source-contract.test.mjs` protects returned-unit quarantine, idempotent legacy repair, pending-inspection and non-clear-condition release protection, the shared PostgreSQL lock boundary, and the database backstop that rejects fresh rental authority until physical readiness is resolved.
 
 The maintenance, return-inspection, damage-case, and damage-liability source contracts continue protecting their narrower lifecycle and evidence rules.
 

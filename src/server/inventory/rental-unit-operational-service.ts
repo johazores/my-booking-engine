@@ -87,13 +87,27 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
   const currentReason = current?.reason ?? null;
 
   if (input.operational.status === 'AVAILABLE') {
-    const [pendingReturnInspection, activeMaintenance, activeDamageCases] = await Promise.all([
+    const [
+      pendingReturnInspection,
+      unresolvedNonClearInspection,
+      activeMaintenance,
+      activeDamageCases,
+    ] = await Promise.all([
       input.transaction.rentalBookingFulfillmentEvent.findFirst({
         where: {
           organizationId: input.organizationId,
           unitId: input.unit.id,
           kind: 'RETURNED',
           returnInspection: { is: null },
+        },
+        select: { id: true },
+      }),
+      input.transaction.rentalReturnInspection.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: input.unit.id,
+          outcome: { in: ['DAMAGE_REPORTED', 'UNSAFE'] },
+          damageCase: { is: null },
         },
         select: { id: true },
       }),
@@ -115,6 +129,11 @@ export async function setLockedRentalUnitOperationalStatusInTransaction(input: R
     if (pendingReturnInspection) {
       throw new RentalInventoryConflictError(
         'Record the pending rental return inspection before returning this rental unit to service.',
+      );
+    }
+    if (unresolvedNonClearInspection) {
+      throw new RentalInventoryConflictError(
+        'Resolve the non-clear rental return inspection through its damage case before returning this rental unit to service.',
       );
     }
     if (activeMaintenance > 0) {
