@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const availability = readFileSync('src/server/inventory/rental-availability-service.ts', 'utf8');
+const holdService = readFileSync('src/server/inventory/rental-hold-service.ts', 'utf8');
 const conversionAuthority = readFileSync('src/server/bookings/rental-booking-authority-service.ts', 'utf8');
+const bookingService = readFileSync('src/server/bookings/rental-booking-service.ts', 'utf8');
 const readinessHelper = readFileSync('src/server/inventory/rental-unit-operational-readiness.ts', 'utf8');
 const rescheduleAuthority = readFileSync('src/server/bookings/rental-booking-reschedule-authority-service.ts', 'utf8');
 const substitutionAuthority = readFileSync('src/server/bookings/rental-booking-unit-substitution-authority-service.ts', 'utf8');
@@ -18,13 +20,10 @@ const rescheduleDocs = readFileSync('docs/rental-booking-reschedule-authority.md
 const substitutionDocs = readFileSync('docs/rental-booking-unit-substitution-authority.md', 'utf8');
 const writeBoundaryDocs = readFileSync('docs/rental-fresh-authority-write-boundaries.md', 'utf8');
 
-test('availability discovery excludes unresolved returned-unit readiness evidence', () => {
-  assert.match(availability, /fulfillmentEvents:\s*\{[\s\S]*none:\s*\{[\s\S]*kind: 'RETURNED'[\s\S]*returnInspection: \{ is: null \}/);
-  assert.match(availability, /returnInspections:\s*\{[\s\S]*none:\s*\{[\s\S]*outcome: \{ in: \['DAMAGE_REPORTED' as const, 'UNSAFE' as const\] \}/);
-  assert.match(availability, /damageCase: \{ is: null \}/);
-  assert.match(availability, /status: \{ in: \['OPEN' as const, 'ASSESSED' as const\] \}/);
-  assert.match(availability, /operationalState: \{ is: null \}/);
-  assert.match(availability, /operationalState: \{ is: \{ status: 'AVAILABLE' as const \} \}/);
+test('availability discovery uses the shared operational-readiness predicate', () => {
+  assert.match(availability, /rentalUnitOperationalReadinessWhere/);
+  assert.match(availability, /\.\.\.rentalUnitOperationalReadinessWhere\(input\.organizationId\)/);
+  assert.doesNotMatch(availability, /returnInspections:\s*\{[\s\S]*DAMAGE_REPORTED/);
 });
 
 test('shared application readiness mirrors PostgreSQL evidence families', () => {
@@ -47,19 +46,43 @@ test('shared application readiness mirrors PostgreSQL evidence families', () => 
   assert.match(readinessMigration, /damage_case\."status" IN \('WAIVED', 'CLOSED'\)/);
 });
 
-test('booking conversion review treats physical readiness contradictions as inventory conflicts', () => {
-  assert.match(conversionAuthority, /rentalUnitOperationalState\.findFirst/);
-  assert.match(conversionAuthority, /status: 'OUT_OF_SERVICE'/);
-  assert.match(conversionAuthority, /rentalBookingFulfillmentEvent\.findFirst/);
-  assert.match(conversionAuthority, /kind: 'RETURNED'/);
-  assert.match(conversionAuthority, /returnInspection: \{ is: null \}/);
-  assert.match(conversionAuthority, /rentalReturnInspection\.findFirst/);
-  assert.match(conversionAuthority, /outcome: \{ in: \['DAMAGE_REPORTED', 'UNSAFE'\] \}/);
-  assert.match(conversionAuthority, /damageCase: \{ is: null \}/);
-  assert.match(conversionAuthority, /status: \{ in: \['OPEN', 'ASSESSED'\] \}/);
+test('booking conversion review uses shared readiness and refuses to mint stale authority', () => {
+  assert.match(conversionAuthority, /findRentalUnitOperationalReadinessBlocker/);
   assert.match(
     conversionAuthority,
-    /overdueCustodyUnitIds\.length > 0[\s\S]*operationalState[\s\S]*pendingReturnInspection[\s\S]*unresolvedNonClearInspection[\s\S]*blocker = 'INVENTORY_CONFLICT'/,
+    /operationalReadinessBlocker[\s\S]*findRentalUnitOperationalReadinessBlocker\(transaction,[\s\S]*unitId: hold\.unit\.id/,
+  );
+  assert.match(
+    conversionAuthority,
+    /overdueCustodyUnitIds\.length > 0[\s\S]*operationalReadinessBlocker[\s\S]*blocker = 'INVENTORY_CONFLICT'/,
+  );
+  assert.doesNotMatch(conversionAuthority, /rentalUnitOperationalState\.findFirst/);
+  assert.doesNotMatch(conversionAuthority, /rentalReturnInspection\.findFirst/);
+});
+
+test('fresh hold creation rechecks shared readiness after the physical-unit lock', () => {
+  assert.match(holdService, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(
+    holdService,
+    /if \(existing\)[\s\S]*return existing;[\s\S]*rentalUnitLockKey\(input\.organizationId, hold\.unitId\)[\s\S]*findRentalUnitOperationalReadinessBlocker\(transaction,[\s\S]*unitId: unit\.id/,
+  );
+  assert.match(holdService, /not operationally ready for a new availability hold/);
+  assert.match(
+    holdService,
+    /findRentalUnitOperationalReadinessBlocker[\s\S]*if \(operationalReadinessBlocker\)[\s\S]*rentalAvailabilityHold\.create/,
+  );
+});
+
+test('fresh booking confirmation rechecks shared readiness before consuming hold or writing booking evidence', () => {
+  assert.match(bookingService, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(
+    bookingService,
+    /if \(existing\)[\s\S]*idempotent: true[\s\S]*rentalUnitLockKey\(input\.organizationId, holdLocator\.unitId\)[\s\S]*findRentalUnitOperationalReadinessBlocker\(transaction,[\s\S]*unitId: hold\.unitId/,
+  );
+  assert.match(bookingService, /no longer operationally ready for booking confirmation/);
+  assert.match(
+    bookingService,
+    /findRentalUnitOperationalReadinessBlocker[\s\S]*if \(operationalReadinessBlocker\)[\s\S]*rentalAvailabilityHold\.updateMany[\s\S]*rentalBooking\.create[\s\S]*rentalBookingAllocation\.create/,
   );
 });
 
@@ -95,6 +118,7 @@ test('unit substitution candidate and review surfaces exclude operationally unre
 test('application read readiness remains backed by PostgreSQL fresh-rental authority', () => {
   assert.match(authorityDocs, /physical-unit readiness evidence that also feeds PostgreSQL fresh-rental authority/);
   assert.match(authorityDocs, /never produces an authority fingerprint for a unit that PostgreSQL would already reject/);
+  assert.match(authorityDocs, /rechecks the same shared physical-unit readiness contract under the unit lock/);
   assert.match(rescheduleDocs, /never emits reschedule or commercial-amendment review authority/);
   assert.match(substitutionDocs, /candidate list never advertises a replacement unit that the same PostgreSQL authority would reject/);
 });
@@ -138,7 +162,9 @@ test('readiness does not block retained money recovery or idempotent adjustment 
   assert.match(writeBoundaryDocs, /compensation remains available even when the unit is operationally unavailable/);
 });
 
-test('fresh-authority write documentation preserves PostgreSQL as the final boundary', () => {
+test('fresh-authority documentation covers pre-booking application parity and PostgreSQL final authority', () => {
+  assert.match(writeBoundaryDocs, /availability discovery, hold creation, conversion review, and booking confirmation/i);
+  assert.match(writeBoundaryDocs, /Idempotent replay remains ahead of the fresh-readiness gate/);
   assert.match(writeBoundaryDocs, /PostgreSQL remains the final authority/);
   assert.match(writeBoundaryDocs, /Idempotent replay of already-retained pickup evidence is deliberately not re-blocked/);
   assert.match(writeBoundaryDocs, /refreshes PostgreSQL time after waiting for that lock/);

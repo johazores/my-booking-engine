@@ -18,6 +18,7 @@ import {
   RentalInventoryConflictError,
   RentalInventoryUnavailableError,
 } from './rental-service.ts';
+import { findRentalUnitOperationalReadinessBlocker } from './rental-unit-operational-readiness.ts';
 
 function idempotencyLockKey(organizationId: string, idempotencyKey: string) {
   return `sf:rental-hold:${organizationId}:idempotency:${idempotencyKey}`;
@@ -142,7 +143,14 @@ export async function createRentalAvailabilityHold(input: Readonly<{
       );
     }
 
-    const [blockOverlap, holdOverlap, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
+    const [
+      blockOverlap,
+      holdOverlap,
+      bookingOverlap,
+      overdueCustodyUnitIds,
+      operationalReadinessBlocker,
+      ratePeriods,
+    ] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -183,6 +191,10 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         observedAt: now,
         unitId: unit.id,
       }),
+      findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: unit.id,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -194,6 +206,11 @@ export async function createRentalAvailabilityHold(input: Readonly<{
         select: { startsOn: true, endsOn: true, dailyRateMinor: true },
       }),
     ]);
+    if (operationalReadinessBlocker) {
+      throw new RentalInventoryConflictError(
+        'That rental unit is not operationally ready for a new availability hold.',
+      );
+    }
     if (blockOverlap) {
       throw new RentalInventoryConflictError(
         'That rental unit has an availability block overlapping the requested hold dates.',

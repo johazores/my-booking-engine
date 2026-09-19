@@ -10,6 +10,7 @@ import {
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { RentalInventoryUnavailableError } from '../inventory/rental-service.ts';
+import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { buildRentalBookingConversionAuthorityFingerprint } from './rental-booking-authority-domain.ts';
 import {
@@ -224,7 +225,14 @@ export async function confirmRentalBookingFromHold(input: Readonly<{
       throw new RentalBookingConflictError('The held rental unit is no longer active at its original operating location.');
     }
 
-    const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
+    const [
+      blockOverlap,
+      competingHold,
+      bookingOverlap,
+      overdueCustodyUnitIds,
+      operationalReadinessBlocker,
+      ratePeriods,
+    ] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: { organizationId: input.organizationId, unitId: hold.unitId, startsOn: { lt: hold.endsOn }, endsOn: { gt: hold.startsOn } },
         select: { id: true },
@@ -256,12 +264,21 @@ export async function confirmRentalBookingFromHold(input: Readonly<{
         observedAt: databaseClock.now,
         unitId: hold.unitId,
       }),
+      findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: hold.unitId,
+      }),
       transaction.rentalRatePeriod.findMany({
         where: { organizationId: input.organizationId, unitTypeId: hold.unit.unitType.id, startsOn: { lt: hold.endsOn }, endsOn: { gt: hold.startsOn } },
         orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
         select: { startsOn: true, endsOn: true, dailyRateMinor: true },
       }),
     ]);
+    if (operationalReadinessBlocker) {
+      throw new RentalBookingConflictError(
+        'The held rental unit is no longer operationally ready for booking confirmation.',
+      );
+    }
     if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
       throw new RentalBookingConflictError('The held rental unit now conflicts with another inventory commitment or overdue open custody.');
     }

@@ -9,6 +9,7 @@ import {
 } from './rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
 import { RentalInventoryUnavailableError } from './rental-service.ts';
+import { rentalUnitOperationalReadinessWhere } from './rental-unit-operational-readiness.ts';
 
 export async function searchRentalInventoryAvailability(input: Readonly<{
   organizationId: string;
@@ -75,6 +76,7 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       organizationId: input.organizationId,
       unitTypeId: unitType.id,
       status: 'ACTIVE' as const,
+      ...rentalUnitOperationalReadinessWhere(input.organizationId),
       ...(overdueCustodyUnitIds.length > 0 ? { id: { notIn: overdueCustodyUnitIds } } : {}),
       ...(location
         ? { locationId: location.id }
@@ -86,33 +88,6 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
               },
             },
           }),
-      OR: [
-        { operationalState: { is: null } },
-        { operationalState: { is: { status: 'AVAILABLE' as const } } },
-      ],
-      fulfillmentEvents: {
-        none: {
-          organizationId: input.organizationId,
-          kind: 'RETURNED' as const,
-          returnInspection: { is: null },
-        },
-      },
-      returnInspections: {
-        none: {
-          organizationId: input.organizationId,
-          outcome: { in: ['DAMAGE_REPORTED' as const, 'UNSAFE' as const] },
-          OR: [
-            { damageCase: { is: null } },
-            {
-              damageCase: {
-                is: {
-                  status: { in: ['OPEN' as const, 'ASSESSED' as const] },
-                },
-              },
-            },
-          ],
-        },
-      },
       availabilityBlocks: {
         none: {
           organizationId: input.organizationId,

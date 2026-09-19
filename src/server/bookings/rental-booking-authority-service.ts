@@ -7,6 +7,7 @@ import {
 } from '../inventory/rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { RentalInventoryUnavailableError } from '../inventory/rental-service.ts';
+import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { buildRentalBookingConversionAuthorityFingerprint } from './rental-booking-authority-domain.ts';
 
@@ -139,9 +140,7 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       competingHold,
       bookingOverlap,
       overdueCustodyUnitIds,
-      operationalState,
-      pendingReturnInspection,
-      unresolvedNonClearInspection,
+      operationalReadinessBlocker,
     ] = await Promise.all([
       transaction.rentalRatePeriod.findMany({
         where: {
@@ -194,40 +193,9 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
         observedAt: databaseClock.now,
         unitId: hold.unit.id,
       }),
-      transaction.rentalUnitOperationalState.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          unitId: hold.unit.id,
-          status: 'OUT_OF_SERVICE',
-        },
-        select: { id: true },
-      }),
-      transaction.rentalBookingFulfillmentEvent.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          unitId: hold.unit.id,
-          kind: 'RETURNED',
-          returnInspection: { is: null },
-        },
-        select: { id: true },
-      }),
-      transaction.rentalReturnInspection.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          unitId: hold.unit.id,
-          outcome: { in: ['DAMAGE_REPORTED', 'UNSAFE'] },
-          OR: [
-            { damageCase: { is: null } },
-            {
-              damageCase: {
-                is: {
-                  status: { in: ['OPEN', 'ASSESSED'] },
-                },
-              },
-            },
-          ],
-        },
-        select: { id: true },
+      findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: hold.unit.id,
       }),
     ]);
 
@@ -247,9 +215,7 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       || competingHold
       || bookingOverlap
       || overdueCustodyUnitIds.length > 0
-      || operationalState
-      || pendingReturnInspection
-      || unresolvedNonClearInspection
+      || operationalReadinessBlocker
     ) {
       blocker = 'INVENTORY_CONFLICT';
     } else if (!completePricingEvidence) {
