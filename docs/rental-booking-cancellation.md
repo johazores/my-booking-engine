@@ -86,7 +86,7 @@ Booking-price manual/offline settlement and source-attributed refunds are implem
 
 Security-bond disposition remains a separate retained contract documented in [rental-security-bond.md](./rental-security-bond.md). Cancellation-fee policy, automatic refund policy, provider-backed cancellation settlement, and external synchronization remain separate commercial contracts rather than being inferred from cancellation.
 
-Only one applied price-changing rental amendment remains supported. Another post-apply reschedule or commercial amendment and direct writes to the original booking-price ledger remain blocked by the existing commercial boundary.
+Only one applied price-changing rental amendment remains supported. A second/chained price-changing commercial amendment and direct writes to the original booking-price ledger remain blocked. Later same-unit price-neutral reschedules/extensions and same-type/same-location pre-custody unit substitutions remain supported only when they preserve the accepted effective post-amendment amount and satisfy their own fresh inventory, custody, and database authority contracts.
 
 ## Validation
 

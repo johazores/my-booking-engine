@@ -25,16 +25,17 @@ This keeps browser-visible review separate from persistence authority and preven
 After confirmation, SF separately supports:
 
 - terminal inventory-release cancellation, documented in [rental-booking-cancellation.md](./rental-booking-cancellation.md)
-- price-neutral date rescheduling on the current effective unit with append-only evidence and fresh inventory/pricing authority, documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md)
-- same-type/same-location physical-unit substitution with append-only evidence and dual-unit serialization, documented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md)
+- same-unit price-neutral date rescheduling on the current effective unit with append-only evidence and fresh inventory/pricing authority, including later price-neutral reschedules/extensions after the one supported applied commercial amendment when the accepted effective total remains unchanged, documented in [rental-booking-reschedule-lifecycle.md](./rental-booking-reschedule-lifecycle.md)
+- one server-authoritative same-unit price-changing commercial date amendment with exact retained manual/offline adjustment evidence, final locked apply, protected effective settlement, and post-apply manual refunds, documented in [rental-booking-commercial-amendments.md](./rental-booking-commercial-amendments.md) and [rental-booking-effective-settlement.md](./rental-booking-effective-settlement.md)
+- same-type/same-location physical-unit substitution with append-only evidence and dual-unit serialization, including the supported post-amendment effective-commercial baseline, documented in [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md)
 
 None of those downstream lifecycle changes is authority produced by the initial conversion review. Each reacquires its own current server authority under booking/current-inventory serialization.
 
 ## Product boundaries
 
-The current rental contract still does not invent customer-selected pickup/drop-off promises, one-way return rules, delivery zones, opening hours, deposits, payment processing, taxes/fees beyond existing daily-rate evidence, unit-type/location-changing substitution, price-changing amendments/rescheduling, customer self-service, fulfillment notifications, or external synchronization.
+The current rental contract still does not invent customer-selected pickup/drop-off promises, one-way return rules, delivery zones, opening hours, deposits, online/card/provider-backed rental settlement, taxes/fees beyond the existing daily-rate and retained late-return policy evidence, unit-type/location-changing substitutions, currency-changing amendments, a second/chained price-changing commercial amendment, customer self-service, fulfillment notifications, or external synchronization.
 
-No route or primary action should present those unsupported capabilities as real until their server-side contracts exist.
+The supported price-changing contract is deliberately narrow: one same-unit rental date amendment with the existing manual/offline settlement and effective-refund boundaries. No route or primary action should present broader unsupported capabilities as real until their server-side contracts exist.
 
 ## Validation
 
