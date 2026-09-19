@@ -32,6 +32,8 @@ That guard keeps the active-hold check, evaluates current/future booking authori
 
 The same migration installs alphabetically early `BEFORE INSERT` locks on maintenance work orders and damage cases. A direct SQL insert that waits behind a concurrent archive therefore reaches its existing active-tenant-unit authoring guard only after the archive releases the lock. Conversely, an archive waits behind fresh maintenance or unresolved damage evidence and then observes that committed evidence before its existing archive guards run.
 
+`20260919203500_rental_return_inspection_archive_authority` extends that serialization to fresh return inspections and closes the pre-damage-case archival gap. `DAMAGE_REPORTED` or `UNSAFE` inspection evidence now prevents archival until its retained damage case reaches `WAIVED` or `CLOSED`. Staff therefore cannot archive the unit before opening that damage workflow and accidentally make the existing active-unit damage-case authoring contract impossible to satisfy.
+
 All lock keys repeat `organizationId` and physical `unitId`. Application maintenance and damage writers already use the same lock namespace, so supported service writes and database-bypass writes now serialize on one physical-inventory authority boundary.
 
 ## Deliberate boundaries
@@ -45,6 +47,8 @@ Relocation is not automatically forbidden merely because maintenance or damage e
 `scripts/rental-unit-mutation-custody-source-contract.test.mjs` protects the shared application guard, post-lock database clock, tenant-scoped current/future booking test, overdue-custody check, and PostgreSQL backstop.
 
 `scripts/rental-unit-mutation-serialization-source-contract.test.mjs` protects the early unit-mutation lock, maintenance/damage insert locks, shared lock namespace, existing active-unit authoring guards, and active maintenance/unresolved damage archival boundaries.
+
+`scripts/rental-return-inspection-archive-source-contract.test.mjs` protects return-inspection serialization plus the non-clear-inspection-to-terminal-damage-resolution archival boundary.
 
 Full Prisma, TypeScript, lint, production build, and live migration execution still require the repository-supported Node 24 toolchain and an explicitly disposable PostgreSQL target.
 
