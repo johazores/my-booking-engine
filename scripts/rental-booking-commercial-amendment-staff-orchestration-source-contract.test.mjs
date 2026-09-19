@@ -9,6 +9,7 @@ const amendmentPage = read('app/inventory/rentals/bookings/[booking-id]/commerci
 const prepareRoute = read('app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/route.ts');
 const actionRoute = read('app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/[amendment-id]/route.ts');
 const authorityService = read('src/server/bookings/rental-booking-reschedule-authority-service.ts');
+const settlementService = read('src/server/bookings/rental-booking-commercial-amendment-settlement-service.ts');
 const docs = read('docs/rental-booking-commercial-amendments.md');
 
 test('price-changing review exposes only the protected preparation handoff', () => {
@@ -36,9 +37,10 @@ test('commercial amendment workspace wires real settlement, recovery, apply, clo
   for (const token of [
     'readRentalBookingCommercialAmendmentSettlement',
     'readRentalBookingEffectiveSettlement',
-    'listRentalBookingPaymentTransactions',
+    'adjustmentRefundSource',
     'Record adjustment payment',
     'Record adjustment refund',
+    'Server-selected refund source',
     'Record full compensation',
     'Apply commercial date change',
     'Record post-apply refund',
@@ -52,9 +54,11 @@ test('commercial amendment workspace wires real settlement, recovery, apply, clo
   assert.match(amendmentPage, /availability:manage/);
   assert.match(amendmentPage, /pricing:read/);
   assert.match(amendmentPage, /Record only after/);
+  assert.doesNotMatch(amendmentPage, /listRentalBookingPaymentTransactions/);
+  assert.doesNotMatch(amendmentPage, /name="sourceProviderReference"/);
 });
 
-test('action route keeps money and refund-source authority server-side', () => {
+test('action route keeps money and both refund-source authorities server-side', () => {
   for (const token of [
     'recordRentalBookingCommercialAmendmentManualSettlement',
     'recordRentalBookingCommercialAmendmentManualCompensation',
@@ -72,6 +76,15 @@ test('action route keeps money and refund-source authority server-side', () => {
   assert.match(actionRoute, /confirmation.*APPLY/s);
   assert.doesNotMatch(actionRoute, /currency: formField/);
   assert.doesNotMatch(actionRoute, /amountMinor: formField/);
+  assert.doesNotMatch(actionRoute, /sourceProviderReference/);
+});
+
+test('prepared readiness uses database time and the write path repeats expiry authority', () => {
+  assert.match(settlementService, /SELECT clock_timestamp\(\) AS "now"/);
+  assert.match(settlementService, /preparationLive = amendment\.status === 'PREPARED' && amendment\.expiresAt > clock\.now/);
+  assert.match(settlementService, /amendment\.expiresAt <= clock\.now/);
+  assert.match(amendmentPage, /const preparationLive = commercial\.preparationLive/);
+  assert.doesNotMatch(amendmentPage, /Date\.now\(\)/);
 });
 
 test('review fails closed instead of rendering dead reschedule actions around existing commercial amendments', () => {
@@ -88,6 +101,8 @@ test('documentation describes the real manual staff workflow without claiming on
   assert.match(docs, /staff orchestration/i);
   assert.match(docs, /manual\/offline/i);
   assert.match(docs, /does not collect or refund money/i);
+  assert.match(docs, /server-derived source/i);
+  assert.match(docs, /PostgreSQL time/i);
   assert.match(docs, /provider-backed\/online/i);
   assert.doesNotMatch(docs, /not exposed as a primary staff action/i);
 });
