@@ -56,13 +56,23 @@ test('supported application writers already share the database unit-lock namespa
   assert.match(damage, /rentalUnitLockKey\(input\.organizationId, inspection\.unitId\)/);
 });
 
-test('documentation states the direct-write serialization and archival evidence boundary', async () => {
+test('supported archive readiness mirrors known operational archive blockers', async () => {
+  const readiness = await source('src/server/inventory/rental-unit-archive-readiness.ts');
+
+  assert.match(readiness, /work_order\."status" IN \('OPEN', 'IN_PROGRESS'\)/);
+  assert.match(readiness, /damage_case\."status" IN \('OPEN', 'ASSESSED'\)/);
+  assert.match(readiness, /inspection\."outcome" IN \('DAMAGE_REPORTED', 'UNSAFE'\)/);
+  assert.match(readiness, /damage_case\."status" IN \('WAIVED', 'CLOSED'\)/);
+  assert.match(readiness, /RentalInventoryDependencyError/);
+});
+
+test('documentation states direct-write serialization and supported archive readiness', async () => {
   const docs = await source('docs/rental-unit-mutation-authority.md');
 
   assert.match(docs, /fresh maintenance or unresolved damage evidence/i);
   assert.match(docs, /shared tenant\/unit advisory lock/i);
   assert.match(docs, /direct SQL/i);
-  assert.match(docs, /active maintenance/i);
-  assert.match(docs, /unresolved damage/i);
+  assert.match(docs, /supported archive readiness/i);
+  assert.match(docs, /pending-return-inspection/i);
   assert.match(docs, /GitHub Actions are not required or used/);
 });

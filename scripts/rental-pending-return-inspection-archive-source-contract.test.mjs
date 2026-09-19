@@ -18,32 +18,44 @@ test('database blocks archival while returned custody lacks inspection evidence'
   assert.match(migration, /awaiting return inspection and cannot be archived/i);
 });
 
-test('supported archive preflight is tenant scoped and permission protected', async () => {
+test('supported archive readiness mirrors retained operational blockers with tenant scope', async () => {
   const service = await source('src/server/inventory/rental-unit-archive-readiness.ts');
 
+  assert.match(service, /assertRentalUnitArchiveOperationalReadiness/);
   assert.match(service, /requireOrganizationPermission/);
   assert.match(service, /permission: 'inventory:manage'/);
   assert.match(service, /return_event\."organizationId" = \$\{input\.organizationId\}::uuid/);
   assert.match(service, /return_event\."unitId" = \$\{input\.unitId\}::uuid/);
   assert.match(service, /return_event\."kind" = 'RETURNED'/);
   assert.match(service, /inspection\."returnEventId" = return_event\."id"/);
+  assert.match(service, /work_order\."status" IN \('OPEN', 'IN_PROGRESS'\)/);
+  assert.match(service, /damage_case\."status" IN \('OPEN', 'ASSESSED'\)/);
+  assert.match(service, /inspection\."outcome" IN \('DAMAGE_REPORTED', 'UNSAFE'\)/);
+  assert.match(service, /damage_case\."status" IN \('WAIVED', 'CLOSED'\)/);
   assert.match(service, /Record the pending rental return inspection before archiving this rental unit/);
+  assert.match(service, /Complete or cancel active rental maintenance before archiving this rental unit/);
+  assert.match(service, /Resolve non-clear rental return inspection evidence before archiving this rental unit/);
+  assert.match(service, /Waive or close the unresolved rental damage case before archiving this rental unit/);
 });
 
-test('supported archive route performs actionable preflight before mutation', async () => {
+test('supported archive route performs comprehensive readiness preflight before mutation', async () => {
   const route = await source('app/api/inventory/rentals/units/[unit-id]/archive/route.ts');
-  const readinessIndex = route.indexOf('await assertRentalUnitArchiveReturnInspectionReady');
+  const readinessIndex = route.indexOf('await assertRentalUnitArchiveOperationalReadiness');
   const archiveIndex = route.indexOf('await archiveRentalUnit');
 
-  assert.ok(readinessIndex >= 0, 'archive readiness preflight must be wired');
-  assert.ok(archiveIndex > readinessIndex, 'preflight must run before archival mutation');
+  assert.ok(readinessIndex >= 0, 'archive operational readiness preflight must be wired');
+  assert.ok(archiveIndex > readinessIndex, 'readiness preflight must run before archival mutation');
+  assert.doesNotMatch(route, /assertRentalUnitArchiveReturnInspectionReady/);
 });
 
-test('documentation connects return evidence, inspection, and archival authority', async () => {
-  const doc = await source('docs/rental-pending-return-inspection-archive-authority.md');
+test('supported readiness uses domain errors while PostgreSQL remains final concurrency authority', async () => {
+  const service = await source('src/server/inventory/rental-unit-archive-readiness.ts');
+  const docs = await source('docs/rental-pending-return-inspection-archive-authority.md');
 
-  assert.match(doc, /returned physical rental unit must remain active long enough/i);
-  assert.match(doc, /shared tenant\/unit advisory lock/i);
-  assert.match(doc, /PostgreSQL remains the final lifecycle boundary/i);
-  assert.match(doc, /GitHub Actions are not required or used/);
+  assert.match(service, /RentalInventoryConflictError/);
+  assert.match(service, /RentalInventoryDependencyError/);
+  assert.match(docs, /maintenance/i);
+  assert.match(docs, /damage/i);
+  assert.match(docs, /PostgreSQL remains the final lifecycle boundary/i);
+  assert.match(docs, /GitHub Actions are not required or used/);
 });

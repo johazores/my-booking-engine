@@ -12,9 +12,11 @@ After acquiring that lock, the service samples PostgreSQL `clock_timestamp()` on
 - a non-cancelled allocation is still current or future using that booking's retained location timezone and exclusive `endsOn` boundary; or
 - the unit has overdue open custody derived from append-only pickup/return evidence and the latest supported custody extension.
 
-Archival has additional operational evidence guards at the database boundary: an active `OPEN`/`IN_PROGRESS` maintenance work order or unresolved `OPEN`/`ASSESSED` damage case must be completed, cancelled, waived, or closed through its real lifecycle before the physical unit can be archived. Those retained records are not deleted or silently rewritten by archival.
+Before the supported archive route reaches that mutation boundary, a separate `inventory:manage`-authorized tenant/unit readiness query mirrors the operational evidence that PostgreSQL protects independently. It rejects retirement while return inspection is still pending, maintenance remains `OPEN` / `IN_PROGRESS`, a damage case remains `OPEN` / `ASSESSED`, or non-clear return inspection evidence has not reached terminal damage resolution. These domain-level conflict/dependency failures prevent normal staff operations from surfacing an opaque server error for a known lifecycle blocker.
 
-The common service helper is shared by relocation and archival so one path cannot silently become less strict than the other. A past booking with no open custody does not permanently pin a physical unit to historical inventory metadata.
+The readiness query is deliberately not treated as concurrency authority. Fresh maintenance, inspection, or damage evidence can race after a preflight read, so the shared physical-unit lock and PostgreSQL archive guards remain the final write boundary.
+
+The common service helper is shared by relocation and archival for hold, booking, and custody authority so one path cannot silently become less strict than the other. A past booking with no open custody does not permanently pin a physical unit to historical inventory metadata.
 
 ## Custody boundary
 
@@ -34,6 +36,8 @@ The same migration installs alphabetically early `BEFORE INSERT` locks on mainte
 
 `20260919203500_rental_return_inspection_archive_authority` extends that serialization to fresh return inspections and closes the pre-damage-case archival gap. `DAMAGE_REPORTED` or `UNSAFE` inspection evidence now prevents archival until its retained damage case reaches `WAIVED` or `CLOSED`. Staff therefore cannot archive the unit before opening that damage workflow and accidentally make the existing active-unit damage-case authoring contract impossible to satisfy.
 
+`20260920003000-rental-pending-return-inspection-archive-guard` additionally prevents retirement after retained `RETURNED` custody evidence but before its matching return inspection is recorded. The supported archive readiness check mirrors all three operational-evidence families before invoking the write, while these PostgreSQL guards remain authoritative under concurrency and for direct SQL.
+
 All physical-unit lock keys repeat `organizationId` and physical `unitId`. Application maintenance and damage writers already use the same physical-unit lock namespace, so supported service writes and database-bypass writes serialize on one physical-inventory authority boundary.
 
 Parent location and unit-type lifecycle use separate tenant-scoped lock namespaces so fresh unit/rate authority cannot race parent archival. See [rental-parent-lifecycle-authority.md](./rental-parent-lifecycle-authority.md).
@@ -42,15 +46,17 @@ Parent location and unit-type lifecycle use separate tenant-scoped lock namespac
 
 This authority does not add customer-facing pickup/drop-off selection, one-way movement, transfer pricing, delivery, or automatic fleet repositioning. It also does not make historical allocations or operational evidence mutable. Supported same-type/same-location booking substitution remains a separate booking lifecycle operation.
 
-Relocation is not automatically forbidden merely because maintenance or damage evidence exists; those workflows may legitimately require physical movement. The additional operational-evidence rule is specifically an archival boundary, matching the existing maintenance and damage archive guards.
+Relocation is not automatically forbidden merely because maintenance or damage evidence exists; those workflows may legitimately require physical movement. The additional operational-evidence rule is specifically an archival boundary, matching the existing maintenance, return-inspection, and damage archive guards.
 
 ## Validation
 
 `scripts/rental-unit-mutation-custody-source-contract.test.mjs` protects the shared application guard, post-lock database clock, tenant-scoped current/future booking test, overdue-custody check, and PostgreSQL backstop.
 
-`scripts/rental-unit-mutation-serialization-source-contract.test.mjs` protects the early unit-mutation lock, maintenance/damage insert locks, shared lock namespace, existing active-unit authoring guards, and active maintenance/unresolved damage archival boundaries.
+`scripts/rental-unit-mutation-serialization-source-contract.test.mjs` protects the early unit-mutation lock, maintenance/damage insert locks, shared lock namespace, existing active-unit authoring guards, active maintenance/unresolved damage archival boundaries, and the supported operational-readiness mirror.
 
 `scripts/rental-return-inspection-archive-source-contract.test.mjs` protects return-inspection serialization plus the non-clear-inspection-to-terminal-damage-resolution archival boundary.
+
+`scripts/rental-pending-return-inspection-archive-source-contract.test.mjs` protects the supported archive readiness sweep plus the pending-return-inspection database boundary.
 
 `scripts/rental-parent-lifecycle-source-contract.test.mjs` protects the separate location/unit-type lifecycle locks and their child-write/archive serialization contract.
 

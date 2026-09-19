@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
-import { assertRentalUnitArchiveReturnInspectionReady } from '@/server/inventory/rental-unit-archive-readiness.ts';
+import { assertRentalUnitArchiveOperationalReadiness } from '@/server/inventory/rental-unit-archive-readiness.ts';
 import { archiveRentalUnit } from '@/server/inventory/rental-service.ts';
 
 export async function POST(request: Request, context: { params: Promise<{ 'unit-id': string }> }) {
@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'unit-
   const formData = await readInventoryFormData(request);
   if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
   try {
-    await assertRentalUnitArchiveReturnInspectionReady({
+    await assertRentalUnitArchiveOperationalReadiness({
       organizationId: organization.id,
       actorUserId: session.user.id,
       unitId,
