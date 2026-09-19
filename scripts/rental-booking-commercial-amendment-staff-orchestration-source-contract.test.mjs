@@ -87,13 +87,14 @@ test('prepared readiness uses database time and the write path repeats expiry au
   assert.doesNotMatch(amendmentPage, /Date\.now\(\)/);
 });
 
-test('review fails closed instead of rendering dead reschedule actions around existing commercial amendments', () => {
+test('review freezes prepared authority but keeps price-neutral post-apply date changes live', () => {
   assert.match(authorityService, /COMMERCIAL_AMENDMENT_ACTIVE/);
   assert.match(authorityService, /COMMERCIAL_AMENDMENT_APPLIED/);
-  assert.match(authorityService, /rentalBookingCommercialAmendment\.findFirst/);
+  assert.match(authorityService, /rentalBookingCommercialAmendment\.findMany/);
   assert.match(authorityService, /status: \{ in: \['PREPARED', 'APPLIED'\] \}/);
-  assert.match(authorityService, /existingCommercialAmendment\?\.status === 'APPLIED'/);
-  assert.match(authorityService, /existingCommercialAmendment\?\.status === 'PREPARED'/);
+  assert.match(authorityService, /effectiveAcceptedTotalMinor = existingCommercialAmendment\.afterTotalMinor/);
+  assert.match(authorityService, /commercialImpact\.kind !== 'UNCHANGED'[\s\S]*COMMERCIAL_AMENDMENT_APPLIED/);
+  assert.match(reviewPage, /price-neutral date change can still be reviewed/);
   assert.match(reviewPage, /Open existing commercial amendment/);
 });
 

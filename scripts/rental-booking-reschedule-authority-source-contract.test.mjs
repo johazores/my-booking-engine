@@ -26,13 +26,18 @@ test('review uses current effective unit, excludes only source booking, and rebu
   ]) assert.ok(service.includes(token), `missing reschedule inventory/pricing token: ${token}`);
 });
 
-test('review refuses dead date-change actions while a prepared or applied commercial amendment exists', () => {
-  assert.match(service, /rentalBookingCommercialAmendment\.findFirst/);
+test('review freezes prepared amendments and uses applied amendment money as the effective baseline', () => {
+  assert.match(service, /rentalBookingCommercialAmendment\.findMany/);
   assert.match(service, /status: \{ in: \['PREPARED', 'APPLIED'\] \}/);
+  assert.match(service, /take: 2/);
   assert.match(service, /COMMERCIAL_AMENDMENT_ACTIVE/);
   assert.match(service, /COMMERCIAL_AMENDMENT_APPLIED/);
-  assert.match(service, /existingCommercialAmendment\?\.status === 'APPLIED'/);
-  assert.match(service, /existingCommercialAmendment\?\.status === 'PREPARED'/);
+  assert.match(service, /effectiveAcceptedTotalMinor = existingCommercialAmendment\.afterTotalMinor/);
+  assert.match(service, /acceptedTotalMinor: effectiveAcceptedTotalMinor/);
+  assert.match(service, /commercialImpact\.kind !== 'UNCHANGED'[\s\S]*COMMERCIAL_AMENDMENT_APPLIED/);
+  assert.doesNotMatch(service, /else if \(existingCommercialAmendment\?\.status === 'APPLIED'\) blocker/);
+  assert.match(page, /price-neutral date change can still be reviewed/);
+  assert.match(page, /Accepted effective amount/);
   assert.match(page, /Open existing commercial amendment/);
 });
 

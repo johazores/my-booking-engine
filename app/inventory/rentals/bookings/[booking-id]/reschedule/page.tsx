@@ -23,7 +23,7 @@ const blockerMessages = {
   INVENTORY_CONFLICT: 'The current effective physical unit has another live inventory commitment in the requested target range.',
   CURRENCY_CHANGED: 'The current unit-type currency no longer matches the accepted booking currency. Correct the pricing configuration before changing this rental period.',
   COMMERCIAL_AMENDMENT_ACTIVE: 'This booking already has a prepared commercial amendment. Finish, compensate, or close that retained workflow before reviewing another date change.',
-  COMMERCIAL_AMENDMENT_APPLIED: 'This booking already has an applied price-changing commercial amendment. Further rental reschedules remain blocked by the current one-amendment commercial boundary.',
+  COMMERCIAL_AMENDMENT_APPLIED: 'This target would change the accepted effective amount after a price-changing amendment was already applied. Another price-changing commercial amendment is not supported; a price-neutral date change can still be reviewed.',
 } as const;
 
 const applyErrors: Record<string, string> = {
@@ -181,13 +181,14 @@ export default async function RentalBookingRescheduleReviewPage({
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-reschedule-result-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Authority result</p><h2 id="rental-reschedule-result-title">{review.ready ? custodyExtension ? 'Extension ready to apply' : 'Ready to apply' : review.blocker === 'PRICE_CHANGED' ? 'Commercial amendment required' : custodyExtension ? 'Extension blocked' : 'Target dates blocked'}</h2></div><span>{review.targetPricing.currency} {moneyMinorToMajorString(review.targetPricing.totalMinor, review.targetPricing.currency)}</span></div>
-      {review.blocker ? <p className={review.blocker === 'PRICE_CHANGED' ? 'sf-alert' : 'sf-alert sf-alert--error'} role={review.blocker === 'PRICE_CHANGED' ? 'status' : 'alert'}>{rescheduleBlockerMessage(review)}</p> : <p className="sf-alert sf-alert--success" role="status">{custodyExtension ? 'The later end date preserves the current physical unit and accepted aggregate price, with no conflicting inventory authority.' : 'Inventory and current aggregate pricing are compatible with the supported price-neutral reschedule contract on the current effective unit.'}</p>}
+      {review.blocker ? <p className={review.blocker === 'PRICE_CHANGED' ? 'sf-alert' : 'sf-alert sf-alert--error'} role={review.blocker === 'PRICE_CHANGED' ? 'status' : 'alert'}>{rescheduleBlockerMessage(review)}</p> : <p className="sf-alert sf-alert--success" role="status">{custodyExtension ? 'The later end date preserves the current physical unit and accepted effective price, with no conflicting inventory authority.' : 'Inventory and current aggregate pricing are compatible with the supported price-neutral reschedule contract on the current effective unit and accepted effective amount.'}</p>}
       {review.existingCommercialAmendment && hasPermission('payment:read') ? <p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/commercial-amendments/${review.existingCommercialAmendment.id}`}>Open existing commercial amendment</Link></p> : null}
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Source period</strong><span>{review.booking.startsOn.toISOString().slice(0, 10)} through {review.booking.endsOn.toISOString().slice(0, 10)}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>{custodyExtension ? 'Extended period' : 'Target period'}</strong><span>{review.target.startsOn.toISOString().slice(0, 10)} through {review.target.endsOn.toISOString().slice(0, 10)} · {review.target.days} day(s)</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Authority mode</strong><span>{review.mode === 'CUSTODY_EXTENSION' ? 'Picked-up same-unit extension' : 'Pre-pickup reschedule'}</span></div></div></li>
-        <li><div className="sf-inventory-list__primary"><div><strong>Accepted booking amount</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.totalMinor, review.booking.currency)}</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Accepted effective amount</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.totalMinor, review.booking.currency)}</span></div></div></li>
+        {review.booking.originalTotalMinor !== review.booking.totalMinor ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking amount</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.originalTotalMinor, review.booking.currency)}</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Current target amount</strong><span>{review.targetPricing.currency} {moneyMinorToMajorString(review.targetPricing.totalMinor, review.targetPricing.currency)}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Commercial impact</strong><span>{commercialImpactLabel(review)}</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Target pricing fingerprint</strong><span><code>{review.targetPricing.fingerprint}</code></span></div></div></li>
@@ -215,7 +216,7 @@ export default async function RentalBookingRescheduleReviewPage({
           : <p className="sf-field-hint">This price-changing request is supported, but your role also needs payment read/manage authority to prepare and complete its commercial amendment.</p>
         : null}
 
-      <p className="sf-field-hint">Every apply path remains server-authoritative and rebuilds custody, inventory, pricing, settlement, and retained fingerprints under locks. Unit-type/location changes and currency drift remain unsupported. Price-neutral requests use the direct reschedule writer; same-currency price changes use the separate short-lived commercial amendment workflow.</p>
+      <p className="sf-field-hint">Every apply path remains server-authoritative and rebuilds custody, inventory, pricing, settlement, and retained fingerprints under locks. Unit-type/location changes and currency drift remain unsupported. Price-neutral requests use the direct reschedule writer, including after one applied commercial amendment when they preserve its accepted effective amount; a second price-changing amendment remains closed.</p>
     </section> : null}
   </div>;
 }

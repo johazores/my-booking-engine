@@ -1,3 +1,4 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
@@ -147,6 +148,29 @@ function assertUnitSubstitutionPickupWindowOpen(input: Readonly<{
   return pickupWindow;
 }
 
+async function assertCommercialAmendmentDoesNotBlockSubstitution(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  bookingId: string,
+) {
+  const amendment = await transaction.rentalBookingCommercialAmendment.findFirst({
+    where: {
+      organizationId,
+      bookingId,
+      status: { in: ['PREPARED', 'APPLIED'] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, status: true },
+  });
+  if (amendment) {
+    throw new RentalBookingUnitSubstitutionUnavailableError(
+      amendment.status === 'PREPARED'
+        ? 'Finish, compensate, or close the prepared commercial amendment before replacing the physical unit.'
+        : 'Physical-unit replacement after an applied price-changing amendment requires a separate effective-commercial-baseline contract.',
+    );
+  }
+}
+
 export async function searchRentalBookingUnitSubstitutionCandidates(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -185,6 +209,11 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
       include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
+    await assertCommercialAmendmentDoesNotBlockSubstitution(
+      transaction,
+      input.organizationId,
+      booking.id,
+    );
 
     const [latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
@@ -309,6 +338,11 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
       include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
+    await assertCommercialAmendmentDoesNotBlockSubstitution(
+      transaction,
+      input.organizationId,
+      booking.id,
+    );
 
     const [latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({

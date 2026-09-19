@@ -166,7 +166,7 @@ export async function applyRentalBookingReschedule(input: Readonly<{
       throw new RentalAvailabilityIntegrityError('Database clock is unavailable for rental booking rescheduling.');
     }
 
-    const [booking, latestReschedule, latestSubstitution] = await Promise.all([
+    const [booking, latestReschedule, latestSubstitution, commercialAmendments] = await Promise.all([
       transaction.rentalBooking.findFirst({
         where: {
           id: input.bookingId,
@@ -211,10 +211,39 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         where: { organizationId: input.organizationId, bookingId: input.bookingId },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
+      transaction.rentalBookingCommercialAmendment.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: input.bookingId,
+          status: { in: ['PREPARED', 'APPLIED'] },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 2,
+        select: {
+          id: true,
+          status: true,
+          currency: true,
+          beforeTotalMinor: true,
+          afterTotalMinor: true,
+          appliedRescheduleId: true,
+          appliedAt: true,
+        },
+      }),
     ]);
     if (!booking) throw new RentalBookingRescheduleUnavailableError();
     if (!booking.allocation) {
       throw new RentalAvailabilityIntegrityError('Rental booking reschedule requires its retained physical-unit allocation.');
+    }
+    if (commercialAmendments.length > 1) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking retains conflicting active commercial amendment authority.',
+      );
+    }
+    const commercialAmendment = commercialAmendments[0] ?? null;
+    if (commercialAmendment?.status === 'PREPARED') {
+      throw new RentalBookingRescheduleConflictError(
+        'Finish, compensate, or close the prepared rental commercial amendment before changing dates.',
+      );
     }
 
     const pickupEvent = booking.fulfillmentEvents.find((event) => event.kind === 'PICKED_UP') ?? null;
@@ -231,6 +260,33 @@ export async function applyRentalBookingReschedule(input: Readonly<{
     const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const sourceEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     const sourcePricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+    let effectiveAcceptedTotalMinor = booking.totalMinor;
+    if (commercialAmendment?.status === 'APPLIED') {
+      if (
+        commercialAmendment.currency !== booking.currency
+        || commercialAmendment.beforeTotalMinor !== booking.totalMinor
+        || commercialAmendment.afterTotalMinor <= 0n
+        || !commercialAmendment.appliedRescheduleId
+        || !commercialAmendment.appliedAt
+        || !latestReschedule
+        || latestReschedule.currency !== commercialAmendment.currency
+        || latestReschedule.totalMinor !== commercialAmendment.afterTotalMinor
+        || latestReschedule.appliedAt.getTime() < commercialAmendment.appliedAt.getTime()
+      ) {
+        throw new RentalAvailabilityIntegrityError(
+          'Applied rental commercial amendment does not reconcile to the effective reschedule commercial baseline.',
+        );
+      }
+      effectiveAcceptedTotalMinor = commercialAmendment.afterTotalMinor;
+    } else if (
+      latestReschedule
+      && (latestReschedule.currency !== booking.currency || latestReschedule.totalMinor !== booking.totalMinor)
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental reschedule history does not reconcile to the immutable booking commercial baseline.',
+      );
+    }
+
     const currentUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
     const currentUnit = booking.allocation.unit;
     if (
@@ -343,11 +399,13 @@ export async function applyRentalBookingReschedule(input: Readonly<{
       defaultDailyRateMinor: currentUnit.unitType.defaultDailyRateMinor,
       ratePeriods,
     });
-    if (targetPricing.currency !== booking.currency || BigInt(targetPricing.totalMinor) !== booking.totalMinor) {
+    if (targetPricing.currency !== booking.currency || BigInt(targetPricing.totalMinor) !== effectiveAcceptedTotalMinor) {
       throw new RentalBookingRescheduleConflictError(
-        mode === 'CUSTODY_EXTENSION'
-          ? 'Current extension pricing changes the accepted rental amount. Price-changing rental extensions are not supported.'
-          : 'Current target-date pricing changes the accepted rental amount. Run a new review; price-changing amendments are not supported.',
+        commercialAmendment?.status === 'APPLIED'
+          ? 'Current target pricing changes the accepted effective rental amount. Another price-changing commercial amendment is not supported.'
+          : mode === 'CUSTODY_EXTENSION'
+            ? 'Current extension pricing changes the accepted rental amount. Price-changing rental extensions require commercial amendment review.'
+            : 'Current target-date pricing changes the accepted rental amount. Run a new review before applying.',
       );
     }
 
@@ -387,7 +445,7 @@ export async function applyRentalBookingReschedule(input: Readonly<{
         targetStartsOn: requested.startsOn,
         targetEndsOn: requested.endsOn,
         currency: booking.currency,
-        totalMinor: booking.totalMinor,
+        totalMinor: effectiveAcceptedTotalMinor,
         sourcePricingFingerprint,
         targetPricingFingerprint: targetPricing.fingerprint,
         targetPricingSnapshot: toJsonInput(targetPricing.snapshot),
@@ -454,6 +512,8 @@ export async function applyRentalBookingReschedule(input: Readonly<{
           unitId: currentUnitId,
           startsOn: sourceStartsOn.toISOString(),
           endsOn: sourceEndsOn.toISOString(),
+          acceptedTotalMinor: effectiveAcceptedTotalMinor.toString(),
+          commercialAmendmentId: commercialAmendment?.status === 'APPLIED' ? commercialAmendment.id : null,
           pricingFingerprint: sourcePricingFingerprint,
         },
         afterData: {
@@ -463,6 +523,8 @@ export async function applyRentalBookingReschedule(input: Readonly<{
           unitId: currentUnitId,
           startsOn: requested.startsOn.toISOString(),
           endsOn: requested.endsOn.toISOString(),
+          acceptedTotalMinor: effectiveAcceptedTotalMinor.toString(),
+          commercialAmendmentId: commercialAmendment?.status === 'APPLIED' ? commercialAmendment.id : null,
           pricingFingerprint: targetPricing.fingerprint,
           authorityFingerprint: expectedAuthorityFingerprint,
         },

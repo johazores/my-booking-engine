@@ -48,6 +48,12 @@ Rental cancellation consumes this combined effective settlement under the shared
 
 PostgreSQL independently enforces the same commercial boundary. Cancellation itself never records a refund or performs provider I/O.
 
+## Date-change interaction
+
+Effective settlement remains anchored to the one applied price-changing amendment even when a later same-unit price-neutral reschedule or custody extension changes dates. Those later reschedules must preserve the amendment currency and exact `afterTotalMinor`, so they do not alter the combined money model.
+
+A second price-changing amendment remains blocked. Physical-unit substitution remains fail-closed while the commercial amendment is prepared or applied until that separate workflow can carry the effective commercial baseline safely.
+
 ## Fail-closed behavior
 
 Reconciliation fails rather than guessing on incomplete history, multiple applied amendments, mismatched terminal reschedule evidence, invalid fingerprints, inconsistent currencies/arithmetic, compensated or malformed applied adjustment evidence, wrong-ledger refunds, duplicate references, source over-refunds, chronology violations, or impossible balances.
@@ -56,9 +62,9 @@ The writer also fails closed on stale effective state, unsupported providers, du
 
 ## Current boundary
 
-Post-apply manual refund recording, authenticated staff orchestration, and exact-zero cancellation are implemented for the one supported manual/offline commercial amendment.
+Post-apply manual refund recording, authenticated staff orchestration, exact-zero cancellation, and later same-unit price-neutral date changes are implemented for the one supported manual/offline commercial amendment.
 
-Chained amendments and later reschedules remain blocked after that applied amendment. Direct writes to the original booking-price ledger remain blocked. Provider-backed/online refund execution remains later adapter-backed scope.
+Chained price-changing amendments remain blocked after that applied amendment. Direct writes to the original booking-price ledger remain blocked. Provider-backed/online refund execution remains later adapter-backed scope.
 
 ## Validation
 
@@ -67,6 +73,7 @@ Chained amendments and later reschedules remain blocked after that applied amend
 - `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects the read boundary.
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database caps, permission/locking/provider use, bounded history, and authenticated staff wiring.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the staff refund handoff.
+- `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects price-neutral date continuation without changing effective money.
 - `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero cancellation consumption.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.

@@ -62,7 +62,7 @@ After apply, the protected [effective settlement contract](./rental-booking-effe
 
 `recordRentalBookingPostApplyManualRefund` derives the next source server-side. Exact-zero cancellation consumes the same combined settlement.
 
-Another commercial amendment, another reschedule, and direct writes to the original booking-price ledger remain blocked after the one supported applied amendment.
+Only one price-changing amendment remains supported. Later same-unit price-neutral reschedules/extensions may continue when fresh pricing preserves the applied amendment currency and exact `afterTotalMinor`; another price change and direct writes to the original booking-price ledger remain blocked. Physical-unit substitution remains fail-closed while a commercial amendment is prepared or applied until its own effective-commercial-baseline contract exists.
 
 ## Validation
 
@@ -71,6 +71,7 @@ Another commercial amendment, another reschedule, and direct writes to the origi
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated UI/route lifecycle and database-time readiness boundary.
 - `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final apply.
+- `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects post-apply neutral reschedule authority.
 - `scripts/rental-booking-effective-settlement-source-contract.test.mjs` and `scripts/rental-booking-effective-refund-source-contract.test.mjs` protect post-apply money authority.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.

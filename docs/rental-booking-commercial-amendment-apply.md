@@ -25,7 +25,7 @@ The staff form requires an explicit `APPLY` confirmation for accident resistance
 
 Successful apply appends one `RentalBookingReschedule`, compare-and-swap updates only the effective allocation dates, versions the booking without rewriting accepted money, and terminally moves the amendment to `APPLIED` with linked reschedule and database-authored apply time.
 
-PostgreSQL independently checks exact settlement and reschedule linkage. Applied lifecycle evidence is immutable.
+PostgreSQL independently checks exact settlement and reschedule linkage. Applied lifecycle evidence is immutable. The reschedule insert guard permits a live `PREPARED` amendment only for the exact retained commercial terms/fingerprints used by final apply, and a deferred constraint requires that row to be linked to an `APPLIED` amendment before commit. This prevents direct SQL from bypassing the commercial terminal transition.
 
 An idempotent replay of the same applied amendment reads the retained linked reschedule/allocation evidence and returns without creating another commercial change.
 
@@ -49,6 +49,14 @@ For an applied decrease, the adjustment refund already consumes retained origina
 
 PostgreSQL independently caps source refunds and preserves the tenant-wide manual-reference namespace.
 
+## Post-apply date authority
+
+The applied amendment `afterTotalMinor` becomes the accepted effective commercial baseline for later same-unit date authority. The immutable `RentalBooking.totalMinor` remains booking-time evidence.
+
+A later price-neutral reschedule or picked-up custody extension is allowed only when fresh server pricing preserves the applied amendment currency and exact `afterTotalMinor`. The writer repeats that check under locks and appends the effective total to the new reschedule evidence. PostgreSQL independently enforces the same baseline.
+
+A second price-changing amendment remains unsupported. Physical-unit substitution remains fail-closed while an amendment is `PREPARED` or `APPLIED` until that workflow has its own effective-commercial-baseline contract.
+
 ## Post-apply cancellation
 
 Cancellation after an applied amendment is supported only when the combined effective settlement is exact zero. The cancellation writer requires `fullyRefunded` and `currentNetSettledMinor === 0n` under the shared booking lock.
@@ -57,7 +65,7 @@ Cancellation never creates refund evidence or calls a provider.
 
 ## Current commercial boundary
 
-Only one applied price-changing amendment per rental is supported. Later reschedules, another commercial amendment, and direct original booking-price ledger writes remain blocked.
+Only one applied price-changing amendment per rental is supported. Later same-unit price-neutral reschedules/extensions may continue only at the accepted effective post-amendment total. Another price-changing commercial amendment and direct original booking-price ledger writes remain blocked.
 
 Authenticated staff orchestration is implemented for the manual/offline path. Provider-backed/online amendment collection and refund execution remain separate adapter-backed scope.
 
@@ -65,6 +73,7 @@ Authenticated staff orchestration is implemented for the manual/offline path. Pr
 
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects locked final apply and retained evidence.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects authenticated staff apply wiring and permission gating.
+- `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline and exact prepared-final-apply exception.
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects post-apply refund source authority.
 - `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero post-apply cancellation.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.

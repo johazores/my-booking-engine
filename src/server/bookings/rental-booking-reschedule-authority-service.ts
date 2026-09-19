@@ -111,7 +111,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       ? 'CUSTODY_EXTENSION'
       : 'PRE_PICKUP_RESCHEDULE';
 
-    const [latestReschedule, latestSubstitution, existingCommercialAmendment] = await Promise.all([
+    const [latestReschedule, latestSubstitution, commercialAmendments] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
         where: { organizationId: input.organizationId, bookingId: booking.id },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
@@ -120,20 +120,63 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         where: { organizationId: input.organizationId, bookingId: booking.id },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
-      transaction.rentalBookingCommercialAmendment.findFirst({
+      transaction.rentalBookingCommercialAmendment.findMany({
         where: {
           organizationId: input.organizationId,
           bookingId: booking.id,
           status: { in: ['PREPARED', 'APPLIED'] },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, status: true, expiresAt: true, appliedAt: true },
+        take: 2,
+        select: {
+          id: true,
+          status: true,
+          currency: true,
+          beforeTotalMinor: true,
+          afterTotalMinor: true,
+          expiresAt: true,
+          appliedRescheduleId: true,
+          appliedAt: true,
+        },
       }),
     ]);
+    if (commercialAmendments.length > 1) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking retains conflicting active commercial amendment authority.',
+      );
+    }
+    const existingCommercialAmendment = commercialAmendments[0] ?? null;
     const sourceStartsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const sourceEndsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     const sourcePricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
     const effectiveUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
+    let effectiveAcceptedTotalMinor = booking.totalMinor;
+    if (existingCommercialAmendment?.status === 'APPLIED') {
+      if (
+        existingCommercialAmendment.currency !== booking.currency
+        || existingCommercialAmendment.beforeTotalMinor !== booking.totalMinor
+        || existingCommercialAmendment.afterTotalMinor <= 0n
+        || !existingCommercialAmendment.appliedRescheduleId
+        || !existingCommercialAmendment.appliedAt
+        || !latestReschedule
+        || latestReschedule.currency !== existingCommercialAmendment.currency
+        || latestReschedule.totalMinor !== existingCommercialAmendment.afterTotalMinor
+        || latestReschedule.appliedAt.getTime() < existingCommercialAmendment.appliedAt.getTime()
+      ) {
+        throw new RentalAvailabilityIntegrityError(
+          'Applied rental commercial amendment does not reconcile to the effective reschedule commercial baseline.',
+        );
+      }
+      effectiveAcceptedTotalMinor = existingCommercialAmendment.afterTotalMinor;
+    } else if (
+      !existingCommercialAmendment
+      && latestReschedule
+      && (latestReschedule.currency !== booking.currency || latestReschedule.totalMinor !== booking.totalMinor)
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental reschedule history does not reconcile to the immutable booking commercial baseline.',
+      );
+    }
     const allocation = booking.allocation;
 
     if (
@@ -226,7 +269,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
     });
     const commercialImpact = buildRentalBookingRescheduleCommercialImpact({
       acceptedCurrency: booking.currency,
-      acceptedTotalMinor: booking.totalMinor,
+      acceptedTotalMinor: effectiveAcceptedTotalMinor,
       targetCurrency: targetPricing.currency,
       targetTotalMinor: BigInt(targetPricing.totalMinor),
     });
@@ -236,7 +279,6 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       target.startsOn.getTime() === sourceStartsOn.getTime()
       && target.endsOn.getTime() === sourceEndsOn.getTime()
     ) blocker = 'NO_CHANGE';
-    else if (existingCommercialAmendment?.status === 'APPLIED') blocker = 'COMMERCIAL_AMENDMENT_APPLIED';
     else if (existingCommercialAmendment?.status === 'PREPARED') blocker = 'COMMERCIAL_AMENDMENT_ACTIVE';
     else if (
       mode === 'CUSTODY_EXTENSION'
@@ -249,7 +291,11 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
     ) blocker = 'CUSTODY_EXTENSION_REQUIRED';
     else if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) blocker = 'INVENTORY_CONFLICT';
     else if (commercialImpact.kind === 'CURRENCY_CHANGED') blocker = 'CURRENCY_CHANGED';
-    else if (commercialImpact.kind !== 'UNCHANGED') blocker = 'PRICE_CHANGED';
+    else if (commercialImpact.kind !== 'UNCHANGED') {
+      blocker = existingCommercialAmendment?.status === 'APPLIED'
+        ? 'COMMERCIAL_AMENDMENT_APPLIED'
+        : 'PRICE_CHANGED';
+    }
 
     const authorityFingerprint = blocker === null
       ? buildRentalBookingRescheduleAuthorityFingerprint({
@@ -285,7 +331,7 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
           targetStartsOn: target.startsOn,
           targetEndsOn: target.endsOn,
           currency: targetPricing.currency,
-          beforeTotalMinor: booking.totalMinor,
+          beforeTotalMinor: effectiveAcceptedTotalMinor,
           afterTotalMinor: BigInt(targetPricing.totalMinor),
           sourcePricingFingerprint,
           targetPricingFingerprint: targetPricing.fingerprint,
@@ -318,7 +364,8 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         originalStartsOn: booking.startsOn,
         originalEndsOn: booking.endsOn,
         currency: booking.currency,
-        totalMinor: booking.totalMinor,
+        totalMinor: effectiveAcceptedTotalMinor,
+        originalTotalMinor: booking.totalMinor,
         pricingFingerprint: sourcePricingFingerprint,
         originalPricingFingerprint: booking.pricingFingerprint,
         updatedAt: booking.updatedAt,
