@@ -10,6 +10,7 @@ import {
 } from './rental-booking-fulfillment-domain.ts';
 import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-domain.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
+import { readRentalBookingSecurityBondGuardInTransaction } from './rental-booking-security-bond-guard-service.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
 export class RentalBookingFulfillmentConflictError extends Error {
@@ -231,6 +232,17 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       );
     }
     if (input.kind === 'PICKED_UP') {
+      const securityBondGuard = await readRentalBookingSecurityBondGuardInTransaction({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+      });
+      if (securityBondGuard.blocksPickup) {
+        throw new RentalBookingFulfillmentConflictError(
+          'Rental pickup requires the retained security bond to be actively collected.',
+        );
+      }
+
       const pickupWindow = deriveRentalBookingPickupWindow({
         observedAt: databaseClock[0].now,
         startsOn: effectiveStartsOn,

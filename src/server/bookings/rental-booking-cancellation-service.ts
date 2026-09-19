@@ -9,6 +9,7 @@ import {
 } from './rental-booking-cancellation-domain.ts';
 import { readRentalBookingEffectiveSettlementInTransaction } from './rental-booking-effective-settlement-service.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
+import { readRentalBookingSecurityBondGuardInTransaction } from './rental-booking-security-bond-guard-service.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 
 export class RentalBookingCancellationConflictError extends Error {
@@ -191,6 +192,17 @@ export async function cancelRentalBooking(input: Readonly<{
     if (fulfillmentEvent) {
       throw new RentalBookingCancellationConflictError(
         `Rental booking cannot be cancelled after physical custody has started (${fulfillmentEvent.kind}).`,
+      );
+    }
+
+    const securityBondGuard = await readRentalBookingSecurityBondGuardInTransaction({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
+    });
+    if (securityBondGuard.blocksCancellation) {
+      throw new RentalBookingCancellationConflictError(
+        'Release the collected rental security bond before cancelling this booking.',
       );
     }
 

@@ -6,7 +6,9 @@ Authorized staff may establish one immutable positive bond requirement before cu
 
 ## Authority and tenant scope
 
-Reads require both `booking:read` and `payment:read`. Writes require both `booking:manage` and `payment:manage`. Organization and actor identity come only from authenticated server context.
+Detailed security-bond reads require both `booking:read` and `payment:read`. Writes require both `booking:manage` and `payment:manage`. Organization and actor identity come only from authenticated server context.
+
+The booking workflow also has a deliberately minimal `booking:read` operational projection that exposes only whether a bond requirement exists, the derived lifecycle state, and whether pickup or cancellation is blocked. It does not expose bond amounts, provider references, or transaction details. See [rental-security-bond-operational-guards.md](./rental-security-bond-operational-guards.md).
 
 Every service query repeats `organizationId` plus booking/bond identity. The requirement amount is parsed against the retained booking currency; browser input cannot choose tenant, currency, actor, idempotency, provider, timestamps, liability identity, or settlement amount.
 
@@ -29,9 +31,13 @@ Release and forfeiture are mutually exclusive terminal dispositions. Partial amo
 
 ## Pickup and cancellation guards
 
-A booking with no retained security-bond requirement preserves the existing pickup behavior. Once a requirement exists, PostgreSQL independently blocks `PICKED_UP` evidence unless the exact full bond is actively `COLLECTED`.
+A booking with no retained security-bond requirement preserves the existing pickup behavior. Once a requirement exists, a new `PICKED_UP` event requires the exact full bond to be actively `COLLECTED`.
 
-Cancellation remains blocked while a collected bond has no terminal disposition. A full release or a valid explicit forfeiture resolves that held-bond condition; neither outcome silently changes booking price evidence.
+The fulfillment writer now reconciles that tenant-owned bond state under the existing booking transaction before new pickup evidence is inserted. The staff booking page uses the minimal operational projection to remove the dead pickup action while the requirement is not actively collected. PostgreSQL independently enforces the same boundary for direct or concurrent writes.
+
+Cancellation remains blocked while a collected bond has no terminal disposition. The cancellation writer checks the reconciled held-bond state under the locked booking transaction before the terminal booking update, and the staff page suppresses the cancellation control while money remains held. A full release resolves that pre-pickup held-bond condition. Forfeiture is a post-return damage-liability path, when normal booking cancellation is already unavailable, and does not reopen cancellation. Neither disposition silently changes booking price evidence. PostgreSQL remains the independent final backstop.
+
+See [rental-security-bond-operational-guards.md](./rental-security-bond-operational-guards.md) for the booking-facing projection and no-dead-action contract.
 
 ## Exact damage forfeiture
 
@@ -43,7 +49,7 @@ The database independently serializes the liability settlement boundary and refu
 
 ## Manual reference isolation
 
-Manual security-bond collection/release references share the same tenant-wide rental reference namespace as booking-price, damage-liability, and late-return settlement. Before manual provider-adapter I/O, the service acquires the shared `sf:rental-manual-reference` advisory lock and verifies that the external reference is unused across booking-price, damage, security-bond, and late-return ledgers. The database independently repeats the same cross-scope guard at insert time, including concurrent and direct database writes.
+Manual security-bond collection/release references use the central tenant-wide `RentalManualProviderReference` namespace shared by booking-price payment/refund, commercial-amendment adjustment/compensation, post-apply effective refunds, damage settlement, security bonds, and late-return settlement. Before manual provider-adapter I/O, the service acquires the shared `sf:rental-manual-reference` advisory lock and rejects any retained reference already owned by that tenant-wide registry. PostgreSQL independently registers and rejects cross-ledger collisions for concurrent and direct database writes.
 
 Forfeiture has no provider reference because it is internal accounting authority over money already retained as a collected bond; it does not fabricate a new provider transaction.
 
@@ -64,7 +70,8 @@ Forfeiture is never automatic. A damage decision alone cannot consume the bond; 
 - `src/server/payments/rental-security-bond-domain.test.ts` covers required/collected/released/forfeited reconciliation, mutually exclusive dispositions, chronology, and deterministic idempotency.
 - `scripts/rental-security-bond-source-contract.test.mjs` protects the existing requirement/collection/release foundation.
 - `scripts/rental-security-bond-forfeiture-source-contract.test.mjs` protects exact-match forfeiture persistence, tenant/permission authority, server-derived idempotency, database serialization against release and separate damage settlement, confirmation UI, and the partial-offset boundary.
-- `src/server/payments/rental-security-bond.integration.ts` remains the guarded disposable-PostgreSQL coverage for the base bond lifecycle. The new migration guards must also execute through `npm run test:database` before live database verification is claimed.
+- `scripts/rental-security-bond-operational-guard-source-contract.test.mjs` protects the booking-read operational projection, locked pickup/cancellation preflight, existing PostgreSQL backstops, and dead-action removal on the staff booking page.
+- `src/server/payments/rental-security-bond.integration.ts` remains the guarded disposable-PostgreSQL coverage for the base bond lifecycle. The migration guards must execute through `npm run test:database` before live database verification is claimed.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 
 GitHub Actions are not required or used.

@@ -26,6 +26,8 @@ The fulfillment writer uses the tenant/booking advisory lock followed by the eff
 
 Before pickup is written, the service combines that PostgreSQL timestamp with the retained booking location timezone and the current effective committed dates. Pickup before the local start date or at/after the exclusive local end date fails closed. A dedicated database trigger repeats the booking lock, latest-reschedule date derivation, retained-location timezone lookup, PostgreSQL clock authority, and pickup-window check for direct inserts, so a caller-provided event timestamp cannot bypass the current window.
 
+Fresh pickup also fails closed while a tenant-owned commercial amendment remains `PREPARED` or, when a security-bond requirement exists, unless the reconciled bond state is exactly `COLLECTED`. The commercial and security-bond application checks run before new custody evidence inside the shared booking transaction. PostgreSQL independently retains both pickup backstops: prepared commercial authority blocks direct custody insertion, and the security-bond guard rejects direct pickup without an actively collected retained requirement. These operational gates do not create, collect, release, compensate, or otherwise move money.
+
 Repeated pickup or return requests replay an existing event only after re-deriving the retained confirmed booking's latest assignment. The existing event must still match the effective physical unit and the committed date snapshot that applies to that event and remain present in the tenant-owned custody history. Pickup replay additionally verifies that the retained pickup timestamp fell inside its retained committed local-date window. An idempotency-key match by itself is not sufficient.
 
 Early-return inventory release uses the same booking/inventory permissions and lock order. It derives the release cutoff from the immutable return timestamp in the retained booking location timezone and only shortens the allocation when at least one complete remaining rental day can be freed. See [rental-early-return-inventory-release.md](./rental-early-return-inventory-release.md).
@@ -62,7 +64,9 @@ If no pickup occurred when the exclusive effective end date is reached, the book
 
 `getRentalBooking` reads fulfillment and early-return release evidence with tenant scope and derives `AWAITING_PICKUP`, `PICKED_UP`, or `RETURNED` from immutable event history. It also derives read-only overdue custody from a PostgreSQL observation time, the retained booking location timezone, and the current effective committed end.
 
-The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup **and** the committed local-date pickup window is open, then a real POST return action only while picked up. Before the rental start, staff see when pickup opens. After the exclusive end passes without pickup, the primary pickup action is removed and the closed-window state is explained.
+The staff booking detail displays custody history and exposes a real POST pickup action only while awaiting pickup, the committed local-date pickup window is open, no commercial amendment is still prepared, and any retained security-bond requirement is actively collected. The page reads separate minimal booking-authorized operational blockers for the prepared-amendment and security-bond conditions. Those UI reads are usability only; the locked writer and PostgreSQL remain authoritative against concurrent state changes. Actors with payment-read access receive links to the real commercial/security-bond workspaces; other operators receive a blocker message without sensitive payment details or a dead primary action.
+
+Before the rental start, staff see when pickup opens. After the exclusive end passes without pickup, the primary pickup action is removed and the closed-window state is explained.
 
 While picked up, actors with the existing booking/availability/inventory/pricing review permissions receive an `Extend rental` action. The shared date-change page locks the start date in the UI and reviews only a later end date. UI constraints are usability only; the service and database enforce the same custody-extension shape and price-neutral authority.
 
@@ -74,7 +78,7 @@ The paginated rental booking list continues to mark overdue picked-up rows and m
 
 The custody-extension exception does not implement price-changing extensions, proration, payment adjustment, split settlement, unit-type changes, location changes, delivery, automatic tenant late-fee policy, customer self-service, or provider synchronization.
 
-Damage/inspection state, security bonds, maintenance, late-return assessment, and their settlement workflows remain separate evidence streams. An extension does not automatically create, waive, collect, or refund any fee.
+Damage/inspection state, security bonds, maintenance, late-return assessment, and their settlement workflows remain separate evidence streams. The fulfillment workflow only consumes the minimal security-bond lifecycle state needed to authorize pickup; it does not expose detailed bond money or mutate bond evidence. An extension does not automatically create, waive, collect, or refund any fee.
 
 ## Validation
 
@@ -86,6 +90,8 @@ Damage/inspection state, security bonds, maintenance, late-return assessment, an
 - `src/server/bookings/rental-booking-early-return-release-domain.test.ts` covers whole-day early-return release semantics and deterministic idempotency.
 - `src/server/bookings/rental-booking-reschedule-domain.test.ts` covers the same-start/later-end extension shape and custody-bound reschedule authority.
 - `scripts/rental-booking-fulfillment-source-contract.test.mjs` protects Prisma/database relation parity, persistence, tenant scope, authorization, locks, PostgreSQL time, replay revalidation, route authority, custody mutation guards, the extension exception, and staff action wiring.
+- `scripts/rental-prepared-amendment-pickup-guard-source-contract.test.mjs` protects the locked prepared-commercial pickup blocker, independent PostgreSQL guard, tenant-scoped staff projection, no-dead-action UI, and deliberate return exception.
+- `scripts/rental-security-bond-operational-guard-source-contract.test.mjs` protects the reconciled minimal bond projection, locked pickup/cancellation preflight, existing PostgreSQL backstops, and no-dead-action staff behavior.
 - `scripts/rental-booking-pre-custody-writer-source-contract.test.mjs` protects cancellation's hard custody boundary and the custody-aware date-change writer while preserving completed idempotent replay.
 - `scripts/rental-booking-reschedule-source-contract.test.mjs` protects the shared pre-pickup reschedule/custody-extension authority and database boundary.
 - `scripts/rental-booking-pickup-window-source-contract.test.mjs` protects the pickup-window service, database guard, staff action visibility, and documentation boundary.

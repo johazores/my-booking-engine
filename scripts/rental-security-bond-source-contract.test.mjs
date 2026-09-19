@@ -11,6 +11,7 @@ const schema = read('prisma/rental-security-bond.prisma');
 const rentalSchema = read('prisma/rental-inventory.prisma');
 const migration = read('prisma/migrations/20260917030000_rental_security_bond_foundation/migration.sql');
 const integrityMigration = read('prisma/migrations/20260917033000_rental_security_bond_booking_integrity/migration.sql');
+const registryMigration = read('prisma/migrations/20260918225500_rental-manual-reference-registry/migration.sql');
 const service = read('src/server/payments/rental-security-bond-service.ts');
 const domain = read('src/server/payments/rental-security-bond-domain.ts');
 const page = read('app/inventory/rentals/bookings/[booking-id]/security-bond/page.tsx');
@@ -60,13 +61,20 @@ test('database blocks pickup without active collection and cancellation while bo
   assert.match(migration, /rental_booking_security_bond_cancellation_guard/);
 });
 
-test('manual references are isolated across booking, damage, and security-bond ledgers', () => {
-  assert.match(migration, /sf:rental-manual-reference:/);
-  assert.match(migration, /rental_payment_transactions/);
-  assert.match(migration, /rental_damage_settlement_transactions/);
-  assert.match(migration, /rental_security_bond_transactions/);
-  assert.match(migration, /pg_advisory_xact_lock/);
-  assert.match(service, /assertManualReferenceUnused/);
+test('manual references use the central tenant-wide registry across every current rental money ledger', () => {
+  assert.match(registryMigration, /CREATE TABLE "rental_manual_provider_references"/);
+  for (const ledger of [
+    'rental_payment_transactions',
+    'rental_damage_settlement_transactions',
+    'rental_security_bond_transactions',
+    'rental_late_return_settlement_transactions',
+    'rental_booking_commercial_amendment_settlement_transactions',
+    'rental_booking_effective_refund_transactions',
+  ]) assert.match(registryMigration, new RegExp(ledger));
+  assert.match(registryMigration, /rental_security_bond_transactions_register_manual_reference/);
+  assert.match(registryMigration, /sf_register_rental_manual_reference/);
+  assert.match(registryMigration, /sf:rental-manual-reference:/);
+  assert.match(service, /rentalManualProviderReference\.findUnique/);
 });
 
 test('staff surface exposes only persisted requirement, collection, release, and explicit forfeiture actions', () => {
@@ -85,6 +93,7 @@ test('staff surface exposes only persisted requirement, collection, release, and
   }
   assert.match(docs, /does not implement card authorization or capture/i);
   assert.match(docs, /Forfeiture is never automatic/i);
+  assert.match(docs, /RentalManualProviderReference/);
   assert.doesNotMatch(page, /Capture bond|Authorize card/);
 });
 

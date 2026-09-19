@@ -9,11 +9,11 @@ SF implements a staff-only rental booking cancellation lifecycle for the durable
 - `booking:manage`, because the operation changes durable booking lifecycle
 - `availability:manage`, because cancellation releases protected physical inventory
 
-The staff route derives organization and actor from authenticated server context. The browser may submit only the human cancellation reason. It cannot choose tenant, actor, unit, dates, customer, price, cancellation time, settlement source, applied amendment, or inventory-release authority.
+The staff route derives organization and actor from authenticated server context. The browser may submit only the human cancellation reason. It cannot choose tenant, actor, unit, dates, customer, price, cancellation time, settlement source, applied amendment, security-bond state, or inventory-release authority.
 
 The service contract requires a cancellation reason for every caller. Runtime normalization rejects non-string input, trims outer whitespace, collapses internal whitespace, requires a non-empty value, and enforces the 1000-character retention bound before any lifecycle mutation is attempted.
 
-Every booking, reschedule, substitution, commercial-amendment, payment, and post-apply refund read used by cancellation is tenant-scoped. A booking ID from another tenant resolves as unavailable rather than becoming cross-tenant mutation authority.
+Every booking, reschedule, substitution, commercial-amendment, booking-price payment, post-apply refund, and security-bond read used by cancellation is tenant-scoped. A booking ID from another tenant resolves as unavailable rather than becoming cross-tenant mutation authority.
 
 ## Serialization and effective allocation
 
@@ -47,6 +47,14 @@ A positive combined net fails closed even when the original booking-price ledger
 
 Cancellation audit `beforeData` records whether the financial gate was ordinary booking-price settlement or effective post-amendment settlement, the immutable original total, effective accepted total, exact current net, fully-refunded state, and applied amendment ID when present. It never records card data or payment credentials.
 
+## Security-bond gate
+
+Security-bond money remains separate from booking-price settlement. A retained bond in `COLLECTED` state means customer money is still held under the bond contract, so cancellation must not terminalize the booking while that held-money obligation remains unresolved.
+
+Under the same locked booking transaction, `cancelRentalBooking` reconciles the tenant-owned security-bond requirement, manual collection/release evidence, request fingerprints, and any forfeiture evidence through the minimal operational guard. A collected bond fails closed before the terminal booking update with an explicit instruction to release the bond first. A merely `REQUIRED` bond does not block cancellation because no bond money was collected, and a fully `RELEASED` bond does not block cancellation. Forfeiture is a post-return damage-liability path, when normal booking cancellation is already unavailable, and does not create a pre-pickup cancellation shortcut.
+
+This check does not expose detailed bond money to booking-only readers and does not release, forfeit, collect, or otherwise move bond money. See [rental-security-bond-operational-guards.md](./rental-security-bond-operational-guards.md).
+
 ## Database lifecycle and settlement protection
 
 The cancellation lifecycle migration permits only `CONFIRMED` with no cancellation timestamp to transition to `CANCELLED` with a timestamp at or after confirmation. Reopening or clearing cancellation fails closed.
@@ -59,9 +67,11 @@ When an applied amendment exists, PostgreSQL independently requires exactly one 
 
 A later prepared-amendment cancellation guard independently rejects the `CONFIRMED -> CANCELLED` transition while any tenant-owned amendment for that booking remains `PREPARED`. It takes the same booking advisory lock before checking the amendment row, so direct SQL cannot terminalize the booking while the unresolved commercial workflow can still settle, compensate, close, or apply.
 
+The existing security-bond cancellation trigger independently rejects the same lifecycle transition while a successful retained bond collection has no successful release evidence. The application operational guard improves deterministic staff/service behavior but does not replace this database backstop.
+
 Rental inventory guards treat allocations belonging to cancelled bookings as historical rather than live protection. Because cancellation uses the same current physical-unit serialization boundary as availability and rescheduling, no new inventory decision can race between lifecycle release and commit.
 
-Cancellation intentionally does not delete `RentalBookingAllocation`, `RentalBookingReschedule`, `RentalBookingUnitSubstitution`, commercial-amendment, or settlement evidence.
+Cancellation intentionally does not delete `RentalBookingAllocation`, `RentalBookingReschedule`, `RentalBookingUnitSubstitution`, commercial-amendment, booking-price/effective settlement, or security-bond evidence.
 
 ## Audit and retained evidence
 
@@ -69,19 +79,21 @@ A successful staff transition records `booking.rental.cancelled` with actor, ten
 
 The reason is retained as audit evidence rather than being copied into a mutable booking field. Audit creation remains in the same serializable database transaction as the terminal booking mutation, so an audit-write failure rolls the cancellation back rather than leaving an unaudited lifecycle change.
 
-Immutable customer snapshot, source hold, accepted money, original pricing/conversion evidence, append-only modification evidence, confirmation time, and physical allocation remain retained. Customer de-identification continues to treat a cancelled rental booking as a retention boundary.
+Immutable customer snapshot, source hold, accepted money, original pricing/conversion evidence, append-only modification evidence, confirmation time, physical allocation, and separate security-bond evidence remain retained. Customer de-identification continues to treat a cancelled rental booking as a retention boundary.
 
 ## Staff UX
 
 The cancellation section remains visible while a booking is still `CONFIRMED`, before pickup, has its current allocation, and the actor has `booking:manage` plus `availability:manage`. It is not hidden merely because settlement is non-zero or the actor lacks `payment:read`; this keeps the required next step discoverable without weakening authorization.
 
+The page also reads the minimal booking-authorized security-bond operational projection. While bond money is `COLLECTED`, the cancellation section stays visible but the destructive cancellation control is replaced by an explicit blocker. Actors with payment-read access receive a link to the real security-bond workspace; other actors are told that an authorized payment user must resolve the bond. No bond amount or provider reference is exposed through this projection.
+
 When the actor also has `payment:read`, the server component resolves the protected effective settlement instead of relying only on the original booking-price panel. Reconciled positive combined net shows the exact remaining amount. A prepared amendment or other unreconciled commercial evidence shows a reconciliation blocker and directs staff to resolve the commercial-amendment workflow first. Without `payment:read`, the section exposes no payment amount and states only that authorized settlement verification is required.
 
-The destructive submit control is rendered only when effective settlement is readable, reconciled, `fullyRefunded`, and exact zero net. Staff must enter a cancellation reason before submitting. HTML `required`/`maxLength` attributes improve usability, while `cancelRentalBooking` independently normalizes and validates the reason server-side and then re-reads the complete effective settlement under the booking lock. PostgreSQL independently enforces its cancellation guards. A concurrent refund, commercial-amendment state change, custody change, allocation change, or other protected state can still make the final write fail closed.
+When the bond guard is clear, the destructive submit control is rendered only when effective settlement is readable, reconciled, `fullyRefunded`, and exact zero net. Staff must enter a cancellation reason before submitting. HTML `required`/`maxLength` attributes improve usability, while `cancelRentalBooking` independently normalizes and validates the reason server-side and then re-reads the security-bond state plus complete effective settlement under the booking lock. PostgreSQL independently enforces its cancellation guards. A concurrent refund, bond disposition, commercial-amendment state change, custody change, allocation change, or other protected state can still make the final write fail closed.
 
 The action uses explicit confirmation and warns staff not to place payment-card or other sensitive secrets in the reason. Success returns to booking detail; repeated cancellation reports existing terminal state. Permission, unavailable, conflict, validation, and server failures have explicit feedback.
 
-Cancelled details preserve original booking-time evidence, reschedule/substitution history, current effective allocation, commercial evidence, and cancellation timestamp while explaining that live inventory protection has ended. The normalized reason remains available through retained audit evidence.
+Cancelled details preserve original booking-time evidence, reschedule/substitution history, current effective allocation, commercial evidence, security-bond evidence, and cancellation timestamp while explaining that live inventory protection has ended. The normalized reason remains available through retained audit evidence.
 
 ## Deliberate commercial boundary
 
@@ -103,6 +115,8 @@ Only one applied price-changing rental amendment remains supported. A second/cha
 
 `scripts/rental-booking-cancellation-readiness-source-contract.test.mjs` protects staff cancellation discoverability, payment-read privacy, exact-zero effective-settlement submit gating, applied-amendment-aware status copy, and the absence of automatic-refund claims.
 
-`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL base cancellation scenario, including an assertion that normalized cancellation reason evidence is retained in the cancellation audit event. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; prepared/applied amendment cancellation scenarios require that same database gate before being claimed as live-verified.
+`scripts/rental-security-bond-operational-guard-source-contract.test.mjs` protects the booking-authorized bond projection, locked cancellation preflight, existing database backstop, and the no-dead-cancellation-action staff behavior while collected bond money remains held.
+
+`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL base cancellation scenario, including an assertion that normalized cancellation reason evidence is retained in the cancellation audit event. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; prepared/applied amendment and security-bond cancellation scenarios require that same database gate before being claimed as live-verified.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. GitHub Actions are not required or used.
