@@ -56,23 +56,29 @@ test('supported application writers already share the database unit-lock namespa
   assert.match(damage, /rentalUnitLockKey\(input\.organizationId, inspection\.unitId\)/);
 });
 
-test('supported archive readiness mirrors known operational archive blockers', async () => {
-  const readiness = await source('src/server/inventory/rental-unit-archive-readiness.ts');
+test('supported archive readiness mirrors known operational blockers inside archive service authority', async () => {
+  const [readiness, inventory] = await Promise.all([
+    source('src/server/inventory/rental-unit-archive-readiness.ts'),
+    source('src/server/inventory/rental-service.ts'),
+  ]);
 
+  assert.match(readiness, /Prisma\.TransactionClient/);
   assert.match(readiness, /work_order\."status" IN \('OPEN', 'IN_PROGRESS'\)/);
   assert.match(readiness, /damage_case\."status" IN \('OPEN', 'ASSESSED'\)/);
   assert.match(readiness, /inspection\."outcome" IN \('DAMAGE_REPORTED', 'UNSAFE'\)/);
   assert.match(readiness, /damage_case\."status" IN \('WAIVED', 'CLOSED'\)/);
-  assert.match(readiness, /RentalInventoryDependencyError/);
+  assert.match(inventory, /await readRentalUnitArchiveOperationalReadiness\(transaction/);
+  assert.match(inventory, /Complete or cancel active rental maintenance before archiving this rental unit/);
+  assert.match(inventory, /Waive or close the unresolved rental damage case before archiving this rental unit/);
 });
 
-test('documentation states direct-write serialization and supported archive readiness', async () => {
+test('documentation states direct-write serialization and locked supported archive readiness', async () => {
   const docs = await source('docs/rental-unit-mutation-authority.md');
 
   assert.match(docs, /fresh maintenance or unresolved damage evidence/i);
   assert.match(docs, /shared tenant\/unit advisory lock/i);
   assert.match(docs, /direct SQL/i);
-  assert.match(docs, /supported archive readiness/i);
+  assert.match(docs, /same serializable archive transaction/i);
   assert.match(docs, /pending-return-inspection/i);
   assert.match(docs, /GitHub Actions are not required or used/);
 });
