@@ -8,6 +8,7 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { deriveRentalBookingEarlyReturnReleaseEndsOn } from '@/server/bookings/rental-booking-early-return-release-domain.ts';
+import { readRentalBookingPickupCommercialGuard } from '@/server/bookings/rental-booking-pickup-commercial-guard-service.ts';
 import { deriveRentalBookingPickupWindow } from '@/server/bookings/rental-booking-pickup-window-domain.ts';
 import { getRentalBooking, RentalBookingUnavailableError } from '@/server/bookings/rental-booking-read-service.ts';
 import { listRentalBookingPaymentTransactions, RentalPaymentUnavailableError } from '@/server/payments/rental-payment-service.ts';
@@ -89,6 +90,12 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     throw error;
   }
 
+  const pickupCommercialGuard = await readRentalBookingPickupCommercialGuard({
+    organizationId: activeContext.organization.id,
+    actorUserId: session.user.id,
+    bookingId: booking.id,
+  });
+
   let paymentData: Awaited<ReturnType<typeof listRentalBookingPaymentTransactions>> | null = null;
   if (canReadPayments) {
     try {
@@ -116,7 +123,8 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
   const canReviewUnitSubstitution = canReviewUnitSubstitutionPermission && pickupWindow.state !== 'CLOSED';
   const canRecordPickup = canFulfill
     && beforePickup
-    && pickupWindow.state === 'OPEN';
+    && pickupWindow.state === 'OPEN'
+    && !pickupCommercialGuard.blocked;
   const inventoryEndsOn = booking.allocation?.endsOn ?? committedEndsOn;
   const effectiveUnit = booking.allocation?.unit ?? booking.unit;
   const returnEvent = booking.fulfillmentEvents.find((event) => event.kind === 'RETURNED') ?? null;
@@ -157,19 +165,20 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
         {booking.unitSubstitutions.length > 0 ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking-time unit</strong><span>{booking.unit.name} ({booking.unit.code}) · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Operating location</strong><span>{booking.location.name} ({booking.location.code}) · {booking.location.city}, {booking.location.countryCode} · {booking.location.timeZone}</span></div></div></li>
       </ul>
-      <p className="sf-field-hint">Before pickup and before the committed pickup window closes, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Once pickup is recorded, cancellation and unit replacement fail closed; date changes narrow to a same-unit, same-start, later-end price-neutral custody extension until return. After a missed pickup, unit replacement also closes; staff must review the supported reschedule or cancellation path. Return records custody handback and closes further date changes; a separate explicit release can free only complete remaining rental days without changing accepted money or the committed rental period.</p>
+      <p className="sf-field-hint">Before pickup and before the committed pickup window closes, authorized staff can apply supported reschedules, unit substitutions, settlement/refunds, and cancellation. Pickup itself pauses while a commercial date amendment is still prepared so custody cannot overtake unresolved money/date authority. Once pickup is recorded, cancellation and unit replacement fail closed; date changes narrow to a same-unit, same-start, later-end price-neutral custody extension until return. After a missed pickup, unit replacement also closes; staff must review the supported reschedule or cancellation path. Return records custody handback and closes further date changes; a separate explicit release can free only complete remaining rental days without changing accepted money or the committed rental period.</p>
     </section>
 
     {booking.status === 'CONFIRMED' ? <section className="sf-inventory-card" aria-labelledby="rental-booking-fulfillment-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Physical custody</p><h2 id="rental-booking-fulfillment-title">Rental fulfillment</h2></div><span>{booking.custody.overdue ? 'OVERDUE CUSTODY' : beforePickup && pickupWindow.state === 'CLOSED' ? 'MISSED PICKUP' : booking.fulfillment.state.replaceAll('_', ' ')}</span></div>
       {booking.fulfillmentEvents.length > 0 ? <ul className="sf-inventory-list">{booking.fulfillmentEvents.map((event) => <li key={event.id}><div className="sf-inventory-list__primary"><div><strong>{event.kind === 'PICKED_UP' ? 'Picked up' : 'Returned'}</strong><span>{event.unitName} ({event.unitCode}) · {event.startsOn.toISOString().slice(0, 10)} through {event.endsOn.toISOString().slice(0, 10)}</span><span><time dateTime={event.occurredAt.toISOString()}>{event.occurredAt.toISOString()}</time> · immutable custody evidence</span></div></div></li>)}</ul> : <p className="sf-field-hint">No physical custody transfer has been recorded. The booking remains eligible for supported pre-pickup commercial and inventory changes while its committed pickup window remains open.</p>}
       {canRecordPickup ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/pickup`}><button className="sf-button sf-button--primary" type="submit">Record pickup</button></form> : null}
+      {canFulfill && beforePickup && pickupWindow.state === 'OPEN' && pickupCommercialGuard.blocked ? <p className="sf-alert sf-alert--error" role="status"><strong>Pickup is paused while a commercial date amendment is prepared.</strong> Finish and apply it, fully compensate and close it, or record its expiry before handing over the unit.{canReadPayments && pickupCommercialGuard.amendmentId ? <> <Link href={`/inventory/rentals/bookings/${booking.id}/commercial-amendments/${pickupCommercialGuard.amendmentId}`}>Review commercial amendment</Link>.</> : null}</p> : null}
       {canFulfill && beforePickup && pickupWindow.state === 'BEFORE_WINDOW' ? <p className="sf-field-hint">Pickup opens on {committedStartsOn.toISOString().slice(0, 10)} in {booking.location.timeZone}. The server will not record custody before the committed rental starts.</p> : null}
       {beforePickup && pickupWindow.state === 'CLOSED' ? <p className="sf-alert sf-alert--error" role="status"><strong>Missed pickup.</strong> The exclusive committed end {committedEndsOn.toISOString().slice(0, 10)} has been reached in {booking.location.timeZone}. Do not hand over or replace the unit under this expired rental period; review the supported reschedule or cancellation path instead.</p> : null}
       {canFulfill && booking.fulfillment.state === 'PICKED_UP' ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/return`}><button className="sf-button sf-button--primary" type="submit">Record return</button></form> : null}
       {canReleaseRemainingInventory ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/inventory-release`} aria-describedby="rental-early-return-release-hint"><button className="sf-button sf-button--primary" type="submit">Release remaining inventory</button></form> : null}
       {canReleaseRemainingInventory && releaseCandidateEndsOn ? <p id="rental-early-return-release-hint" className="sf-field-hint">This will make the effective unit available from {releaseCandidateEndsOn.toISOString().slice(0, 10)} onward. The committed rental end, accepted amount, payment evidence, and custody history remain unchanged.</p> : null}
-      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Pickup is allowed only from the committed start date until the exclusive committed end in the retained operating-location timezone. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
+      <p className="sf-field-hint">Pickup and return timestamps come from PostgreSQL time and the committed unit/date assignment is snapshotted server-side. Pickup is allowed only from the committed start date until the exclusive committed end in the retained operating-location timezone and only when no commercial amendment remains prepared. Return remains recordable after custody starts even if a custody-extension amendment is prepared, because actual handback evidence must not be suppressed; that return instead makes final amendment apply fail closed. Return does not release inventory before the booking's effective end date by itself. After an early return, authorized staff may explicitly release only complete rental days after the return day.</p>
     </section> : null}
 
     <RentalReturnInspectionPanel

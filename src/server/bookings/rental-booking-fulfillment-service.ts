@@ -199,7 +199,7 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
       )
     `;
 
-    const [unit, history, databaseClock] = await Promise.all([
+    const [unit, history, databaseClock, preparedCommercialAmendment] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: effectiveUnitId, organizationId: input.organizationId, unitTypeId: booking.unitTypeId, locationId: booking.locationId },
         select: { id: true, code: true, name: true, status: true },
@@ -209,6 +209,14 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
         orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       }),
       transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`,
+      transaction.rentalBookingCommercialAmendment.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          status: 'PREPARED',
+        },
+        select: { id: true },
+      }),
     ]);
     if (!unit || unit.status !== 'ACTIVE') throw new RentalBookingFulfillmentConflictError('The effective rental unit is no longer active at the retained booking assignment.');
     if (!databaseClock[0]?.now) throw new RentalAvailabilityIntegrityError('Database clock is unavailable for rental fulfillment.');
@@ -216,6 +224,11 @@ async function recordRentalBookingFulfillmentEvent(input: Readonly<{
     const current = deriveRentalBookingFulfillmentState(history);
     if (input.kind === 'PICKED_UP' && current.state !== 'AWAITING_PICKUP') {
       throw new RentalBookingFulfillmentConflictError('Only an awaiting-pickup rental booking can be picked up.');
+    }
+    if (input.kind === 'PICKED_UP' && preparedCommercialAmendment) {
+      throw new RentalBookingFulfillmentConflictError(
+        'Finish, compensate, or close the prepared rental commercial amendment before recording pickup.',
+      );
     }
     if (input.kind === 'PICKED_UP') {
       const pickupWindow = deriveRentalBookingPickupWindow({
