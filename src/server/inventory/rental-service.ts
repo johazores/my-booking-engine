@@ -24,6 +24,7 @@ import {
   rentalUnitLockKey,
   rentalUnitTypeLifecycleLockKey,
 } from './rental-lock-domain.ts';
+import { readRentalUnitArchiveOperationalReadiness } from './rental-unit-archive-readiness.ts';
 
 export class RentalInventoryConflictError extends Error {
   constructor(message = 'A rental inventory record conflicts with an existing record.') {
@@ -470,7 +471,7 @@ export async function createRentalAvailabilityBlock(input: {
   return db.$transaction(async (transaction) => {
     await lockRentalUnit(transaction, input.organizationId, block.unitId);
     const now = await readRentalInventoryDatabaseClock(transaction, 'rental availability-block creation');
-    const [unit, overlap, overlappingHold] = await Promise.all([
+    const [unit, overlap, overlappingHold, overlappingBooking] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: block.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
         select: { id: true, code: true },
@@ -495,12 +496,32 @@ export async function createRentalAvailabilityBlock(input: {
         },
         select: { id: true },
       }),
+      transaction.rentalBookingAllocation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: block.unitId,
+          startsOn: { lt: block.endsOn },
+          endsOn: { gt: block.startsOn },
+          booking: {
+            is: {
+              organizationId: input.organizationId,
+              status: { not: 'CANCELLED' },
+            },
+          },
+        },
+        select: { id: true },
+      }),
     ]);
     if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
     if (overlap) throw new RentalInventoryConflictError('That availability block overlaps an existing block for this rental unit.');
     if (overlappingHold) {
       throw new RentalInventoryConflictError(
         'Release the overlapping rental availability hold before adding this unavailable-date block.',
+      );
+    }
+    if (overlappingBooking) {
+      throw new RentalInventoryConflictError(
+        'Resolve the overlapping rental booking before adding this unavailable-date block.',
       );
     }
     const created = await transaction.rentalAvailabilityBlock.create({ data: { organizationId: input.organizationId, ...block } });
@@ -663,6 +684,34 @@ export async function archiveRentalUnit(input: {
       observedAt: now,
       action: 'archiving',
     });
+
+    const readiness = await readRentalUnitArchiveOperationalReadiness(transaction, {
+      organizationId: input.organizationId,
+      unitId: current.id,
+    });
+    if (!readiness) {
+      throw new RentalInventoryConflictError('Rental unit archive readiness could not be verified.');
+    }
+    if (readiness.pendingReturnInspection) {
+      throw new RentalInventoryConflictError(
+        'Record the pending rental return inspection before archiving this rental unit.',
+      );
+    }
+    if (readiness.activeMaintenance) {
+      throw new RentalInventoryDependencyError(
+        'Complete or cancel active rental maintenance before archiving this rental unit.',
+      );
+    }
+    if (readiness.unresolvedNonClearInspection) {
+      throw new RentalInventoryDependencyError(
+        'Resolve non-clear rental return inspection evidence before archiving this rental unit.',
+      );
+    }
+    if (readiness.unresolvedDamageCase) {
+      throw new RentalInventoryDependencyError(
+        'Waive or close the unresolved rental damage case before archiving this rental unit.',
+      );
+    }
 
     const archivedAt = now;
     const updated = await transaction.rentalUnit.update({

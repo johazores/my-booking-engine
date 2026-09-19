@@ -1,10 +1,4 @@
-import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
-import { db } from '../database.ts';
-import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import {
-  RentalInventoryConflictError,
-  RentalInventoryDependencyError,
-} from './rental-service.ts';
+import type { Prisma } from '../../generated/prisma/client.ts';
 
 type RentalUnitArchiveReadiness = Readonly<{
   pendingReturnInspection: boolean;
@@ -13,21 +7,14 @@ type RentalUnitArchiveReadiness = Readonly<{
   unresolvedNonClearInspection: boolean;
 }>;
 
-export async function assertRentalUnitArchiveOperationalReadiness(input: Readonly<{
-  organizationId: string;
-  actorUserId: string;
-  unitId: string;
-}>) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  assertUuidIdentifier(input.unitId, 'unitId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'inventory:manage',
-  });
-
-  const [readiness] = await db.$queryRaw<RentalUnitArchiveReadiness[]>`
+export async function readRentalUnitArchiveOperationalReadiness(
+  transaction: Prisma.TransactionClient,
+  input: Readonly<{
+    organizationId: string;
+    unitId: string;
+  }>,
+) {
+  const [readiness] = await transaction.$queryRaw<RentalUnitArchiveReadiness[]>`
     SELECT
       EXISTS (
         SELECT 1
@@ -74,29 +61,5 @@ export async function assertRentalUnitArchiveOperationalReadiness(input: Readonl
       ) AS "unresolvedNonClearInspection"
   `;
 
-  if (!readiness) {
-    throw new RentalInventoryConflictError(
-      'Rental unit archive readiness could not be verified.',
-    );
-  }
-  if (readiness.pendingReturnInspection) {
-    throw new RentalInventoryConflictError(
-      'Record the pending rental return inspection before archiving this rental unit.',
-    );
-  }
-  if (readiness.activeMaintenance) {
-    throw new RentalInventoryDependencyError(
-      'Complete or cancel active rental maintenance before archiving this rental unit.',
-    );
-  }
-  if (readiness.unresolvedNonClearInspection) {
-    throw new RentalInventoryDependencyError(
-      'Resolve non-clear rental return inspection evidence before archiving this rental unit.',
-    );
-  }
-  if (readiness.unresolvedDamageCase) {
-    throw new RentalInventoryDependencyError(
-      'Waive or close the unresolved rental damage case before archiving this rental unit.',
-    );
-  }
+  return readiness ?? null;
 }
