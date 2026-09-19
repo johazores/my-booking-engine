@@ -8,13 +8,13 @@ SF has a protected effective-settlement model for rental bookings and a supporte
 
 `readRentalBookingEffectiveSettlement` validates organization, actor, and booking identifiers, requires `booking:read` plus `payment:read`, and runs under `RepeatableRead`.
 
-Original booking-price evidence uses the bounded rental payment-history reader. Applied amendment settlement rows are request-fingerprint checked. Post-apply refund evidence is bounded, scoped by tenant/booking/amendment, chronology checked against apply time, and re-derives deterministic idempotency/request fingerprints.
+Original booking-price evidence uses the bounded rental payment-history reader. Commercial-amendment authority is read tenant-scoped across both `PREPARED` and `APPLIED` states. A `PREPARED` amendment is unresolved commercial authority, not terminal settlement authority, so effective settlement fails closed until staff finish, compensate, cancel, or expire that workflow. Applied amendment settlement rows are request-fingerprint checked. Post-apply refund evidence is bounded, scoped by tenant/booking/amendment, chronology checked against apply time, and re-derives deterministic idempotency/request fingerprints.
 
 `recordRentalBookingPostApplyManualRefund` requires `booking:manage` plus `payment:manage`, runs under `Serializable`, takes the shared tenant/booking lock, and re-reads effective settlement inside the write transaction.
 
 ## Effective commercial math
 
-Without an applied amendment, effective settlement is the normal reconciled booking-price settlement.
+Without a prepared or applied amendment, effective settlement is the normal reconciled booking-price settlement.
 
 For an applied `ADDITIONAL_CHARGE`, the amendment adjustment payment is a separate source. Post-apply refunds unwind that amendment source first; only after it reaches zero does server allocation move to original booking-price sources.
 
@@ -46,7 +46,9 @@ Manual/offline refund recording means the real refund already happened outside S
 
 Rental cancellation consumes this combined effective settlement under the shared booking lock. It requires reconciled evidence, immutable booking money agreement, `fullyRefunded: true`, and exact `currentNetSettledMinor === 0n`.
 
-PostgreSQL independently enforces the same commercial boundary. Cancellation itself never records a refund or performs provider I/O.
+A `PREPARED` commercial amendment makes the effective settlement deliberately unreconciled because that workflow may still own adjustment or compensation evidence and can still become the accepted commercial change. Staff must finish, compensate, cancel, or expire it before booking cancellation can become terminal authority.
+
+PostgreSQL independently enforces the same lifecycle boundary: a prepared amendment blocks the `CONFIRMED -> CANCELLED` booking transition, while the existing effective-settlement guard handles ordinary booking-price and `APPLIED` amendment money. Cancellation itself never records a refund or performs provider I/O.
 
 ## Date and physical-unit interaction
 
@@ -58,7 +60,7 @@ A second price-changing amendment remains blocked.
 
 ## Fail-closed behavior
 
-Reconciliation fails rather than guessing on incomplete history, multiple applied amendments, mismatched terminal reschedule evidence, invalid fingerprints, inconsistent currencies/arithmetic, compensated or malformed applied adjustment evidence, wrong-ledger refunds, duplicate references, source over-refunds, chronology violations, or impossible balances.
+Reconciliation fails rather than guessing on incomplete history, any prepared commercial amendment, multiple applied amendments, mismatched terminal reschedule evidence, invalid fingerprints, inconsistent currencies/arithmetic, compensated or malformed applied adjustment evidence, wrong-ledger refunds, duplicate references, source over-refunds, chronology violations, or impossible balances.
 
 The writer also fails closed on stale effective state, unsupported providers, duplicate/conflicting idempotency evidence, reference reuse, and requested amounts that would span sources.
 
@@ -73,6 +75,7 @@ Chained price-changing amendments remain blocked after that applied amendment. D
 - `src/server/bookings/rental-booking-effective-settlement-domain.test.ts` covers combined reconciliation.
 - `src/server/bookings/rental-booking-effective-refund-domain.test.ts` covers source ordering, fail-closed evidence, amount authority, and deterministic request evidence.
 - `scripts/rental-booking-effective-settlement-source-contract.test.mjs` protects the read boundary.
+- `scripts/rental-prepared-amendment-cancellation-guard-source-contract.test.mjs` protects prepared-amendment settlement/cancellation blocking at service, UI-consumption, PostgreSQL, and documentation boundaries.
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database caps, permission/locking/provider use, bounded history, and authenticated staff wiring.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the staff refund handoff.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects price-neutral date continuation without changing effective money.

@@ -31,10 +31,13 @@ Serializable write conflicts are retried a bounded number of times. A retry afte
 
 Cancellation consumes the protected combined settlement contract in [rental-booking-effective-settlement.md](./rental-booking-effective-settlement.md) while the booking lock is held.
 
-Without an applied commercial amendment, the effective settlement reduces to the existing bounded booking-price payment/refund ledger. With the one supported applied price-changing amendment, it additionally verifies the retained terminal reschedule, exact uncompensated adjustment evidence, and append-only post-apply effective refunds.
+Without a prepared or applied commercial amendment, the effective settlement reduces to the existing bounded booking-price payment/refund ledger. With the one supported applied price-changing amendment, it additionally verifies the retained terminal reschedule, exact uncompensated adjustment evidence, and append-only post-apply effective refunds.
+
+A `PREPARED` commercial amendment is deliberately not treated as terminal settlement. It still owns unresolved commercial authority and may retain adjustment/compensation evidence or become the accepted commercial change. Effective settlement therefore fails closed while any prepared amendment exists. Staff must finish, compensate, cancel, or expire that amendment workflow before booking cancellation can proceed.
 
 The cancellation writer requires all of the following before the terminal lifecycle update:
 
+- no prepared commercial amendment owns unresolved commercial authority;
 - the protected settlement read is complete and reconciled;
 - the settlement currency and immutable original booking total still match the locked booking;
 - `currentNetSettledMinor` is exactly zero; and
@@ -50,9 +53,11 @@ The cancellation lifecycle migration permits only `CONFIRMED` with no cancellati
 
 The later substitution lifecycle migration replaces the cancellation trigger's unit-lock lookup so database cancellation serialization also derives the current effective unit from latest substitution history rather than assuming original booking-time unit is still current.
 
-The effective-cancellation settlement migration replaces the older booking-price-only database financial check with the same combined commercial boundary. Under the shared booking advisory lock PostgreSQL still validates supported/reconciled original payment evidence. When no applied amendment exists, original net settlement must be zero exactly as before.
+The effective-cancellation settlement migration replaces the older booking-price-only database financial check with the same combined applied-commercial boundary. Under the shared booking advisory lock PostgreSQL still validates supported/reconciled original payment evidence. When no applied amendment exists, original net settlement must be zero exactly as before.
 
 When an applied amendment exists, PostgreSQL independently requires exactly one supported applied amendment, original net settlement still equal to the immutable amendment `beforeTotalMinor`, exact uncompensated manual adjustment evidence, and post-apply effective refund evidence totaling the amendment `afterTotalMinor`. Per-source refund guards continue to prevent over-refunding. The older blanket “all applied amendments block cancellation” trigger is removed because exact zero effective settlement is now enforceable directly.
+
+A later prepared-amendment cancellation guard independently rejects the `CONFIRMED -> CANCELLED` transition while any tenant-owned amendment for that booking remains `PREPARED`. It takes the same booking advisory lock before checking the amendment row, so direct SQL cannot terminalize the booking while the unresolved commercial workflow can still settle, compensate, close, or apply.
 
 Rental inventory guards treat allocations belonging to cancelled bookings as historical rather than live protection. Because cancellation uses the same current physical-unit serialization boundary as availability and rescheduling, no new inventory decision can race between lifecycle release and commit.
 
@@ -70,9 +75,9 @@ Immutable customer snapshot, source hold, accepted money, original pricing/conve
 
 The cancellation section remains visible while a booking is still `CONFIRMED`, before pickup, has its current allocation, and the actor has `booking:manage` plus `availability:manage`. It is not hidden merely because settlement is non-zero or the actor lacks `payment:read`; this keeps the required next step discoverable without weakening authorization.
 
-When the actor also has `payment:read`, the server component resolves the protected effective settlement instead of relying only on the original booking-price panel. Reconciled positive combined net shows the exact remaining amount. Unreconciled commercial evidence shows a reconciliation blocker. Without `payment:read`, the section exposes no payment amount and states only that authorized settlement verification is required.
+When the actor also has `payment:read`, the server component resolves the protected effective settlement instead of relying only on the original booking-price panel. Reconciled positive combined net shows the exact remaining amount. A prepared amendment or other unreconciled commercial evidence shows a reconciliation blocker and directs staff to resolve the commercial-amendment workflow first. Without `payment:read`, the section exposes no payment amount and states only that authorized settlement verification is required.
 
-The destructive submit control is rendered only when effective settlement is readable, reconciled, `fullyRefunded`, and exact zero net. Staff must enter a cancellation reason before submitting. HTML `required`/`maxLength` attributes improve usability, while `cancelRentalBooking` independently normalizes and validates the reason server-side and then re-reads the complete effective settlement under the booking lock. PostgreSQL independently enforces its cancellation guards. A concurrent refund, custody change, allocation change, or other protected state can still make the final write fail closed.
+The destructive submit control is rendered only when effective settlement is readable, reconciled, `fullyRefunded`, and exact zero net. Staff must enter a cancellation reason before submitting. HTML `required`/`maxLength` attributes improve usability, while `cancelRentalBooking` independently normalizes and validates the reason server-side and then re-reads the complete effective settlement under the booking lock. PostgreSQL independently enforces its cancellation guards. A concurrent refund, commercial-amendment state change, custody change, allocation change, or other protected state can still make the final write fail closed.
 
 The action uses explicit confirmation and warns staff not to place payment-card or other sensitive secrets in the reason. Success returns to booking detail; repeated cancellation reports existing terminal state. Permission, unavailable, conflict, validation, and server failures have explicit feedback.
 
@@ -94,8 +99,10 @@ Only one applied price-changing rental amendment remains supported. A second/cha
 
 `scripts/rental-booking-cancellation-source-contract.test.mjs` protects authorization, tenant scope, shared booking/current-unit serialization, latest reschedule/substitution allocation handling, combined effective-settlement authority, exact final mutation predicates, database zero-effective-net enforcement, required reason evidence at direct service call sites, safe reason parsing/validation, route authority, retained audit evidence, and the no-fake-financial-workflow boundary.
 
+`scripts/rental-prepared-amendment-cancellation-guard-source-contract.test.mjs` protects the same-scope gap closed after the applied-amendment cancellation work: the effective settlement reader must fail closed on `PREPARED`, cancellation/service UI must consume that unreconciled state, and PostgreSQL must independently reject direct terminal cancellation while a prepared amendment exists.
+
 `scripts/rental-booking-cancellation-readiness-source-contract.test.mjs` protects staff cancellation discoverability, payment-read privacy, exact-zero effective-settlement submit gating, applied-amendment-aware status copy, and the absence of automatic-refund claims.
 
-`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL base cancellation scenario, including an assertion that normalized cancellation reason evidence is retained in the cancellation audit event. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; post-amendment effective cancellation requires that same database gate before being claimed as live-verified.
+`src/server/bookings/rental-booking.integration.ts` contains the guarded disposable-PostgreSQL base cancellation scenario, including an assertion that normalized cancellation reason evidence is retained in the cancellation audit event. Full database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target; prepared/applied amendment cancellation scenarios require that same database gate before being claimed as live-verified.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. GitHub Actions are not required or used.

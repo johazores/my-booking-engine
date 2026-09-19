@@ -25,60 +25,77 @@ function reconciliationFailure(reason: string): RentalBookingEffectiveSettlement
   return Object.freeze({ reconciled: false as const, reason });
 }
 
-async function readAppliedAmendment(
+async function readCommercialAmendmentAuthority(
   transaction: Prisma.TransactionClient,
   organizationId: string,
   bookingId: string,
 ) {
-  const amendments = await transaction.rentalBookingCommercialAmendment.findMany({
-    where: { organizationId, bookingId, status: 'APPLIED' },
-    orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-    take: 2,
-    select: {
-      id: true,
-      status: true,
-      direction: true,
-      currency: true,
-      beforeTotalMinor: true,
-      afterTotalMinor: true,
-      deltaMinor: true,
-      appliedAt: true,
-      appliedRescheduleId: true,
-      sourceStartsOn: true,
-      sourceEndsOn: true,
-      targetStartsOn: true,
-      targetEndsOn: true,
-      sourcePricingFingerprint: true,
-      targetPricingFingerprint: true,
-      reviewFingerprint: true,
-      appliedReschedule: {
-        select: {
-          id: true,
-          organizationId: true,
-          bookingId: true,
-          sourceStartsOn: true,
-          sourceEndsOn: true,
-          targetStartsOn: true,
-          targetEndsOn: true,
-          currency: true,
-          totalMinor: true,
-          sourcePricingFingerprint: true,
-          targetPricingFingerprint: true,
-          authorityFingerprint: true,
-          appliedAt: true,
+  const [preparedAmendments, appliedAmendments] = await Promise.all([
+    transaction.rentalBookingCommercialAmendment.findMany({
+      where: { organizationId, bookingId, status: 'PREPARED' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 2,
+      select: { id: true },
+    }),
+    transaction.rentalBookingCommercialAmendment.findMany({
+      where: { organizationId, bookingId, status: 'APPLIED' },
+      orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      take: 2,
+      select: {
+        id: true,
+        status: true,
+        direction: true,
+        currency: true,
+        beforeTotalMinor: true,
+        afterTotalMinor: true,
+        deltaMinor: true,
+        appliedAt: true,
+        appliedRescheduleId: true,
+        sourceStartsOn: true,
+        sourceEndsOn: true,
+        targetStartsOn: true,
+        targetEndsOn: true,
+        sourcePricingFingerprint: true,
+        targetPricingFingerprint: true,
+        reviewFingerprint: true,
+        appliedReschedule: {
+          select: {
+            id: true,
+            organizationId: true,
+            bookingId: true,
+            sourceStartsOn: true,
+            sourceEndsOn: true,
+            targetStartsOn: true,
+            targetEndsOn: true,
+            currency: true,
+            totalMinor: true,
+            sourcePricingFingerprint: true,
+            targetPricingFingerprint: true,
+            authorityFingerprint: true,
+            appliedAt: true,
+          },
         },
       },
-    },
-  });
-  if (amendments.length > 1) {
+    }),
+  ]);
+
+  if (preparedAmendments.length > 0) {
     return Object.freeze({
-      amendment: amendments[0] ?? null,
+      amendment: appliedAmendments[0] ?? null,
+      settlement: reconciliationFailure(
+        'Rental booking has a prepared commercial amendment. Finish, compensate, cancel, or expire that workflow before treating settlement as terminal.',
+      ),
+    });
+  }
+  if (appliedAmendments.length > 1) {
+    return Object.freeze({
+      amendment: appliedAmendments[0] ?? null,
       settlement: reconciliationFailure(
         'Rental booking retains more than one applied commercial amendment. Reconcile commercial history before continuing.',
       ),
     });
   }
-  return Object.freeze({ amendment: amendments[0] ?? null, settlement: null });
+  return Object.freeze({ amendment: appliedAmendments[0] ?? null, settlement: null });
 }
 
 async function readAmendmentSettlementRows(
@@ -176,30 +193,30 @@ export async function readRentalBookingEffectiveSettlementInTransaction(input: R
   });
   if (!booking) throw new RentalBookingEffectiveSettlementUnavailableError();
 
-  const [paymentHistory, appliedResult] = await Promise.all([
+  const [paymentHistory, commercialAuthority] = await Promise.all([
     readRentalPaymentSettlementHistory({
       transaction: input.transaction,
       organizationId: input.organizationId,
       bookingId: input.bookingId,
     }),
-    readAppliedAmendment(input.transaction, input.organizationId, input.bookingId),
+    readCommercialAmendmentAuthority(input.transaction, input.organizationId, input.bookingId),
   ]);
 
   if (!paymentHistory.complete) {
     return Object.freeze({
       booking,
-      appliedAmendment: appliedResult.amendment,
+      appliedAmendment: commercialAuthority.amendment,
       settlement: reconciliationFailure(paymentHistory.reason),
     });
   }
-  if (appliedResult.settlement) {
+  if (commercialAuthority.settlement) {
     return Object.freeze({
       booking,
-      appliedAmendment: appliedResult.amendment,
-      settlement: appliedResult.settlement,
+      appliedAmendment: commercialAuthority.amendment,
+      settlement: commercialAuthority.settlement,
     });
   }
-  if (!appliedResult.amendment) {
+  if (!commercialAuthority.amendment) {
     return Object.freeze({
       booking,
       appliedAmendment: null,
@@ -211,7 +228,7 @@ export async function readRentalBookingEffectiveSettlementInTransaction(input: R
     });
   }
 
-  const amendment = appliedResult.amendment;
+  const amendment = commercialAuthority.amendment;
   const appliedReschedule = amendment.appliedReschedule;
   if (
     !amendment.appliedAt
