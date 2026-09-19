@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
 const source = (path) => readFile(new URL(path, root), 'utf8');
-const migrationPath = 'prisma/migrations/20260919212500_rental_parent_lifecycle_authority/migration.sql';
+const migrationPath = 'prisma/migrations/20260919212500-rental-parent-lifecycle-authority/migration.sql';
 
 test('application writers serialize fresh child authority with parent archival', async () => {
   const service = await source('src/server/inventory/rental-service.ts');

@@ -21,7 +21,7 @@ These locks are authority, not scope. Every read and write still repeats `organi
 
 ## PostgreSQL defense in depth
 
-`20260919212500_rental_parent_lifecycle_authority` installs matching database locks and guards.
+`20260919212500-rental-parent-lifecycle-authority` installs matching database locks and guards.
 
 For a fresh or newly-active physical unit, PostgreSQL takes the unit-type lifecycle lock and then the location lifecycle lock and requires both tenant-owned parents to be `ACTIVE`. Future writes therefore cannot create, relocate, retype, or reactivate an active unit onto an archived parent. Newly active unit evidence also requires a retained location; historical rows are not rewritten by the migration.
 
