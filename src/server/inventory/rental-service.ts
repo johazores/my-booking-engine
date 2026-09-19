@@ -19,7 +19,11 @@ import {
   type RentalUnitInput,
   type RentalUnitTypeInput,
 } from './rental-domain.ts';
-import { rentalUnitLockKey } from './rental-lock-domain.ts';
+import {
+  rentalLocationLifecycleLockKey,
+  rentalUnitLockKey,
+  rentalUnitTypeLifecycleLockKey,
+} from './rental-lock-domain.ts';
 
 export class RentalInventoryConflictError extends Error {
   constructor(message = 'A rental inventory record conflicts with an existing record.') {
@@ -58,6 +62,30 @@ async function requireRentalPermission(input: { organizationId: string; actorUse
 
 async function lockRentalUnit(transaction: Prisma.TransactionClient, organizationId: string, unitId: string) {
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(organizationId, unitId)}, 0))`;
+}
+
+async function lockRentalLocationLifecycle(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  locationId: string,
+) {
+  await transaction.$queryRaw`
+    SELECT pg_advisory_xact_lock(
+      hashtextextended(${rentalLocationLifecycleLockKey(organizationId, locationId)}, 0)
+    )
+  `;
+}
+
+async function lockRentalUnitTypeLifecycle(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  unitTypeId: string,
+) {
+  await transaction.$queryRaw`
+    SELECT pg_advisory_xact_lock(
+      hashtextextended(${rentalUnitTypeLifecycleLockKey(organizationId, unitTypeId)}, 0)
+    )
+  `;
 }
 
 async function readRentalInventoryDatabaseClock(transaction: Prisma.TransactionClient, context: string) {
@@ -320,13 +348,22 @@ export async function createRentalUnit(input: {
   assertUuidIdentifier(unit.unitTypeId, 'unitTypeId');
   try {
     return await db.$transaction(async (transaction) => {
+      const locationLocator = await transaction.rentalLocation.findFirst({
+        where: { organizationId: input.organizationId, code: unit.locationCode, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!locationLocator) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+
+      await lockRentalUnitTypeLifecycle(transaction, input.organizationId, unit.unitTypeId);
+      await lockRentalLocationLifecycle(transaction, input.organizationId, locationLocator.id);
+
       const [unitType, location] = await Promise.all([
         transaction.rentalUnitType.findFirst({
           where: { id: unit.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
           select: { id: true, code: true },
         }),
         transaction.rentalLocation.findFirst({
-          where: { organizationId: input.organizationId, code: unit.locationCode, status: 'ACTIVE' },
+          where: { id: locationLocator.id, organizationId: input.organizationId, status: 'ACTIVE' },
           select: { id: true, code: true },
         }),
       ]);
@@ -372,19 +409,26 @@ export async function assignRentalUnitLocation(input: {
   const locationCode = normalizeRentalCode(input.locationCode);
   return db.$transaction(async (transaction) => {
     await lockRentalUnit(transaction, input.organizationId, input.unitId);
-    const [unit, location] = await Promise.all([
+    const [unit, locationLocator] = await Promise.all([
       transaction.rentalUnit.findFirst({
         where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
         select: { id: true, locationId: true, code: true },
       }),
       transaction.rentalLocation.findFirst({
         where: { organizationId: input.organizationId, code: locationCode, status: 'ACTIVE' },
-        select: { id: true, code: true },
+        select: { id: true },
       }),
     ]);
     if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
+    if (!locationLocator) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+    if (unit.locationId === locationLocator.id) return unit;
+
+    await lockRentalLocationLifecycle(transaction, input.organizationId, locationLocator.id);
+    const location = await transaction.rentalLocation.findFirst({
+      where: { id: locationLocator.id, organizationId: input.organizationId, status: 'ACTIVE' },
+      select: { id: true, code: true },
+    });
     if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
-    if (unit.locationId === location.id) return unit;
 
     const now = await readRentalInventoryDatabaseClock(transaction, 'rental unit relocation');
     await assertRentalUnitMutationAuthority({
@@ -482,6 +526,7 @@ export async function createRentalRatePeriod(input: {
   const rate = normalizeRentalRatePeriodInput(input.rate);
   assertUuidIdentifier(rate.unitTypeId, 'unitTypeId');
   return db.$transaction(async (transaction) => {
+    await lockRentalUnitTypeLifecycle(transaction, input.organizationId, rate.unitTypeId);
     const unitType = await transaction.rentalUnitType.findFirst({
       where: { id: rate.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
       select: { id: true, code: true },
@@ -522,6 +567,7 @@ export async function archiveRentalLocation(input: {
   assertUuidIdentifier(input.locationId, 'locationId');
   assertRentalArchiveConfirmation(input.confirmation);
   return db.$transaction(async (transaction) => {
+    await lockRentalLocationLifecycle(transaction, input.organizationId, input.locationId);
     const current = await transaction.rentalLocation.findFirst({
       where: { id: input.locationId, organizationId: input.organizationId, status: 'ACTIVE' },
       select: { id: true, status: true },
@@ -531,7 +577,7 @@ export async function archiveRentalLocation(input: {
       where: { organizationId: input.organizationId, locationId: current.id, status: 'ACTIVE' },
     });
     if (activeUnits > 0) throw new RentalInventoryDependencyError('Move or archive active rental units before archiving this location.');
-    const archivedAt = new Date();
+    const archivedAt = await readRentalInventoryDatabaseClock(transaction, 'rental location archival');
     const updated = await transaction.rentalLocation.update({
       where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },
@@ -561,6 +607,7 @@ export async function archiveRentalUnitType(input: {
   assertUuidIdentifier(input.unitTypeId, 'unitTypeId');
   assertRentalArchiveConfirmation(input.confirmation);
   return db.$transaction(async (transaction) => {
+    await lockRentalUnitTypeLifecycle(transaction, input.organizationId, input.unitTypeId);
     const current = await transaction.rentalUnitType.findFirst({
       where: { id: input.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
       select: { id: true, status: true },
@@ -570,7 +617,7 @@ export async function archiveRentalUnitType(input: {
       where: { organizationId: input.organizationId, unitTypeId: current.id, status: 'ACTIVE' },
     });
     if (activeUnits > 0) throw new RentalInventoryDependencyError('Archive active rental units before archiving this unit type.');
-    const archivedAt = new Date();
+    const archivedAt = await readRentalInventoryDatabaseClock(transaction, 'rental unit-type archival');
     const updated = await transaction.rentalUnitType.update({
       where: { id: current.id, organizationId: input.organizationId },
       data: { status: 'ARCHIVED', archivedAt },

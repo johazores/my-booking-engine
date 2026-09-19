@@ -34,7 +34,9 @@ The same migration installs alphabetically early `BEFORE INSERT` locks on mainte
 
 `20260919203500_rental_return_inspection_archive_authority` extends that serialization to fresh return inspections and closes the pre-damage-case archival gap. `DAMAGE_REPORTED` or `UNSAFE` inspection evidence now prevents archival until its retained damage case reaches `WAIVED` or `CLOSED`. Staff therefore cannot archive the unit before opening that damage workflow and accidentally make the existing active-unit damage-case authoring contract impossible to satisfy.
 
-All lock keys repeat `organizationId` and physical `unitId`. Application maintenance and damage writers already use the same lock namespace, so supported service writes and database-bypass writes now serialize on one physical-inventory authority boundary.
+All physical-unit lock keys repeat `organizationId` and physical `unitId`. Application maintenance and damage writers already use the same physical-unit lock namespace, so supported service writes and database-bypass writes serialize on one physical-inventory authority boundary.
+
+Parent location and unit-type lifecycle use separate tenant-scoped lock namespaces so fresh unit/rate authority cannot race parent archival. See [rental-parent-lifecycle-authority.md](./rental-parent-lifecycle-authority.md).
 
 ## Deliberate boundaries
 
@@ -49,6 +51,8 @@ Relocation is not automatically forbidden merely because maintenance or damage e
 `scripts/rental-unit-mutation-serialization-source-contract.test.mjs` protects the early unit-mutation lock, maintenance/damage insert locks, shared lock namespace, existing active-unit authoring guards, and active maintenance/unresolved damage archival boundaries.
 
 `scripts/rental-return-inspection-archive-source-contract.test.mjs` protects return-inspection serialization plus the non-clear-inspection-to-terminal-damage-resolution archival boundary.
+
+`scripts/rental-parent-lifecycle-source-contract.test.mjs` protects the separate location/unit-type lifecycle locks and their child-write/archive serialization contract.
 
 Full Prisma, TypeScript, lint, production build, and live migration execution still require the repository-supported Node 24 toolchain and an explicitly disposable PostgreSQL target.
 
