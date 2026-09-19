@@ -62,7 +62,7 @@ After apply, the protected [effective settlement contract](./rental-booking-effe
 
 `recordRentalBookingPostApplyManualRefund` derives the next source server-side. Exact-zero cancellation consumes the same combined settlement.
 
-Only one price-changing amendment remains supported. Later same-unit price-neutral reschedules/extensions may continue when fresh pricing preserves the applied amendment currency and exact `afterTotalMinor`; another price change and direct writes to the original booking-price ledger remain blocked. Physical-unit substitution remains fail-closed while a commercial amendment is prepared or applied until its own effective-commercial-baseline contract exists.
+Only one price-changing amendment remains supported. Later same-unit price-neutral reschedules/extensions may continue when fresh pricing preserves the applied amendment currency and exact `afterTotalMinor`; another price change and direct writes to the original booking-price ledger remain blocked. Before custody transfer, same-type/same-location physical-unit substitution may also continue when it preserves the same effective dates, applied amendment currency, exact `afterTotalMinor`, and latest pricing fingerprint. A `PREPARED` amendment still freezes substitution until that commercial workflow is finished, compensated, or closed.
 
 ## Validation
 
@@ -72,6 +72,7 @@ Only one price-changing amendment remains supported. Later same-unit price-neutr
 - `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final apply.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects post-apply neutral reschedule authority.
+- `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects post-apply physical-unit substitution commercial authority.
 - `scripts/rental-booking-effective-settlement-source-contract.test.mjs` and `scripts/rental-booking-effective-refund-source-contract.test.mjs` protect post-apply money authority.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.

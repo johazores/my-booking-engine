@@ -28,7 +28,7 @@ const blockerMessages = {
 const applyErrors: Record<string, string> = {
   permission: 'Your organization role cannot apply this rental unit substitution.',
   unavailable: 'The rental booking is no longer available for unit substitution in this organization.',
-  conflict: 'The booking, source allocation, target inventory, pickup window, or review authority changed. Review the booking before trying again.',
+  conflict: 'The booking, source allocation, target inventory, pickup window, commercial baseline, or review authority changed. Review the booking before trying again.',
   validation: 'The rental unit substitution request was invalid. Review the replacement unit again.',
   server: 'The rental unit substitution could not be completed. No successful substitution was recorded.',
 };
@@ -125,13 +125,13 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
   } catch (error) {
     if (error instanceof RentalBookingUnitSubstitutionValidationError) reviewError = error.message;
     else if (error instanceof RentalBookingUnitSubstitutionUnavailableError) reviewError = error.message;
-    else if (error instanceof RentalAvailabilityIntegrityError) reviewError = 'The booking or rental inventory evidence is inconsistent. Treat this as an integrity incident before reviewing a replacement unit.';
+    else if (error instanceof RentalAvailabilityIntegrityError) reviewError = 'The booking, commercial baseline, or rental inventory evidence is inconsistent. Treat this as an integrity incident before reviewing a replacement unit.';
     else throw error;
   }
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
-      <div><p className="sf-eyebrow">Rental booking</p><h1>Replace physical unit</h1><p>Review and apply a same-type, same-location physical-unit replacement for {booking.customerFirstName} {booking.customerLastName} without changing the accepted rental period or amount.</p></div>
+      <div><p className="sf-eyebrow">Rental booking</p><h1>Replace physical unit</h1><p>Review and apply a same-type, same-location physical-unit replacement for {booking.customerFirstName} {booking.customerLastName} without changing the effective rental period or accepted effective amount.</p></div>
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
@@ -151,26 +151,28 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
         <button className="sf-button sf-button--primary" type="submit">Review replacement unit</button>
       </form> : <p className="sf-field-hint">No active same-type replacement units match this search at the booking operating location.</p>}
       {candidates && candidates.total > candidates.limit ? <p className="sf-field-hint">Showing the first {candidates.limit} of {candidates.total} matching units. Narrow the search to review another unit.</p> : null}
-      <p className="sf-field-hint">Candidate search does not promise availability. The fresh authority review checks the current pickup window, blocks, effective holds, and non-cancelled booking allocations for the exact effective rental period.</p>
+      <p className="sf-field-hint">Candidate search does not promise availability. The fresh authority review checks the current pickup window, effective commercial baseline, blocks, effective holds, and non-cancelled booking allocations for the exact effective rental period.</p>
     </section>
 
     {review ? <section className="sf-inventory-card" aria-labelledby="rental-unit-substitution-result-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Fresh write authority</p><h2 id="rental-unit-substitution-result-title">{review.ready ? 'Ready to apply' : 'Replacement unit is blocked'}</h2></div><span>{review.targetUnit ? `${review.targetUnit.name} (${review.targetUnit.code})` : 'Unavailable target'}</span></div>
-      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">The target unit is active, matches the retained unit type and operating location, and has no conflicting inventory commitment for the effective rental period.</p>}
+      {review.blocker ? <p className="sf-alert sf-alert--error" role="alert">{blockerMessages[review.blocker]}</p> : <p className="sf-alert sf-alert--success" role="status">The target unit is active, matches the retained unit type and operating location, preserves the accepted effective commercial baseline, and has no conflicting inventory commitment for the effective rental period.</p>}
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Effective rental period</strong><span>{review.booking.startsOn.toISOString().slice(0, 10)} through {review.booking.endsOn.toISOString().slice(0, 10)} (end exclusive)</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Source unit</strong><span>{review.sourceUnit.name} ({review.sourceUnit.code})</span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Required product/location match</strong><span>{review.unitType.name} ({review.unitType.code}) · {review.location.name} ({review.location.code})</span></div></div></li>
-        <li><div className="sf-inventory-list__primary"><div><strong>Accepted amount remains unchanged</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.totalMinor, review.booking.currency)}</span></div></div></li>
+        <li><div className="sf-inventory-list__primary"><div><strong>Accepted effective amount remains unchanged</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.totalMinor, review.booking.currency)}</span></div></div></li>
+        {review.booking.originalTotalMinor !== review.booking.totalMinor ? <li><div className="sf-inventory-list__primary"><div><strong>Original booking amount</strong><span>{review.booking.currency} {moneyMinorToMajorString(review.booking.originalTotalMinor, review.booking.currency)} · retained immutable evidence</span></div></div></li> : null}
         <li><div className="sf-inventory-list__primary"><div><strong>Checked</strong><span><time dateTime={review.checkedAt.toISOString()}>{review.checkedAt.toISOString()}</time></span></div></div></li>
         {review.authorityFingerprint ? <li><div className="sf-inventory-list__primary"><div><strong>Substitution authority fingerprint</strong><span><code>{review.authorityFingerprint}</code></span></div></div></li> : null}
       </ul>
+      {review.booking.appliedCommercialAmendmentId && hasPermission('payment:read') ? <p><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/commercial-amendments/${review.booking.appliedCommercialAmendmentId}`}>Open applied commercial amendment</Link></p> : null}
       {review.ready && review.authorityFingerprint && review.targetUnit && canApply ? <form method="post" action={`/api/inventory/rentals/bookings/${booking.id}/unit-substitution`} className="sf-inventory-form">
         <input type="hidden" name="targetUnitId" value={review.targetUnit.id} />
         <input type="hidden" name="authorityFingerprint" value={review.authorityFingerprint} />
         <button className="sf-button sf-button--primary" type="submit">Apply replacement unit</button>
       </form> : review.ready ? <p className="sf-field-hint">Your role can review this replacement but does not include availability management required to apply it.</p> : null}
-      <p className="sf-field-hint">Apply is server-authoritative: it locks the booking and both physical units in deterministic order, revalidates current source/target inventory and authority, writes append-only substitution evidence, moves only the effective allocation unit, versions the booking, and records an audit event. The immutable booking-time unit remains retained as historical evidence.</p>
+      <p className="sf-field-hint">Apply is server-authoritative: it locks the booking and both physical units in deterministic order, revalidates the current source/target inventory and effective commercial baseline, writes append-only substitution evidence with the accepted effective amount, moves only the effective allocation unit, versions the booking, and records an audit event. The immutable booking-time unit and money remain retained as historical evidence.</p>
     </section> : null}
   </div>;
 }

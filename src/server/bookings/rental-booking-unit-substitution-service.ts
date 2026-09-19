@@ -191,7 +191,14 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
       );
     }
 
-    const [booking, latestReschedule, latestSubstitution, sourceUnit, targetUnit] = await Promise.all([
+    const [
+      booking,
+      latestReschedule,
+      latestSubstitution,
+      commercialAmendments,
+      sourceUnit,
+      targetUnit,
+    ] = await Promise.all([
       transaction.rentalBooking.findFirst({
         where: {
           id: input.bookingId,
@@ -212,6 +219,24 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
       transaction.rentalBookingUnitSubstitution.findFirst({
         where: { organizationId: input.organizationId, bookingId: input.bookingId },
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalBookingCommercialAmendment.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: input.bookingId,
+          status: { in: ['PREPARED', 'APPLIED'] },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 2,
+        select: {
+          id: true,
+          status: true,
+          currency: true,
+          beforeTotalMinor: true,
+          afterTotalMinor: true,
+          appliedRescheduleId: true,
+          appliedAt: true,
+        },
       }),
       transaction.rentalUnit.findFirst({
         where: {
@@ -242,11 +267,57 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
         'Rental unit substitution requires its retained physical-unit allocation.',
       );
     }
+    if (commercialAmendments.length > 1) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental booking retains conflicting active commercial amendment authority.',
+      );
+    }
+
+    const commercialAmendment = commercialAmendments[0] ?? null;
+    if (commercialAmendment?.status === 'PREPARED') {
+      throw new RentalBookingUnitSubstitutionConflictError(
+        'Finish, compensate, or close the prepared rental commercial amendment before replacing the physical unit.',
+      );
+    }
 
     const sourceUnitId = latestSubstitution?.targetUnitId ?? booking.unitId;
     const startsOn = latestReschedule?.targetStartsOn ?? booking.startsOn;
     const endsOn = latestReschedule?.targetEndsOn ?? booking.endsOn;
     const pricingFingerprint = latestReschedule?.targetPricingFingerprint ?? booking.pricingFingerprint;
+    let effectiveCurrency = booking.currency;
+    let effectiveAcceptedTotalMinor = booking.totalMinor;
+    let appliedCommercialAmendmentId: string | null = null;
+    if (commercialAmendment?.status === 'APPLIED') {
+      if (
+        commercialAmendment.currency !== booking.currency
+        || commercialAmendment.beforeTotalMinor !== booking.totalMinor
+        || commercialAmendment.afterTotalMinor <= 0n
+        || !commercialAmendment.appliedRescheduleId
+        || !commercialAmendment.appliedAt
+        || !latestReschedule
+        || latestReschedule.currency !== commercialAmendment.currency
+        || latestReschedule.totalMinor !== commercialAmendment.afterTotalMinor
+        || latestReschedule.appliedAt.getTime() < commercialAmendment.appliedAt.getTime()
+      ) {
+        throw new RentalAvailabilityIntegrityError(
+          'Applied rental commercial amendment does not reconcile to the effective unit-substitution commercial baseline.',
+        );
+      }
+      effectiveCurrency = commercialAmendment.currency;
+      effectiveAcceptedTotalMinor = commercialAmendment.afterTotalMinor;
+      appliedCommercialAmendmentId = commercialAmendment.id;
+    } else if (
+      latestReschedule
+      && (
+        latestReschedule.currency !== booking.currency
+        || latestReschedule.totalMinor !== booking.totalMinor
+      )
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Rental reschedule history does not reconcile to the immutable booking commercial baseline.',
+      );
+    }
+
     const pickupWindow = deriveRentalBookingPickupWindow({
       observedAt: databaseClock.now,
       startsOn,
@@ -352,8 +423,8 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
       locationId: booking.locationId,
       startsOn,
       endsOn,
-      currency: booking.currency,
-      totalMinor: booking.totalMinor,
+      currency: effectiveCurrency,
+      totalMinor: effectiveAcceptedTotalMinor,
       pricingFingerprint,
     });
     if (requested.authorityFingerprint !== expectedAuthorityFingerprint) {
@@ -371,8 +442,8 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
         idempotencyKey: requested.idempotencyKey,
         startsOn,
         endsOn,
-        currency: booking.currency,
-        totalMinor: booking.totalMinor,
+        currency: effectiveCurrency,
+        totalMinor: effectiveAcceptedTotalMinor,
         pricingFingerprint,
         authorityFingerprint: expectedAuthorityFingerprint,
         appliedAt: databaseClock.now,
@@ -435,12 +506,20 @@ export async function applyRentalBookingUnitSubstitution(input: Readonly<{
           unitId: sourceUnitId,
           startsOn: startsOn.toISOString(),
           endsOn: endsOn.toISOString(),
+          currency: effectiveCurrency,
+          acceptedTotalMinor: effectiveAcceptedTotalMinor.toString(),
+          originalBookingTotalMinor: booking.totalMinor.toString(),
+          appliedCommercialAmendmentId,
         },
         afterData: {
           substitutionId: substitution.id,
           unitId: requested.targetUnitId,
           startsOn: startsOn.toISOString(),
           endsOn: endsOn.toISOString(),
+          currency: effectiveCurrency,
+          acceptedTotalMinor: effectiveAcceptedTotalMinor.toString(),
+          originalBookingTotalMinor: booking.totalMinor.toString(),
+          appliedCommercialAmendmentId,
           authorityFingerprint: expectedAuthorityFingerprint,
         },
       },

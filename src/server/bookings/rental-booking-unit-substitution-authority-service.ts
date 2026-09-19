@@ -148,27 +148,96 @@ function assertUnitSubstitutionPickupWindowOpen(input: Readonly<{
   return pickupWindow;
 }
 
-async function assertCommercialAmendmentDoesNotBlockSubstitution(
+async function readUnitSubstitutionCommercialBaseline(
   transaction: Prisma.TransactionClient,
-  organizationId: string,
-  bookingId: string,
+  input: Readonly<{
+    organizationId: string;
+    booking: {
+      id: string;
+      currency: string;
+      totalMinor: bigint;
+    };
+    latestReschedule: null | {
+      currency: string;
+      totalMinor: bigint;
+      appliedAt: Date;
+    };
+  }>,
 ) {
-  const amendment = await transaction.rentalBookingCommercialAmendment.findFirst({
+  const amendments = await transaction.rentalBookingCommercialAmendment.findMany({
     where: {
-      organizationId,
-      bookingId,
+      organizationId: input.organizationId,
+      bookingId: input.booking.id,
       status: { in: ['PREPARED', 'APPLIED'] },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: { id: true, status: true },
+    take: 2,
+    select: {
+      id: true,
+      status: true,
+      currency: true,
+      beforeTotalMinor: true,
+      afterTotalMinor: true,
+      appliedRescheduleId: true,
+      appliedAt: true,
+    },
   });
-  if (amendment) {
-    throw new RentalBookingUnitSubstitutionUnavailableError(
-      amendment.status === 'PREPARED'
-        ? 'Finish, compensate, or close the prepared commercial amendment before replacing the physical unit.'
-        : 'Physical-unit replacement after an applied price-changing amendment requires a separate effective-commercial-baseline contract.',
+  if (amendments.length > 1) {
+    throw new RentalAvailabilityIntegrityError(
+      'Rental booking retains conflicting active commercial amendment authority.',
     );
   }
+
+  const amendment = amendments[0] ?? null;
+  if (amendment?.status === 'PREPARED') {
+    throw new RentalBookingUnitSubstitutionUnavailableError(
+      'Finish, compensate, or close the prepared commercial amendment before replacing the physical unit.',
+    );
+  }
+
+  if (amendment?.status === 'APPLIED') {
+    if (
+      amendment.currency !== input.booking.currency
+      || amendment.beforeTotalMinor !== input.booking.totalMinor
+      || amendment.afterTotalMinor <= 0n
+      || !amendment.appliedRescheduleId
+      || !amendment.appliedAt
+      || !input.latestReschedule
+      || input.latestReschedule.currency !== amendment.currency
+      || input.latestReschedule.totalMinor !== amendment.afterTotalMinor
+      || input.latestReschedule.appliedAt.getTime() < amendment.appliedAt.getTime()
+    ) {
+      throw new RentalAvailabilityIntegrityError(
+        'Applied rental commercial amendment does not reconcile to the effective unit-substitution commercial baseline.',
+      );
+    }
+
+    return Object.freeze({
+      currency: amendment.currency,
+      totalMinor: amendment.afterTotalMinor,
+      originalTotalMinor: input.booking.totalMinor,
+      appliedCommercialAmendmentId: amendment.id,
+    });
+  }
+
+  if (
+    input.latestReschedule
+    && (
+      input.latestReschedule.currency !== input.booking.currency
+      || input.latestReschedule.totalMinor !== input.booking.totalMinor
+    )
+  ) {
+    throw new RentalAvailabilityIntegrityError(
+      'Rental reschedule history does not reconcile to the immutable booking commercial baseline.',
+    );
+  }
+
+  return Object.freeze({
+    currency: input.booking.currency,
+    totalMinor: input.booking.totalMinor,
+    originalTotalMinor: input.booking.totalMinor,
+    appliedCommercialAmendmentId: null,
+  });
 }
 
 export async function searchRentalBookingUnitSubstitutionCandidates(input: Readonly<{
@@ -209,11 +278,6 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
       include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
-    await assertCommercialAmendmentDoesNotBlockSubstitution(
-      transaction,
-      input.organizationId,
-      booking.id,
-    );
 
     const [latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
@@ -225,6 +289,11 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
+    await readUnitSubstitutionCommercialBaseline(transaction, {
+      organizationId: input.organizationId,
+      booking,
+      latestReschedule,
+    });
     const effective = assertEffectiveAllocation({
       organizationId: input.organizationId,
       booking,
@@ -338,11 +407,6 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
       include: { allocation: { include: effectiveAllocationInclude } },
     });
     if (!booking) throw new RentalBookingUnitSubstitutionUnavailableError();
-    await assertCommercialAmendmentDoesNotBlockSubstitution(
-      transaction,
-      input.organizationId,
-      booking.id,
-    );
 
     const [latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingReschedule.findFirst({
@@ -354,6 +418,11 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
         orderBy: [{ appliedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
+    const commercialBaseline = await readUnitSubstitutionCommercialBaseline(transaction, {
+      organizationId: input.organizationId,
+      booking,
+      latestReschedule,
+    });
     const effective = assertEffectiveAllocation({
       organizationId: input.organizationId,
       booking,
@@ -459,8 +528,8 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
           locationId: booking.locationId,
           startsOn: effective.startsOn,
           endsOn: effective.endsOn,
-          currency: booking.currency,
-          totalMinor: booking.totalMinor,
+          currency: commercialBaseline.currency,
+          totalMinor: commercialBaseline.totalMinor,
           pricingFingerprint,
         })
       : null;
@@ -475,8 +544,10 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
         updatedAt: booking.updatedAt,
         startsOn: effective.startsOn,
         endsOn: effective.endsOn,
-        currency: booking.currency,
-        totalMinor: booking.totalMinor,
+        currency: commercialBaseline.currency,
+        totalMinor: commercialBaseline.totalMinor,
+        originalTotalMinor: commercialBaseline.originalTotalMinor,
+        appliedCommercialAmendmentId: commercialBaseline.appliedCommercialAmendmentId,
         pricingFingerprint,
       }),
       sourceUnit: Object.freeze({

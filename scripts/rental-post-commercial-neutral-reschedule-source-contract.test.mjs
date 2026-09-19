@@ -5,7 +5,6 @@ import test from 'node:test';
 const read = (path) => readFileSync(path, 'utf8');
 const reviewService = read('src/server/bookings/rental-booking-reschedule-authority-service.ts');
 const writeService = read('src/server/bookings/rental-booking-reschedule-service.ts');
-const substitutionAuthority = read('src/server/bookings/rental-booking-unit-substitution-authority-service.ts');
 const migration = read('prisma/migrations/20260919013000-rental-post-commercial-neutral-reschedule/migration.sql');
 const page = read('app/inventory/rentals/bookings/[booking-id]/reschedule/page.tsx');
 const docs = read('docs/rental-booking-reschedule-authority.md');
@@ -47,19 +46,9 @@ test('postgres preserves effective money while allowing only the exact prepared 
   assert.match(migration, /prepared commercial reschedule must terminalize the linked amendment in the same transaction/);
 });
 
-test('unit substitution fails closed until it has an effective-commercial-baseline contract', () => {
-  assert.match(substitutionAuthority, /assertCommercialAmendmentDoesNotBlockSubstitution/);
-  assert.match(substitutionAuthority, /status: \{ in: \['PREPARED', 'APPLIED'\] \}/);
-  assert.match(substitutionAuthority, /Physical-unit replacement after an applied price-changing amendment requires a separate effective-commercial-baseline contract/);
-  assert.match(migration, /sf_guard_rental_unit_substitution_during_commercial_amendment/);
-  assert.match(migration, /rental_booking_unit_substitutions_commercial_amendment_guard/);
-  assert.match(migration, /cannot install post-commercial mutation guards while a rental has post-amendment unit-substitution evidence/);
-});
-
 test('documentation distinguishes one price-changing amendment from later price-neutral dates', () => {
   assert.match(docs, /later same-unit date changes are allowed only when/i);
   assert.match(docs, /accepted effective post-amendment total/i);
-  assert.match(commercialDocs, /Post-apply date authority/);
-  assert.match(commercialDocs, /later same-unit price-neutral reschedules\/extensions are supported/i);
-  assert.match(commercialDocs, /Physical-unit substitution remains blocked/i);
+  assert.match(commercialDocs, /Post-apply date and physical-unit authority/);
+  assert.match(commercialDocs, /later same-unit price-neutral reschedules\/extensions and same-type\/same-location pre-custody unit substitutions are supported/i);
 });

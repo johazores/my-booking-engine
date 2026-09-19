@@ -71,15 +71,17 @@ Only after those checks does apply append the terminal reschedule evidence, move
 
 See [rental-booking-commercial-amendment-apply.md](./rental-booking-commercial-amendment-apply.md).
 
-## Post-apply date authority
+## Post-apply date and physical-unit authority
 
-The applied amendment `afterTotalMinor` is the accepted effective commercial total for later rental date authority. The original `RentalBooking.totalMinor` remains immutable historical evidence.
+The applied amendment `afterTotalMinor` is the accepted effective commercial total for later rental date and supported pre-custody physical-unit authority. The original `RentalBooking.totalMinor` remains immutable historical evidence.
 
 `reviewRentalBookingRescheduleAuthority` and `applyRentalBookingReschedule` both reconcile the applied amendment against the latest reschedule chain. A later same-unit date change is allowed only when rebuilt current pricing has the same currency and exact accepted effective total. The new reschedule evidence carries that effective total and continues the pricing-fingerprint chain. PostgreSQL repeats the same boundary independently.
 
 A later price change remains blocked by `COMMERCIAL_AMENDMENT_APPLIED`; SF does not manufacture a second amendment or silently rewrite accepted money.
 
-Physical-unit substitution is deliberately fail-closed while an amendment is `PREPARED` or `APPLIED`. Existing substitution evidence still uses immutable booking money, so post-amendment substitution needs a separate effective-commercial-baseline contract before it can be re-enabled safely.
+Post-apply physical-unit substitution is supported only before custody transfer and only for another active unit of the same retained unit type at the same retained operating location. Candidate search, fresh review, the locked writer, and PostgreSQL all reconcile the applied amendment to the latest effective reschedule. New substitution evidence retains the amendment currency, exact `afterTotalMinor`, and latest effective pricing fingerprint while immutable original booking money remains untouched. A `PREPARED` amendment still freezes substitution until staff finish, compensate, or close that money workflow.
+
+See [rental-booking-unit-substitution-authority.md](./rental-booking-unit-substitution-authority.md).
 
 ## Post-apply effective settlement and refunds
 
@@ -97,9 +99,7 @@ See [rental-booking-effective-settlement.md](./rental-booking-effective-settleme
 
 ## Deliberate boundaries
 
-Only one applied price-changing commercial amendment per rental is supported. Another commercial amendment and direct writes to the original booking-price ledger remain blocked after apply. Later same-unit price-neutral reschedules/extensions are supported only when they preserve the applied amendment currency and exact `afterTotalMinor`.
-
-Physical-unit substitution remains blocked while a commercial amendment is prepared or applied until that separate workflow can retain the same effective-commercial-baseline evidence safely.
+Only one applied price-changing commercial amendment per rental is supported. Another commercial amendment and direct writes to the original booking-price ledger remain blocked after apply. Later same-unit price-neutral reschedules/extensions and same-type/same-location pre-custody unit substitutions are supported only when they preserve the applied amendment currency and exact `afterTotalMinor`.
 
 The supported staff orchestration is manual/offline evidence only. Provider-backed/online adjustment collection, provider-backed/online refunds, automatic cancellation fees, automatic refund policy, delivery/one-way changes, customer self-service, notifications, invoices, and external fleet synchronization remain separate contracts. Provider-specific behavior stays behind adapters.
 
@@ -116,7 +116,8 @@ No route accepts browser authority for tenant, actor, currency, amendment delta,
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects post-apply refund source authority.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated end-to-end staff handoff, route authority, database-time readiness, permission gating, and no-dead-action boundary.
 - `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
-- `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline, price-neutral continuation, prepared-amendment freeze, and physical-unit substitution fail-closed boundary.
+- `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline and price-neutral continuation.
+- `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects post-apply same-type/same-location substitution on the accepted effective commercial baseline.
 - Full repository validation remains `npm run validate` under the Node version declared in `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 

@@ -49,13 +49,15 @@ For an applied decrease, the adjustment refund already consumes retained origina
 
 PostgreSQL independently caps source refunds and preserves the tenant-wide manual-reference namespace.
 
-## Post-apply date authority
+## Post-apply date and unit authority
 
-The applied amendment `afterTotalMinor` becomes the accepted effective commercial baseline for later same-unit date authority. The immutable `RentalBooking.totalMinor` remains booking-time evidence.
+The applied amendment `afterTotalMinor` becomes the accepted effective commercial baseline for later same-unit date authority and supported pre-custody physical-unit replacement. The immutable `RentalBooking.totalMinor` remains booking-time evidence.
 
 A later price-neutral reschedule or picked-up custody extension is allowed only when fresh server pricing preserves the applied amendment currency and exact `afterTotalMinor`. The writer repeats that check under locks and appends the effective total to the new reschedule evidence. PostgreSQL independently enforces the same baseline.
 
-A second price-changing amendment remains unsupported. Physical-unit substitution remains fail-closed while an amendment is `PREPARED` or `APPLIED` until that workflow has its own effective-commercial-baseline contract.
+Before custody transfer, a later physical-unit substitution may also proceed when it preserves the same retained unit type/location, current effective dates, amendment currency, exact `afterTotalMinor`, and latest pricing fingerprint. Candidate/review/apply authority all reconcile the amendment to the latest reschedule chain, and substitution evidence stores effective money instead of copying immutable original booking money. A `PREPARED` amendment still blocks replacement until the money workflow is finished, compensated, or closed.
+
+A second price-changing amendment remains unsupported.
 
 ## Post-apply cancellation
 
@@ -65,7 +67,7 @@ Cancellation never creates refund evidence or calls a provider.
 
 ## Current commercial boundary
 
-Only one applied price-changing amendment per rental is supported. Later same-unit price-neutral reschedules/extensions may continue only at the accepted effective post-amendment total. Another price-changing commercial amendment and direct original booking-price ledger writes remain blocked.
+Only one applied price-changing amendment per rental is supported. Later same-unit price-neutral reschedules/extensions and same-type/same-location pre-custody unit substitutions may continue only at the accepted effective post-amendment total. Another price-changing commercial amendment and direct original booking-price ledger writes remain blocked.
 
 Authenticated staff orchestration is implemented for the manual/offline path. Provider-backed/online amendment collection and refund execution remain separate adapter-backed scope.
 
@@ -74,6 +76,7 @@ Authenticated staff orchestration is implemented for the manual/offline path. Pr
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects locked final apply and retained evidence.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects authenticated staff apply wiring and permission gating.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline and exact prepared-final-apply exception.
+- `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects post-apply physical-unit replacement on the accepted effective commercial baseline.
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects post-apply refund source authority.
 - `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero post-apply cancellation.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.

@@ -48,11 +48,13 @@ Rental cancellation consumes this combined effective settlement under the shared
 
 PostgreSQL independently enforces the same commercial boundary. Cancellation itself never records a refund or performs provider I/O.
 
-## Date-change interaction
+## Date and physical-unit interaction
 
 Effective settlement remains anchored to the one applied price-changing amendment even when a later same-unit price-neutral reschedule or custody extension changes dates. Those later reschedules must preserve the amendment currency and exact `afterTotalMinor`, so they do not alter the combined money model.
 
-A second price-changing amendment remains blocked. Physical-unit substitution remains fail-closed while the commercial amendment is prepared or applied until that separate workflow can carry the effective commercial baseline safely.
+Before custody transfer, a same-type/same-location physical-unit substitution may also continue after apply only when it preserves the same effective dates, amendment currency, exact `afterTotalMinor`, and latest pricing fingerprint. Substitution evidence carries that accepted effective commercial amount while immutable original booking money remains unchanged. A `PREPARED` amendment still blocks replacement until the commercial workflow is finished, compensated, or closed.
+
+A second price-changing amendment remains blocked.
 
 ## Fail-closed behavior
 
@@ -62,7 +64,7 @@ The writer also fails closed on stale effective state, unsupported providers, du
 
 ## Current boundary
 
-Post-apply manual refund recording, authenticated staff orchestration, exact-zero cancellation, and later same-unit price-neutral date changes are implemented for the one supported manual/offline commercial amendment.
+Post-apply manual refund recording, authenticated staff orchestration, exact-zero cancellation, later same-unit price-neutral date changes, and pre-custody same-type/same-location unit substitutions are implemented for the one supported manual/offline commercial amendment.
 
 Chained price-changing amendments remain blocked after that applied amendment. Direct writes to the original booking-price ledger remain blocked. Provider-backed/online refund execution remains later adapter-backed scope.
 
@@ -74,6 +76,7 @@ Chained price-changing amendments remain blocked after that applied amendment. D
 - `scripts/rental-booking-effective-refund-source-contract.test.mjs` protects persistence, database caps, permission/locking/provider use, bounded history, and authenticated staff wiring.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the staff refund handoff.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects price-neutral date continuation without changing effective money.
+- `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects physical-unit substitution without changing effective money.
 - `scripts/rental-booking-cancellation-source-contract.test.mjs` protects exact-zero cancellation consumption.
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
