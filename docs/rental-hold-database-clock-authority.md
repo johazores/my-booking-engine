@@ -30,17 +30,23 @@ An expired hold can remain stored with status `ACTIVE` until an explicit lifecyc
 
 ## Inventory-mutation alignment
 
-Rental unit relocation, unavailable-date block creation, and unit archival all share the physical-unit advisory lock with hold creation. Their service-level checks now read PostgreSQL `clock_timestamp()` before deciding whether a tenant-owned `ACTIVE` hold still blocks the mutation.
+Rental unit relocation, unavailable-date block creation, and unit archival all share the physical-unit advisory lock with hold creation. Their service-level checks read PostgreSQL `clock_timestamp()` before deciding whether a tenant-owned `ACTIVE` hold still blocks the mutation.
 
-The database remains the independent final authority. The original rental-hold migration already guards hold overlap, unavailable-date block creation, and protected unit mutation with `CURRENT_TIMESTAMP` while holding the same tenant/unit advisory lock. Application checks provide clear errors and avoid avoidable database conflicts; they do not replace the trigger contract.
+The database remains the independent final authority. Historical trigger bodies used `CURRENT_TIMESTAMP`, which is transaction-start time. That can become stale when a transaction starts before a hold expires, waits on the shared physical-unit lock, and acquires the lock only after the hold has expired.
+
+`20260919182000-rental-hold-trigger-wall-clock` supersedes the active hold-overlap, unavailable-block, and protected-unit-mutation trigger bodies. Each guard samples `clock_timestamp()` once after acquiring the shared tenant/unit advisory lock and uses that single wall-clock observation for every hold-expiry comparison in the trigger invocation. A transaction that waits on that lock across a hold-expiry boundary therefore evaluates the hold from post-wait database time instead of retaining transaction-start authority.
+
+Application checks provide clear errors and avoid avoidable database conflicts; they do not replace the trigger contract. Historical migrations remain unchanged, while the later migration defines the active trigger behavior.
 
 ## Boundaries
 
-This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps. It only makes fresh time-sensitive hold decisions use one durable clock authority instead of process-local wall clocks.
+This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps. It only makes fresh time-sensitive hold decisions use one durable clock authority instead of process-local or transaction-start clocks.
 
 ## Validation
 
-`scripts/rental-hold-database-clock-authority-source-contract.test.mjs` protects the PostgreSQL clock reads, idempotent replay ordering, database-derived hold timestamps/expiry, effective-list/review/release decisions, create-route status feedback, and the related inventory-mutation active-hold checks.
+`scripts/rental-hold-database-clock-authority-source-contract.test.mjs` protects the application-side PostgreSQL clock reads, idempotent replay ordering, database-derived hold timestamps/expiry, effective-list/review/release decisions, create-route status feedback, and the related inventory-mutation active-hold checks.
+
+`scripts/rental-hold-trigger-wall-clock-source-contract.test.mjs` protects the database backstop by requiring the three active hold-sensitive trigger functions to sample `clock_timestamp()` after physical-unit serialization and by rejecting `CURRENT_TIMESTAMP` from their superseding definitions.
 
 Full Prisma, TypeScript, lint, production build, and disposable-PostgreSQL validation remain part of the repository's normal local/manual validation path under the Node version declared by `package.json`.
 
