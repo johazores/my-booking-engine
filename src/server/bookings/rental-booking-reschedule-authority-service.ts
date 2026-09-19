@@ -5,6 +5,7 @@ import {
   RentalAvailabilityIntegrityError,
 } from '../inventory/rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
+import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { buildRentalBookingCommercialAmendmentReviewFingerprint } from './rental-booking-commercial-amendment-domain.ts';
 import {
@@ -204,7 +205,14 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
       throw new RentalBookingRescheduleUnavailableError('The effective physical unit is no longer active at its retained operating assignment.');
     }
 
-    const [blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds, ratePeriods] = await Promise.all([
+    const [
+      blockOverlap,
+      competingHold,
+      bookingOverlap,
+      overdueCustodyUnitIds,
+      operationalReadinessBlocker,
+      ratePeriods,
+    ] = await Promise.all([
       transaction.rentalAvailabilityBlock.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -246,6 +254,10 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         observedAt: databaseClock.now,
         unitId: effectiveUnitId,
         excludeBookingId: booking.id,
+      }),
+      findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: effectiveUnitId,
       }),
       transaction.rentalRatePeriod.findMany({
         where: {
@@ -289,7 +301,13 @@ export async function reviewRentalBookingRescheduleAuthority(input: Readonly<{
         targetEndsOn: target.endsOn,
       })
     ) blocker = 'CUSTODY_EXTENSION_REQUIRED';
-    else if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) blocker = 'INVENTORY_CONFLICT';
+    else if (
+      blockOverlap
+      || competingHold
+      || bookingOverlap
+      || overdueCustodyUnitIds.length > 0
+      || operationalReadinessBlocker
+    ) blocker = 'INVENTORY_CONFLICT';
     else if (commercialImpact.kind === 'CURRENCY_CHANGED') blocker = 'CURRENCY_CHANGED';
     else if (commercialImpact.kind !== 'UNCHANGED') {
       blocker = existingCommercialAmendment?.status === 'APPLIED'

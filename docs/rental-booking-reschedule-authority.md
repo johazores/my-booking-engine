@@ -4,7 +4,7 @@ SF has a server-authoritative preflight for same-unit rental date changes. The o
 
 `reviewRentalBookingRescheduleAuthority` requires `booking:manage`, `availability:read`, `inventory:read`, and `pricing:read`. Every read repeats the authenticated tenant.
 
-The review normalizes the exclusive-end range, uses PostgreSQL time, resolves the current effective allocation after prior reschedule/substitution history, checks custody, active unit/type/location assignment, availability blocks, active holds, competing bookings, overdue custody, and current rate periods.
+The review normalizes the exclusive-end range, uses PostgreSQL time, resolves the current effective allocation after prior reschedule/substitution history, checks custody, active unit/type/location assignment, availability blocks, active holds, competing bookings, overdue custody, physical-unit operational readiness, and current rate periods. Operational readiness uses the same evidence families as PostgreSQL fresh-rental authority: the unit must not be `OUT_OF_SERVICE`, a retained `RETURNED` event must not still be awaiting inspection, and `DAMAGE_REPORTED` / `UNSAFE` inspection evidence must have a terminal `WAIVED` or `CLOSED` damage workflow before new rental authority can be minted.
 
 ## Commercial impact and existing amendment boundary
 
@@ -21,6 +21,8 @@ The blocker set includes:
 - `COMMERCIAL_AMENDMENT_APPLIED`
 
 A same-currency price change gets `PRICE_CHANGED` plus a commercial-amendment review fingerprint when the booking has not already consumed its one supported price-changing amendment. Currency drift remains a pricing-configuration integrity blocker.
+
+Physical-readiness contradictions are inventory conflicts. The review never emits reschedule or commercial-amendment review authority while the effective unit is operationally unavailable under the shared returned-unit readiness contract.
 
 The review reads tenant-scoped `PREPARED`/`APPLIED` amendment lifecycle evidence. A prepared amendment blocks another date mutation until staff finish, compensate, or close it. An applied amendment becomes the accepted effective commercial baseline: its `afterTotalMinor` must reconcile to the latest retained reschedule chain. Later same-unit date changes are allowed only when current server pricing preserves that exact effective amount. A later price change gets `COMMERCIAL_AMENDMENT_APPLIED`, because a second price-changing amendment is still outside the current contract.
 
@@ -40,7 +42,7 @@ The review itself reserves nothing.
 
 After exact adjustment settlement, `applyRentalBookingCommercialAmendment` re-locks and revalidates booking, unit, inventory, pricing, version, custody, original settlement, and amendment settlement before appending reschedule evidence and moving effective allocation dates.
 
-PostgreSQL independently blocks rescheduling while an amendment is `PREPARED`. After `APPLIED`, the reschedule insert guards require every later reschedule to preserve the applied amendment currency and `afterTotalMinor` while continuing the latest pricing-fingerprint chain.
+PostgreSQL independently blocks rescheduling while an amendment is `PREPARED`. After `APPLIED`, the reschedule insert guards require every later reschedule to preserve the applied amendment currency and `afterTotalMinor` while continuing the latest pricing-fingerprint chain. The shared PostgreSQL fresh-rental authority also rechecks physical-unit operational readiness at the durable write boundary, so a readiness change after read-only review still fails closed.
 
 ## Staff workflow
 

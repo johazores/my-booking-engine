@@ -3,6 +3,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { RentalAvailabilityIntegrityError } from '../inventory/rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
+import { rentalUnitOperationalReadinessWhere } from '../inventory/rental-unit-operational-readiness.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveRentalBookingPickupWindow } from './rental-booking-pickup-window-domain.ts';
 import {
@@ -334,6 +335,7 @@ export async function searchRentalBookingUnitSubstitutionCandidates(input: Reado
           status: 'ACTIVE' as const,
         },
       },
+      ...rentalUnitOperationalReadinessWhere(input.organizationId),
       ...(query
         ? {
             OR: [
@@ -454,6 +456,7 @@ export async function reviewRentalBookingUnitSubstitutionAuthority(input: Readon
             status: 'ACTIVE',
           },
         },
+        ...rentalUnitOperationalReadinessWhere(input.organizationId),
       },
       select: {
         id: true,

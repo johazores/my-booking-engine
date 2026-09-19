@@ -48,15 +48,19 @@ Candidate discovery and fresh review use PostgreSQL `clock_timestamp()` plus the
 
 Candidate discovery is bounded to 50 active physical units in the same tenant, retained unit type, and retained operating location, excluding the current effective unit. Optional unit code/name search is bounded to 80 characters. Candidate discovery does not reserve inventory.
 
-`reviewRentalBookingUnitSubstitutionAuthority` then uses a serializable read transaction and PostgreSQL `clock_timestamp()` to recheck source allocation integrity, the effective commercial baseline, the still-open replacement window, target unavailable blocks, effective holds, and overlapping non-cancelled booking allocations.
+Candidate discovery also applies the shared operational readiness predicate used by normal rental availability and PostgreSQL fresh-rental authority. A candidate must not be `OUT_OF_SERVICE`, must not have a retained `RETURNED` event still awaiting inspection, and must not have unresolved `DAMAGE_REPORTED` / `UNSAFE` inspection evidence unless the associated damage workflow has reached terminal `WAIVED` or `CLOSED`. This keeps stale or unsafe returned units out of the replacement picker before staff invest in a fresh review.
+
+`reviewRentalBookingUnitSubstitutionAuthority` then uses a serializable read transaction and PostgreSQL `clock_timestamp()` to recheck source allocation integrity, the effective commercial baseline, the still-open replacement window, target lifecycle and operational readiness, unavailable blocks, effective holds, overlapping non-cancelled booking allocations, and overdue custody.
 
 Review blockers are:
 
 - `NO_CHANGE` — source and target units are identical;
-- `TARGET_UNAVAILABLE` — target identity/lifecycle/type/location does not satisfy the supported contract;
+- `TARGET_UNAVAILABLE` — target identity, lifecycle, type/location, or operational readiness does not satisfy the supported contract;
 - `INVENTORY_CONFLICT` — target inventory is blocked for the exact effective period.
 
 A closed pickup window is not a target-unit blocker. It makes the booking itself unavailable for substitution review, so candidate/review calls fail closed before target inventory is evaluated.
+
+The candidate list never advertises a replacement unit that the same PostgreSQL authority would reject for returned-unit operational readiness at the time of the read. The durable writer still relies on the database backstop because readiness can change after review.
 
 ## Authority fingerprint
 
@@ -108,6 +112,8 @@ Database guards use that effective unit for:
 
 The substitution insert trigger takes the same booking and deterministic source/target unit locks, validates same-type/same-location lifecycle evidence, exact dates/money/pricing evidence, and target conflicts. The post-commercial migration replaces the earlier blanket amendment block: `PREPARED` still fails closed, while `APPLIED` requires exact reconciliation to immutable booking money and the latest effective reschedule before `NEW.currency`, `NEW.totalMinor`, and `NEW.pricingFingerprint` may match the accepted effective baseline. Conflicting active amendment rows fail closed. A deferred constraint still requires the target allocation before commit.
 
+The shared PostgreSQL fresh-rental authority independently checks the substitution target under the same tenant/unit lock for `OUT_OF_SERVICE`, pending return inspection, and unresolved non-clear return evidence. This remains the final concurrency boundary if operational readiness changes after candidate discovery or review.
+
 A separate pickup-window guard independently takes the same tenant/booking advisory lock, resolves the retained location and latest supported reschedule dates, uses PostgreSQL `clock_timestamp()` in that retained IANA timezone, and rejects substitution inserts at or after the exclusive effective end date. This closes the race where fresh review authority could become stale at the local-date boundary before the POST commits.
 
 Rental units with a non-cancelled booking allocation cannot be archived, relocated, or retyped at the database boundary. This prevents an inventory-management write from invalidating the effective booked assignment while a booking is live.
@@ -127,5 +133,7 @@ Focused domain/source contracts protect versioned fingerprinting, server-derived
 `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` specifically protects prepared-amendment freeze, applied effective-commercial-baseline reconciliation in candidate/review/write paths, PostgreSQL enforcement, effective-money persistence, audit evidence, and staff UX.
 
 `scripts/rental-unit-substitution-pickup-window-source-contract.test.mjs` protects the PostgreSQL-time/location-timezone review boundary, the direct-write pickup-window trigger, and removal of staff replacement actions after the exclusive committed end.
+
+`scripts/rental-fresh-authority-read-parity-source-contract.test.mjs` protects candidate/review operational readiness parity with availability discovery, reschedule review, booking conversion, and PostgreSQL fresh-rental authority.
 
 Full repository validation remains `npm run validate` under the Node version declared in `package.json`. Database behavior must be validated through `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
