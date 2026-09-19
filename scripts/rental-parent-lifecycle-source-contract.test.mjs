@@ -5,6 +5,7 @@ import test from 'node:test';
 const root = new URL('../', import.meta.url);
 const source = (path) => readFile(new URL(path, root), 'utf8');
 const migrationPath = 'prisma/migrations/20260919212500-rental-parent-lifecycle-authority/migration.sql';
+const lateReturnPolicyMigrationPath = 'prisma/migrations/20260919222000-rental-late-return-policy-parent-authority/migration.sql';
 
 test('application writers serialize fresh child authority with parent archival', async () => {
   const service = await source('src/server/inventory/rental-service.ts');
@@ -14,6 +15,18 @@ test('application writers serialize fresh child authority with parent archival',
   assert.match(service, /createRentalRatePeriod[\s\S]*lockRentalUnitTypeLifecycle\(transaction, input\.organizationId, rate\.unitTypeId\)[\s\S]*status: 'ACTIVE'[\s\S]*rentalRatePeriod\.create/);
   assert.match(service, /archiveRentalLocation[\s\S]*lockRentalLocationLifecycle\(transaction, input\.organizationId, input\.locationId\)[\s\S]*status: 'ACTIVE'[\s\S]*readRentalInventoryDatabaseClock\(transaction, 'rental location archival'\)/);
   assert.match(service, /archiveRentalUnitType[\s\S]*lockRentalUnitTypeLifecycle\(transaction, input\.organizationId, input\.unitTypeId\)[\s\S]*status: 'ACTIVE'[\s\S]*readRentalInventoryDatabaseClock\(transaction, 'rental unit-type archival'\)/);
+});
+
+test('late-return policy revisions share unit-type lifecycle authority with archival', async () => {
+  const policyService = await source('src/server/pricing/rental-late-return-policy-service.ts');
+  const migration = await source(lateReturnPolicyMigrationPath);
+
+  assert.match(policyService, /reviseRentalLateReturnPolicy[\s\S]*rentalUnitTypeLifecycleLockKey\(input\.organizationId, input\.unitTypeId\)[\s\S]*rentalLateReturnPolicyLockKey\(input\.organizationId, input\.unitTypeId\)[\s\S]*status: 'ACTIVE'[\s\S]*rentalLateReturnPolicyRevision\.create/);
+  assert.match(migration, /sf_lock_rental_unit_type_lifecycle\(NEW\."organizationId", NEW\."unitTypeId"\)/);
+  assert.match(migration, /unit_type\."organizationId" = NEW\."organizationId"[\s\S]*unit_type\."id" = NEW\."unitTypeId"/);
+  assert.match(migration, /parent_status <> 'ACTIVE'/);
+  assert.match(migration, /CREATE TRIGGER a_rental_late_return_policy_parent_lifecycle_guard/);
+  assert.match(migration, /BEFORE INSERT ON "rental_late_return_policy_revisions"/);
 });
 
 test('database child guards share deterministic tenant-scoped parent lifecycle locks', async () => {
@@ -43,7 +56,7 @@ test('database parent archive guards serialize and reject active physical depend
 test('documentation keeps retained history and unsupported product semantics explicit', async () => {
   const docs = await source('docs/rental-parent-lifecycle-authority.md');
 
-  assert.match(docs, /does not delete historical units, bookings, rate periods, or evidence/i);
+  assert.match(docs, /does not delete historical units, bookings, rate periods, late-return policy revisions, or evidence/i);
   assert.match(docs, /customer pickup\/drop-off semantics/);
   assert.match(docs, /GitHub Actions are not required or used/);
 });

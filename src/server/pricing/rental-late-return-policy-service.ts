@@ -4,6 +4,7 @@ import {
   RentalInventoryConflictError,
   RentalInventoryUnavailableError,
 } from '../inventory/rental-service.ts';
+import { rentalUnitTypeLifecycleLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
 import {
@@ -99,6 +100,11 @@ export async function reviseRentalLateReturnPolicy(input: Readonly<{
   await requirePolicyWritePermissions(input);
 
   return runPolicyWrite(() => db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${rentalUnitTypeLifecycleLockKey(input.organizationId, input.unitTypeId)}, 0)
+      )
+    `;
     await transaction.$queryRaw`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${rentalLateReturnPolicyLockKey(input.organizationId, input.unitTypeId)}, 0)

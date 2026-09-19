@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 const schema = read('prisma/rental-late-return-policy.prisma');
 const assessmentSchema = read('prisma/rental-late-return.prisma');
 const migration = read('prisma/migrations/20260918002500_rental_late_return_policy/migration.sql');
+const parentLifecycleMigration = read('prisma/migrations/20260919222000-rental-late-return-policy-parent-authority/migration.sql');
 const policyService = read('src/server/pricing/rental-late-return-policy-service.ts');
 const policyDomain = read('src/server/pricing/rental-late-return-policy-domain.ts');
 const assessmentService = read('src/server/bookings/rental-late-return-service.ts');
@@ -34,12 +35,31 @@ test('policy revisions are tenant-owned, versioned, append-only commercial autho
   assert.match(migration, /clock_timestamp\(\)/);
 });
 
+test('policy writes serialize parent lifecycle before policy-version authority', () => {
+  const parentLock = policyService.indexOf('rentalUnitTypeLifecycleLockKey(input.organizationId, input.unitTypeId)');
+  const policyLock = policyService.indexOf('rentalLateReturnPolicyLockKey(input.organizationId, input.unitTypeId)');
+  const activeParentRead = policyService.indexOf("status: 'ACTIVE'", policyLock);
+  const revisionCreate = policyService.indexOf('rentalLateReturnPolicyRevision.create', activeParentRead);
+
+  assert.ok(parentLock >= 0, 'shared unit-type lifecycle lock');
+  assert.ok(policyLock > parentLock, 'policy lock follows parent lifecycle lock');
+  assert.ok(activeParentRead > policyLock, 'active unit type is re-read after both locks');
+  assert.ok(revisionCreate > activeParentRead, 'revision is authored only after active parent revalidation');
+
+  assert.match(parentLifecycleMigration, /sf_lock_rental_unit_type_lifecycle\(NEW\."organizationId", NEW\."unitTypeId"\)/);
+  assert.match(parentLifecycleMigration, /unit_type\."organizationId" = NEW\."organizationId"/);
+  assert.match(parentLifecycleMigration, /parent_status <> 'ACTIVE'/);
+  assert.match(parentLifecycleMigration, /CREATE TRIGGER a_rental_late_return_policy_parent_lifecycle_guard/);
+  assert.match(parentLifecycleMigration, /BEFORE INSERT ON "rental_late_return_policy_revisions"/);
+});
+
 test('policy service enforces permissions, tenant scope, optimistic versioning, retries, and audit', () => {
   for (const evidence of [
     "permission: 'inventory:read'",
     "permission: 'pricing:read'",
     "permission: 'pricing:manage'",
     'organizationId: input.organizationId',
+    'rentalUnitTypeLifecycleLockKey(input.organizationId, input.unitTypeId)',
     'rentalLateReturnPolicyLockKey(input.organizationId, input.unitTypeId)',
     "isolationLevel: 'Serializable'",
     'requested.expectedVersion + 1',
@@ -85,7 +105,9 @@ test('staff policy configuration and assessment UI are connected to real server-
   assert.match(assessmentPanel, /Apply policy fee/);
 });
 
-test('documentation states non-retroactive automatic math and separate settlement', () => {
+test('documentation states parent serialization, non-retroactive automatic math, and separate settlement', () => {
+  assert.match(docs, /shared rental unit-type lifecycle lock is acquired first/i);
+  assert.match(docs, /archived unit types cannot receive new revisions/i);
   assert.match(docs, /non-retroactive/i);
   assert.match(docs, /latest policy revision whose `effectiveAt` is on or before/i);
   assert.match(docs, /feeMinor = chargeableDays \* policyDailyFeeMinor/);
