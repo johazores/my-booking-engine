@@ -32,21 +32,27 @@ An expired hold can remain stored with status `ACTIVE` until an explicit lifecyc
 
 Rental unit relocation, unavailable-date block creation, and unit archival all share the physical-unit advisory lock with hold creation. Their service-level checks read PostgreSQL `clock_timestamp()` before deciding whether a tenant-owned `ACTIVE` hold still blocks the mutation.
 
-The database remains the independent final authority. Historical trigger bodies used `CURRENT_TIMESTAMP`, which is transaction-start time. That can become stale when a transaction starts before a hold expires, waits on the shared physical-unit lock, and acquires the lock only after the hold has expired.
+Physical-unit relocation and archival also use that same post-lock database observation for booking/custody authority. They reject current or future non-cancelled allocations using each booking's retained IANA location timezone, and they reject overdue open custody through the shared extension-aware custody reconciliation helper. A historical booking whose allocation period has ended and whose unit was never picked up, or has already been returned, does not permanently pin the unit to old inventory metadata.
 
-`20260919182000-rental-hold-trigger-wall-clock` supersedes the active hold-overlap, unavailable-block, and protected-unit-mutation trigger bodies. Each guard samples `clock_timestamp()` once after acquiring the shared tenant/unit advisory lock and uses that single wall-clock observation for every hold-expiry comparison in the trigger invocation. A transaction that waits on that lock across a hold-expiry boundary therefore evaluates the hold from post-wait database time instead of retaining transaction-start authority.
+The database remains the independent final authority. Historical hold-trigger bodies used `CURRENT_TIMESTAMP`, which is transaction-start time. That can become stale when a transaction starts before a hold expires, waits on the shared physical-unit lock, and acquires the lock only after the hold has expired.
 
-Application checks provide clear errors and avoid avoidable database conflicts; they do not replace the trigger contract. Historical migrations remain unchanged, while the later migration defines the active trigger behavior.
+`20260919182000-rental-hold-trigger-wall-clock` supersedes the active hold-overlap, unavailable-block, and protected-unit-mutation trigger bodies. Each guard samples `clock_timestamp()` once after acquiring the shared tenant/unit advisory lock and uses that wall-clock observation for live hold-expiry comparisons.
+
+`20260919192500-rental-unit-mutation-custody-authority` then tightens the physical-unit mutation guard without changing its trigger binding: current/future booking dates are evaluated from the same post-lock wall clock in the retained booking-location timezone instead of `CURRENT_DATE`, and the existing `sf_rental_unit_has_overdue_custody` predicate prevents a unit from being relocated, retyped, or archived merely because its committed end date passed before the customer returned it.
+
+Application checks provide clear errors and avoid avoidable database conflicts; they do not replace the trigger contract. Historical migrations remain unchanged, while the later migrations define the active trigger behavior.
 
 ## Boundaries
 
-This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps. It only makes fresh time-sensitive hold decisions use one durable clock authority instead of process-local or transaction-start clocks.
+This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps or invent customer-facing movement semantics. It only keeps fresh time-sensitive inventory decisions on durable database time and retained custody evidence.
 
 ## Validation
 
 `scripts/rental-hold-database-clock-authority-source-contract.test.mjs` protects the application-side PostgreSQL clock reads, idempotent replay ordering, database-derived hold timestamps/expiry, effective-list/review/release decisions, create-route status feedback, and the related inventory-mutation active-hold checks.
 
-`scripts/rental-hold-trigger-wall-clock-source-contract.test.mjs` protects the database backstop by requiring the three active hold-sensitive trigger functions to sample `clock_timestamp()` after physical-unit serialization and by rejecting `CURRENT_TIMESTAMP` from their superseding definitions.
+`scripts/rental-hold-trigger-wall-clock-source-contract.test.mjs` protects the hold-expiry database backstop by requiring the active hold-sensitive trigger functions to sample `clock_timestamp()` after physical-unit serialization and by rejecting `CURRENT_TIMESTAMP` from their superseding definitions.
+
+`scripts/rental-unit-mutation-custody-source-contract.test.mjs` protects the physical-unit relocation/archive application checks plus the latest booking-timezone and overdue-custody database backstop.
 
 Full Prisma, TypeScript, lint, production build, and disposable-PostgreSQL validation remain part of the repository's normal local/manual validation path under the Node version declared by `package.json`.
 

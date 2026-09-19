@@ -20,7 +20,8 @@ Overdue open custody is excluded or rejected by:
 - rental hold creation under the physical-unit advisory lock;
 - stale hold-to-booking conversion review and final confirmation;
 - same-unit reschedule/extension review when another overdue booking still retains the unit;
-- pre-pickup same-type/same-location replacement-unit candidate discovery and target review.
+- pre-pickup same-type/same-location replacement-unit candidate discovery and target review; and
+- physical-unit relocation, archival, and direct retyping so inventory identity cannot move while the unit is still retained by a customer.
 
 The unit-substitution surface still closes once pickup exists. The date-change surface is custody-aware: before pickup it supports the existing price-neutral reschedule contract, while open custody accepts only a same-start/later-end price-neutral extension. Returned bookings close date-change authority entirely. Database guards independently enforce those boundaries.
 
@@ -46,6 +47,8 @@ The original overdue-custody migration added a tenant-aware `sf_rental_unit_has_
 
 Supported hold creation and hold-to-booking confirmation acquire the existing physical-unit advisory lock before their service-level custody recheck. Allocation and substitution database guards acquire the same unit-lock namespace before evaluating overdue custody, so reschedule/extension and replacement final writes also fail closed if a stale or bypassed application path reaches persistence. A custody extension excludes its own booking from overdue-conflict detection while retaining conflicts from any other booking that physically holds the unit.
 
+`20260919192500-rental-unit-mutation-custody-authority` also applies the shared overdue predicate to direct physical-unit lifecycle mutations. After the tenant/unit lock it samples PostgreSQL wall-clock time, evaluates current/future allocation boundaries in each booking's retained location timezone, then rejects relocation, retyping, or archival while overdue open custody remains. This closes the post-end gap where an allocation date alone was no longer enough to prove that the customer had returned the unit.
+
 These database guards are defense in depth; they do not replace server authorization, tenant scope, idempotency, or service-level conflict handling.
 
 ## Interaction with early return
@@ -61,6 +64,7 @@ When an early-return release is valid, SF keeps the committed custody dates unch
 - `scripts/rental-overdue-custody-source-contract.test.mjs` protects inventory exclusion, write guards, current date-change semantics, and base staff visibility.
 - `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects the tenant-scoped pre-pagination staff queue, shared PostgreSQL observation time, final row re-scope, and deliberate read-only commercial boundary.
 - `scripts/rental-custody-extension-overdue-source-contract.test.mjs` protects application, staff-read, database, and documentation agreement on the latest effective custody end after extension.
+- `scripts/rental-unit-mutation-custody-source-contract.test.mjs` protects relocation/archive application authority and the direct-write physical-unit mutation backstop.
 
 ## Deliberate boundaries
 

@@ -3,6 +3,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { RentalAvailabilityIntegrityError } from './rental-availability-domain.ts';
+import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
 import {
   assertRentalArchiveConfirmation,
   assertRentalRemoveConfirmation,
@@ -67,6 +68,62 @@ async function readRentalInventoryDatabaseClock(transaction: Prisma.TransactionC
     throw new RentalAvailabilityIntegrityError(`Database time authority is unavailable for ${context}.`);
   }
   return databaseClock.now;
+}
+
+async function assertRentalUnitMutationAuthority(input: Readonly<{
+  transaction: Prisma.TransactionClient;
+  organizationId: string;
+  unitId: string;
+  observedAt: Date;
+  action: 'relocating' | 'archiving';
+}>) {
+  const [activeHold, activeOrFutureBookings, overdueCustodyUnitIds] = await Promise.all([
+    input.transaction.rentalAvailabilityHold.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        unitId: input.unitId,
+        status: 'ACTIVE',
+        expiresAt: { gt: input.observedAt },
+      },
+      select: { id: true },
+    }),
+    input.transaction.$queryRaw<Array<{ bookingId: string }>>`
+      SELECT allocation."bookingId" AS "bookingId"
+        FROM "rental_booking_allocations" allocation
+        JOIN "rental_bookings" booking
+          ON booking."id" = allocation."bookingId"
+         AND booking."organizationId" = allocation."organizationId"
+        JOIN "rental_locations" location
+          ON location."id" = booking."locationId"
+         AND location."organizationId" = booking."organizationId"
+       WHERE allocation."organizationId" = ${input.organizationId}::uuid
+         AND allocation."unitId" = ${input.unitId}::uuid
+         AND booking."status" <> 'CANCELLED'
+         AND allocation."endsOn" > (${input.observedAt}::timestamptz AT TIME ZONE location."timeZone")::date
+       LIMIT 1
+    `,
+    findOverdueRentalCustodyUnitIds(input.transaction, {
+      organizationId: input.organizationId,
+      observedAt: input.observedAt,
+      unitId: input.unitId,
+    }),
+  ]);
+
+  if (activeHold) {
+    throw new RentalInventoryConflictError(
+      `Release active rental availability holds before ${input.action} this rental unit.`,
+    );
+  }
+  if (activeOrFutureBookings.length > 0) {
+    throw new RentalInventoryConflictError(
+      `Resolve active or future rental bookings before ${input.action} this rental unit.`,
+    );
+  }
+  if (overdueCustodyUnitIds.length > 0) {
+    throw new RentalInventoryConflictError(
+      `Record the outstanding rental return before ${input.action} this rental unit.`,
+    );
+  }
 }
 
 function pagination(page: number, pageSize: number) {
@@ -330,20 +387,13 @@ export async function assignRentalUnitLocation(input: {
     if (unit.locationId === location.id) return unit;
 
     const now = await readRentalInventoryDatabaseClock(transaction, 'rental unit relocation');
-    const activeHold = await transaction.rentalAvailabilityHold.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        unitId: unit.id,
-        status: 'ACTIVE',
-        expiresAt: { gt: now },
-      },
-      select: { id: true },
+    await assertRentalUnitMutationAuthority({
+      transaction,
+      organizationId: input.organizationId,
+      unitId: unit.id,
+      observedAt: now,
+      action: 'relocating',
     });
-    if (activeHold) {
-      throw new RentalInventoryConflictError(
-        'Release active rental availability holds before relocating this rental unit.',
-      );
-    }
 
     const updated = await transaction.rentalUnit.update({
       where: { id: unit.id, organizationId: input.organizationId },
@@ -558,20 +608,13 @@ export async function archiveRentalUnit(input: {
     if (!current) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
 
     const now = await readRentalInventoryDatabaseClock(transaction, 'rental unit archival');
-    const activeHold = await transaction.rentalAvailabilityHold.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        unitId: current.id,
-        status: 'ACTIVE',
-        expiresAt: { gt: now },
-      },
-      select: { id: true },
+    await assertRentalUnitMutationAuthority({
+      transaction,
+      organizationId: input.organizationId,
+      unitId: current.id,
+      observedAt: now,
+      action: 'archiving',
     });
-    if (activeHold) {
-      throw new RentalInventoryConflictError(
-        'Release active rental availability holds before archiving this rental unit.',
-      );
-    }
 
     const archivedAt = now;
     const updated = await transaction.rentalUnit.update({
