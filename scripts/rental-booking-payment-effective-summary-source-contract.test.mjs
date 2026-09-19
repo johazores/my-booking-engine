@@ -5,6 +5,7 @@ import test from 'node:test';
 const panel = readFileSync('src/components/rental-booking-payment-panel.tsx', 'utf8');
 const effectiveSettlementService = readFileSync('src/server/bookings/rental-booking-effective-settlement-service.ts', 'utf8');
 const docs = readFileSync('docs/rental-booking-payment-effective-summary.md', 'utf8');
+const detail = readFileSync('app/inventory/rentals/bookings/[booking-id]/page.tsx', 'utf8');
 
 test('applied rental amendments use the protected effective-settlement reader on booking detail', () => {
   assert.match(panel, /readRentalBookingEffectiveSettlement/);
@@ -50,4 +51,12 @@ test('documentation defines the applied-amendment summary and fail-closed bounda
   assert.match(docs, /fails closed with `RECONCILIATION REQUIRED`/i);
   assert.match(docs, /explicitly labelled historical after apply/i);
   assert.match(docs, /does not create a new financial writer/i);
+});
+
+
+test('booking detail labels immutable booking money instead of presenting it as the current accepted amount', () => {
+  assert.match(detail, /Immutable commercial evidence/);
+  assert.match(detail, /Original booking-time amount/);
+  assert.match(detail, /protected payment settlement section above is the current effective financial authority/i);
+  assert.doesNotMatch(detail, /rental-booking-commercial-title">Accepted amount/);
 });

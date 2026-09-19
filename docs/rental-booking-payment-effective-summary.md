@@ -12,6 +12,8 @@ If protected effective settlement cannot be reconciled or cannot be matched to t
 
 Original booking-price transaction rows remain visible because they are part of the immutable audit trail. They are explicitly labelled historical after apply, while commercial adjustment and post-apply refund evidence remains available from the retained commercial-amendment/effective-settlement workspace.
 
+The booking detail commercial-evidence card also labels `RentalBooking.totalMinor` as the **original booking-time amount** rather than a generic current accepted amount. That card remains useful to actors with booking access, but after an applied amendment it points authorized payment readers to the protected effective-settlement section for current financial authority.
+
 The original payment and refund forms continue to depend on the protected original-ledger write authority. `PREPARED` and `APPLIED` amendments expose no original-ledger write action, so this summary change does not create a new financial writer or bypass the existing commercial ownership handoff.
 
 Server authorization remains authoritative. `readRentalBookingEffectiveSettlement` requires `booking:read` and `payment:read`, repeats tenant scope on retained booking/amendment/payment evidence, and performs its combined read under `RepeatableRead`. UI state never grants settlement or refund authority.

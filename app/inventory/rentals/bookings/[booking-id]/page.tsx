@@ -203,7 +203,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
     </section>
 
     <section className="sf-inventory-card" aria-labelledby="rental-booking-commercial-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Commercial evidence</p><h2 id="rental-booking-commercial-title">Accepted amount</h2></div><span>{booking.currency} {moneyMinorToMajorString(booking.totalMinor, booking.currency)}</span></div>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Immutable commercial evidence</p><h2 id="rental-booking-commercial-title">Original booking-time amount</h2></div><span>{booking.currency} {moneyMinorToMajorString(booking.totalMinor, booking.currency)}</span></div>
       <ul className="sf-inventory-list">
         <li><div className="sf-inventory-list__primary"><div><strong>Original pricing fingerprint</strong><span><code>{booking.pricingFingerprint}</code></span></div></div></li>
         {booking.reschedules.at(-1) ? <li><div className="sf-inventory-list__primary"><div><strong>Effective pricing fingerprint</strong><span><code>{booking.reschedules.at(-1)?.targetPricingFingerprint}</code></span></div></div></li> : null}
@@ -211,6 +211,7 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
         <li><div className="sf-inventory-list__primary"><div><strong>Pricing observed</strong><span><time dateTime={booking.pricingObservedAt.toISOString()}>{booking.pricingObservedAt.toISOString()}</time></span></div></div></li>
         <li><div className="sf-inventory-list__primary"><div><strong>Confirmation idempotency key</strong><span><code>{booking.idempotencyKey}</code></span></div></div></li>
       </ul>
+      <p className="sf-field-hint">This amount and its original pricing/conversion evidence remain immutable booking-time evidence. After an applied commercial amendment, the protected payment settlement section above is the current effective financial authority for actors with payment access.</p>
     </section>
   </div>;
 }
