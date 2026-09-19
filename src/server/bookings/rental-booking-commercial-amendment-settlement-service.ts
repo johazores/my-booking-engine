@@ -2,14 +2,19 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
+import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import { assertPaymentProviderCapability } from '../payments/payment-provider.ts';
+import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
+import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { classifyRentalBookingWriteError } from './rental-booking-write-errors.ts';
 import { rentalBookingLockKey } from './rental-booking-reschedule-domain.ts';
 import {
   buildRentalBookingCommercialAmendmentSettlementIdempotencyKey,
   buildRentalBookingCommercialAmendmentSettlementRequestFingerprint,
+  deriveRentalBookingCommercialAmendmentRefundSource,
   deriveRentalBookingCommercialAmendmentSettlementState,
+  type RentalBookingCommercialAmendmentRefundSource,
   type RentalBookingCommercialAmendmentSettlementKind,
   type RentalBookingCommercialAmendmentSettlementPurpose,
   type RentalBookingCommercialAmendmentSettlementRow,
@@ -108,26 +113,72 @@ async function assertManualReferenceUnused(transaction: Prisma.TransactionClient
   if (retainedReference) throw new RentalBookingCommercialAmendmentConflictError('Manual rental payment reference has already been retained in this organization.');
 }
 
-async function assertRefundSourceCapacity(transaction: Prisma.TransactionClient, input: Readonly<{
-  organizationId: string; bookingId: string; amendmentId: string; sourceProviderReference: string; currency: string; amountMinor: bigint;
-}>) {
-  const source = await transaction.rentalPaymentTransaction.findFirst({ where: {
-    organizationId: input.organizationId, bookingId: input.bookingId, kind: 'OFFLINE_PAYMENT', status: 'SUCCEEDED',
-    providerCode: 'manual', providerReference: input.sourceProviderReference, currency: input.currency,
-  }, select: { amountMinor: true } });
-  if (!source) throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment refund requires a retained successful manual booking-price payment source.');
-  const [bookingRefunds, amendmentRefunds] = await Promise.all([
-    transaction.rentalPaymentTransaction.findMany({ where: {
-      organizationId: input.organizationId, bookingId: input.bookingId, kind: 'REFUND', status: 'SUCCEEDED', providerCode: 'manual',
-      sourceProviderReference: input.sourceProviderReference, currency: input.currency,
-    }, select: { amountMinor: true } }),
-    transaction.rentalBookingCommercialAmendmentSettlementTransaction.findMany({ where: {
-      organizationId: input.organizationId, bookingId: input.bookingId, amendmentId: { not: input.amendmentId }, kind: 'REFUND',
-      status: 'SUCCEEDED', providerCode: 'manual', sourceProviderReference: input.sourceProviderReference, currency: input.currency,
-    }, select: { amountMinor: true } }),
-  ]);
-  const refunded = [...bookingRefunds, ...amendmentRefunds].reduce((sum, row) => sum + row.amountMinor, 0n);
-  if (source.amountMinor - refunded < input.amountMinor) throw new RentalBookingCommercialAmendmentConflictError('Selected booking-price payment does not retain enough refundable value for this exact amendment.');
+async function readAdjustmentRefundSource(
+  transaction: Prisma.TransactionClient,
+  input: Readonly<{
+    organizationId: string;
+    bookingId: string;
+    amendmentId: string;
+    currency: string;
+    beforeTotalMinor: bigint;
+    deltaMinor: bigint;
+  }>,
+): Promise<RentalBookingCommercialAmendmentRefundSource> {
+  const history = await readRentalPaymentSettlementHistory({
+    transaction,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
+  });
+  if (!history.complete) return Object.freeze({ available: false as const, reason: history.reason });
+
+  const rentalSettlement = deriveRentalPaymentSettlement({
+    bookingTotalMinor: input.beforeTotalMinor,
+    currency: input.currency,
+    transactions: history.transactions,
+  });
+  if (!rentalSettlement.reconciled) {
+    return Object.freeze({ available: false as const, reason: rentalSettlement.reason });
+  }
+  if (rentalSettlement.netSettledMinor !== input.beforeTotalMinor) {
+    return Object.freeze({
+      available: false as const,
+      reason: 'Original rental booking-price settlement must remain fully paid before recording an amendment refund.',
+    });
+  }
+
+  const bookingSummary = deriveBookingSettlementSummary({
+    currency: input.currency,
+    transactions: history.transactions,
+  });
+  if (!bookingSummary.reconciled) {
+    return Object.freeze({ available: false as const, reason: bookingSummary.reason });
+  }
+
+  const priorAmendmentRefunds = await transaction.rentalBookingCommercialAmendmentSettlementTransaction.findMany({
+    where: {
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      amendmentId: { not: input.amendmentId },
+      purpose: 'ADJUSTMENT',
+      kind: 'REFUND',
+      status: 'SUCCEEDED',
+      providerCode: 'manual',
+      currency: input.currency,
+    },
+    select: {
+      providerCode: true,
+      sourceProviderReference: true,
+      currency: true,
+      amountMinor: true,
+    },
+  });
+
+  return deriveRentalBookingCommercialAmendmentRefundSource({
+    currency: input.currency,
+    deltaMinor: input.deltaMinor,
+    bookingSources: bookingSummary.sources,
+    priorAmendmentRefunds,
+  });
 }
 
 async function audit(transaction: Prisma.TransactionClient, input: Readonly<{
@@ -148,13 +199,37 @@ export async function readRentalBookingCommercialAmendmentSettlement(input: Read
   assertUuidIdentifier(input.bookingId, 'bookingId'); assertUuidIdentifier(input.amendmentId, 'amendmentId');
   await requirePermissions(input, false);
   return db.$transaction(async (transaction) => {
-    const amendment = await loadAmendment(transaction, input); const transactions = await readRows(transaction, input);
-    return Object.freeze({ amendment, transactions, settlement: state(amendment, transactions) });
+    const [clock] = await transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+    if (!clock?.now) throw new RentalBookingCommercialAmendmentConflictError('Database clock is unavailable for commercial amendment readiness.');
+    const amendment = await loadAmendment(transaction, input);
+    const transactions = await readRows(transaction, input);
+    const settlement = state(amendment, transactions);
+    const preparationLive = amendment.status === 'PREPARED' && amendment.expiresAt > clock.now;
+    const adjustmentRefundSource = amendment.status === 'PREPARED'
+      && settlement.state === 'UNSETTLED'
+      && amendment.direction === 'REFUND'
+      ? await readAdjustmentRefundSource(transaction, {
+          organizationId: input.organizationId,
+          bookingId: input.bookingId,
+          amendmentId: input.amendmentId,
+          currency: amendment.currency,
+          beforeTotalMinor: amendment.beforeTotalMinor,
+          deltaMinor: amendment.deltaMinor,
+        })
+      : null;
+    return Object.freeze({
+      amendment,
+      transactions,
+      settlement,
+      databaseNow: clock.now,
+      preparationLive,
+      adjustmentRefundSource,
+    });
   }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function recordRentalBookingCommercialAmendmentManualSettlement(input: Readonly<{
-  organizationId: string; actorUserId: string; bookingId: string; amendmentId: string; reference: unknown; sourceProviderReference?: unknown;
+  organizationId: string; actorUserId: string; bookingId: string; amendmentId: string; reference: unknown;
 }>) {
   assertUuidIdentifier(input.bookingId, 'bookingId'); assertUuidIdentifier(input.amendmentId, 'amendmentId');
   const reference = normalizeManualPaymentReference(input.reference); await requirePermissions(input, true);
@@ -173,9 +248,17 @@ export async function recordRentalBookingCommercialAmendmentManualSettlement(inp
     const idempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({ amendmentId: amendment.id, purpose, reference });
     let kind: RentalBookingCommercialAmendmentSettlementKind = 'OFFLINE_PAYMENT'; let sourceProviderReference: string | null = null;
     if (amendment.direction === 'REFUND') {
-      kind = 'REFUND'; sourceProviderReference = normalizeManualPaymentReference(input.sourceProviderReference);
-      await assertRefundSourceCapacity(transaction, { organizationId: input.organizationId, bookingId: input.bookingId, amendmentId: amendment.id,
-        sourceProviderReference, currency: amendment.currency, amountMinor: amendment.deltaMinor });
+      kind = 'REFUND';
+      const source = await readAdjustmentRefundSource(transaction, {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        amendmentId: amendment.id,
+        currency: amendment.currency,
+        beforeTotalMinor: amendment.beforeTotalMinor,
+        deltaMinor: amendment.deltaMinor,
+      });
+      if (!source.available) throw new RentalBookingCommercialAmendmentConflictError(source.reason);
+      sourceProviderReference = source.providerReference;
       assertPaymentProviderCapability(manualProvider, 'OFFLINE_REFUND_RECORDING');
     } else assertPaymentProviderCapability(manualProvider, 'OFFLINE_RECORDING');
     await assertManualReferenceUnused(transaction, input.organizationId, reference);
