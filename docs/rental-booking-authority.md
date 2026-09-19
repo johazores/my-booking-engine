@@ -6,9 +6,9 @@ SF has a server-only production authority review for deciding whether one active
 
 `reviewRentalBookingConversionAuthority` requires `booking:manage`, `availability:read`, `inventory:read`, `pricing:read`, and `customer:read` before it reads commercial, inventory, or customer data. Organization identity comes from authenticated server context; hold/customer IDs never grant scope by themselves.
 
-The review runs as a serializable transaction and uses PostgreSQL `clock_timestamp()` as the expiry clock. It requires an effective tenant-owned `ACTIVE` hold, active tenant customer, active physical unit, active unit type, and active operating location. It rechecks unavailable-date blocks, competing effective holds, overlapping non-cancelled booking allocations, and tenant rate periods needed for the held date range.
+The review runs as a serializable transaction and uses PostgreSQL `clock_timestamp()` as the expiry clock. It requires an effective tenant-owned `ACTIVE` hold, active tenant customer, active physical unit, active unit type, and active operating location. It rechecks unavailable-date blocks, competing effective holds, overlapping non-cancelled booking allocations, overdue open custody, and the physical-unit readiness evidence that also feeds PostgreSQL fresh-rental authority: persisted `OUT_OF_SERVICE`, a retained `RETURNED` event still awaiting inspection, or a non-clear return inspection whose damage workflow has not reached terminal `WAIVED` / `CLOSED` evidence. Tenant rate periods needed for the held date range are read from the same transaction.
 
-Creation-time hold pricing remains evidence rather than a permanent price lock. Legacy holds without complete evidence are not conversion-ready. Current currency, exact total, and pricing fingerprint must still match immutable hold evidence; otherwise authority fails closed. Inventory contradictions fail closed.
+Creation-time hold pricing remains evidence rather than a permanent price lock. Legacy holds without complete evidence are not conversion-ready. Current currency, exact total, and pricing fingerprint must still match immutable hold evidence; otherwise authority fails closed. Inventory or physical-readiness contradictions fail closed as `INVENTORY_CONFLICT`; the review never produces an authority fingerprint for a unit that PostgreSQL would already reject as fresh rental authority.
 
 Only a fully coherent review receives deterministic SHA-256 `authorityFingerprint` version 1 binding organization, hold, customer, physical unit/type/location, dates, exact hold expiry, currency, exact minor-unit total, and current pricing fingerprint.
 
@@ -16,7 +16,7 @@ Only a fully coherent review receives deterministic SHA-256 `authorityFingerprin
 
 The review itself does not create a rental booking, consume the hold, allocate the unit, charge a customer, or change availability.
 
-`confirmRentalBookingFromHold`, documented in [rental-booking-foundation.md](./rental-booking-foundation.md), reacquires serialization locks and revalidates active hold/customer/inventory/current price plus the exact authority fingerprint before atomically consuming the hold and creating booking/allocation evidence.
+`confirmRentalBookingFromHold`, documented in [rental-booking-foundation.md](./rental-booking-foundation.md), reacquires serialization locks and revalidates active hold/customer/inventory/current price plus the exact authority fingerprint before atomically consuming the hold and creating booking/allocation evidence. PostgreSQL independently applies the shared fresh-rental operational-readiness predicate to booking/allocation writes, so a readiness change after review cannot become a confirmed booking through a stale browser action.
 
 This keeps browser-visible review separate from persistence authority and prevents time-of-check/time-of-use gaps.
 
@@ -39,6 +39,6 @@ The supported price-changing contract is deliberately narrow: one same-unit rent
 
 ## Validation
 
-`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scope, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only conversion-review boundary.
+`src/server/bookings/rental-booking-authority-domain.test.ts` covers deterministic authority fingerprints and commercial-evidence rejection. `scripts/rental-booking-authority-source-contract.test.mjs` protects authorization, tenant scope, database-clock expiry, inventory/pricing revalidation, booked-allocation awareness, exact authority binding, and the read-only conversion-review boundary. `scripts/rental-fresh-authority-read-parity-source-contract.test.mjs` protects the returned-unit readiness predicates shared by availability discovery, conversion review, and the PostgreSQL fresh-rental backstop.
 
 Full repository validation requires the repository-supported Node 24 environment. Prisma/database execution remains gated on an explicitly disposable PostgreSQL target. No GitHub Actions are required or used.

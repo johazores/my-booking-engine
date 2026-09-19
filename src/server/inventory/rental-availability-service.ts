@@ -90,6 +90,29 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
         { operationalState: { is: null } },
         { operationalState: { is: { status: 'AVAILABLE' as const } } },
       ],
+      fulfillmentEvents: {
+        none: {
+          organizationId: input.organizationId,
+          kind: 'RETURNED' as const,
+          returnInspection: { is: null },
+        },
+      },
+      returnInspections: {
+        none: {
+          organizationId: input.organizationId,
+          outcome: { in: ['DAMAGE_REPORTED' as const, 'UNSAFE' as const] },
+          OR: [
+            { damageCase: { is: null } },
+            {
+              damageCase: {
+                is: {
+                  status: { in: ['OPEN' as const, 'ASSESSED' as const] },
+                },
+              },
+            },
+          ],
+        },
+      },
       availabilityBlocks: {
         none: {
           organizationId: input.organizationId,

@@ -133,7 +133,16 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
       throw new RentalInventoryUnavailableError('Rental unit, unit type, or operating location is no longer active.');
     }
 
-    const [ratePeriods, blockOverlap, competingHold, bookingOverlap, overdueCustodyUnitIds] = await Promise.all([
+    const [
+      ratePeriods,
+      blockOverlap,
+      competingHold,
+      bookingOverlap,
+      overdueCustodyUnitIds,
+      operationalState,
+      pendingReturnInspection,
+      unresolvedNonClearInspection,
+    ] = await Promise.all([
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -185,6 +194,41 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
         observedAt: databaseClock.now,
         unitId: hold.unit.id,
       }),
+      transaction.rentalUnitOperationalState.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: hold.unit.id,
+          status: 'OUT_OF_SERVICE',
+        },
+        select: { id: true },
+      }),
+      transaction.rentalBookingFulfillmentEvent.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: hold.unit.id,
+          kind: 'RETURNED',
+          returnInspection: { is: null },
+        },
+        select: { id: true },
+      }),
+      transaction.rentalReturnInspection.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitId: hold.unit.id,
+          outcome: { in: ['DAMAGE_REPORTED', 'UNSAFE'] },
+          OR: [
+            { damageCase: { is: null } },
+            {
+              damageCase: {
+                is: {
+                  status: { in: ['OPEN', 'ASSESSED'] },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      }),
     ]);
 
     const currentPricing = buildRentalPricingEvidence({
@@ -198,7 +242,15 @@ export async function reviewRentalBookingConversionAuthority(input: Readonly<{
     const completePricingEvidence = hasCompletePricingEvidence(hold);
 
     let blocker: RentalBookingConversionBlocker | null = null;
-    if (blockOverlap || competingHold || bookingOverlap || overdueCustodyUnitIds.length > 0) {
+    if (
+      blockOverlap
+      || competingHold
+      || bookingOverlap
+      || overdueCustodyUnitIds.length > 0
+      || operationalState
+      || pendingReturnInspection
+      || unresolvedNonClearInspection
+    ) {
       blocker = 'INVENTORY_CONFLICT';
     } else if (!completePricingEvidence) {
       blocker = 'LEGACY_PRICING_EVIDENCE';
