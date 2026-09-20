@@ -9,11 +9,12 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('confirmed rental bookings retain immutable source-hold evidence', async () => {
-  const [{ db }, holds, authority, bookings] = await Promise.all([
+  const [{ db }, holds, authority, bookings, cancellation] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('./rental-booking-authority-service.ts'),
     import('./rental-booking-service.ts'),
+    import('./rental-booking-cancellation-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -123,7 +124,20 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
 
     await assert.rejects(
       db.rentalBookingAllocation.delete({ where: { id: confirmed.allocation.id } }),
-      /confirmed rental booking must retain physical allocation evidence/i,
+      /rental booking must retain physical allocation evidence/i,
+    );
+
+    const cancelled = await cancellation.cancelRentalBooking({
+      organizationId: organization.id,
+      actorUserId: admin.id,
+      bookingId: confirmed.booking.id,
+      reason: 'Source evidence retention regression',
+    });
+    assert.equal(cancelled.booking.status, 'CANCELLED');
+
+    await assert.rejects(
+      db.rentalBookingAllocation.delete({ where: { id: confirmed.allocation.id } }),
+      /rental booking must retain physical allocation evidence/i,
     );
 
     const secondHold = await holds.createRentalAvailabilityHold({
@@ -186,10 +200,10 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
   } finally {
     await db.$transaction(async (transaction) => {
       await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.auditEvent.deleteMany({ where: { organizationId: organization.id } });
       await transaction.rentalBooking.deleteMany({ where: { organizationId: organization.id } });
       await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
     });
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalUnit.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalLocation.deleteMany({ where: { organizationId: organization.id } });

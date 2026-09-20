@@ -6,43 +6,52 @@ function read(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-const migration = read('prisma/migrations/20260920150000-rental-booking-allocation-ownership-integrity/migration.sql');
+const ownershipMigration = read('prisma/migrations/20260920150000-rental-booking-allocation-ownership-integrity/migration.sql');
+const terminalRetentionMigration = read('prisma/migrations/20260920152000-rental-booking-allocation-terminal-retention/migration.sql');
 const integration = read('src/server/bookings/rental-booking-source-evidence.integration.ts');
 const docs = read('docs/rental-booking-source-evidence-integrity.md');
 
 test('confirmed booking allocation ownership cannot be reassigned', () => {
-  assert.match(migration, /existing confirmed rental booking is missing physical allocation evidence/);
-  assert.match(migration, /sf_guard_rental_booking_allocation_owner_identity/);
-  assert.match(migration, /NEW\."organizationId" IS DISTINCT FROM OLD\."organizationId"/);
-  assert.match(migration, /NEW\."bookingId" IS DISTINCT FROM OLD\."bookingId"/);
-  assert.match(migration, /rental booking allocation ownership is immutable/);
-  assert.match(migration, /BEFORE UPDATE OF "organizationId", "bookingId"/);
+  assert.match(ownershipMigration, /existing confirmed rental booking is missing physical allocation evidence/);
+  assert.match(ownershipMigration, /sf_guard_rental_booking_allocation_owner_identity/);
+  assert.match(ownershipMigration, /NEW\."organizationId" IS DISTINCT FROM OLD\."organizationId"/);
+  assert.match(ownershipMigration, /NEW\."bookingId" IS DISTINCT FROM OLD\."bookingId"/);
+  assert.match(ownershipMigration, /rental booking allocation ownership is immutable/);
+  assert.match(ownershipMigration, /BEFORE UPDATE OF "organizationId", "bookingId"/);
 });
 
-test('confirmed booking cannot lose its physical allocation at transaction commit', () => {
-  assert.match(migration, /sf_guard_confirmed_rental_booking_allocation_retention/);
-  assert.match(migration, /booking\."organizationId" = OLD\."organizationId"/);
-  assert.match(migration, /booking\."id" = OLD\."bookingId"/);
-  assert.match(migration, /booking\."status" = 'CONFIRMED'/);
-  assert.match(migration, /confirmed rental booking must retain physical allocation evidence/);
-  assert.match(migration, /CREATE CONSTRAINT TRIGGER rental_booking_allocations_confirmed_retention_guard/);
-  assert.match(migration, /AFTER DELETE ON "rental_booking_allocations"/);
-  assert.match(migration, /DEFERRABLE INITIALLY DEFERRED/);
+test('all retained bookings keep physical allocation evidence at transaction commit', () => {
+  assert.match(terminalRetentionMigration, /existing rental booking is missing retained physical allocation evidence/);
+  assert.match(terminalRetentionMigration, /DROP TRIGGER IF EXISTS rental_booking_allocations_confirmed_retention_guard/);
+  assert.match(terminalRetentionMigration, /DROP FUNCTION IF EXISTS sf_guard_confirmed_rental_booking_allocation_retention/);
+  assert.match(terminalRetentionMigration, /sf_guard_rental_booking_allocation_retention/);
+  assert.match(terminalRetentionMigration, /booking\."organizationId" = OLD\."organizationId"/);
+  assert.match(terminalRetentionMigration, /booking\."id" = OLD\."bookingId"/);
+  assert.doesNotMatch(terminalRetentionMigration, /booking\."status"\s*=\s*'CONFIRMED'/);
+  assert.match(terminalRetentionMigration, /rental booking must retain physical allocation evidence/);
+  assert.match(terminalRetentionMigration, /CREATE CONSTRAINT TRIGGER rental_booking_allocations_booking_retention_guard/);
+  assert.match(terminalRetentionMigration, /AFTER DELETE ON "rental_booking_allocations"/);
+  assert.match(terminalRetentionMigration, /DEFERRABLE INITIALLY DEFERRED/);
 });
 
-test('guarded database scenario covers direct owner rewrite and allocation deletion', () => {
+test('guarded database scenario covers confirmed and cancelled allocation retention', () => {
   assert.match(integration, /rental booking allocation ownership is immutable/i);
-  assert.match(integration, /confirmed rental booking must retain physical allocation evidence/i);
+  assert.match(integration, /rental booking must retain physical allocation evidence/i);
+  assert.match(integration, /cancelRentalBooking\(\{/);
+  assert.match(integration, /assert\.equal\(cancelled\.booking\.status, 'CANCELLED'\)/);
   assert.match(integration, /rentalBookingAllocation\.delete\(\{/);
   assert.match(integration, /rentalBookingAllocation\.update\(\{/);
   assert.match(integration, /db\.\$transaction\(async \(transaction\) => \{/);
   assert.match(integration, /transaction\.rentalBookingAllocation\.deleteMany/);
+  assert.match(integration, /transaction\.auditEvent\.deleteMany/);
   assert.match(integration, /transaction\.rentalBooking\.deleteMany/);
 });
 
-test('documentation distinguishes immutable allocation ownership from supported live allocation changes', () => {
+test('documentation distinguishes live inventory release from retained allocation history', () => {
   assert.match(docs, /confirmed booking cannot commit without one physical allocation/i);
   assert.match(docs, /allocation ownership.*immutable/i);
+  assert.match(docs, /including a terminal `CANCELLED` booking/i);
+  assert.match(docs, /cancellation releases live availability without deleting historical allocation evidence/i);
   assert.match(docs, /reschedule, unit-substitution, and early-return/i);
   assert.match(docs, /GitHub Actions are not used/i);
 });
