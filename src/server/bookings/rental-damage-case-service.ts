@@ -8,6 +8,7 @@ import {
   RentalInventoryUnavailableError,
 } from '../inventory/rental-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { classifyRentalDamageAssessmentReplay } from './rental-damage-assessment-replay.ts';
 import {
   assertRentalDamageCaseTransition,
   normalizeRentalDamageCaseAssessmentInput,
@@ -275,16 +276,14 @@ export async function assessRentalDamageCase(input: Readonly<{
     }
 
     const assessment = normalizeRentalDamageCaseAssessmentInput(input.assessment, current.currency);
-    if (current.status === 'ASSESSED') {
-      if (
-        current.estimatedRepairCostMinor !== assessment.estimatedRepairCostMinor
-        || current.assessmentNotes !== assessment.notes
-      ) {
-        throw new RentalInventoryConflictError(
-          'Rental damage case is already assessed with different retained evidence.',
-        );
-      }
+    const replayDisposition = classifyRentalDamageAssessmentReplay(current, assessment);
+    if (replayDisposition === 'REPLAY') {
       return Object.freeze({ damageCase: current, idempotent: true as const });
+    }
+    if (replayDisposition === 'CONFLICT') {
+      throw new RentalInventoryConflictError(
+        'Rental damage case already retains different assessment evidence.',
+      );
     }
     assertRentalDamageCaseTransition(current.status, 'ASSESSED');
 
