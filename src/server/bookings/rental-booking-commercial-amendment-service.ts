@@ -284,6 +284,14 @@ export async function prepareRentalBookingCommercialAmendment(input: Readonly<{
         hashtextextended(${rentalUnitLockKey(input.organizationId, effectiveUnitId)}, 0)
       )
     `;
+    const [authorityClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS "now"
+    `;
+    if (!authorityClock?.now) {
+      throw new RentalAvailabilityIntegrityError(
+        'Database time authority is unavailable after rental commercial amendment inventory lock.',
+      );
+    }
 
     const [booking, latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBooking.findFirst({
@@ -417,7 +425,7 @@ export async function prepareRentalBookingCommercialAmendment(input: Readonly<{
           organizationId: input.organizationId,
           unitId: currentUnitId,
           status: 'ACTIVE',
-          expiresAt: { gt: databaseClock.now },
+          expiresAt: { gt: authorityClock.now },
           startsOn: { lt: target.endsOn },
           endsOn: { gt: target.startsOn },
         },
@@ -436,7 +444,7 @@ export async function prepareRentalBookingCommercialAmendment(input: Readonly<{
       }),
       findOverdueRentalCustodyUnitIds(transaction, {
         organizationId: input.organizationId,
-        observedAt: databaseClock.now,
+        observedAt: authorityClock.now,
         unitId: currentUnitId,
         excludeBookingId: booking.id,
       }),
@@ -541,7 +549,7 @@ export async function prepareRentalBookingCommercialAmendment(input: Readonly<{
         'Rental commercial amendment direction does not match the reviewed price delta.',
       );
     }
-    const expiresAt = rentalBookingCommercialAmendmentExpiresAt(databaseClock.now);
+    const expiresAt = rentalBookingCommercialAmendmentExpiresAt(authorityClock.now);
     const amendment = await transaction.rentalBookingCommercialAmendment.create({
       data: {
         organizationId: input.organizationId,

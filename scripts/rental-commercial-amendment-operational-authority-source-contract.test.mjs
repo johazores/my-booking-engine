@@ -10,10 +10,16 @@ const postLockExpiryMigration = readFileSync(
   'prisma/migrations/20260920092500-rental-commercial-amendment-post-lock-expiry-authority/migration.sql',
   'utf8',
 );
+const overdueCustodyMigration = readFileSync(
+  'prisma/migrations/20260920103000-rental-commercial-amendment-overdue-custody-authority/migration.sql',
+  'utf8',
+);
 const prepareService = readFileSync('src/server/bookings/rental-booking-commercial-amendment-service.ts', 'utf8');
 const settlementService = readFileSync('src/server/bookings/rental-booking-commercial-amendment-settlement-service.ts', 'utf8');
+const applyService = readFileSync('src/server/bookings/rental-booking-commercial-amendment-apply-service.ts', 'utf8');
 const prepareRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/route.ts', 'utf8');
 const docs = readFileSync('docs/rental-commercial-amendment-operational-authority.md', 'utf8');
+const overdueDocs = readFileSync('docs/rental-overdue-custody-availability.md', 'utf8');
 
 test('prepared commercial amendment database authority is tenant and assignment scoped', () => {
   assert.match(migration, /sf_guard_rental_commercial_amendment_prepared_authority/);
@@ -98,11 +104,49 @@ test('fresh commercial amendment expiry is rechecked after physical-unit lock wa
   assert.match(docs, /lock wait itself can cross expiry/i);
 });
 
-test('supported application flow already serializes and maps database readiness conflicts', () => {
+test('fresh commercial amendment authority uses post-lock time and excludes other overdue custody', () => {
+  for (const functionName of [
+    'sf_guard_rental_commercial_amendment_prepared_authority',
+    'sf_guard_rental_commercial_amendment_adjustment_readiness',
+    'sf_guard_rental_commercial_amendment_apply_readiness',
+  ]) {
+    assert.match(overdueCustodyMigration, new RegExp(`CREATE OR REPLACE FUNCTION ${functionName}\\(\\)`));
+  }
+  assert.equal(
+    overdueCustodyMigration.match(/sf_rental_unit_has_overdue_custody\(/g)?.length,
+    3,
+    'all three fresh commercial-amendment boundaries must recheck overdue custody',
+  );
+  assert.match(
+    overdueCustodyMigration,
+    /sf_rental_unit_has_overdue_custody\([\s\S]*NEW\."bookingId"[\s\S]*another overdue open custody/,
+  );
+  assert.match(overdueCustodyMigration, /IF NEW\."purpose" <> 'ADJUSTMENT' THEN[\s\S]*RETURN NEW/);
+
+  assert.match(
+    prepareService,
+    /rentalUnitLockKey\(input\.organizationId, effectiveUnitId\)[\s\S]*const \[authorityClock\][\s\S]*observedAt: authorityClock\.now/,
+  );
+  assert.match(prepareService, /rentalBookingCommercialAmendmentExpiresAt\(authorityClock\.now\)/);
+  assert.match(
+    settlementService,
+    /rentalUnitLockKey\(input\.organizationId, amendment\.unitId\)[\s\S]*const \[lockedClock\][\s\S]*findOverdueRentalCustodyUnitIds[\s\S]*observedAt: lockedClock\.now[\s\S]*excludeBookingId: input\.bookingId/,
+  );
+  assert.match(
+    applyService,
+    /rentalUnitLockKey\(input\.organizationId, effectiveUnitId\)[\s\S]*const \[authorityClock\][\s\S]*observedAt: authorityClock\.now/,
+  );
+  assert.match(applyService, /const appliedAt = authorityClock\.now/);
+  assert.match(docs, /other overdue open custody/i);
+  assert.match(overdueDocs, /commercial-amendment preparation, adjustment settlement, and final apply/i);
+});
+
+test('supported application flow serializes and maps database readiness conflicts', () => {
   assert.match(prepareService, /rentalBookingLockKey/);
   assert.match(prepareService, /rentalUnitLockKey/);
   assert.match(prepareService, /rentalBookingCommercialAmendment\.create/);
   assert.match(settlementService, /findRentalUnitOperationalReadinessBlocker/);
+  assert.match(settlementService, /findOverdueRentalCustodyUnitIds/);
   assert.match(settlementService, /rentalUnitLockKey/);
   assert.match(settlementService, /const \[lockedClock\][\s\S]*SELECT clock_timestamp\(\) AS "now"/);
   assert.match(settlementService, /amendment\.expiresAt <= lockedClock\.now/);

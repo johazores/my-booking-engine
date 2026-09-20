@@ -1,6 +1,7 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
@@ -258,13 +259,26 @@ export async function recordRentalBookingCommercialAmendmentManualSettlement(inp
         'Prepared commercial amendment authority expired before adjustment settlement could acquire inventory authority.',
       );
     }
-    const operationalReadinessBlocker = await findRentalUnitOperationalReadinessBlocker(transaction, {
-      organizationId: input.organizationId,
-      unitId: amendment.unitId,
-    });
+    const [operationalReadinessBlocker, overdueCustodyUnitIds] = await Promise.all([
+      findRentalUnitOperationalReadinessBlocker(transaction, {
+        organizationId: input.organizationId,
+        unitId: amendment.unitId,
+      }),
+      findOverdueRentalCustodyUnitIds(transaction, {
+        organizationId: input.organizationId,
+        observedAt: lockedClock.now,
+        unitId: amendment.unitId,
+        excludeBookingId: input.bookingId,
+      }),
+    ]);
     if (operationalReadinessBlocker) {
       throw new RentalBookingCommercialAmendmentConflictError(
         'Rental adjustment settlement cannot be recorded while the retained physical unit is not operationally ready.',
+      );
+    }
+    if (overdueCustodyUnitIds.length > 0) {
+      throw new RentalBookingCommercialAmendmentConflictError(
+        'Rental adjustment settlement cannot be recorded while another overdue booking retains custody of the physical unit.',
       );
     }
 

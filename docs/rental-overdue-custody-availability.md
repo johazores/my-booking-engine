@@ -20,10 +20,11 @@ Overdue open custody is excluded or rejected by:
 - rental hold creation under the physical-unit advisory lock;
 - stale hold-to-booking conversion review and final confirmation;
 - same-unit reschedule/extension review when another overdue booking still retains the unit;
+- price-changing commercial-amendment preparation, new adjustment settlement, and final apply when another overdue booking still retains the unit;
 - pre-pickup same-type/same-location replacement-unit candidate discovery and target review; and
 - physical-unit relocation, archival, and direct retyping so inventory identity cannot move while the unit is still retained by a customer.
 
-The unit-substitution surface still closes once pickup exists. The date-change surface is custody-aware: before pickup it supports the existing price-neutral reschedule contract, while open custody accepts only a same-start/later-end price-neutral extension. Returned bookings close date-change authority entirely. Database guards independently enforce those boundaries.
+The unit-substitution surface still closes once pickup exists. The date-change surface is custody-aware: before pickup it supports the existing price-neutral reschedule contract, while open custody accepts only a same-start/later-end supported extension. Returned bookings close date-change authority entirely. Database guards independently enforce those boundaries.
 
 ## Staff operational visibility
 
@@ -49,6 +50,10 @@ Supported hold creation and hold-to-booking confirmation acquire the existing ph
 
 `20260919192500-rental-unit-mutation-custody-authority` also applies the shared overdue predicate to direct physical-unit lifecycle mutations. After the tenant/unit lock it samples PostgreSQL wall-clock time, evaluates current/future allocation boundaries in each booking's retained location timezone, then rejects relocation, retyping, or archival while overdue open custody remains. This closes the post-end gap where an allocation date alone was no longer enough to prove that the customer had returned the unit.
 
+`20260920103000-rental-commercial-amendment-overdue-custody-authority` extends that same physical authority to commercial-amendment preparation, adjustment settlement, and final apply. Each durable fresh-authority boundary first acquires the shared physical-unit readiness lock, then evaluates `sf_rental_unit_has_overdue_custody` with a fresh PostgreSQL wall-clock observation while excluding the amendment's own booking. This prevents another overdue booking from being ignored merely because the application started before the unit-lock wait crossed its local due boundary. Compensation deliberately remains outside this guard so already-retained money can still be reversed.
+
+The supported commercial-amendment services mirror the database contract. Preparation and final apply refresh PostgreSQL time after acquiring the unit lock before evaluating active holds and overdue custody, and new adjustment settlement checks overdue custody after its unit lock before asking the manual provider adapter to retain new money evidence.
+
 These database guards are defense in depth; they do not replace server authorization, tenant scope, idempotency, or service-level conflict handling.
 
 ## Interaction with early return
@@ -65,6 +70,7 @@ When an early-return release is valid, SF keeps the committed custody dates unch
 - `scripts/rental-overdue-custody-queue-source-contract.test.mjs` protects the tenant-scoped pre-pagination staff queue, shared PostgreSQL observation time, final row re-scope, and deliberate read-only commercial boundary.
 - `scripts/rental-custody-extension-overdue-source-contract.test.mjs` protects application, staff-read, database, and documentation agreement on the latest effective custody end after extension.
 - `scripts/rental-unit-mutation-custody-source-contract.test.mjs` protects relocation/archive application authority and the direct-write physical-unit mutation backstop.
+- `scripts/rental-commercial-amendment-operational-authority-source-contract.test.mjs` protects commercial-amendment post-lock time and other-booking overdue-custody authority through preparation, new adjustment settlement, and final apply.
 
 ## Deliberate boundaries
 

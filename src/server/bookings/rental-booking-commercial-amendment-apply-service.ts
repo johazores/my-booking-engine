@@ -244,6 +244,19 @@ export async function applyRentalBookingCommercialAmendment(input: Readonly<{
         hashtextextended(${rentalUnitLockKey(input.organizationId, effectiveUnitId)}, 0)
       )
     `;
+    const [authorityClock] = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS "now"
+    `;
+    if (!authorityClock?.now) {
+      throw new RentalAvailabilityIntegrityError(
+        'Database time authority is unavailable after rental commercial amendment inventory lock.',
+      );
+    }
+    if (amendmentLocator.expiresAt <= authorityClock.now) {
+      throw new RentalBookingCommercialAmendmentConflictError(
+        'Rental commercial amendment authority expired while final apply waited for inventory authority. Compensate retained adjustment money before terminating the amendment.',
+      );
+    }
 
     const [amendment, booking, latestReschedule, latestSubstitution] = await Promise.all([
       transaction.rentalBookingCommercialAmendment.findFirst({
@@ -394,7 +407,7 @@ export async function applyRentalBookingCommercialAmendment(input: Readonly<{
           organizationId: input.organizationId,
           unitId: amendment.unitId,
           status: 'ACTIVE',
-          expiresAt: { gt: databaseClock.now },
+          expiresAt: { gt: authorityClock.now },
           startsOn: { lt: amendment.targetEndsOn },
           endsOn: { gt: amendment.targetStartsOn },
         },
@@ -413,7 +426,7 @@ export async function applyRentalBookingCommercialAmendment(input: Readonly<{
       }),
       findOverdueRentalCustodyUnitIds(transaction, {
         organizationId: input.organizationId,
-        observedAt: databaseClock.now,
+        observedAt: authorityClock.now,
         unitId: amendment.unitId,
         excludeBookingId: booking.id,
       }),
@@ -493,7 +506,7 @@ export async function applyRentalBookingCommercialAmendment(input: Readonly<{
       );
     }
 
-    const appliedAt = databaseClock.now;
+    const appliedAt = authorityClock.now;
     const reschedule = await transaction.rentalBookingReschedule.create({
       data: {
         organizationId: input.organizationId,
