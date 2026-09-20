@@ -126,11 +126,6 @@ export async function recordRentalBookingPostApplyManualRefund(input: Readonly<{
       organizationId: input.organizationId,
       bookingId: input.bookingId,
     });
-    if (before.booking.status !== 'CONFIRMED') {
-      throw new RentalBookingEffectiveRefundConflictError(
-        'Post-apply rental refunds require a confirmed booking.',
-      );
-    }
     if (!before.appliedAmendment || before.appliedAmendment.status !== 'APPLIED') {
       throw new RentalBookingEffectiveRefundConflictError(
         'This booking has no applied commercial amendment. Use the standard rental refund boundary.',
@@ -181,6 +176,12 @@ export async function recordRentalBookingPostApplyManualRefund(input: Readonly<{
         settlement: before.settlement,
         idempotent: true as const,
       });
+    }
+
+    if (before.booking.status !== 'CONFIRMED') {
+      throw new RentalBookingEffectiveRefundConflictError(
+        'Post-apply rental refunds require a confirmed booking.',
+      );
     }
 
     const plan = deriveRentalBookingEffectiveRefundPlan({

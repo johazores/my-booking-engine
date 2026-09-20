@@ -238,14 +238,22 @@ export async function recordRentalBookingCommercialAmendmentManualSettlement(inp
   const reference = normalizeManualPaymentReference(input.reference); await requirePermissions(input, true);
   return runWrite(() => db.$transaction(async (transaction) => {
     await lock(transaction, input.organizationId, input.bookingId, input.amendmentId);
-    const [clock] = await transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
     const amendment = await loadAmendment(transaction, input);
-    if (!clock?.now || amendment.status !== 'PREPARED' || amendment.expiresAt <= clock.now) throw new RentalBookingCommercialAmendmentConflictError('Prepared commercial amendment authority is no longer live for adjustment settlement.');
-    const rows = await readRows(transaction, input); const before = state(amendment, rows);
+    const rows = await readRows(transaction, input);
+    const before = state(amendment, rows);
+    const purpose = 'ADJUSTMENT' as const;
+    const idempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({ amendmentId: amendment.id, purpose, reference });
+    const existing = rows.find((row) => row.purpose === purpose && row.idempotencyKey === idempotencyKey && row.providerReference === reference);
+    if (existing) {
+      return Object.freeze({ transaction: existing, settlement: before, idempotent: true as const });
+    }
     if (before.state !== 'UNSETTLED') {
-      const existing = rows.find((row) => row.purpose === 'ADJUSTMENT' && row.providerReference === reference);
-      if (existing) return Object.freeze({ transaction: existing, settlement: before, idempotent: true as const });
       throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment already has retained adjustment settlement evidence.');
+    }
+
+    const [clock] = await transaction.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+    if (!clock?.now || amendment.status !== 'PREPARED' || amendment.expiresAt <= clock.now) {
+      throw new RentalBookingCommercialAmendmentConflictError('Prepared commercial amendment authority is no longer live for adjustment settlement.');
     }
 
     await transaction.$queryRaw`
@@ -282,8 +290,6 @@ export async function recordRentalBookingCommercialAmendmentManualSettlement(inp
       );
     }
 
-    const purpose = 'ADJUSTMENT' as const;
-    const idempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({ amendmentId: amendment.id, purpose, reference });
     let kind: RentalBookingCommercialAmendmentSettlementKind = 'OFFLINE_PAYMENT'; let sourceProviderReference: string | null = null;
     if (amendment.direction === 'REFUND') {
       kind = 'REFUND';
@@ -329,16 +335,16 @@ export async function recordRentalBookingCommercialAmendmentManualCompensation(i
   return runWrite(() => db.$transaction(async (transaction) => {
     await lock(transaction, input.organizationId, input.bookingId, input.amendmentId);
     const amendment = await loadAmendment(transaction, input);
-    if (amendment.status !== 'PREPARED') throw new RentalBookingCommercialAmendmentConflictError('Only a prepared commercial amendment can receive compensation.');
-    const rows = await readRows(transaction, input); const before = state(amendment, rows);
-    if (before.state === 'COMPENSATED') {
-      const existing = rows.find((row) => row.purpose === 'COMPENSATION' && row.providerReference === reference);
-      if (existing) return Object.freeze({ transaction: existing, settlement: before, idempotent: true as const });
-      throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment adjustment is already compensated.');
-    }
-    if (before.state !== 'SETTLED') throw new RentalBookingCommercialAmendmentConflictError('Compensation requires retained uncompensated adjustment money.');
+    const rows = await readRows(transaction, input);
+    const before = state(amendment, rows);
     const purpose = 'COMPENSATION' as const;
     const idempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({ amendmentId: amendment.id, purpose, reference });
+    const existing = rows.find((row) => row.purpose === purpose && row.idempotencyKey === idempotencyKey && row.providerReference === reference);
+    if (existing) {
+      return Object.freeze({ transaction: existing, settlement: before, idempotent: true as const });
+    }
+    if (amendment.status !== 'PREPARED') throw new RentalBookingCommercialAmendmentConflictError('Only a prepared commercial amendment can receive compensation.');
+    if (before.state !== 'SETTLED') throw new RentalBookingCommercialAmendmentConflictError('Compensation requires retained uncompensated adjustment money.');
     const kind: RentalBookingCommercialAmendmentSettlementKind = amendment.direction === 'ADDITIONAL_CHARGE' ? 'REFUND' : 'OFFLINE_PAYMENT';
     const sourceProviderReference = kind === 'REFUND' ? before.adjustment.providerReference : null;
     await assertManualReferenceUnused(transaction, input.organizationId, reference);
