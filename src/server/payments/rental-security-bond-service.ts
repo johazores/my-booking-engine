@@ -172,7 +172,6 @@ export async function createRentalSecurityBondRequirement(input: Readonly<{ orga
   return runBondWrite(() => db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0))`;
     const booking = await loadBooking(transaction, input.organizationId, input.bookingId);
-    if (booking.status !== 'CONFIRMED' || booking.cancelledAt) throw new RentalSecurityBondConflictError('Security bond can only be required for a confirmed rental booking.');
     const money = parseMoneyMajorToMinor(input.amountMajor, booking.currency);
     if (money.amountMinor <= 0n) throw new PricingValidationError('Security bond amount must be greater than zero.');
     const idempotencyKey = buildRentalSecurityBondRequirementIdempotencyKey({ bookingId: booking.id, currency: money.currency, amountMinor: money.amountMinor });
@@ -183,6 +182,7 @@ export async function createRentalSecurityBondRequirement(input: Readonly<{ orga
       return Object.freeze({ bond: existing, idempotent: true as const });
     }
 
+    if (booking.status !== 'CONFIRMED' || booking.cancelledAt) throw new RentalSecurityBondConflictError('Security bond can only be required for a confirmed rental booking.');
     const preCustodyAuthority = await readFreshSecurityBondAuthority(transaction, input.organizationId, booking);
     if (preCustodyAuthority.hasCustodyEvidence) {
       throw new RentalSecurityBondConflictError('Security bond requirement must be established before physical custody begins.');

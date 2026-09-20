@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 const service = read('src/server/payments/rental-security-bond-service.ts');
+const integration = read('src/server/payments/rental-security-bond.integration.ts');
 const page = read('app/inventory/rentals/bookings/[booking-id]/security-bond/page.tsx');
 const migration = read('prisma/migrations/20260919083000_rental_security_bond_pickup_window_guard/migration.sql');
 const docs = read('docs/rental-security-bond-pickup-window.md');
@@ -19,18 +20,26 @@ test('fresh bond authority uses tenant reschedule, retained timezone, and Postgr
 });
 
 test('fresh requirement and collection fail closed after missed pickup while exact replay stays historical', () => {
-  const requirementExisting = service.indexOf('if (existing) {', service.indexOf('createRentalSecurityBondRequirement'));
+  const requirementStart = service.indexOf('createRentalSecurityBondRequirement');
+  const requirementExisting = service.indexOf('if (existing) {', requirementStart);
+  const requirementLifecycle = service.indexOf("if (booking.status !== 'CONFIRMED' || booking.cancelledAt)", requirementExisting);
   const requirementAuthority = service.indexOf('const preCustodyAuthority = await readFreshSecurityBondAuthority', requirementExisting);
-  assert.ok(requirementExisting >= 0 && requirementAuthority > requirementExisting, 'requirement replay must precede fresh window authority');
+  assert.ok(requirementExisting >= 0 && requirementLifecycle > requirementExisting, 'requirement replay must precede fresh booking lifecycle authority');
+  assert.ok(requirementAuthority > requirementLifecycle, 'fresh requirement lifecycle authority must run before pickup-window authority');
 
   const collectionStart = service.indexOf("if (operation === 'collection') {");
   const transactionExisting = service.indexOf('if (existing) {', service.indexOf('recordManualBondEvidence'));
+  const collectionLifecycle = service.indexOf("if (booking.status !== 'CONFIRMED' || booking.cancelledAt)", transactionExisting);
   const collectionAuthority = service.indexOf('const preCustodyAuthority = await readFreshSecurityBondAuthority', transactionExisting);
   const providerCall = service.indexOf('manualProvider.recordOfflinePayment', collectionAuthority);
-  assert.ok(transactionExisting >= 0 && collectionAuthority > transactionExisting, 'collection replay must precede fresh window authority');
+  assert.ok(transactionExisting >= 0 && collectionLifecycle > transactionExisting, 'collection replay must precede fresh booking lifecycle authority');
+  assert.ok(collectionAuthority > collectionLifecycle, 'fresh collection lifecycle authority must run before pickup-window authority');
   assert.ok(providerCall > collectionAuthority, 'fresh pickup-window authority must run before manual provider collection I/O');
   assert.match(service, /Security bond requirement cannot be created after the committed pickup window has closed/);
   assert.match(service, /Security bond collection cannot be recorded after the committed pickup window has closed/);
+  assert.match(integration, /const cancelledRequirementReplay = await bonds\.createRentalSecurityBondRequirement/);
+  assert.match(integration, /assert\.equal\(cancelledRequirementReplay\.idempotent, true\)/);
+  assert.match(integration, /assert\.equal\(cancelledRequirementReplay\.bond\.id, cancellationRequirement\.bond\.id\)/);
   assert.ok(collectionStart >= 0);
 });
 
@@ -66,10 +75,12 @@ test('staff workspace removes dead fresh bond actions after custody or missed pi
   assert.match(page, /data\.preCustodyAuthority\.canEstablishOrCollect && data\.booking\.status === 'CONFIRMED'/);
 });
 
-test('documentation keeps the fresh-write and release boundaries explicit', () => {
+test('documentation keeps the fresh-write and historical-replay boundaries explicit', () => {
   assert.match(docs, /missed pickup/);
   assert.match(docs, /PostgreSQL `clock_timestamp\(\)`/);
   assert.match(docs, /Exact idempotent replay/);
+  assert.match(docs, /later cancellation/);
+  assert.match(docs, /fresh booking-status validation runs only after exact requirement replay/i);
   assert.match(docs, /release is never blocked/i);
   assert.match(docs, /direct SQL can no longer insert a new collection after the booking has been cancelled/);
   assert.match(docs, /does not invent automatic cancellation/);

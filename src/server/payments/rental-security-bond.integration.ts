@@ -199,4 +199,13 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     reason: cancellationReason,
   });
   assert.equal(cancelled.booking.status, 'CANCELLED');
+
+  const cancelledRequirementReplay = await bonds.createRentalSecurityBondRequirement({
+    organizationId: organization.id,
+    actorUserId: admin.id,
+    bookingId: cancellationBooking.booking.id,
+    amountMajor: '750.00',
+  });
+  assert.equal(cancelledRequirementReplay.idempotent, true);
+  assert.equal(cancelledRequirementReplay.bond.id, cancellationRequirement.bond.id);
 });

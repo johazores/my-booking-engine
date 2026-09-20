@@ -18,7 +18,7 @@ New requirement and collection authority requires all of the following:
 
 The rule intentionally does not require the rental start date to have arrived. A real bond may be required or collected in advance of pickup.
 
-Exact idempotent replay of already-retained requirement or collection evidence remains available after the boundary because replay verifies historical evidence instead of creating a new customer-money obligation.
+Exact idempotent replay of already-retained requirement or collection evidence remains available after the boundary because replay verifies historical evidence instead of creating a new customer-money obligation. That includes a later cancellation, later custody evidence, or a later missed-pickup boundary when the exact retained operation is replayed. Fresh booking-status validation runs only after exact requirement replay has been resolved; mismatched replay evidence still fails closed, and any genuinely new requirement still requires a confirmed non-cancelled booking before fresh pickup-window authority is evaluated.
 
 ## Release is deliberately different
 
@@ -62,7 +62,7 @@ A future reschedule that establishes a new valid effective period can reopen fre
 
 ## Validation
 
-`scripts/rental-security-bond-pickup-window-source-contract.test.mjs` protects the server clock/date authority, idempotent replay ordering, pre-provider collection cutoff, PostgreSQL backstop, release exception, and no-dead-action staff behavior.
+`scripts/rental-security-bond-pickup-window-source-contract.test.mjs` protects the server clock/date authority, exact requirement and collection replay ordering ahead of fresh booking lifecycle checks, pre-provider collection cutoff, PostgreSQL backstop, release exception, and no-dead-action staff behavior.
 
 Full migration execution remains part of the guarded disposable-PostgreSQL validation path under the Node version declared by `package.json`.
 
