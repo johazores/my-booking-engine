@@ -21,7 +21,9 @@ A work order starts `OPEN` and may move forward to:
 
 `COMPLETED` and `CANCELLED` are terminal. Completion notes are optional retained evidence. Cancellation requires a retained reason. The service treats an exact replay of the already-recorded target state as idempotent and rejects a replay with different terminal evidence.
 
-PostgreSQL authors `openedAt`, `startedAt`, `completedAt`, `cancelledAt`, `createdAt`, and `updatedAt` using `clock_timestamp()`. The database trigger rejects caller-authored lifecycle evidence, backward transitions, terminal edits, source-evidence rewrites, and deletion of work-order history.
+Starting work is also retained historical operation evidence. If an `IN_PROGRESS` work order later becomes `COMPLETED` or `CANCELLED`, an authorized retry of the original start operation returns the retained terminal work order as idempotent only when `startedAt` and `startedByUserId` prove that work actually started. A work order completed or cancelled directly from `OPEN` has no retained start evidence, so a later start request cannot invent a historical `IN_PROGRESS` transition or reopen terminal work. Historical start replay does not rewrite actors or timestamps and does not append another audit event.
+
+PostgreSQL authors `openedAt`, `startedAt`, `completedAt`, `cancelledAt`, `createdAt`, and `updatedAt` using `clock_timestamp()`. The database trigger rejects caller-authored lifecycle evidence, backward transitions, terminal edits, source-evidence rewrites, and deletion of work-order history. When an in-progress order becomes terminal, PostgreSQL preserves the original `startedAt` and `startedByUserId`, which is the durable evidence used for historical start replay.
 
 ## Operational availability coupling
 

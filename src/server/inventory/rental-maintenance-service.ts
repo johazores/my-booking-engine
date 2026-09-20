@@ -10,6 +10,7 @@ import {
   type RentalMaintenanceTransitionInput,
 } from './rental-maintenance-domain.ts';
 import { rentalUnitLockKey } from './rental-lock-domain.ts';
+import { classifyRentalMaintenanceStartReplay } from './rental-maintenance-start-replay.ts';
 import { normalizeRentalUnitOperationalStatusInput } from './rental-unit-operational-domain.ts';
 import { setLockedRentalUnitOperationalStatusInTransaction } from './rental-unit-operational-service.ts';
 import {
@@ -248,6 +249,18 @@ export async function transitionRentalMaintenanceWorkOrder(input: Readonly<{
     });
     if (!current) {
       throw new RentalInventoryConflictError('Maintenance work order changed before it could be updated.');
+    }
+
+    if (transition.status === 'IN_PROGRESS') {
+      const startReplayDisposition = classifyRentalMaintenanceStartReplay(current);
+      if (startReplayDisposition === 'REPLAY') {
+        return Object.freeze({ workOrder: current, idempotent: true as const });
+      }
+      if (startReplayDisposition === 'INVALID_TRANSITION') {
+        throw new RentalInventoryConflictError(
+          'Maintenance start replay requires complete retained start evidence.',
+        );
+      }
     }
 
     if (current.status === transition.status) {
