@@ -107,6 +107,22 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
     assert.equal(confirmed.idempotent, false);
 
     await assert.rejects(
+      db.rentalBooking.update({
+        where: { id: confirmed.booking.id },
+        data: { id: crypto.randomUUID() },
+      }),
+      /rental booking identity evidence is immutable/i,
+    );
+
+    await assert.rejects(
+      db.rentalBooking.update({
+        where: { id: confirmed.booking.id },
+        data: { createdAt: new Date('2025-01-01T00:00:00.000Z') },
+      }),
+      /rental booking identity evidence is immutable/i,
+    );
+
+    await assert.rejects(
       db.rentalAvailabilityHold.update({
         where: { id: hold.id },
         data: { endsOn: new Date('2026-11-14T00:00:00.000Z') },

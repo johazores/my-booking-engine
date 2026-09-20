@@ -9,6 +9,7 @@ function read(path) {
 const writer = read('src/server/bookings/rental-booking-service.ts');
 const migration = read('prisma/migrations/20260916143000_rental_booking_source_evidence_integrity/migration.sql');
 const consumptionMigration = read('prisma/migrations/20260920143000-rental-hold-consumption-booking-integrity/migration.sql');
+const bookingIdentityMigration = read('prisma/migrations/20260920172000-rental-booking-identity-retention/migration.sql');
 const integration = read('src/server/bookings/rental-booking-source-evidence.integration.ts');
 const docs = read('docs/rental-booking-source-evidence-integrity.md');
 const databaseRunner = read('scripts/run-database-tests.mjs');
@@ -39,6 +40,20 @@ test('database requires the immutable booking pricing snapshot to match its reta
   assert.match(migration, /source_hold\."pricingObservedAt" IS NULL/);
   assert.match(migration, /source_hold\."pricingSnapshot" IS DISTINCT FROM NEW\."pricingSnapshot"/);
   assert.match(migration, /rental_bookings_source_snapshot_guard/);
+});
+
+test('rental booking durable identity and creation chronology are immutable', () => {
+  assert.match(bookingIdentityMigration, /sf_guard_rental_booking_identity_evidence/);
+  assert.match(bookingIdentityMigration, /NEW\."id" IS DISTINCT FROM OLD\."id"/);
+  assert.match(bookingIdentityMigration, /NEW\."createdAt" IS DISTINCT FROM OLD\."createdAt"/);
+  assert.match(bookingIdentityMigration, /rental booking identity evidence is immutable/);
+  assert.match(bookingIdentityMigration, /BEFORE UPDATE OF "id", "createdAt"/);
+  assert.match(bookingIdentityMigration, /ON "rental_bookings"/);
+
+  assert.match(integration, /rental booking identity evidence is immutable/i);
+  assert.match(integration, /rentalBooking\.update\(\{/);
+  assert.match(integration, /data: \{ id: crypto\.randomUUID\(\) \}/);
+  assert.match(integration, /data: \{ createdAt: new Date\(/);
 });
 
 test('a hold referenced by a rental booking cannot have source authority rewritten or deleted', () => {
@@ -89,6 +104,7 @@ test('consumed hold lifecycle cannot commit without same-tenant booking evidence
 
 test('documentation limits the change to confirmation evidence integrity', () => {
   assert.match(docs, /rental availability hold becomes retained confirmation evidence/i);
+  assert.match(docs, /booking row identity.*`id`.*`createdAt`.*immutable/i);
   assert.match(docs, /cannot commit in `CONSUMED` state unless the same tenant transaction/i);
   assert.match(docs, /deferred PostgreSQL constraint trigger/i);
   assert.match(docs, /does not add deposits, online checkout, late fees, delivery, inspection, maintenance, or customer self-service/i);
