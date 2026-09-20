@@ -6,6 +6,10 @@ const migration = readFileSync(
   'prisma/migrations/20260920082500-rental-commercial-amendment-operational-authority/migration.sql',
   'utf8',
 );
+const postLockExpiryMigration = readFileSync(
+  'prisma/migrations/20260920092500-rental-commercial-amendment-post-lock-expiry-authority/migration.sql',
+  'utf8',
+);
 const prepareService = readFileSync('src/server/bookings/rental-booking-commercial-amendment-service.ts', 'utf8');
 const settlementService = readFileSync('src/server/bookings/rental-booking-commercial-amendment-settlement-service.ts', 'utf8');
 const prepareRoute = readFileSync('app/api/inventory/rentals/bookings/[booking-id]/commercial-amendments/route.ts', 'utf8');
@@ -67,12 +71,41 @@ test('new adjustment money has a direct-SQL readiness backstop while compensatio
   assert.match(docs, /Compensation is deliberately not blocked/i);
 });
 
+test('fresh commercial amendment expiry is rechecked after physical-unit lock waits', () => {
+  for (const functionName of [
+    'sf_guard_rental_commercial_amendment_prepared_authority',
+    'sf_guard_rental_commercial_amendment_adjustment_readiness',
+    'sf_guard_rental_commercial_amendment_apply_readiness',
+  ]) {
+    assert.match(postLockExpiryMigration, new RegExp(`CREATE OR REPLACE FUNCTION ${functionName}\\(\\)`));
+  }
+
+  assert.match(
+    postLockExpiryMigration,
+    /sf_assert_rental_unit_operationally_available\([\s\S]*NEW\."unitId"[\s\S]*NEW\."expiresAt" <= clock_timestamp\(\)/,
+  );
+  assert.match(postLockExpiryMigration, /SELECT amendment\."unitId", amendment\."expiresAt"/);
+  assert.match(
+    postLockExpiryMigration,
+    /sf_assert_rental_unit_operationally_available\([\s\S]*amendment_unit_id[\s\S]*clock_timestamp\(\) >= amendment_expires_at/,
+  );
+  assert.match(
+    postLockExpiryMigration,
+    /sf_assert_rental_unit_operationally_available\([\s\S]*NEW\."unitId"[\s\S]*clock_timestamp\(\) >= OLD\."expiresAt"/,
+  );
+  assert.match(postLockExpiryMigration, /IF NEW\."purpose" <> 'ADJUSTMENT' THEN[\s\S]*RETURN NEW/);
+  assert.match(docs, /after the physical-unit lock/i);
+  assert.match(docs, /lock wait itself can cross expiry/i);
+});
+
 test('supported application flow already serializes and maps database readiness conflicts', () => {
   assert.match(prepareService, /rentalBookingLockKey/);
   assert.match(prepareService, /rentalUnitLockKey/);
   assert.match(prepareService, /rentalBookingCommercialAmendment\.create/);
   assert.match(settlementService, /findRentalUnitOperationalReadinessBlocker/);
   assert.match(settlementService, /rentalUnitLockKey/);
+  assert.match(settlementService, /const \[lockedClock\][\s\S]*SELECT clock_timestamp\(\) AS "now"/);
+  assert.match(settlementService, /amendment\.expiresAt <= lockedClock\.now/);
   assert.match(prepareRoute, /RentalBookingCommercialAmendmentConflictError/);
   assert.match(prepareRoute, /return 'conflict'/);
   assert.match(docs, /PostgreSQL remains the final concurrency and direct-write authority/);

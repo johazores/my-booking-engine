@@ -1,6 +1,6 @@
 # Rental booking commercial amendment final apply
 
-SF has a protected final-apply contract for a prepared, exactly settled, same-unit rental commercial date amendment. The authenticated commercial workspace now exposes this writer only after exact retained adjustment evidence exists and the actor has every required permission.
+SF has a protected final-apply contract for a prepared, exactly settled, same-unit rental commercial date amendment. The authenticated commercial workspace exposes this writer only after exact retained adjustment evidence exists and the actor has every required permission.
 
 Final apply changes effective rental dates. It does not rewrite the immutable original booking-price snapshot and it does not execute payment collection/refund.
 
@@ -19,6 +19,8 @@ The writer runs under `Serializable`, takes the shared booking, amendment-settle
 - original booking-price settlement; and
 - exactly one successful uncompensated adjustment matching the retained amendment.
 
+PostgreSQL is the final fresh-time authority. The durable apply guard takes booking authority, acquires the shared physical-unit readiness lock, and rechecks `expiresAt` after that lock wait. A pre-lock expiry observation may reject early, but it cannot authorize apply by itself because the wait for physical-unit authority can cross the preparation deadline.
+
 The staff form requires an explicit `APPLY` confirmation for accident resistance. That confirmation is not authority; the service performs all commercial and inventory validation independently.
 
 ## Durable apply evidence
@@ -26,6 +28,8 @@ The staff form requires an explicit `APPLY` confirmation for accident resistance
 Successful apply appends one `RentalBookingReschedule`, compare-and-swap updates only the effective allocation dates, versions the booking without rewriting accepted money, and terminally moves the amendment to `APPLIED` with linked reschedule and database-authored apply time.
 
 PostgreSQL independently checks exact settlement and reschedule linkage. Applied lifecycle evidence is immutable. The reschedule insert guard permits a live `PREPARED` amendment only for the exact retained commercial terms/fingerprints used by final apply, and a deferred constraint requires that row to be linked to an `APPLIED` amendment before commit. This prevents direct SQL from bypassing the commercial terminal transition.
+
+The apply transition also repeats operational readiness and post-lock expiry. If another serialized unit mutation holds the physical-unit lock until after `expiresAt`, the entire apply transaction fails and its newly inserted reschedule evidence rolls back with it.
 
 An idempotent replay of the same applied amendment reads the retained linked reschedule/allocation evidence and returns without creating another commercial change.
 
@@ -74,6 +78,7 @@ Authenticated staff orchestration is implemented for the manual/offline path. Pr
 ## Validation
 
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects locked final apply and retained evidence.
+- `scripts/rental-commercial-amendment-operational-authority-source-contract.test.mjs` protects the physical-unit readiness and post-lock expiry backstop across preparation, adjustment settlement, and final apply.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects authenticated staff apply wiring and permission gating.
 - `scripts/rental-post-commercial-neutral-reschedule-source-contract.test.mjs` protects the applied effective-total baseline and exact prepared-final-apply exception.
 - `scripts/rental-post-commercial-unit-substitution-source-contract.test.mjs` protects post-apply physical-unit replacement on the accepted effective commercial baseline.
