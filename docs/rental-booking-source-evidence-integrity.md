@@ -14,18 +14,23 @@ PostgreSQL adds complementary guards:
 
 - a new booking insert must persist the same JSON pricing snapshot retained by its source hold, not only the same currency, total, and fingerprint;
 - once a hold is referenced by a rental booking, its source identity, unit, dates, lifecycle/expiry evidence, idempotency key, pricing evidence, and creation evidence cannot be rewritten, and the hold cannot be deleted;
-- a hold cannot commit in `CONSUMED` state unless the same tenant transaction also leaves a durable rental booking referencing that exact hold.
+- a hold cannot commit in `CONSUMED` state unless the same tenant transaction also leaves a durable rental booking referencing that exact hold;
+- a confirmed booking cannot commit without one physical allocation, and a migration-time preflight rejects any already-confirmed booking whose allocation evidence is missing;
+- allocation ownership (`organizationId` and `bookingId`) is immutable after creation, so a live allocation cannot be re-parented to fabricate another booking's inventory authority;
+- deleting the allocation of a still-confirmed booking is rejected by a deferred constraint trigger at transaction commit.
 
 The consumption guard is a deferred PostgreSQL constraint trigger because the production confirmation writer intentionally changes the hold to `CONSUMED` immediately before inserting the booking in the same serializable transaction. The guard checks final committed state rather than the transient order inside that transaction. It also runs a migration-time preflight so an already-orphaned `CONSUMED` hold cannot silently become accepted historical state.
+
+The allocation-retention guard is also deferred. This keeps teardown or administrative transaction ordering coherent when the parent booking itself is removed in the same transaction, while a standalone delete cannot silently release inventory from a still-confirmed commercial booking. Allocation ownership is immutable, but the allocation's current unit/date fields remain intentionally mutable only through the existing guarded reschedule, unit-substitution, and early-return workflows.
 
 Unbooked `ACTIVE`, `RELEASED`, and `EXPIRED` holds retain their existing lifecycle behavior. Pricing evidence was already immutable from hold creation; these additional guards freeze the remaining source evidence only after the hold becomes part of accepted booking history and prevent direct database writes from fabricating consumed inventory evidence without its booking owner.
 
 ## Scope
 
-This hardening does not add deposits, online checkout, late fees, delivery, inspection, maintenance, or customer self-service. It does not change valid reschedule, substitution, cancellation, pickup/return, or early-return release behavior. It only strengthens the evidence boundary of the existing hold-to-booking workflow.
+This hardening does not add deposits, online checkout, late fees, delivery, inspection, maintenance, or customer self-service. It does not change valid reschedule, substitution, cancellation, pickup/return, or early-return release behavior. It only strengthens the evidence boundary of the existing hold-to-booking workflow and the active physical allocation owned by a confirmed booking.
 
 ## Validation
 
-`scripts/rental-booking-source-evidence-integrity-source-contract.test.mjs` protects replay revalidation, exact source pricing-snapshot persistence, post-confirmation source-hold immutability, deferred consumed-hold ownership, the production consume-then-book transaction order, and registration of `src/server/bookings/rental-booking-source-evidence.integration.ts` in the guarded database suite. The database integration covers direct source-hold mutation rejection, orphan `CONSUMED` transition rejection, valid application confirmation, and mismatched booking pricing-snapshot rejection inside one transaction.
+`scripts/rental-booking-source-evidence-integrity-source-contract.test.mjs` protects replay revalidation, exact source pricing-snapshot persistence, post-confirmation source-hold immutability, deferred consumed-hold ownership, the production consume-then-book transaction order, and registration of `src/server/bookings/rental-booking-source-evidence.integration.ts` in the guarded database suite. `scripts/rental-booking-allocation-ownership-integrity-source-contract.test.mjs` protects confirmed-allocation preflight, immutable allocation ownership, deferred active-allocation retention, and the guarded direct-write regression scenario. The database integration covers direct source-hold mutation rejection, orphan `CONSUMED` transition rejection, valid application confirmation, mismatched booking pricing-snapshot rejection inside one transaction, allocation owner-rewrite rejection, and confirmed-allocation deletion rejection.
 
 Database execution still requires the repository's explicitly disposable PostgreSQL path before the open Phase 1 database gates can be claimed. Full repository validation requires the Node version declared in `package.json`. GitHub Actions are not used.

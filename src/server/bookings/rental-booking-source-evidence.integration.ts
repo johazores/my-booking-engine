@@ -113,6 +113,19 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       /source hold evidence is immutable after confirmation/i,
     );
 
+    await assert.rejects(
+      db.rentalBookingAllocation.update({
+        where: { id: confirmed.allocation.id },
+        data: { bookingId: crypto.randomUUID() },
+      }),
+      /rental booking allocation ownership is immutable/i,
+    );
+
+    await assert.rejects(
+      db.rentalBookingAllocation.delete({ where: { id: confirmed.allocation.id } }),
+      /confirmed rental booking must retain physical allocation evidence/i,
+    );
+
     const secondHold = await holds.createRentalAvailabilityHold({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -171,9 +184,11 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       /pricing snapshot must match retained source hold evidence/i,
     );
   } finally {
-    await db.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalBooking.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.rentalBooking.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
+    });
     await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalUnit.deleteMany({ where: { organizationId: organization.id } });
     await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
