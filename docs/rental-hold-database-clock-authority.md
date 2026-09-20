@@ -22,7 +22,7 @@ The active hold list reads PostgreSQL time inside the same repeatable-read trans
 
 Pricing review uses the same database-clock rule when deriving its read-only `effective` state. Pricing drift remains a separate concern: current configured pricing can differ from the immutable pricing observation without changing the retained hold window.
 
-The create-hold HTTP route does not infer success from the web process clock. After create or exact idempotent replay it performs a tenant-scoped, `availability:manage`-authorized hold-state read using PostgreSQL `clock_timestamp()` and chooses the `hold-active` or `hold-inactive` redirect from that durable observation. This keeps user-visible feedback aligned with the same clock that protects inventory.
+The create-hold HTTP route does not infer success from the web process clock. After create or exact idempotent replay it performs a tenant-scoped, `availability:manage`-authorized hold-state read using PostgreSQL `clock_timestamp()`. An effective hold is reported as `hold-active`; a released or time-expired historical replay remains inactive. If the durable state is `CONSUMED`, the route returns a conflict rather than a success status because booking conversion now owns the retained hold evidence. This keeps user-visible feedback aligned with the same database state and booking boundary that protect inventory.
 
 Explicit hold release also reads PostgreSQL time after loading the tenant-owned active hold. If `expiresAt` has already been reached, the write closes it as `EXPIRED`; otherwise it closes it as `RELEASED`. `endedAt` and the audit timestamp evidence use that same database observation.
 
@@ -44,11 +44,11 @@ Application checks provide clear errors and avoid avoidable database conflicts; 
 
 ## Boundaries
 
-This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps or invent customer-facing movement semantics. It only keeps fresh time-sensitive inventory decisions on durable database time and retained custody evidence.
+This hardening does not change hold duration policy, pricing, customer booking conversion, automatic expiration jobs, cancellation policy, or payment behavior. It does not rewrite historical timestamps or invent customer-facing movement semantics. Exact service-level replay still returns retained evidence; only the create-route feedback fails closed when that evidence has already become `CONSUMED` booking authority. Fresh time-sensitive inventory decisions remain based on durable database time and retained custody evidence.
 
 ## Validation
 
-`scripts/rental-hold-database-clock-authority-source-contract.test.mjs` protects the application-side PostgreSQL clock reads, idempotent replay ordering, database-derived hold timestamps/expiry, effective-list/review/release decisions, create-route status feedback, and the related inventory-mutation active-hold checks.
+`scripts/rental-hold-database-clock-authority-source-contract.test.mjs` protects the application-side PostgreSQL clock reads, idempotent replay ordering, database-derived hold timestamps/expiry, effective-list/review/release decisions, create-route status feedback, consumed-state fail-closed behavior, and the related inventory-mutation active-hold checks.
 
 `scripts/rental-hold-trigger-wall-clock-source-contract.test.mjs` protects the hold-expiry database backstop by requiring the active hold-sensitive trigger functions to sample `clock_timestamp()` after physical-unit serialization and by rejecting `CURRENT_TIMESTAMP` from their superseding definitions.
 

@@ -35,7 +35,7 @@ test('rental hold list, pricing review, and release share database time authorit
   assert.match(holdService, /endedAt: now/);
 });
 
-test('create-route hold feedback uses a tenant-scoped database-clock state read', async () => {
+test('create-route hold feedback uses a tenant-scoped database-clock state read and fails closed on consumed evidence', async () => {
   const [stateService, route] = await Promise.all([
     source('src/server/inventory/rental-hold-state-service.ts'),
     source('app/api/inventory/rentals/holds/route.ts'),
@@ -48,7 +48,12 @@ test('create-route hold feedback uses a tenant-scoped database-clock state read'
   assert.match(stateService, /effective: hold\.status === 'ACTIVE' && hold\.expiresAt > databaseClock\.now/);
   assert.match(route, /readManagedRentalAvailabilityHoldState/);
   assert.match(route, /holdId: hold\.id/);
+  assert.match(route, /state\.hold\.status === 'CONSUMED'/);
+  assert.match(route, /RentalInventoryConflictError/);
   assert.match(route, /state\.effective \? 'hold-active' : 'hold-inactive'/);
+  const consumedGuardIndex = route.indexOf("state.hold.status === 'CONSUMED'");
+  const successStatusIndex = route.indexOf("const status = state.effective ? 'hold-active' : 'hold-inactive'");
+  assert.ok(consumedGuardIndex >= 0 && successStatusIndex > consumedGuardIndex);
   assert.doesNotMatch(route, /hold\.expiresAt > new Date\(\)/);
 });
 
@@ -74,6 +79,7 @@ test('documentation keeps the database and application hold clocks aligned witho
   assert.match(docs, /CURRENT_TIMESTAMP/);
   assert.match(docs, /idempotent replay/i);
   assert.match(docs, /create-hold HTTP route/i);
+  assert.match(docs, /durable state is `CONSUMED`/i);
   assert.match(docs, /does not change hold duration policy/i);
   assert.match(docs, /GitHub Actions are not required or used/i);
 });

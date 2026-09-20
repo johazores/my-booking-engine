@@ -14,6 +14,14 @@ For an `ACTIVE` hold, the service uses PostgreSQL time as the expiry authority. 
 
 Any other non-release lifecycle result also fails closed as a conflict. The caller must review current hold state instead of assuming inventory was released.
 
+## Create/replay feedback after booking conversion
+
+Hold creation has the same retained-evidence boundary. `createRentalAvailabilityHold` intentionally resolves an exact idempotent replay before fresh inventory authority, so retrying the original create command can return the historical hold after another request has already converted it into a booking.
+
+The create-hold HTTP route therefore performs a fresh tenant-scoped database-clock state read after creation or replay. An effective `ACTIVE` hold may be reported as `hold-active`, while a released or time-expired historical replay may be reported as inactive. A persisted `CONSUMED` result is different: the route rejects it as a conflict instead of emitting a green `hold-inactive` success message. That prevents a stale create form or browser retry from hiding that booking conversion already owns the inventory evidence.
+
+This check is deliberately at the HTTP outcome boundary. It does not mutate the consumed hold, reopen it, create another hold, cancel the booking, or weaken exact idempotent replay inside the service.
+
 ## Concurrency and booking evidence
 
 Booking confirmation and hold release can race after a staff page has been rendered. Confirmation consumes the exact active hold while creating the booking and physical allocation atomically. Release updates only a row that is still `ACTIVE`. The release route therefore verifies the persisted lifecycle returned by the mutation before emitting a success redirect:

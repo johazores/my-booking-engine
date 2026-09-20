@@ -111,8 +111,9 @@ test('rental availability and hold UI expose real inventory protection plus curr
   assert.match(detailPage, /pricing:read/);
   assert.match(detailPage, /Release hold/);
   assert.match(createRoute, /createRentalAvailabilityHold/);
-  assert.match(createRoute, /hold\.status === 'ACTIVE'/);
-  assert.match(createRoute, /hold-inactive/);
+  assert.match(createRoute, /readManagedRentalAvailabilityHoldState/);
+  assert.match(createRoute, /state\.hold\.status === 'CONSUMED'/);
+  assert.match(createRoute, /state\.effective \? 'hold-active' : 'hold-inactive'/);
   assert.match(releaseRoute, /releaseRentalAvailabilityHold/);
   assert.match(blockRoute, /createRentalAvailabilityBlock/);
   assert.match(locationRoute, /assignRentalUnitLocation/);
