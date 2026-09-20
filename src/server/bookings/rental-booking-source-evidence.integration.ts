@@ -123,6 +123,22 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
     );
 
     await assert.rejects(
+      db.rentalBookingAllocation.update({
+        where: { id: confirmed.allocation.id },
+        data: { id: crypto.randomUUID() },
+      }),
+      /rental booking allocation identity evidence is immutable/i,
+    );
+
+    await assert.rejects(
+      db.rentalBookingAllocation.update({
+        where: { id: confirmed.allocation.id },
+        data: { createdAt: new Date('2025-01-01T00:00:00.000Z') },
+      }),
+      /rental booking allocation identity evidence is immutable/i,
+    );
+
+    await assert.rejects(
       db.rentalBookingAllocation.delete({ where: { id: confirmed.allocation.id } }),
       /rental booking must retain physical allocation evidence/i,
     );
@@ -134,6 +150,14 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       reason: 'Source evidence retention regression',
     });
     assert.equal(cancelled.booking.status, 'CANCELLED');
+
+    await assert.rejects(
+      db.rentalBookingAllocation.update({
+        where: { id: confirmed.allocation.id },
+        data: { endsOn: new Date('2026-11-14T00:00:00.000Z') },
+      }),
+      /rental booking allocation does not match its effective confirmed unit/i,
+    );
 
     await assert.rejects(
       db.rentalBookingAllocation.delete({ where: { id: confirmed.allocation.id } }),
