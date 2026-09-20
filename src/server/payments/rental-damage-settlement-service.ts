@@ -32,6 +32,10 @@ function settlementLockKey(organizationId: string, scope: string, value: string)
   return `rental-damage-settlement:${organizationId}:${scope}:${value}`;
 }
 
+function liabilitySettlementLockKey(organizationId: string, liabilityDecisionId: string) {
+  return `sf:rental-damage-liability-settlement:${organizationId}:${liabilityDecisionId}`;
+}
+
 function manualReferenceLockKey(organizationId: string, reference: string) {
   return `sf:rental-manual-reference:${organizationId}:${reference}`;
 }
@@ -249,6 +253,7 @@ export async function recordRentalDamageManualOfflinePayment(input: Readonly<{
       reference,
     });
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${liabilitySettlementLockKey(input.organizationId, liability.id)}, 0))`;
 
     const fingerprint = expectedFingerprint({
       organizationId: input.organizationId,
@@ -284,6 +289,14 @@ export async function recordRentalDamageManualOfflinePayment(input: Readonly<{
       const settlement = reconcileRows(liability, rows);
       if (settlement.state !== 'PAID' && settlement.state !== 'REFUNDED') throw new RentalDamageSettlementConflictError('Damage payment replay no longer reconciles to retained settlement evidence.');
       return Object.freeze({ transaction: existing, settlement, idempotent: true as const });
+    }
+
+    const forfeiture = await transaction.rentalSecurityBondForfeiture.findFirst({
+      where: { organizationId: input.organizationId, liabilityDecisionId: liability.id },
+      select: { id: true },
+    });
+    if (forfeiture) {
+      throw new RentalDamageSettlementConflictError('Customer damage liability is already settled by security bond forfeiture.');
     }
 
     const rows = await readRows(transaction, { organizationId: input.organizationId, bookingId: liability.bookingId, damageCaseId: liability.damageCaseId, liabilityDecisionId: liability.id });
@@ -356,6 +369,7 @@ export async function recordRentalDamageManualOfflineRefund(input: Readonly<{
     const liability = await loadLiability(transaction, input);
     const idempotencyKey = buildRentalDamageSettlementIdempotencyKey({ kind: 'manual-refund', liabilityDecisionId: liability.id, reference: refundReference });
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${liabilitySettlementLockKey(input.organizationId, liability.id)}, 0))`;
 
     const rows = await readRows(transaction, { organizationId: input.organizationId, bookingId: liability.bookingId, damageCaseId: liability.damageCaseId, liabilityDecisionId: liability.id });
     const before = reconcileRows(liability, rows);

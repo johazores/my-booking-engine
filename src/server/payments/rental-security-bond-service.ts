@@ -26,6 +26,7 @@ export class RentalSecurityBondUnavailableError extends Error {
 const manualProvider = new ManualPaymentProvider();
 const lockKey = (organizationId: string, scope: string, value: string) => `rental-security-bond:${organizationId}:${scope}:${value}`;
 const manualReferenceLockKey = (organizationId: string, reference: string) => `sf:rental-manual-reference:${organizationId}:${reference}`;
+const bondDispositionLockKey = (organizationId: string, bondId: string) => `sf:rental-security-bond-disposition:${organizationId}:${bondId}`;
 
 async function runBondWrite<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -223,11 +224,20 @@ async function recordManualBondEvidence(input: Readonly<{ organizationId: string
   return runBondWrite(() => db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0))`;
     const booking = await loadBooking(transaction, input.organizationId, input.bookingId);
-    const state = await loadBondState(transaction, input.organizationId, booking.id);
+    let state = await loadBondState(transaction, input.organizationId, booking.id);
     if (!state) throw new RentalSecurityBondUnavailableError(`A retained security bond requirement is required before ${operation}.`);
     const kind = operation === 'collection' ? 'OFFLINE_PAYMENT' as const : 'REFUND' as const;
     const idempotencyKey = buildRentalSecurityBondTransactionIdempotencyKey({ kind: operation === 'collection' ? 'manual-collection' : 'manual-release', bondId: state.bond.id, reference });
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
+    if (operation === 'release') {
+      const expectedBondId = state.bond.id;
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${bondDispositionLockKey(input.organizationId, expectedBondId)}, 0))`;
+      const refreshedState = await loadBondState(transaction, input.organizationId, booking.id);
+      if (!refreshedState || refreshedState.bond.id !== expectedBondId) {
+        throw new RentalSecurityBondConflictError('Security bond release authority changed while acquiring terminal disposition authority.');
+      }
+      state = refreshedState;
+    }
     const source = state.rows.find((row) => row.kind === 'OFFLINE_PAYMENT') ?? null;
     const requestFingerprint = fingerprint({ organizationId: input.organizationId, bookingId: booking.id, bondId: state.bond.id, idempotencyKey, kind, providerReference: reference, sourceProviderReference: operation === 'release' ? source?.providerReference ?? null : null, currency: state.bond.currency, amountMinor: state.bond.amountMinor });
     const existing = await transaction.rentalSecurityBondTransaction.findUnique({ where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } } });
@@ -251,6 +261,11 @@ async function recordManualBondEvidence(input: Readonly<{ organizationId: string
       }
       if (state.settlement.state !== 'REQUIRED') throw new RentalSecurityBondConflictError('Security bond already has retained collection evidence.');
     } else {
+      const forfeiture = await transaction.rentalSecurityBondForfeiture.findFirst({
+        where: { organizationId: input.organizationId, bookingId: booking.id, bondId: state.bond.id },
+        select: { id: true },
+      });
+      if (forfeiture) throw new RentalSecurityBondConflictError('Forfeited security bond cannot also be released.');
       if (state.settlement.state !== 'COLLECTED' || !source) throw new RentalSecurityBondConflictError('Security bond is not currently collected or has already been released.');
     }
 
