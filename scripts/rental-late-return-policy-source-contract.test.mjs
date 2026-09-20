@@ -35,16 +35,22 @@ test('policy revisions are tenant-owned, versioned, append-only commercial autho
   assert.match(migration, /clock_timestamp\(\)/);
 });
 
-test('policy writes serialize parent lifecycle before policy-version authority', () => {
+test('policy writes serialize parent lifecycle before policy-version authority and separate replay from fresh parent authority', () => {
   const parentLock = policyService.indexOf('rentalUnitTypeLifecycleLockKey(input.organizationId, input.unitTypeId)');
   const policyLock = policyService.indexOf('rentalLateReturnPolicyLockKey(input.organizationId, input.unitTypeId)');
-  const activeParentRead = policyService.indexOf("status: 'ACTIVE'", policyLock);
-  const revisionCreate = policyService.indexOf('rentalLateReturnPolicyRevision.create', activeParentRead);
+  const parentRead = policyService.indexOf('const unitType = await transaction.rentalUnitType.findFirst', policyLock);
+  const statusSelection = policyService.indexOf('select: { id: true, currency: true, status: true }', parentRead);
+  const replayReturn = policyService.indexOf('revision: replayRevision, idempotent: true as const', statusSelection);
+  const activeParentGate = policyService.indexOf("if (unitType.status !== 'ACTIVE')", replayReturn);
+  const revisionCreate = policyService.indexOf('rentalLateReturnPolicyRevision.create', activeParentGate);
 
   assert.ok(parentLock >= 0, 'shared unit-type lifecycle lock');
   assert.ok(policyLock > parentLock, 'policy lock follows parent lifecycle lock');
-  assert.ok(activeParentRead > policyLock, 'active unit type is re-read after both locks');
-  assert.ok(revisionCreate > activeParentRead, 'revision is authored only after active parent revalidation');
+  assert.ok(parentRead > policyLock, 'tenant unit type is re-read after both locks');
+  assert.ok(statusSelection > parentRead, 'parent lifecycle status is retained for fresh authority');
+  assert.ok(replayReturn > statusSelection, 'retained historical replay resolves after locked parent lookup');
+  assert.ok(activeParentGate > replayReturn, 'fresh ACTIVE parent authority follows historical replay');
+  assert.ok(revisionCreate > activeParentGate, 'revision is authored only after fresh active-parent revalidation');
 
   assert.match(parentLifecycleMigration, /sf_lock_rental_unit_type_lifecycle\(NEW\."organizationId", NEW\."unitTypeId"\)/);
   assert.match(parentLifecycleMigration, /unit_type\."organizationId" = NEW\."organizationId"/);

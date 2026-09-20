@@ -115,29 +115,43 @@ export async function reviseRentalLateReturnPolicy(input: Readonly<{
       where: {
         id: input.unitTypeId,
         organizationId: input.organizationId,
-        status: 'ACTIVE',
       },
-      select: { id: true, currency: true },
+      select: { id: true, currency: true, status: true },
     });
     if (!unitType) {
-      throw new RentalInventoryUnavailableError('Active rental unit type is not available for late-return policy in this organization.');
+      throw new RentalInventoryUnavailableError('Rental unit type is not available for late-return policy in this organization.');
     }
 
     const requested = normalizeRentalLateReturnPolicyInput(input.policy, unitType.currency);
-    const latest = await transaction.rentalLateReturnPolicyRevision.findFirst({
-      where: { organizationId: input.organizationId, unitTypeId: unitType.id },
-      orderBy: [{ version: 'desc' }, { effectiveAt: 'desc' }, { id: 'desc' }],
-    });
+    const replayVersion = requested.expectedVersion + 1;
+    const [latest, replayRevision] = await Promise.all([
+      transaction.rentalLateReturnPolicyRevision.findFirst({
+        where: { organizationId: input.organizationId, unitTypeId: unitType.id },
+        orderBy: [{ version: 'desc' }, { effectiveAt: 'desc' }, { id: 'desc' }],
+      }),
+      transaction.rentalLateReturnPolicyRevision.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          unitTypeId: unitType.id,
+          version: replayVersion,
+        },
+      }),
+    ]);
     const currentVersion = latest?.version ?? 0;
 
-    if (currentVersion === requested.expectedVersion && latest && rentalLateReturnPolicyMatches(latest, requested)) {
-      return Object.freeze({ revision: latest, idempotent: true as const });
-    }
     if (
-      latest
-      && currentVersion === requested.expectedVersion + 1
-      && rentalLateReturnPolicyMatches(latest, requested)
+      replayRevision
+      && replayRevision.version === replayVersion
+      && rentalLateReturnPolicyMatches(replayRevision, requested)
     ) {
+      return Object.freeze({ revision: replayRevision, idempotent: true as const });
+    }
+
+    if (unitType.status !== 'ACTIVE') {
+      throw new RentalInventoryUnavailableError('Active rental unit type is not available for late-return policy in this organization.');
+    }
+
+    if (currentVersion === requested.expectedVersion && latest && rentalLateReturnPolicyMatches(latest, requested)) {
       return Object.freeze({ revision: latest, idempotent: true as const });
     }
     if (currentVersion !== requested.expectedVersion) {

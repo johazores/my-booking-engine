@@ -20,13 +20,13 @@ Disabling a policy creates another append-only revision with no fee authority. E
 
 ## Concurrency and retries
 
-Policy writes use two tenant-and-unit-type PostgreSQL advisory-lock boundaries inside a serializable transaction with bounded retries. The shared rental unit-type lifecycle lock is acquired first, then the narrower late-return-policy version lock. After both locks are held, SF re-reads the tenant unit type as `ACTIVE` before authoring a revision. The staff form still sends the latest observed revision number as optimistic concurrency evidence.
+Policy writes use two tenant-and-unit-type PostgreSQL advisory-lock boundaries inside a serializable transaction with bounded retries. The shared rental unit-type lifecycle lock is acquired first, then the narrower late-return-policy version lock. After both locks are held, SF re-reads the tenant unit type before deciding whether the request is retained historical replay or needs fresh policy authority. The staff form still sends the latest observed revision number as optimistic concurrency evidence.
 
-This ordering prevents a policy revision from racing unit-type archival. If policy authoring wins the parent lock, its revision commits before archival continues. If archival wins, the later policy write re-reads the archived parent and fails closed. Existing policy history does not block archival; only fresh policy authority requires an active parent.
+This ordering prevents a policy revision from racing unit-type archival. If policy authoring wins the parent lock, its revision commits before archival continues. If archival wins, a fresh policy write fails closed after re-reading the archived parent. Existing policy history does not block archival; only fresh policy authority requires an active parent.
 
-A retry of the same immediately-applied policy is idempotent when the next retained revision exactly matches the requested values. A stale form cannot silently overwrite a newer revision.
+An exact retry of an already-authored revision is idempotent even if newer revisions were appended afterward or the unit type was later archived. SF proves historical replay by loading exactly `expectedVersion + 1` for the same tenant and unit type and requiring the retained revision to match the normalized enabled state, grace, exact fee, currency, and reason. Historical replay returns that retained evidence without creating another revision or audit event and does not make that historical revision current. Fresh policy authority still requires the parent unit type to be `ACTIVE`, and a stale request whose next retained revision does not exactly match fails closed instead of overwriting newer policy authority.
 
-PostgreSQL independently enforces the same parent lifecycle boundary through an alphabetically early `BEFORE INSERT` guard. That guard shares the unit-type lifecycle lock with archival and validates exact tenant-owned `ACTIVE` parent state before the existing policy-authority trigger takes the dedicated version lock. The existing trigger continues to enforce append-only revisions, unit-type currency, sequential versions, bounded grace, positive enabled fees, disabled-policy emptiness, and database-authored timestamps.
+A current-state no-op remains idempotent while the parent is active. PostgreSQL independently enforces the same parent lifecycle boundary through an alphabetically early `BEFORE INSERT` guard. That guard shares the unit-type lifecycle lock with archival and validates exact tenant-owned `ACTIVE` parent state before the existing policy-authority trigger takes the dedicated version lock. The existing trigger continues to enforce append-only revisions, unit-type currency, sequential versions, bounded grace, positive enabled fees, disabled-policy emptiness, and database-authored timestamps.
 
 ## Which revision applies
 
@@ -67,6 +67,7 @@ Policy is deliberately unit-type scoped so different rental products and currenc
 - `src/server/pricing/rental-late-return-policy-domain.test.ts` covers policy normalization, exact minor-unit money, disabling, version input, and equivalence.
 - `src/server/bookings/rental-late-return-domain.test.ts` covers policy-derived fee calculation, waiver behavior, grace, and browser-override rejection.
 - `scripts/rental-late-return-policy-source-contract.test.mjs` protects schema, PostgreSQL authority, tenant/permission scope, shared parent-lifecycle serialization, policy-version concurrency, UI wiring, non-retroactive policy selection, and assessment linkage.
+- `scripts/rental-late-return-policy-replay-source-contract.test.mjs` protects exact historical replay ordering, tenant/unit-type scoping, archived-parent replay, and the separation between retained replay and fresh policy authority.
 - `scripts/rental-parent-lifecycle-source-contract.test.mjs` protects the common unit-type archival boundary shared with physical units and rate periods.
 
 Repository-wide validation remains `npm run validate` under the Node version declared in `package.json`. Live trigger execution remains `npm run test:database` against an explicitly disposable PostgreSQL target. GitHub Actions are not required or used.
