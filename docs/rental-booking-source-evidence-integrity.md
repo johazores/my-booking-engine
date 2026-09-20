@@ -10,12 +10,15 @@ Replay now revalidates the retained source hold before returning success. The ho
 
 ## Database authority
 
-PostgreSQL adds two complementary guards:
+PostgreSQL adds complementary guards:
 
 - a new booking insert must persist the same JSON pricing snapshot retained by its source hold, not only the same currency, total, and fingerprint;
-- once a hold is referenced by a rental booking, its source identity, unit, dates, lifecycle/expiry evidence, idempotency key, pricing evidence, and creation evidence cannot be rewritten, and the hold cannot be deleted.
+- once a hold is referenced by a rental booking, its source identity, unit, dates, lifecycle/expiry evidence, idempotency key, pricing evidence, and creation evidence cannot be rewritten, and the hold cannot be deleted;
+- a hold cannot commit in `CONSUMED` state unless the same tenant transaction also leaves a durable rental booking referencing that exact hold.
 
-Unbooked holds retain their existing lifecycle behavior. Pricing evidence was already immutable from hold creation; this additional guard freezes the remaining source evidence only after the hold becomes part of accepted booking history.
+The consumption guard is a deferred PostgreSQL constraint trigger because the production confirmation writer intentionally changes the hold to `CONSUMED` immediately before inserting the booking in the same serializable transaction. The guard checks final committed state rather than the transient order inside that transaction. It also runs a migration-time preflight so an already-orphaned `CONSUMED` hold cannot silently become accepted historical state.
+
+Unbooked `ACTIVE`, `RELEASED`, and `EXPIRED` holds retain their existing lifecycle behavior. Pricing evidence was already immutable from hold creation; these additional guards freeze the remaining source evidence only after the hold becomes part of accepted booking history and prevent direct database writes from fabricating consumed inventory evidence without its booking owner.
 
 ## Scope
 
@@ -23,6 +26,6 @@ This hardening does not add deposits, online checkout, late fees, delivery, insp
 
 ## Validation
 
-`scripts/rental-booking-source-evidence-integrity-source-contract.test.mjs` protects replay revalidation, exact source pricing-snapshot persistence, post-confirmation source-hold immutability, and registration of `src/server/bookings/rental-booking-source-evidence.integration.ts` in the guarded database suite. The database integration covers direct source-hold mutation rejection and mismatched booking pricing-snapshot rejection.
+`scripts/rental-booking-source-evidence-integrity-source-contract.test.mjs` protects replay revalidation, exact source pricing-snapshot persistence, post-confirmation source-hold immutability, deferred consumed-hold ownership, the production consume-then-book transaction order, and registration of `src/server/bookings/rental-booking-source-evidence.integration.ts` in the guarded database suite. The database integration covers direct source-hold mutation rejection, orphan `CONSUMED` transition rejection, valid application confirmation, and mismatched booking pricing-snapshot rejection inside one transaction.
 
 Database execution still requires the repository's explicitly disposable PostgreSQL path before the open Phase 1 database gates can be claimed. Full repository validation requires the Node version declared in `package.json`. GitHub Actions are not used.

@@ -123,39 +123,50 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
         idempotencyKey: `rental-source-second-hold:${runId}`,
       },
     });
-    const consumedSecondHold = await db.rentalAvailabilityHold.update({
-      where: { id: secondHold.id },
-      data: { status: 'CONSUMED', endedAt: new Date() },
-    });
-    assert.ok(consumedSecondHold.quotedCurrency);
-    assert.ok(consumedSecondHold.quotedTotalMinor);
-    assert.ok(consumedSecondHold.pricingFingerprint);
 
     await assert.rejects(
-      db.rentalBooking.create({
-        data: {
-          organizationId: organization.id,
-          customerId: customer.id,
-          customerFirstName: customer.firstName,
-          customerLastName: customer.lastName,
-          customerEmail: customer.email,
-          customerPhone: customer.phone,
-          holdId: consumedSecondHold.id,
-          unitId: unit.id,
-          unitTypeId: unitType.id,
-          locationId: location.id,
-          idempotencyKey: `rental-source-direct:${runId}`,
-          status: 'CONFIRMED',
-          startsOn: consumedSecondHold.startsOn,
-          endsOn: consumedSecondHold.endsOn,
-          currency: consumedSecondHold.quotedCurrency as string,
-          totalMinor: consumedSecondHold.quotedTotalMinor as bigint,
-          pricingFingerprint: consumedSecondHold.pricingFingerprint as string,
-          pricingSnapshot: { tampered: true },
-          pricingObservedAt: new Date(),
-          authorityFingerprint: 'a'.repeat(64),
-          confirmedAt: new Date(),
-        },
+      db.rentalAvailabilityHold.update({
+        where: { id: secondHold.id },
+        data: { status: 'CONSUMED', endedAt: new Date() },
+      }),
+      /consumed rental hold must be retained by a rental booking/i,
+    );
+
+    await assert.rejects(
+      db.$transaction(async (transaction) => {
+        const consumedSecondHold = await transaction.rentalAvailabilityHold.update({
+          where: { id: secondHold.id },
+          data: { status: 'CONSUMED', endedAt: new Date() },
+        });
+        assert.ok(consumedSecondHold.quotedCurrency);
+        assert.ok(consumedSecondHold.quotedTotalMinor);
+        assert.ok(consumedSecondHold.pricingFingerprint);
+
+        await transaction.rentalBooking.create({
+          data: {
+            organizationId: organization.id,
+            customerId: customer.id,
+            customerFirstName: customer.firstName,
+            customerLastName: customer.lastName,
+            customerEmail: customer.email,
+            customerPhone: customer.phone,
+            holdId: consumedSecondHold.id,
+            unitId: unit.id,
+            unitTypeId: unitType.id,
+            locationId: location.id,
+            idempotencyKey: `rental-source-direct:${runId}`,
+            status: 'CONFIRMED',
+            startsOn: consumedSecondHold.startsOn,
+            endsOn: consumedSecondHold.endsOn,
+            currency: consumedSecondHold.quotedCurrency as string,
+            totalMinor: consumedSecondHold.quotedTotalMinor as bigint,
+            pricingFingerprint: consumedSecondHold.pricingFingerprint as string,
+            pricingSnapshot: { tampered: true },
+            pricingObservedAt: new Date(),
+            authorityFingerprint: 'a'.repeat(64),
+            confirmedAt: new Date(),
+          },
+        });
       }),
       /pricing snapshot must match retained source hold evidence/i,
     );

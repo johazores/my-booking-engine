@@ -8,6 +8,8 @@ function read(path) {
 
 const writer = read('src/server/bookings/rental-booking-service.ts');
 const migration = read('prisma/migrations/20260916143000_rental_booking_source_evidence_integrity/migration.sql');
+const consumptionMigration = read('prisma/migrations/20260920143000-rental-hold-consumption-booking-integrity/migration.sql');
+const integration = read('src/server/bookings/rental-booking-source-evidence.integration.ts');
 const docs = read('docs/rental-booking-source-evidence-integrity.md');
 const databaseRunner = read('scripts/run-database-tests.mjs');
 
@@ -65,8 +67,30 @@ test('a hold referenced by a rental booking cannot have source authority rewritt
   assert.match(databaseRunner, /src\/server\/bookings\/rental-booking-source-evidence\.integration\.ts/);
 });
 
+test('consumed hold lifecycle cannot commit without same-tenant booking evidence', () => {
+  assert.match(consumptionMigration, /existing consumed rental hold is missing retained booking evidence/);
+  assert.match(consumptionMigration, /sf_guard_rental_hold_consumption_booking_integrity/);
+  assert.match(consumptionMigration, /hold\."status"::text/);
+  assert.match(consumptionMigration, /current_status <> 'CONSUMED'/);
+  assert.match(consumptionMigration, /booking\."organizationId" = NEW\."organizationId"/);
+  assert.match(consumptionMigration, /booking\."holdId" = NEW\."id"/);
+  assert.match(consumptionMigration, /consumed rental hold must be retained by a rental booking/);
+  assert.match(consumptionMigration, /CREATE CONSTRAINT TRIGGER rental_availability_holds_consumed_booking_guard/);
+  assert.match(consumptionMigration, /DEFERRABLE INITIALLY DEFERRED/);
+
+  const consumeIndex = writer.indexOf('rentalAvailabilityHold.updateMany');
+  const bookingCreateIndex = writer.indexOf('rentalBooking.create');
+  assert.ok(consumeIndex >= 0 && bookingCreateIndex > consumeIndex, 'confirmation must consume the hold before creating the booking in one transaction');
+
+  assert.match(integration, /consumed rental hold must be retained by a rental booking/i);
+  assert.match(integration, /db\.\$transaction\(async \(transaction\) =>/);
+  assert.match(integration, /pricing snapshot must match retained source hold evidence/i);
+});
+
 test('documentation limits the change to confirmation evidence integrity', () => {
   assert.match(docs, /rental availability hold becomes retained confirmation evidence/i);
+  assert.match(docs, /cannot commit in `CONSUMED` state unless the same tenant transaction/i);
+  assert.match(docs, /deferred PostgreSQL constraint trigger/i);
   assert.match(docs, /does not add deposits, online checkout, late fees, delivery, inspection, maintenance, or customer self-service/i);
   assert.match(docs, /GitHub Actions are not used/i);
 });
