@@ -30,14 +30,20 @@ This guard applies only to **new adjustment settlement**. Exact idempotent repla
 
 Final commercial-amendment apply and the other protected rental mutation inserts remain subject to PostgreSQL fresh-rental authority. If readiness changes after a valid adjustment is recorded but before final apply, apply fails closed and the retained compensation workflow remains the supported recovery path.
 
+## Commercial-amendment durable preparation authority
+
+A new `PREPARED` commercial amendment is also fresh authority rather than inert draft data. PostgreSQL now requires it to match the exact current tenant booking/allocation, booking version, source dates, active unit/type/location assignment, and custody mode before it may be retained. The insert then calls the same physical-unit readiness authority used by the rest of the rental write boundary.
+
+The database also repeats wall-clock expiry plus readiness when `PREPARED` becomes `APPLIED`, and repeats readiness for new commercial-amendment `ADJUSTMENT` settlement rows. `COMPENSATION` deliberately bypasses that new guard so operational state can never strand already-moved money. See [rental-commercial-amendment-operational-authority.md](./rental-commercial-amendment-operational-authority.md).
+
 ## Lock order
 
 Application checks preserve the existing lock hierarchy rather than introducing another authority namespace. Pre-booking writes take their idempotency/booking authority first and then the tenant/physical-unit authority. Commercial-amendment settlement takes booking authority, amendment-settlement authority, and then tenant/physical-unit authority.
 
-Inventory readiness writers use the same physical-unit lock namespace. This serializes the decision against maintenance, return-readiness, damage, and other operational state transitions without introducing a separate authority model.
+Inventory readiness writers use the same physical-unit lock namespace. The commercial-amendment database preparation guard takes booking authority before physical-unit authority, while adjustment settlement preserves booking -> amendment settlement -> physical unit -> manual reference ordering. This serializes readiness decisions against maintenance, return-readiness, damage, and other operational state transitions without introducing a separate authority model.
 
 ## Validation boundary
 
-`scripts/rental-fresh-authority-read-parity-source-contract.test.mjs` protects read-side parity, fresh pre-booking writes, pickup, adjustment settlement, and the PostgreSQL-backstop contract. Full repository validation remains `npm run validate` under the Node version declared in `package.json`, and database behavior remains `npm run test:database` against an explicitly disposable PostgreSQL target.
+`scripts/rental-fresh-authority-read-parity-source-contract.test.mjs` protects read-side parity, fresh pre-booking writes, pickup, adjustment settlement, and the PostgreSQL-backstop contract. `scripts/rental-commercial-amendment-operational-authority-source-contract.test.mjs` protects the durable preparation and adjustment-readiness boundary. Full repository validation remains `npm run validate` under the Node version declared in `package.json`, and database behavior remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 GitHub Actions are not required or used.
