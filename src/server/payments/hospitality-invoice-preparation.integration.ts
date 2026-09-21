@@ -233,9 +233,11 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
   } finally {
     await db.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    if (bookingId) await db.hospitalityBooking.deleteMany({ where: { id: bookingId } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      if (bookingId) await transaction.hospitalityBooking.deleteMany({ where: { id: bookingId } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
