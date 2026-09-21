@@ -20,6 +20,8 @@ The database rules do not add new traveler-management authority. Application wri
 
 ## Validation
 
-`scripts/hospitality-booking-guest-evidence-integrity-source-contract.test.mjs` protects the migration preflight, deferred booking/guest retention guards, replace-only mutation rule, cancelled-history guards, compatibility with the serializable traveler replacement service, and the documentation boundary.
+`scripts/hospitality-booking-guest-evidence-integrity-source-contract.test.mjs` protects the migration preflight, deferred booking/guest retention guards, replace-only mutation rule, cancelled-history guards, compatibility with the serializable traveler replacement service, guarded PostgreSQL scenario registration, and the documentation boundary.
 
-The migration is exercised by the existing guarded PostgreSQL suite because `npm run test:database` deploys the complete checked-in migration chain before booking scenarios run. Full live execution still requires the repository Node 24 toolchain and an explicitly disposable PostgreSQL target. GitHub Actions are intentionally not used.
+The guarded PostgreSQL scenario confirms a real booking through production availability/pricing/confirmation services, rejects direct guest-row updates and removal of all retained guest evidence, proves the authorized serializable traveler replacement still works, cancels through the production lifecycle service, and then rejects terminal guest insertion, rewrite, or deletion. The scenario also uses the deferred teardown path that removes guest/allocation/booking evidence together.
+
+The migration and scenario are exercised by `npm run test:database`, which deploys the complete checked-in migration chain before booking scenarios run. Full live execution still requires the repository Node 24 toolchain and an explicitly disposable PostgreSQL target. GitHub Actions are intentionally not used.

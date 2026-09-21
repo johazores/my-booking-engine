@@ -8,6 +8,8 @@ function read(path) {
 
 const migration = read('prisma/migrations/20260922003000-hospitality-booking-guest-evidence-integrity/migration.sql');
 const guestService = read('src/server/bookings/hospitality-booking-guest-modification-service.ts');
+const integration = read('src/server/bookings/hospitality-booking-guest-evidence-integrity.integration.ts');
+const databaseRunner = read('scripts/run-database-tests.mjs');
 const integrityDocs = read('docs/hospitality-booking-guest-evidence-integrity.md');
 const sourceEvidenceDocs = read('docs/hospitality-booking-source-evidence-integrity.md');
 
@@ -41,10 +43,22 @@ test('authorized traveler replacement stays atomic and compatible with deferred 
   assert.match(guestService, /isolationLevel: 'Serializable'/);
 });
 
+test('guarded PostgreSQL scenario covers direct rewrites, replacement compatibility, and terminal history', () => {
+  assert.match(integration, /hospitalityBookingGuest\.update\(\{/);
+  assert.match(integration, /replace-only through the controlled traveler workflow/i);
+  assert.match(integration, /hospitalityBookingGuest\.deleteMany\(\{/);
+  assert.match(integration, /hospitality booking must retain guest evidence/i);
+  assert.match(integration, /updateHospitalityBookingGuests\(\{/);
+  assert.match(integration, /cancelHospitalityBooking\(\{/);
+  assert.match(integration, /cancelled hospitality booking guest history is immutable/i);
+  assert.match(databaseRunner, /src\/server\/bookings\/hospitality-booking-guest-evidence-integrity\.integration\.ts/);
+});
+
 test('documentation keeps traveler replacement separate from retained terminal evidence', () => {
   assert.match(integrityDocs, /retained booking must never end a transaction with no guest evidence/i);
   assert.match(integrityDocs, /confirmed-booking traveler replacement remains compatible/i);
   assert.match(integrityDocs, /Once the owning booking is `CANCELLED`, the final traveler snapshot is terminal history/i);
+  assert.match(integrityDocs, /guarded PostgreSQL scenario/i);
   assert.match(sourceEvidenceDocs, /guest evidence/i);
   assert.match(sourceEvidenceDocs, /hospitality-booking-guest-evidence-integrity\.md/);
 });
