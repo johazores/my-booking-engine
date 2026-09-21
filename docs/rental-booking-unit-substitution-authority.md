@@ -93,7 +93,7 @@ The writer runs in a serializable transaction with bounded retries. It acquires 
 7. rebuilds the versioned substitution fingerprint from effective commercial money and rejects stale review authority;
 8. inserts append-only `RentalBookingUnitSubstitution` evidence using effective currency/amount/pricing evidence;
 9. moves only `RentalBookingAllocation.unitId` from the exact observed source to target;
-10. advances booking `updatedAt` without rewriting immutable booking-time unit/date/money evidence; and
+10. advances the PostgreSQL-authored monotonic booking `updatedAt` version without rewriting immutable booking-time unit/date/money evidence; and
 11. records a secret-free `booking.rental.unit-substituted` audit event that distinguishes accepted effective money from original booking money and records the applied amendment ID when present.
 
 Idempotency is derived from booking ID, target unit ID, and reviewed authority. Replay succeeds only while the matching substitution is still the latest/current substitution and the effective allocation still points at its target. Replaying older substitution authority after a later substitution fails closed instead of pretending the old target is current.

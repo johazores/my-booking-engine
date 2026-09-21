@@ -35,7 +35,7 @@ A supported price-changing review receives a separate commercial review fingerpr
 
 Binding custody mode and pickup ID is required because pickup itself does not rewrite immutable booking commercial evidence. A pre-pickup review therefore cannot be reused silently after pickup; the writer rebuilds a different custody-bound authority and requires a fresh extension review.
 
-Every successful date change or physical-unit substitution also advances booking `updatedAt` without rewriting immutable commercial evidence. Reusing authority from an earlier booking version fails closed.
+Every successful date change or physical-unit substitution also advances booking `updatedAt` without rewriting immutable commercial evidence. PostgreSQL authors that version timestamp from its wall clock and guarantees it advances monotonically; callers cannot choose a past or future version. Reusing authority from an earlier booking version fails closed.
 
 ## Durable writers
 

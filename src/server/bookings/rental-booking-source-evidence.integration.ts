@@ -121,6 +121,28 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       }),
       /rental booking identity evidence is immutable/i,
     );
+    const versionBeforeDirectWrite = await db.rentalBooking.findFirstOrThrow({
+      where: { id: confirmed.booking.id, organizationId: organization.id },
+      select: { updatedAt: true },
+    });
+    const callerAuthoredBookingVersion = new Date('2099-01-01T00:00:00.000Z');
+    await db.rentalBooking.update({
+      where: { id: confirmed.booking.id },
+      data: { updatedAt: callerAuthoredBookingVersion },
+    });
+    const versionAfterDirectWrite = await db.rentalBooking.findFirstOrThrow({
+      where: { id: confirmed.booking.id, organizationId: organization.id },
+      select: { updatedAt: true },
+    });
+    assert.notEqual(
+      versionAfterDirectWrite.updatedAt.getTime(),
+      callerAuthoredBookingVersion.getTime(),
+      'PostgreSQL must replace caller-authored rental booking versions',
+    );
+    assert.ok(
+      versionAfterDirectWrite.updatedAt.getTime() > versionBeforeDirectWrite.updatedAt.getTime(),
+      'rental booking version must advance monotonically',
+    );
 
     await assert.rejects(
       db.rentalAvailabilityHold.update({
