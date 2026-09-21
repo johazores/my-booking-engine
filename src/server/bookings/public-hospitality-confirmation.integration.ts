@@ -144,9 +144,12 @@ test('public confirmation creates one tenant-owned payment-pending booking with 
     await db.publicBookingHoldOwnership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.publicBookingPrincipal.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });

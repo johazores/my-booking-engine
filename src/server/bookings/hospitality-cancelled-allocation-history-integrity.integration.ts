@@ -92,6 +92,11 @@ test('cancellation requires coherent allocation evidence and freezes terminal al
     });
     assert.equal(allocation.quantity, 1);
 
+    await assert.rejects(
+      db.hospitalityBookingAllocation.delete({ where: { id: allocation.id } }),
+      /hospitality booking must retain allocation evidence/i,
+    );
+
     await db.hospitalityBookingAllocation.update({
       where: { id: allocation.id },
       data: { quantity: 2 },
@@ -136,6 +141,11 @@ test('cancellation requires coherent allocation evidence and freezes terminal al
       /cancelled hospitality booking allocation history is immutable/i,
     );
 
+    await assert.rejects(
+      db.hospitalityBookingAllocation.delete({ where: { id: allocation.id } }),
+      /hospitality booking must retain allocation evidence/i,
+    );
+
     const replay = await cancellation.cancelHospitalityBooking({
       organizationId: organization.id,
       actorUserId: admin.id,
@@ -145,10 +155,12 @@ test('cancellation requires coherent allocation evidence and freezes terminal al
     assert.equal(replay.status, 'CANCELLED');
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
     await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organization.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organization.id } });

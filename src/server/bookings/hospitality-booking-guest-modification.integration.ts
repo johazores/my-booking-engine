@@ -135,9 +135,11 @@ test('traveler edits are tenant-safe, idempotent, capacity-bound, and audit-mini
     assert.equal(serializedAudit.includes('Katherine'), false);
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });

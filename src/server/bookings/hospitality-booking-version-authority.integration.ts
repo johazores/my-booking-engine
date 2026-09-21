@@ -151,10 +151,12 @@ test('PostgreSQL authors monotonic hospitality booking versions and retains dura
     );
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
     await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organization.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organization.id } });

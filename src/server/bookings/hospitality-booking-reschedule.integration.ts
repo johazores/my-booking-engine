@@ -138,9 +138,12 @@ test('booking reschedule is tenant-safe, capacity-safe, price-safe, and idempote
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.paymentCheckoutSession.deleteMany({ where: { organizationId: organizationA.id } });
     await db.paymentTransaction.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
