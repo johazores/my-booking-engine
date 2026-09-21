@@ -1,6 +1,6 @@
 # Hospitality booking source evidence integrity
 
-Hospitality booking and allocation rows are durable commercial and inventory evidence. Application services already authorize and tenant-scope supported mutations; PostgreSQL also prevents direct writers from rewriting the row identities, creation chronology, terminal inventory history, or retained allocation ownership those services, audits, pricing evidence, availability, and stale-authority checks rely on.
+Hospitality booking, allocation, and guest rows are durable commercial, inventory, and traveler evidence. Application services already authorize and tenant-scope supported mutations; PostgreSQL also prevents direct writers from rewriting booking/allocation identity, creation chronology, terminal inventory history, retained allocation ownership, or retained terminal traveler history that services, audits, pricing evidence, availability, and stale-authority checks rely on.
 
 ## Booking identity
 
@@ -18,6 +18,16 @@ The allocation's property/room-type assignment, stay dates, and quantity remain 
 
 Every retained hospitality booking must also retain its allocation row. PostgreSQL preflights existing bookings during the retention migration and rejects a standalone allocation deletion while the owning tenant booking still exists. The deletion constraint is deferred so coherent teardown can remove the allocation and parent booking in the same transaction without weakening normal production retention.
 
+## Guest evidence and terminal traveler history
+
+Every retained hospitality booking must retain at least one tenant-owned guest row. PostgreSQL preflights existing bookings, checks every new booking again at transaction commit, and rejects guest deletion when the retained booking would otherwise end with no traveler evidence.
+
+The supported confirmed-booking traveler workflow remains compatible because it replaces the ordered guest set atomically inside one serializable transaction. Direct row updates are rejected so traveler changes stay on that controlled replacement boundary.
+
+Once a booking is `CANCELLED`, its final guest set is terminal history. PostgreSQL rejects new guest inserts and rejects deletion of any retained guest while the cancelled booking still exists. Controlled teardown can still remove guests together with the parent booking in one transaction.
+
+See [hospitality-booking-guest-evidence-integrity.md](./hospitality-booking-guest-evidence-integrity.md).
+
 ## Cancelled allocation history
 
 Cancellation is a retained lifecycle transition. Before applying `CONFIRMED -> CANCELLED`, the cancellation service requires the tenant-owned allocation to match the booking's current property, room type, stay dates, and quantity under the existing booking/allocation locks. Missing or mismatched retained allocation evidence fails closed instead of letting cancellation freeze an incoherent commercial inventory snapshot.
@@ -30,6 +40,6 @@ See [hospitality-cancelled-allocation-history-integrity.md](./hospitality-cancel
 
 ## Validation
 
-`scripts/hospitality-booking-identity-integrity-source-contract.test.mjs` protects the PostgreSQL identity guards, guarded database regression assertions, and the base documentation contract. `scripts/hospitality-cancelled-allocation-history-integrity-source-contract.test.mjs` additionally protects cancellation allocation coherence, the terminal allocation-history guard, status-independent allocation retention, migration preflight, guarded database coverage, coordinated fixture teardown, database-suite registration, and the availability/documentation boundary.
+`scripts/hospitality-booking-identity-integrity-source-contract.test.mjs` protects the PostgreSQL identity guards, guarded database regression assertions, and the base documentation contract. `scripts/hospitality-cancelled-allocation-history-integrity-source-contract.test.mjs` additionally protects cancellation allocation coherence, the terminal allocation-history guard, status-independent allocation retention, migration preflight, guarded database coverage, coordinated fixture teardown, database-suite registration, and the availability/documentation boundary. `scripts/hospitality-booking-guest-evidence-integrity-source-contract.test.mjs` protects booking/guest retention, replace-only guest mutation, cancelled traveler-history immutability, and compatibility with the serializable traveler replacement service.
 
 Full database execution still requires the repository's explicitly disposable PostgreSQL path. GitHub Actions are intentionally not used.
