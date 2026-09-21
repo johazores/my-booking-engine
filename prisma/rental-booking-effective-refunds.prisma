@@ -22,9 +22,9 @@ model RentalBookingEffectiveRefundTransaction {
   amendment RentalBookingCommercialAmendment @relation(fields: [amendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_effective_refund_transactions_amendment_fkey")
 
   @@unique([id, organizationId], map: "rental_booking_effective_refund_transactions_id_org_key")
-  @@unique([organizationId, idempotencyKey], map: "rental_booking_effective_refund_transactions_org_idempotency_key")
-  @@unique([organizationId, providerCode, providerReference], map: "rental_booking_effective_refund_transactions_org_provider_reference_key")
-  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_booking_effective_refund_transactions_booking_created_idx")
-  @@index([organizationId, providerCode, sourceProviderReference], map: "rental_booking_effective_refund_transactions_source_reference_idx")
+  @@unique([organizationId, idempotencyKey], map: "rental_effective_refund_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "rental_effective_refund_org_provider_ref_key")
+  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_effective_refund_booking_created_idx")
+  @@index([organizationId, providerCode, sourceProviderReference], map: "rental_effective_refund_source_reference_idx")
   @@map("rental_booking_effective_refund_transactions")
 }
