@@ -268,6 +268,20 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     assert.equal(issued2.sequenceValue, 2n);
     assert.equal(issued2.totalMinor, 11000n);
 
+    const sequenceWhere = {
+      organizationId_jurisdictionCode_documentType: {
+        organizationId: organizationA.id,
+        jurisdictionCode: 'AU',
+        documentType: 'TAX_INVOICE',
+      },
+    } as const;
+    const sequenceAfterSecondIssuance = await db.hospitalityInvoiceNumberSequence.findUnique({ where: sequenceWhere });
+    assert.equal(sequenceAfterSecondIssuance?.nextValue, 3n);
+    await assert.rejects(
+      db.hospitalityInvoiceNumberSequence.delete({ where: sequenceWhere }),
+      /issued hospitality legal document is missing its invoice number sequence/i,
+    );
+
     const audits = await db.auditEvent.findMany({
       where: {
         organizationId: organizationA.id,
@@ -277,11 +291,11 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     });
     assert.equal(audits.length, 2);
   } finally {
-    await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.$transaction(async (transaction) => {
       await transaction.hospitalityIssuedAdjustmentNote.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityIssuedInvoice.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });

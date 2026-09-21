@@ -21,6 +21,8 @@ The Australian foundation supports tax invoices, full-cancellation decreasing ad
 
 PostgreSQL constrains material direction/effect, ordinal shape, and predecessor integrity independently of application checks. It also rejects every in-place update of an issued tax invoice or adjustment note and rejects deleting either legal document while its tenant booking remains retained. Coherent same-transaction teardown exists only for controlled fixture or maintenance cleanup and is not exposed as a product workflow.
 
+Fiscal numbering is also database-authoritative. For supported tax-invoice and adjustment-note ledgers, sequence identity cannot be rewritten, counters cannot be rewound or skipped, and deferred constraints require the sequence to start at `1`, remain contiguous, and finish each transaction exactly one value beyond issued history. The sequence advance and immutable legal-document insert therefore commit or roll back together. See `docs/invoice-number-sequence-integrity.md`.
+
 ## Tax-invoice and cancellation issuance
 
 `issueHospitalityAustralianTaxInvoice` requires `payment:manage`, revalidates preparation/recipient/issuer/pricing evidence and accepted booking commercial state, then derives sequence, number, issue time, legal snapshot, and fingerprint server-side.

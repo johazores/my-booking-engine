@@ -76,6 +76,7 @@ run(process.execPath, [
   'src/server/payments/rental-security-bond.integration.ts',
   'src/server/payments/hospitality-invoice-preparation.integration.ts',
   'src/server/payments/hospitality-invoice-issuance.integration.ts',
+  'src/server/payments/hospitality-invoice-number-sequence-integrity.integration.ts',
   'src/server/payments/stripe-payment.integration.ts',
   'src/server/payments/stripe-refund.integration.ts',
   'src/server/payments/stripe-refund-webhook.integration.ts',
