@@ -269,9 +269,11 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
