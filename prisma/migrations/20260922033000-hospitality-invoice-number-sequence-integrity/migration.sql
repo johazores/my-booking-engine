@@ -14,6 +14,13 @@ BEGIN
           FROM "hospitality_issued_invoices" invoice
          WHERE invoice."documentType" <> 'TAX_INVOICE'
             OR invoice."sequenceValue" < 1
+            OR invoice."documentNumber" <> (
+                'AU-TAX-' || LPAD(
+                    invoice."sequenceValue"::text,
+                    GREATEST(8, LENGTH(invoice."sequenceValue"::text)),
+                    '0'
+                )
+            )
     ) THEN
         RAISE EXCEPTION 'hospitality issued tax invoice numbering evidence is invalid'
             USING ERRCODE = '23514';
@@ -24,6 +31,13 @@ BEGIN
           FROM "hospitality_issued_adjustment_notes" note
          WHERE note."documentType" <> 'ADJUSTMENT_NOTE'
             OR note."sequenceValue" < 1
+            OR note."documentNumber" <> (
+                'AU-ADJ-' || LPAD(
+                    note."sequenceValue"::text,
+                    GREATEST(8, LENGTH(note."sequenceValue"::text)),
+                    '0'
+                )
+            )
     ) THEN
         RAISE EXCEPTION 'hospitality issued adjustment-note numbering evidence is invalid'
             USING ERRCODE = '23514';
@@ -99,7 +113,7 @@ END;
 $$;
 
 ALTER TABLE "hospitality_invoice_number_sequences"
-    ADD CONSTRAINT hospitality_invoice_number_sequences_document_type_check
+    ADD CONSTRAINT hospitality_invoice_number_sequences_supported_document_type_check
     CHECK ("documentType" IN ('TAX_INVOICE', 'ADJUSTMENT_NOTE')),
     ADD CONSTRAINT hospitality_invoice_number_sequences_next_positive_check
     CHECK ("nextValue" >= 1);
@@ -108,13 +122,33 @@ ALTER TABLE "hospitality_issued_invoices"
     ADD CONSTRAINT hospitality_issued_invoices_document_type_check
     CHECK ("documentType" = 'TAX_INVOICE'),
     ADD CONSTRAINT hospitality_issued_invoices_sequence_positive_check
-    CHECK ("sequenceValue" >= 1);
+    CHECK ("sequenceValue" >= 1),
+    ADD CONSTRAINT hospitality_issued_invoices_number_sequence_identity_check
+    CHECK (
+        "documentNumber" = (
+            'AU-TAX-' || LPAD(
+                "sequenceValue"::text,
+                GREATEST(8, LENGTH("sequenceValue"::text)),
+                '0'
+            )
+        )
+    );
 
 ALTER TABLE "hospitality_issued_adjustment_notes"
     ADD CONSTRAINT hospitality_issued_adjustment_notes_document_type_check
     CHECK ("documentType" = 'ADJUSTMENT_NOTE'),
     ADD CONSTRAINT hospitality_issued_adjustment_notes_sequence_positive_check
-    CHECK ("sequenceValue" >= 1);
+    CHECK ("sequenceValue" >= 1),
+    ADD CONSTRAINT hospitality_issued_adjustment_notes_number_sequence_identity_check
+    CHECK (
+        "documentNumber" = (
+            'AU-ADJ-' || LPAD(
+                "sequenceValue"::text,
+                GREATEST(8, LENGTH("sequenceValue"::text)),
+                '0'
+            )
+        )
+    );
 
 CREATE FUNCTION sf_assert_hospitality_invoice_number_sequence_integrity(
     p_organization_id uuid,
