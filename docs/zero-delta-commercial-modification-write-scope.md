@@ -19,13 +19,13 @@ Inside the same transaction SF then revalidates the target room/rate assignment,
 After those checks, the final `HospitalityBooking` update repeats the validated snapshot in its `where` predicate rather than updating by booking ID alone. The predicate retains:
 
 - booking ID and authenticated organization ID;
-- `CONFIRMED` lifecycle and the observed `updatedAt` version;
+- `CONFIRMED` lifecycle and the observed PostgreSQL-authored `updatedAt` version;
 - property, current room type, current rate plan, stay dates, and quantity;
 - the observed payment status;
 - currency and every persisted exact-money aggregate; and
 - the prior pricing fingerprint.
 
-If any of that state drifts before the write, Prisma cannot match the row and the serializable transaction fails rather than applying a commercial selection to stale authority.
+If any of that state drifts before the write, Prisma cannot match the row and the serializable transaction fails rather than applying a commercial selection to stale authority. PostgreSQL owns the resulting `updatedAt` value and advances it monotonically on every booking update, so neither application code nor direct SQL can forge the past/future booking version consumed by later commercial review.
 
 ## Final allocation mutation
 
@@ -35,14 +35,16 @@ The retained allocation moves in the same transaction. Its final mutation keeps 
 
 The existing tenant-scoped `booking.commercial-modified` audit event remains the durable idempotency ledger. Reuse of an idempotency key with a different modification fingerprint fails, and a completed retry is accepted only when the current commercial selection still matches the previously applied request.
 
-After mutation, SF persists `BOOKING_COMMERCIAL_MODIFICATION` pricing evidence using the authoritative quote and updated booking version, then appends the booking audit event. Browser-supplied tenant identity, payment truth, inventory truth, money, or pricing fingerprint is never mutation authority.
+After mutation, SF persists `BOOKING_COMMERCIAL_MODIFICATION` pricing evidence using the authoritative quote and updated database-authored booking version, then appends the booking audit event. Browser-supplied tenant identity, payment truth, inventory truth, money, pricing fingerprint, or booking timestamp is never mutation authority.
 
 ## Similar-issue boundary
 
 This review covers the direct zero-delta room/rate/quantity/add-on mutation and its booking/allocation persistence pair. Same-price date rescheduling and booking cancellation still use their own lifecycle contracts and should be reviewed independently before changing their persistence predicates. Non-zero amendments, provider money movement, traveler changes, and legal-document issuance have materially different acceptance criteria and remain outside this boundary.
 
+The shared booking-version contract is documented in `docs/booking-lifecycle-write-scope.md` and enforced by the PostgreSQL hospitality booking version trigger.
+
 ## Validation
 
-`scripts/zero-delta-commercial-modification-write-scope.test.mjs` is dependency-free and guards allocation coherence, the final booking/allocation predicates, permission and locking, zero-delta pricing, evidence, audit, and serializable execution.
+`scripts/zero-delta-commercial-modification-write-scope.test.mjs` is dependency-free and guards allocation coherence, the final booking/allocation predicates, permission and locking, zero-delta pricing, evidence, audit, and serializable execution. `scripts/hospitality-booking-version-clock-authority-source-contract.test.mjs` separately guards database ownership of the `updatedAt` version used by that predicate.
 
 The repository requires Node `>=24.20.0 <25`. Full Prisma generation/validation, TypeScript, lint, repository tests, production build, migration/drift checks, and PostgreSQL concurrency validation remain subject to the repository's normal local/manual environment gates. GitHub Actions are intentionally not used.
