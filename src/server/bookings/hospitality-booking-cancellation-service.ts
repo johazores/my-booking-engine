@@ -43,6 +43,25 @@ export async function cancelHospitalityBooking(input: {
       where: { id: input.bookingId, organizationId: input.organizationId },
     });
     if (!booking) throw new HospitalityBookingUnavailableError();
+
+    const retainedAllocation = await transaction.hospitalityBookingAllocation.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        propertyId: booking.propertyId,
+        roomTypeId: booking.roomTypeId,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
+        quantity: booking.quantity,
+      },
+      select: { id: true },
+    });
+    if (!retainedAllocation) {
+      throw new HospitalityBookingConflictError(
+        'Booking cancellation requires retained allocation evidence that matches the current commercial inventory state.',
+      );
+    }
+
     if (booking.status === 'CANCELLED') return booking;
 
     const activeAmendment = await findActiveHospitalityBookingCommercialAmendment({
