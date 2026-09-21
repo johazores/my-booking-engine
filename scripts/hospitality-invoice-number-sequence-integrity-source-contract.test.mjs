@@ -30,8 +30,17 @@ test('supported sequence constraint does not collide with the foundation migrati
   );
   assert.match(
     migration,
-    /ADD CONSTRAINT hospitality_invoice_number_sequences_supported_document_type_check/,
+    /ADD CONSTRAINT hospitality_invoice_sequences_supported_type_check/,
   );
+
+  for (const name of [
+    'hospitality_invoice_sequences_supported_type_check',
+    'hospitality_invoice_number_sequences_next_positive_check',
+    'hospitality_issued_invoices_number_sequence_identity_check',
+    'hospitality_adj_notes_number_sequence_identity_check',
+  ]) {
+    assert.ok(name.length <= 63, `${name} exceeds PostgreSQL identifier length`);
+  }
 });
 
 test('deferred integrity checks bind both legal-document ledgers to their counters', () => {
@@ -46,7 +55,7 @@ test('deferred integrity checks bind both legal-document ledgers to their counte
 });
 
 test('legal numbering shape and document identity are constrained independently of application code', () => {
-  assert.match(migration, /hospitality_invoice_number_sequences_supported_document_type_check/);
+  assert.match(migration, /hospitality_invoice_sequences_supported_type_check/);
   assert.match(migration, /hospitality_invoice_number_sequences_next_positive_check/);
   assert.match(migration, /hospitality_issued_invoices_document_type_check/);
   assert.match(migration, /hospitality_issued_adjustment_notes_document_type_check/);
@@ -54,7 +63,7 @@ test('legal numbering shape and document identity are constrained independently 
   assert.match(migration, /CHECK \("documentType" = 'ADJUSTMENT_NOTE'\)/);
   assert.match(migration, /CHECK \("sequenceValue" >= 1\)/);
   assert.match(migration, /hospitality_issued_invoices_number_sequence_identity_check/);
-  assert.match(migration, /hospitality_issued_adjustment_notes_number_sequence_identity_check/);
+  assert.match(migration, /hospitality_adj_notes_number_sequence_identity_check/);
   assert.match(migration, /'AU-TAX-' \|\| LPAD/);
   assert.match(migration, /'AU-ADJ-' \|\| LPAD/);
   assert.ok((migration.match(/GREATEST\(8, LENGTH\(/g) ?? []).length >= 4);

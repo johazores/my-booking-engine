@@ -113,7 +113,7 @@ END;
 $$;
 
 ALTER TABLE "hospitality_invoice_number_sequences"
-    ADD CONSTRAINT hospitality_invoice_number_sequences_supported_document_type_check
+    ADD CONSTRAINT hospitality_invoice_sequences_supported_type_check
     CHECK ("documentType" IN ('TAX_INVOICE', 'ADJUSTMENT_NOTE')),
     ADD CONSTRAINT hospitality_invoice_number_sequences_next_positive_check
     CHECK ("nextValue" >= 1);
@@ -139,7 +139,7 @@ ALTER TABLE "hospitality_issued_adjustment_notes"
     CHECK ("documentType" = 'ADJUSTMENT_NOTE'),
     ADD CONSTRAINT hospitality_issued_adjustment_notes_sequence_positive_check
     CHECK ("sequenceValue" >= 1),
-    ADD CONSTRAINT hospitality_issued_adjustment_notes_number_sequence_identity_check
+    ADD CONSTRAINT hospitality_adj_notes_number_sequence_identity_check
     CHECK (
         "documentNumber" = (
             'AU-ADJ-' || LPAD(
