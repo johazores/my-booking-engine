@@ -67,14 +67,14 @@ model HospitalitySupplierReservationOperation {
   reconciledAt                 DateTime?                                      @db.Timestamptz(6)
   createdAt                    DateTime                                       @default(now()) @db.Timestamptz(6)
   updatedAt                    DateTime                                       @updatedAt @db.Timestamptz(6)
-  integration                  Integration                                    @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  integration                  Integration                                    @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_supplier_reservation_operations_integration_fkey")
   attempts                     HospitalitySupplierReservationAttempt[]
 
-  @@unique([id, organizationId])
-  @@unique([organizationId, idempotencyKey])
-  @@unique([organizationId, integrationId, providerReservationReference])
-  @@index([organizationId, status, createdAt])
-  @@index([organizationId, integrationId, status, createdAt])
+  @@unique([id, organizationId], map: "hospitality_supplier_reservation_operations_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "hospitality_supplier_reservation_operations_org_idempotency_key")
+  @@unique([organizationId, integrationId, providerReservationReference], map: "supplier_reservation_ops_provider_ref_key")
+  @@index([organizationId, status, createdAt], map: "supplier_reservation_ops_status_created_idx")
+  @@index([organizationId, integrationId, status, createdAt], map: "supplier_reservation_ops_integration_status_idx")
   @@map("hospitality_supplier_reservation_operations")
 }
 
@@ -91,12 +91,12 @@ model HospitalitySupplierReservationAttempt {
   leaseStartedAt          DateTime?                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
   providerRequestStartedAt DateTime?                                  @db.Timestamptz(6)
   completedAt             DateTime?                                   @db.Timestamptz(6)
-  reservation             HospitalitySupplierReservationOperation     @relation(fields: [reservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reservation             HospitalitySupplierReservationOperation     @relation(fields: [reservationId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "hospitality_supplier_reservation_attempts_reservation_fkey")
   reviewAcceptanceConsumption HospitalitySupplierReservationReviewAcceptanceHistory? @relation("SupplierReservationReviewAcceptanceConsumedAttempt")
 
-  @@unique([organizationId, reservationId, sequence])
-  @@index([organizationId, reservationId, startedAt])
-  @@index([organizationId, status, startedAt])
+  @@unique([organizationId, reservationId, sequence], map: "supplier_reservation_attempts_sequence_key")
+  @@index([organizationId, reservationId, startedAt], map: "supplier_reservation_attempts_reservation_started_idx")
+  @@index([organizationId, status, startedAt], map: "supplier_reservation_attempts_status_started_idx")
   @@map("hospitality_supplier_reservation_attempts")
 }
 

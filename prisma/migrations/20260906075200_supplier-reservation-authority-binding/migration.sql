@@ -10,7 +10,7 @@ ALTER TABLE "hospitality_supplier_reservation_operations"
   ALTER COLUMN "requestFingerprintVersion" SET DEFAULT 2;
 
 ALTER TABLE "hospitality_supplier_reservation_operations"
-  ADD CONSTRAINT "hospitality_supplier_reservation_operations_request_fingerprint_version_check"
+  ADD CONSTRAINT "supplier_reservation_ops_request_fingerprint_version_check"
   CHECK (
     "requestFingerprintVersion" IS NULL
     OR "requestFingerprintVersion" = 2

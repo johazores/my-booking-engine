@@ -8,6 +8,11 @@ ADD COLUMN "supplierConfirmationReference" VARCHAR(512);
 ALTER TABLE "hospitality_supplier_reservation_operations"
 DROP CONSTRAINT "hospitality_supplier_reservation_operations_confirmed_reference_check";
 
+-- PostgreSQL truncates the historical provider-reference check to the same 63-byte identifier
+-- prefix as the state check below, so remove the old check before installing the replacement.
+ALTER TABLE "hospitality_supplier_reservation_operations"
+DROP CONSTRAINT "hospitality_supplier_reservation_operations_provider_reference_check";
+
 ALTER TABLE "hospitality_supplier_reservation_operations"
 ADD CONSTRAINT "hospitality_supplier_reservation_operations_provider_reference_state_check"
 CHECK (
@@ -24,10 +29,7 @@ CHECK (
 );
 
 ALTER TABLE "hospitality_supplier_reservation_operations"
-DROP CONSTRAINT "hospitality_supplier_reservation_operations_provider_reference_check";
-
-ALTER TABLE "hospitality_supplier_reservation_operations"
-ADD CONSTRAINT "hospitality_supplier_reservation_operations_provider_reference_format_check"
+ADD CONSTRAINT "supplier_reservation_ops_provider_reference_format_check"
 CHECK (
   "providerReservationReference" IS NULL
   OR (
