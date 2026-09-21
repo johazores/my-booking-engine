@@ -20,9 +20,9 @@ Every retained hospitality booking must also retain its allocation row. PostgreS
 
 ## Guest evidence and terminal traveler history
 
-Every retained hospitality booking must retain at least one tenant-owned guest row. PostgreSQL preflights existing bookings, checks every new booking again at transaction commit, and rejects guest deletion when the retained booking would otherwise end with no traveler evidence.
+The migration chain preflights existing hospitality bookings for retained tenant-owned guest evidence. Production confirmation persists normalized ordered guests inside the established serializable booking-confirmation transaction, while PostgreSQL rejects deletion that would remove the complete retained guest set from an existing booking.
 
-The supported confirmed-booking traveler workflow remains compatible because it replaces the ordered guest set atomically inside one serializable transaction. Direct row updates are rejected so traveler changes stay on that controlled replacement boundary.
+The supported confirmed-booking traveler workflow remains compatible because it replaces the ordered guest set atomically inside one serializable transaction. Direct row updates are rejected so traveler changes stay on that controlled replacement boundary. The database additionally rejects a transition into `CANCELLED` when retained guest evidence is missing.
 
 Once a booking is `CANCELLED`, its final guest set is terminal history. PostgreSQL rejects new guest inserts and rejects deletion of any retained guest while the cancelled booking still exists. Controlled teardown can still remove guests together with the parent booking in one transaction.
 

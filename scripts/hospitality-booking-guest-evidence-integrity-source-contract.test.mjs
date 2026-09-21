@@ -7,21 +7,28 @@ function read(path) {
 }
 
 const migration = read('prisma/migrations/20260922003000-hospitality-booking-guest-evidence-integrity/migration.sql');
+const transitionMigration = read('prisma/migrations/20260922004500-hospitality-booking-guest-terminal-transition-guard/migration.sql');
 const guestService = read('src/server/bookings/hospitality-booking-guest-modification-service.ts');
 const integration = read('src/server/bookings/hospitality-booking-guest-evidence-integrity.integration.ts');
 const databaseRunner = read('scripts/run-database-tests.mjs');
 const integrityDocs = read('docs/hospitality-booking-guest-evidence-integrity.md');
 const sourceEvidenceDocs = read('docs/hospitality-booking-source-evidence-integrity.md');
 
-test('every retained hospitality booking must have guest evidence at commit', () => {
+test('migration chain preflights retained guest evidence and protects destructive deletion', () => {
   assert.match(migration, /existing hospitality booking is missing retained guest evidence/);
-  assert.match(migration, /sf_require_hospitality_booking_guest_evidence/);
-  assert.match(migration, /CREATE CONSTRAINT TRIGGER hospitality_bookings_guest_evidence_guard/);
-  assert.match(migration, /AFTER INSERT ON "hospitality_bookings"/);
-  assert.match(migration, /DEFERRABLE INITIALLY DEFERRED/);
-  assert.match(migration, /hospitality booking must retain guest evidence/);
   assert.match(migration, /CREATE CONSTRAINT TRIGGER hospitality_booking_guests_deletion_guard/);
   assert.match(migration, /AFTER DELETE ON "hospitality_booking_guests"/);
+  assert.match(migration, /DEFERRABLE INITIALLY DEFERRED/);
+  assert.match(migration, /hospitality booking must retain guest evidence/);
+});
+
+test('final migration state guards cancellation without constraining raw fixture insertion order', () => {
+  assert.match(transitionMigration, /DROP TRIGGER hospitality_bookings_guest_evidence_guard ON "hospitality_bookings"/);
+  assert.match(transitionMigration, /DROP FUNCTION sf_require_hospitality_booking_guest_evidence\(\)/);
+  assert.match(transitionMigration, /sf_require_hospitality_booking_guest_evidence_for_cancellation/);
+  assert.match(transitionMigration, /NEW\."status" = 'CANCELLED'/);
+  assert.match(transitionMigration, /hospitality booking cancellation requires retained guest evidence/);
+  assert.match(transitionMigration, /BEFORE UPDATE OF "status" ON "hospitality_bookings"/);
 });
 
 test('guest rows are replace-only and cancelled traveler history is terminal', () => {
@@ -55,10 +62,11 @@ test('guarded PostgreSQL scenario covers direct rewrites, replacement compatibil
 });
 
 test('documentation keeps traveler replacement separate from retained terminal evidence', () => {
-  assert.match(integrityDocs, /retained booking must never end a transaction with no guest evidence/i);
+  assert.match(integrityDocs, /retained booking with established traveler evidence must never lose its complete guest set/i);
   assert.match(integrityDocs, /confirmed-booking traveler replacement remains compatible/i);
-  assert.match(integrityDocs, /Once the owning booking is `CANCELLED`, the final traveler snapshot is terminal history/i);
+  assert.match(integrityDocs, /cannot transition into `CANCELLED` unless retained guest evidence exists/i);
   assert.match(integrityDocs, /guarded PostgreSQL scenario/i);
   assert.match(sourceEvidenceDocs, /guest evidence/i);
+  assert.match(sourceEvidenceDocs, /rejects a transition into `CANCELLED` when retained guest evidence is missing/i);
   assert.match(sourceEvidenceDocs, /hospitality-booking-guest-evidence-integrity\.md/);
 });
