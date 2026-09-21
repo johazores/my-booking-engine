@@ -4,7 +4,7 @@ enum RentalBookingCommercialAmendmentSettlementPurpose {
 }
 
 model RentalBookingCommercialAmendmentSettlementTransaction {
-  id                      String                                            @id @default(uuid()) @db.Uuid
+  id                      String                                            @id(map: "rental_amendment_settlement_pkey") @default(uuid()) @db.Uuid
   organizationId          String                                            @db.Uuid
   bookingId               String                                            @db.Uuid
   amendmentId             String                                            @db.Uuid
@@ -20,12 +20,12 @@ model RentalBookingCommercialAmendmentSettlementTransaction {
   amountMinor             BigInt                                            @db.BigInt
   createdAt               DateTime                                          @default(now()) @db.Timestamptz(6)
 
-  amendment RentalBookingCommercialAmendment @relation(fields: [amendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_booking_commercial_amendment_settlement_transactions_amendment_fkey")
+  amendment RentalBookingCommercialAmendment @relation(fields: [amendmentId, bookingId, organizationId], references: [id, bookingId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "rental_amendment_settlement_amendment_fkey")
 
-  @@unique([id, organizationId], map: "rental_booking_commercial_amendment_settlement_transactions_id_org_key")
-  @@unique([organizationId, idempotencyKey], map: "rental_booking_commercial_amendment_settlement_transactions_org_idempotency_key")
-  @@unique([organizationId, providerCode, providerReference], map: "rental_booking_commercial_amendment_settlement_transactions_org_provider_reference_key")
-  @@unique([organizationId, amendmentId, purpose], map: "rental_booking_commercial_amendment_settlement_transactions_org_amendment_purpose_key")
-  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_booking_commercial_amendment_settlement_transactions_booking_amendment_created_idx")
+  @@unique([id, organizationId], map: "rental_amendment_settlement_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "rental_amendment_settlement_org_idempotency_key")
+  @@unique([organizationId, providerCode, providerReference], map: "rental_amendment_settlement_org_provider_reference_key")
+  @@unique([organizationId, amendmentId, purpose], map: "rental_amendment_settlement_org_amendment_purpose_key")
+  @@index([organizationId, bookingId, amendmentId, createdAt], map: "rental_amendment_settlement_booking_amendment_created_idx")
   @@map("rental_booking_commercial_amendment_settlement_transactions")
 }

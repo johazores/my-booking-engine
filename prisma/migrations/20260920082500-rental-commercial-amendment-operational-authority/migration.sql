@@ -183,11 +183,10 @@ END;
 $$;
 
 -- Trigger names at this timing/event execute alphabetically in PostgreSQL. This name
--- follows the existing *_authority_guard (booking + amendment-settlement locks) and
--- precedes *_cross_scope_reference_guard (manual-reference lock), preserving the same
--- booking -> amendment settlement -> physical unit -> manual reference lock order used
--- by the supported application service.
-CREATE TRIGGER rental_booking_commercial_amendment_settlement_transactions_authority_readiness_guard
+-- follows the existing compact authority guard and precedes the cross-scope reference
+-- guard, preserving the same booking -> amendment settlement -> physical unit -> manual
+-- reference lock order used by the supported application service.
+CREATE TRIGGER rental_amendment_settlement_authority_readiness_guard
 BEFORE INSERT ON "rental_booking_commercial_amendment_settlement_transactions"
 FOR EACH ROW
 EXECUTE FUNCTION sf_guard_rental_commercial_amendment_adjustment_readiness();

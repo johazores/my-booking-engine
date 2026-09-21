@@ -25,6 +25,8 @@ Partial adjustment money, multiple adjustments, ambiguous provider states, curre
 
 PostgreSQL independently enforces tenant ownership, exact currency/delta, supported direction/kind shape, one adjustment and one compensation, live preparation for new adjustment money, exact reverse compensation, append-only rows, and tenant-wide manual-reference isolation.
 
+The physical PostgreSQL identifiers for this unusually long settlement table use explicit compact names. This is intentional: the target PostgreSQL identifier boundary is 63 bytes, so several former generated-style index names collapsed to the same stored identifier and the later readiness trigger collapsed onto the existing authority trigger. The creation migration now assigns distinct compact keys/indexes and the readiness trigger has its own compact name while preserving authority -> readiness -> cross-scope execution order. The Prisma `map` names match those physical objects, and the source contract protects both identifier length and truncation uniqueness.
+
 `PREPARED -> CANCELLED/EXPIRED` is blocked while successful adjustment money remains uncompensated. `PREPARED -> APPLIED` is blocked unless exactly one successful uncompensated adjustment exists.
 
 ## Server services
@@ -67,7 +69,7 @@ Only one price-changing amendment remains supported. Later same-unit price-neutr
 ## Validation
 
 - `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact direction-aware settlement/compensation and deterministic refund-source allocation.
-- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects persistence, database authority, reference isolation, provider-adapter use, server-owned refund-source authority, compensation, and real staff wiring.
+- `scripts/rental-booking-commercial-amendment-settlement-source-contract.test.mjs` protects persistence, database authority, PostgreSQL identifier portability, trigger-order uniqueness after identifier truncation, reference isolation, provider-adapter use, server-owned refund-source authority, compensation, and real staff wiring.
 - `scripts/rental-booking-commercial-amendment-staff-orchestration-source-contract.test.mjs` protects the authenticated UI/route lifecycle and database-time readiness boundary.
 - `scripts/rental-booking-commercial-amendment-refund-source-authority-source-contract.test.mjs` protects the focused no-browser-source contract.
 - `scripts/rental-booking-commercial-amendment-apply-source-contract.test.mjs` protects final apply.

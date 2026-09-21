@@ -20,31 +20,31 @@ CREATE TABLE "rental_booking_commercial_amendment_settlement_transactions" (
     "amountMinor" BIGINT NOT NULL,
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_amount_check" CHECK ("amountMinor" > 0),
-    CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_currency_check" CHECK ("currency" ~ '^[A-Z]{3}$'),
-    CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_fingerprint_check" CHECK ("requestFingerprint" ~ '^[a-f0-9]{64}$'),
-    CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_provider_check" CHECK (btrim("providerCode") <> '' AND btrim("providerReference") <> '')
+    CONSTRAINT "rental_amendment_settlement_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "rental_amendment_settlement_amount_check" CHECK ("amountMinor" > 0),
+    CONSTRAINT "rental_amendment_settlement_currency_check" CHECK ("currency" ~ '^[A-Z]{3}$'),
+    CONSTRAINT "rental_amendment_settlement_fingerprint_check" CHECK ("requestFingerprint" ~ '^[a-f0-9]{64}$'),
+    CONSTRAINT "rental_amendment_settlement_provider_check" CHECK (btrim("providerCode") <> '' AND btrim("providerReference") <> '')
 );
 
-CREATE UNIQUE INDEX "rental_booking_commercial_amendment_settlement_transactions_id_org_key"
+CREATE UNIQUE INDEX "rental_amendment_settlement_id_org_key"
   ON "rental_booking_commercial_amendment_settlement_transactions"("id", "organizationId");
-CREATE UNIQUE INDEX "rental_booking_commercial_amendment_settlement_transactions_org_idempotency_key"
+CREATE UNIQUE INDEX "rental_amendment_settlement_org_idempotency_key"
   ON "rental_booking_commercial_amendment_settlement_transactions"("organizationId", "idempotencyKey");
-CREATE UNIQUE INDEX "rental_booking_commercial_amendment_settlement_transactions_org_provider_reference_key"
+CREATE UNIQUE INDEX "rental_amendment_settlement_org_provider_reference_key"
   ON "rental_booking_commercial_amendment_settlement_transactions"("organizationId", "providerCode", "providerReference");
-CREATE UNIQUE INDEX "rental_booking_commercial_amendment_settlement_transactions_org_amendment_purpose_key"
+CREATE UNIQUE INDEX "rental_amendment_settlement_org_amendment_purpose_key"
   ON "rental_booking_commercial_amendment_settlement_transactions"("organizationId", "amendmentId", "purpose");
-CREATE INDEX "rental_booking_commercial_amendment_settlement_transactions_booking_amendment_created_idx"
+CREATE INDEX "rental_amendment_settlement_booking_amendment_created_idx"
   ON "rental_booking_commercial_amendment_settlement_transactions"("organizationId", "bookingId", "amendmentId", "createdAt");
 
 ALTER TABLE "rental_booking_commercial_amendment_settlement_transactions"
-  ADD CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_booking_fkey"
+  ADD CONSTRAINT "rental_amendment_settlement_booking_fkey"
   FOREIGN KEY ("bookingId", "organizationId") REFERENCES "rental_bookings"("id", "organizationId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "rental_booking_commercial_amendment_settlement_transactions"
-  ADD CONSTRAINT "rental_booking_commercial_amendment_settlement_transactions_amendment_fkey"
+  ADD CONSTRAINT "rental_amendment_settlement_amendment_fkey"
   FOREIGN KEY ("amendmentId", "bookingId", "organizationId")
   REFERENCES "rental_booking_commercial_amendments"("id", "bookingId", "organizationId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -163,7 +163,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER rental_booking_commercial_amendment_settlement_transactions_authority_guard
+CREATE TRIGGER rental_amendment_settlement_authority_guard
 BEFORE INSERT OR UPDATE OR DELETE ON "rental_booking_commercial_amendment_settlement_transactions"
 FOR EACH ROW
 EXECUTE FUNCTION sf_author_rental_booking_commercial_amendment_settlement_transaction();
