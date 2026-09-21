@@ -56,6 +56,7 @@ run(process.execPath, [
   'src/server/bookings/hospitality-booking-version-authority.integration.ts',
   'src/server/bookings/hospitality-cancelled-allocation-history-integrity.integration.ts',
   'src/server/bookings/hospitality-booking-guest-evidence-integrity.integration.ts',
+  'src/server/bookings/hospitality-booking-pricing-evidence-integrity.integration.ts',
   'src/server/bookings/rental-booking.integration.ts',
   'src/server/bookings/rental-booking-source-evidence.integration.ts',
   'src/server/bookings/hospitality-booking-reschedule.integration.ts',

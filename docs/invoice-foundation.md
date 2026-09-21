@@ -10,6 +10,8 @@ The browser cannot select legal direction, ordinal, predecessor, refund set, or 
 
 `HospitalityBookingPricingEvidence` is append-only and tenant/booking scoped. It freezes accepted stay/scope/selections, exact currency and aggregate money, pricing fingerprint, and schema-versioned nightly/tax/fee/add-on breakdown. Confirmation and accepted commercial changes write authoritative pricing evidence inside protected transactions.
 
+PostgreSQL now enforces that append-only contract rather than relying only on service convention: every pricing-evidence `UPDATE` is rejected, and a deferred retention constraint rejects deletion while the owning tenant booking still exists. Coherent booking teardown remains possible only when dependent legal-document rows are removed first and pricing evidence plus the parent booking are deleted in the same transaction. Normal lifecycle changes, including cancellation, retain the booking and therefore retain all accepted pricing evidence.
+
 `InvoiceIssuerProfile` and `HospitalityInvoicePreparation` freeze issuer, recipient, pricing, exact money, and preparation fingerprint. Australian readiness verifies AU/AUD, the supported standard-GST contract, ABN structure, and recipient requirements. `issueHospitalityAustralianTaxInvoice` allocates the tenant/jurisdiction/document sequence in a serializable transaction. Issued tax invoices remain immutable after later booking changes.
 
 ## Adjustment authority
@@ -54,4 +56,4 @@ Phase 12 remains open for:
 
 ## Validation boundary
 
-Dependency-free suites cover the Australian tax-invoice foundation, direction-aware cumulative commercial chains, increase-to-decrease behavior, terminal cancellation readiness/snapshots/read authority/writer/product orchestration, protected staff/public projections, accounting/PDF/reconciliation contracts, and fail-closed boundaries. Disposable PostgreSQL execution remains required for live tenant permissions, constraints, sequence/concurrency, idempotency, stale-state rejection, and audit behavior. GitHub Actions are not used.
+Dependency-free suites cover the Australian tax-invoice foundation, direction-aware cumulative commercial chains, increase-to-decrease behavior, terminal cancellation readiness/snapshots/read authority/writer/product orchestration, protected staff/public projections, accounting/PDF/reconciliation contracts, and fail-closed boundaries. `scripts/hospitality-booking-pricing-evidence-immutability-source-contract.test.mjs` additionally pins the database-enforced append-only pricing-evidence contract and guarded PostgreSQL scenario. Disposable PostgreSQL execution remains required for live tenant permissions, constraints, sequence/concurrency, idempotency, stale-state rejection, audit behavior, and pricing-evidence retention. GitHub Actions are not used.

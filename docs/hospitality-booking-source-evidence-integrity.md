@@ -1,6 +1,6 @@
 # Hospitality booking source evidence integrity
 
-Hospitality booking, allocation, and guest rows are durable commercial, inventory, and traveler evidence. Application services already authorize and tenant-scope supported mutations; PostgreSQL also prevents direct writers from rewriting booking/allocation identity, creation chronology, terminal inventory history, retained allocation ownership, or retained terminal traveler history that services, audits, pricing evidence, availability, and stale-authority checks rely on.
+Hospitality booking, allocation, guest, and accepted pricing-evidence rows are durable commercial, inventory, and traveler evidence. Application services already authorize and tenant-scope supported mutations; PostgreSQL also prevents direct writers from rewriting booking/allocation identity, creation chronology, accepted pricing history, terminal inventory history, retained allocation ownership, or retained terminal traveler history that services, audits, pricing evidence, availability, stale-authority checks, and legal-document workflows rely on.
 
 ## Booking identity
 
@@ -17,6 +17,14 @@ The booking lifecycle and commercial fields remain mutable only through their ex
 The allocation's property/room-type assignment, stay dates, and quantity remain outside the identity trigger because supported hospitality reschedule and commercial-modification workflows can change effective allocation state. Those services keep their existing tenant, lifecycle, inventory, pricing, locking, and compare-and-set checks.
 
 Every retained hospitality booking must also retain its allocation row. PostgreSQL preflights existing bookings during the retention migration and rejects a standalone allocation deletion while the owning tenant booking still exists. The deletion constraint is deferred so coherent teardown can remove the allocation and parent booking in the same transaction without weakening normal production retention.
+
+## Pricing evidence history
+
+`HospitalityBookingPricingEvidence` is append-only accepted commercial history. Production booking confirmation, same-price rescheduling, zero-delta commercial modification, and commercial-amendment workflows append a new authoritative evidence row for the accepted state instead of editing an older snapshot.
+
+PostgreSQL rejects every in-place `UPDATE` of a pricing-evidence row, including attempts to rewrite its tenant/booking identity, source, chronology, stay, selections, money, fingerprint, or line-item JSON. A deferred deletion guard also rejects standalone deletion while the owning booking remains retained, regardless of booking status. This makes the existing service-level append-only convention a persistence invariant for commercial and legal-document readers.
+
+Controlled test/data teardown remains possible only when dependent invoice/document rows have already been removed and the pricing evidence plus owning booking are deleted coherently in the same transaction. The deferred check observes that the parent booking is no longer retained at commit. This teardown escape does not create a production evidence-erasure workflow; normal booking lifecycle operations retain the booking and therefore retain its complete accepted pricing history.
 
 ## Guest evidence and terminal traveler history
 
@@ -40,6 +48,6 @@ See [hospitality-cancelled-allocation-history-integrity.md](./hospitality-cancel
 
 ## Validation
 
-`scripts/hospitality-booking-identity-integrity-source-contract.test.mjs` protects the PostgreSQL identity guards, guarded database regression assertions, and the base documentation contract. `scripts/hospitality-cancelled-allocation-history-integrity-source-contract.test.mjs` additionally protects cancellation allocation coherence, the terminal allocation-history guard, status-independent allocation retention, migration preflight, guarded database coverage, coordinated fixture teardown, database-suite registration, and the availability/documentation boundary. `scripts/hospitality-booking-guest-evidence-integrity-source-contract.test.mjs` protects booking/guest retention, replace-only guest mutation, cancelled traveler-history immutability, and compatibility with the serializable traveler replacement service.
+`scripts/hospitality-booking-identity-integrity-source-contract.test.mjs` protects the PostgreSQL identity guards, guarded database regression assertions, and the base documentation contract. `scripts/hospitality-cancelled-allocation-history-integrity-source-contract.test.mjs` additionally protects cancellation allocation coherence, the terminal allocation-history guard, status-independent allocation retention, migration preflight, guarded database coverage, coordinated fixture teardown, database-suite registration, and the availability/documentation boundary. `scripts/hospitality-booking-guest-evidence-integrity-source-contract.test.mjs` protects booking/guest retention, replace-only guest mutation, cancelled traveler-history immutability, and compatibility with the serializable traveler replacement service. `scripts/hospitality-booking-pricing-evidence-immutability-source-contract.test.mjs` protects the append-only pricing-evidence database boundary, active/cancelled retention scenario, coherent teardown path, database-suite registration, and documentation contract.
 
 Full database execution still requires the repository's explicitly disposable PostgreSQL path. GitHub Actions are intentionally not used.
