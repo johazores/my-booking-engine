@@ -206,6 +206,18 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     assert.equal(issued1a.sequenceValue, 1n);
     assert.equal(await db.hospitalityIssuedInvoice.count({ where: { organizationId: organizationA.id, preparationId: preparation1.id } }), 1);
 
+    await assert.rejects(
+      db.hospitalityIssuedInvoice.update({
+        where: { id: issued1a.id },
+        data: { documentNumber: 'AU-TAX-TAMPERED' },
+      }),
+      /hospitality issued tax invoice is immutable/i,
+    );
+    await assert.rejects(
+      db.hospitalityIssuedInvoice.delete({ where: { id: issued1a.id } }),
+      /hospitality issued tax invoice cannot be deleted while the booking is retained/i,
+    );
+
     const issuer2 = await issuerService.createInvoiceIssuerProfileVersion({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -265,15 +277,16 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     });
     assert.equal(audits.length, 2);
   } finally {
-    await db.hospitalityIssuedInvoice.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.$transaction(async (transaction) => {
+      await transaction.hospitalityIssuedAdjustmentNote.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityIssuedInvoice.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+      await transaction.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
       await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
     });
+    await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
     await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
     await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });

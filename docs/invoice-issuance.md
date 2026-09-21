@@ -19,7 +19,7 @@ The Australian foundation supports tax invoices, full-cancellation decreasing ad
 - schema 5 / repeated `INCREASING / COMMERCIAL_AMENDMENT`, ordinal `2+`; and
 - schema 6 / terminal `DECREASING / BOOKING_CANCELLATION`, ordinal `2+`, bound to the immediate commercial predecessor and an ordered exact refund-authority set.
 
-PostgreSQL constrains material direction/effect, ordinal shape, and predecessor integrity independently of application checks.
+PostgreSQL constrains material direction/effect, ordinal shape, and predecessor integrity independently of application checks. It also rejects every in-place update of an issued tax invoice or adjustment note and rejects deleting either legal document while its tenant booking remains retained. Coherent same-transaction teardown exists only for controlled fixture or maintenance cleanup and is not exposed as a product workflow.
 
 ## Tax-invoice and cancellation issuance
 

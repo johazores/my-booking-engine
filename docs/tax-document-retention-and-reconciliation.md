@@ -4,6 +4,8 @@
 
 SF retains issued Australian hospitality tax invoices and adjustment notes as immutable legal evidence while required for lawful tax, accounting, dispute, and record-keeping purposes. **Automatic deletion is disabled.** SF does not expose delete, void-in-place, or rewrite workflows for issued tax documents and does not infer disposal authority from document age alone.
 
+PostgreSQL independently enforces that retention boundary for issued hospitality tax documents. Every in-place `UPDATE` of an issued tax invoice or adjustment note is rejected, and standalone deletion is rejected while the owning tenant booking remains retained. Controlled fixture or maintenance teardown is possible only when dependent legal documents and the owning booking are removed coherently in the same transaction; that database escape hatch is not a product deletion workflow or legal-disposal authority.
+
 This is an operational fail-safe, not a recommendation to retain customer personal information forever. The product now supports narrowly scoped de-identification of an archived customer master profile only when that customer has no hospitality booking references. Booking-linked data and immutable legal/accounting evidence remain outside that workflow and require separate retention/disposal authority. See `docs/customer-data-lifecycle.md`.
 
 ## Reconciliation boundary
