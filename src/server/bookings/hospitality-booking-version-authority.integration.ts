@@ -4,10 +4,10 @@ import test from 'node:test';
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
-  throw new Error('Hospitality booking version-authority integration tests must run through npm run test:database with TEST_DATABASE_URL.');
+  throw new Error('Hospitality booking version/identity-authority integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('PostgreSQL authors monotonic hospitality booking versions', async () => {
+test('PostgreSQL authors monotonic hospitality booking versions and retains durable row identity', async () => {
   const [{ db }, holds, bookings, pricing] = await Promise.all([
     import('../database.ts'),
     import('../availability/hospitality-availability-hold-service.ts'),
@@ -84,6 +84,47 @@ test('PostgreSQL authors monotonic hospitality booking versions', async () => {
         guests: [{ firstName: 'Version', lastName: 'Guest' }],
       },
     });
+
+    const allocation = await db.hospitalityBookingAllocation.findFirstOrThrow({
+      where: { organizationId: organization.id, bookingId: booking.id },
+      select: { id: true, createdAt: true },
+    });
+
+    await assert.rejects(
+      db.hospitalityBooking.update({
+        where: { id: booking.id },
+        data: { createdAt: new Date('2099-01-01T00:00:00.000Z') },
+      }),
+      /hospitality booking identity evidence is immutable/i,
+    );
+    await assert.rejects(
+      db.hospitalityBooking.update({
+        where: { id: booking.id },
+        data: { id: crypto.randomUUID() },
+      }),
+      /hospitality booking identity evidence is immutable/i,
+    );
+    await assert.rejects(
+      db.hospitalityBookingAllocation.update({
+        where: { id: allocation.id },
+        data: { createdAt: new Date('2099-01-01T00:00:00.000Z') },
+      }),
+      /hospitality booking allocation identity and ownership evidence is immutable/i,
+    );
+    await assert.rejects(
+      db.hospitalityBookingAllocation.update({
+        where: { id: allocation.id },
+        data: { id: crypto.randomUUID() },
+      }),
+      /hospitality booking allocation identity and ownership evidence is immutable/i,
+    );
+    await assert.rejects(
+      db.hospitalityBookingAllocation.update({
+        where: { id: allocation.id },
+        data: { bookingId: crypto.randomUUID() },
+      }),
+      /hospitality booking allocation identity and ownership evidence is immutable/i,
+    );
 
     const versionBeforeDirectWrite = await db.hospitalityBooking.findFirstOrThrow({
       where: { id: booking.id, organizationId: organization.id },

@@ -18,6 +18,12 @@ All three already authorize and tenant-scope the operation before mutation. This
 
 The lifecycle, commercial-amendment, pricing-evidence, and payment boundaries that compare or persist the observed booking version therefore retain a database-owned concurrency marker. A write that touches the booking advances the version; provider/payment evidence that intentionally leaves `HospitalityBooking` untouched continues to leave the prepared booking version stable until the final authorized booking mutation.
 
+## Durable booking and allocation row identity
+
+The booking row identity and creation chronology are now PostgreSQL-protected evidence: `HospitalityBooking.id` and `createdAt` cannot be rewritten after creation. The same boundary protects `HospitalityBookingAllocation.id` and `createdAt`, and allocation ownership cannot be re-parented by changing `organizationId` or `bookingId`.
+
+Supported reschedule and commercial-modification flows may still change the allocation fields they already own, such as effective room type, stay dates, and quantity. The identity trigger does not turn those mutable operational fields into immutable source data and does not add a new mutation path. See [hospitality-booking-source-evidence-integrity.md](./hospitality-booking-source-evidence-integrity.md).
+
 ## Same-price reschedule
 
 The reschedule service still requires `booking:manage`, the shared tenant+booking advisory lock, the room-type allocation lock, a confirmed booking, no active commercial amendment, no unresolved payment operation, active room/rate assignment, current restrictions, current sellable capacity, exact persisted pricing equality, persisted pricing evidence, audit history, idempotent replay handling, and a serializable transaction.
@@ -44,10 +50,12 @@ The production `src/server` sweep for the historical exact pattern `hospitalityB
 
 The booking-version review also found the same caller-authorable `updatedAt` weakness that was already closed for rental bookings. `prisma/migrations/20260921203000-hospitality-booking-version-clock-authority/migration.sql` closes it for hospitality with the same database-owned monotonic-version rule.
 
+The follow-up identity sweep found the same row-identity and allocation-owner rewrite surface already protected in the rental workflow. `prisma/migrations/20260921215000-hospitality-booking-identity-integrity/migration.sql` closes that identity-only boundary for hospitality booking and allocation rows without changing supported allocation mutation semantics.
+
 Test/integration fixtures may still use ID-only writes to create or perturb test state; those are not production mutation boundaries.
 
 ## Validation boundary
 
-The dependency-free source contract in `scripts/booking-lifecycle-write-scope.test.mjs` protects the reviewed predicates and allocation-coherence rule from regressing to ID-only writes. `scripts/hospitality-booking-version-clock-authority-source-contract.test.mjs` additionally protects the PostgreSQL-owned version trigger, guarded database regression, database-suite registration, and documentation boundary.
+The dependency-free source contract in `scripts/booking-lifecycle-write-scope.test.mjs` protects the reviewed predicates and allocation-coherence rule from regressing to ID-only writes. `scripts/hospitality-booking-version-clock-authority-source-contract.test.mjs` additionally protects the PostgreSQL-owned version trigger, guarded database regression, database-suite registration, and documentation boundary. `scripts/hospitality-booking-identity-integrity-source-contract.test.mjs` protects durable booking/allocation identity and allocation ownership.
 
 Full repository validation still requires the repository Node 24 toolchain and, for database behavior, an explicitly disposable PostgreSQL target. In environments without those dependencies, only checks actually executed may be claimed. GitHub Actions are intentionally not used for this repository.
