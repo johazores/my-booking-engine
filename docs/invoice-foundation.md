@@ -14,6 +14,8 @@ PostgreSQL now enforces that append-only contract rather than relying only on se
 
 `InvoiceIssuerProfile` and `HospitalityInvoicePreparation` freeze issuer, recipient, pricing, exact money, and preparation fingerprint. Australian readiness verifies AU/AUD, the supported standard-GST contract, ABN structure, and recipient requirements. `issueHospitalityAustralianTaxInvoice` allocates the tenant/jurisdiction/document sequence in a serializable transaction. Issued tax invoices remain immutable after later booking changes.
 
+PostgreSQL also rejects every in-place `UPDATE` of `InvoiceIssuerProfile` and `HospitalityInvoicePreparation`. Issuer configuration changes create a new profile version, and preparation changes create a new frozen snapshot instead of rewriting source evidence that can feed legal issuance.
+
 ## Adjustment authority
 
 - booking cancellation before commercial changes: schema 1 / ordinal `1`;
@@ -56,4 +58,4 @@ Phase 12 remains open for:
 
 ## Validation boundary
 
-Dependency-free suites cover the Australian tax-invoice foundation, direction-aware cumulative commercial chains, increase-to-decrease behavior, terminal cancellation readiness/snapshots/read authority/writer/product orchestration, protected staff/public projections, accounting/PDF/reconciliation contracts, and fail-closed boundaries. `scripts/hospitality-booking-pricing-evidence-immutability-source-contract.test.mjs` additionally pins the database-enforced append-only pricing-evidence contract and guarded PostgreSQL scenario. Disposable PostgreSQL execution remains required for live tenant permissions, constraints, sequence/concurrency, idempotency, stale-state rejection, audit behavior, and pricing-evidence retention. GitHub Actions are not used.
+Dependency-free suites cover the Australian tax-invoice foundation, direction-aware cumulative commercial chains, increase-to-decrease behavior, terminal cancellation readiness/snapshots/read authority/writer/product orchestration, protected staff/public projections, accounting/PDF/reconciliation contracts, and fail-closed boundaries. `scripts/hospitality-booking-pricing-evidence-immutability-source-contract.test.mjs` pins the database-enforced append-only pricing-evidence contract; `scripts/invoice-foundation-evidence-immutability-source-contract.test.mjs` pins the create-new-version/create-new-preparation database immutability contract. Disposable PostgreSQL execution remains required for live tenant permissions, constraints, sequence/concurrency, idempotency, stale-state rejection, audit behavior, and evidence retention. GitHub Actions are not used.

@@ -60,6 +60,13 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
     });
     assert.equal(issuerA1Retry.id, issuerA1.id);
     assert.equal(await db.invoiceIssuerProfile.count({ where: { organizationId: organizationA.id } }), 1);
+    await assert.rejects(
+      db.invoiceIssuerProfile.update({
+        where: { id: issuerA1.id },
+        data: { countryCode: 'US' },
+      }),
+      /invoice issuer profile is immutable/i,
+    );
 
     const issuerB = await issuerService.createInvoiceIssuerProfileVersion({
       organizationId: organizationB.id,
@@ -176,6 +183,13 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
     assert.equal(preparation1.totalMinor, booking.totalMinor);
     const preparation1Retry = await preparationService.prepareHospitalityInvoice({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id });
     assert.equal(preparation1Retry.id, preparation1.id);
+    await assert.rejects(
+      db.hospitalityInvoicePreparation.update({
+        where: { id: preparation1.id },
+        data: { currency: 'AUD' },
+      }),
+      /hospitality invoice preparation is immutable/i,
+    );
 
     const issuerA2 = await issuerService.createInvoiceIssuerProfileVersion({
       organizationId: organizationA.id,
