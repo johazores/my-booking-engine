@@ -377,7 +377,7 @@ model HospitalityRoomTypeAmenity {
   roomTypeId     String              @db.Uuid
   amenityId      String              @db.Uuid
   createdAt      DateTime            @default(now()) @db.Timestamptz(6)
-  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade, map: "hospitality_room_type_amenities_room_type_fkey")
   amenity        HospitalityAmenity  @relation(fields: [amenityId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@id([organizationId, roomTypeId, amenityId])
@@ -399,7 +399,7 @@ model HospitalityPropertyImage {
   property       HospitalityProperty @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([id, organizationId])
-  @@index([organizationId, propertyId, isPrimary, sortOrder])
+  @@index([organizationId, propertyId, isPrimary, sortOrder], map: "hospitality_property_images_scope_sort_idx")
   @@map("hospitality_property_images")
 }
 
@@ -414,10 +414,10 @@ model HospitalityRoomTypeImage {
   isPrimary      Boolean             @default(false)
   createdAt      DateTime            @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime            @updatedAt @db.Timestamptz(6)
-  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade, map: "hospitality_room_type_images_room_type_fkey")
 
   @@unique([id, organizationId])
-  @@index([organizationId, propertyId, roomTypeId, isPrimary, sortOrder])
+  @@index([organizationId, propertyId, roomTypeId, isPrimary, sortOrder], map: "hospitality_room_type_images_scope_sort_idx")
   @@map("hospitality_room_type_images")
 }
 
@@ -457,8 +457,8 @@ model HospitalityRoomTypeRatePlan {
   roomTypeId     String              @db.Uuid
   ratePlanId     String              @db.Uuid
   createdAt      DateTime            @default(now()) @db.Timestamptz(6)
-  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
-  ratePlan       HospitalityRatePlan @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade)
+  roomType       HospitalityRoomType @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade, map: "hospitality_room_type_rate_plans_room_type_fkey")
+  ratePlan       HospitalityRatePlan @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Cascade, map: "hospitality_room_type_rate_plans_rate_plan_fkey")
 
   @@id([organizationId, roomTypeId, ratePlanId])
   @@index([organizationId, ratePlanId])
@@ -482,12 +482,12 @@ model HospitalityRestriction {
   createdAt         DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime                 @updatedAt @db.Timestamptz(6)
   archivedAt        DateTime?                @db.Timestamptz(6)
-  ratePlan          HospitalityRatePlan      @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
-  roomType          HospitalityRoomType?     @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+  ratePlan          HospitalityRatePlan      @relation(fields: [ratePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_restrictions_rate_plan_fkey")
+  roomType          HospitalityRoomType?     @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_restrictions_room_type_fkey")
 
   @@unique([id, propertyId, organizationId])
-  @@index([organizationId, propertyId, ratePlanId, status, startDate])
-  @@index([organizationId, propertyId, roomTypeId, status, startDate])
+  @@index([organizationId, propertyId, ratePlanId, status, startDate], map: "hospitality_restrictions_rate_plan_dates_idx")
+  @@index([organizationId, propertyId, roomTypeId, status, startDate], map: "hospitality_restrictions_room_type_dates_idx")
   @@map("hospitality_restrictions")
 }
 
@@ -588,10 +588,10 @@ model HospitalityAvailabilityWindow {
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
   archivedAt     DateTime?                @db.Timestamptz(6)
   organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  roomType       HospitalityRoomType      @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict)
+  roomType       HospitalityRoomType      @relation(fields: [roomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, map: "hospitality_availability_windows_room_type_fkey")
 
-  @@unique([id, propertyId, organizationId])
-  @@index([organizationId, propertyId, roomTypeId, status, startDate])
+  @@unique([id, propertyId, organizationId], map: "hospitality_availability_windows_id_property_org_key")
+  @@index([organizationId, propertyId, roomTypeId, status, startDate], map: "hospitality_availability_windows_scope_start_idx")
   @@map("hospitality_availability_windows")
 }
 

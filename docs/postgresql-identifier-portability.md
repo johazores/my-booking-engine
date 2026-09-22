@@ -67,6 +67,14 @@ The original adjustment-note migration creates `hospitality_issued_adjustment_no
 
 The `20260922111500-hospitality-invoice-identifier-portability` migration renames that exact stored index to `hospitality_adj_notes_org_jurisdiction_type_sequence_key`. The migration is rename-only: it does not rebuild legal-document evidence, change sequence values, rewrite money, or alter adjustment-note lifecycle semantics. `prisma/invoice-foundation.prisma` maps the compact final name while preserving the existing unique tuple.
 
+## Hospitality inventory foundation cleanup
+
+The same-scope inventory sweep found 13 remaining PostgreSQL identifiers above the 63-byte storage limit across hospitality amenities, media, room-type/rate-plan assignments, restrictions, and availability windows. They consist of seven tenant-bound foreign keys and six unique/lookup indexes.
+
+All 13 legacy spellings resolve to distinct 63-byte PostgreSQL-stored identifiers, so this set is not another clean-chain collision. The risk is silent physical-name truncation and unnecessary Prisma/schema authority ambiguity.
+
+The `20260922122500-hospitality-inventory-identifier-portability` migration renames the exact stored identifiers to compact permanent names. It is rename-only: it does not recreate constraints/indexes, rewrite inventory data, change restriction/availability semantics, or weaken the existing composite tenant tuples. `prisma/schema.prisma` maps the compact foreign-key and index names directly while retaining the same organization/property/room-type/rate-plan relationships.
+
 ## Forward identifier budget
 
 New migration SQL from `20260922111500-hospitality-invoice-identifier-portability` onward must keep constraint, index, trigger, and rename-target identifiers within PostgreSQL's 63-byte storage limit. This keeps future migrations explicit instead of relying on server-side truncation and prevents a repeat of the collision/physical-name ambiguity repaired above.
@@ -112,6 +120,14 @@ New migration SQL from `20260922111500-hospitality-invoice-identifier-portabilit
 - the migration renames the exact 63-byte PostgreSQL-stored identifier without rebuilding evidence;
 - Prisma preserves the tenant/jurisdiction/document-type/sequence uniqueness under the compact final name; and
 - every explicit physical name in the invoice Prisma fragment fits PostgreSQL's identifier limit.
+
+`scripts/hospitality-inventory-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
+
+- the five focused hospitality inventory foundations contain exactly the 13 known overlong identifiers;
+- those names resolve to 13 distinct exact PostgreSQL-stored identifiers;
+- the portability migration is rename-only with bounded unique destinations;
+- Prisma maps every compact final name; and
+- tenant-bound room-type/rate-plan relations plus restriction and availability lookup tuples remain unchanged.
 
 The repository-wide forward budget contract additionally prevents new migration constraints, indexes, triggers, and rename targets from exceeding 63 UTF-8 bytes. It is a source-level guard, not a substitute for `prisma validate`, migration deployment, drift inspection, or database integration execution.
 
