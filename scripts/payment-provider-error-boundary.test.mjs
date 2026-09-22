@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const PROVIDER = 'src/server/payments/payment-provider.ts';
+const CLIENT_ERROR = 'src/server/payments/payment-provider-client-error.ts';
 const PAYMENT_HTTP = 'src/server/payments/payment-http.ts';
 const BOOKING_HTTP = 'src/server/bookings/hospitality-booking-http.ts';
+const PUBLIC_CHECKOUT_ROUTE = 'app/api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/route.ts';
 const DOCUMENTATION = 'docs/payment-provider-error-boundary.md';
 
 async function read(path) {
@@ -26,14 +28,41 @@ test('payment provider machine failures require private constructor authority', 
   assert.match(documentation, /durable payment\/refund claim settlement/i);
 });
 
-test('staff payment HTTP boundaries sanitize branded provider failures before presentation', async () => {
+test('staff payment HTTP boundaries materialize client-safe failures from constructor authority', async () => {
   for (const path of [PAYMENT_HTTP, BOOKING_HTTP]) {
     const source = await read(path);
-    assert.match(source, /paymentProviderClientError/);
-    assert.match(source, /\.\.\.paymentProviderClientError\(error\)/);
-    const providerBranch = source.slice(source.indexOf('if (error instanceof PaymentProviderError)'), source.indexOf('if (error instanceof PaymentProviderError)') + 500);
-    assert.equal(/message:\s*error\.message/.test(providerBranch), false, `${path} must not return raw provider messages`);
+    assert.match(source, /paymentProviderClientErrorFromThrown/);
+    assert.match(source, /const providerError = paymentProviderClientErrorFromThrown\(error\)/);
+    assert.equal(source.includes('PaymentProviderError'), false, `${path} should not re-read provider failure fields for presentation`);
+    assert.equal(/message:\s*error\.message/.test(source), false, `${path} must not return raw provider messages`);
+    assert.equal(/error\.retryable/.test(source), false, `${path} must use the inspected snapshot for retry presentation`);
   }
+});
+
+test('payment client presentation has a narrower public checkout contract', async () => {
+  const [clientSource, routeSource, documentation] = await Promise.all([
+    read(CLIENT_ERROR),
+    read(PUBLIC_CHECKOUT_ROUTE),
+    read(DOCUMENTATION),
+  ]);
+
+  assert.match(clientSource, /inspectPaymentProviderFailure/);
+  assert.match(clientSource, /paymentProviderClientErrorFromThrown\(error: unknown\)/);
+  assert.match(clientSource, /publicPaymentProviderClientError\(error: unknown\)/);
+  assert.match(clientSource, /failure\.retryable/);
+  assert.match(clientSource, /failure\.code === 'DECLINED'/);
+  assert.match(clientSource, /payment-temporarily-unavailable/);
+  assert.match(clientSource, /payment-rejected/);
+  assert.match(clientSource, /payment-unavailable/);
+
+  assert.match(routeSource, /publicPaymentProviderClientError\(error\)/);
+  assert.equal(routeSource.includes('PaymentProviderError'), false);
+  assert.equal(/error\.retryable/.test(routeSource), false);
+  assert.equal(/error\.code/.test(routeSource), false);
+  assert.equal(/message:\s*error\.message/.test(routeSource), false);
+
+  assert.match(documentation, /only.*DECLINED.*customer rejection/is);
+  assert.match(documentation, /never exposes.*failure code/is);
 });
 
 test('payment HTTP responses disable caching at the shared boundary', async () => {

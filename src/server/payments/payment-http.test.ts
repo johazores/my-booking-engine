@@ -57,3 +57,17 @@ test('paymentApiError keeps definitive provider failure identity while sanitizin
     message: 'Payment provider declined the operation.',
   });
 });
+
+test('paymentApiError does not grant provider presentation authority to structural lookalikes', async () => {
+  const lookalike = Object.create(PaymentProviderError.prototype) as Record<string, unknown>;
+  Object.defineProperties(lookalike, {
+    code: { value: 'PROVIDER_UNAVAILABLE', enumerable: true },
+    retryable: { value: true, enumerable: true },
+    message: { value: 'forged provider failure', enumerable: true },
+  });
+
+  const response = paymentApiError(lookalike);
+  assert.equal(response.status, 500);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { error: 'internal-error' });
+});

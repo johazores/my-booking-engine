@@ -2,8 +2,8 @@ import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/pub
 import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
+import { publicPaymentProviderClientError } from '@/server/payments/payment-provider-client-error.ts';
 import { PaymentConflictError, PaymentUnavailableError } from '@/server/payments/payment-service.ts';
-import { PaymentProviderError } from '@/server/payments/payment-provider.ts';
 import {
   createPublicStripeCheckoutSession,
   PublicStripeCheckoutAuthorizationError,
@@ -28,12 +28,12 @@ function errorResponse(error: unknown) {
   if (error instanceof PublicStripeCheckoutUnavailableError || error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'payment-unavailable' }, { status: 503, headers: noStoreHeaders });
   }
-  if (error instanceof PaymentProviderError) {
-    if (error.retryable) {
-      return Response.json({ error: 'payment-temporarily-unavailable' }, { status: 503, headers: noStoreHeaders });
-    }
-    return Response.json({ error: 'payment-rejected', code: error.code }, { status: 409, headers: noStoreHeaders });
+
+  const providerError = publicPaymentProviderClientError(error);
+  if (providerError) {
+    return Response.json({ error: providerError.error }, { status: providerError.status, headers: noStoreHeaders });
   }
+
   if (error instanceof SyntaxError) return Response.json({ error: 'invalid-json' }, { status: 400, headers: noStoreHeaders });
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: noStoreHeaders });

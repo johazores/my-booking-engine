@@ -2,8 +2,7 @@ import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '../availability/hospitality-availability-hold-service.ts';
 import { AvailabilityUnavailableError } from '../availability/hospitality-availability-service.ts';
-import { paymentProviderClientError } from '../payments/payment-provider-client-error.ts';
-import { PaymentProviderError } from '../payments/payment-provider.ts';
+import { paymentProviderClientErrorFromThrown } from '../payments/payment-provider-client-error.ts';
 import { PaymentConflictError, PaymentUnavailableError } from '../payments/payment-service.ts';
 import { HospitalityPricingUnavailableError } from '../pricing/hospitality-pricing-service.ts';
 import { HospitalityTransactionalPricingUnavailableError } from '../pricing/hospitality-transactional-pricing.ts';
@@ -57,12 +56,15 @@ export function hospitalityBookingApiError(error: unknown) {
     return bookingApiErrorJson({ error: 'conflict', message: error.message }, 409);
   }
   if (error instanceof PaymentUnavailableError) return bookingApiErrorJson({ error: 'payment-unavailable', message: error.message }, 404);
-  if (error instanceof PaymentProviderError) {
+
+  const providerError = paymentProviderClientErrorFromThrown(error);
+  if (providerError) {
     return bookingApiErrorJson({
       error: 'provider-error',
-      ...paymentProviderClientError(error),
-    }, error.retryable ? 503 : 502);
+      ...providerError,
+    }, providerError.retryable ? 503 : 502);
   }
+
   if (
     error instanceof HospitalityBookingUnavailableError
     || error instanceof AvailabilityHoldUnavailableError
