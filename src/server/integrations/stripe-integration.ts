@@ -1,5 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { requestStripeApi } from '../payments/stripe-api-transport.ts';
+import { inspectPaymentProviderFailure } from '../payments/payment-provider.ts';
 import { StripePaymentProvider } from '../payments/stripe-payment-provider.ts';
 import { StripePaymentReconciliationProvider } from '../payments/stripe-payment-reconciliation-provider.ts';
 import { StripeRefundReconciliationProvider } from '../payments/stripe-refund-reconciliation-provider.ts';
@@ -62,7 +64,7 @@ export async function probeStripeIntegrationHealth(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await (input.fetchImpl ?? fetch)(`${STRIPE_API_BASE}/balance`, {
+    const response = await requestStripeApi(input.fetchImpl ?? fetch, `${STRIPE_API_BASE}/balance`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${configuration.credentials.secretKey}` },
       signal: controller.signal,
@@ -80,7 +82,11 @@ export async function probeStripeIntegrationHealth(input: {
     return payload?.object === 'balance'
       ? Object.freeze({ status: 'HEALTHY', failureCode: null })
       : Object.freeze({ status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
-  } catch {
+  } catch (error) {
+    const providerFailure = inspectPaymentProviderFailure(error);
+    if (providerFailure?.code === 'INVALID_REQUEST') {
+      return Object.freeze({ status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
+    }
     if (controller.signal.aborted) {
       return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
     }

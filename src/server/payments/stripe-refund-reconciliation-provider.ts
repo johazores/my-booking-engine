@@ -1,4 +1,5 @@
 import { PaymentProviderError } from './payment-provider.ts';
+import { requestStripeApi } from './stripe-api-transport.ts';
 import { normalizeStripePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
@@ -30,7 +31,7 @@ export class StripeRefundReconciliationProvider {
 
   constructor(options: { secretKey: string; fetchImpl?: StripeFetch; timeoutMs?: number }) {
     const secretKey = options.secretKey.trim();
-    if (!secretKey.startsWith('sk_') || secretKey.length < 12) throw new Error('Stripe secret key is required.');
+    if (!secretKey.startsWith('sk_') || secretKey.length < 12 || secretKey.length > 4_096) throw new Error('Stripe secret key is required.');
     if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1_000 || options.timeoutMs > 120_000)) {
       throw new Error('Stripe timeout must be between 1000 and 120000 milliseconds.');
     }
@@ -44,7 +45,7 @@ export class StripeRefundReconciliationProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${STRIPE_API_BASE}/refunds/${encodeURIComponent(reference)}`, {
+      const response = await requestStripeApi(this.fetchImpl, `${STRIPE_API_BASE}/refunds/${encodeURIComponent(reference)}`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${this.secretKey}` },
         signal: controller.signal,

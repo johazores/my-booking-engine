@@ -11,6 +11,7 @@ import {
   type ProviderPaymentResult,
   type ProviderRefundResult,
 } from './payment-provider.ts';
+import { requestStripeApi } from './stripe-api-transport.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
@@ -36,7 +37,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 
   constructor(options: StripePaymentProviderOptions) {
     const secretKey = options.secretKey.trim();
-    if (!secretKey.startsWith('sk_') || secretKey.length < 12) throw new Error('Stripe secret key is required.');
+    if (!secretKey.startsWith('sk_') || secretKey.length < 12 || secretKey.length > 4_096) throw new Error('Stripe secret key is required.');
     if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1_000 || options.timeoutMs > 120_000)) {
       throw new Error('Stripe timeout must be between 1000 and 120000 milliseconds.');
     }
@@ -131,7 +132,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${STRIPE_API_BASE}${path}`, {
+      const response = await requestStripeApi(this.fetchImpl, `${STRIPE_API_BASE}${path}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': idempotencyKey },
         body: form.toString(),
