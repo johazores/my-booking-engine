@@ -54,6 +54,24 @@ test('Travelport operational record schema excludes request and provider-sensiti
   assert.doesNotMatch(logger, /console\.(?:error|warn)\([^)]*error/);
 });
 
+test('Travelport transport operation labels preserve Create versus Booking.com Sync semantics', () => {
+  const logger = source('src/server/suppliers/travelport-stays-operational-log-fetch.ts');
+  const createObservation = source('src/server/suppliers/travelport-stays-reservation-create-observability.ts');
+  const syncObservation = source('src/server/suppliers/travelport-stays-reservation-sync-observability.ts');
+
+  assert.match(
+    logger,
+    /reservationBuild\) return 'reservation\.create'/,
+  );
+  assert.match(
+    logger,
+    /reservationCollection\) return 'reservation\.sync'/,
+  );
+  assert.doesNotMatch(logger, /'reservation\.build'/);
+  assert.match(createObservation, /operation: 'reservation\.create'/);
+  assert.match(syncObservation, /operation: 'reservation\.sync'/);
+});
+
 test('Travelport operational logging documentation records the non-authoritative and secret-free boundary', () => {
   const documentation = source('docs/travelport-stays-operational-logging.md');
 
@@ -64,5 +82,7 @@ test('Travelport operational logging documentation records the non-authoritative
   assert.match(documentation, /request or response bodies/i);
   assert.match(documentation, /pagination tokens or reservation locators/i);
   assert.match(documentation, /do not authorize tenant access/i);
+  assert.match(documentation, /reservation\.create/);
+  assert.match(documentation, /reservation\.sync/);
   assert.match(documentation, /GitHub Actions are not used/i);
 });

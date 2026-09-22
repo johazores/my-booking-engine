@@ -27,6 +27,8 @@ Every terminal Travelport request emits one bounded `supplier.provider-request.c
 
 Operation names are fixed categories. Opaque SearchComplete/Availability pagination tokens and reservation locator path segments are never copied into log records. IDs are constrained to UUID-shaped values before logging; malformed values are replaced with fixed non-sensitive placeholders.
 
+Reservation operation labels follow the reviewed Travelport Stays endpoint semantics: `POST /11/hotel/book/reservations/build` is `reservation.create`, `POST /11/hotel/book/reservations/` is `reservation.sync`, and the bounded locator retrieve route is `reservation.retrieve`. The Booking.com Sync transport is deliberately not logged as Create because Sync reconstructs the Travelport reservation after the documented aggregator sell-recovery case without re-selling the supplier segment.
+
 HTTP 2xx responses are `info/succeeded`, HTTP 3xx/4xx responses are `warn/rejected`, HTTP 5xx responses are `error/failed`, aborted transports are `warn/failed`, and other thrown transports are `error/failed`.
 
 ## Prohibited data
@@ -68,6 +70,6 @@ This ordering keeps operational logging downstream of secret containment. Connec
 
 `src/server/suppliers/travelport-stays-operational-log-fetch.test.ts` covers safe successful records, all currently implemented operation categories, opaque pagination/locator non-disclosure, HTTP and thrown transport failures, abort classification, safe identifier fallbacks, and fail-open logging-sink behavior.
 
-`scripts/travelport-stays-operational-logging-contract.test.mjs` locks the production composition and secret-free record/documentation contract without external dependencies.
+`scripts/travelport-stays-operational-logging-contract.test.mjs` locks the production composition, Create-versus-Sync operation semantics, and secret-free record/documentation contract without external dependencies.
 
 Repository-required Node 24 execution remains part of the normal local validation gate. GitHub Actions are not used.

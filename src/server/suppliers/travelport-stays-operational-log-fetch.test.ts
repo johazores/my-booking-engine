@@ -57,7 +57,7 @@ test('logs safe structured Travelport request context without request secrets or
     credentialVersion: 7,
     provider: 'travelport-stays',
     environment: 'production',
-    operation: 'reservation.create',
+    operation: 'reservation.sync',
     outcome: 'succeeded',
     statusCode: 200,
     durationMs: 25,
@@ -95,8 +95,8 @@ test('classifies all implemented Travelport operations without logging opaque pa
     ['POST', 'https://api.travelport.net/11/hotel/rules/offershospitality/buildfromrequest', 'rules'],
     ['POST', 'https://api.travelport.net/11/hotel/availability/catalogofferingshospitality', 'availability'],
     ['GET', 'https://api.travelport.net/11/hotel/availability/catalogofferingshospitality/OPAQUE-TOKEN?pageNumber=3', 'availability.page'],
-    ['POST', 'https://api.travelport.net/11/hotel/book/reservations/build', 'reservation.build'],
-    ['POST', 'https://api.travelport.net/11/hotel/book/reservations/', 'reservation.create'],
+    ['POST', 'https://api.travelport.net/11/hotel/book/reservations/build', 'reservation.create'],
+    ['POST', 'https://api.travelport.net/11/hotel/book/reservations/', 'reservation.sync'],
     ['GET', 'https://api.travelport.net/11/hotel/book/reservations/PRIVATE-LOCATOR', 'reservation.retrieve'],
   ] as const;
 

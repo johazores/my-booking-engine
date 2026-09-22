@@ -25,8 +25,8 @@ export type TravelportStaysOperationalOperation =
   | 'rules'
   | 'availability'
   | 'availability.page'
-  | 'reservation.build'
   | 'reservation.create'
+  | 'reservation.sync'
   | 'reservation.retrieve'
   | 'unknown';
 
@@ -94,8 +94,8 @@ function classifyOperation(url: URL | null, method: string): TravelportStaysOper
     method === 'GET'
     && hasSinglePathSegment(url, `${TRAVELPORT_STAYS_ENDPOINTS.availability}/`)
   ) return 'availability.page';
-  if (method === 'POST' && url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationBuild) return 'reservation.build';
-  if (method === 'POST' && url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationCollection) return 'reservation.create';
+  if (method === 'POST' && url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationBuild) return 'reservation.create';
+  if (method === 'POST' && url.pathname === TRAVELPORT_STAYS_ENDPOINTS.reservationCollection) return 'reservation.sync';
   if (
     method === 'GET'
     && hasSinglePathSegment(url, TRAVELPORT_STAYS_ENDPOINTS.reservationCollection)
