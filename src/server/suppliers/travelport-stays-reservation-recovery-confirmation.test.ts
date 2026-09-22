@@ -67,7 +67,7 @@ test('Travelport recovery declares its provider-neutral commercial evidence capa
     fetchImpl,
   });
   assert.equal(provider.requiresSupplierConfirmationForFound, true);
-  assert.equal(provider.supportsAuthoritativeNotFound, false);
+  assert.equal(provider.supportsAuthoritativeNotFound, true);
 
   const result = await provider.retrieveReservation({
     providerReservationReference: 'D6VBHL',

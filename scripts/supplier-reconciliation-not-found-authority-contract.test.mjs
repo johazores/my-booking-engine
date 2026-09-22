@@ -7,11 +7,12 @@ async function source(path) {
 }
 
 test('provider-neutral NOT_FOUND requires explicit exact-locator negative authority', async () => {
-  const [recoveryContract, authority, coordinator, travelportRecovery, integration, operationsDoc] = await Promise.all([
+  const [recoveryContract, authority, coordinator, travelportRecovery, travelportNegativeEvidence, integration, operationsDoc] = await Promise.all([
     source('src/server/suppliers/hospitality-supplier-reservation-recovery-provider.ts'),
     source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-authority.ts'),
     source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts'),
     source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts'),
+    source('src/server/suppliers/travelport-stays-reservation-negative-evidence.ts'),
     source('src/server/suppliers/hospitality-supplier-reservation-reconciliation.integration.ts'),
     source('docs/supplier-reservation-operations.md'),
   ]);
@@ -40,7 +41,8 @@ test('provider-neutral NOT_FOUND requires explicit exact-locator negative author
     /failureCode: 'INVALID_RESPONSE'[\s\S]*?providerCorrelationId/,
   );
 
-  assert.match(travelportRecovery, /readonly supportsAuthoritativeNotFound = false/);
+  assert.match(travelportRecovery, /readonly supportsAuthoritativeNotFound = true/);
+  assert.match(travelportNegativeEvidence, /AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE = '13061'/);
   assert.match(operationsDoc, /NOT_FOUND[\s\S]*authoritative exact-locator negative semantics/i);
 
   assert.match(
