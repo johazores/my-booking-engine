@@ -67,6 +67,12 @@ The original adjustment-note migration creates `hospitality_issued_adjustment_no
 
 The `20260922111500-hospitality-invoice-identifier-portability` migration renames that exact stored index to `hospitality_adj_notes_org_jurisdiction_type_sequence_key`. The migration is rename-only: it does not rebuild legal-document evidence, change sequence values, rewrite money, or alter adjustment-note lifecycle semantics. `prisma/invoice-foundation.prisma` maps the compact final name while preserving the existing unique tuple.
 
+## Forward identifier budget
+
+New migration SQL from `20260922111500-hospitality-invoice-identifier-portability` onward must keep constraint, index, trigger, and rename-target identifiers within PostgreSQL's 63-byte storage limit. This keeps future migrations explicit instead of relying on server-side truncation and prevents a repeat of the collision/physical-name ambiguity repaired above.
+
+`scripts/postgresql-identifier-budget-source-contract.test.mjs` enforces that boundary directly from checked-in migration SQL. The baseline is intentionally an already-applied portability migration rather than a synthetic migration. Historical migrations remain immutable except for a demonstrated clean-chain blocker; existing legacy names are handled by their focused corrective migrations and source contracts.
+
 ## Regression protection
 
 `scripts/rental-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
@@ -106,5 +112,7 @@ The `20260922111500-hospitality-invoice-identifier-portability` migration rename
 - the migration renames the exact 63-byte PostgreSQL-stored identifier without rebuilding evidence;
 - Prisma preserves the tenant/jurisdiction/document-type/sequence uniqueness under the compact final name; and
 - every explicit physical name in the invoice Prisma fragment fits PostgreSQL's identifier limit.
+
+The repository-wide forward budget contract additionally prevents new migration constraints, indexes, triggers, and rename targets from exceeding 63 UTF-8 bytes. It is a source-level guard, not a substitute for `prisma validate`, migration deployment, drift inspection, or database integration execution.
 
 The live migration gate still requires `npm run test:database` against an explicitly disposable PostgreSQL target before the database checklist can be marked complete. GitHub Actions are not required or used.

@@ -37,6 +37,7 @@ Before changing code, read the relevant files in `/docs`, inspect the current sc
 - Prefer a modular monolith. Do not add microservices or event-driven architecture without a demonstrated need.
 - Keep business logic out of UI components and thin route handlers.
 - Prefer correctness, simplicity, maintainability, typing, validation, security, and testability over route/file count.
+- Keep new PostgreSQL constraint, index, trigger, and other explicit physical identifiers within the 63-byte PostgreSQL storage limit; never rely on silent identifier truncation.
 - Do not add GitHub Actions or CI workflows. Validate locally.
 - Keep commits coherent and never commit secrets, local env files, debug files, or generated junk.
 
