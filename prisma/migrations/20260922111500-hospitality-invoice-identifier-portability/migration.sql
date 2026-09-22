@@ -1,0 +1,2 @@
+ALTER INDEX "hospitality_issued_adjustment_notes_org_jurisdiction_type_seque"
+  RENAME TO "hospitality_adj_notes_org_jurisdiction_type_sequence_key";

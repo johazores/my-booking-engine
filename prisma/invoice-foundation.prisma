@@ -163,7 +163,7 @@ model HospitalityIssuedAdjustmentNote {
   @@unique([id, bookingId, organizationId, sourceInvoiceId, sourceAdjustmentOrdinal, adjustmentReason], map: "hospitality_adj_notes_chain_reference_key")
   @@unique([organizationId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_adj_notes_org_source_ordinal_key")
   @@unique([organizationId, jurisdictionCode, documentNumber], map: "hospitality_issued_adjustment_notes_org_jurisdiction_number_key")
-  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue], map: "hospitality_issued_adjustment_notes_org_jurisdiction_type_sequence_key")
+  @@unique([organizationId, jurisdictionCode, documentType, sequenceValue], map: "hospitality_adj_notes_org_jurisdiction_type_sequence_key")
   @@unique([organizationId, documentFingerprint], map: "hospitality_issued_adjustment_notes_org_fingerprint_key")
   @@index([organizationId, bookingId, issuedAt], map: "hospitality_issued_adjustment_notes_org_booking_issued_idx")
   @@index([organizationId, sourceInvoiceId, issuedAt], map: "hospitality_issued_adjustment_notes_org_source_issued_idx")

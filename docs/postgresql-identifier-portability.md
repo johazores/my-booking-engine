@@ -61,6 +61,12 @@ The `20260922092500-rental-inventory-identifier-portability` migration renames t
 
 `prisma/rental-inventory.prisma` now maps the three final physical index names explicitly.
 
+## Hospitality invoice legal-document cleanup
+
+The original adjustment-note migration creates `hospitality_issued_adjustment_notes_org_jurisdiction_type_sequence_key`, a 70-byte unique-index name for the tenant/jurisdiction/document-type/sequence tuple. PostgreSQL stores it as the 63-byte `hospitality_issued_adjustment_notes_org_jurisdiction_type_seque` identifier. This does not collide with the adjacent document-number index, but leaving the truncated physical name behind creates avoidable Prisma drift ambiguity in legal-document numbering authority.
+
+The `20260922111500-hospitality-invoice-identifier-portability` migration renames that exact stored index to `hospitality_adj_notes_org_jurisdiction_type_sequence_key`. The migration is rename-only: it does not rebuild legal-document evidence, change sequence values, rewrite money, or alter adjustment-note lifecycle semantics. `prisma/invoice-foundation.prisma` maps the compact final name while preserving the existing unique tuple.
+
 ## Regression protection
 
 `scripts/rental-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
@@ -93,5 +99,12 @@ The `20260922092500-rental-inventory-identifier-portability` migration renames t
 - the portability migration is rename-only and maps them to bounded unique names;
 - Prisma maps the final availability-block, rate-period, and hold lookup names; and
 - lookup column tuples plus tenant-bound unit/unit-type relations remain unchanged.
+
+`scripts/hospitality-invoice-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
+
+- the adjustment-note foundation has exactly one overlong schema object in this focused numbering scope;
+- the migration renames the exact 63-byte PostgreSQL-stored identifier without rebuilding evidence;
+- Prisma preserves the tenant/jurisdiction/document-type/sequence uniqueness under the compact final name; and
+- every explicit physical name in the invoice Prisma fragment fits PostgreSQL's identifier limit.
 
 The live migration gate still requires `npm run test:database` against an explicitly disposable PostgreSQL target before the database checklist can be marked complete. GitHub Actions are not required or used.
