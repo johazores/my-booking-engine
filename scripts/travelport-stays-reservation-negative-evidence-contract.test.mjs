@@ -10,6 +10,7 @@ test('Travelport known-locator retry authority requires the documented 13061 pro
   const negativeEvidence = source('src/server/suppliers/travelport-stays-reservation-negative-evidence.ts');
   const focusedTest = source('src/server/suppliers/travelport-stays-reservation-negative-evidence.test.ts');
   const docs = source('docs/supplier-reservation-reconciliation-authority.md');
+  const correlationDocs = source('docs/supplier-reservation-correlation.md');
 
   assert.match(adapter, /readonly supportsAuthoritativeNotFound = true/);
   assert.match(adapter, /inspectTravelportStaysReservationNegativeEvidence/);
@@ -54,4 +55,6 @@ test('Travelport known-locator retry authority requires the documented 13061 pro
   assert.match(docs, /supplier chain code/i);
   assert.match(docs, /generic HTTP `404`[\s\S]*non-authoritative/i);
   assert.match(docs, /supportsAuthoritativeNotFound = true/);
+  assert.match(correlationDocs, /RESERVATION WAS NOT FOUND IN SUPPLIER SYSTEM/);
+  assert.match(correlationDocs, /status\/category\/message\/envelope validation/i);
 });
