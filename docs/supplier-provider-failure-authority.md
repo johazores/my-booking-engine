@@ -40,7 +40,7 @@ The Travelport deferred payment-card source also uses the shared snapshot. It ma
 
 The same-scope sweep distinguishes failure-authority decisions from parser-local exception preservation. Some Travelport parsers use `instanceof HospitalitySupplierProviderError` only to rethrow an SF error they raised inside the same synchronous parser while converting `JSON.parse` or encoding exceptions into a fixed request error. Those catches do not read `retryable`, do not change the failure code, and do not authorize retry, reconciliation, or supplier writes, so they are not provider-failure authority boundaries.
 
-Any catch that begins using supplier failures to decide durable retryability, settlement, reconciliation, health state, or another commercial decision must use the centralized inspection contract rather than trusting mutable public error fields.
+Any catch that begins using supplier failures to decide durable retryability, reservation settlement, reconciliation, or another commercial write/recovery decision must use the centralized inspection contract rather than trusting mutable public error fields. Operational connection-health classification is separate from this durable commercial-authority contract.
 
 ## Security and privacy
 
