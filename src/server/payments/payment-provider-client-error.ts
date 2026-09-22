@@ -37,7 +37,8 @@ export function paymentProviderClientError(input: PaymentProviderFailure): Payme
 
 /**
  * Converts only constructor-branded SF payment-provider failures into staff-safe presentation data.
- * Structural lookalikes and arbitrary thrown values return null and remain internal errors.
+ * Structural lookalikes and arbitrary thrown values return null and receive no provider-failure
+ * presentation authority from this boundary.
  */
 export function paymentProviderClientErrorFromThrown(error: unknown): PaymentProviderClientError | null {
   const failure = inspectPaymentProviderFailure(error);
