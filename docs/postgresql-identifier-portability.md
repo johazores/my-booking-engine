@@ -47,6 +47,20 @@ The `20260922081500-hospitality-commercial-amendment-identifier-portability` mig
 
 The Prisma commercial-amendment fragment now maps the compact foreign-key and index names directly.
 
+## Rental inventory lookup cleanup
+
+The original rental inventory and availability-hold migrations create three lookup indexes above PostgreSQL's 63-byte identifier limit:
+
+- availability block organization/unit/date lookup;
+- rate-period organization/unit-type/date lookup; and
+- availability-hold organization/unit/status/date lookup.
+
+These names truncate to three distinct stored identifiers, so they do not block the migration chain, but retaining the implicit truncated names leaves unnecessary physical-name ambiguity for Prisma drift checks and later migrations.
+
+The `20260922092500-rental-inventory-identifier-portability` migration renames those exact stored indexes to compact permanent names. The migration is rename-only and leaves index columns, rental availability semantics, pricing behavior, tenant-bound relations, and retained data unchanged.
+
+`prisma/rental-inventory.prisma` now maps the three final physical index names explicitly.
+
 ## Regression protection
 
 `scripts/rental-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
@@ -71,5 +85,13 @@ The Prisma commercial-amendment fragment now maps the compact foreign-key and in
 - the portability migration renames those exact stored identifiers to bounded unique names without create/drop/data-write statements;
 - Prisma maps the final physical foreign-key/index names; and
 - current room-type/rate-plan tenant authority plus the booking/status/expiry lookup tuple remain unchanged.
+
+`scripts/rental-inventory-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
+
+- the rental inventory/hold foundations contain exactly the three known overlong schema object names in this scope;
+- all three legacy names resolve to distinct exact 63-byte PostgreSQL identifiers;
+- the portability migration is rename-only and maps them to bounded unique names;
+- Prisma maps the final availability-block, rate-period, and hold lookup names; and
+- lookup column tuples plus tenant-bound unit/unit-type relations remain unchanged.
 
 The live migration gate still requires `npm run test:database` against an explicitly disposable PostgreSQL target before the database checklist can be marked complete. GitHub Actions are not required or used.

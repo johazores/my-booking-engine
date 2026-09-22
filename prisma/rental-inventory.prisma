@@ -96,7 +96,7 @@ model RentalAvailabilityBlock {
   unit RentalUnit @relation(fields: [unitId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([id, organizationId])
-  @@index([organizationId, unitId, startsOn, endsOn])
+  @@index([organizationId, unitId, startsOn, endsOn], map: "rental_availability_blocks_unit_dates_idx")
   @@map("rental_availability_blocks")
 }
 
@@ -123,7 +123,7 @@ model RentalAvailabilityHold {
 
   @@unique([id, organizationId])
   @@unique([organizationId, idempotencyKey])
-  @@index([organizationId, unitId, status, startsOn, endsOn])
+  @@index([organizationId, unitId, status, startsOn, endsOn], map: "rental_availability_holds_unit_status_dates_idx")
   @@index([organizationId, status, expiresAt])
   @@map("rental_availability_holds")
 }
@@ -140,7 +140,7 @@ model RentalRatePeriod {
   unitType RentalUnitType @relation(fields: [unitTypeId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([id, organizationId])
-  @@index([organizationId, unitTypeId, startsOn, endsOn])
+  @@index([organizationId, unitTypeId, startsOn, endsOn], map: "rental_rate_periods_unit_type_dates_idx")
   @@map("rental_rate_periods")
 }
 
