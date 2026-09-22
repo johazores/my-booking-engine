@@ -30,6 +30,32 @@ test('Checkout session and booking mutations retain the validated lifecycle', ()
   assert.match(service, /status: lockedPayment\.status,\s*providerReference: lockedPayment\.providerReference/);
 });
 
+test('tracked booking Checkout callbacks revalidate created-session authority before commercial writes', () => {
+  const domain = source('src/server/payments/stripe-webhook-domain.ts');
+  const normalCommercial = source('src/server/bookings/booking-commercial-amendment-stripe-checkout-webhook-domain.ts');
+  const recoveryCommercial = source('src/server/bookings/booking-commercial-amendment-stripe-recovery-checkout-webhook-domain.ts');
+
+  assert.match(service, /inspectStripeBookingCheckoutAuthority\(\{\s*checkoutSession: event\.checkoutSession,\s*bookingId: tracked\.bookingId,\s*expiresAt: currentSession\.expiresAt,/);
+  const authorityIndex = service.indexOf('inspectStripeBookingCheckoutAuthority({');
+  const moneyIndex = service.indexOf('checkout-session-booking-money-mismatch');
+  const completionIndex = service.indexOf("event.eventType === 'checkout.session.completed'");
+  assert.ok(authorityIndex >= 0 && moneyIndex > authorityIndex && completionIndex > moneyIndex);
+
+  assert.match(domain, /checkoutSession\.mode !== 'payment'/);
+  assert.match(domain, /checkoutSession\.clientReferenceId !== input\.bookingId\.toLowerCase\(\)/);
+  assert.match(domain, /checkoutSession\.commercialContext !== null/);
+  assert.match(domain, /checkoutSession\.expiresAt\.getTime\(\) !== input\.expiresAt\.getTime\(\)/);
+  assert.match(domain, /Object\.prototype\.hasOwnProperty\.call\(metadata, 'sf_checkout_purpose'\)/);
+
+  for (const commercial of [normalCommercial, recoveryCommercial]) {
+    assert.match(commercial, /checkout\.mode !== 'payment'/);
+    assert.match(commercial, /checkout\.clientReferenceId !== checkout\.bookingId/);
+    assert.match(commercial, /!checkout\.expiresAt/);
+    assert.match(commercial, /checkout\.commercialContext/);
+    assert.doesNotMatch(commercial, /JSON\.parse\(payload\)/);
+  }
+});
+
 test('webhook trust, idempotency, locking, and documentation boundaries remain explicit', () => {
   const verificationIndex = service.indexOf('verifyWebhookSignature');
   const transactionIndex = service.indexOf('return db.$transaction');
@@ -45,6 +71,7 @@ test('webhook trust, idempotency, locking, and documentation boundaries remain e
   assert.match(document, /provider event id/i);
   assert.match(document, /defense in depth/i);
   assert.match(document, /commercial-amendment webhook/i);
+  assert.match(document, /mode.*client_reference_id.*expires_at/is);
   assert.match(document, /GitHub Actions are intentionally not used/i);
   assert.match(tenancy, /core signed Stripe webhook/i);
   assert.match(tenancy, /stripe-webhook-write-scope\.md/);

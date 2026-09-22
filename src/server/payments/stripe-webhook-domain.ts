@@ -16,6 +16,11 @@ export type StripeWebhookPaymentIntent = Readonly<{
   bookingId: string | null;
 }>;
 
+export type StripeWebhookCheckoutCommercialContext = Readonly<{
+  purpose: string | null;
+  amendmentId: string | null;
+}>;
+
 export type StripeWebhookCheckoutSession = Readonly<{
   providerReference: string;
   status: 'open' | 'complete' | 'expired';
@@ -25,6 +30,10 @@ export type StripeWebhookCheckoutSession = Readonly<{
   paymentIntentReference: string | null;
   organizationId: string | null;
   bookingId: string | null;
+  mode: string | null;
+  clientReferenceId: string | null;
+  expiresAt: Date | null;
+  commercialContext: StripeWebhookCheckoutCommercialContext | null;
 }>;
 
 export type StripeWebhookRefund = Readonly<{
@@ -62,11 +71,47 @@ export type StripeCheckoutExpirationDecision = Readonly<{
   note: string;
 }>;
 
+export type StripeBookingCheckoutAuthorityDecision = Readonly<
+  | { valid: true }
+  | {
+      valid: false;
+      processingNote:
+        | 'checkout-session-mode-mismatch'
+        | 'checkout-session-client-reference-mismatch'
+        | 'checkout-session-commercial-context-mismatch'
+        | 'checkout-session-expiry-mismatch';
+    }
+>;
+
 export class StripeWebhookValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'StripeWebhookValidationError';
   }
+}
+
+export function inspectStripeBookingCheckoutAuthority(input: {
+  checkoutSession: StripeWebhookCheckoutSession;
+  bookingId: string;
+  expiresAt: Date;
+}): StripeBookingCheckoutAuthorityDecision {
+  if (input.checkoutSession.mode !== 'payment') {
+    return Object.freeze({ valid: false, processingNote: 'checkout-session-mode-mismatch' });
+  }
+  if (input.checkoutSession.clientReferenceId !== input.bookingId.toLowerCase()) {
+    return Object.freeze({ valid: false, processingNote: 'checkout-session-client-reference-mismatch' });
+  }
+  if (input.checkoutSession.commercialContext !== null) {
+    return Object.freeze({ valid: false, processingNote: 'checkout-session-commercial-context-mismatch' });
+  }
+  if (
+    !input.checkoutSession.expiresAt
+    || Number.isNaN(input.expiresAt.getTime())
+    || input.checkoutSession.expiresAt.getTime() !== input.expiresAt.getTime()
+  ) {
+    return Object.freeze({ valid: false, processingNote: 'checkout-session-expiry-mismatch' });
+  }
+  return Object.freeze({ valid: true });
 }
 
 export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEvent {
@@ -156,6 +201,25 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       : objectRecord(session.metadata, 'Stripe Checkout Session metadata');
     const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
     const metadataBookingId = optionalString(metadata?.sf_booking_id);
+    const mode = optionalString(session.mode);
+    const clientReferenceIdValue = optionalString(session.client_reference_id);
+    const clientReferenceId = clientReferenceIdValue && UUID_PATTERN.test(clientReferenceIdValue)
+      ? clientReferenceIdValue.toLowerCase()
+      : null;
+    const expiresAt = optionalUnixSecondsDate(session.expires_at);
+    const hasCommercialContext = Boolean(metadata) && (
+      Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose')
+      || Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id')
+    );
+    const commercialAmendmentIdValue = optionalString(metadata?.sf_commercial_amendment_id);
+    const commercialContext = hasCommercialContext
+      ? Object.freeze({
+          purpose: optionalString(metadata?.sf_checkout_purpose),
+          amendmentId: commercialAmendmentIdValue && UUID_PATTERN.test(commercialAmendmentIdValue)
+            ? commercialAmendmentIdValue.toLowerCase()
+            : null,
+        })
+      : null;
 
     return Object.freeze({
       providerEventId,
@@ -172,6 +236,10 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
         paymentIntentReference,
         organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
         bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
+        mode,
+        clientReferenceId,
+        expiresAt,
+        commercialContext,
       }),
     });
   }
@@ -322,4 +390,10 @@ function optionalString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function optionalUnixSecondsDate(value: unknown): Date | null {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) return null;
+  const date = new Date(Number(value) * 1000);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

@@ -4,6 +4,7 @@ import test from 'node:test';
 const {
   StripeWebhookValidationError,
   decideStripeCheckoutExpiration,
+  inspectStripeBookingCheckoutAuthority,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
@@ -11,6 +12,8 @@ const {
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const bookingId = '22222222-2222-4222-8222-222222222222';
+const amendmentId = '33333333-3333-4333-8333-333333333333';
+const checkoutExpiresAtSeconds = 1788251802;
 
 function paymentIntentEvent(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -47,6 +50,9 @@ function checkoutSessionEvent(overrides: Record<string, unknown> = {}) {
         amount_total: 12500,
         currency: 'usd',
         payment_intent: null,
+        mode: 'payment',
+        client_reference_id: bookingId,
+        expires_at: checkoutExpiresAtSeconds,
         metadata: {
           sf_organization_id: organizationId,
           sf_booking_id: bookingId,
@@ -88,7 +94,7 @@ test('Stripe webhook parser normalizes signed-payment fields without trusting pr
   assert.equal(event.refund, null);
 });
 
-test('Stripe webhook parser normalizes Checkout Session abandonment with exact tenant, booking, and money metadata', () => {
+test('Stripe webhook parser normalizes Checkout Session abandonment with exact tenant, booking, and authority fields', () => {
   const event = parseStripeWebhookEventPayload(checkoutSessionEvent());
   assert.equal(event.providerEventId, 'evt_sf_checkout_1');
   assert.equal(event.eventType, 'checkout.session.expired');
@@ -102,6 +108,47 @@ test('Stripe webhook parser normalizes Checkout Session abandonment with exact t
   assert.equal(event.checkoutSession?.paymentIntentReference, null);
   assert.equal(event.checkoutSession?.organizationId, organizationId);
   assert.equal(event.checkoutSession?.bookingId, bookingId);
+  assert.equal(event.checkoutSession?.mode, 'payment');
+  assert.equal(event.checkoutSession?.clientReferenceId, bookingId);
+  assert.equal(event.checkoutSession?.expiresAt?.toISOString(), new Date(checkoutExpiresAtSeconds * 1000).toISOString());
+  assert.equal(event.checkoutSession?.commercialContext, null);
+});
+
+test('Stripe webhook parser keeps explicit commercial Checkout context without making it booking authority', () => {
+  const event = parseStripeWebhookEventPayload(checkoutSessionEvent({
+    metadata: {
+      sf_organization_id: organizationId,
+      sf_booking_id: bookingId,
+      sf_checkout_purpose: 'commercial-amendment-charge',
+      sf_commercial_amendment_id: amendmentId,
+    },
+  }));
+  assert.deepEqual(event.checkoutSession?.commercialContext, {
+    purpose: 'commercial-amendment-charge',
+    amendmentId,
+  });
+});
+
+test('normal booking Checkout authority requires exact mode, client reference, absence of commercial context, and persisted expiry', () => {
+  const checkout = parseStripeWebhookEventPayload(checkoutSessionEvent()).checkoutSession;
+  assert.ok(checkout);
+  const expiresAt = new Date(checkoutExpiresAtSeconds * 1000);
+  assert.deepEqual(inspectStripeBookingCheckoutAuthority({ checkoutSession: checkout, bookingId, expiresAt }), { valid: true });
+
+  const cases = [
+    [{ ...checkout, mode: 'subscription' }, 'checkout-session-mode-mismatch'],
+    [{ ...checkout, clientReferenceId: amendmentId }, 'checkout-session-client-reference-mismatch'],
+    [{ ...checkout, commercialContext: { purpose: 'commercial-amendment-charge', amendmentId } }, 'checkout-session-commercial-context-mismatch'],
+    [{ ...checkout, expiresAt: new Date(expiresAt.getTime() + 1000) }, 'checkout-session-expiry-mismatch'],
+    [{ ...checkout, expiresAt: null }, 'checkout-session-expiry-mismatch'],
+  ] as const;
+
+  for (const [checkoutSession, processingNote] of cases) {
+    assert.deepEqual(
+      inspectStripeBookingCheckoutAuthority({ checkoutSession, bookingId, expiresAt }),
+      { valid: false, processingNote },
+    );
+  }
 });
 
 test('Stripe webhook parser preserves a Checkout PaymentIntent reference so expiry recovery can fail closed', () => {

@@ -15,6 +15,7 @@ import { reconcileStripeTransactionState, reconciledBookingPaymentStatus } from 
 import {
   StripeWebhookValidationError,
   decideStripeCheckoutExpiration,
+  inspectStripeBookingCheckoutAuthority,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
@@ -198,6 +199,14 @@ export async function ingestStripePaymentWebhook(input: {
       });
       if (!booking || !payment || !currentSession || currentSession.paymentTransactionId !== payment.id) {
         return persistEvent('IGNORED', 'checkout-session-persistence-mismatch', tracked.bookingId);
+      }
+      const checkoutAuthority = inspectStripeBookingCheckoutAuthority({
+        checkoutSession: event.checkoutSession,
+        bookingId: tracked.bookingId,
+        expiresAt: currentSession.expiresAt,
+      });
+      if (!checkoutAuthority.valid) {
+        return persistEvent('IGNORED', checkoutAuthority.processingNote, booking.id);
       }
       if (booking.currency !== event.checkoutSession.currency || booking.totalMinor !== event.checkoutSession.amountTotalMinor) {
         return persistEvent('IGNORED', 'checkout-session-booking-money-mismatch', booking.id);

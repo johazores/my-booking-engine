@@ -165,6 +165,8 @@ export class StripeCheckoutProvider {
     const paymentStatus = normalizeCheckoutPaymentStatus(response.payment_status);
     const paymentIntentReference = normalizePaymentIntentReference(response.payment_intent);
     const metadata = normalizeCheckoutMetadata(response.metadata);
+    const bookingId = normalizeMetadataUuid(metadata.sf_booking_id);
+    assertRetrievedCheckoutSessionAuthority(response, bookingId);
 
     return Object.freeze({
       providerCode: 'stripe',
@@ -174,7 +176,7 @@ export class StripeCheckoutProvider {
       paymentIntentReference,
       money: normalizeCheckoutMoney(response),
       organizationId: normalizeMetadataUuid(metadata.sf_organization_id),
-      bookingId: normalizeMetadataUuid(metadata.sf_booking_id),
+      bookingId,
       commercialAmendmentId: normalizeMetadataUuid(metadata.sf_commercial_amendment_id),
       purpose: normalizeOptionalString(metadata.sf_checkout_purpose),
     });
@@ -255,6 +257,22 @@ function assertCreatedCheckoutSessionAuthority(
   }
   if (responsePurpose !== expected.purpose || responseAmendmentId !== expected.commercialAmendmentId) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout metadata that does not match the requested commercial amendment.', true);
+  }
+}
+
+function assertRetrievedCheckoutSessionAuthority(response: StripeCheckoutSessionResponse, bookingId: string | null): void {
+  if (
+    response.mode !== 'payment'
+    || !bookingId
+    || normalizeMetadataUuid(response.client_reference_id) !== bookingId
+    || !Number.isSafeInteger(response.expires_at)
+    || Number(response.expires_at) <= 0
+  ) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout Session authority that cannot be bound to the persisted booking operation.', true);
+  }
+  const expiresAt = new Date(Number(response.expires_at) * 1000);
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session expiry.', true);
   }
 }
 

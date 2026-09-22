@@ -6,6 +6,7 @@ import { parseStripeCommercialAmendmentCheckoutWebhook } from './booking-commerc
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const bookingId = '22222222-2222-4222-8222-222222222222';
 const amendmentId = '33333333-3333-4333-8333-333333333333';
+const expiresAt = 1788431800;
 
 function payload(metadata: Record<string, string>, overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -20,6 +21,9 @@ function payload(metadata: Record<string, string>, overrides: Record<string, unk
         amount_total: 2500,
         currency: 'usd',
         payment_intent: 'pi_change_123',
+        mode: 'payment',
+        client_reference_id: bookingId,
+        expires_at: expiresAt,
         metadata,
         ...overrides,
       },
@@ -42,6 +46,7 @@ test('parses exact normal commercial amendment Checkout ownership and money', ()
   assert.equal(evidence.amendmentId, amendmentId);
   assert.equal(evidence.amountMinor, 2500n);
   assert.equal(evidence.paymentIntentReference, 'pi_change_123');
+  assert.equal(evidence.checkoutExpiresAt.toISOString(), new Date(expiresAt * 1000).toISOString());
 });
 
 test('parses unpaid Checkout expiry without turning it into payment evidence', () => {
@@ -72,4 +77,10 @@ test('refuses malformed commercial amendment ownership metadata', () => {
     ...amendmentMetadata,
     sf_commercial_amendment_id: 'not-an-amendment',
   })), null);
+});
+
+test('refuses Checkout webhook authority with mode, client reference, or expiry drift', () => {
+  assert.equal(parseStripeCommercialAmendmentCheckoutWebhook(payload(amendmentMetadata, { mode: 'subscription' })), null);
+  assert.equal(parseStripeCommercialAmendmentCheckoutWebhook(payload(amendmentMetadata, { client_reference_id: amendmentId })), null);
+  assert.equal(parseStripeCommercialAmendmentCheckoutWebhook(payload(amendmentMetadata, { expires_at: null })), null);
 });

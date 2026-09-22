@@ -192,6 +192,39 @@ test('retrieves exact Checkout provider truth for amendment recovery reconciliat
   assert.equal(snapshot.purpose, 'commercial-amendment-recovery');
 });
 
+test('rejects retrieved Checkout authority that no longer belongs to the persisted booking operation', async () => {
+  const cases: Record<string, unknown>[] = [
+    { mode: 'subscription' },
+    { client_reference_id: amendmentId },
+    { client_reference_id: null },
+    { expires_at: null },
+    { expires_at: -1 },
+    { expires_at: 12.5 },
+  ];
+  for (const overrides of cases) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+        status: 'complete',
+        payment_status: 'paid',
+        payment_intent: 'pi_recovery_123',
+        amount_total: 2500,
+        metadata: {
+          sf_organization_id: organizationId,
+          sf_booking_id: bookingId,
+          sf_commercial_amendment_id: amendmentId,
+          sf_checkout_purpose: 'commercial-amendment-recovery',
+        },
+        ...overrides,
+      })), { status: 200 }),
+    });
+    await assert.rejects(
+      provider.retrievePaymentSession('cs_test_abc123'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
 test('fails closed when retrieved Checkout provider identity is malformed', async () => {
   const provider = new StripeCheckoutProvider({
     secretKey: 'sk_test_checkout_secret',
