@@ -47,7 +47,7 @@ function activeReservationWithoutSupplierConfirmation() {
   };
 }
 
-test('Travelport recovery marks supplier confirmation as required for provider-neutral FOUND settlement', async () => {
+test('Travelport recovery declares its provider-neutral commercial evidence capabilities', async () => {
   const fetchImpl = (async (url: RequestInfo | URL) => {
     if (String(url).includes('/oauth/token')) {
       return new Response(JSON.stringify({ access_token: 'token', expires_in: 86400 }), {
@@ -67,6 +67,7 @@ test('Travelport recovery marks supplier confirmation as required for provider-n
     fetchImpl,
   });
   assert.equal(provider.requiresSupplierConfirmationForFound, true);
+  assert.equal(provider.supportsAuthoritativeNotFound, false);
 
   const result = await provider.retrieveReservation({
     providerReservationReference: 'D6VBHL',

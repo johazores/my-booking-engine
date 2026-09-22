@@ -89,6 +89,7 @@ async function fetchWithTimeout(input: {
 export class TravelportStaysReservationRecoveryProvider implements HospitalitySupplierReservationRecoveryProvider {
   readonly code = 'travelport-stays';
   readonly requiresSupplierConfirmationForFound = true;
+  readonly supportsAuthoritativeNotFound = false;
   readonly #credentials: TravelportStaysCredentials;
   readonly #cacheKey: string;
   readonly #fetchImpl: typeof fetch;

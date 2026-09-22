@@ -14,9 +14,13 @@ The snapshot does not replace server authorization. `claimHospitalitySupplierRes
 
 ## Provider capability authority
 
-After the durable claim proves a known provider reservation reference, SF snapshots only the recovery provider fields that can affect reconciliation: provider code, the optional supplier-confirmation requirement, and the `retrieveReservation` method. The method is retained with its original receiver so class-based adapters keep their private state, while later property mutation cannot swap the provider identity, retrieval implementation, or confirmation requirement after those values have been reviewed.
+After the durable claim proves a known provider reservation reference, SF snapshots only the recovery provider fields that can affect reconciliation: provider code, the optional supplier-confirmation requirement, the optional authoritative exact-locator negative-evidence capability, and the `retrieveReservation` method. The method is retained with its original receiver so class-based adapters keep their private state, while later property mutation cannot swap the provider identity, retrieval implementation, confirmation requirement, or negative-evidence authority after those values have been reviewed.
 
-Provider code is also required to be a trim-stable, control-free machine token of at most 64 characters before it can be compared with the durable provider identity. If the capability object is malformed, its provider code is invalid, or its getters cannot be read safely, the already-created reconciliation attempt is settled as `UNKNOWN / INVALID_REQUEST`. SF does not leave a durable attempt stranded because a provider capability getter failed between claim and provider I/O.
+`supportsAuthoritativeNotFound` defaults to `false`. A provider-neutral `NOT_FOUND` can remove the known locator and return the operation to `PREPARED` only when the snapshotted adapter explicitly declares this capability. Without that declaration, a normalized `NOT_FOUND` is treated as `INVALID_RESPONSE`, the operation remains `AMBIGUOUS`, and the durable provider/supplier identity is preserved. This prevents a buggy or future adapter from turning an unsupported negative response into authority for another supplier Create.
+
+Travelport Stays explicitly declares `supportsAuthoritativeNotFound = false`. The current public Retrieve contract does not establish generic HTTP `404` as authoritative proof that the exact reservation does not exist, so Travelport negative transport responses do not grant retry authority.
+
+Provider code is also required to be a trim-stable, control-free machine token of at most 64 characters before it can be compared with the durable provider identity. Optional provider capability flags must be booleans when present. If the capability object is malformed, its provider code or flags are invalid, or its getters cannot be read safely, the already-created reconciliation attempt is settled as `UNKNOWN / INVALID_REQUEST`. SF does not leave a durable attempt stranded because a provider capability getter failed between claim and provider I/O.
 
 ## Provider result authority
 
@@ -26,11 +30,11 @@ A successful recovery adapter call is immediately reduced to a frozen allowliste
 
 Every result field that can influence settlement is therefore both read once and semantically bounded before identity, confirmation, observation, or persistence logic runs. Unknown statuses, padded/control-character references, oversized references, malformed nullable fields, throwing getters, and revoked proxies all become the same sanitized `INVALID_RESPONSE`; the provider observation is completed as failed and the durable reconciliation attempt is settled `UNKNOWN`.
 
-The existing reconciliation rules remain unchanged: the durable locator must match exactly, required supplier confirmation remains adapter-declared, and generic HTTP/provider failure behavior is not reinterpreted by this materialization layer.
+The existing reconciliation rules remain fail closed: the durable locator must match exactly, required supplier confirmation remains adapter-declared, `NOT_FOUND` requires explicit authoritative-negative capability, and generic HTTP/provider failure behavior is not reinterpreted by this materialization layer.
 
 ## Similar-issue review
 
-The immediate reconciliation flow was reviewed from durable claim through provider call and final settlement. The same runtime-authority concern exists at three connected boundaries in this workflow: top-level coordinator identity, provider capability properties, and provider result evidence. All three are stabilized, while this run additionally closes the semantic gap where a frozen result could previously still contain an invalid status or malformed operational reference for later code to reject.
+The immediate reconciliation flow was reviewed from durable claim through provider call and final settlement. The same runtime-authority concern exists at four connected boundaries in this workflow: top-level coordinator identity, provider capability properties, provider result evidence, and the commercial authority of negative evidence. All four are stabilized, while the coordinator now independently refuses to convert an undeclared negative result into retry authority.
 
 Travelport Create, reviewed Create, Booking.com Sync, and the Travelport recovery adapter retain their separate provider-specific operation/constructor/request authority layers. Provider-specific commercial behavior is not moved into this provider-neutral reconciliation service.
 
@@ -43,6 +47,7 @@ No provider payload, credential, token, traveler PII, or payment-card data is ad
 Related documentation:
 
 - `docs/supplier-provider-observability.md`
+- `docs/supplier-reservation-correlation.md`
 - `docs/travelport-stays-integration.md`
 - `docs/travelport-stays-reservation-operation-input-authority.md`
 - `docs/travelport-stays-reservation-expectation-authority.md`

@@ -192,6 +192,7 @@ test('supplier reconciliation preserves known locator authority and durable supp
       reservationId: transientOperation.id,
       provider: {
         code: 'travelport-stays',
+        supportsAuthoritativeNotFound: true,
         async retrieveReservation(request) {
           await request.beforeProviderRequest();
           notFoundCorrelationId = request.requestCorrelationId;
@@ -213,6 +214,35 @@ test('supplier reconciliation preserves known locator authority and durable supp
     assert.equal(notFoundCorrelationId, notFoundAttempt.id);
     assert.notEqual(notFoundCorrelationId, transientCorrelationId);
     assert.ok(notFoundAttempt.providerRequestStartedAt);
+
+    const undeclaredNotFoundOperation = await prepare('supplier:reconcile:undeclared-not-found');
+    await makeAmbiguous(undeclaredNotFoundOperation.id, 'TVPT-UNDECLARED-NOT-FOUND-001');
+    const undeclaredNotFound = await reconciliation.reconcileHospitalitySupplierReservationWithProvider({
+      organizationId: tenantA.id,
+      actorUserId: tenantAAdmin.id,
+      reservationId: undeclaredNotFoundOperation.id,
+      provider: {
+        code: 'travelport-stays',
+        async retrieveReservation(request) {
+          await request.beforeProviderRequest();
+          return {
+            status: 'NOT_FOUND' as const,
+            providerReservationReference: request.providerReservationReference,
+            providerCorrelationId: request.requestCorrelationId,
+          };
+        },
+      },
+    });
+    assert.equal(undeclaredNotFound.status, 'AMBIGUOUS');
+    assert.equal(undeclaredNotFound.providerReservationReference, 'TVPT-UNDECLARED-NOT-FOUND-001');
+    assert.equal(undeclaredNotFound.supplierConfirmationReference, null);
+    assert.equal(undeclaredNotFound.lastFailureCode, 'INVALID_RESPONSE');
+    const undeclaredNotFoundAttempt = await db.hospitalitySupplierReservationAttempt.findFirstOrThrow({
+      where: { organizationId: tenantA.id, reservationId: undeclaredNotFoundOperation.id, kind: 'RECONCILE' },
+      orderBy: { sequence: 'desc' },
+    });
+    assert.equal(undeclaredNotFoundAttempt.status, 'AMBIGUOUS');
+    assert.ok(undeclaredNotFoundAttempt.providerRequestStartedAt);
 
     const mismatchFoundOperation = await prepare('supplier:reconcile:mismatch-found');
     await makeAmbiguous(mismatchFoundOperation.id, 'TVPT-EXPECTED-FOUND-001');
@@ -246,6 +276,7 @@ test('supplier reconciliation preserves known locator authority and durable supp
       reservationId: mismatchNotFoundOperation.id,
       provider: {
         code: 'travelport-stays',
+        supportsAuthoritativeNotFound: true,
         async retrieveReservation(request) {
           await request.beforeProviderRequest();
           return {

@@ -264,6 +264,20 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
         },
       });
     }
+    if (!provider.supportsAuthoritativeNotFound) {
+      providerObservation?.finish({ status: 'FAILED', failureCode: 'INVALID_RESPONSE' });
+      return settleHospitalitySupplierReservationReconciliation({
+        organizationId: authority.organizationId,
+        actorUserId: authority.actorUserId,
+        reservationId: authority.reservationId,
+        attemptId: claim.attempt.id,
+        outcome: {
+          status: 'UNKNOWN',
+          failureCode: 'INVALID_RESPONSE',
+          providerCorrelationId,
+        },
+      });
+    }
 
     providerObservation?.finish({ status: 'SUCCEEDED', providerResult: 'NOT_FOUND' });
     return settleHospitalitySupplierReservationReconciliation({

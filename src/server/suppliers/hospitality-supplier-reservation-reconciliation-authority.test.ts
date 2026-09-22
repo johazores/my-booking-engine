@@ -59,10 +59,11 @@ test('reconciliation input is a one-read frozen allowlist with sanitized accesso
   );
 });
 
-test('recovery provider capability is snapshotted once, bounded, and preserves its receiver', async () => {
+test('recovery provider capabilities are snapshotted once, bounded, and preserve their receiver', async () => {
   let codeReads = 0;
   let methodReads = 0;
   let confirmationReads = 0;
+  let notFoundAuthorityReads = 0;
   const provider = {
     marker: 'original',
     get code() {
@@ -71,6 +72,10 @@ test('recovery provider capability is snapshotted once, bounded, and preserves i
     },
     get requiresSupplierConfirmationForFound() {
       confirmationReads += 1;
+      return true;
+    },
+    get supportsAuthoritativeNotFound() {
+      notFoundAuthorityReads += 1;
       return true;
     },
     get retrieveReservation() {
@@ -91,6 +96,9 @@ test('recovery provider capability is snapshotted once, bounded, and preserves i
   assert.equal(codeReads, 1);
   assert.equal(methodReads, 1);
   assert.equal(confirmationReads, 1);
+  assert.equal(notFoundAuthorityReads, 1);
+  assert.equal(snapshot.requiresSupplierConfirmationForFound, true);
+  assert.equal(snapshot.supportsAuthoritativeNotFound, true);
   assert.equal(Object.isFrozen(snapshot), true);
   Object.defineProperty(provider, 'code', { value: 'mutated-provider' });
   assert.equal(snapshot.code, 'travelport-stays');
@@ -109,6 +117,15 @@ test('recovery provider capability is snapshotted once, bounded, and preserves i
   });
   assert.equal(result.status, 'FOUND');
 
+  const defaultCapabilities = materializeHospitalitySupplierReservationRecoveryProvider({
+    code: 'travelport-stays',
+    async retrieveReservation() {
+      return { status: 'NOT_FOUND' as const, providerReservationReference: 'ABC123', providerCorrelationId: null };
+    },
+  });
+  assert.equal(defaultCapabilities.requiresSupplierConfirmationForFound, false);
+  assert.equal(defaultCapabilities.supportsAuthoritativeNotFound, false);
+
   for (const code of ['', ' travelport-stays', 'travelport-stays\n', 'x'.repeat(65)]) {
     assert.throws(
       () => materializeHospitalitySupplierReservationRecoveryProvider({
@@ -123,13 +140,32 @@ test('recovery provider capability is snapshotted once, bounded, and preserves i
       ),
     );
   }
+
+  for (const supportsAuthoritativeNotFound of [null, 1, 'true']) {
+    assert.throws(
+      () => materializeHospitalitySupplierReservationRecoveryProvider({
+        code: 'travelport-stays',
+        supportsAuthoritativeNotFound,
+        async retrieveReservation() {
+          return { status: 'NOT_FOUND' as const, providerReservationReference: 'ABC123', providerCorrelationId: null };
+        },
+      } as never),
+      fixedFailure(
+        'INVALID_REQUEST',
+        'Supplier reservation recovery provider authority could not be materialized safely.',
+      ),
+    );
+  }
 });
 
 test('recovery provider capability sanitizes hostile getters', () => {
   const provider = {
     code: 'travelport-stays',
-    get retrieveReservation(): never {
+    get supportsAuthoritativeNotFound(): never {
       throw new Error('provider capability secret');
+    },
+    async retrieveReservation() {
+      return { status: 'NOT_FOUND' as const, providerReservationReference: 'ABC123', providerCorrelationId: null };
     },
   };
   assert.throws(

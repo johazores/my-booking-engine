@@ -52,7 +52,7 @@ Correlation values are UUIDs only. They never contain traveler/customer identity
 
 The provider must complete deterministic request validation, provider authentication, and transport-policy preflight before invoking that callback. The callback atomically writes `providerRequestStartedAt`, rechecks the tenant integration/provider/credential/capability authority, and only then allows the real provider Retrieve to begin. Travelport follows the same boundary as Create and Sync: exact request construction and OAuth finish first, the no-I/O transport policy validates the final GET, then the marker callback runs immediately before the credentialed Retrieve.
 
-If authentication, deterministic request construction, or preflight fails, the reconciliation attempt remains unmarked because no provider request started. If a provider returns without invoking the callback, the coordinator rejects the provider contract result and does not fabricate `providerRequestStartedAt` after a provider returns. `FOUND` must return the exact queried locator; `NOT_FOUND` is accepted only when the provider adapter has authoritative exact-locator negative semantics; all other cases remain unknown/ambiguous.
+If authentication, deterministic request construction, or preflight fails, the reconciliation attempt remains unmarked because no provider request started. If a provider returns without invoking the callback, the coordinator rejects the provider contract result and does not fabricate `providerRequestStartedAt` after a provider returns. `FOUND` must return the exact queried locator. `NOT_FOUND` is accepted only when the snapshotted provider declares `supportsAuthoritativeNotFound = true`, which means that adapter owns authoritative exact-locator negative semantics. The capability defaults to `false`, so unsupported or undeclared negative evidence remains `UNKNOWN / INVALID_RESPONSE` and cannot authorize another Create. Travelport Stays explicitly leaves the capability false because its current public Retrieve contract does not establish generic HTTP `404` as authoritative exact-locator nonexistence.
 
 A new reconciliation receives a new durable attempt UUID while prior attempt history remains append-only.
 
@@ -82,6 +82,7 @@ Durable correlation never changes commercial safety:
 
 - provider timeout/unknown response remains `AMBIGUOUS` after the marker;
 - a known locator still requires provider truth;
+- `NOT_FOUND` can authorize another Create only when explicit authoritative exact-locator negative capability was snapshotted as true;
 - locator-less ambiguity cannot become retryable merely because a tracking ID exists;
 - Booking.com Sync requires its distinct verified recovery authority;
 - reviewed price/guarantee acceptance is single-use and distinct from retry authority; and
@@ -91,7 +92,7 @@ Authoritative live locator-less correlation/recovery semantics are still a provi
 
 ## Validation
 
-Dependency-free/source contracts verify durable correlation and marker ordering across Create, reviewed Create, Sync, and reconciliation. The known-locator contract specifically locks the ordering `deterministic validation, OAuth, and transport-policy preflight -> durable marker -> real Retrieve`, and requires the coordinator to reject unmarked provider results rather than manufacturing transport evidence afterward. The provider-request marker contract also verifies the live tenant integration/provider/credential/capability recheck occurs before a new marker is written.
+Dependency-free/source contracts verify durable correlation and marker ordering across Create, reviewed Create, Sync, and reconciliation. The known-locator contract specifically locks the ordering `deterministic validation, OAuth, and transport-policy preflight -> durable marker -> real Retrieve`, requires the coordinator to reject unmarked provider results rather than manufacturing transport evidence afterward, and requires provider-neutral `NOT_FOUND` retry authority to be explicit rather than inferred from a result enum alone. The provider-request marker contract also verifies the live tenant integration/provider/credential/capability recheck occurs before a new marker is written.
 
 Travelport reservation response-trace coverage additionally verifies exact response header/payload echo binding, HTTP 500 application-error binding, malformed or mismatched response rejection, non-reservation pass-through, and production integration wiring through the reservation-only correlation wrapper.
 

@@ -22,6 +22,7 @@ export type HospitalitySupplierReservationReconciliationInput = Readonly<{
 export type MaterializedHospitalitySupplierReservationRecoveryProvider = Readonly<{
   code: string;
   requiresSupplierConfirmationForFound: boolean;
+  supportsAuthoritativeNotFound: boolean;
   retrieveReservation(
     input: HospitalitySupplierReservationRecoveryRequest,
   ): Promise<HospitalitySupplierReservationRecoveryResult>;
@@ -82,10 +83,12 @@ export function materializeHospitalitySupplierReservationRecoveryProvider(
   const record = objectRecord(provider, 'INVALID_REQUEST', PROVIDER_FAILURE_MESSAGE);
   let code: unknown;
   let requiresSupplierConfirmationForFound: unknown;
+  let supportsAuthoritativeNotFound: unknown;
   let retrieveReservation: unknown;
   try {
     code = record.code;
     requiresSupplierConfirmationForFound = record.requiresSupplierConfirmationForFound;
+    supportsAuthoritativeNotFound = record.supportsAuthoritativeNotFound;
     retrieveReservation = record.retrieveReservation;
   } catch {
     fail('INVALID_REQUEST', PROVIDER_FAILURE_MESSAGE);
@@ -98,6 +101,10 @@ export function materializeHospitalitySupplierReservationRecoveryProvider(
       requiresSupplierConfirmationForFound !== undefined
       && typeof requiresSupplierConfirmationForFound !== 'boolean'
     )
+    || (
+      supportsAuthoritativeNotFound !== undefined
+      && typeof supportsAuthoritativeNotFound !== 'boolean'
+    )
   ) {
     fail('INVALID_REQUEST', PROVIDER_FAILURE_MESSAGE);
   }
@@ -105,6 +112,7 @@ export function materializeHospitalitySupplierReservationRecoveryProvider(
   return Object.freeze({
     code,
     requiresSupplierConfirmationForFound: requiresSupplierConfirmationForFound === true,
+    supportsAuthoritativeNotFound: supportsAuthoritativeNotFound === true,
     retrieveReservation: (request: HospitalitySupplierReservationRecoveryRequest) => (
       Reflect.apply(retrieveReservation, provider, [request]) as Promise<HospitalitySupplierReservationRecoveryResult>
     ),
