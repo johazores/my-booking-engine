@@ -71,7 +71,7 @@ export class StripeRefundReconciliationProvider {
       });
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw new PaymentProviderError('TIMEOUT', 'Stripe refund reconciliation request timed out.', true);
+      if (controller.signal.aborted) throw new PaymentProviderError('TIMEOUT', 'Stripe refund reconciliation request timed out.', true);
       throw new PaymentProviderError('PROVIDER_UNAVAILABLE', 'Stripe could not be reached for refund reconciliation.', true);
     } finally {
       clearTimeout(timeout);

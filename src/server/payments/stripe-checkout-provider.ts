@@ -203,7 +203,7 @@ export class StripeCheckoutProvider {
       return payload as T;
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (controller.signal.aborted) {
         throw new PaymentProviderError('TIMEOUT', 'Stripe Checkout request timed out before a definitive result was received.', true);
       }
       throw new PaymentProviderError('PROVIDER_UNAVAILABLE', 'Stripe Checkout could not be reached.', true);

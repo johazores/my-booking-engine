@@ -73,6 +73,15 @@ function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
   }
 }
 
+function requestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null {
+  if (init?.signal) return init.signal;
+  try {
+    return typeof Request !== 'undefined' && input instanceof Request ? input.signal : null;
+  } catch {
+    return null;
+  }
+}
+
 function hasSinglePathSegment(url: URL, prefix: string) {
   if (!url.pathname.startsWith(prefix)) return false;
   const suffix = url.pathname.slice(prefix.length);
@@ -170,6 +179,7 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const startedAt = safeObservationClockMs(nowMs);
     const headers = requestHeaders(requestInput, init);
+    const signal = requestSignal(requestInput, init);
     const providerCorrelation = providerCorrelationId(headers);
     const requestCorrelation = requestCorrelationId(providerCorrelation, randomUuidFactory);
     const operation = classifyOperation(safeParsedUrl(requestInput), requestMethod(requestInput, init));
@@ -201,8 +211,7 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
       }));
       return response;
     } catch (error) {
-      const aborted = init?.signal?.aborted === true
-        || (error instanceof DOMException && error.name === 'AbortError');
+      const aborted = signal?.aborted === true;
       emitStructuredObservationSafely(sink, Object.freeze({
         ...base,
         timestamp: safeObservationTimestamp(now),

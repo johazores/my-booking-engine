@@ -32,6 +32,9 @@ export class StripePaymentReconciliationProvider {
   constructor(options: { secretKey: string; fetchImpl?: StripeFetch; timeoutMs?: number }) {
     const secretKey = options.secretKey.trim();
     if (!secretKey.startsWith('sk_') || secretKey.length < 12) throw new Error('Stripe secret key is required.');
+    if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1_000 || options.timeoutMs > 120_000)) {
+      throw new Error('Stripe timeout must be between 1000 and 120000 milliseconds.');
+    }
     this.secretKey = secretKey;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -65,7 +68,7 @@ export class StripePaymentReconciliationProvider {
       });
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw new PaymentProviderError('TIMEOUT', 'Stripe reconciliation request timed out.', true);
+      if (controller.signal.aborted) throw new PaymentProviderError('TIMEOUT', 'Stripe reconciliation request timed out.', true);
       throw new PaymentProviderError('PROVIDER_UNAVAILABLE', 'Stripe could not be reached for reconciliation.', true);
     } finally {
       clearTimeout(timeout);

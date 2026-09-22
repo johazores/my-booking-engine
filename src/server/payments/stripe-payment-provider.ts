@@ -142,7 +142,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       return payload as T;
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw new PaymentProviderError('TIMEOUT', 'Stripe request timed out before a definitive result was received.', true);
+      if (controller.signal.aborted) throw new PaymentProviderError('TIMEOUT', 'Stripe request timed out before a definitive result was received.', true);
       throw new PaymentProviderError('PROVIDER_UNAVAILABLE', 'Stripe could not be reached.', true);
     } finally {
       clearTimeout(timeout);
