@@ -11,6 +11,7 @@ export type HospitalitySupplierReservationRecoveryRequest = Readonly<{
   providerReservationReference: string;
   requestCorrelationId: string;
   expectedReservation: HospitalitySupplierReservationRecoveryExpectation;
+  beforeProviderRequest: () => Promise<void>;
 }>;
 
 export type HospitalitySupplierReservationRecoveryResult =

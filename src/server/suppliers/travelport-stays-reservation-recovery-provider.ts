@@ -18,6 +18,7 @@ import {
   requestTravelportStaysAccessToken,
   type TravelportStaysCredentials,
 } from './travelport-stays-provider.ts';
+import { assertTravelportStaysTransportRequestReady } from './travelport-stays-transport-preflight.ts';
 
 const ENDPOINTS = Object.freeze({
   'pre-production': 'https://api.pp.travelport.net/11/hotel/',
@@ -34,6 +35,7 @@ const RECOVERY_OPERATION_FIELDS = Object.freeze([
   'providerReservationReference',
   'requestCorrelationId',
   'expectedReservation',
+  'beforeProviderRequest',
 ] as const);
 const RECOVERY_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reservation recovery operation authority could not be materialized safely.';
 
@@ -161,14 +163,41 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       MAX_REQUEST_CORRELATION_ID_LENGTH,
     );
     const expectedReservation = normalizeTravelportStaysReservationExpectation(authority.expectedReservation);
+    const beforeProviderRequest = authority.beforeProviderRequest;
+    if (typeof beforeProviderRequest !== 'function') {
+      throw new HospitalitySupplierProviderError(
+        'INVALID_REQUEST',
+        'Travelport reservation recovery provider-request marker is required.',
+      );
+    }
+
+    const reservationUrl = `${ENDPOINTS[this.#credentials.environment]}book/reservations/${encodeURIComponent(reference)}`;
+    const accessToken = await this.#accessToken();
+    const requestHeaders = this.#headers(accessToken, requestCorrelationId);
+
+    await assertTravelportStaysTransportRequestReady({
+      credentials: this.#credentials,
+      requestInput: reservationUrl,
+      init: {
+        method: 'GET',
+        cache: 'no-store',
+        redirect: 'manual',
+        headers: requestHeaders,
+      },
+    });
+
+    // Match the Create/Sync boundary: deterministic validation, OAuth, and exact transport-policy
+    // preflight must finish before durable evidence says provider I/O may have started.
+    await beforeProviderRequest();
+
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
-      url: `${ENDPOINTS[this.#credentials.environment]}book/reservations/${encodeURIComponent(reference)}`,
+      url: reservationUrl,
       timeoutMs: this.#timeoutMs,
       init: {
         method: 'GET',
         cache: 'no-store',
-        headers: this.#headers(await this.#accessToken(), requestCorrelationId),
+        headers: requestHeaders,
       },
     });
     if (!response.ok) {

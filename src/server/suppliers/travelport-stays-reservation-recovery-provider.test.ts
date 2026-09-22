@@ -21,7 +21,11 @@ const PROPERTY_REFERENCE = Buffer.from(JSON.stringify({
   authority: 'TVPT',
 }), 'utf8').toString('base64url');
 
-function recoveryRequest(providerReservationReference = 'D6VBHL', requestCorrelationId = REQUEST_CORRELATION_ID) {
+function recoveryRequest(
+  providerReservationReference = 'D6VBHL',
+  requestCorrelationId = REQUEST_CORRELATION_ID,
+  beforeProviderRequest: () => Promise<void> = async () => {},
+) {
   return {
     providerReservationReference,
     requestCorrelationId,
@@ -33,6 +37,7 @@ function recoveryRequest(providerReservationReference = 'D6VBHL', requestCorrela
       adults: 1,
       childAges: [8],
     },
+    beforeProviderRequest,
   };
 }
 
@@ -127,6 +132,52 @@ test('Travelport recovery retrieves the exact durable active reservation identit
   assert.equal(headers.get('Content-Type'), 'application/json');
   assert.equal(headers.get('E2ETrackingID'), `sf-${REQUEST_CORRELATION_ID}`);
   assert.equal(headers.get('TraceId'), REQUEST_CORRELATION_ID);
+});
+
+test('Travelport recovery runs the durable marker after OAuth/preflight and immediately before Retrieve I/O', async () => {
+  const events: string[] = [];
+  const fetchImpl = (async (url) => {
+    if (String(url).includes('/oauth/token')) {
+      events.push('oauth');
+      return jsonResponse({ access_token: 'token-ordering', expires_in: 86400 });
+    }
+    events.push('retrieve');
+    return jsonResponse(reservationResponse());
+  }) as typeof fetch;
+  const provider = new TravelportStaysReservationRecoveryProvider({
+    credentials,
+    cacheKey: 'recover-provider-boundary-ordering',
+    fetchImpl,
+  });
+
+  await provider.retrieveReservation(recoveryRequest('D6VBHL', REQUEST_CORRELATION_ID, async () => {
+    events.push('marker');
+  }));
+  assert.deepEqual(events, ['oauth', 'marker', 'retrieve']);
+});
+
+test('Travelport recovery does not start Retrieve when the durable marker callback fails', async () => {
+  let retrieveCalls = 0;
+  const fetchImpl = (async (url) => {
+    if (String(url).includes('/oauth/token')) {
+      return jsonResponse({ access_token: 'token-marker-failure', expires_in: 86400 });
+    }
+    retrieveCalls += 1;
+    return jsonResponse(reservationResponse());
+  }) as typeof fetch;
+  const provider = new TravelportStaysReservationRecoveryProvider({
+    credentials,
+    cacheKey: 'recover-provider-boundary-failure',
+    fetchImpl,
+  });
+
+  await assert.rejects(
+    provider.retrieveReservation(recoveryRequest('D6VBHL', REQUEST_CORRELATION_ID, async () => {
+      throw new Error('durable marker rejected');
+    })),
+    /durable marker rejected/,
+  );
+  assert.equal(retrieveCalls, 0);
 });
 
 test('Travelport recovery rejects normalized or control-bearing cache keys before provider I/O', () => {

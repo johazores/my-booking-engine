@@ -105,6 +105,7 @@ test('recovery provider capability is snapshotted once, bounded, and preserves i
       adults: 1,
       childAges: [],
     },
+    beforeProviderRequest: async () => {},
   });
   assert.equal(result.status, 'FOUND');
 

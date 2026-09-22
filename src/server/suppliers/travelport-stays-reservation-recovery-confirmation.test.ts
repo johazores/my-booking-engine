@@ -79,6 +79,7 @@ test('Travelport recovery marks supplier confirmation as required for provider-n
       adults: 1,
       childAges: [8],
     },
+    beforeProviderRequest: async () => {},
   });
   assert.equal(result.status, 'FOUND');
   if (result.status === 'FOUND') assert.equal(result.supplierConfirmationReference, null);
