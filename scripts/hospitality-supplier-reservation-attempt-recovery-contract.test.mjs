@@ -101,13 +101,30 @@ test('recovery-write lease reopens only before the provider marker', () => {
   assert.match(lease, /operationStatus: input\.attemptKind === 'CREATE' \? 'PREPARED' : 'AMBIGUOUS'/);
 });
 
-test('reconciliation marks provider-request evidence immediately before provider I/O and settles pre-provider marker failure', () => {
+test('reconciliation delegates the durable provider marker to the immediate pre-I/O callback and settles callback failure safely', () => {
   const coordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
-  const markIndex = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted');
-  const markerFailureSettlementIndex = coordinator.indexOf('settleHospitalitySupplierReservationReconciliation', markIndex);
-  const providerIndex = coordinator.indexOf('rawResult = await provider.retrieveReservation');
-  assert.ok(markIndex >= 0 && markerFailureSettlementIndex > markIndex && providerIndex > markerFailureSettlementIndex);
-  assert.match(coordinator, /try \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted[\s\S]*?catch \(error\) \{[\s\S]*?status: 'UNKNOWN',[\s\S]*?failureCode: error instanceof HospitalitySupplierProviderError \? error\.code : 'INVALID_REQUEST'/);
+  const callbackIndex = coordinator.indexOf('const beforeProviderRequest = async () => {');
+  const markIndex = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', callbackIndex);
+  const providerIndex = coordinator.indexOf('rawResult = await provider.retrieveReservation', markIndex);
+  const catchIndex = coordinator.indexOf('} catch (error) {', providerIndex);
+  const unmarkedGuardIndex = coordinator.indexOf('if (!providerRequestStarted)', catchIndex);
+  const markerFailureSettlementIndex = coordinator.indexOf('settleHospitalitySupplierReservationReconciliation', unmarkedGuardIndex);
+  assert.ok(
+    callbackIndex >= 0
+    && markIndex > callbackIndex
+    && providerIndex > markIndex
+    && catchIndex > providerIndex
+    && unmarkedGuardIndex > catchIndex
+    && markerFailureSettlementIndex > unmarkedGuardIndex,
+  );
+  assert.match(
+    coordinator,
+    /provider\.retrieveReservation\(\{[\s\S]*?requestCorrelationId: claim\.attempt\.id,[\s\S]*?beforeProviderRequest,[\s\S]*?\}\)/,
+  );
+  assert.match(
+    coordinator,
+    /if \(!providerRequestStarted\)[\s\S]*?status: 'UNKNOWN',[\s\S]*?failureCode: error instanceof HospitalitySupplierProviderError \? error\.code : 'INVALID_REQUEST'/,
+  );
   assert.match(coordinator, /attemptId: claim\.attempt\.id/);
   assert.match(coordinator, /requestCorrelationId: claim\.attempt\.id/);
 });
