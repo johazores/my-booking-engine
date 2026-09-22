@@ -10,6 +10,7 @@ const markerService = source('src/server/suppliers/hospitality-supplier-reservat
 const createCoordinator = source('src/server/suppliers/travelport-stays-reservation-create-service.ts');
 const syncCoordinator = source('src/server/suppliers/travelport-stays-reservation-sync-service.ts');
 const reconciliationCoordinator = source('src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts');
+const recoveryProvider = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
 const reviewedCreateCoordinator = source('src/server/suppliers/travelport-stays-reservation-reviewed-create-service.ts');
 
 test('provider-request marker preserves evidence replay but can require a fresh external-I/O permit', () => {
@@ -53,11 +54,27 @@ test('Travelport Create and Sync require a fresh marker before each commercial p
   }
 });
 
-test('known-locator reconciliation also refuses to replay provider I/O on an existing marker', () => {
-  const markerIndex = reconciliationCoordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted');
+test('known-locator reconciliation requires a fresh marker at the provider immediate pre-I/O boundary', () => {
+  const callbackIndex = reconciliationCoordinator.indexOf('const beforeProviderRequest = async () => {');
+  const markerIndex = reconciliationCoordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', callbackIndex);
   const freshIndex = reconciliationCoordinator.indexOf('requireFreshProviderRequest: true', markerIndex);
   const providerIndex = reconciliationCoordinator.indexOf('rawResult = await provider.retrieveReservation', freshIndex);
-  assert.ok(markerIndex >= 0 && freshIndex > markerIndex && providerIndex > freshIndex);
+  assert.ok(callbackIndex >= 0 && markerIndex > callbackIndex && freshIndex > markerIndex && providerIndex > freshIndex);
+  assert.match(
+    reconciliationCoordinator,
+    /provider\.retrieveReservation\(\{[\s\S]*?beforeProviderRequest,[\s\S]*?\}\)/,
+  );
+
+  const tokenIndex = recoveryProvider.indexOf('const accessToken = await this.#accessToken()');
+  const preflightIndex = recoveryProvider.indexOf('await assertTravelportStaysTransportRequestReady', tokenIndex);
+  const callbackInvokeIndex = recoveryProvider.indexOf('await beforeProviderRequest()', preflightIndex);
+  const fetchIndex = recoveryProvider.indexOf('const response = await fetchWithTimeout', callbackInvokeIndex);
+  assert.ok(
+    tokenIndex >= 0
+    && preflightIndex > tokenIndex
+    && callbackInvokeIndex > preflightIndex
+    && fetchIndex > callbackInvokeIndex,
+  );
 });
 
 test('reviewed second Create keeps its separate atomic single-use commercial-consent boundary', () => {
