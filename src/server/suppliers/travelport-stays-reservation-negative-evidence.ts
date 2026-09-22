@@ -1,7 +1,7 @@
 const AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE = '13061';
 const AUTHORITATIVE_RESERVATION_NOT_FOUND_STATUS = 400;
+const AUTHORITATIVE_RESERVATION_NOT_FOUND_MESSAGE = 'RESERVATION WAS NOT FOUND IN SUPPLIER SYSTEM';
 const MAX_PROVIDER_CORRELATION_LENGTH = 512;
-const MAX_PROVIDER_MESSAGE_LENGTH = 4096;
 const MAX_PROVIDER_SOURCE_LENGTH = 64;
 const ASCII_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 
@@ -53,8 +53,8 @@ export function inspectTravelportStaysReservationNegativeEvidence(
   if (error.StatusCode !== AUTHORITATIVE_RESERVATION_NOT_FOUND_STATUS) return null;
   if (sourceCode(error.SourceCode) !== AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE) return null;
   if (error.category !== 'VALIDATION' || hasOwn(error, 'Category')) return null;
+  if (error.Message !== AUTHORITATIVE_RESERVATION_NOT_FOUND_MESSAGE) return null;
   if (!boundedProviderText(error.SourceID, MAX_PROVIDER_SOURCE_LENGTH)) return null;
-  if (!boundedProviderText(error.Message, MAX_PROVIDER_MESSAGE_LENGTH)) return null;
 
   let providerCorrelationId: string | null = null;
   if (hasOwn(errorResponse, 'traceId') || hasOwn(errorResponse, 'traceID')) {

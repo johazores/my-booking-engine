@@ -31,21 +31,27 @@ test('Travelport known-locator retry authority requires the documented 13061 pro
 
   assert.match(negativeEvidence, /AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE = '13061'/);
   assert.match(negativeEvidence, /AUTHORITATIVE_RESERVATION_NOT_FOUND_STATUS = 400/);
+  assert.match(negativeEvidence, /AUTHORITATIVE_RESERVATION_NOT_FOUND_MESSAGE = 'RESERVATION WAS NOT FOUND IN SUPPLIER SYSTEM'/);
   assert.match(negativeEvidence, /httpStatus !== AUTHORITATIVE_RESERVATION_NOT_FOUND_STATUS/);
   assert.match(negativeEvidence, /!hasOwn\(root, 'ErrorResponse'\) \|\| hasOwn\(root, 'ReservationResponse'\)/);
   assert.match(negativeEvidence, /errors\.length !== 1/);
   assert.match(negativeEvidence, /error\['@type'\] !== 'ErrorDetail'/);
   assert.match(negativeEvidence, /sourceCode\(error\.SourceCode\) !== AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE/);
   assert.match(negativeEvidence, /error\.category !== 'VALIDATION'/);
+  assert.match(negativeEvidence, /error\.Message !== AUTHORITATIVE_RESERVATION_NOT_FOUND_MESSAGE/);
   assert.match(negativeEvidence, /boundedProviderText\(error\.SourceID/);
-  assert.match(negativeEvidence, /boundedProviderText\(error\.Message/);
 
   assert.match(focusedTest, /SourceCode: '13061'/);
+  assert.match(focusedTest, /SourceID: 'BK'/);
   assert.match(focusedTest, /\[\{\}, 404\]/);
   assert.match(focusedTest, /SourceCode: '13060'/);
+  assert.match(focusedTest, /HOTEL OFFER NOT FOUND IN RESERVATION/);
+  assert.match(focusedTest, /Reservation was not found in supplier system\./);
   assert.match(focusedTest, /ReservationResponse: null/);
 
   assert.match(docs, /13061/);
+  assert.match(docs, /canonical newer-version message/i);
+  assert.match(docs, /supplier chain code/i);
   assert.match(docs, /generic HTTP `404`[\s\S]*non-authoritative/i);
   assert.match(docs, /supportsAuthoritativeNotFound = true/);
 });

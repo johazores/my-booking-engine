@@ -32,6 +32,10 @@ test('accepts only the documented Travelport Stays 13061 exact-reservation negat
     inspectTravelportStaysReservationNegativeEvidence(negativePayload({ SourceCode: 13061 }), 400),
     { status: 'NOT_FOUND', providerCorrelationId: 'trace-not-found' },
   );
+  assert.deepEqual(
+    inspectTravelportStaysReservationNegativeEvidence(negativePayload({ SourceID: 'BK' }), 400),
+    { status: 'NOT_FOUND', providerCorrelationId: 'trace-not-found' },
+  );
 });
 
 test('generic HTTP status and malformed or contradictory provider errors never become negative authority', () => {
@@ -43,6 +47,8 @@ test('generic HTTP status and malformed or contradictory provider errors never b
     [negativePayload({ category: 'UNKNOWN' }), 400],
     [negativePayload({ '@type': 'Error' }), 400],
     [negativePayload({ SourceID: '' }), 400],
+    [negativePayload({ Message: 'HOTEL OFFER NOT FOUND IN RESERVATION' }), 400],
+    [negativePayload({ Message: 'Reservation was not found in supplier system.' }), 400],
     [negativePayload({ Message: 'bad\nmessage' }), 400],
     [{ ...negativePayload(), ReservationResponse: null }, 400],
     [{ ErrorResponse: { Result: { '@type': 'Result', Error: [] } } }, 400],
