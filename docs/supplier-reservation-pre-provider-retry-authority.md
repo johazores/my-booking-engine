@@ -6,7 +6,7 @@ Supplier Create and recovery writes distinguish failures that happen before the 
 
 ## Retry contract
 
-SF now derives pre-provider retry authority from `HospitalitySupplierProviderError.retryable` instead of hardcoding every pre-provider failure as retryable.
+SF derives pre-provider retry authority from the constructor-registered canonical supplier failure code returned by `inspectHospitalitySupplierProviderFailure`. It does not trust the mutable runtime `HospitalitySupplierProviderError.retryable` field.
 
 The provider-neutral supplier error contract currently authorizes automatic retry only for:
 
@@ -14,13 +14,13 @@ The provider-neutral supplier error contract currently authorizes automatic retr
 - `PROVIDER_UNAVAILABLE`
 - `TIMEOUT`
 
-The following typed failures are non-retryable and require corrected configuration, request authority, or a newly prepared operation instead of looping the same attempt:
+The following recognized failures are non-retryable and require corrected configuration, request authority, or a newly prepared operation instead of looping the same attempt:
 
 - `AUTHENTICATION_FAILED`
 - `INVALID_REQUEST`
 - `INVALID_RESPONSE`
 
-An unexpected application, configuration, or programming failure is normalized to `PRE_PROVIDER_EXECUTION_FAILED` and is also non-retryable. SF does not invent retry authority for an untyped exception.
+An unexpected application, configuration, programming, forged, mutated, or hostile failure is normalized to `PRE_PROVIDER_EXECUTION_FAILED` and is also non-retryable. SF does not invent retry authority for an untyped exception or for an object that merely passes `instanceof` through prototype spoofing.
 
 ## Applied write paths
 
@@ -33,6 +33,6 @@ After either marker succeeds, this helper is not used. Transport or unexpected u
 
 ## Operational effect
 
-This closes a retry-loop defect where authentication failures, invalid requests, invalid responses, integration drift, and unexpected pre-provider exceptions were previously persisted with `retryable=true` merely because the provider write had not started. Transient provider-neutral failures still retain their existing safe retry path.
+This closes retry-loop defects where authentication failures, invalid requests, invalid responses, integration drift, unexpected pre-provider exceptions, or forged provider-error lookalikes could otherwise be persisted with retry authority not backed by the repository-owned failure policy. Transient canonical provider-neutral failures still retain their existing safe retry path.
 
 This change does not enable Travelport reservations, add a route, collect card data, change provider capabilities, or weaken any live-provider/PCI activation gate.

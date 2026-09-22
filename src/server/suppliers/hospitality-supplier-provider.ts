@@ -13,6 +13,8 @@ function hospitalitySupplierFailureIsRetryable(code: HospitalitySupplierFailureC
   return code === 'RATE_LIMITED' || code === 'PROVIDER_UNAVAILABLE' || code === 'TIMEOUT';
 }
 
+const hospitalitySupplierProviderErrorAuthority = new WeakMap<object, HospitalitySupplierFailureCode>();
+
 export class HospitalitySupplierProviderError extends Error {
   readonly code: HospitalitySupplierFailureCode;
   readonly retryable: boolean;
@@ -22,6 +24,7 @@ export class HospitalitySupplierProviderError extends Error {
     this.name = 'HospitalitySupplierProviderError';
     this.code = code;
     this.retryable = hospitalitySupplierFailureIsRetryable(code);
+    hospitalitySupplierProviderErrorAuthority.set(this, code);
   }
 }
 
@@ -32,14 +35,15 @@ export type HospitalitySupplierProviderFailure = Readonly<{
 
 /**
  * Snapshots typed supplier failure authority from an unknown thrown value without trusting mutable
- * runtime fields such as `retryable`. Hostile proxies and malformed/mutated error objects fail closed
- * to untyped failure rather than throwing again while a commercial operation is already settling.
+ * runtime fields such as `retryable`. Only instances registered by the SF-owned error constructor
+ * can carry failure authority; prototype lookalikes, hostile proxies, and malformed/mutated errors
+ * fail closed to untyped failure rather than interrupting commercial settlement.
  */
 export function inspectHospitalitySupplierProviderFailure(error: unknown): HospitalitySupplierProviderFailure | null {
   try {
     if (!(error instanceof HospitalitySupplierProviderError)) return null;
-    const code = error.code;
-    if (!hospitalitySupplierFailureCodes.includes(code)) return null;
+    const code = hospitalitySupplierProviderErrorAuthority.get(error);
+    if (!code || !hospitalitySupplierFailureCodes.includes(code) || error.code !== code) return null;
     return Object.freeze({
       code,
       retryable: hospitalitySupplierFailureIsRetryable(code),
