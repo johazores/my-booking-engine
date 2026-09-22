@@ -4,13 +4,17 @@ import test from 'node:test';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { throwHospitalitySupplierTransportFailure } from './hospitality-supplier-transport-failure.ts';
 
-test('preserves normalized supplier transport failures when the caller deadline has not fired', () => {
+test('rematerializes normalized supplier transport failures without preserving source messages', () => {
   const controller = new AbortController();
-  const original = new HospitalitySupplierProviderError('INVALID_REQUEST', 'blocked by the supplier transport boundary');
+  const original = new HospitalitySupplierProviderError('INVALID_REQUEST', 'blocked by a private supplier diagnostic');
 
   assert.throws(
     () => throwHospitalitySupplierTransportFailure(original, controller.signal),
-    (error) => error === original,
+    (error) => error instanceof HospitalitySupplierProviderError
+      && error !== original
+      && error.code === 'INVALID_REQUEST'
+      && error.retryable === false
+      && !error.message.includes('private supplier diagnostic'),
   );
 });
 
@@ -38,5 +42,28 @@ test('normalizes unknown transport failures without leaking their implementation
       && error.code === 'PROVIDER_UNAVAILABLE'
       && error.retryable === true
       && !error.message.includes('socket implementation detail'),
+  );
+});
+
+test('hostile or mutated supplier errors fail closed at the transport boundary', () => {
+  const controller = new AbortController();
+  const mutated = new HospitalitySupplierProviderError('TIMEOUT') as HospitalitySupplierProviderError & {
+    code: string;
+  };
+  Object.defineProperty(mutated, 'code', { value: 'SOURCE_PRIVATE_CODE', configurable: true });
+  assert.throws(
+    () => throwHospitalitySupplierTransportFailure(mutated, controller.signal),
+    (error) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'PROVIDER_UNAVAILABLE'
+      && error.retryable === true,
+  );
+
+  const revocable = Proxy.revocable(new HospitalitySupplierProviderError('TIMEOUT'), {});
+  revocable.revoke();
+  assert.throws(
+    () => throwHospitalitySupplierTransportFailure(revocable.proxy, controller.signal),
+    (error) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'PROVIDER_UNAVAILABLE'
+      && error.retryable === true,
   );
 });

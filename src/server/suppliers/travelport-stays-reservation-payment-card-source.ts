@@ -1,8 +1,7 @@
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  hospitalitySupplierFailureCodes,
   HospitalitySupplierProviderError,
-  type HospitalitySupplierFailureCode,
+  inspectHospitalitySupplierProviderFailure,
 } from './hospitality-supplier-provider.ts';
 import type { TravelportStaysSensitiveReservationPaymentCard } from './travelport-stays-reservation-create-executor.ts';
 
@@ -65,18 +64,11 @@ function requiredIdentifier(value: unknown, label: string) {
 }
 
 function sourceFailure(error: unknown): never {
-  let code: HospitalitySupplierFailureCode = 'INVALID_REQUEST';
-  try {
-    if (
-      error instanceof HospitalitySupplierProviderError
-      && hospitalitySupplierFailureCodes.includes(error.code)
-    ) {
-      code = error.code;
-    }
-  } catch {
-    // Source-controlled thrown values can themselves be hostile proxies. Treat them as untyped.
-  }
-  throw new HospitalitySupplierProviderError(code, SOURCE_FAILURE_MESSAGE);
+  const providerFailure = inspectHospitalitySupplierProviderFailure(error);
+  throw new HospitalitySupplierProviderError(
+    providerFailure?.code ?? 'INVALID_REQUEST',
+    SOURCE_FAILURE_MESSAGE,
+  );
 }
 
 function sourceRecord(value: unknown): Record<string, unknown> | null {

@@ -9,6 +9,10 @@ export const hospitalitySupplierFailureCodes = [
 
 export type HospitalitySupplierFailureCode = (typeof hospitalitySupplierFailureCodes)[number];
 
+function hospitalitySupplierFailureIsRetryable(code: HospitalitySupplierFailureCode) {
+  return code === 'RATE_LIMITED' || code === 'PROVIDER_UNAVAILABLE' || code === 'TIMEOUT';
+}
+
 export class HospitalitySupplierProviderError extends Error {
   readonly code: HospitalitySupplierFailureCode;
   readonly retryable: boolean;
@@ -17,7 +21,31 @@ export class HospitalitySupplierProviderError extends Error {
     super(message);
     this.name = 'HospitalitySupplierProviderError';
     this.code = code;
-    this.retryable = code === 'RATE_LIMITED' || code === 'PROVIDER_UNAVAILABLE' || code === 'TIMEOUT';
+    this.retryable = hospitalitySupplierFailureIsRetryable(code);
+  }
+}
+
+export type HospitalitySupplierProviderFailure = Readonly<{
+  code: HospitalitySupplierFailureCode;
+  retryable: boolean;
+}>;
+
+/**
+ * Snapshots typed supplier failure authority from an unknown thrown value without trusting mutable
+ * runtime fields such as `retryable`. Hostile proxies and malformed/mutated error objects fail closed
+ * to untyped failure rather than throwing again while a commercial operation is already settling.
+ */
+export function inspectHospitalitySupplierProviderFailure(error: unknown): HospitalitySupplierProviderFailure | null {
+  try {
+    if (!(error instanceof HospitalitySupplierProviderError)) return null;
+    const code = error.code;
+    if (!hospitalitySupplierFailureCodes.includes(code)) return null;
+    return Object.freeze({
+      code,
+      retryable: hospitalitySupplierFailureIsRetryable(code),
+    });
+  } catch {
+    return null;
   }
 }
 

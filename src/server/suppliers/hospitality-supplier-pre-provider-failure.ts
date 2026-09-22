@@ -1,5 +1,5 @@
 import {
-  HospitalitySupplierProviderError,
+  inspectHospitalitySupplierProviderFailure,
   type HospitalitySupplierFailureCode,
 } from './hospitality-supplier-provider.ts';
 
@@ -15,13 +15,15 @@ export type HospitalitySupplierPreProviderFailure = Readonly<{
  *
  * Only typed provider failures can authorize automatic retry, and only when the provider-neutral
  * error contract explicitly marks that failure retryable. Unexpected application/configuration
- * failures fail closed so an operator cannot loop a broken commercial path indefinitely.
+ * failures, malformed error objects, and hostile thrown values fail closed so an operator cannot
+ * loop a broken commercial path indefinitely.
  */
 export function classifyHospitalitySupplierPreProviderFailure(error: unknown): HospitalitySupplierPreProviderFailure {
-  if (error instanceof HospitalitySupplierProviderError) {
+  const providerFailure = inspectHospitalitySupplierProviderFailure(error);
+  if (providerFailure) {
     return Object.freeze({
-      failureCode: error.code,
-      retryable: error.retryable,
+      failureCode: providerFailure.code,
+      retryable: providerFailure.retryable,
     });
   }
 

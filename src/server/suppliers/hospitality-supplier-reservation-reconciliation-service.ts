@@ -1,4 +1,4 @@
-import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { inspectHospitalitySupplierProviderFailure } from './hospitality-supplier-provider.ts';
 import {
   normalizeHospitalitySupplierReservationCorrelationId,
   normalizeHospitalitySupplierReservationSupplierConfirmationReference,
@@ -111,6 +111,7 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
       beforeProviderRequest,
     });
   } catch (error) {
+    const providerFailure = inspectHospitalitySupplierProviderFailure(error);
     if (!providerRequestStarted) {
       return settleHospitalitySupplierReservationReconciliation({
         organizationId: authority.organizationId,
@@ -119,12 +120,12 @@ export async function reconcileHospitalitySupplierReservationWithProvider(input:
         attemptId: claim.attempt.id,
         outcome: {
           status: 'UNKNOWN',
-          failureCode: error instanceof HospitalitySupplierProviderError ? error.code : 'INVALID_REQUEST',
+          failureCode: providerFailure?.code ?? 'INVALID_REQUEST',
         },
       });
     }
 
-    const failureCode = error instanceof HospitalitySupplierProviderError ? error.code : 'PROVIDER_UNAVAILABLE';
+    const failureCode = providerFailure?.code ?? 'PROVIDER_UNAVAILABLE';
     providerObservation?.finish({ status: 'FAILED', failureCode });
     return settleHospitalitySupplierReservationReconciliation({
       organizationId: authority.organizationId,

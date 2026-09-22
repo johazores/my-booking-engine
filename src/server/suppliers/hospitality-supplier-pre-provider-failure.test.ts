@@ -25,6 +25,36 @@ for (const [code, retryable] of cases) {
   });
 }
 
+test('retry authority is derived from the canonical failure code instead of mutable error fields', () => {
+  const error = new HospitalitySupplierProviderError('INVALID_REQUEST') as HospitalitySupplierProviderError & {
+    retryable: boolean;
+  };
+  Object.defineProperty(error, 'retryable', { value: true, configurable: true });
+
+  assert.deepEqual(classifyHospitalitySupplierPreProviderFailure(error), {
+    failureCode: 'INVALID_REQUEST',
+    retryable: false,
+  });
+});
+
+test('mutated or hostile typed failures fail closed instead of interrupting settlement', () => {
+  const mutated = new HospitalitySupplierProviderError('TIMEOUT') as HospitalitySupplierProviderError & {
+    code: string;
+  };
+  Object.defineProperty(mutated, 'code', { value: 'SOURCE_PRIVATE_CODE', configurable: true });
+  assert.deepEqual(classifyHospitalitySupplierPreProviderFailure(mutated), {
+    failureCode: HOSPITALITY_SUPPLIER_PRE_PROVIDER_EXECUTION_FAILURE_CODE,
+    retryable: false,
+  });
+
+  const revocable = Proxy.revocable(new HospitalitySupplierProviderError('TIMEOUT'), {});
+  revocable.revoke();
+  assert.deepEqual(classifyHospitalitySupplierPreProviderFailure(revocable.proxy), {
+    failureCode: HOSPITALITY_SUPPLIER_PRE_PROVIDER_EXECUTION_FAILURE_CODE,
+    retryable: false,
+  });
+});
+
 test('unexpected pre-provider failures fail closed instead of inventing retry authority', () => {
   const failure = classifyHospitalitySupplierPreProviderFailure(new Error('programming failure'));
   assert.deepEqual(failure, {
