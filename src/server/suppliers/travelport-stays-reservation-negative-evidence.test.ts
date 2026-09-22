@@ -29,13 +29,24 @@ test('accepts only the documented Travelport Stays 13061 exact-reservation negat
     providerCorrelationId: 'trace-not-found',
   });
   assert.deepEqual(
-    inspectTravelportStaysReservationNegativeEvidence(negativePayload({ SourceCode: 13061 }), 400),
-    { status: 'NOT_FOUND', providerCorrelationId: 'trace-not-found' },
-  );
-  assert.deepEqual(
     inspectTravelportStaysReservationNegativeEvidence(negativePayload({ SourceID: 'BK' }), 400),
     { status: 'NOT_FOUND', providerCorrelationId: 'trace-not-found' },
   );
+});
+
+test('retry authority requires canonical newer-error machine representation', () => {
+  const numericSourceCode = negativePayload({ SourceCode: 13061 });
+  assert.equal(inspectTravelportStaysReservationNegativeEvidence(numericSourceCode, 400), null);
+
+  const legacyTraceCase = negativePayload();
+  const legacyTraceResponse = legacyTraceCase.ErrorResponse as Record<string, unknown>;
+  legacyTraceResponse.traceID = legacyTraceResponse.traceId;
+  delete legacyTraceResponse.traceId;
+  assert.equal(inspectTravelportStaysReservationNegativeEvidence(legacyTraceCase, 400), null);
+
+  const contradictoryReservation = negativePayload();
+  (contradictoryReservation.ErrorResponse as Record<string, unknown>).Reservation = null;
+  assert.equal(inspectTravelportStaysReservationNegativeEvidence(contradictoryReservation, 400), null);
 });
 
 test('generic HTTP status and malformed or contradictory provider errors never become negative authority', () => {

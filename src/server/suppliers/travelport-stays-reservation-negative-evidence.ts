@@ -26,8 +26,7 @@ function boundedProviderText(value: unknown, max: number) {
   return value;
 }
 
-function sourceCode(value: unknown) {
-  if (typeof value === 'number' && Number.isInteger(value)) return String(value);
+function canonicalSourceCode(value: unknown) {
   if (typeof value !== 'string' || value.trim() !== value || ASCII_CONTROL_CHARACTER_PATTERN.test(value)) return null;
   return /^\d{1,8}$/.test(value) ? value : null;
 }
@@ -44,6 +43,7 @@ export function inspectTravelportStaysReservationNegativeEvidence(
   const errorResponse = optionalRecord(root.ErrorResponse);
   const result = optionalRecord(errorResponse?.Result);
   if (!errorResponse || !result || result['@type'] !== 'Result') return null;
+  if (hasOwn(errorResponse, 'Reservation') || hasOwn(errorResponse, 'traceID')) return null;
   if (hasOwn(result, 'Errors') || hasOwn(result, 'Warning') || hasOwn(result, 'Warnings')) return null;
 
   const errors = result.Error;
@@ -51,16 +51,14 @@ export function inspectTravelportStaysReservationNegativeEvidence(
   const error = optionalRecord(errors[0]);
   if (!error || error['@type'] !== 'ErrorDetail') return null;
   if (error.StatusCode !== AUTHORITATIVE_RESERVATION_NOT_FOUND_STATUS) return null;
-  if (sourceCode(error.SourceCode) !== AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE) return null;
+  if (canonicalSourceCode(error.SourceCode) !== AUTHORITATIVE_RESERVATION_NOT_FOUND_SOURCE_CODE) return null;
   if (error.category !== 'VALIDATION' || hasOwn(error, 'Category')) return null;
   if (error.Message !== AUTHORITATIVE_RESERVATION_NOT_FOUND_MESSAGE) return null;
   if (!boundedProviderText(error.SourceID, MAX_PROVIDER_SOURCE_LENGTH)) return null;
 
   let providerCorrelationId: string | null = null;
-  if (hasOwn(errorResponse, 'traceId') || hasOwn(errorResponse, 'traceID')) {
-    if (hasOwn(errorResponse, 'traceId') && hasOwn(errorResponse, 'traceID')) return null;
-    const rawCorrelationId = hasOwn(errorResponse, 'traceId') ? errorResponse.traceId : errorResponse.traceID;
-    providerCorrelationId = boundedProviderText(rawCorrelationId, MAX_PROVIDER_CORRELATION_LENGTH);
+  if (hasOwn(errorResponse, 'traceId')) {
+    providerCorrelationId = boundedProviderText(errorResponse.traceId, MAX_PROVIDER_CORRELATION_LENGTH);
     if (!providerCorrelationId) return null;
   }
 
