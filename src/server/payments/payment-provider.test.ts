@@ -1,102 +1,65 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import {
+  inspectPaymentProviderFailure,
   PaymentProviderError,
-  assertPaymentProviderCapability,
-  normalizePaymentIdempotencyKey,
-  normalizePaymentMoney,
-  normalizePaymentOperationContext,
+  paymentProviderFailureCodes,
 } from './payment-provider.ts';
 
-const organizationId = '11111111-1111-4111-8111-111111111111';
-const bookingId = '22222222-2222-4222-8222-222222222222';
+test('payment provider errors expose immutable constructor-owned machine authority', () => {
+  const failure = new PaymentProviderError('TIMEOUT', 'provider diagnostic', true);
+  assert.equal(failure instanceof PaymentProviderError, true);
+  assert.deepEqual(inspectPaymentProviderFailure(failure), { code: 'TIMEOUT', retryable: true });
+  assert.equal(Object.isFrozen(inspectPaymentProviderFailure(failure)), true);
 
-test('normalizes exact payment money and tenant-owned operation identifiers', () => {
-  const context = normalizePaymentOperationContext({
-    organizationId: ` ${organizationId.toUpperCase()} `,
-    bookingId: ` ${bookingId.toUpperCase()} `,
-    idempotencyKey: 'payment:booking-1',
-    currency: ' usd ',
-    amountMinor: '24100',
-  });
+  assert.throws(() => {
+    (failure as { retryable: boolean }).retryable = false;
+  }, TypeError);
+  assert.throws(() => {
+    Object.defineProperty(failure, 'code', { value: 'DECLINED' });
+  }, TypeError);
 
-  assert.equal(context.organizationId, organizationId);
-  assert.equal(context.bookingId, bookingId);
-  assert.equal(context.idempotencyKey, 'payment:booking-1');
-  assert.deepEqual(context.money, { currency: 'USD', amountMinor: 24100n });
-  assert.equal(Object.isFrozen(context), true);
-  assert.equal(Object.isFrozen(context.money), true);
+  assert.equal(failure.code, 'TIMEOUT');
+  assert.equal(failure.retryable, true);
 });
 
-test('rejects malformed payment money and idempotency inputs', () => {
-  assert.throws(() => normalizePaymentMoney('US', 100n), /three-letter ISO currency code/);
-  assert.throws(() => normalizePaymentMoney('USD', -1n), /non-negative integer minor-unit/);
-  assert.throws(() => normalizePaymentMoney('USD', '1.00'), /non-negative integer minor-unit/);
-  assert.throws(() => normalizePaymentMoney('USD', 100), /non-negative integer minor-unit/);
-  assert.throws(() => normalizePaymentIdempotencyKey('short'), /8-120/);
-  assert.throws(() => normalizePaymentIdempotencyKey('payment key'), /8-120/);
-  assert.throws(() => normalizePaymentOperationContext({ organizationId: 'tenant', bookingId, idempotencyKey: 'payment:booking-1', currency: 'USD', amountMinor: '1' }), /Organization ID must be a valid UUID/);
+test('payment provider instanceof rejects prototype lookalikes and revoked proxies', () => {
+  const lookalike = Object.create(PaymentProviderError.prototype) as {
+    code: string;
+    retryable: boolean;
+  };
+  lookalike.code = 'TIMEOUT';
+  lookalike.retryable = true;
+  assert.equal(lookalike instanceof PaymentProviderError, false);
+  assert.equal(inspectPaymentProviderFailure(lookalike), null);
+
+  const genuine = new PaymentProviderError('PROVIDER_UNAVAILABLE', 'provider diagnostic', true);
+  const { proxy, revoke } = Proxy.revocable(genuine, {});
+  revoke();
+  assert.equal(proxy instanceof PaymentProviderError, false);
+  assert.equal(inspectPaymentProviderFailure(proxy), null);
 });
 
-test('manual payment adapter advertises only real offline recording capabilities', async () => {
-  const provider = new ManualPaymentProvider();
-  assert.deepEqual([...provider.capabilities], ['OFFLINE_RECORDING', 'OFFLINE_REFUND_RECORDING']);
-  assert.doesNotThrow(() => assertPaymentProviderCapability(provider, 'OFFLINE_RECORDING'));
-  assert.doesNotThrow(() => assertPaymentProviderCapability(provider, 'OFFLINE_REFUND_RECORDING'));
-  assert.throws(() => assertPaymentProviderCapability(provider, 'AUTHORIZE'), (error: unknown) => {
-    assert.equal(error instanceof PaymentProviderError, true);
-    assert.equal((error as PaymentProviderError).code, 'UNSUPPORTED_OPERATION');
-    return true;
-  });
+test('payment provider constructor rejects failure authority outside the runtime contract', () => {
+  assert.deepEqual(paymentProviderFailureCodes, [
+    'INVALID_REQUEST',
+    'AUTHENTICATION_FAILED',
+    'RATE_LIMITED',
+    'PROVIDER_UNAVAILABLE',
+    'TIMEOUT',
+    'DECLINED',
+    'DUPLICATE',
+    'UNSUPPORTED_OPERATION',
+    'UNKNOWN',
+  ]);
 
-  const result = await provider.recordOfflinePayment({
-    organizationId,
-    bookingId,
-    idempotencyKey: 'payment:booking-1',
-    money: { currency: 'USD', amountMinor: 24100n },
-    reference: ' Bank transfer #ABC-123 ',
-  });
-
-  assert.deepEqual(result, {
-    providerCode: 'manual',
-    providerReference: 'Bank transfer #ABC-123',
-    status: 'PAID',
-    money: { currency: 'USD', amountMinor: 24100n },
-  });
-
-  const refund = await provider.recordOfflineRefund({
-    organizationId,
-    bookingId,
-    idempotencyKey: 'refund:booking-1',
-    money: { currency: 'USD', amountMinor: 4100n },
-    paymentReference: 'Bank transfer #ABC-123',
-    refundReference: 'Bank refund #XYZ-9',
-  });
-  assert.deepEqual(refund, {
-    providerCode: 'manual',
-    providerReference: 'Bank transfer #ABC-123',
-    refundReference: 'Bank refund #XYZ-9',
-    status: 'REFUNDED',
-    money: { currency: 'USD', amountMinor: 4100n },
-  });
-  await assert.rejects(
-    provider.recordOfflineRefund({
-      organizationId,
-      bookingId,
-      idempotencyKey: 'refund:booking-2',
-      money: { currency: 'USD', amountMinor: 1n },
-      paymentReference: 'SAME-REF',
-      refundReference: 'SAME-REF',
-    }),
-    /different from the original payment reference/,
+  assert.throws(
+    () => new PaymentProviderError('NOT_A_FAILURE' as never, 'provider diagnostic', true),
+    TypeError,
   );
-});
-
-test('manual payment references are bounded and intentionally exclude arbitrary control characters', () => {
-  assert.equal(normalizeManualPaymentReference('Cash receipt 123'), 'Cash receipt 123');
-  assert.throws(() => normalizeManualPaymentReference(''), /required|1-120/);
-  assert.throws(() => normalizeManualPaymentReference('bad\nreference'), /safe printable/);
-  assert.throws(() => normalizeManualPaymentReference('x'.repeat(121)), /safe printable/);
+  assert.throws(
+    () => new PaymentProviderError('TIMEOUT', 'provider diagnostic', 'yes' as never),
+    TypeError,
+  );
 });

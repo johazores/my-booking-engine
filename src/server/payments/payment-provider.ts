@@ -15,16 +15,19 @@ export const paymentProviderCapabilities = [
 export type PaymentProviderCapability = (typeof paymentProviderCapabilities)[number];
 export type PaymentProviderOperationStatus = 'PENDING' | 'AUTHORIZED' | 'PAID' | 'FAILED' | 'REFUNDED';
 
-export type PaymentProviderFailureCode =
-  | 'INVALID_REQUEST'
-  | 'AUTHENTICATION_FAILED'
-  | 'RATE_LIMITED'
-  | 'PROVIDER_UNAVAILABLE'
-  | 'TIMEOUT'
-  | 'DECLINED'
-  | 'DUPLICATE'
-  | 'UNSUPPORTED_OPERATION'
-  | 'UNKNOWN';
+export const paymentProviderFailureCodes = [
+  'INVALID_REQUEST',
+  'AUTHENTICATION_FAILED',
+  'RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'TIMEOUT',
+  'DECLINED',
+  'DUPLICATE',
+  'UNSUPPORTED_OPERATION',
+  'UNKNOWN',
+] as const;
+
+export type PaymentProviderFailureCode = (typeof paymentProviderFailureCodes)[number];
 
 export type PaymentMoney = Readonly<{ currency: string; amountMinor: bigint }>;
 export type PaymentOperationContext = Readonly<{ organizationId: string; bookingId: string; idempotencyKey: string; money: PaymentMoney }>;
@@ -58,16 +61,60 @@ export interface PaymentProviderAdapter {
   verifyWebhookSignature?(input: PaymentWebhookVerificationInput): boolean;
 }
 
+export type PaymentProviderFailure = Readonly<{
+  code: PaymentProviderFailureCode;
+  retryable: boolean;
+}>;
+
+const paymentProviderErrorAuthority = new WeakMap<object, PaymentProviderFailure>();
+
 export class PaymentProviderError extends Error {
-  readonly code: PaymentProviderFailureCode;
-  readonly retryable: boolean;
+  declare readonly code: PaymentProviderFailureCode;
+  declare readonly retryable: boolean;
 
   constructor(code: PaymentProviderFailureCode, message: string, retryable = false) {
     super(message);
+    if (
+      !paymentProviderFailureCodes.includes(code)
+      || typeof retryable !== 'boolean'
+    ) {
+      throw new TypeError('Payment provider failure authority is invalid.');
+    }
     this.name = 'PaymentProviderError';
-    this.code = code;
-    this.retryable = retryable;
+    Object.defineProperties(this, {
+      code: {
+        value: code,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      },
+      retryable: {
+        value: retryable,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      },
+    });
+    paymentProviderErrorAuthority.set(this, Object.freeze({ code, retryable }));
   }
+
+  /**
+   * Payment failures influence durable settlement and retry decisions. Make `instanceof` a private
+   * constructor-brand check so prototype lookalikes cannot gain payment-provider authority.
+   */
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return typeof value === 'object' && value !== null && paymentProviderErrorAuthority.has(value);
+  }
+}
+
+/**
+ * Returns a frozen constructor-owned payment failure snapshot. This is useful at boundaries that
+ * receive an unknown thrown value and need explicit code/retry authority without trusting public
+ * mutable-looking fields or structural lookalikes.
+ */
+export function inspectPaymentProviderFailure(error: unknown): PaymentProviderFailure | null {
+  if (!(error instanceof PaymentProviderError)) return null;
+  return paymentProviderErrorAuthority.get(error) ?? null;
 }
 
 export function normalizePaymentOperationContext(input: {

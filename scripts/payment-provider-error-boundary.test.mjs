@@ -2,14 +2,31 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+const PROVIDER = 'src/server/payments/payment-provider.ts';
 const PAYMENT_HTTP = 'src/server/payments/payment-http.ts';
 const BOOKING_HTTP = 'src/server/bookings/hospitality-booking-http.ts';
+const DOCUMENTATION = 'docs/payment-provider-error-boundary.md';
 
 async function read(path) {
   return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('staff payment HTTP boundaries sanitize provider failures before presentation', async () => {
+test('payment provider machine failures require private constructor authority', async () => {
+  const [source, documentation] = await Promise.all([read(PROVIDER), read(DOCUMENTATION)]);
+  assert.match(source, /paymentProviderFailureCodes = \[/);
+  assert.match(source, /new WeakMap<object, PaymentProviderFailure>\(\)/);
+  assert.match(source, /static \[Symbol\.hasInstance\]\(value: unknown\): boolean/);
+  assert.match(source, /paymentProviderErrorAuthority\.has\(value\)/);
+  assert.match(source, /Object\.defineProperties\(this, \{/);
+  assert.match(source, /writable: false/);
+  assert.match(source, /configurable: false/);
+  assert.match(source, /inspectPaymentProviderFailure/);
+  assert.match(documentation, /prototype lookalikes do not qualify/i);
+  assert.match(documentation, /non-writable and non-configurable/i);
+  assert.match(documentation, /durable payment\/refund claim settlement/i);
+});
+
+test('staff payment HTTP boundaries sanitize branded provider failures before presentation', async () => {
   for (const path of [PAYMENT_HTTP, BOOKING_HTTP]) {
     const source = await read(path);
     assert.match(source, /paymentProviderClientError/);
