@@ -155,8 +155,8 @@ test('source-code authority requires bounded SourceID and Message from the newer
   }
 });
 
-test('source-code authority rejects malformed SourceCode text instead of trimming line breaks into authority', () => {
-  for (const SourceCode of [undefined, null, '', '13020\n', '\n13020', '13 020']) {
+test('source-code authority requires the canonical decimal string representation', () => {
+  for (const SourceCode of [undefined, null, '', 13020, '13020\n', '\n13020', ' 13020', '13020 ', '13 020']) {
     assertInvalid(classify([{
       ...providerError('13020', 'VALIDATION'),
       SourceCode,
@@ -164,8 +164,8 @@ test('source-code authority rejects malformed SourceCode text instead of trimmin
   }
 });
 
-test('source-code authority accepts only the documented lowercase category member', () => {
-  assert.deepEqual(classify([providerError('13020', 'validation')]), {
+test('source-code authority accepts only the documented lowercase category member with a canonical uppercase value', () => {
+  assert.deepEqual(classify([providerError('13020', 'VALIDATION')]), {
     status: 'REVIEW_REQUIRED',
     reason: 'PRICE_CHANGED',
     providerCorrelationId: '4807ae55-722d-4935-93a9-e9f743625bf5',
@@ -176,6 +176,9 @@ test('source-code authority accepts only the documented lowercase category membe
     { ...providerError('13020', null), Category: 'VALIDATION' },
     { ...providerError('13020', 'VALIDATION'), Category: 'VALIDATION' },
     { ...providerError('13020', 'VALIDATION'), Category: 'UNKNOWN' },
+    { ...providerError('13020', 'validation') },
+    { ...providerError('13020', ' VALIDATION') },
+    { ...providerError('13020', 'VALIDATION ') },
     { ...providerError('13020', 'VALIDATION\n') },
     { ...providerError('13020', '\nVALIDATION') },
   ]) {

@@ -273,12 +273,15 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
     }
 
     const raw = error.SourceCode;
-    const sourceCode = typeof raw === 'number' && Number.isInteger(raw)
-      ? String(raw)
-      : typeof raw === 'string' && !/[\r\n]/.test(raw)
-        ? raw.trim()
-        : '';
-    if (!/^\d{1,8}$/.test(sourceCode)) {
+    const sourceCode = typeof raw === 'string'
+      && raw.length >= 1
+      && raw.length <= 8
+      && raw === raw.trim()
+      && !/[\u0000-\u001f\u007f]/.test(raw)
+      && /^\d{1,8}$/.test(raw)
+      ? raw
+      : '';
+    if (!sourceCode) {
       valid = false;
       continue;
     }
@@ -288,15 +291,18 @@ function inspectProviderErrors(value: unknown, httpStatus: number): ProviderErro
       continue;
     }
     const rawCategory = error.category;
-    if (typeof rawCategory !== 'string' || /[\r\n]/.test(rawCategory)) {
+    if (
+      typeof rawCategory !== 'string'
+      || rawCategory.length < 2
+      || rawCategory.length > 32
+      || rawCategory !== rawCategory.trim()
+      || /[\u0000-\u001f\u007f]/.test(rawCategory)
+      || !/^[A-Z_]{2,32}$/.test(rawCategory)
+    ) {
       valid = false;
       continue;
     }
-    const category = rawCategory.trim().toUpperCase();
-    if (!/^[A-Z_]{2,32}$/.test(category)) {
-      valid = false;
-      continue;
-    }
+    const category = rawCategory;
 
     inspectedErrors.push(Object.freeze({ sourceCode, category, statusCode: rawStatusCode }));
   }
@@ -659,7 +665,8 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
   // SourceCode is available only in Travelport's newer Stays error envelope.
   // Source-code authority additionally requires the documented Result and
   // ErrorDetail discriminators, SourceID/Message, lowercase category field,
-  // and an HTTP-consistent StatusCode. Partial/legacy-shaped errors fail closed.
+  // canonical string machine values, and an HTTP-consistent StatusCode.
+  // Partial/legacy-shaped or representation-coerced errors fail closed.
   const syncRequiredErrors = errors.present
     && errors.errors.length > 0
     && errors.errors.every(
