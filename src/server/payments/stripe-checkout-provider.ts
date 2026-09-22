@@ -2,6 +2,7 @@ import { PaymentProviderError, normalizePaymentMoney, type PaymentMoney } from '
 import { requestStripeApi } from './stripe-api-transport.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+const STRIPE_CHECKOUT_HOSTNAME = 'checkout.stripe.com';
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -43,6 +44,8 @@ type StripeCheckoutSessionResponse = Readonly<{
   payment_status?: unknown;
   payment_intent?: unknown;
   metadata?: unknown;
+  client_reference_id?: unknown;
+  mode?: unknown;
 }>;
 
 type StripeErrorResponse = Readonly<{
@@ -93,13 +96,14 @@ export class StripeCheckoutProvider {
     }
 
     const expiresAt = new Date((input.now ?? new Date()).getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
+    const requestedExpiresAtSeconds = Math.floor(expiresAt.getTime() / 1000);
     const form = new URLSearchParams();
     form.set('mode', 'payment');
     form.set('payment_method_types[]', 'card');
     form.set('success_url', successUrl);
     form.set('cancel_url', cancelUrl);
     form.set('client_reference_id', input.bookingId);
-    form.set('expires_at', String(Math.floor(expiresAt.getTime() / 1000)));
+    form.set('expires_at', String(requestedExpiresAtSeconds));
     form.set('metadata[sf_organization_id]', input.organizationId);
     form.set('metadata[sf_booking_id]', input.bookingId);
     form.set('payment_intent_data[metadata][sf_organization_id]', input.organizationId);
@@ -126,11 +130,15 @@ export class StripeCheckoutProvider {
     if (typeof response.id !== 'string' || !STRIPE_CHECKOUT_SESSION_PATTERN.test(response.id)) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session reference.', true);
     }
+    assertCreatedCheckoutSessionAuthority(response, {
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      purpose,
+      commercialAmendmentId,
+      requestedExpiresAtSeconds,
+    });
     if (typeof response.url !== 'string') throw new PaymentProviderError('UNKNOWN', 'Stripe did not return a Checkout URL.', true);
-    const checkoutUrl = normalizeStripeCheckoutUrl(response.url);
-    if (!Number.isSafeInteger(response.expires_at) || Number(response.expires_at) <= 0) {
-      throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout expiry.', true);
-    }
+    const checkoutUrl = normalizeStripeCheckoutUrl(response.url, response.id);
     const money = normalizeCheckoutMoney(response);
     if (money.currency !== input.money.currency || money.amountMinor !== input.money.amountMinor) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout money that does not match the requested payment amount.', true);
@@ -140,7 +148,7 @@ export class StripeCheckoutProvider {
       providerCode: 'stripe',
       sessionReference: response.id,
       checkoutUrl,
-      expiresAt: new Date(Number(response.expires_at) * 1000),
+      expiresAt: new Date(requestedExpiresAtSeconds * 1000),
       money,
     });
   }
@@ -214,6 +222,42 @@ export class StripeCheckoutProvider {
   }
 }
 
+function assertCreatedCheckoutSessionAuthority(
+  response: StripeCheckoutSessionResponse,
+  expected: {
+    organizationId: string;
+    bookingId: string;
+    purpose: StripeCheckoutPurpose;
+    commercialAmendmentId: string | null;
+    requestedExpiresAtSeconds: number;
+  },
+): void {
+  if (response.mode !== 'payment' || response.client_reference_id !== expected.bookingId) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout Session authority that does not match the requested booking.', true);
+  }
+  if (response.expires_at !== expected.requestedExpiresAtSeconds) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned a Checkout expiry that does not match the requested expiry.', true);
+  }
+  const metadata = normalizeCheckoutMetadata(response.metadata);
+  if (
+    normalizeMetadataUuid(metadata.sf_organization_id) !== expected.organizationId.toLowerCase()
+    || normalizeMetadataUuid(metadata.sf_booking_id) !== expected.bookingId.toLowerCase()
+  ) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout metadata that does not match the requested booking.', true);
+  }
+  const responsePurpose = normalizeOptionalString(metadata.sf_checkout_purpose);
+  const responseAmendmentId = normalizeMetadataUuid(metadata.sf_commercial_amendment_id);
+  if (expected.purpose === 'booking-payment') {
+    if (responsePurpose !== null || responseAmendmentId !== null) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned unexpected commercial amendment Checkout metadata.', true);
+    }
+    return;
+  }
+  if (responsePurpose !== expected.purpose || responseAmendmentId !== expected.commercialAmendmentId) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout metadata that does not match the requested commercial amendment.', true);
+  }
+}
+
 function normalizeCheckoutMoney(response: StripeCheckoutSessionResponse) {
   if (!Number.isSafeInteger(response.amount_total) || Number(response.amount_total) < 0) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout amount.', true);
@@ -273,14 +317,23 @@ function normalizeCheckoutReturnUrl(value: string) {
   return url.toString();
 }
 
-function normalizeStripeCheckoutUrl(value: string) {
+function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
   }
-  if (url.protocol !== 'https:' || url.username || url.password || value.length > 4_096) {
+  const pathSegments = url.pathname.split('/').filter(Boolean);
+  if (
+    url.protocol !== 'https:'
+    || url.hostname !== STRIPE_CHECKOUT_HOSTNAME
+    || url.port
+    || url.username
+    || url.password
+    || value.length > 4_096
+    || pathSegments.at(-1) !== sessionReference
+  ) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
   }
   return url.toString();

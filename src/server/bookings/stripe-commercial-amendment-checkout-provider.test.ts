@@ -17,6 +17,14 @@ test('normal commercial amendment Checkout carries explicit amendment ownership 
       return new Response(JSON.stringify({
         id: 'cs_test_change_123',
         object: 'checkout.session',
+        mode: 'payment',
+        client_reference_id: bookingId,
+        metadata: {
+          sf_organization_id: organizationId,
+          sf_booking_id: bookingId,
+          sf_checkout_purpose: 'commercial-amendment-charge',
+          sf_commercial_amendment_id: amendmentId,
+        },
         url: 'https://checkout.stripe.com/c/pay/cs_test_change_123',
         expires_at: Math.floor(now.getTime() / 1000) + 1800,
         amount_total: 2500,

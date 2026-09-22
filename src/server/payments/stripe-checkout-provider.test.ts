@@ -13,12 +13,34 @@ function checkoutResponse(overrides: Record<string, unknown> = {}) {
   return {
     id: 'cs_test_abc123',
     object: 'checkout.session',
-    url: 'https://checkout.stripe.com/c/pay/cs_test_abc123',
+    mode: 'payment',
+    client_reference_id: bookingId,
+    metadata: {
+      sf_organization_id: organizationId,
+      sf_booking_id: bookingId,
+    },
+    url: 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout',
     expires_at: Math.floor(now.getTime() / 1000) + 1800,
     amount_total: 12500,
     currency: 'usd',
     ...overrides,
   };
+}
+
+async function createBookingCheckout(overrides: Record<string, unknown>) {
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse(overrides)), { status: 200 }),
+  });
+  return provider.createPaymentSession({
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl: 'https://booking.example.test/book/acme?payment=processing',
+    cancelUrl: 'https://booking.example.test/book/acme?payment=cancelled',
+    now,
+  });
 }
 
 test('creates hosted Checkout using authoritative money, tenant metadata, and Stripe idempotency', async () => {
@@ -56,6 +78,39 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
   assert.equal(result.money.amountMinor, 12500n);
   assert.equal(result.money.currency, 'USD');
   assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:30:00.000Z');
+  assert.equal(result.checkoutUrl, 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout');
+});
+
+test('rejects Checkout redirect authority outside the default Stripe-hosted session URL', async () => {
+  for (const url of [
+    'https://example.test/c/pay/cs_test_abc123',
+    'https://pay.example.test/c/pay/cs_test_abc123',
+    'https://checkout.stripe.com.evil.test/c/pay/cs_test_abc123',
+    'https://checkout.stripe.com/c/pay/cs_test_other',
+    'https://checkout.stripe.com/c/pay/%63s_test_abc123',
+  ]) {
+    await assert.rejects(
+      createBookingCheckout({ url }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
+test('rejects created Checkout Session ownership, mode, metadata, or expiry drift', async () => {
+  const cases: Record<string, unknown>[] = [
+    { mode: 'subscription' },
+    { client_reference_id: amendmentId },
+    { metadata: { sf_organization_id: amendmentId, sf_booking_id: bookingId } },
+    { metadata: { sf_organization_id: organizationId, sf_booking_id: amendmentId } },
+    { metadata: { sf_organization_id: organizationId, sf_booking_id: bookingId, sf_checkout_purpose: 'commercial-amendment-charge' } },
+    { expires_at: Math.floor(now.getTime() / 1000) + 1801 },
+  ];
+  for (const overrides of cases) {
+    await assert.rejects(
+      createBookingCheckout(overrides),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
 });
 
 test('creates amendment recovery Checkout with explicit Session and PaymentIntent ownership metadata', async () => {
@@ -64,7 +119,15 @@ test('creates amendment recovery Checkout with explicit Session and PaymentInten
     secretKey: 'sk_test_checkout_secret',
     fetchImpl: async (_url, init) => {
       capturedBody = String(init?.body ?? '');
-      return new Response(JSON.stringify(checkoutResponse({ amount_total: 2500 })), { status: 200 });
+      return new Response(JSON.stringify(checkoutResponse({
+        amount_total: 2500,
+        metadata: {
+          sf_organization_id: organizationId,
+          sf_booking_id: bookingId,
+          sf_checkout_purpose: 'commercial-amendment-recovery',
+          sf_commercial_amendment_id: amendmentId,
+        },
+      })), { status: 200 });
     },
   });
 
@@ -133,72 +196,23 @@ test('fails closed when retrieved Checkout provider identity is malformed', asyn
   const provider = new StripeCheckoutProvider({
     secretKey: 'sk_test_checkout_secret',
     fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
-      status: 'complete',
-      payment_status: 'paid',
-      payment_intent: 'not-a-payment-intent',
-      metadata: {},
+      status: 'complete', payment_status: 'paid', payment_intent: 'not-a-payment-intent', metadata: {},
     })), { status: 200 }),
   });
-
-  await assert.rejects(
-    provider.retrievePaymentSession('cs_test_abc123'),
-    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
-  );
+  await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'), (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
 });
 
 test('rejects amendment metadata on a normal booking Checkout', async () => {
   const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret' });
-  await assert.rejects(
-    provider.createPaymentSession({
-      organizationId,
-      bookingId,
-      commercialAmendmentId: amendmentId,
-      idempotencyKey: 'public:3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      money: { currency: 'USD', amountMinor: 12500n },
-      successUrl: 'https://booking.example.test/success',
-      cancelUrl: 'https://booking.example.test/cancel',
-      now,
-    }),
-    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
-  );
+  await assert.rejects(provider.createPaymentSession({ organizationId, bookingId, commercialAmendmentId: amendmentId, idempotencyKey: 'public:3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', money: { currency: 'USD', amountMinor: 12500n }, successUrl: 'https://booking.example.test/success', cancelUrl: 'https://booking.example.test/cancel', now }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
 });
 
 test('rejects provider money drift instead of redirecting the customer', async () => {
-  const provider = new StripeCheckoutProvider({
-    secretKey: 'sk_test_checkout_secret',
-    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({ amount_total: 12499 })), { status: 200 }),
-  });
-
-  await assert.rejects(
-    provider.createPaymentSession({
-      organizationId,
-      bookingId,
-      idempotencyKey: 'public:1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      money: { currency: 'USD', amountMinor: 12500n },
-      successUrl: 'https://booking.example.test/success',
-      cancelUrl: 'https://booking.example.test/cancel',
-      now,
-    }),
-    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
-  );
+  const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret', fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({ amount_total: 12499 })), { status: 200 }) });
+  await assert.rejects(provider.createPaymentSession({ organizationId, bookingId, idempotencyKey: 'public:1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', money: { currency: 'USD', amountMinor: 12500n }, successUrl: 'https://booking.example.test/success', cancelUrl: 'https://booking.example.test/cancel', now }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
 });
 
 test('maps Stripe rate limits to retryable provider errors', async () => {
-  const provider = new StripeCheckoutProvider({
-    secretKey: 'sk_test_checkout_secret',
-    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'slow down' } }), { status: 429 }),
-  });
-
-  await assert.rejects(
-    provider.createPaymentSession({
-      organizationId,
-      bookingId,
-      idempotencyKey: 'public:2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      money: { currency: 'USD', amountMinor: 12500n },
-      successUrl: 'https://booking.example.test/success',
-      cancelUrl: 'https://booking.example.test/cancel',
-      now,
-    }),
-    (error: unknown) => error instanceof PaymentProviderError && error.code === 'RATE_LIMITED' && error.retryable,
-  );
+  const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret', fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'slow down' } }), { status: 429 }) });
+  await assert.rejects(provider.createPaymentSession({ organizationId, bookingId, idempotencyKey: 'public:2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', money: { currency: 'USD', amountMinor: 12500n }, successUrl: 'https://booking.example.test/success', cancelUrl: 'https://booking.example.test/cancel', now }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'RATE_LIMITED' && error.retryable);
 });
