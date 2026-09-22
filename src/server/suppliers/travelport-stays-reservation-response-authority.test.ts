@@ -111,15 +111,16 @@ test('rejects normalization-confusable receipt identity and lifecycle evidence',
   }
 });
 
-test('rejects padded, control-bearing, or recased commercial error classification tokens', () => {
-  const mutations = [
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result['@type'] = ' Result'; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!['@type'] = 'ErrorDetail '; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!.SourceCode = ' 13020'; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!.SourceCode = '13020\u0000'; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!.category = ' VALIDATION'; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!.category = 'validation'; },
-    (body: ReturnType<typeof errorResponse>) => { body.ErrorResponse.Result.Error[0]!.SourceID = 'API\t'; },
+test('rejects padded, control-bearing, recased, or representation-coerced commercial error classification tokens', () => {
+  const mutations: Array<(body: ReturnType<typeof errorResponse>) => void> = [
+    (body) => { body.ErrorResponse.Result['@type'] = ' Result'; },
+    (body) => { body.ErrorResponse.Result.Error[0]!['@type'] = 'ErrorDetail '; },
+    (body) => { body.ErrorResponse.Result.Error[0]!.SourceCode = ' 13020'; },
+    (body) => { body.ErrorResponse.Result.Error[0]!.SourceCode = '13020\u0000'; },
+    (body) => { (body.ErrorResponse.Result.Error[0] as Record<string, unknown>).SourceCode = 13020; },
+    (body) => { body.ErrorResponse.Result.Error[0]!.category = ' VALIDATION'; },
+    (body) => { body.ErrorResponse.Result.Error[0]!.category = 'validation'; },
+    (body) => { body.ErrorResponse.Result.Error[0]!.SourceID = 'API\t'; },
   ];
 
   for (const mutate of mutations) {

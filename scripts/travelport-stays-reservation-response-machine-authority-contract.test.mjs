@@ -35,6 +35,13 @@ test('reservation response guard rejects normalization-confusable commercial mac
   assert.match(guard, /value\.trim\(\) !== value/);
   assert.match(guard, /\^\[A-Z_\]\{2,32\}\$/);
   assert.match(guard, /\^\\d\{1,8\}\$/);
+  const sourceCodeGuard = guard.slice(
+    guard.indexOf('function assertSourceCodeIfPresent'),
+    guard.indexOf('function assertCategoryIfPresent'),
+  );
+  assert.match(sourceCodeGuard, /assertExactMachineStringIfPresent\(value, MAX_SOURCE_CODE_LENGTH\)/);
+  assert.doesNotMatch(sourceCodeGuard, /typeof value === 'number'|Number\.isInteger\(value\)/);
+  assert.match(guard, /numeric source-code coercion/);
   assert.match(guard, /MAX_OFFERS = 32/);
   assert.match(guard, /MAX_PRODUCTS_PER_OFFER = 8/);
   assert.match(guard, /MAX_RECEIPTS = 32/);
