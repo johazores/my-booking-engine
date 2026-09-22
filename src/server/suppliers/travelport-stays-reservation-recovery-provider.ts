@@ -9,6 +9,9 @@ import { materializeTravelportStaysReservationIoConstructorAuthority } from './t
 import {
   normalizeTravelportStaysReservationExpectation,
 } from './travelport-stays-reservation-identity.ts';
+import {
+  inspectTravelportStaysReservationNegativeEvidence,
+} from './travelport-stays-reservation-negative-evidence.ts';
 import { materializeTravelportStaysReservationOperationInput } from './travelport-stays-reservation-operation-input-authority.ts';
 import { normalizeTravelportStaysReservationReference } from './travelport-stays-reservation-reference.ts';
 import {
@@ -89,7 +92,7 @@ async function fetchWithTimeout(input: {
 export class TravelportStaysReservationRecoveryProvider implements HospitalitySupplierReservationRecoveryProvider {
   readonly code = 'travelport-stays';
   readonly requiresSupplierConfirmationForFound = true;
-  readonly supportsAuthoritativeNotFound = false;
+  readonly supportsAuthoritativeNotFound = true;
   readonly #credentials: TravelportStaysCredentials;
   readonly #cacheKey: string;
   readonly #fetchImpl: typeof fetch;
@@ -201,12 +204,20 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
         headers: requestHeaders,
       },
     });
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+      const negativeEvidence = inspectTravelportStaysReservationNegativeEvidence(payload, response.status);
+      if (negativeEvidence) {
+        return Object.freeze({
+          status: 'NOT_FOUND',
+          providerReservationReference: reference,
+          providerCorrelationId: negativeEvidence.providerCorrelationId,
+        });
+      }
       throw new HospitalitySupplierProviderError(failureCodeForStatus(response.status));
     }
 
-    const payload = await response.json().catch(() => null);
     const parsed = parseTravelportStaysReservationResponse(payload, {
       expectedProviderReservationReference: reference,
       expectedReservation,

@@ -18,7 +18,9 @@ After the durable claim proves a known provider reservation reference, SF snapsh
 
 `supportsAuthoritativeNotFound` defaults to `false`. A provider-neutral `NOT_FOUND` can remove the known locator and return the operation to `PREPARED` only when the snapshotted adapter explicitly declares this capability. Without that declaration, a normalized `NOT_FOUND` is treated as `INVALID_RESPONSE`, the operation remains `AMBIGUOUS`, and the durable provider/supplier identity is preserved. This prevents a buggy or future adapter from turning an unsupported negative response into authority for another supplier Create.
 
-Travelport Stays explicitly declares `supportsAuthoritativeNotFound = false`. The current public Retrieve contract does not establish generic HTTP `404` as authoritative proof that the exact reservation does not exist, so Travelport negative transport responses do not grant retry authority.
+Travelport Stays declares `supportsAuthoritativeNotFound = true` only for its narrow provider-specific negative-evidence classifier. Travelport documents Stays error `SourceCode=13061`, HTTP/error `StatusCode=400`, category `VALIDATION` as `RESERVATION WAS NOT FOUND IN SUPPLIER SYSTEM`. SF accepts `NOT_FOUND` only when the Retrieve response is a structurally valid newer-version `ErrorResponse / Result / ErrorDetail` carrying that exact code/status/category contract. Generic HTTP `404`, older error shapes without a source code, mixed or malformed error collections, unrelated Travelport errors, and contradictory response families remain non-authoritative and preserve ambiguity.
+
+This exact-locator authority does not resolve locator-less Create uncertainty or the separate `13034` Sync-required scenario. Those activation gates remain closed.
 
 Provider code is also required to be a trim-stable, control-free machine token of at most 64 characters before it can be compared with the durable provider identity. Optional provider capability flags must be booleans when present. If the capability object is malformed, its provider code or flags are invalid, or its getters cannot be read safely, the already-created reconciliation attempt is settled as `UNKNOWN / INVALID_REQUEST`. SF does not leave a durable attempt stranded because a provider capability getter failed between claim and provider I/O.
 
@@ -34,9 +36,9 @@ The existing reconciliation rules remain fail closed: the durable locator must m
 
 ## Similar-issue review
 
-The immediate reconciliation flow was reviewed from durable claim through provider call and final settlement. The same runtime-authority concern exists at four connected boundaries in this workflow: top-level coordinator identity, provider capability properties, provider result evidence, and the commercial authority of negative evidence. All four are stabilized, while the coordinator now independently refuses to convert an undeclared negative result into retry authority.
+The immediate reconciliation flow was reviewed from durable claim through provider call and final settlement. The same runtime-authority concern exists at four connected boundaries in this workflow: top-level coordinator identity, provider capability properties, provider result evidence, and the commercial authority of negative evidence. All four are stabilized, while the coordinator independently refuses to convert an undeclared negative result into retry authority.
 
-Travelport Create, reviewed Create, Booking.com Sync, and the Travelport recovery adapter retain their separate provider-specific operation/constructor/request authority layers. Provider-specific commercial behavior is not moved into this provider-neutral reconciliation service.
+The Travelport recovery adapter was also swept for transport-status shortcuts. HTTP status alone never authorizes a second Create: only the exact documented `13061` Stays error contract can emit provider-neutral `NOT_FOUND`. Travelport Create, reviewed Create, and Booking.com Sync keep their separate provider-specific write classifiers and authority boundaries.
 
 ## Activation and privacy boundary
 
@@ -51,3 +53,4 @@ Related documentation:
 - `docs/travelport-stays-integration.md`
 - `docs/travelport-stays-reservation-operation-input-authority.md`
 - `docs/travelport-stays-reservation-expectation-authority.md`
+- Travelport Stays API Error Messaging: `https://support.travelport.com/webhelp/JSONAPIs/Hotelv11/Content/Hotel11/General/HotelAPIErrors.htm`
