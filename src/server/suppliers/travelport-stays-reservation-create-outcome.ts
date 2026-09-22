@@ -28,6 +28,7 @@ const MAX_WARNING_STATUS_CODE = 999;
 const GUARANTEE_CHANGE_SOURCE_CODES = new Set(['13016', '13017', '13018']);
 const PRICE_CHANGE_SOURCE_CODE = '13020';
 const SYNC_REQUIRED_SOURCE_CODE = '13034';
+const SYNC_REQUIRED_STATUS_CODE = 500;
 const RETRYABLE_EPHEMERAL_PAYMENT_VALIDATION_SOURCE_CODES = new Set([
   '1537',
   '1538',
@@ -671,7 +672,8 @@ export function classifyTravelportStaysReservationCreateOutcome(input: Readonly<
     && errors.errors.length > 0
     && errors.errors.every(
       (error) => error.sourceCode === SYNC_REQUIRED_SOURCE_CODE
-        && error.category === 'UNKNOWN',
+        && error.category === 'UNKNOWN'
+        && error.statusCode === SYNC_REQUIRED_STATUS_CODE,
     );
   if (syncRequiredErrors) {
     return Object.freeze({
