@@ -49,11 +49,19 @@ test('public booking and checkout roots preserve migration-backed tenant ownersh
 });
 
 test('commercial amendment and pricing roots preserve tenant-bound migration tuples and role names', async () => {
-  const [root, amendment, pricing, amendmentMigration, pricingMigration] = await Promise.all([
+  const [
+    root,
+    amendment,
+    pricing,
+    amendmentMigration,
+    amendmentPortabilityMigration,
+    pricingMigration,
+  ] = await Promise.all([
     source('prisma/schema.prisma'),
     source('prisma/hospitality-booking-commercial-amendments.prisma'),
     source('prisma/hospitality-booking-pricing-evidence.prisma'),
     source('prisma/migrations/20260903013000_commercial-booking-amendments/migration.sql'),
+    source('prisma/migrations/20260922081500-hospitality-commercial-amendment-identifier-portability/migration.sql'),
     source('prisma/migrations/20260904013000_hospitality-booking-pricing-evidence/migration.sql'),
   ]);
 
@@ -61,13 +69,18 @@ test('commercial amendment and pricing roots preserve tenant-bound migration tup
     'hospitality_booking_commercial_amendments_organization_fkey',
     'hospitality_booking_commercial_amendments_booking_fkey',
     'hospitality_booking_commercial_amendments_property_fkey',
-    'hospitality_booking_commercial_amendments_current_room_type_fkey',
     'hospitality_booking_commercial_amendments_target_room_type_fkey',
-    'hospitality_booking_commercial_amendments_current_rate_plan_fkey',
     'hospitality_booking_commercial_amendments_target_rate_plan_fkey',
     'hospitality_booking_commercial_amendments_target_hold_fkey',
   ]) {
     assertMappedConstraint(amendment, amendmentMigration, constraintName);
+  }
+
+  for (const constraintName of [
+    'hospitality_commercial_amendments_current_room_type_fkey',
+    'hospitality_commercial_amendments_current_rate_plan_fkey',
+  ]) {
+    assertMappedConstraint(amendment, amendmentPortabilityMigration, constraintName);
   }
 
   for (const constraintName of [
@@ -97,6 +110,10 @@ test('commercial amendment and pricing roots preserve tenant-bound migration tup
   assert.match(root, /currentCommercialAmendments\s+HospitalityBookingCommercialAmendment\[\]\s+@relation\("HospitalityCommercialAmendmentCurrentRatePlan"\)/);
   assert.match(root, /targetCommercialAmendments\s+HospitalityBookingCommercialAmendment\[\]\s+@relation\("HospitalityCommercialAmendmentTargetRatePlan"\)/);
   assert.match(amendmentMigration, /CREATE UNIQUE INDEX "hospitality_booking_commercial_amendments_org_target_hold_key"/);
+  assert.match(
+    amendmentPortabilityMigration,
+    /ALTER INDEX "hospitality_booking_commercial_amendments_org_booking_status_ex"\s+RENAME TO "hospitality_commercial_amendments_booking_status_expiry_idx"/,
+  );
 });
 
 test('invoice roots preserve organization booking and user foreign-key authority', async () => {

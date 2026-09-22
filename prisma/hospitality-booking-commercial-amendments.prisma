@@ -55,9 +55,9 @@ model HospitalityBookingCommercialAmendment {
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_organization_fkey")
   booking             HospitalityBooking           @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_booking_fkey")
   property            HospitalityProperty          @relation(fields: [propertyId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_property_fkey")
-  currentRoomType     HospitalityRoomType          @relation("HospitalityCommercialAmendmentCurrentRoomType", fields: [currentRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_room_type_fkey")
+  currentRoomType     HospitalityRoomType          @relation("HospitalityCommercialAmendmentCurrentRoomType", fields: [currentRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_commercial_amendments_current_room_type_fkey")
   targetRoomType      HospitalityRoomType          @relation("HospitalityCommercialAmendmentTargetRoomType", fields: [targetRoomTypeId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_room_type_fkey")
-  currentRatePlan     HospitalityRatePlan          @relation("HospitalityCommercialAmendmentCurrentRatePlan", fields: [currentRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_current_rate_plan_fkey")
+  currentRatePlan     HospitalityRatePlan          @relation("HospitalityCommercialAmendmentCurrentRatePlan", fields: [currentRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_commercial_amendments_current_rate_plan_fkey")
   targetRatePlan      HospitalityRatePlan          @relation("HospitalityCommercialAmendmentTargetRatePlan", fields: [targetRatePlanId, propertyId, organizationId], references: [id, propertyId, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_rate_plan_fkey")
   targetHold          HospitalityAvailabilityHold? @relation(fields: [targetHoldId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_booking_commercial_amendments_target_hold_fkey")
   paymentTransactions  PaymentTransaction[]
@@ -68,7 +68,7 @@ model HospitalityBookingCommercialAmendment {
   @@unique([id, bookingId, organizationId], map: "hospitality_booking_commercial_amendments_id_booking_org_key")
   @@unique([organizationId, idempotencyKey], map: "hospitality_booking_commercial_amendments_org_idempotency_key")
   @@unique([organizationId, targetHoldId], map: "hospitality_booking_commercial_amendments_org_target_hold_key")
-  @@index([organizationId, bookingId, status, expiresAt], map: "hospitality_booking_commercial_amendments_org_booking_status_expiry_idx")
+  @@index([organizationId, bookingId, status, expiresAt], map: "hospitality_commercial_amendments_booking_status_expiry_idx")
   @@index([organizationId, status, expiresAt], map: "hospitality_booking_commercial_amendments_org_status_expiry_idx")
   @@map("hospitality_booking_commercial_amendments")
 }

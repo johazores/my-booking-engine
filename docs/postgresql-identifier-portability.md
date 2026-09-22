@@ -33,6 +33,20 @@ The supplier Prisma fragment maps the explicit operation/attempt foreign-key, un
 
 Because the clean-chain blockers required historical migration edits, any environment that has already recorded the previous migration checksums must be reviewed and reconciled intentionally before deployment. Never treat the source contract alone as proof that an already-deployed database is drift-clean.
 
+## Hospitality commercial-amendment cleanup
+
+The original hospitality commercial-amendment migration creates three names that exceed PostgreSQL's 63-byte identifier limit:
+
+- the current-room-type foreign key;
+- the current-rate-plan foreign key; and
+- the organization/booking/status/expiry lookup index.
+
+PostgreSQL stores those objects under truncated 63-byte names while the Prisma fragment previously mapped the longer source spellings. That mismatch is not a data-integrity failure, but it is unnecessary physical-schema drift risk and makes later migrations harder to reason about.
+
+The `20260922081500-hospitality-commercial-amendment-identifier-portability` migration renames those exact stored identifiers to compact permanent names. It is rename-only: it does not drop or recreate foreign keys/indexes, rewrite amendment evidence, change commercial lifecycle rules, or weaken the existing tenant-bound room-type/rate-plan relation tuples.
+
+The Prisma commercial-amendment fragment now maps the compact foreign-key and index names directly.
+
 ## Regression protection
 
 `scripts/rental-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
@@ -50,5 +64,12 @@ Because the clean-chain blockers required historical migration edits, any enviro
 - the portability migration is rename-only;
 - Prisma uses the final explicit operation/attempt database names; and
 - supplier operation/attempt relations keep composite tenant authority.
+
+`scripts/hospitality-commercial-amendment-postgresql-identifier-portability-source-contract.test.mjs` verifies that:
+
+- all three historical commercial-amendment names genuinely exceed the PostgreSQL limit and resolve to distinct 63-byte stored identifiers;
+- the portability migration renames those exact stored identifiers to bounded unique names without create/drop/data-write statements;
+- Prisma maps the final physical foreign-key/index names; and
+- current room-type/rate-plan tenant authority plus the booking/status/expiry lookup tuple remain unchanged.
 
 The live migration gate still requires `npm run test:database` against an explicitly disposable PostgreSQL target before the database checklist can be marked complete. GitHub Actions are not required or used.
