@@ -132,17 +132,20 @@ test('supplier provider observation emits one completion record only', () => {
   assert.equal(captured.value.second, null);
 });
 
-test('reconciliation observes only complete identity-safe provider evidence as successful', () => {
+test('reconciliation observes only marked complete identity-safe provider evidence as successful', () => {
   const source = readFileSync(new URL('../src/server/suppliers/hospitality-supplier-reservation-reconciliation-service.ts', import.meta.url), 'utf8');
   const claimIndex = source.indexOf('claimHospitalitySupplierReservationReconciliation');
   const providerMaterializationIndex = source.indexOf('materializeHospitalitySupplierReservationRecoveryProvider(authority.provider)', claimIndex);
   const providerGuardIndex = source.indexOf('provider.code !== claim.reservation.providerCode', providerMaterializationIndex);
-  const observerIndex = source.indexOf('createHospitalitySupplierReservationProviderObservation({');
-  const providerIoIndex = source.indexOf('rawResult = await provider.retrieveReservation');
+  const callbackIndex = source.indexOf('const beforeProviderRequest = async () => {', providerGuardIndex);
+  const markerIndex = source.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', callbackIndex);
+  const observerIndex = source.indexOf('providerObservation = createHospitalitySupplierReservationProviderObservation({', markerIndex);
+  const providerIoIndex = source.indexOf('rawResult = await provider.retrieveReservation', observerIndex);
   const catchIndex = source.indexOf('} catch (error) {', providerIoIndex);
+  const unmarkedGuardIndex = source.indexOf('if (!providerRequestStarted)', catchIndex);
   const resultMaterializationIndex = source.indexOf(
     'result = materializeHospitalitySupplierReservationRecoveryResult(rawResult)',
-    catchIndex,
+    unmarkedGuardIndex,
   );
   const correlationNormalizationIndex = source.indexOf(
     'normalizeHospitalitySupplierReservationCorrelationId(result.providerCorrelationId)',
@@ -164,10 +167,13 @@ test('reconciliation observes only complete identity-safe provider evidence as s
   assert.ok(claimIndex >= 0);
   assert.ok(providerMaterializationIndex > claimIndex);
   assert.ok(providerGuardIndex > providerMaterializationIndex);
-  assert.ok(observerIndex > providerGuardIndex);
+  assert.ok(callbackIndex > providerGuardIndex);
+  assert.ok(markerIndex > callbackIndex);
+  assert.ok(observerIndex > markerIndex);
   assert.ok(providerIoIndex > observerIndex);
   assert.ok(catchIndex > providerIoIndex);
-  assert.ok(resultMaterializationIndex > catchIndex);
+  assert.ok(unmarkedGuardIndex > catchIndex);
+  assert.ok(resultMaterializationIndex > unmarkedGuardIndex);
   assert.ok(correlationNormalizationIndex > resultMaterializationIndex);
   assert.ok(foundBranchIndex > correlationNormalizationIndex);
   assert.ok(foundEvidenceIndex > foundBranchIndex);
@@ -176,20 +182,21 @@ test('reconciliation observes only complete identity-safe provider evidence as s
   assert.ok(notFoundEvidenceIndex > notFoundBranchIndex);
   assert.ok(notFoundSuccessIndex > notFoundEvidenceIndex);
   assert.match(source, /requestCorrelationId: claim\.attempt\.id/);
+  assert.match(source, /beforeProviderRequest,/);
   assert.match(source, /if \(result\.status === 'FOUND'\)/);
   assert.match(source, /if \(result\.status === 'NOT_FOUND'\)/);
   assert.match(source, /const failureCode = error instanceof HospitalitySupplierProviderError \? error\.code : 'PROVIDER_UNAVAILABLE';/);
-  assert.match(source, /providerObservation\.finish\(\{ status: 'FAILED', failureCode \}\);/);
+  assert.match(source, /providerObservation\?\.finish\(\{ status: 'FAILED', failureCode \}\);/);
   assert.match(
     source.slice(foundEvidenceIndex, foundSuccessIndex),
-    /providerObservation\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
+    /providerObservation\?\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
   );
   assert.match(
     source.slice(notFoundEvidenceIndex, notFoundSuccessIndex),
-    /providerObservation\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
+    /providerObservation\?\.finish\(\{ status: 'FAILED', failureCode: 'INVALID_RESPONSE' \}\)/,
   );
 
-  const observationCalls = [...source.matchAll(/providerObservation\.finish/g)];
+  const observationCalls = [...source.matchAll(/providerObservation\?\.finish/g)];
   assert.equal(observationCalls.length, 9);
-  assert.match(source, /createHospitalitySupplierReservationProviderObservation\(\{\n\s+requestCorrelationId: claim\.attempt\.id,\n\s+organizationId: authority\.organizationId,\n\s+provider: claim\.reservation\.providerCode,\n\s+\}\)/);
+  assert.match(source, /providerObservation = createHospitalitySupplierReservationProviderObservation\(\{\n\s+requestCorrelationId: claim\.attempt\.id,\n\s+organizationId: authority\.organizationId,\n\s+provider: claim\.reservation\.providerCode,\n\s+\}\)/);
 });

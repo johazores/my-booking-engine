@@ -17,6 +17,11 @@ test('provider-neutral known-locator recovery requires an immediate pre-I/O call
     coordinator,
     /const beforeProviderRequest = async \(\) => \{[\s\S]*?markHospitalitySupplierReservationProviderRequestStarted\([\s\S]*?requireFreshProviderRequest: true,[\s\S]*?providerRequestStarted = true/,
   );
+  const callbackIndex = coordinator.indexOf('const beforeProviderRequest = async () => {');
+  const markerIndex = coordinator.indexOf('await markHospitalitySupplierReservationProviderRequestStarted', callbackIndex);
+  const observerIndex = coordinator.indexOf('providerObservation = createHospitalitySupplierReservationProviderObservation({', markerIndex);
+  const providerIndex = coordinator.indexOf('rawResult = await provider.retrieveReservation', observerIndex);
+  assert.ok(callbackIndex >= 0 && markerIndex > callbackIndex && observerIndex > markerIndex && providerIndex > observerIndex);
   assert.match(
     coordinator,
     /provider\.retrieveReservation\(\{[\s\S]*?requestCorrelationId: claim\.attempt\.id,[\s\S]*?expectedReservation,[\s\S]*?beforeProviderRequest,[\s\S]*?\}\)/,
