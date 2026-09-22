@@ -76,10 +76,6 @@ function assertLocalDateIfPresent(value: unknown): void {
 
 function assertSourceCodeIfPresent(value: unknown): void {
   if (value === undefined) return;
-  if (typeof value === 'number') {
-    if (!Number.isInteger(value) || value < 0 || value > 99_999_999) invalidResponse();
-    return;
-  }
   assertExactMachineStringIfPresent(value, MAX_SOURCE_CODE_LENGTH);
   if (!/^\d{1,8}$/.test(value as string)) invalidResponse();
 }
@@ -268,8 +264,8 @@ function validateReservation(response: RecordValue): void {
  * The compatibility classifiers intentionally remain isolated behind this boundary. Provider
  * machine evidence that can influence reservation identity, review/retry decisions, or Sync
  * recovery must arrive in one exact spelling; it may not gain authority through trimming,
- * recasing of error categories, ignored ASCII control characters, ill-formed Unicode, or
- * explicit null values standing in for omitted optional machine evidence.
+ * recasing of error categories, numeric source-code coercion, ignored ASCII control characters,
+ * ill-formed Unicode, or explicit null values standing in for omitted optional machine evidence.
  */
 export function assertTravelportStaysReservationResponseMachineAuthority(value: unknown, httpStatus?: number): void {
   if (
