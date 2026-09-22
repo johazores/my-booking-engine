@@ -15,9 +15,9 @@ model AppointmentService {
   organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "appointment_services_organization_fkey")
   staffAssignments AppointmentStaffService[]
 
-  @@unique([id, organizationId])
-  @@unique([organizationId, code])
-  @@index([organizationId, status, name])
+  @@unique([id, organizationId], map: "appointment_services_id_org_key")
+  @@unique([organizationId, code], map: "appointment_services_org_code_key")
+  @@index([organizationId, status, name], map: "appointment_services_org_status_name_idx")
   @@map("appointment_services")
 }
 
@@ -37,9 +37,9 @@ model AppointmentStaff {
   serviceAssignments AppointmentStaffService[]
   schedules          AppointmentSchedule[]
 
-  @@unique([id, organizationId])
-  @@unique([organizationId, code])
-  @@index([organizationId, status, name])
+  @@unique([id, organizationId], map: "appointment_staff_id_org_key")
+  @@unique([organizationId, code], map: "appointment_staff_org_code_key")
+  @@index([organizationId, status, name], map: "appointment_staff_org_status_name_idx")
   @@map("appointment_staff")
 }
 
@@ -49,11 +49,11 @@ model AppointmentStaffService {
   serviceId      String   @db.Uuid
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
-  staff   AppointmentStaff   @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
-  service AppointmentService @relation(fields: [serviceId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  staff   AppointmentStaff   @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "appointment_staff_services_staff_tenant_fkey")
+  service AppointmentService @relation(fields: [serviceId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "appointment_staff_services_service_tenant_fkey")
 
   @@id([organizationId, staffId, serviceId])
-  @@index([organizationId, serviceId])
+  @@index([organizationId, serviceId], map: "appointment_staff_services_org_service_idx")
   @@map("appointment_staff_services")
 }
 
@@ -69,10 +69,10 @@ model AppointmentSchedule {
   createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
-  staff AppointmentStaff @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  staff AppointmentStaff @relation(fields: [staffId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "appointment_schedules_staff_tenant_fkey")
 
-  @@unique([id, organizationId])
-  @@unique([staffId, dayOfWeek, startsAtMinute, endsAtMinute])
-  @@index([organizationId, staffId, status, dayOfWeek, startsAtMinute])
+  @@unique([id, organizationId], map: "appointment_schedules_id_org_key")
+  @@unique([staffId, dayOfWeek, startsAtMinute, endsAtMinute], map: "appointment_schedules_staff_window_key")
+  @@index([organizationId, staffId, status, dayOfWeek, startsAtMinute], map: "appointment_schedules_org_staff_status_day_idx")
   @@map("appointment_schedules")
 }

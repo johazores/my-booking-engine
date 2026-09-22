@@ -23,7 +23,7 @@ model TourProduct {
 
   @@unique([id, organizationId])
   @@unique([organizationId, code])
-  @@index([organizationId, status, name])
+  @@index([organizationId, status, name], map: "tour_products_org_status_name_idx")
   @@map("tour_products")
 }
 
@@ -39,11 +39,11 @@ model TourDeparture {
   createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
 
-  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "tour_departures_product_tenant_fkey")
 
   @@unique([id, organizationId])
   @@unique([tourProductId, startsAt])
-  @@index([organizationId, tourProductId, status, startsAt])
+  @@index([organizationId, tourProductId, status, startsAt], map: "tour_departures_org_product_status_start_idx")
   @@map("tour_departures")
 }
 
@@ -60,10 +60,10 @@ model TourAddon {
   createdAt             DateTime                 @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime                 @updatedAt @db.Timestamptz(6)
 
-  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  tourProduct TourProduct @relation(fields: [tourProductId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "tour_addons_product_tenant_fkey")
 
   @@unique([id, organizationId])
   @@unique([tourProductId, code])
-  @@index([organizationId, tourProductId, status, name])
+  @@index([organizationId, tourProductId, status, name], map: "tour_addons_org_product_status_name_idx")
   @@map("tour_addons")
 }
