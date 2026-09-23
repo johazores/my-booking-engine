@@ -4,6 +4,7 @@ import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/serv
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
+import { reconcileVerifiedStripeRefundWebhook } from '@/server/payments/stripe-refund-lifecycle-service.ts';
 import {
   StripeWebhookRequestBodyError,
   discardStripeWebhookRequestBody,
@@ -51,6 +52,13 @@ export async function POST(
       payload,
     });
     verifiedOrganizationId = organizationId;
+
+    await reconcileVerifiedStripeRefundWebhook({
+      organizationId,
+      verifiedWebhookEventId: verifiedEvent.id,
+      payload,
+    });
+
     const checkoutFinalization = await finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook({
       organizationId,
       verifiedWebhookEventId: verifiedEvent.id,

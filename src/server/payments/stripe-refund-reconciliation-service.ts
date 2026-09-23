@@ -6,6 +6,10 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
+import {
+  bookingPaymentStatusForRefundLifecycle,
+  decideStripeRefundLifecycleMutation,
+} from './stripe-refund-lifecycle-domain.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import type { StripeRefundSnapshot } from './stripe-refund-reconciliation-provider.ts';
 
@@ -90,7 +94,9 @@ export async function reconcileStripeRefundTransaction(input: {
   });
   if (!refund) throw new PaymentUnavailableError('Stripe refund transaction is not available in this organization.');
   if (refund.kind !== 'REFUND') throw new PaymentConflictError('Only Stripe refund transactions can be reconciled by this boundary.');
-  if (refund.status !== 'PENDING') return refund;
+  if (refund.commercialAmendmentId !== null) {
+    throw new PaymentConflictError('Commercial amendment Stripe refunds must use the commercial amendment recovery boundary.');
+  }
   if (isInternalPaymentClaimReference(refund.providerReference)) {
     throw new PaymentConflictError('Stripe refund claim has no refund reference yet; use the exact retry or a verified refund webhook to resolve it.');
   }
@@ -114,11 +120,17 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Persisted Stripe refund money is invalid for this booking.');
   }
 
-  const initialPlan = requireStripeRefundPlan({
-    bookingPaymentStatus: booking.paymentStatus,
+  const baselineTransactions = ledger.filter((transaction) => transaction.id !== refund.id);
+  const baselinePaymentStatus = requireReconciledBookingPaymentStatus({
     bookingTotalMinor: booking.totalMinor,
     currency: booking.currency,
-    transactions: ledger.filter((transaction) => transaction.id !== refund.id),
+    transactions: baselineTransactions,
+  });
+  const initialPlan = requireStripeRefundPlan({
+    bookingPaymentStatus: baselinePaymentStatus,
+    bookingTotalMinor: booking.totalMinor,
+    currency: booking.currency,
+    transactions: baselineTransactions,
     requestedAmountMinor: refund.amountMinor,
   });
   if (
@@ -126,6 +138,15 @@ export async function reconcileStripeRefundTransaction(input: {
     || initialPlan.amountMinor !== refund.amountMinor
     || initialPlan.currency !== refund.currency
   ) throw new PaymentConflictError('Persisted Stripe refund no longer matches the authoritative settlement allocation.');
+
+  const expectedBookingPaymentStatus = bookingPaymentStatusForRefundLifecycle({
+    refundStatus: refund.status,
+    baselinePaymentStatus,
+    successfulRefundPaymentStatus: initialPlan.nextPaymentStatus,
+  });
+  if (booking.paymentStatus !== expectedBookingPaymentStatus) {
+    throw new PaymentConflictError('Booking payment state is inconsistent with the persisted Stripe refund lifecycle.');
+  }
 
   const stripe = await loadStripePaymentIntegration(input.organizationId);
   if (!stripe.integration.capabilities.includes('payment-refund')) {
@@ -136,7 +157,7 @@ export async function reconcileStripeRefundTransaction(input: {
   if (snapshot.refundReference !== refund.providerReference) {
     throw new PaymentConflictError('Stripe refund reconciliation returned a different refund reference.');
   }
-  const reconciledStatus = reconcileStripeRefundState({
+  const providerStatus = reconcileStripeRefundState({
     currency: refund.currency,
     amountMinor: refund.amountMinor,
     sourceProviderReference: refund.sourceProviderReference,
@@ -152,12 +173,12 @@ export async function reconcileStripeRefundTransaction(input: {
         id: refund.id,
         organizationId: input.organizationId,
         bookingId: refund.bookingId,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'REFUND',
       },
     });
     if (!current) throw new PaymentUnavailableError('Stripe refund transaction is not available in this organization.');
-    if (current.status !== 'PENDING') return current;
     if (
       current.providerReference !== refund.providerReference
       || current.sourceProviderReference !== refund.sourceProviderReference
@@ -180,11 +201,17 @@ export async function reconcileStripeRefundTransaction(input: {
       where: { organizationId: input.organizationId, bookingId: refund.bookingId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    const currentPlan = requireStripeRefundPlan({
-      bookingPaymentStatus: currentBooking.paymentStatus,
+    const currentBaselineTransactions = currentLedger.filter((entry) => entry.id !== current.id);
+    const currentBaselinePaymentStatus = requireReconciledBookingPaymentStatus({
       bookingTotalMinor: currentBooking.totalMinor,
       currency: currentBooking.currency,
-      transactions: currentLedger.filter((entry) => entry.id !== current.id),
+      transactions: currentBaselineTransactions,
+    });
+    const currentPlan = requireStripeRefundPlan({
+      bookingPaymentStatus: currentBaselinePaymentStatus,
+      bookingTotalMinor: currentBooking.totalMinor,
+      currency: currentBooking.currency,
+      transactions: currentBaselineTransactions,
       requestedAmountMinor: current.amountMinor,
     });
     if (
@@ -193,49 +220,55 @@ export async function reconcileStripeRefundTransaction(input: {
       || currentPlan.currency !== current.currency
     ) throw new PaymentConflictError('Stripe refund settlement allocation changed during reconciliation.');
 
+    const currentExpectedBookingPaymentStatus = bookingPaymentStatusForRefundLifecycle({
+      refundStatus: current.status,
+      baselinePaymentStatus: currentBaselinePaymentStatus,
+      successfulRefundPaymentStatus: currentPlan.nextPaymentStatus,
+    });
+    if (currentBooking.paymentStatus !== currentExpectedBookingPaymentStatus) {
+      throw new PaymentConflictError('Booking payment state changed inconsistently during Stripe refund reconciliation.');
+    }
+
+    const decision = decideStripeRefundLifecycleMutation({
+      currentStatus: current.status,
+      providerStatus,
+    });
+    if (decision.action === 'KEEP') return current;
+
     const updated = await transaction.paymentTransaction.update({
       where: {
         id: current.id,
         organizationId: input.organizationId,
         bookingId: refund.bookingId,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'REFUND',
-        status: 'PENDING',
+        status: current.status,
         providerReference: refund.providerReference,
         sourceProviderReference: refund.sourceProviderReference,
         currency: refund.currency,
         amountMinor: refund.amountMinor,
       },
-      data: { status: reconciledStatus },
+      data: { status: decision.nextStatus },
     });
 
-    let bookingPaymentStatus = currentBooking.paymentStatus;
-    if (reconciledStatus === 'SUCCEEDED') {
-      const settledLedger = await transaction.paymentTransaction.findMany({
-        where: { organizationId: input.organizationId, bookingId: refund.bookingId },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const bookingPaymentStatus = bookingPaymentStatusForRefundLifecycle({
+      refundStatus: decision.nextStatus,
+      baselinePaymentStatus: currentBaselinePaymentStatus,
+      successfulRefundPaymentStatus: currentPlan.nextPaymentStatus,
+    });
+    if (currentBooking.paymentStatus !== bookingPaymentStatus) {
+      await transaction.hospitalityBooking.update({
+        where: {
+          id: currentBooking.id,
+          organizationId: input.organizationId,
+          status: 'CONFIRMED',
+          paymentStatus: currentBooking.paymentStatus,
+          currency: currentBooking.currency,
+          totalMinor: currentBooking.totalMinor,
+        },
+        data: { paymentStatus: bookingPaymentStatus },
       });
-      bookingPaymentStatus = requireReconciledBookingPaymentStatus({
-        bookingTotalMinor: currentBooking.totalMinor,
-        currency: currentBooking.currency,
-        transactions: settledLedger,
-      });
-      if (bookingPaymentStatus !== currentPlan.nextPaymentStatus) {
-        throw new PaymentConflictError('Reconciled Stripe refund no longer matches the authoritative booking settlement state.');
-      }
-      if (currentBooking.paymentStatus !== bookingPaymentStatus) {
-        await transaction.hospitalityBooking.update({
-          where: {
-            id: currentBooking.id,
-            organizationId: input.organizationId,
-            status: 'CONFIRMED',
-            paymentStatus: currentBooking.paymentStatus,
-            currency: currentBooking.currency,
-            totalMinor: currentBooking.totalMinor,
-          },
-          data: { paymentStatus: bookingPaymentStatus },
-        });
-      }
     }
 
     await transaction.auditEvent.create({ data: {
@@ -248,6 +281,7 @@ export async function reconcileStripeRefundTransaction(input: {
         bookingId: currentBooking.id,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'REFUND',
+        previousStatus: current.status,
         status: updated.status,
         bookingPaymentStatus,
         providerStatus: snapshot.status,
