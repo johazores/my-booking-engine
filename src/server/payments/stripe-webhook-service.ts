@@ -17,9 +17,9 @@ import {
   decideStripeCheckoutExpiration,
   inspectStripeBookingCheckoutAuthority,
   parseStripeWebhookEventPayload,
-  selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
 } from './stripe-webhook-domain.ts';
+import { decideStripeWebhookPaymentMutation } from './stripe-webhook-payment-mutation-domain.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
 const MAX_WEBHOOK_PAYLOAD_BYTES = 262_144;
@@ -611,28 +611,62 @@ export async function ingestStripePaymentWebhook(input: {
       return persistEvent('IGNORED', 'booking-money-mismatch', booking.id);
     }
 
-    const pending = await transaction.paymentTransaction.findMany({
+    const exactCandidates = await transaction.paymentTransaction.findMany({
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
         providerCode: STRIPE_PROVIDER_CODE,
-        status: 'PENDING',
+        providerReference: event.paymentIntent.providerReference,
         kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
       },
-      select: { id: true, kind: true, providerReference: true, currency: true, amountMinor: true },
-      orderBy: { createdAt: 'desc' },
-      take: 4,
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        providerReference: true,
+        currency: true,
+        amountMinor: true,
+        commercialAmendmentId: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 8,
     });
+    const pendingCandidates = exactCandidates.length === 0
+      ? await transaction.paymentTransaction.findMany({
+          where: {
+            organizationId: input.organizationId,
+            bookingId: booking.id,
+            commercialAmendmentId: null,
+            providerCode: STRIPE_PROVIDER_CODE,
+            status: 'PENDING',
+            kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+          },
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            providerReference: true,
+            currency: true,
+            amountMinor: true,
+            commercialAmendmentId: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 4,
+        })
+      : [];
 
-    let payment;
+    let paymentDecision;
     try {
-      payment = selectStripeWebhookPaymentCandidate({
+      paymentDecision = decideStripeWebhookPaymentMutation({
         providerReference: event.paymentIntent.providerReference,
         providerStatus: event.paymentIntent.status,
-        candidates: pending.map((candidate) => ({
-          id: candidate.id,
+        exactCandidates: exactCandidates.map((candidate) => ({
+          ...candidate,
           kind: candidate.kind as 'AUTHORIZATION' | 'CAPTURE',
-          providerReference: candidate.providerReference,
+        })),
+        pendingCandidates: pendingCandidates.map((candidate) => ({
+          ...candidate,
+          kind: candidate.kind as 'AUTHORIZATION' | 'CAPTURE',
         })),
         isInternalReference: isInternalPaymentClaimReference,
       });
@@ -641,8 +675,13 @@ export async function ingestStripePaymentWebhook(input: {
       throw error;
     }
 
-    if (!payment) return persistEvent('IGNORED', 'no-pending-payment', booking.id);
-    const current = pending.find((candidate) => candidate.id === payment.id);
+    if (paymentDecision.action === 'NO_MATCH') return persistEvent('IGNORED', 'no-pending-payment', booking.id);
+    if (paymentDecision.action === 'IGNORE') {
+      return persistEvent('IGNORED', paymentDecision.processingNote, booking.id);
+    }
+
+    const payment = paymentDecision.candidate;
+    const current = [...exactCandidates, ...pendingCandidates].find((candidate) => candidate.id === payment.id);
     if (!current || current.currency !== booking.currency || current.amountMinor !== booking.totalMinor) {
       throw new PaymentConflictError('Stripe webhook payment candidate does not match the authoritative booking total.');
     }
@@ -698,7 +737,7 @@ export async function ingestStripePaymentWebhook(input: {
       });
       if (providerReferenceConflict) throw new PaymentConflictError('Stripe webhook provider reference belongs to another booking.');
     } else if (current.providerReference !== event.paymentIntent.providerReference) {
-      throw new PaymentConflictError('Stripe webhook provider reference does not match the pending payment transaction.');
+      throw new PaymentConflictError('Stripe webhook provider reference does not match the selected payment transaction.');
     }
 
     await transaction.paymentTransaction.update({
@@ -708,7 +747,7 @@ export async function ingestStripePaymentWebhook(input: {
         bookingId: booking.id,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: payment.kind,
-        status: 'PENDING',
+        status: payment.status,
         providerReference: current.providerReference,
         currency: current.currency,
         amountMinor: current.amountMinor,
@@ -732,6 +771,14 @@ export async function ingestStripePaymentWebhook(input: {
       });
     }
 
-    return persistEvent('PROCESSED', reconciliation.transactionStatus === 'PENDING' ? 'payment-still-pending' : 'payment-state-applied', booking.id);
+    return persistEvent(
+      'PROCESSED',
+      payment.status === 'FAILED'
+        ? 'payment-failed-attempt-recovered'
+        : reconciliation.transactionStatus === 'PENDING'
+          ? 'payment-still-pending'
+          : 'payment-state-applied',
+      booking.id,
+    );
   }, { isolationLevel: 'Serializable' });
 }
