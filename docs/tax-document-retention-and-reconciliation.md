@@ -14,9 +14,11 @@ This is an operational fail-safe, not a recommendation to retain customer person
 
 The verifier walks the Australian tax-invoice and adjustment-note registers through their validated read boundaries. Tax invoices must pass immutable snapshot/material/party/pricing/fingerprint validation. Adjustment notes must also pass their schema-specific legal authority:
 
-- schema 1: immutable source invoice plus attributed full refund;
+- schema 1: immutable source invoice plus the exact attributed full-refund identity, source, currency, money, and issue-time chronology;
 - schemas 2 through 5: complete commercial source-chain, amendment, target-pricing, predecessor, chronology, effect, and issue-time settlement verification; and
 - schema 6: complete commercial predecessor chain plus terminal predecessor continuity, issue-time zero settlement, and exact frozen ordered refund-authority verification.
+
+Schema-version-1 cancellation notes intentionally separate historical issuance authority from mutable current provider settlement. Issuance still requires one exact attributed `SUCCEEDED` full refund inside the serializable writer. After issuance, the legal document remains immutable and readable if the same Stripe refund later moves away from success; current `PaymentTransaction.status` is provider lifecycle truth, not a field frozen into the schema-version-1 legal snapshot. Reconciliation therefore checks those linked refunds separately and records `SETTLEMENT_DRIFT` when current status is no longer `SUCCEEDED`. A drift result does not rewrite or hide the issued adjustment note and does not invent a correction, replacement refund, or legal void workflow.
 
 The synchronous verifier is capped at 5,000 combined legal documents. Above that limit SF fails closed and requires an offline/batched operational review rather than reporting a partial register as verified.
 
@@ -38,4 +40,4 @@ Run reconciliation after material tax-document migrations, before accounting exp
 
 ## Remaining legal-document work
 
-The current reconciliation boundary now includes increasing/decreasing mixed-direction commercial adjustments and terminal cancellation after commercial amendments. Remaining work includes mixed/partial/non-standard-GST adjustment rules, generic correction/void/reissue, broader booking-linked customer-data disposal/de-identification beyond the safe bookingless customer-profile boundary, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, and legal review.
+The current reconciliation boundary now includes increasing/decreasing mixed-direction commercial adjustments and terminal cancellation after commercial amendments. Remaining work includes mixed/partial/non-standard-GST adjustment rules, generic correction/void/reissue, broader booking-linked customer-data disposal/de-identification beyond the safe bookingless customer-profile boundary, durable customer re-authentication/email delivery, Unicode-safe deterministic PDF fonts, live Node 24/Prisma/PostgreSQL validation, and legal review. Commercial-amendment and schema-version-6 documents still require a deliberate versioned issue-time settlement-evidence design before their historical read authority can be separated safely from later mutable provider-status regressions in the same way as schema version 1.
