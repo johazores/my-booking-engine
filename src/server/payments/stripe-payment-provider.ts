@@ -12,6 +12,7 @@ import {
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
@@ -115,14 +116,13 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean {
     const secret = input.secret.trim();
     if (!secret.startsWith('whsec_')) return false;
-    const parsed = parseStripeSignature(input.signature);
+    const parsed = parseStripeWebhookSignatureHeader(input.signature);
     if (!parsed) return false;
     const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
     if (Math.abs(nowSeconds - parsed.timestamp) > this.webhookToleranceSeconds) return false;
 
     const expectedBuffer = createHmac('sha256', secret).update(`${parsed.timestamp}.${input.payload}`, 'utf8').digest();
     return parsed.signatures.some((signature) => {
-      if (!/^[0-9a-f]{64}$/i.test(signature)) return false;
       const signatureBuffer = Buffer.from(signature, 'hex');
       return signatureBuffer.length === expectedBuffer.length && timingSafeEqual(signatureBuffer, expectedBuffer);
     });
@@ -210,17 +210,4 @@ function mapStripeError(status: number, payload: StripeErrorResponse): PaymentPr
   if (error?.type === 'card_error' || error?.code === 'card_declined' || error?.decline_code) return new PaymentProviderError('DECLINED', message);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
-}
-
-function parseStripeSignature(header: string): { timestamp: number; signatures: string[] } | null {
-  if (typeof header !== 'string' || header.length > 4_096) return null;
-  let timestamp: number | undefined;
-  const signatures: string[] = [];
-  for (const part of header.split(',')) {
-    const [key, value] = part.trim().split('=', 2);
-    if (key === 't' && value && /^\d+$/.test(value)) timestamp = Number(value);
-    if (key === 'v1' && value) signatures.push(value);
-  }
-  if (!timestamp || !Number.isSafeInteger(timestamp) || signatures.length === 0) return null;
-  return { timestamp, signatures };
 }
