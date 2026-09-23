@@ -45,6 +45,7 @@ function authorityFromRow(row: {
   currency: string;
   adjustmentType: string;
   commercialAmendmentId: string | null;
+  targetPricingEvidenceId: string | null;
   documentFingerprint: string;
   documentSnapshot: unknown;
 }, organizationId: string): CommercialAdjustmentAuthority | null {
@@ -60,6 +61,7 @@ function authorityFromRow(row: {
         || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
         || new Date(snapshot.issuedAt).getTime() !== row.issuedAt.getTime()
         || snapshot.commercialAmendmentId !== row.commercialAmendmentId
+        || snapshot.targetPricingEvidenceId !== row.targetPricingEvidenceId
         || snapshot.currency !== row.currency
         || hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
       ) return null;
@@ -90,6 +92,7 @@ function authorityFromRow(row: {
         || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
         || new Date(snapshot.issuedAt).getTime() !== row.issuedAt.getTime()
         || snapshot.commercialAmendmentId !== row.commercialAmendmentId
+        || snapshot.targetPricingEvidenceId !== row.targetPricingEvidenceId
         || snapshot.currency !== row.currency
         || hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
       ) return null;
@@ -170,6 +173,7 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
       currency: true,
       adjustmentType: true,
       commercialAmendmentId: true,
+      targetPricingEvidenceId: true,
       documentFingerprint: true,
       documentSnapshot: true,
     },
