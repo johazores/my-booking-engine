@@ -28,6 +28,9 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -332,7 +335,7 @@ async function loadAssessmentEvidence(
   }
   const target = validateTargetPricingEvidence(targetEvidenceRows[0]!, amendment.id);
 
-  const [priorAdjustmentNoteCount, transactions] = await Promise.all([
+  const [priorAdjustmentNoteCount, paymentHistory] = await Promise.all([
     transaction.hospitalityIssuedAdjustmentNote.count({
       where: {
         organizationId: input.organizationId,
@@ -340,24 +343,17 @@ async function loadAssessmentEvidence(
         sourceInvoiceId: sourceInvoice.id,
       },
     }),
-    transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-        commercialAmendmentId: true,
-      },
+    readHospitalityLegalPaymentEvidenceHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     }),
   ]);
+  if (!paymentHistory.complete) {
+    throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+      `Commercial-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+    );
+  }
 
   const settlement = deriveHospitalityCommercialAmendmentSettlementState({
     amendmentId: amendment.id,
@@ -367,7 +363,7 @@ async function loadAssessmentEvidence(
     beforeTotalMinor: amendment.beforeTotalMinor,
     afterTotalMinor: amendment.afterTotalMinor,
     deltaMinor: amendment.deltaMinor,
-    transactions,
+    transactions: paymentHistory.transactions,
   });
 
   const readiness = assessAustralianCommercialAmendmentAdjustmentReadiness({
@@ -437,7 +433,6 @@ export async function getHospitalityCommercialAmendmentAdjustmentNoteAvailabilit
     });
     if (!sourceInvoice) throw new HospitalityCommercialAmendmentAdjustmentNoteUnavailableError();
     const source = validateSourceInvoice(sourceInvoice);
-
     const existing = await transaction.hospitalityIssuedAdjustmentNote.findFirst({
       where: {
         organizationId: input.organizationId,
