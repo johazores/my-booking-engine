@@ -11,6 +11,9 @@ import {
 import {
   loadVerifiedHospitalityCommercialAmendmentAdjustmentChain,
 } from './hospitality-commercial-amendment-adjustment-chain-service.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 export type HospitalityCancellationAfterAmendmentAdjustmentAuthorityRow = Readonly<{
   id: string;
@@ -154,7 +157,7 @@ async function verifyRow(input: {
     fail('Cancellation-after-amendment predecessor authority does not match the verified commercial chain head.');
   }
 
-  const [sourceInvoice, booking, transactions] = await Promise.all([
+  const [sourceInvoice, booking, paymentHistory] = await Promise.all([
     input.transaction.hospitalityIssuedInvoice.findFirst({
       where: {
         id: input.row.sourceInvoiceId,
@@ -175,24 +178,17 @@ async function verifyRow(input: {
       where: { id: input.row.bookingId, organizationId: input.organizationId },
       select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
     }),
-    input.transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.row.bookingId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-        createdAt: true,
-      },
+    readHospitalityLegalPaymentEvidenceHistory({
+      transaction: input.transaction,
+      organizationId: input.organizationId,
+      bookingId: input.row.bookingId,
+      through: input.row.issuedAt,
     }),
   ]);
   if (!sourceInvoice || !booking) fail('Cancellation-after-amendment tenant authority is incomplete.');
+  if (!paymentHistory.complete) {
+    fail(`Cancellation-after-amendment payment evidence is incomplete: ${paymentHistory.reason}`);
+  }
   if (
     sourceInvoice.documentNumber !== snapshot.sourceInvoiceDocumentNumber
     || !sameTime(sourceInvoice.issuedAt, snapshot.sourceInvoiceIssuedAt)
@@ -203,9 +199,7 @@ async function verifyRow(input: {
     fail('Cancellation-after-amendment source tax-invoice authority has drifted.');
   }
 
-  const transactionsAtIssue = transactions.filter(
-    (transaction) => transaction.createdAt.getTime() <= input.row.issuedAt.getTime(),
-  );
+  const transactionsAtIssue = paymentHistory.transactions;
   const readiness = deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness({
     bookingStatus: booking.status,
     bookingPaymentStatus: booking.paymentStatus,

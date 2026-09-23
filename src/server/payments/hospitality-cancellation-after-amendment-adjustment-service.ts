@@ -16,6 +16,9 @@ import {
   HospitalityCommercialAmendmentAdjustmentChainUnavailableError,
   loadVerifiedHospitalityCommercialAmendmentAdjustmentChain,
 } from './hospitality-commercial-amendment-adjustment-chain-service.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -130,22 +133,17 @@ async function loadVerifiedReadiness(input: {
   });
   if (!booking) throw new HospitalityCancellationAfterAmendmentAdjustmentUnavailableError();
 
-  const transactions = await input.transaction.paymentTransaction.findMany({
-    where: { organizationId: input.organizationId, bookingId: input.bookingId },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: {
-      id: true,
-      commercialAmendmentId: true,
-      kind: true,
-      status: true,
-      providerCode: true,
-      providerReference: true,
-      sourceProviderReference: true,
-      currency: true,
-      amountMinor: true,
-      createdAt: true,
-    },
+  const paymentHistory = await readHospitalityLegalPaymentEvidenceHistory({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
   });
+  if (!paymentHistory.complete) {
+    return Object.freeze({
+      available: false as const,
+      reason: 'Complete bounded payment evidence is required before cancellation-after-amendment authority can be established.',
+    });
+  }
 
   const readiness = deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness({
     bookingStatus: booking.status,
@@ -166,7 +164,7 @@ async function loadVerifiedReadiness(input: {
       addonTotalMinor: legalHeadPrice.addonTotalMinor,
       totalMinor: legalHeadPrice.totalMinor,
     },
-    transactions,
+    transactions: paymentHistory.transactions,
   });
   if (!readiness.ready) {
     return Object.freeze({ available: false as const, reason: readiness.reason });

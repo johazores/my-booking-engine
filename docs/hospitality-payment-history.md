@@ -30,6 +30,14 @@ Manual recovery, direct Stripe recovery, and customer-authorized Stripe recovery
 
 This recovery reader is intentionally separate from the settlement-only reader. Recovery needs richer idempotency/fingerprint evidence, while ordinary settlement should not acquire extra authority fields it does not use. Exact transaction lookups, provider-reference uniqueness checks, and bounded amendment-scoped candidate queries remain shaped to their own decisions rather than being replaced by a whole-ledger reader.
 
+## Bounded legal-document payment evidence
+
+Australian legal-document authority uses `readHospitalityLegalPaymentEvidenceHistory` instead of an unbounded whole-booking ledger read. This contract reads deterministic 100-row cursor pages under tenant + booking scope, validates persisted chronology, restores `createdAt` + ID order, and fails closed above 5,000 payment transactions. The higher ceiling is deliberate because legal history may span a long-lived booking and multiple immutable adjustment documents; it is still a hard synchronous safety boundary, not permission to accept a partial prefix.
+
+The reader can also freeze the database query at an exact `through` timestamp. Commercial adjustment-chain verification loads complete legal payment evidence only through the latest commercial document issue time, then replays each chain step against its own earlier issue time. Schema-version-6 cancellation availability uses complete current legal payment evidence, while post-issuance schema-version-6 verification reads complete evidence only through the immutable cancellation issue time. If any of those reads cannot prove completeness, legal readiness or verification fails closed instead of deriving document authority from truncated payment history.
+
+This legal-evidence reader is intentionally separate from the 1,000-row operational settlement and recovery readers. Legal verification needs a durable issue-time horizon and a lifecycle-wide evidence ceiling; operational money movement should retain its tighter synchronous guard. Provider-specific APIs remain outside the legal-document contract.
+
 ## Expired amendment recovery guard
 
 The expired-amendment mutation guard does not need the complete ledger: its decision is only whether any amendment-owned payment row is not definitively `FAILED`. That boundary now issues a tenant + booking + amendment scoped `findFirst` existence query with `status != FAILED` rather than loading every linked payment row and applying `.some()` in application memory.
@@ -38,4 +46,4 @@ This is intentionally different from settlement derivation. Existence decisions 
 
 ## Follow-on use
 
-New hospitality payment-ledger decision paths should use a bounded complete-history reader or an equally strict query shaped to the exact decision. A raw unbounded `paymentTransaction.findMany` must not become financial authority merely because the current dataset is small. Legal-document issuance paths that need differently bounded evidence must keep their own explicit completeness contract rather than silently borrowing a truncated prefix.
+New hospitality payment-ledger decision paths should use a bounded complete-history reader or an equally strict query shaped to the exact decision. A raw unbounded `paymentTransaction.findMany` must not become financial authority merely because the current dataset is small. Legal-document issuance and verification must use the dedicated bounded legal-evidence contract or another explicit complete evidence boundary rather than silently accepting a truncated prefix.

@@ -7,13 +7,20 @@ const service = readFileSync(
   'utf8',
 );
 
-test('chain loader keeps every persistence lookup tenant, booking, and source scoped', () => {
+test('chain loader keeps persistence and legal payment evidence tenant, booking, and source scoped', () => {
   assert.match(service, /hospitalityIssuedInvoice\.findFirst\([\s\S]*id: input\.sourceInvoiceId[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
   assert.match(service, /hospitalityIssuedAdjustmentNote\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId[\s\S]*sourceInvoiceId: input\.sourceInvoiceId/);
   assert.match(service, /hospitalityBookingCommercialAmendment\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
   assert.match(service, /hospitalityBookingPricingEvidence\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId[\s\S]*source: 'COMMERCIAL_AMENDMENT_TARGET'/);
-  assert.match(service, /paymentTransaction\.findMany\([\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
+  assert.match(service, /readHospitalityLegalPaymentEvidenceHistory\(\{[\s\S]*transaction: input\.transaction[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId[\s\S]*through: latestCommercialIssuedAt/);
+  assert.doesNotMatch(service, /paymentTransaction\.findMany/);
   assert.doesNotMatch(service, /\bdb\./);
+});
+
+test('chain legal payment evidence is bounded through the latest commercial issue time and fails closed when incomplete', () => {
+  assert.match(service, /latestCommercialIssuedAt = commercialRows\.at\(-1\)\?\.issuedAt/);
+  assert.match(service, /if \(!paymentHistory\.complete\)[\s\S]*Commercial adjustment-note payment evidence is incomplete/);
+  assert.match(service, /const paymentTransactions = paymentHistory\.transactions/);
 });
 
 test('chain loader parses and fingerprints both supported commercial adjustment directions', () => {
@@ -28,7 +35,6 @@ test('chain loader parses and fingerprints both supported commercial adjustment 
 test('chain settlement is re-proved stepwise from base payment truth plus issued chain amendments', () => {
   assert.match(service, /deriveHospitalityCommercialAmendmentSettlementState/);
   assert.match(service, /chainAmendmentIds = new Set\(amendmentIds\)/);
-  assert.match(service, /createdAt: true/);
   assert.match(service, /baseSettlementTransactions = paymentTransactions\.filter\([\s\S]*commercialAmendmentId === null/);
   assert.match(service, /progressiveCommercialAmendmentTransactions/);
   assert.match(service, /settlementTransactionsByAmendment/);

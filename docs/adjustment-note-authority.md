@@ -19,9 +19,9 @@ The original tax invoice is never rewritten.
 
 Every chain load is tenant-, booking-, and source-invoice-scoped. It independently reloads and validates the immutable source tax invoice, referenced applied amendments, immutable target-pricing evidence, document fingerprints/material columns, contiguous ordinals, predecessor identity/fingerprint continuity, issuer/recipient continuity, chronology, and exact standard-GST direction/effect.
 
-Payment settlement is re-proved stepwise from a progressive provider-neutral ledger restricted to transactions that existed no later than each legal document issue time. Earlier legal steps therefore retain their historical settlement proof after later amendments are issued.
+Payment settlement is re-proved stepwise from complete bounded provider-neutral legal payment evidence. The legal-history reader is tenant + booking scoped, fails closed above 5,000 payment rows, and queries only through the latest commercial document issue time before each earlier chain step is replayed against its own issue time. Earlier legal steps therefore retain their historical settlement proof after later payments or amendments are recorded without requiring an unbounded whole-booking read.
 
-Rows fail closed on unsupported direction/schema combinations, gaps, forks, duplicate authority, cross-tenant/source evidence, baseline drift, target-pricing drift, non-standard GST, unresolved/conflicting settlement, or an incorrect net settled amount.
+Rows fail closed on unsupported direction/schema combinations, gaps, forks, duplicate authority, cross-tenant/source evidence, baseline drift, target-pricing drift, incomplete legal payment history, non-standard GST, unresolved/conflicting settlement, or an incorrect net settled amount.
 
 Repeated commercial writes select the verified chain head under the tenant/booking/source PostgreSQL transaction advisory lock.
 
@@ -31,7 +31,7 @@ Cancellation after commercial amendments is not treated as another commercial ch
 
 Schema version 6 binds the terminal cancellation to the exact commercial chain head: predecessor ID/ordinal/document number/time/fingerprint, predecessor after-pricing fingerprint, before pricing/GST/total, zero after pricing, exact decrease, issuer/recipient/source fingerprints, and an ordered refund-authority set of at most 256 successful transactions.
 
-`hospitality-cancellation-after-amendment-adjustment-authority-service.ts` reloads the tenant-scoped commercial chain, source invoice, booking, and payment ledger, reconstructs payment truth only through the cancellation document issue time, re-runs cancellation readiness, and verifies every frozen refund ID/ordinal/amount/timestamp and legal effect. A drifted or incomplete document fails closed.
+`hospitality-cancellation-after-amendment-adjustment-authority-service.ts` reloads the tenant-scoped commercial chain, source invoice, booking, and complete bounded legal payment evidence through the immutable cancellation issue time, re-runs cancellation readiness, and verifies every frozen refund ID/ordinal/amount/timestamp and legal effect. Current cancellation readiness uses the same legal-evidence contract without an issue-time cutoff. A drifted, incomplete, or over-limit payment history fails closed.
 
 `issueHospitalityCancellationAfterAmendmentAdjustmentNote` re-runs that authority under the serialized source-chain lock, allocates the shared AU adjustment-note sequence, persists canonical schema-version-6 evidence, immediately verifies the created row inside the transaction, retries supported write races, and audits issuance without storing individual refund IDs in the audit payload.
 

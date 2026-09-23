@@ -25,6 +25,10 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+  type HospitalityLegalPaymentEvidenceTransaction,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 export const HOSPITALITY_COMMERCIAL_AMENDMENT_ADJUSTMENT_CHAIN_LIMIT = 5_000;
 
@@ -314,7 +318,7 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
     );
   }
 
-  const [amendments, targetRows, paymentTransactions] = await Promise.all([
+  const [amendments, targetRows] = await Promise.all([
     amendmentIds.length
       ? input.transaction.hospitalityBookingCommercialAmendment.findMany({
           where: {
@@ -334,33 +338,33 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
           },
         })
       : [],
-    input.transaction.paymentTransaction.findMany({
-      where: {
+  ]);
+  const latestCommercialIssuedAt = commercialRows.at(-1)?.issuedAt;
+  const paymentHistory = latestCommercialIssuedAt
+    ? await readHospitalityLegalPaymentEvidenceHistory({
+        transaction: input.transaction,
         organizationId: input.organizationId,
         bookingId: input.bookingId,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-        commercialAmendmentId: true,
-        createdAt: true,
-      },
-    }),
-  ]);
+        through: latestCommercialIssuedAt,
+      })
+    : Object.freeze({
+        complete: true as const,
+        transactions: Object.freeze([]) as readonly HospitalityLegalPaymentEvidenceTransaction[],
+      });
+  if (!paymentHistory.complete) {
+    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+      `Commercial adjustment-note payment evidence is incomplete: ${paymentHistory.reason}`,
+    );
+  }
+  const paymentTransactions = paymentHistory.transactions;
   const amendmentById = new Map(amendments.map((row) => [row.id, row]));
   const targetById = new Map(targetRows.map((row) => [row.id, row]));
   const chainAmendmentIds = new Set(amendmentIds);
   const baseSettlementTransactions = paymentTransactions.filter(
     (transaction) => transaction.commercialAmendmentId === null,
   );
-  const progressiveCommercialAmendmentTransactions: typeof paymentTransactions = [];
-  const settlementTransactionsByAmendment = new Map<string, typeof paymentTransactions>();
+  const progressiveCommercialAmendmentTransactions: HospitalityLegalPaymentEvidenceTransaction[] = [];
+  const settlementTransactionsByAmendment = new Map<string, HospitalityLegalPaymentEvidenceTransaction[]>();
   for (const transaction of paymentTransactions) {
     if (!transaction.commercialAmendmentId || !chainAmendmentIds.has(transaction.commercialAmendmentId)) continue;
     const current = settlementTransactionsByAmendment.get(transaction.commercialAmendmentId) ?? [];

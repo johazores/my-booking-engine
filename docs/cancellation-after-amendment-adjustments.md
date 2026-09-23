@@ -14,7 +14,7 @@ A cancellation after one or more commercial amendments can require more than one
 
 Schema version 6 therefore freezes an ordered, bounded refund-authority set rather than one caller-selected refund ID. The set contains between 1 and 256 successful refund transaction IDs, ordinals, amounts, and timestamps. Its exact sum must equal the verified current legal price.
 
-Provider-specific APIs are not embedded in the legal-document contract. SF re-derives money authority from the provider-neutral payment ledger.
+Provider-specific APIs are not embedded in the legal-document contract. SF re-derives money authority from complete bounded provider-neutral legal payment evidence.
 
 ## Readiness authority
 
@@ -31,7 +31,7 @@ Provider-specific APIs are not embedded in the legal-document contract. SF re-de
 
 The result derives the next source ordinal, immediate predecessor identity, predecessor document number/time/fingerprint, predecessor after-pricing fingerprint, exact decrease subtotal/GST/total, and refund-authority set. None of those values is browser-selected.
 
-`getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability` requires `payment:manage`, tenant + booking + AU source-invoice scope, a serializable read, and the complete commercial-chain verifier. Existing schema-version-6 documents are independently reverified before their link is exposed.
+`getHospitalityCancellationAfterAmendmentAdjustmentNoteAvailability` requires `payment:manage`, tenant + booking + AU source-invoice scope, a serializable read, the complete commercial-chain verifier, and complete current legal payment evidence. The legal-evidence reader pages deterministically, validates tenant/booking scope and chronology, and fails closed above its 5,000-row synchronous safety ceiling. Existing schema-version-6 documents are independently reverified before their link is exposed.
 
 ## Immutable schema-version-6 evidence
 
@@ -66,9 +66,8 @@ Historical commercial reads may tolerate exactly one structurally terminal cance
 - reloads the complete tenant-scoped commercial predecessor chain;
 - proves exact predecessor ID/ordinal/document number/time/fingerprint and pricing continuity;
 - reloads the source tax invoice under tenant + booking scope;
-- reloads provider-neutral payment transactions under tenant + booking scope;
-- reconstructs payment truth only through the legal document issue time;
-- re-runs cancellation readiness against that issue-time ledger; and
+- reads complete bounded provider-neutral legal payment evidence under tenant + booking scope only through the immutable cancellation issue time;
+- re-runs cancellation readiness against that issue-time evidence; and
 - compares every frozen refund ID, ordinal, amount, timestamp, legal amount, and fingerprint to independently derived authority.
 
 `hospitality-issued-adjustment-note-authority-service.ts` dispatches schema-version-6 evidence through that verifier. Staff detail/register/accounting, reconciliation, public capability history, authenticated/public HTML, and deterministic PDF delivery inherit the same verified document boundary.
@@ -77,7 +76,7 @@ Customer-safe projections do not expose predecessor IDs, payment/provider refere
 
 ## Serializable issuance and product boundary
 
-`issueHospitalityCancellationAfterAmendmentAdjustmentNote` requires `payment:manage` and a tenant/booking/source tax invoice. It selects the complete verified commercial chain head under the existing PostgreSQL transaction advisory lock inside a serializable transaction, re-derives cancellation readiness from the provider-neutral ledger, allocates the shared tenant `AU / ADJUSTMENT_NOTE` sequence, creates canonical schema-version-6 evidence, persists it, immediately re-verifies the created document in the same transaction, and writes an issuance audit.
+`issueHospitalityCancellationAfterAmendmentAdjustmentNote` requires `payment:manage` and a tenant/booking/source tax invoice. It selects the complete verified commercial chain head under the existing PostgreSQL transaction advisory lock inside a serializable transaction, re-derives cancellation readiness from complete bounded provider-neutral legal payment evidence, allocates the shared tenant `AU / ADJUSTMENT_NOTE` sequence, creates canonical schema-version-6 evidence, persists it, immediately re-verifies the created document in the same transaction, and writes an issuance audit.
 
 Retry handling covers serializable and uniqueness races. An idempotent existing schema-version-6 document is returned only after full post-issuance authority verification. Audit metadata records the refund-authority count but not individual refund IDs.
 
@@ -87,7 +86,7 @@ The tax-invoice page evaluates terminal cancellation authority before any new co
 
 ## Validation boundary
 
-Dependency-free domain/source-contract coverage now includes readiness, immutable snapshot/persistence structure, historical commercial-read tolerance, schema-version-6 post-issuance authority, serializable writer contracts, idempotent verification, product routing, browser-authority exclusion, and downstream shared projection dispatch.
+Dependency-free domain/source-contract coverage now includes readiness, immutable snapshot/persistence structure, historical commercial-read tolerance, bounded issue-time payment-evidence authority, schema-version-6 post-issuance authority, serializable writer contracts, idempotent verification, product routing, browser-authority exclusion, and downstream shared projection dispatch.
 
 Full repository validation, live migration/drift execution, PostgreSQL constraint/concurrency verification, and production build remain dependent on the repository-required Node 24 dependency checkout and an explicitly disposable PostgreSQL target.
 

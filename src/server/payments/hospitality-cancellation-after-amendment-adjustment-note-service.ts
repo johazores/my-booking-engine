@@ -32,6 +32,9 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -259,29 +262,23 @@ export async function issueHospitalityCancellationAfterAmendmentAdjustmentNote(i
           );
         }
 
-        const [booking, transactions] = await Promise.all([
+        const [booking, paymentHistory] = await Promise.all([
           transaction.hospitalityBooking.findFirst({
             where: { id: input.bookingId, organizationId: input.organizationId },
             select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
           }),
-          transaction.paymentTransaction.findMany({
-            where: { organizationId: input.organizationId, bookingId: input.bookingId },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            select: {
-              id: true,
-              commercialAmendmentId: true,
-              kind: true,
-              status: true,
-              providerCode: true,
-              providerReference: true,
-              sourceProviderReference: true,
-              currency: true,
-              amountMinor: true,
-              createdAt: true,
-            },
+          readHospitalityLegalPaymentEvidenceHistory({
+            transaction,
+            organizationId: input.organizationId,
+            bookingId: input.bookingId,
           }),
         ]);
         if (!booking) throw new HospitalityCancellationAfterAmendmentAdjustmentNoteUnavailableError();
+        if (!paymentHistory.complete) {
+          throw new HospitalityCancellationAfterAmendmentAdjustmentNoteConflictError(
+            `Cancellation-after-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+          );
+        }
 
         const readiness = deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness({
           bookingStatus: booking.status,
@@ -302,7 +299,7 @@ export async function issueHospitalityCancellationAfterAmendmentAdjustmentNote(i
             addonTotalMinor: priorHead.after.addonTotalMinor,
             totalMinor: priorHead.after.totalMinor,
           },
-          transactions,
+          transactions: paymentHistory.transactions,
         });
         if (!readiness.ready) {
           throw new HospitalityCancellationAfterAmendmentAdjustmentNoteConflictError(readiness.reason);

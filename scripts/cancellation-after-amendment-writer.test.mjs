@@ -13,6 +13,13 @@ test('writer requires tenant payment management and the serialized verified sour
   assert.match(writer, /bookingId: input\.bookingId/);
 });
 
+test('writer requires complete bounded legal payment evidence before deriving terminal cancellation authority', () => {
+  assert.match(writer, /readHospitalityLegalPaymentEvidenceHistory\(\{[\s\S]*transaction[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.bookingId/);
+  assert.match(writer, /if \(!paymentHistory\.complete\)[\s\S]*payment evidence is incomplete/);
+  assert.match(writer, /transactions: paymentHistory\.transactions/);
+  assert.doesNotMatch(writer, /paymentTransaction\.findMany/);
+});
+
 test('writer derives legal money, predecessor, refunds, numbering, and issue time server-side', () => {
   assert.match(writer, /deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness/);
   assert.match(writer, /sourceAdjustmentOrdinal: readiness\.sourceAdjustmentOrdinal/);
