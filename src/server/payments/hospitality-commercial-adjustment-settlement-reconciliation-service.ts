@@ -14,7 +14,13 @@ import {
 import {
   selectVerifiedHospitalityCommercialSettlementAuthorityGroups,
   type HospitalityCommercialSettlementReconciliationAuthority as CommercialAdjustmentAuthority,
+  type HospitalityCommercialSettlementReconciliationSourceInvoice as CommercialSourceInvoiceAuthority,
 } from './hospitality-commercial-settlement-reconciliation-authority-domain.ts';
+import { createHospitalityIssuedTaxInvoiceDocument } from './hospitality-issued-invoice-document-domain.ts';
+import {
+  hospitalityIssuedInvoiceFingerprint,
+  parseHospitalityIssuedTaxInvoiceSnapshot,
+} from './hospitality-issued-invoice-domain.ts';
 import {
   findHospitalityCommercialTaxDocumentSettlementDrift,
   type HospitalityTaxDocumentCurrentCommercialSettlement,
@@ -56,6 +62,11 @@ function authorityFromRow(row: {
         documentNumber: row.documentNumber,
         bookingId: row.bookingId,
         sourceInvoiceId: row.sourceInvoiceId,
+        sourceInvoiceDocumentNumber: snapshot.sourceInvoiceDocumentNumber,
+        sourceInvoiceIssuedAt: new Date(snapshot.sourceInvoiceIssuedAt),
+        sourceInvoiceFingerprint: snapshot.sourceInvoiceFingerprint,
+        issuerFingerprint: snapshot.issuerFingerprint,
+        recipientFingerprint: snapshot.recipientFingerprint,
         sourceAdjustmentOrdinal: row.sourceAdjustmentOrdinal,
         issuedAt: row.issuedAt,
         commercialAmendmentId: row.commercialAmendmentId,
@@ -87,6 +98,11 @@ function authorityFromRow(row: {
         documentNumber: row.documentNumber,
         bookingId: row.bookingId,
         sourceInvoiceId: row.sourceInvoiceId,
+        sourceInvoiceDocumentNumber: snapshot.sourceInvoiceDocumentNumber,
+        sourceInvoiceIssuedAt: new Date(snapshot.sourceInvoiceIssuedAt),
+        sourceInvoiceFingerprint: snapshot.sourceInvoiceFingerprint,
+        issuerFingerprint: snapshot.issuerFingerprint,
+        recipientFingerprint: snapshot.recipientFingerprint,
         sourceAdjustmentOrdinal: row.sourceAdjustmentOrdinal,
         issuedAt: row.issuedAt,
         commercialAmendmentId: row.commercialAmendmentId,
@@ -104,6 +120,78 @@ function authorityFromRow(row: {
     // Immutable register validation owns malformed legal evidence.
   }
   return null;
+}
+
+function sourceInvoiceAuthorityFromRow(row: {
+  id: string;
+  organizationId: string;
+  bookingId: string;
+  preparationId: string;
+  pricingEvidenceId: string;
+  issuerProfileId: string;
+  jurisdictionCode: string;
+  documentType: string;
+  documentNumber: string;
+  sequenceValue: bigint;
+  issuedAt: Date;
+  currency: string;
+  accommodationSubtotalMinor: bigint;
+  taxTotalMinor: bigint;
+  feeTotalMinor: bigint;
+  addonTotalMinor: bigint;
+  totalMinor: bigint;
+  preparationFingerprint: string;
+  pricingFingerprint: string;
+  issuerFingerprint: string;
+  recipientFingerprint: string;
+  documentFingerprint: string;
+  documentSnapshot: unknown;
+}, organizationId: string): CommercialSourceInvoiceAuthority | null {
+  try {
+    const snapshot = parseHospitalityIssuedTaxInvoiceSnapshot(row.documentSnapshot);
+    const document = createHospitalityIssuedTaxInvoiceDocument(snapshot);
+    if (
+      row.organizationId !== organizationId
+      || row.jurisdictionCode !== 'AU'
+      || row.documentType !== 'TAX_INVOICE'
+      || snapshot.organizationId !== row.organizationId
+      || snapshot.bookingId !== row.bookingId
+      || snapshot.preparationId !== row.preparationId
+      || snapshot.pricingEvidenceId !== row.pricingEvidenceId
+      || snapshot.issuerProfileId !== row.issuerProfileId
+      || snapshot.documentNumber !== row.documentNumber
+      || BigInt(snapshot.sequenceValue) !== row.sequenceValue
+      || new Date(snapshot.issuedAt).getTime() !== row.issuedAt.getTime()
+      || snapshot.currency !== row.currency
+      || BigInt(snapshot.accommodationSubtotalMinor) !== row.accommodationSubtotalMinor
+      || BigInt(snapshot.taxTotalMinor) !== row.taxTotalMinor
+      || BigInt(snapshot.feeTotalMinor) !== row.feeTotalMinor
+      || BigInt(snapshot.addonTotalMinor) !== row.addonTotalMinor
+      || BigInt(snapshot.totalMinor) !== row.totalMinor
+      || snapshot.preparationFingerprint !== row.preparationFingerprint
+      || snapshot.pricingFingerprint !== row.pricingFingerprint
+      || snapshot.issuerFingerprint !== row.issuerFingerprint
+      || snapshot.recipientFingerprint !== row.recipientFingerprint
+      || hospitalityIssuedInvoiceFingerprint(snapshot) !== row.documentFingerprint
+      || document.documentFingerprint !== row.documentFingerprint
+    ) return null;
+
+    return Object.freeze({
+      id: row.id,
+      bookingId: row.bookingId,
+      documentNumber: row.documentNumber,
+      issuedAt: row.issuedAt,
+      currency: row.currency,
+      totalMinor: row.totalMinor,
+      pricingFingerprint: row.pricingFingerprint,
+      issuerFingerprint: row.issuerFingerprint,
+      recipientFingerprint: row.recipientFingerprint,
+      documentFingerprint: row.documentFingerprint,
+    });
+  } catch {
+    // Immutable register/source-link reconciliation owns invalid source-invoice evidence.
+    return null;
+  }
 }
 
 export async function currentHospitalityCommercialAdjustmentSettlementDriftFailures(input: {
@@ -149,9 +237,43 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
     return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
   }
 
+  const sourceInvoiceIds = [...new Set(parsedAuthorities.map((authority) => authority.sourceInvoiceId))];
   const amendmentIds = [...new Set(parsedAuthorities.map((authority) => authority.commercialAmendmentId))];
   const targetPricingEvidenceIds = [...new Set(parsedAuthorities.map((authority) => authority.targetPricingEvidenceId))];
-  const [amendments, targetPricingEvidence] = await Promise.all([
+  const [sourceInvoiceRows, amendments, targetPricingEvidence] = await Promise.all([
+    db.hospitalityIssuedInvoice.findMany({
+      where: {
+        organizationId: input.organizationId,
+        id: { in: sourceInvoiceIds },
+        jurisdictionCode: 'AU',
+        documentType: 'TAX_INVOICE',
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        bookingId: true,
+        preparationId: true,
+        pricingEvidenceId: true,
+        issuerProfileId: true,
+        jurisdictionCode: true,
+        documentType: true,
+        documentNumber: true,
+        sequenceValue: true,
+        issuedAt: true,
+        currency: true,
+        accommodationSubtotalMinor: true,
+        taxTotalMinor: true,
+        feeTotalMinor: true,
+        addonTotalMinor: true,
+        totalMinor: true,
+        preparationFingerprint: true,
+        pricingFingerprint: true,
+        issuerFingerprint: true,
+        recipientFingerprint: true,
+        documentFingerprint: true,
+        documentSnapshot: true,
+      },
+    }),
     db.hospitalityBookingCommercialAmendment.findMany({
       where: { organizationId: input.organizationId, id: { in: amendmentIds } },
       select: {
@@ -186,9 +308,13 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
       },
     }),
   ]);
+  const sourceInvoices = sourceInvoiceRows
+    .map((row) => sourceInvoiceAuthorityFromRow(row, input.organizationId))
+    .filter((source): source is CommercialSourceInvoiceAuthority => source !== null);
   const amendmentById = new Map(amendments.map((amendment) => [amendment.id, amendment]));
   const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
     authorities: parsedAuthorities,
+    sourceInvoices,
     amendments,
     targetPricingEvidence,
   });

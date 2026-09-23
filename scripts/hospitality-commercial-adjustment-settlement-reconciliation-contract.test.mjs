@@ -26,16 +26,34 @@ test('only fingerprint verified immutable documents can become settlement author
   assert.match(service, /new Date\(snapshot\.issuedAt\)\.getTime\(\) !== row\.issuedAt\.getTime\(\)/);
 });
 
+test('source invoice immutable authority is reloaded before commercial settlement drift can be classified', () => {
+  assert.match(service, /db\.hospitalityIssuedInvoice\.findMany/);
+  assert.match(service, /parseHospitalityIssuedTaxInvoiceSnapshot/);
+  assert.match(service, /hospitalityIssuedInvoiceFingerprint\(snapshot\) !== row\.documentFingerprint/);
+  assert.match(service, /document\.documentFingerprint !== row\.documentFingerprint/);
+  assert.match(service, /sourceInvoiceFingerprint: snapshot\.sourceInvoiceFingerprint/);
+  assert.match(service, /issuerFingerprint: snapshot\.issuerFingerprint/);
+  assert.match(service, /recipientFingerprint: snapshot\.recipientFingerprint/);
+  assert.match(service, /sourceInvoices,/);
+});
+
 test('commercial settlement authority is revalidated as one complete source chain', () => {
   assert.match(service, /selectVerifiedHospitalityCommercialSettlementAuthorityGroups/);
   assert.match(service, /authorities: parsedAuthorities/);
+  assert.match(authorityDomain, /sourceInvoiceMatchesAuthority/);
+  assert.match(authorityDomain, /sourceInvoice\.documentFingerprint === authority\.sourceInvoiceFingerprint/);
+  assert.match(authorityDomain, /sourceInvoice\.issuerFingerprint === authority\.issuerFingerprint/);
+  assert.match(authorityDomain, /sourceInvoice\.recipientFingerprint === authority\.recipientFingerprint/);
+  assert.match(authorityDomain, /sourceInvoice\?\.totalMinor !== authority\.beforeTotalMinor/);
+  assert.match(authorityDomain, /sourceInvoice\?\.pricingFingerprint !== authority\.beforePricingFingerprint/);
+  assert.match(authorityDomain, /authority\.beforeTotalMinor !== previous\.afterTotalMinor/);
+  assert.match(authorityDomain, /authority\.beforePricingFingerprint !== previous\.afterPricingFingerprint/);
   assert.match(authorityDomain, /amendment\.appliedAt\.getTime\(\) === authority\.commercialAmendmentAppliedAt\.getTime\(\)/);
   assert.match(authorityDomain, /amendment\.beforePricingFingerprint === authority\.beforePricingFingerprint/);
   assert.match(authorityDomain, /amendment\.afterPricingFingerprint === authority\.afterPricingFingerprint/);
   assert.match(authorityDomain, /target\.commercialAmendmentId === authority\.commercialAmendmentId/);
   assert.match(authorityDomain, /target\.pricingFingerprint === authority\.afterPricingFingerprint/);
   assert.match(authorityDomain, /target\.totalMinor === authority\.afterTotalMinor/);
-  assert.match(authorityDomain, /authority\.beforePricingFingerprint !== previous\.afterPricingFingerprint/);
   assert.match(authorityDomain, /amendmentIds\.has\(authority\.commercialAmendmentId\)/);
   assert.match(authorityDomain, /targetEvidenceIds\.has\(authority\.targetPricingEvidenceId\)/);
 });
@@ -67,6 +85,8 @@ test('tenant reconciliation includes commercial settlement drift without weakeni
 });
 
 test('documentation keeps chain-atomic current drift separate from historical settlement evidence', () => {
+  assert.match(guide, /source tax invoice is reloaded/i);
+  assert.match(guide, /exact currency and monetary continuity/i);
   assert.match(guide, /entire source-invoice commercial chain/i);
   assert.match(guide, /excluded from settlement-drift classification/i);
   assert.match(guide, /schema versions 2 through 5/i);

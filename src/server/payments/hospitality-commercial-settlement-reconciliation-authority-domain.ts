@@ -2,6 +2,11 @@ export type HospitalityCommercialSettlementReconciliationAuthority = Readonly<{
   documentNumber: string;
   bookingId: string;
   sourceInvoiceId: string;
+  sourceInvoiceDocumentNumber: string;
+  sourceInvoiceIssuedAt: Date;
+  sourceInvoiceFingerprint: string;
+  issuerFingerprint: string;
+  recipientFingerprint: string;
   sourceAdjustmentOrdinal: number;
   issuedAt: Date;
   commercialAmendmentId: string;
@@ -13,6 +18,19 @@ export type HospitalityCommercialSettlementReconciliationAuthority = Readonly<{
   currency: string;
   beforeTotalMinor: bigint;
   afterTotalMinor: bigint;
+}>;
+
+export type HospitalityCommercialSettlementReconciliationSourceInvoice = Readonly<{
+  id: string;
+  bookingId: string;
+  documentNumber: string;
+  issuedAt: Date;
+  currency: string;
+  totalMinor: bigint;
+  pricingFingerprint: string;
+  issuerFingerprint: string;
+  recipientFingerprint: string;
+  documentFingerprint: string;
 }>;
 
 export type HospitalityCommercialSettlementReconciliationAmendment = Readonly<{
@@ -41,6 +59,25 @@ export type HospitalityCommercialSettlementReconciliationTargetEvidence = Readon
 
 function authorityGroupKey(authority: HospitalityCommercialSettlementReconciliationAuthority) {
   return `${authority.bookingId}:${authority.sourceInvoiceId}`;
+}
+
+function sourceInvoiceMatchesAuthority(input: {
+  authority: HospitalityCommercialSettlementReconciliationAuthority;
+  sourceInvoice: HospitalityCommercialSettlementReconciliationSourceInvoice | undefined;
+}) {
+  const { authority, sourceInvoice } = input;
+  return Boolean(
+    sourceInvoice
+    && sourceInvoice.bookingId === authority.bookingId
+    && sourceInvoice.documentNumber === authority.sourceInvoiceDocumentNumber
+    && sourceInvoice.issuedAt.getTime() === authority.sourceInvoiceIssuedAt.getTime()
+    && sourceInvoice.currency === authority.currency
+    && sourceInvoice.documentFingerprint === authority.sourceInvoiceFingerprint
+    && sourceInvoice.issuerFingerprint === authority.issuerFingerprint
+    && sourceInvoice.recipientFingerprint === authority.recipientFingerprint
+    && sourceInvoice.issuedAt.getTime() <= authority.commercialAmendmentAppliedAt.getTime()
+    && sourceInvoice.issuedAt.getTime() <= authority.issuedAt.getTime()
+  );
 }
 
 function currentAuthorityMatchesPersistence(input: {
@@ -76,9 +113,11 @@ function currentAuthorityMatchesPersistence(input: {
 
 export function selectVerifiedHospitalityCommercialSettlementAuthorityGroups(input: {
   authorities: readonly HospitalityCommercialSettlementReconciliationAuthority[];
+  sourceInvoices: readonly HospitalityCommercialSettlementReconciliationSourceInvoice[];
   amendments: readonly HospitalityCommercialSettlementReconciliationAmendment[];
   targetPricingEvidence: readonly HospitalityCommercialSettlementReconciliationTargetEvidence[];
 }) {
+  const sourceInvoiceById = new Map(input.sourceInvoices.map((sourceInvoice) => [sourceInvoice.id, sourceInvoice]));
   const amendmentById = new Map(input.amendments.map((amendment) => [amendment.id, amendment]));
   const targetById = new Map(input.targetPricingEvidence.map((evidence) => [evidence.id, evidence]));
   const grouped = new Map<string, HospitalityCommercialSettlementReconciliationAuthority[]>();
@@ -101,6 +140,7 @@ export function selectVerifiedHospitalityCommercialSettlementAuthorityGroups(inp
     const documentNumbers = new Set<string>();
     const amendmentIds = new Set<string>();
     const targetEvidenceIds = new Set<string>();
+    const sourceInvoice = ordered[0] ? sourceInvoiceById.get(ordered[0].sourceInvoiceId) : undefined;
     let valid = ordered.length > 0;
     let previous: HospitalityCommercialSettlementReconciliationAuthority | null = null;
 
@@ -111,6 +151,11 @@ export function selectVerifiedHospitalityCommercialSettlementAuthorityGroups(inp
         || documentNumbers.has(authority.documentNumber)
         || amendmentIds.has(authority.commercialAmendmentId)
         || targetEvidenceIds.has(authority.targetPricingEvidenceId)
+        || !sourceInvoiceMatchesAuthority({ authority, sourceInvoice })
+        || (index === 0 && sourceInvoice?.totalMinor !== authority.beforeTotalMinor)
+        || (index === 0 && sourceInvoice?.pricingFingerprint !== authority.beforePricingFingerprint)
+        || (previous && authority.currency !== previous.currency)
+        || (previous && authority.beforeTotalMinor !== previous.afterTotalMinor)
         || (previous && authority.issuedAt.getTime() < previous.issuedAt.getTime())
         || (previous && authority.commercialAmendmentAppliedAt.getTime() < previous.issuedAt.getTime())
         || (previous && authority.beforePricingFingerprint !== previous.afterPricingFingerprint)

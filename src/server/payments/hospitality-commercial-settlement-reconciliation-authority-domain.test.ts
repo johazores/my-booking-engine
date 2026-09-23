@@ -8,6 +8,11 @@ import {
 
 const bookingId = '11111111-1111-4111-8111-111111111111';
 const sourceInvoiceId = '22222222-2222-4222-8222-222222222222';
+const sourceInvoiceDocumentNumber = 'AU-TAX-00000001';
+const sourceInvoiceIssuedAt = new Date('2025-12-31T00:00:00.000Z');
+const sourceInvoiceFingerprint = 'a'.repeat(64);
+const issuerFingerprint = 'b'.repeat(64);
+const recipientFingerprint = 'c'.repeat(64);
 const issue1 = new Date('2026-01-01T00:00:00.000Z');
 const issue2 = new Date('2026-01-02T00:00:00.000Z');
 const issue3 = new Date('2026-01-03T00:00:00.000Z');
@@ -27,6 +32,11 @@ function authority(input: {
     documentNumber: `AU-ADJ-${String(input.ordinal).padStart(8, '0')}`,
     bookingId,
     sourceInvoiceId,
+    sourceInvoiceDocumentNumber,
+    sourceInvoiceIssuedAt,
+    sourceInvoiceFingerprint,
+    issuerFingerprint,
+    recipientFingerprint,
     sourceAdjustmentOrdinal: input.ordinal,
     issuedAt: input.issuedAt,
     commercialAmendmentId: input.amendmentId,
@@ -58,6 +68,21 @@ const authorities = [
   authority({ ordinal: 3, amendmentId: amendment3, targetId: target3, issuedAt: issue3, appliedAt: issue3, before: fingerprint3, after: fingerprint4, beforeTotal: 8_800n, afterTotal: 7_700n }),
 ];
 
+function sourceInvoices() {
+  return [{
+    id: sourceInvoiceId,
+    bookingId,
+    documentNumber: sourceInvoiceDocumentNumber,
+    issuedAt: sourceInvoiceIssuedAt,
+    currency: 'AUD',
+    totalMinor: authorities[0]!.beforeTotalMinor,
+    pricingFingerprint: authorities[0]!.beforePricingFingerprint,
+    issuerFingerprint,
+    recipientFingerprint,
+    documentFingerprint: sourceInvoiceFingerprint,
+  }];
+}
+
 function amendments() {
   return authorities.map((item) => ({
     id: item.commercialAmendmentId,
@@ -86,27 +111,68 @@ function targets() {
   }));
 }
 
-test('accepts a complete contiguous commercial settlement authority chain', () => {
-  const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
-    authorities,
-    amendments: amendments(),
-    targetPricingEvidence: targets(),
+function select(input: {
+  authorityRows?: readonly HospitalityCommercialSettlementReconciliationAuthority[];
+  sourceRows?: ReturnType<typeof sourceInvoices>;
+  amendmentRows?: ReturnType<typeof amendments>;
+  targetRows?: ReturnType<typeof targets>;
+} = {}) {
+  return selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
+    authorities: input.authorityRows ?? authorities,
+    sourceInvoices: input.sourceRows ?? sourceInvoices(),
+    amendments: input.amendmentRows ?? amendments(),
+    targetPricingEvidence: input.targetRows ?? targets(),
   });
+}
+
+test('accepts a complete contiguous commercial settlement authority chain', () => {
+  const groups = select();
   assert.equal(groups.get(`${bookingId}:${sourceInvoiceId}`)?.length, 3);
+});
+
+test('rejects the entire chain when source invoice immutable material does not match', () => {
+  const rows = sourceInvoices();
+  rows[0] = { ...rows[0]!, documentFingerprint: 'f'.repeat(64) };
+  assert.equal(select({ sourceRows: rows }).size, 0);
+});
+
+test('rejects the entire chain when issuer or recipient authority does not match the source invoice', () => {
+  const rows = sourceInvoices();
+  rows[0] = { ...rows[0]!, issuerFingerprint: 'd'.repeat(64) };
+  assert.equal(select({ sourceRows: rows }).size, 0);
+});
+
+test('rejects the chain when first adjustment does not start from the source invoice price', () => {
+  const rows = sourceInvoices();
+  rows[0] = { ...rows[0]!, totalMinor: 12_100n };
+  assert.equal(select({ sourceRows: rows }).size, 0);
 });
 
 test('rejects the entire chain when one intermediate target evidence row is invalid', () => {
   const targetRows = targets();
   targetRows[1] = { ...targetRows[1]!, totalMinor: 123n };
-  const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({ authorities, amendments: amendments(), targetPricingEvidence: targetRows });
-  assert.equal(groups.size, 0);
+  assert.equal(select({ targetRows }).size, 0);
+});
+
+test('rejects the entire chain when exact amount continuity is broken despite matching fingerprints', () => {
+  const broken = [...authorities];
+  broken[1] = Object.freeze({ ...broken[1]!, beforeTotalMinor: 9_350n, afterTotalMinor: 8_250n });
+  const amendmentRows = amendments();
+  amendmentRows[1] = {
+    ...amendmentRows[1]!,
+    beforeTotalMinor: broken[1]!.beforeTotalMinor,
+    afterTotalMinor: broken[1]!.afterTotalMinor,
+    deltaMinor: broken[1]!.afterTotalMinor - broken[1]!.beforeTotalMinor,
+  };
+  const targetRows = targets();
+  targetRows[1] = { ...targetRows[1]!, totalMinor: broken[1]!.afterTotalMinor };
+  assert.equal(select({ authorityRows: broken, amendmentRows, targetRows }).size, 0);
 });
 
 test('rejects the entire chain when pricing fingerprint continuity is broken', () => {
   const broken = [...authorities];
   broken[2] = Object.freeze({ ...broken[2]!, beforePricingFingerprint: fingerprint1 });
-  const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({ authorities: broken, amendments: amendments(), targetPricingEvidence: targets() });
-  assert.equal(groups.size, 0);
+  assert.equal(select({ authorityRows: broken }).size, 0);
 });
 
 test('rejects a chain when a later amendment predates its legal predecessor issue time', () => {
@@ -114,24 +180,25 @@ test('rejects a chain when a later amendment predates its legal predecessor issu
   broken[1] = Object.freeze({ ...broken[1]!, commercialAmendmentAppliedAt: new Date('2025-12-31T23:59:59.000Z') });
   const amendmentRows = amendments();
   amendmentRows[1] = { ...amendmentRows[1]!, appliedAt: broken[1]!.commercialAmendmentAppliedAt };
-  const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({ authorities: broken, amendments: amendmentRows, targetPricingEvidence: targets() });
-  assert.equal(groups.size, 0);
+  assert.equal(select({ authorityRows: broken, amendmentRows }).size, 0);
 });
 
 test('rejects duplicate amendment or target authority inside one source chain', () => {
   const duplicate = [...authorities];
   duplicate[1] = Object.freeze({ ...duplicate[1]!, commercialAmendmentId: amendment1, targetPricingEvidenceId: target1 });
-  const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({ authorities: duplicate, amendments: amendments(), targetPricingEvidence: targets() });
-  assert.equal(groups.size, 0);
+  assert.equal(select({ authorityRows: duplicate }).size, 0);
 });
 
 test('keeps an unrelated valid source chain when another source chain is invalid', () => {
   const otherSource = '55555555-5555-4555-8555-555555555555';
   const otherAmendment = '66666666-6666-4666-8666-666666666666';
   const otherTarget = '77777777-7777-4777-8777-777777777777';
+  const otherSourceFingerprint = 'b'.repeat(64);
   const other = Object.freeze({
     ...authorities[0]!,
     sourceInvoiceId: otherSource,
+    sourceInvoiceDocumentNumber: 'AU-TAX-00000099',
+    sourceInvoiceFingerprint: otherSourceFingerprint,
     commercialAmendmentId: otherAmendment,
     targetPricingEvidenceId: otherTarget,
     documentNumber: 'AU-ADJ-00000099',
@@ -139,6 +206,21 @@ test('keeps an unrelated valid source chain when another source chain is invalid
   const invalidFirstChain = Object.freeze({ ...authorities[1]!, sourceAdjustmentOrdinal: 3 });
   const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
     authorities: [authorities[0]!, invalidFirstChain, other],
+    sourceInvoices: [
+      ...sourceInvoices(),
+      {
+        id: otherSource,
+        bookingId,
+        documentNumber: other.sourceInvoiceDocumentNumber,
+        issuedAt: other.sourceInvoiceIssuedAt,
+        currency: other.currency,
+        totalMinor: other.beforeTotalMinor,
+        pricingFingerprint: other.beforePricingFingerprint,
+        issuerFingerprint: other.issuerFingerprint,
+        recipientFingerprint: other.recipientFingerprint,
+        documentFingerprint: otherSourceFingerprint,
+      },
+    ],
     amendments: [
       ...amendments(),
       {
@@ -187,6 +269,7 @@ test('accepts a mixed decreasing and increasing commercial chain when persistenc
   });
   const groups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
     authorities: [authorities[0]!, increasing],
+    sourceInvoices: sourceInvoices(),
     amendments: [
       amendments()[0]!,
       {
