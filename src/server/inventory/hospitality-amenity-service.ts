@@ -2,7 +2,12 @@ import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { assertInventoryArchiveConfirmation, normalizeAmenityInput, type AmenityInput } from './hospitality-domain.ts';
-import { listAmenitiesForOrganization, listPropertyAmenities, listRoomTypeAmenities } from './hospitality-amenity-repository.ts';
+import {
+  listAmenitiesForOrganization,
+  listAmenitiesForOrganizationPage,
+  listPropertyAmenities,
+  listRoomTypeAmenities,
+} from './hospitality-amenity-repository.ts';
 import { HospitalityInventoryConflictError, HospitalityInventoryDependencyError, HospitalityInventoryUnavailableError } from './hospitality-service.ts';
 
 function isUniqueConstraintError(error: unknown) {
@@ -12,6 +17,16 @@ function isUniqueConstraintError(error: unknown) {
 export async function listHospitalityAmenities(input: { organizationId: string; actorUserId: string }) {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
   return listAmenitiesForOrganization(input);
+}
+
+export async function listHospitalityAmenitiesPage(input: {
+  organizationId: string;
+  actorUserId: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
+  return listAmenitiesForOrganizationPage(input);
 }
 
 export async function listHospitalityPropertyAmenities(input: { organizationId: string; actorUserId: string; propertyId: string }) {
