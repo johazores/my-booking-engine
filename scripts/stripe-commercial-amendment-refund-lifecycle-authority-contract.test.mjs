@@ -41,6 +41,9 @@ test('final write is tenant booking amendment source money and current-status sc
 });
 
 test('lifecycle leaves compensation-refund ownership to the recovery finalizer', () => {
+  const directionGuard = service.indexOf("if (amendment.direction !== 'REFUND')");
+  const fingerprintGuard = service.indexOf('refund.requestFingerprint !== expectedFingerprint');
+  assert.ok(directionGuard >= 0 && fingerprintGuard > directionGuard);
   assert.match(service, /if \(amendment\.direction !== 'REFUND'\) \{[\s\S]*?handled: false as const/);
   assert.match(docs, /commercial-amendment refund money remains amendment-owned/i);
 });

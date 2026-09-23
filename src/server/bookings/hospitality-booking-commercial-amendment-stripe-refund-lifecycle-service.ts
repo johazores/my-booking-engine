@@ -137,16 +137,6 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   ) {
     throw new PaymentConflictError('Verified Stripe refund event does not match the persisted commercial amendment refund identity and money.');
   }
-  const expectedFingerprint = stripeCommercialAmendmentRefundFingerprint({
-    bookingId: refund.bookingId,
-    amendmentId: refund.commercialAmendmentId,
-    currency: refund.currency,
-    amountMinor: refund.amountMinor,
-    sourceProviderReference: refund.sourceProviderReference,
-  });
-  if (refund.requestFingerprint !== expectedFingerprint) {
-    throw new PaymentConflictError('Commercial amendment Stripe refund fingerprint is inconsistent.');
-  }
 
   const amendment = await db.hospitalityBookingCommercialAmendment.findFirst({
     where: {
@@ -168,6 +158,16 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   if (!amendment) throw new PaymentConflictError('Commercial amendment is unavailable for Stripe refund lifecycle reconciliation.');
   if (amendment.direction !== 'REFUND') {
     return Object.freeze({ handled: false as const });
+  }
+  const expectedFingerprint = stripeCommercialAmendmentRefundFingerprint({
+    bookingId: refund.bookingId,
+    amendmentId: refund.commercialAmendmentId,
+    currency: refund.currency,
+    amountMinor: refund.amountMinor,
+    sourceProviderReference: refund.sourceProviderReference,
+  });
+  if (refund.requestFingerprint !== expectedFingerprint) {
+    throw new PaymentConflictError('Commercial amendment Stripe refund fingerprint is inconsistent.');
   }
   assertCommercialAmendmentRefundAuthority({ amendment, refund });
 
