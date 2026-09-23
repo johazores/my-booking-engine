@@ -29,15 +29,18 @@ test('successful reconciliation reports exact document counts', () => {
   assert.equal(result.failures.length, 0);
 });
 
-test('integrity failures prevent a verified result', () => {
+test('integrity and current settlement failures prevent a verified result', () => {
   const result = createHospitalityTaxDocumentReconciliationResult({
     checkedAt: new Date('2026-09-04T00:00:00.000Z'),
     taxInvoiceCount: 1,
     adjustmentNoteCount: 1,
-    failures: [{ documentType: 'ADJUSTMENT_NOTE', documentNumber: 'AU-ADJ-00000001', code: 'SOURCE_LINK_FAILED' }],
+    failures: [
+      { documentType: 'ADJUSTMENT_NOTE', documentNumber: 'AU-ADJ-00000001', code: 'SOURCE_LINK_FAILED' },
+      { documentType: 'ADJUSTMENT_NOTE', documentNumber: null, code: 'SETTLEMENT_DRIFT' },
+    ],
   });
   assert.equal(result.status, 'FAILED');
-  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures.length, 2);
 });
 
 test('reconciliation audit data is secret-safe, canonical, and round-trips', () => {
@@ -48,12 +51,13 @@ test('reconciliation audit data is secret-safe, canonical, and round-trips', () 
     failures: [
       { documentType: 'REGISTER', documentNumber: null, code: 'CONCURRENT_CHANGE' },
       { documentType: 'ADJUSTMENT_NOTE', documentNumber: 'AU-ADJ-00000009', code: 'SOURCE_LINK_FAILED' },
+      { documentType: 'ADJUSTMENT_NOTE', documentNumber: null, code: 'SETTLEMENT_DRIFT' },
       { documentType: 'REGISTER', documentNumber: null, code: 'CONCURRENT_CHANGE' },
     ],
   });
   const audit = createHospitalityTaxDocumentReconciliationAuditData(result);
   assert.equal(HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION, 'payment.tax-document-reconciliation.completed');
-  assert.deepEqual(audit.failureCodes, ['CONCURRENT_CHANGE', 'SOURCE_LINK_FAILED']);
+  assert.deepEqual(audit.failureCodes, ['CONCURRENT_CHANGE', 'SETTLEMENT_DRIFT', 'SOURCE_LINK_FAILED']);
   assert.equal('documentNumber' in audit, false);
   assert.equal(JSON.stringify(audit).includes('AU-ADJ-00000009'), false);
 
@@ -62,6 +66,7 @@ test('reconciliation audit data is secret-safe, canonical, and round-trips', () 
   assert.equal(parsed.status, 'FAILED');
   assert.equal(parsed.checkedAt.toISOString(), '2026-09-04T01:02:03.000Z');
   assert.equal(parsed.totalDocumentCount, 5);
+  assert.deepEqual(parsed.failureCodes, ['CONCURRENT_CHANGE', 'SETTLEMENT_DRIFT', 'SOURCE_LINK_FAILED']);
 });
 
 test('malformed or contradictory reconciliation audit data fails closed', () => {
