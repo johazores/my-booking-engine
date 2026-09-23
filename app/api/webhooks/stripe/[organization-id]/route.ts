@@ -1,5 +1,6 @@
 import { finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-checkout-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentRecoveryCheckoutWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-checkout-webhook-service.ts';
+import { reconcileVerifiedStripeCommercialAmendmentRefundWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-refund-lifecycle-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-webhook-service.ts';
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
@@ -58,6 +59,15 @@ export async function POST(
       verifiedWebhookEventId: verifiedEvent.id,
       payload,
     });
+
+    const amendmentRefundLifecycle = await reconcileVerifiedStripeCommercialAmendmentRefundWebhook({
+      organizationId,
+      verifiedWebhookEventId: verifiedEvent.id,
+      payload,
+    });
+    if (amendmentRefundLifecycle.handled) {
+      return finish(Response.json({ received: true }));
+    }
 
     const checkoutFinalization = await finalizeVerifiedStripeCommercialAmendmentCheckoutWebhook({
       organizationId,

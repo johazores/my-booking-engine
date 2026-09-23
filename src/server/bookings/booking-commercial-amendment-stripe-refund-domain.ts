@@ -23,6 +23,22 @@ export type StripeCommercialAmendmentRefundClaim = Readonly<{
   claimReference: string;
 }>;
 
+export type StripeCommercialAmendmentRefundTransactionStatus = 'PENDING' | 'AMBIGUOUS' | 'SUCCEEDED' | 'FAILED';
+export type StripeCommercialAmendmentRefundProviderStatus = 'AMBIGUOUS' | 'SUCCEEDED' | 'FAILED';
+
+export type StripeCommercialAmendmentRefundLifecycleDecision = Readonly<
+  | {
+      action: 'MUTATE';
+      nextStatus: StripeCommercialAmendmentRefundProviderStatus;
+      processingNote: 'commercial-amendment-refund-lifecycle-reconciled';
+    }
+  | {
+      action: 'KEEP';
+      nextStatus: StripeCommercialAmendmentRefundTransactionStatus;
+      processingNote: 'commercial-amendment-refund-lifecycle-unchanged';
+    }
+>;
+
 export function stripeCommercialAmendmentRefundFingerprint(input: {
   bookingId: string;
   amendmentId: string;
@@ -96,7 +112,7 @@ export function reconcileStripeCommercialAmendmentRefundSnapshot(input: {
     currency: string;
     amountMinor: bigint;
   }>;
-}): 'SUCCEEDED' | 'AMBIGUOUS' | 'FAILED' {
+}): StripeCommercialAmendmentRefundProviderStatus {
   if (
     input.snapshot.currency !== input.currency
     || input.snapshot.amountMinor !== input.amountMinor
@@ -107,4 +123,22 @@ export function reconcileStripeCommercialAmendmentRefundSnapshot(input: {
   if (input.snapshot.status === 'succeeded') return 'SUCCEEDED';
   if (input.snapshot.status === 'failed' || input.snapshot.status === 'canceled') return 'FAILED';
   return 'AMBIGUOUS';
+}
+
+export function decideStripeCommercialAmendmentRefundLifecycleMutation(input: {
+  currentStatus: StripeCommercialAmendmentRefundTransactionStatus;
+  providerStatus: StripeCommercialAmendmentRefundProviderStatus;
+}): StripeCommercialAmendmentRefundLifecycleDecision {
+  if (input.currentStatus === input.providerStatus) {
+    return Object.freeze({
+      action: 'KEEP',
+      nextStatus: input.currentStatus,
+      processingNote: 'commercial-amendment-refund-lifecycle-unchanged',
+    });
+  }
+  return Object.freeze({
+    action: 'MUTATE',
+    nextStatus: input.providerStatus,
+    processingNote: 'commercial-amendment-refund-lifecycle-reconciled',
+  });
 }

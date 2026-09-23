@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  decideStripeCommercialAmendmentRefundLifecycleMutation,
   deriveStripeCommercialAmendmentRefundClaim,
   reconcileStripeCommercialAmendmentRefundSnapshot,
   stripeCommercialAmendmentRefundFingerprint,
@@ -96,7 +97,39 @@ test('reconciliation accepts exact provider truth and fails closed on source or 
   };
   assert.equal(reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot }), 'SUCCEEDED');
   assert.equal(reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot: { ...snapshot, status: 'pending' } }), 'AMBIGUOUS');
+  assert.equal(reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot: { ...snapshot, status: 'requires_action' } }), 'AMBIGUOUS');
   assert.equal(reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot: { ...snapshot, status: 'failed' } }), 'FAILED');
   assert.throws(() => reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot: { ...snapshot, amountMinor: 2499n } }));
   assert.throws(() => reconcileStripeCommercialAmendmentRefundSnapshot({ ...base, snapshot: { ...snapshot, paymentIntentReference: 'pi_other' } }));
+});
+
+test('commercial amendment refund lifecycle follows current provider truth instead of assuming success is terminal', () => {
+  assert.deepEqual(decideStripeCommercialAmendmentRefundLifecycleMutation({
+    currentStatus: 'SUCCEEDED',
+    providerStatus: 'AMBIGUOUS',
+  }), {
+    action: 'MUTATE',
+    nextStatus: 'AMBIGUOUS',
+    processingNote: 'commercial-amendment-refund-lifecycle-reconciled',
+  });
+  assert.deepEqual(decideStripeCommercialAmendmentRefundLifecycleMutation({
+    currentStatus: 'SUCCEEDED',
+    providerStatus: 'FAILED',
+  }), {
+    action: 'MUTATE',
+    nextStatus: 'FAILED',
+    processingNote: 'commercial-amendment-refund-lifecycle-reconciled',
+  });
+  assert.deepEqual(decideStripeCommercialAmendmentRefundLifecycleMutation({
+    currentStatus: 'FAILED',
+    providerStatus: 'SUCCEEDED',
+  }), {
+    action: 'MUTATE',
+    nextStatus: 'SUCCEEDED',
+    processingNote: 'commercial-amendment-refund-lifecycle-reconciled',
+  });
+  assert.equal(decideStripeCommercialAmendmentRefundLifecycleMutation({
+    currentStatus: 'AMBIGUOUS',
+    providerStatus: 'AMBIGUOUS',
+  }).action, 'KEEP');
 });
