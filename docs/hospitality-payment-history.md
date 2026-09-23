@@ -8,7 +8,7 @@ Hospitality commercial-amendment settlement reads must not make financial decisi
 
 The synchronous safety ceiling is 1,000 payment transactions for one booking. Exactly 1,000 rows are accepted only after a one-row overflow probe proves the history is complete. If another row exists, the reader fails closed instead of returning a partial ledger. A caller must treat an incomplete result as a settlement conflict and must not infer payment, refund, amendment-apply, or recovery authority from the truncated prefix.
 
-`getHospitalityBookingCommercialAmendmentSettlementState` uses this reader inside its existing serializable transaction. The endpoint therefore preserves its tenant authorization and one-snapshot semantics while removing its previous unbounded `findMany` payment-ledger materialization.
+`getHospitalityBookingCommercialAmendmentSettlementState` uses this reader inside its existing serializable transaction. The authenticated commercial-amendment transport read uses the same complete bounded evidence before deriving settlement, refund allocation, or executable state. The post-apply-failure recovery boundary also requires a complete bounded ledger before `READY_TO_APPLY` can grant recovery authority, release protected inventory, or shorten the recovery lifetime. An incomplete history is a conflict in each of these paths, never an invitation to infer money state from a prefix. These boundaries therefore preserve their existing tenant authorization and transactional semantics while removing unbounded payment-ledger materialization.
 
 ## Expired amendment recovery guard
 

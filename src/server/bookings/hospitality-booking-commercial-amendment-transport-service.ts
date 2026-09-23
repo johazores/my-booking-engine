@@ -1,5 +1,6 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import { deriveNextBookingRefundSource } from '../payments/payment-refund-allocation-domain.ts';
 import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import { isInternalPaymentClaimReference } from '../payments/stripe-payment-service.ts';
@@ -27,19 +28,6 @@ import {
 } from './hospitality-booking-service.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
-
-type SettlementTransaction = Readonly<{
-  id: string;
-  commercialAmendmentId: string | null;
-  idempotencyKey: string;
-  kind: 'OFFLINE_PAYMENT' | 'AUTHORIZATION' | 'CAPTURE' | 'REFUND';
-  status: 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS';
-  providerCode: string;
-  providerReference: string;
-  sourceProviderReference: string | null;
-  currency: string;
-  amountMinor: bigint;
-}>;
 
 async function requireTransportPermissions(input: { organizationId: string; actorUserId: string }) {
   await Promise.all([
@@ -157,22 +145,15 @@ export async function readHospitalityBookingCommercialAmendmentTransport(input: 
     });
     if (!amendment) throw new HospitalityBookingUnavailableError('Commercial amendment is unavailable in this organization.');
 
-    const transactions: SettlementTransaction[] = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      select: {
-        id: true,
-        commercialAmendmentId: true,
-        idempotencyKey: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
+    const transactions = paymentHistory.transactions;
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
       direction: amendment.direction,

@@ -1,6 +1,7 @@
 import { releaseHospitalityAvailabilityHoldInTransaction } from '../availability/hospitality-availability-hold-core.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveHospitalityCommercialAmendmentApplyFailureRecoveryRouting } from './booking-commercial-amendment-apply-recovery-domain.ts';
 import { deriveHospitalityCommercialAmendmentSettlementState } from './booking-commercial-amendment-settlement-domain.ts';
@@ -70,20 +71,14 @@ export async function routeSettledHospitalityBookingCommercialAmendmentApplyFail
       return Object.freeze({ routed: false as const, reason: 'Commercial amendment is unavailable.' });
     }
 
-    const transactions = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      select: {
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
       direction: amendment.direction,
@@ -92,7 +87,7 @@ export async function routeSettledHospitalityBookingCommercialAmendmentApplyFail
       beforeTotalMinor: amendment.beforeTotalMinor,
       afterTotalMinor: amendment.afterTotalMinor,
       deltaMinor: amendment.deltaMinor,
-      transactions,
+      transactions: paymentHistory.transactions,
     });
     const routing = deriveHospitalityCommercialAmendmentApplyFailureRecoveryRouting({
       amendmentStatus: amendment.status,
