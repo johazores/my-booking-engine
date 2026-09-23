@@ -9,6 +9,9 @@ import {
   readStripeWebhookRequestBody,
 } from '@/server/payments/stripe-webhook-request-body.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
+import { assertUuidIdentifier } from '@/server/tenancy/tenant-scope.ts';
+
+const STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096;
 
 export async function POST(
   request: Request,
@@ -24,10 +27,21 @@ export async function POST(
   try {
     const routeParams = await params;
     const organizationId = routeParams['organization-id'];
+    try {
+      assertUuidIdentifier(organizationId, 'organizationId');
+    } catch {
+      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
+    }
+
+    const signature = request.headers.get('stripe-signature');
+    if (signature === null || signature.length === 0 || signature.length > STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS) {
+      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
+    }
+
     const payload = await readStripeWebhookRequestBody(request);
     const verifiedEvent = await ingestStripePaymentWebhook({
       organizationId,
-      signature: request.headers.get('stripe-signature'),
+      signature,
       payload,
     });
     verifiedOrganizationId = organizationId;
@@ -60,19 +74,14 @@ export async function POST(
     return finish(Response.json({ received: true }));
   } catch (error) {
     if (error instanceof StripeWebhookRequestBodyError) {
-      return finish(Response.json(
-        { error: 'invalid-webhook' },
-        { status: error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400 },
-      ));
+      const status = error.code === 'PAYLOAD_TOO_LARGE' ? 413 : error.code === 'BODY_TIMEOUT' ? 408 : 400;
+      return finish(Response.json({ error: 'invalid-webhook' }, { status }));
     }
     if (error instanceof StripeWebhookRequestError) {
       if (error.code === 'CONFIGURATION') return finish(Response.json({ error: 'webhook-unavailable' }, { status: 503 }));
       return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
     }
     if (error instanceof PaymentConflictError) return finish(Response.json({ error: 'webhook-conflict' }, { status: 409 }));
-    if (error instanceof Error && /organizationId|UUID/i.test(error.message)) {
-      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
-    }
     return finish(Response.json({ error: 'internal-error' }, { status: 500 }));
   }
 }

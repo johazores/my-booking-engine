@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS,
   STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES,
   StripeWebhookRequestBodyError,
   readStripeWebhookRequestBody,
@@ -16,9 +17,13 @@ function post(body: BodyInit, headers?: HeadersInit, signal?: AbortSignal) {
   });
 }
 
-async function expectBodyError(request: Request, code: StripeWebhookRequestBodyError['code']) {
+async function expectBodyError(
+  request: Request,
+  code: StripeWebhookRequestBodyError['code'],
+  options?: Readonly<{ timeoutMs?: number }>,
+) {
   await assert.rejects(
-    () => readStripeWebhookRequestBody(request),
+    () => readStripeWebhookRequestBody(request, options),
     (error: unknown) => error instanceof StripeWebhookRequestBodyError && error.code === code,
   );
 }
@@ -83,4 +88,34 @@ test('aborts a pending body read without waiting for stream cancellation', async
     (error: unknown) => error instanceof StripeWebhookRequestBodyError && error.code === 'BODY_ABORTED',
   );
   assert.equal(cancelCalled, true);
+});
+
+test('fails closed when total body acquisition exceeds the SF-owned deadline', async () => {
+  let cancelCalled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() {
+      return new Promise<void>(() => undefined);
+    },
+    cancel() {
+      cancelCalled = true;
+      return new Promise<void>(() => undefined);
+    },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST',
+    body: stream,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+
+  await expectBodyError(request, 'BODY_TIMEOUT', { timeoutMs: 20 });
+  assert.equal(cancelCalled, true);
+});
+
+test('test/read overrides may only tighten the production body deadline', async () => {
+  assert.equal(STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS, 10_000);
+  await expectBodyError(
+    post('{}'),
+    'INVALID_BODY',
+    { timeoutMs: STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS + 1 },
+  );
 });

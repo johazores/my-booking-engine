@@ -1,11 +1,13 @@
 export const STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144;
+export const STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000;
 
 type StripeWebhookRequestBodyErrorCode =
   | 'INVALID_CONTENT_LENGTH'
   | 'PAYLOAD_TOO_LARGE'
   | 'INVALID_BODY'
   | 'INVALID_ENCODING'
-  | 'BODY_ABORTED';
+  | 'BODY_ABORTED'
+  | 'BODY_TIMEOUT';
 
 export class StripeWebhookRequestBodyError extends Error {
   readonly code: StripeWebhookRequestBodyErrorCode;
@@ -34,6 +36,18 @@ function requestAborted(): StripeWebhookRequestBodyError {
   return new StripeWebhookRequestBodyError('BODY_ABORTED', 'Stripe webhook request body was aborted.');
 }
 
+function bodyTimedOut(): StripeWebhookRequestBodyError {
+  return new StripeWebhookRequestBodyError('BODY_TIMEOUT', 'Stripe webhook request body timed out.');
+}
+
+function resolveBodyReadTimeoutMs(timeoutMs?: number): number {
+  if (timeoutMs === undefined) return STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS) {
+    throw new StripeWebhookRequestBodyError('INVALID_BODY', 'Stripe webhook body timeout is invalid.');
+  }
+  return timeoutMs;
+}
+
 function assertDeclaredContentLength(request: Request): void {
   const value = request.headers.get('content-length');
   if (value === null) return;
@@ -51,27 +65,49 @@ function assertDeclaredContentLength(request: Request): void {
 
 async function readRequestChunk(
   reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal: AbortSignal,
+  requestSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
-  if (signal.aborted) throw requestAborted();
+  if (requestSignal.aborted) throw requestAborted();
+  if (timeoutSignal.aborted) throw bodyTimedOut();
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    const cleanup = () => {
+      requestSignal.removeEventListener('abort', onRequestAbort);
+      timeoutSignal.removeEventListener('abort', onTimeout);
+    };
     const settle = <T>(callback: (value: T) => void, value: T) => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
+      cleanup();
       callback(value);
     };
-    const onAbort = () => {
+    const onRequestAbort = () => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
+      cleanup();
       void reader.cancel().catch(() => undefined);
       reject(requestAborted());
     };
+    const onTimeout = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      void reader.cancel().catch(() => undefined);
+      reject(bodyTimedOut());
+    };
 
-    signal.addEventListener('abort', onAbort, { once: true });
+    requestSignal.addEventListener('abort', onRequestAbort, { once: true });
+    timeoutSignal.addEventListener('abort', onTimeout, { once: true });
+    if (requestSignal.aborted) {
+      onRequestAbort();
+      return;
+    }
+    if (timeoutSignal.aborted) {
+      onTimeout();
+      return;
+    }
     reader.read().then(
       (result) => settle(resolve, result),
       (error: unknown) => settle(reject, error),
@@ -83,7 +119,11 @@ async function readRequestChunk(
  * Reads the Stripe webhook raw body without allowing Request.text() to buffer an
  * unbounded public request before SF can apply its webhook payload limit.
  */
-export async function readStripeWebhookRequestBody(request: Request): Promise<string> {
+export async function readStripeWebhookRequestBody(
+  request: Request,
+  options?: Readonly<{ timeoutMs?: number }>,
+): Promise<string> {
+  const timeoutMs = resolveBodyReadTimeoutMs(options?.timeoutMs);
   assertDeclaredContentLength(request);
   if (request.signal.aborted) {
     cancelRequestBody(request);
@@ -98,13 +138,15 @@ export async function readStripeWebhookRequestBody(request: Request): Promise<st
     invalidBody();
   }
 
+  const timeoutController = new AbortController();
+  const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {
     while (true) {
       let result: ReadableStreamReadResult<Uint8Array>;
       try {
-        result = await readRequestChunk(reader, request.signal);
+        result = await readRequestChunk(reader, request.signal, timeoutController.signal);
       } catch (error) {
         if (error instanceof StripeWebhookRequestBodyError) throw error;
         invalidBody();
@@ -122,6 +164,7 @@ export async function readStripeWebhookRequestBody(request: Request): Promise<st
       chunks.push(result.value.slice());
     }
   } finally {
+    clearTimeout(timeoutHandle);
     try {
       reader.releaseLock();
     } catch {
