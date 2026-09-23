@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import {
   PaymentProviderError,
   assertPaymentProviderCapability,
@@ -308,21 +309,6 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
     const existing = await transaction.paymentTransaction.findUnique({
       where: { organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey } },
     });
-    const ledger = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      select: {
-        id: true,
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
 
     if (existing) {
       const expectedClaim = assertExistingClaim({ existing, bookingId: booking.id, amendmentId: amendment.id });
@@ -339,9 +325,17 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
         throw new HospitalityBookingConflictError('Commercial amendment Stripe refund claim reference is inconsistent.');
       }
 
+      const paymentHistory = await readHospitalityPaymentSettlementHistory({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+      });
+      if (!paymentHistory.complete) {
+        throw new HospitalityBookingConflictError(paymentHistory.reason);
+      }
       const execution = deriveExecution({
         amendment,
-        transactions: ledger.filter((entry) => entry.id !== existing.id),
+        transactions: paymentHistory.transactions.filter((entry) => entry.id !== existing.id),
         now,
       });
       if (
@@ -371,7 +365,15 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
       };
     }
 
-    const execution = deriveExecution({ amendment, transactions: ledger, now });
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+    });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
+    const execution = deriveExecution({ amendment, transactions: paymentHistory.transactions, now });
     if (
       execution.decision.state !== 'EXECUTE'
       || execution.decision.operation !== 'REFUND'

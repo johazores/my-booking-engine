@@ -11,6 +11,7 @@ import {
 } from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import {
   normalizeHospitalityAddonSelections,
@@ -279,13 +280,17 @@ export async function prepareHospitalityBookingCommercialAmendment(input: {
       );
     }
 
-    const paymentTransactions = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
     const settlement = deriveBookingSettlementSummary({
       currency: booking.currency,
-      transactions: paymentTransactions,
+      transactions: paymentHistory.transactions,
     });
     if (!settlement.reconciled) {
       throw new HospitalityBookingConflictError(settlement.reason);

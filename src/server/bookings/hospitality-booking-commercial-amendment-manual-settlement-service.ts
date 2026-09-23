@@ -7,6 +7,7 @@ import {
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
 } from '../payments/payment-provider.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import { deriveNextBookingRefundSource } from '../payments/payment-refund-allocation-domain.ts';
 import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -283,20 +284,15 @@ export async function recordManualHospitalityBookingCommercialAmendmentSettlemen
       );
     }
 
-    const ledger = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      select: {
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
+    const ledger = paymentHistory.transactions;
     const execution = deriveDecision({ amendment, transactions: ledger, now });
     if (execution.decision.state !== 'EXECUTE' || execution.decision.providerCode !== MANUAL_PROVIDER_CODE) {
       throw new HospitalityBookingConflictError(executionConflictMessage(execution.decision));

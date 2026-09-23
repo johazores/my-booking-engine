@@ -10,6 +10,8 @@ The synchronous safety ceiling is 1,000 payment transactions for one booking. Ex
 
 `getHospitalityBookingCommercialAmendmentSettlementState` uses this reader inside its existing serializable transaction. The authenticated commercial-amendment transport read uses the same complete bounded evidence before deriving settlement, refund allocation, or executable state. The post-apply-failure recovery boundary also requires a complete bounded ledger before `READY_TO_APPLY` can grant recovery authority, release protected inventory, or shorten the recovery lifetime. An incomplete history is a conflict in each of these paths, never an invitation to infer money state from a prefix. These boundaries therefore preserve their existing tenant authorization and transactional semantics while removing unbounded payment-ledger materialization.
 
+Commercial-amendment preparation now requires the same complete bounded history before it can prove that the paid booking reconciles to its authoritative total and select the amendment payment provider. The manual settlement writer also fails closed before recording a new external payment or refund if complete booking payment history cannot be proven. Stripe amendment refunds use the bounded history before creating a new provider claim or retrying an internal claim, while already-terminal idempotent results and provider-bound ambiguous refunds remain readable without re-deriving allocation from the entire ledger. This keeps provider calls behind their adapters while ensuring new money movement is never authorized from a truncated booking history.
+
 ## Expired amendment recovery guard
 
 The expired-amendment mutation guard does not need the complete ledger: its decision is only whether any amendment-owned payment row is not definitively `FAILED`. That boundary now issues a tenant + booking + amendment scoped `findFirst` existence query with `status != FAILED` rather than loading every linked payment row and applying `.some()` in application memory.
@@ -18,4 +20,4 @@ This is intentionally different from settlement derivation. Existence decisions 
 
 ## Follow-on use
 
-New hospitality payment-ledger decision paths should use a bounded complete-history reader or an equally strict query shaped to the exact decision. A raw unbounded `paymentTransaction.findMany` must not become financial authority merely because the current dataset is small.
+New hospitality payment-ledger decision paths should use a bounded complete-history reader or an equally strict query shaped to the exact decision. A raw unbounded `paymentTransaction.findMany` must not become financial authority merely because the current dataset is small. Recovery-compensation and legal-document issuance paths that need richer or differently bounded evidence must keep their own explicit completeness contract rather than silently borrowing a truncated prefix.

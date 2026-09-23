@@ -7,6 +7,9 @@ const settlement = readFileSync('src/server/bookings/hospitality-booking-commerc
 const guard = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-guard.ts', 'utf8');
 const transport = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-transport-service.ts', 'utf8');
 const applyRecovery = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-apply-recovery-service.ts', 'utf8');
+const amendmentPreparation = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-service.ts', 'utf8');
+const manualSettlement = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-manual-settlement-service.ts', 'utf8');
+const stripeRefund = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-stripe-refund-service.ts', 'utf8');
 const guide = readFileSync('docs/hospitality-payment-history.md', 'utf8');
 
 test('hospitality payment history has deterministic cursor pagination and a hard synchronous ceiling', () => {
@@ -44,6 +47,36 @@ test('post-apply-failure recovery requires complete bounded payment history befo
   assert.doesNotMatch(applyRecovery, /paymentTransaction\.findMany/);
 });
 
+test('commercial amendment preparation fails closed on incomplete payment history', () => {
+  assert.match(amendmentPreparation, /readHospitalityPaymentSettlementHistory/);
+  assert.match(amendmentPreparation, /if \(!paymentHistory\.complete\)/);
+  assert.match(amendmentPreparation, /throw new HospitalityBookingConflictError\(paymentHistory\.reason\)/);
+  assert.match(amendmentPreparation, /transactions: paymentHistory\.transactions/);
+  assert.doesNotMatch(amendmentPreparation, /paymentTransaction\.findMany/);
+});
+
+test('manual amendment money movement derives execution only from complete bounded history', () => {
+  assert.match(manualSettlement, /readHospitalityPaymentSettlementHistory/);
+  assert.match(manualSettlement, /if \(!paymentHistory\.complete\)/);
+  assert.match(manualSettlement, /const ledger = paymentHistory\.transactions/);
+  assert.match(manualSettlement, /deriveDecision\(\{ amendment, transactions: ledger, now \}\)/);
+  assert.doesNotMatch(manualSettlement, /paymentTransaction\.findMany/);
+});
+
+test('Stripe amendment refund claims use bounded history without penalizing terminal idempotent reads', () => {
+  assert.match(stripeRefund, /readHospitalityPaymentSettlementHistory/);
+  assert.match(stripeRefund, /if \(!paymentHistory\.complete\)/);
+  assert.match(stripeRefund, /transactions: paymentHistory\.transactions\.filter\(\(entry\) => entry\.id !== existing\.id\)/);
+  assert.match(stripeRefund, /deriveExecution\(\{ amendment, transactions: paymentHistory\.transactions, now \}\)/);
+  assert.doesNotMatch(stripeRefund, /paymentTransaction\.findMany/);
+
+  const terminalIdempotentBranch = stripeRefund.indexOf("if (existing.status !== 'AMBIGUOUS')");
+  const providerBoundBranch = stripeRefund.indexOf('if (!isInternalPaymentClaimReference(existing.providerReference))');
+  const firstBoundedRead = stripeRefund.indexOf('const paymentHistory = await readHospitalityPaymentSettlementHistory', terminalIdempotentBranch);
+  assert.ok(terminalIdempotentBranch >= 0 && terminalIdempotentBranch < firstBoundedRead);
+  assert.ok(providerBoundBranch >= 0 && providerBoundBranch < firstBoundedRead);
+});
+
 test('expired amendment recovery uses a scoped existence query instead of materializing payment history', () => {
   assert.match(guard, /paymentTransaction\.findFirst/);
   assert.match(guard, /commercialAmendmentId: input\.amendmentId/);
@@ -59,4 +92,7 @@ test('documentation distinguishes bounded complete money evidence from bounded e
   assert.match(guide, /money decisions must read complete bounded settlement evidence/i);
   assert.match(guide, /commercial-amendment transport/i);
   assert.match(guide, /post-apply-failure recovery/i);
+  assert.match(guide, /commercial-amendment preparation/i);
+  assert.match(guide, /manual settlement writer/i);
+  assert.match(guide, /Stripe amendment refunds/i);
 });
