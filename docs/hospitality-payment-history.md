@@ -22,6 +22,14 @@ The primary signed Stripe refund ingestion callback uses the same complete bound
 
 Exact provider-reference lookups, bounded webhook candidate searches, and duplicate-reference existence queries remain shaped to the identity decision they answer; they are not substitutes for settlement derivation. The operator-facing paginated transaction listing also keeps its explicit page-size contract because it is a presentation read rather than financial authority.
 
+## Bounded payment operation evidence
+
+Customer-authorized Stripe commercial-amendment Checkout needs richer operation identity than the settlement-only reader provides. `readHospitalityPaymentOperationHistory` is the tenant + booking scoped contract for that authority. It reads deterministic 100-row cursor pages with a hard 1,000-transaction ceiling, validates tenant/booking scope and persisted chronology, restores `createdAt` + ID order, and preserves `commercialAmendmentId`, `idempotencyKey`, and `requestFingerprint` alongside the provider-neutral settlement fields.
+
+Checkout creation and explicit Checkout reconciliation both load their context through this complete bounded operation evidence. An incomplete result fails closed before the flow can derive amendment settlement, decide whether an idempotency key already owns a claim, detect a competing unresolved operation, create another claim, or ask the Stripe adapter for provider truth. The reconciliation path repeats the same bounded context read after acquiring its booking/payment locks before accepting provider lifecycle changes, so it cannot mutate from a partial booking ledger.
+
+This operation-evidence reader is intentionally separate from the settlement-only reader, the recovery contract, and Australian legal-document evidence. It carries the exact idempotency/fingerprint fields required by customer-authorized provider operations without expanding ordinary settlement authority or borrowing recovery/legal semantics. Exact transaction updates and provider-reference uniqueness checks remain query-shaped identity boundaries rather than whole-ledger decisions.
+
 ## Bounded recovery payment history
 
 Commercial-amendment compensation has a stricter evidence shape than ordinary settlement. `readHospitalityPaymentRecoveryHistory` owns that tenant + booking scoped contract. It keeps the same deterministic 100-row cursor pagination and 1,000-row fail-closed ceiling, but also preserves `idempotencyKey` and `requestFingerprint` so provider recovery claims can prove exact operation identity instead of re-deriving money authority from an incomplete prefix.

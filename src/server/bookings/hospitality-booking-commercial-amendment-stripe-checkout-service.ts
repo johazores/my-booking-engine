@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { loadStripeCheckoutIntegration } from '../integrations/stripe-checkout-integration.ts';
+import { readHospitalityPaymentOperationHistory } from '../payments/hospitality-payment-operation-history.ts';
 import { PaymentProviderError, normalizePaymentIdempotencyKey } from '../payments/payment-provider.ts';
 import { PaymentConflictError } from '../payments/payment-service.ts';
 import { isInternalPaymentClaimReference, paymentOperationClaimReference } from '../payments/stripe-payment-service.ts';
@@ -23,20 +24,6 @@ import {
 } from './hospitality-booking-service.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
-
-type SettlementTransaction = Readonly<{
-  id: string;
-  commercialAmendmentId: string | null;
-  idempotencyKey: string;
-  requestFingerprint: string | null;
-  kind: 'OFFLINE_PAYMENT' | 'AUTHORIZATION' | 'CAPTURE' | 'REFUND';
-  status: 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS';
-  providerCode: string;
-  providerReference: string;
-  sourceProviderReference: string | null;
-  currency: string;
-  amountMinor: bigint;
-}>;
 
 type CheckoutContext = Awaited<ReturnType<typeof loadCheckoutContext>>;
 type CheckoutPayment = CheckoutContext['transactions'][number];
@@ -109,24 +96,15 @@ async function loadCheckoutContext(input: {
   });
   if (!booking) throw new HospitalityBookingUnavailableError();
 
-  const transactions: SettlementTransaction[] = await input.transaction.paymentTransaction.findMany({
-    where: { organizationId: input.organizationId, bookingId: input.bookingId },
-    select: {
-      id: true,
-      commercialAmendmentId: true,
-      idempotencyKey: true,
-      requestFingerprint: true,
-      kind: true,
-      status: true,
-      providerCode: true,
-      providerReference: true,
-      sourceProviderReference: true,
-      currency: true,
-      amountMinor: true,
-    },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  const paymentHistory = await readHospitalityPaymentOperationHistory({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
   });
-  return { amendment, booking, transactions };
+  if (!paymentHistory.complete) {
+    throw new HospitalityBookingConflictError(paymentHistory.reason);
+  }
+  return { amendment, booking, transactions: paymentHistory.transactions };
 }
 
 function assertCheckoutSnapshot(context: CheckoutContext) {
