@@ -2,12 +2,17 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
 import {
   HospitalityIssuedAdjustmentNotePersistenceError,
   listHospitalityIssuedAdjustmentNotesForOrganization,
 } from './hospitality-issued-adjustment-note-read-service.ts';
+import {
+  hospitalityIssuedAdjustmentNoteFingerprint,
+  parseHospitalityIssuedCancellationAdjustmentNoteSnapshot,
+} from './hospitality-issued-adjustment-note-domain.ts';
 import {
   HospitalityIssuedInvoicePersistenceError,
   listHospitalityIssuedTaxInvoicesForOrganization,
@@ -91,9 +96,12 @@ async function currentCancellationRefundSettlementDriftFailures(organizationId: 
       adjustmentReason: 'BOOKING_CANCELLATION',
     },
     select: {
+      bookingId: true,
+      sourceInvoiceId: true,
       documentNumber: true,
       sourceAdjustmentOrdinal: true,
       refundTransactionId: true,
+      documentFingerprint: true,
       documentSnapshot: true,
     },
     orderBy: [{ documentNumber: 'asc' }, { id: 'asc' }],
@@ -106,10 +114,23 @@ async function currentCancellationRefundSettlementDriftFailures(organizationId: 
   const authorities: HospitalityTaxDocumentSettlementAuthority[] = [];
   for (const row of issued) {
     if (row.refundTransactionId) {
-      authorities.push(Object.freeze({
-        documentNumber: row.documentNumber,
-        refundTransactionIds: Object.freeze([row.refundTransactionId]),
-      }));
+      try {
+        const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(row.documentSnapshot);
+        if (
+          snapshot.organizationId !== organizationId
+          || snapshot.bookingId !== row.bookingId
+          || snapshot.sourceInvoiceId !== row.sourceInvoiceId
+          || snapshot.documentNumber !== row.documentNumber
+          || snapshot.refundTransactionId !== row.refundTransactionId
+          || hospitalityIssuedAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
+        ) continue;
+        authorities.push(Object.freeze({
+          documentNumber: row.documentNumber,
+          refundTransactionIds: Object.freeze([row.refundTransactionId]),
+        }));
+      } catch {
+        // The immutable adjustment-note read boundary owns malformed snapshot/source failures.
+      }
       continue;
     }
     if (row.sourceAdjustmentOrdinal < 2) continue;
@@ -117,8 +138,11 @@ async function currentCancellationRefundSettlementDriftFailures(organizationId: 
       const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
       if (
         snapshot.organizationId !== organizationId
+        || snapshot.bookingId !== row.bookingId
+        || snapshot.sourceInvoiceId !== row.sourceInvoiceId
         || snapshot.documentNumber !== row.documentNumber
         || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
+        || hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
       ) continue;
       authorities.push(Object.freeze({
         documentNumber: row.documentNumber,

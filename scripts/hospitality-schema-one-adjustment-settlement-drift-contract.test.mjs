@@ -27,9 +27,12 @@ test('immutable schema-one reads do not depend on mutable current refund status'
   assert.doesNotMatch(authority, /refund\.status/);
 });
 
-test('reconciliation maps exact schema-one and schema-six refund identities to current drift', () => {
+test('reconciliation maps only fingerprint-verified schema-one and schema-six refund identities to current drift', () => {
   assert.match(reconciliation, /adjustmentReason: 'BOOKING_CANCELLATION'/);
+  assert.match(reconciliation, /parseHospitalityIssuedCancellationAdjustmentNoteSnapshot/);
+  assert.match(reconciliation, /hospitalityIssuedAdjustmentNoteFingerprint\(snapshot\) !== row\.documentFingerprint/);
   assert.match(reconciliation, /parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot/);
+  assert.match(reconciliation, /hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint\(snapshot\) !== row\.documentFingerprint/);
   assert.match(reconciliation, /snapshot\.refundAuthorities\.map\(\(authority\) => authority\.refundTransactionId\)/);
   assert.match(reconciliation, /findHospitalityTaxDocumentSettlementDrift/);
   assert.match(reconciliation, /documentNumber: item\.documentNumber/);
