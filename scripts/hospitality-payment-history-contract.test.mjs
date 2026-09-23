@@ -6,6 +6,7 @@ const history = readFileSync('src/server/payments/hospitality-payment-history.ts
 const settlement = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-settlement-service.ts', 'utf8');
 const guard = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-guard.ts', 'utf8');
 const transport = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-transport-service.ts', 'utf8');
+const apply = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-apply-service.ts', 'utf8');
 const applyRecovery = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-apply-recovery-service.ts', 'utf8');
 const amendmentPreparation = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-service.ts', 'utf8');
 const manualSettlement = readFileSync('src/server/bookings/hospitality-booking-commercial-amendment-manual-settlement-service.ts', 'utf8');
@@ -37,6 +38,18 @@ test('commercial amendment transport derives settlement and refund allocation fr
   assert.match(transport, /deriveHospitalityCommercialAmendmentSettlementState\(\{[\s\S]*transactions,/);
   assert.match(transport, /deriveBookingSettlementSummary\(\{ currency: amendment\.currency, transactions \}\)/);
   assert.match(transport, /paymentTransaction\.findMany\(\{[\s\S]*kind: 'REFUND'[\s\S]*status: 'AMBIGUOUS'[\s\S]*take: 2/);
+});
+
+test('commercial amendment apply refuses to mutate booking terms from incomplete payment history', () => {
+  assert.match(apply, /readHospitalityPaymentSettlementHistory/);
+  assert.match(apply, /if \(!paymentHistory\.complete\) throw new HospitalityBookingConflictError\(paymentHistory\.reason\)/);
+  assert.match(apply, /const transactions = paymentHistory\.transactions/);
+  assert.match(apply, /deriveHospitalityCommercialAmendmentSettlementState\(\{[\s\S]*transactions,/);
+  assert.doesNotMatch(apply, /paymentTransaction\.findMany/);
+
+  const completeHistoryIndex = apply.indexOf('if (!paymentHistory.complete)');
+  const bookingMutationIndex = apply.indexOf('const updatedBooking = await transaction.hospitalityBooking.update');
+  assert.ok(completeHistoryIndex >= 0 && bookingMutationIndex >= 0 && completeHistoryIndex < bookingMutationIndex);
 });
 
 test('post-apply-failure recovery requires complete bounded payment history before granting recovery authority', () => {
@@ -91,6 +104,7 @@ test('documentation distinguishes bounded complete money evidence from bounded e
   assert.match(guide, /existence decisions should query for existence/i);
   assert.match(guide, /money decisions must read complete bounded settlement evidence/i);
   assert.match(guide, /commercial-amendment transport/i);
+  assert.match(guide, /commercial-amendment apply/i);
   assert.match(guide, /post-apply-failure recovery/i);
   assert.match(guide, /commercial-amendment preparation/i);
   assert.match(guide, /manual settlement writer/i);

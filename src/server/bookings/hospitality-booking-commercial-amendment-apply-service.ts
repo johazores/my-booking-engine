@@ -8,6 +8,7 @@ import {
 import { releaseHospitalityAvailabilityHoldInTransaction } from '../availability/hospitality-availability-hold-core.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import {
   normalizeHospitalityAddonSelections,
   type HospitalityAddonSelectionInput,
@@ -475,20 +476,13 @@ export async function applyHospitalityBookingCommercialAmendment(input: {
       mapApplyConsistencyError(error);
     }
 
-    const transactions = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      select: {
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
+    if (!paymentHistory.complete) throw new HospitalityBookingConflictError(paymentHistory.reason);
+    const transactions = paymentHistory.transactions;
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
       direction: amendment.direction,
