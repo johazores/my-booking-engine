@@ -269,7 +269,6 @@ async function verifyCancellationAuthorities(
         bookingId: true,
         commercialAmendmentId: true,
         kind: true,
-        status: true,
         currency: true,
         amountMinor: true,
         sourceProviderReference: true,
@@ -320,7 +319,9 @@ async function verifyCancellationAuthorities(
         || refund.bookingId !== item.row.bookingId
         || refund.commercialAmendmentId !== null
         || refund.kind !== 'REFUND'
-        || refund.status !== 'SUCCEEDED'
+        // Current refund status is mutable provider lifecycle truth. The serializable
+        // issuance boundary already required SUCCEEDED; immutable legal reads retain
+        // that issue-time authority while reconciliation reports later settlement drift.
         || refund.currency !== item.document.currency
         || refund.amountMinor !== BigInt(item.document.decreaseTotalMinor)
         || refund.sourceProviderReference === null
