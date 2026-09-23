@@ -3,6 +3,7 @@ import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booki
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
@@ -104,23 +105,25 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Stripe refund is missing its authoritative settlement-source reference.');
   }
 
-  const [booking, ledger] = await Promise.all([
+  const [booking, paymentHistory] = await Promise.all([
     db.hospitalityBooking.findFirst({
       where: { id: refund.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
     }),
-    db.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: refund.bookingId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    readHospitalityPaymentSettlementHistory({
+      transaction: db,
+      organizationId: input.organizationId,
+      bookingId: refund.bookingId,
     }),
   ]);
   if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+  if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
   if (booking.status !== 'CONFIRMED') throw new PaymentConflictError('Only confirmed bookings can reconcile Stripe refunds.');
   if (refund.currency !== booking.currency || refund.amountMinor <= 0n) {
     throw new PaymentConflictError('Persisted Stripe refund money is invalid for this booking.');
   }
 
-  const baselineTransactions = ledger.filter((transaction) => transaction.id !== refund.id);
+  const baselineTransactions = paymentHistory.transactions.filter((transaction) => transaction.id !== refund.id);
   const baselinePaymentStatus = requireReconciledBookingPaymentStatus({
     bookingTotalMinor: booking.totalMinor,
     currency: booking.currency,
@@ -197,11 +200,13 @@ export async function reconcileStripeRefundTransaction(input: {
       throw new PaymentConflictError('Booking money changed during Stripe refund reconciliation.');
     }
 
-    const currentLedger = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: refund.bookingId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const currentPaymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: refund.bookingId,
     });
-    const currentBaselineTransactions = currentLedger.filter((entry) => entry.id !== current.id);
+    if (!currentPaymentHistory.complete) throw new PaymentConflictError(currentPaymentHistory.reason);
+    const currentBaselineTransactions = currentPaymentHistory.transactions.filter((entry) => entry.id !== current.id);
     const currentBaselinePaymentStatus = requireReconciledBookingPaymentStatus({
       bookingTotalMinor: currentBooking.totalMinor,
       currency: currentBooking.currency,

@@ -4,6 +4,7 @@ import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booki
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError } from './payment-service.ts';
@@ -190,11 +191,13 @@ export async function reconcileVerifiedStripeRefundWebhook(input: {
       throw new PaymentConflictError('Stripe refund money is invalid for the authoritative booking.');
     }
 
-    const ledger = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
-    const baselineTransactions = ledger.filter((entry) => entry.id !== current.id);
+    if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
+    const baselineTransactions = paymentHistory.transactions.filter((entry) => entry.id !== current.id);
     const baselinePaymentStatus = requireReconciledBookingPaymentStatus({
       bookingTotalMinor: booking.totalMinor,
       currency: booking.currency,

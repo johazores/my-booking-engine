@@ -7,6 +7,7 @@ import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booki
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
@@ -313,10 +314,13 @@ export async function refundStripeBookingPayment(input: {
     });
     if (activeAmendment) throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
 
-    const ledger = await tx.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction: tx,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
+    if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
+    const ledger = paymentHistory.transactions;
 
     if (existing) {
       const sourceProviderReference = requirePersistedRefundSource(existing);
@@ -487,14 +491,16 @@ export async function refundStripeBookingPayment(input: {
 
     let bookingPaymentStatus = currentBooking.paymentStatus;
     if (transactionStatus === 'SUCCEEDED') {
-      const ledger = await tx.paymentTransaction.findMany({
-        where: { organizationId: input.organizationId, bookingId: booking.id },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      const paymentHistory = await readHospitalityPaymentSettlementHistory({
+        transaction: tx,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
       });
+      if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
       bookingPaymentStatus = requireReconciledBookingPaymentStatus({
         bookingTotalMinor: currentBooking.totalMinor,
         currency: currentBooking.currency,
-        transactions: ledger,
+        transactions: paymentHistory.transactions,
       });
       if (bookingPaymentStatus !== claim.nextPaymentStatus) {
         throw new PaymentConflictError('Stripe refund result no longer matches the authoritative booking settlement state.');

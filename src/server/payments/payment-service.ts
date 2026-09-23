@@ -6,6 +6,7 @@ import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booki
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import {
   assertPaymentProviderCapability,
@@ -270,23 +271,18 @@ export async function recordManualOfflineRefund(input: {
       throw new PaymentConflictError(ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE);
     }
 
-    const paymentHistory = await transaction.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: booking.id },
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: booking.id,
     });
+    if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
+
     const plan = deriveBookingRefundExecutionPlan({
       bookingPaymentStatus: booking.paymentStatus,
       bookingTotalMinor: booking.totalMinor,
       currency: booking.currency,
-      transactions: paymentHistory,
+      transactions: paymentHistory.transactions,
       expectedProviderCode: 'manual',
       requestedAmountMinor,
     });

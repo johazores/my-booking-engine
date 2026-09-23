@@ -1,6 +1,6 @@
 # Hospitality payment-history safety boundary
 
-Hospitality commercial-amendment settlement reads must not make financial decisions from an unbounded or silently truncated `payment_transactions` collection.
+Hospitality payment-ledger money decisions must not rely on an unbounded or silently truncated `payment_transactions` collection. The same complete-history rule applies to commercial-amendment settlement and normal booking refund authority.
 
 ## Bounded settlement read
 
@@ -11,6 +11,14 @@ The synchronous safety ceiling is 1,000 payment transactions for one booking. Ex
 `getHospitalityBookingCommercialAmendmentSettlementState` uses this reader inside its existing serializable transaction. The authenticated commercial-amendment transport read uses the same complete bounded evidence before deriving settlement, refund allocation, or executable state. The post-apply-failure recovery boundary also requires a complete bounded ledger before `READY_TO_APPLY` can grant recovery authority, release protected inventory, or shorten the recovery lifetime. An incomplete history is a conflict in each of these paths, never an invitation to infer money state from a prefix. These boundaries therefore preserve their existing tenant authorization and transactional semantics while removing unbounded payment-ledger materialization.
 
 Commercial-amendment preparation now requires the same complete bounded history before it can prove that the paid booking reconciles to its authoritative total and select the amendment payment provider. The manual settlement writer also fails closed before recording a new external payment or refund if complete booking payment history cannot be proven. Stripe amendment refunds use the bounded history before creating a new provider claim or retrying an internal claim, while already-terminal idempotent results and provider-bound ambiguous refunds remain readable without re-deriving allocation from the entire ledger. This keeps provider calls behind their adapters while ensuring new money movement is never authorized from a truncated booking history.
+
+## Normal booking refund authority
+
+Normal booking refunds use the same complete settlement boundary instead of materializing the full booking ledger with a raw `paymentTransaction.findMany`. Refund availability fails closed when complete tenant + booking history cannot be proven, so the UI/API cannot advertise refundable authority from a truncated prefix. Manual offline refund execution also requires complete history before selecting its source payment, allocating the amount, recording the external refund reference, or mutating booking payment state.
+
+Direct Stripe refund execution requires complete bounded history before creating or retrying an internal provider claim. After a successful provider response, it reads complete history again inside the serializable persistence transaction before changing booking payment state. Explicit Stripe refund reconciliation likewise validates complete history before the provider lookup and again after booking/payment locks before applying provider truth. The verified Stripe refund lifecycle path also requires complete history before changing refund or booking state. These checks keep provider reads and calls behind their existing adapters while preventing incomplete ledger evidence from authorizing money movement or lifecycle mutation.
+
+Exact provider-reference lookups, bounded webhook candidate searches, and duplicate-reference existence queries remain shaped to the identity decision they answer; they are not substitutes for settlement derivation. The operator-facing paginated transaction listing also keeps its explicit page-size contract because it is a presentation read rather than financial authority. The primary Stripe ingestion callback has its own event-ledger and retry semantics and should be migrated as a coherent callback boundary rather than by weakening those semantics while replacing a ledger query.
 
 ## Bounded recovery payment history
 

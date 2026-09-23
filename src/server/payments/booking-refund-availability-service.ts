@@ -5,6 +5,7 @@ import {
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { deriveBookingRefundAvailability } from './payment-refund-availability-domain.ts';
 import { PaymentUnavailableError } from './payment-service.ts';
 
@@ -25,23 +26,15 @@ export async function getBookingRefundAvailability(input: {
   });
 
   const now = input.now ?? new Date();
-  const [booking, transactions, activeAmendment] = await Promise.all([
+  const [booking, paymentHistory, activeAmendment] = await Promise.all([
     db.hospitalityBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
       select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
     }),
-    db.paymentTransaction.findMany({
-      where: { organizationId: input.organizationId, bookingId: input.bookingId },
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    readHospitalityPaymentSettlementHistory({
+      transaction: db,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     }),
     findActiveHospitalityBookingCommercialAmendment({
       reader: db,
@@ -54,12 +47,15 @@ export async function getBookingRefundAvailability(input: {
   if (activeAmendment) {
     return { available: false as const, reason: ACTIVE_COMMERCIAL_AMENDMENT_CONFLICT_MESSAGE };
   }
+  if (!paymentHistory.complete) {
+    return { available: false as const, reason: paymentHistory.reason };
+  }
 
   return deriveBookingRefundAvailability({
     status: booking.status,
     paymentStatus: booking.paymentStatus,
     currency: booking.currency,
     totalMinor: booking.totalMinor,
-    transactions,
+    transactions: paymentHistory.transactions,
   });
 }
