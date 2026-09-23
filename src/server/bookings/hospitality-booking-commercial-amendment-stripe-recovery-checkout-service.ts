@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { loadStripeCheckoutIntegration } from '../integrations/stripe-checkout-integration.ts';
+import { readHospitalityPaymentRecoveryHistory } from '../payments/hospitality-payment-recovery-history.ts';
 import { PaymentProviderError, normalizePaymentIdempotencyKey } from '../payments/payment-provider.ts';
 import { PaymentConflictError } from '../payments/payment-service.ts';
 import { isInternalPaymentClaimReference, paymentOperationClaimReference } from '../payments/stripe-payment-service.ts';
@@ -88,27 +89,16 @@ async function loadRecoveryContext(input: {
   });
   if (!booking) throw new HospitalityBookingUnavailableError();
 
-  const transactions = await input.transaction.paymentTransaction.findMany({
-    where: { organizationId: input.organizationId, bookingId: input.bookingId },
-    select: {
-      id: true,
-      bookingId: true,
-      commercialAmendmentId: true,
-      idempotencyKey: true,
-      requestFingerprint: true,
-      kind: true,
-      status: true,
-      providerCode: true,
-      providerReference: true,
-      sourceProviderReference: true,
-      currency: true,
-      amountMinor: true,
-      createdAt: true,
-    },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  const paymentHistory = await readHospitalityPaymentRecoveryHistory({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
   });
+  if (!paymentHistory.complete) {
+    throw new HospitalityBookingConflictError(paymentHistory.reason);
+  }
 
-  return { amendment, booking, transactions };
+  return { amendment, booking, transactions: paymentHistory.transactions };
 }
 
 function assertRecoverySnapshot(context: RecoveryContext) {

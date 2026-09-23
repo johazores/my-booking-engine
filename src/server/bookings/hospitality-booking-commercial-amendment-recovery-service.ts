@@ -4,6 +4,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { releaseHospitalityAvailabilityHoldInTransaction } from '../availability/hospitality-availability-hold-core.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentRecoveryHistory } from '../payments/hospitality-payment-recovery-history.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import {
   assertPaymentProviderCapability,
@@ -110,26 +111,16 @@ async function loadRecoveryContext(input: {
   });
   if (!booking) throw new HospitalityBookingUnavailableError();
 
-  const transactions = await input.transaction.paymentTransaction.findMany({
-    where: { organizationId: input.organizationId, bookingId: input.bookingId },
-    select: {
-      id: true,
-      commercialAmendmentId: true,
-      idempotencyKey: true,
-      requestFingerprint: true,
-      kind: true,
-      status: true,
-      providerCode: true,
-      providerReference: true,
-      sourceProviderReference: true,
-      currency: true,
-      amountMinor: true,
-      createdAt: true,
-    },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  const paymentHistory = await readHospitalityPaymentRecoveryHistory({
+    transaction: input.transaction,
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
   });
+  if (!paymentHistory.complete) {
+    throw new HospitalityBookingConflictError(paymentHistory.reason);
+  }
 
-  return { amendment, booking, transactions };
+  return { amendment, booking, transactions: paymentHistory.transactions };
 }
 
 function assertPreparedBookingSnapshot(context: RecoveryContext) {
@@ -558,6 +549,8 @@ export async function recordManualHospitalityBookingCommercialAmendmentRecovery(
       ...context,
       transactions: [...context.transactions, {
         id: payment.id,
+        organizationId: payment.organizationId,
+        bookingId: payment.bookingId,
         commercialAmendmentId: payment.commercialAmendmentId,
         idempotencyKey: payment.idempotencyKey,
         requestFingerprint: payment.requestFingerprint,
