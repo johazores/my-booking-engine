@@ -25,6 +25,9 @@ import {
   HospitalityCommercialAmendmentAdjustmentNotePersistenceError,
   HospitalityCommercialAmendmentAdjustmentNoteUnavailableError,
 } from './hospitality-commercial-amendment-adjustment-note-service.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -239,23 +242,16 @@ export async function getHospitalityRepeatedCommercialAmendmentIncreasingAdjustm
     }
     const immutableTargetPrice = targetPrice(targetRows[0]!, amendment.id);
 
-    const transactions = await transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-        commercialAmendmentId: true,
-      },
+    const paymentHistory = await readHospitalityLegalPaymentEvidenceHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+        `Increasing commercial-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+      );
+    }
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
       direction: amendment.direction,
@@ -264,7 +260,7 @@ export async function getHospitalityRepeatedCommercialAmendmentIncreasingAdjustm
       beforeTotalMinor: amendment.beforeTotalMinor,
       afterTotalMinor: amendment.afterTotalMinor,
       deltaMinor: amendment.deltaMinor,
-      transactions,
+      transactions: paymentHistory.transactions,
     });
 
     const readiness = assessAustralianCommercialAmendmentIncreasingAdjustmentReadiness({
