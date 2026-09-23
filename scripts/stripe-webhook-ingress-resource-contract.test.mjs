@@ -15,6 +15,7 @@ test('Stripe webhook route rejects invalid tenant/signature metadata before body
   assert.match(route, /assertUuidIdentifier\(organizationId, 'organizationId'\)/);
   assert.match(route, /request\.headers\.get\('stripe-signature'\)/);
   assert.match(route, /STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096/);
+  assert.match(route, /discardStripeWebhookRequestBody\(request\)/);
   const tenantIndex = route.indexOf("assertUuidIdentifier(organizationId, 'organizationId')");
   const signatureIndex = route.indexOf("request.headers.get('stripe-signature')");
   const bodyIndex = route.indexOf('await readStripeWebhookRequestBody(request)');
@@ -34,12 +35,19 @@ test('Stripe webhook route bounds raw ingress before cryptographic verification'
   assert.match(route, /error\.code === 'PAYLOAD_TOO_LARGE' \? 413 : error\.code === 'BODY_TIMEOUT' \? 408 : 400/);
 });
 
-test('Stripe webhook reader enforces declared and actual byte ceilings', () => {
+test('Stripe webhook reader bounds framing, actual bytes, and retained application memory', () => {
   assert.match(reader, /STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144/);
   assert.match(reader, /STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000/);
   assert.match(reader, /request\.headers\.get\('content-length'\)/);
   assert.match(reader, /declaredLength > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
-  assert.match(reader, /totalBytes > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
+  assert.match(reader, /nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
+  assert.match(reader, /nextTotal > expectedBytes/);
+  assert.match(reader, /totalBytes !== expectedBytes/);
+  assert.match(reader, /new Uint8Array\(expectedBytes \?\? 8_192\)/);
+  assert.match(reader, /growBodyBuffer\(bytes, nextTotal\)/);
+  assert.match(reader, /capacity = Math\.min\(STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES, capacity \* 2\)/);
+  assert.match(reader, /bytes\.set\(result\.value, totalBytes\)/);
+  assert.doesNotMatch(reader, /chunks\.push/);
   assert.match(reader, /reader\.cancel\(\)/);
   assert.match(reader, /request\.signal\.aborted/);
   assert.match(reader, /setTimeout\(\(\) => timeoutController\.abort\(\), timeoutMs\)/);
@@ -56,10 +64,12 @@ test('service retains independent metadata and payload limits for direct callers
 test('webhook ingress resource policy is documented as fail closed', () => {
   assert.match(document, /256 KiB/);
   assert.match(document, /Content-Length/);
+  assert.match(document, /framing disagreement/i);
+  assert.match(document, /grows one retained body buffer geometrically/i);
+  assert.match(document, /discard/i);
   assert.match(document, /4,096-character/);
   assert.match(document, /10-second/);
   assert.match(document, /before body acquisition/);
-  assert.match(document, /counts every actual byte-stream chunk/);
   assert.match(document, /Request\.text\(\)/);
   assert.match(document, /defense in depth/i);
   assert.match(document, /HTTP 413/);

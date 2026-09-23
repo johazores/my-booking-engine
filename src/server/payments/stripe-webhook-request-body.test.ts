@@ -5,6 +5,7 @@ import {
   STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS,
   STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES,
   StripeWebhookRequestBodyError,
+  discardStripeWebhookRequestBody,
   readStripeWebhookRequestBody,
 } from './stripe-webhook-request-body.ts';
 
@@ -43,6 +44,37 @@ test('rejects oversized declared Content-Length before body acquisition', async 
 
 test('rejects malformed declared Content-Length', async () => {
   await expectBodyError(post('{}', { 'content-length': '12, 12' }), 'INVALID_CONTENT_LENGTH');
+});
+
+test('accepts an exact declared Content-Length', async () => {
+  assert.equal(await readStripeWebhookRequestBody(post('{}', { 'content-length': '2' })), '{}');
+});
+
+test('rejects Content-Length disagreement in either direction', async () => {
+  await expectBodyError(post('{}', { 'content-length': '1' }), 'CONTENT_LENGTH_MISMATCH');
+  await expectBodyError(post('{}', { 'content-length': '3' }), 'CONTENT_LENGTH_MISMATCH');
+});
+
+test('cancels the stream when received bytes exceed declared framing', async () => {
+  let cancelCalled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0x7b, 0x7d]));
+    },
+    cancel() {
+      cancelCalled = true;
+      return undefined;
+    },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST',
+    body: stream,
+    headers: { 'content-length': '1' },
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+
+  await expectBodyError(request, 'CONTENT_LENGTH_MISMATCH');
+  assert.equal(cancelCalled, true);
 });
 
 test('counts actual stream bytes when Content-Length is absent or understated', async () => {
@@ -108,6 +140,28 @@ test('fails closed when total body acquisition exceeds the SF-owned deadline', a
   } as RequestInit & { duplex: 'half' });
 
   await expectBodyError(request, 'BODY_TIMEOUT', { timeoutMs: 20 });
+  assert.equal(cancelCalled, true);
+});
+
+test('preflight callers can discard an unread webhook stream without awaiting cancellation', async () => {
+  let cancelCalled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() {
+      return new Promise<void>(() => undefined);
+    },
+    cancel() {
+      cancelCalled = true;
+      return undefined;
+    },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST',
+    body: stream,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+
+  discardStripeWebhookRequestBody(request);
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(cancelCalled, true);
 });
 

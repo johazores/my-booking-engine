@@ -6,6 +6,7 @@ import { createRequestObservation } from '@/server/observability/request-observa
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
 import {
   StripeWebhookRequestBodyError,
+  discardStripeWebhookRequestBody,
   readStripeWebhookRequestBody,
 } from '@/server/payments/stripe-webhook-request-body.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
@@ -23,6 +24,10 @@ export async function POST(
     organizationId: verifiedOrganizationId,
     provider: 'stripe',
   });
+  const rejectBeforeBodyAcquisition = () => {
+    discardStripeWebhookRequestBody(request);
+    return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
+  };
 
   try {
     const routeParams = await params;
@@ -30,12 +35,12 @@ export async function POST(
     try {
       assertUuidIdentifier(organizationId, 'organizationId');
     } catch {
-      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
+      return rejectBeforeBodyAcquisition();
     }
 
     const signature = request.headers.get('stripe-signature');
     if (signature === null || signature.length === 0 || signature.length > STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS) {
-      return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
+      return rejectBeforeBodyAcquisition();
     }
 
     const payload = await readStripeWebhookRequestBody(request);
