@@ -35,6 +35,7 @@ test('explicit reconciliation supports post-success provider truth without cross
   assert.match(reconciliation, /bookingPaymentStatusForRefundLifecycle\(/);
   assert.match(reconciliation, /commercialAmendmentId: null,[\s\S]*status: current\.status/);
   assert.match(reconciliation, /previousStatus: current\.status/);
+  assert.match(reconciliation, /changed: decision\.action === 'MUTATE'/);
 });
 
 test('documentation records non-terminal Stripe success and provider-truth recovery', () => {

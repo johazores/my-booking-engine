@@ -54,7 +54,7 @@ Initial internal refund claims continue through the existing ingestion path. The
 
 ## Explicit reconciliation
 
-`reconcileStripeRefundTransaction` now supports exact normal Stripe refunds in `PENDING`, `AMBIGUOUS`, and `SUCCEEDED` states. This provides an operator recovery path even when a provider update webhook was delayed or missed. It uses the same baseline-versus-successful booking-state rule and full tenant/booking/provider/source/money predicates at the final write.
+`reconcileStripeRefundTransaction` now supports exact normal Stripe refunds in `PENDING`, `AMBIGUOUS`, `SUCCEEDED`, and `FAILED` states. This provides an operator recovery path even when a provider update webhook was delayed or missed. It uses the same baseline-versus-successful booking-state rule and full tenant/booking/provider/source/money predicates at the final write.
 
 Generic explicit reconciliation rejects commercial-amendment-owned refunds. Exact normal refunds can be reconciled from any persisted lifecycle when the same provider object, source, and money remain authoritative.
 

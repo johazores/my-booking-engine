@@ -233,24 +233,26 @@ export async function reconcileStripeRefundTransaction(input: {
       currentStatus: current.status,
       providerStatus,
     });
-    if (decision.action === 'KEEP') return current;
 
-    const updated = await transaction.paymentTransaction.update({
-      where: {
-        id: current.id,
-        organizationId: input.organizationId,
-        bookingId: refund.bookingId,
-        commercialAmendmentId: null,
-        providerCode: STRIPE_PROVIDER_CODE,
-        kind: 'REFUND',
-        status: current.status,
-        providerReference: refund.providerReference,
-        sourceProviderReference: refund.sourceProviderReference,
-        currency: refund.currency,
-        amountMinor: refund.amountMinor,
-      },
-      data: { status: decision.nextStatus },
-    });
+    let updated = current;
+    if (decision.action === 'MUTATE') {
+      updated = await transaction.paymentTransaction.update({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          bookingId: refund.bookingId,
+          commercialAmendmentId: null,
+          providerCode: STRIPE_PROVIDER_CODE,
+          kind: 'REFUND',
+          status: current.status,
+          providerReference: refund.providerReference,
+          sourceProviderReference: refund.sourceProviderReference,
+          currency: refund.currency,
+          amountMinor: refund.amountMinor,
+        },
+        data: { status: decision.nextStatus },
+      });
+    }
 
     const bookingPaymentStatus = bookingPaymentStatusForRefundLifecycle({
       refundStatus: decision.nextStatus,
@@ -283,6 +285,7 @@ export async function reconcileStripeRefundTransaction(input: {
         kind: 'REFUND',
         previousStatus: current.status,
         status: updated.status,
+        changed: decision.action === 'MUTATE',
         bookingPaymentStatus,
         providerStatus: snapshot.status,
         sourceProviderReference: updated.sourceProviderReference,
