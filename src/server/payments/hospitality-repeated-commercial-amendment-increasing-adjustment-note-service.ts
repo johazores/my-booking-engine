@@ -43,6 +43,9 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -369,23 +372,11 @@ export async function issueHospitalityRepeatedCommercialAmendmentIncreasingAdjus
         }
         const target = validateTargetPricingEvidence(targetRows[0]!, amendment.id);
 
-        const [transactions, competingBaselineAmendmentCount] = await Promise.all([
-          transaction.paymentTransaction.findMany({
-            where: {
-              organizationId: input.organizationId,
-              bookingId: input.bookingId,
-            },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            select: {
-              kind: true,
-              status: true,
-              providerCode: true,
-              providerReference: true,
-              sourceProviderReference: true,
-              currency: true,
-              amountMinor: true,
-              commercialAmendmentId: true,
-            },
+        const [paymentHistory, competingBaselineAmendmentCount] = await Promise.all([
+          readHospitalityLegalPaymentEvidenceHistory({
+            transaction,
+            organizationId: input.organizationId,
+            bookingId: input.bookingId,
           }),
           transaction.hospitalityBookingCommercialAmendment.count({
             where: {
@@ -401,6 +392,11 @@ export async function issueHospitalityRepeatedCommercialAmendmentIncreasingAdjus
             },
           }),
         ]);
+        if (!paymentHistory.complete) {
+          throw new HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError(
+            `Increasing commercial-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+          );
+        }
         if (competingBaselineAmendmentCount !== 0) {
           throw new HospitalityCommercialAmendmentIncreasingAdjustmentNoteConflictError(
             'Multiple applied commercial amendments compete for the verified adjustment-note chain head.',
@@ -415,7 +411,7 @@ export async function issueHospitalityRepeatedCommercialAmendmentIncreasingAdjus
           beforeTotalMinor: amendment.beforeTotalMinor,
           afterTotalMinor: amendment.afterTotalMinor,
           deltaMinor: amendment.deltaMinor,
-          transactions,
+          transactions: paymentHistory.transactions,
         });
         const readiness = assessAustralianCommercialAmendmentIncreasingAdjustmentReadiness({
           sourceInvoice: Object.freeze({ ...price(sourceInvoice), issuedAt: sourceInvoice.issuedAt }),
