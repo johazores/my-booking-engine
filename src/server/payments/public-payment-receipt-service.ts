@@ -5,6 +5,7 @@ import {
 import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hospitality-search-service.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
   buildCustomerSettlementEntries,
   buildPaymentReceiptNumber,
@@ -45,7 +46,7 @@ export async function getPublicBookingPaymentReceipt(input: {
   });
   if (!capability) throw new PublicPaymentReceiptAuthorizationError();
 
-  const [ownership, principal, booking, transactions] = await Promise.all([
+  const [ownership, principal, booking, paymentHistory] = await Promise.all([
     db.publicBookingBookingOwnership.findUnique({
       where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
       select: { principalId: true },
@@ -62,23 +63,10 @@ export async function getPublicBookingPaymentReceipt(input: {
         ratePlan: { select: { name: true } },
       },
     }),
-    db.paymentTransaction.findMany({
-      where: {
-        organizationId: branding.id,
-        bookingId: capability.bookingId,
-        status: 'SUCCEEDED',
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        currency: true,
-        amountMinor: true,
-        createdAt: true,
-      },
+    readHospitalityPaymentReceiptHistory({
+      transaction: db,
+      organizationId: branding.id,
+      bookingId: capability.bookingId,
     }),
   ]);
 
@@ -86,13 +74,14 @@ export async function getPublicBookingPaymentReceipt(input: {
     throw new PublicPaymentReceiptAuthorizationError();
   }
   if (!booking) throw new PaymentUnavailableError('Booking payment receipt is not available in this organization.');
+  if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
   if (!['CONFIRMED', 'CANCELLED'].includes(booking.status) || !isReceiptEligiblePaymentStatus(booking.paymentStatus)) {
     throw new PaymentConflictError('A payment receipt is available only after successful payment.');
   }
 
   let safeTransactions;
   try {
-    safeTransactions = sanitizeSuccessfulPaymentTransactions(transactions, booking.currency);
+    safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) throw new PaymentConflictError(error.message);
     throw error;

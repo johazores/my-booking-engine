@@ -1,6 +1,7 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
@@ -25,7 +26,7 @@ export async function getBookingPaymentReceipt(input: {
     permission: 'payment:read',
   });
 
-  const [organization, booking, transactions] = await Promise.all([
+  const [organization, booking, paymentHistory] = await Promise.all([
     db.organization.findFirst({
       where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
       select: { id: true, name: true, contactEmail: true, contactPhone: true, websiteUrl: true },
@@ -38,28 +39,18 @@ export async function getBookingPaymentReceipt(input: {
         ratePlan: { select: { id: true, name: true, code: true } },
       },
     }),
-    db.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-        status: 'SUCCEEDED',
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        currency: true,
-        amountMinor: true,
-        createdAt: true,
-      },
+    readHospitalityPaymentReceiptHistory({
+      transaction: db,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     }),
   ]);
 
   if (!organization || !booking) {
     throw new PaymentUnavailableError('Booking payment receipt is not available in this organization.');
+  }
+  if (!paymentHistory.complete) {
+    throw new PaymentConflictError(paymentHistory.reason);
   }
   if (!['CONFIRMED', 'CANCELLED'].includes(booking.status)) {
     throw new PaymentConflictError('A payment receipt is available only after the booking is confirmed.');
@@ -70,7 +61,7 @@ export async function getBookingPaymentReceipt(input: {
 
   let safeTransactions;
   try {
-    safeTransactions = sanitizeSuccessfulPaymentTransactions(transactions, booking.currency);
+    safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) {
       throw new PaymentConflictError(error.message);
