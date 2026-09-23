@@ -5,9 +5,11 @@ import { BrandMark } from '@/components/brand-mark';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
-import { listMembershipsForOrganization } from '@/server/memberships/membership-repository.ts';
-import { listOrganizationsForUser } from '@/server/organizations/organization-repository.ts';
+import { listMembershipsForOrganizationPage } from '@/server/memberships/membership-repository.ts';
+import { listOrganizationsForUserPage } from '@/server/organizations/organization-repository.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+
+const ACCOUNT_COLLECTION_PAGE_SIZE = 20;
 
 const organizationErrors: Record<string, string> = {
   validation: 'Check the organization details and try again.',
@@ -65,6 +67,24 @@ function membershipStatusOptions(status: string) {
   return [];
 }
 
+function parseAccountPage(value: string | undefined) {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return 1;
+  const page = Number(value);
+  return Number.isSafeInteger(page) ? page : 1;
+}
+
+function accountPaginationHref(input: {
+  organizationPage: number;
+  memberPage: number;
+  anchor: 'organizations-title' | 'members-title';
+}) {
+  const query = new URLSearchParams();
+  if (input.organizationPage > 1) query.set('organizationPage', String(input.organizationPage));
+  if (input.memberPage > 1) query.set('memberPage', String(input.memberPage));
+  const search = query.toString();
+  return `/account${search ? `?${search}` : ''}#${input.anchor}`;
+}
+
 export default async function AccountPage({
   searchParams,
 }: {
@@ -75,6 +95,8 @@ export default async function AccountPage({
     archiveError?: string;
     roleError?: string;
     memberError?: string;
+    organizationPage?: string;
+    memberPage?: string;
   }>;
 }) {
   const authState = await readAuthSessionState();
@@ -85,7 +107,13 @@ export default async function AccountPage({
   if (!session) throw new Error('Authenticated account guard returned without a session');
 
   const params = await searchParams;
-  const organizations = await listOrganizationsForUser(session.user.id);
+  const requestedOrganizationPage = parseAccountPage(params.organizationPage);
+  const requestedMemberPage = parseAccountPage(params.memberPage);
+  const organizations = await listOrganizationsForUserPage({
+    userId: session.user.id,
+    page: requestedOrganizationPage,
+    pageSize: ACCOUNT_COLLECTION_PAGE_SIZE,
+  });
   const activeContext = await readActiveOrganizationContext(session.user.id);
   const statusMessage = params.status ? statusMessages[params.status] : undefined;
   const organizationError = params.organizationError ? organizationErrors[params.organizationError] : undefined;
@@ -102,9 +130,15 @@ export default async function AccountPage({
   const canManageRoles = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'membership-role:manage')));
   const canManageSettings = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'organization-settings:manage')));
   const canManageOrganization = Boolean(authorization?.platformAdmin || (authorization?.role && organizationRoleHasPermission(authorization.role, 'organization:manage')));
-  const memberships = activeContext.organization && canReadMembers
-    ? await listMembershipsForOrganization({ organizationId: activeContext.organization.id, userId: session.user.id })
-    : [];
+  const membershipPage = activeContext.organization && canReadMembers
+    ? await listMembershipsForOrganizationPage({
+        organizationId: activeContext.organization.id,
+        userId: session.user.id,
+        page: requestedMemberPage,
+        pageSize: ACCOUNT_COLLECTION_PAGE_SIZE,
+      })
+    : null;
+  const memberships = membershipPage?.items ?? [];
 
   return (
     <main className="sf-account-shell">
@@ -135,14 +169,14 @@ export default async function AccountPage({
 
       <section className="sf-account-panel" aria-labelledby="organizations-title">
         <div className="sf-account-panel__heading">
-          <div><p className="sf-eyebrow">Tenant access</p><h2 id="organizations-title">Your organizations</h2></div>
+          <div><p className="sf-eyebrow">Tenant access</p><h2 id="organizations-title">Your organizations</h2><p className="sf-auth-card__copy">{organizations.total} accessible organization{organizations.total === 1 ? '' : 's'}</p></div>
           <Link href="/" className="sf-header__link">Back to SF</Link>
         </div>
-        {organizations.length === 0 ? (
+        {organizations.total === 0 ? (
           <div className="sf-empty-state"><h3>No organizations yet</h3><p>Create your first organization below. Authentication alone never grants access to another tenant.</p></div>
         ) : (
           <ul className="sf-organization-list">
-            {organizations.map((organization) => {
+            {organizations.items.map((organization) => {
               const isActive = activeContext.organization?.id === organization.id;
               return (
                 <li key={organization.id}>
@@ -158,6 +192,13 @@ export default async function AccountPage({
             })}
           </ul>
         )}
+        {organizations.totalPages > 1 ? (
+          <nav className="sf-pagination" aria-label="Organization pages">
+            {organizations.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={accountPaginationHref({ organizationPage: organizations.page - 1, memberPage: membershipPage?.page ?? requestedMemberPage, anchor: 'organizations-title' })}>Previous organizations</Link> : <span />}
+            <span>Page {organizations.page} of {organizations.totalPages}</span>
+            {organizations.page < organizations.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={accountPaginationHref({ organizationPage: organizations.page + 1, memberPage: membershipPage?.page ?? requestedMemberPage, anchor: 'organizations-title' })}>Next organizations</Link> : <span />}
+          </nav>
+        ) : null}
       </section>
 
       {activeContext.organization && canManageSettings ? (
@@ -180,7 +221,7 @@ export default async function AccountPage({
 
       {activeContext.organization && canReadMembers ? (
         <section className="sf-account-panel" aria-labelledby="members-title">
-          <div className="sf-account-panel__heading"><div><p className="sf-eyebrow">Authorization</p><h2 id="members-title">Organization members</h2></div></div>
+          <div className="sf-account-panel__heading"><div><p className="sf-eyebrow">Authorization</p><h2 id="members-title">Organization members</h2><p className="sf-auth-card__copy">{membershipPage?.total ?? 0} membership record{membershipPage?.total === 1 ? '' : 's'}</p></div></div>
           {memberships.length === 0 ? <div className="sf-empty-state"><h3>No members found</h3><p>Active tenant access exists, but no membership records were returned.</p></div> : (
             <ul className="sf-organization-list">
               {memberships.map((membership) => {
@@ -215,6 +256,13 @@ export default async function AccountPage({
               })}
             </ul>
           )}
+          {membershipPage && membershipPage.totalPages > 1 ? (
+            <nav className="sf-pagination" aria-label="Organization member pages">
+              {membershipPage.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={accountPaginationHref({ organizationPage: organizations.page, memberPage: membershipPage.page - 1, anchor: 'members-title' })}>Previous members</Link> : <span />}
+              <span>Page {membershipPage.page} of {membershipPage.totalPages}</span>
+              {membershipPage.page < membershipPage.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={accountPaginationHref({ organizationPage: organizations.page, memberPage: membershipPage.page + 1, anchor: 'members-title' })}>Next members</Link> : <span />}
+            </nav>
+          ) : null}
         </section>
       ) : null}
 

@@ -9,28 +9,83 @@ interface MembershipAccessInput extends TenantActorScopeInput {
   membershipId: string;
 }
 
-export function listMembershipsForOrganization(input: TenantActorScopeInput) {
-  return db.organizationMembership.findMany({
-    where: activeTenantOwnedCollectionScope(input),
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+interface MembershipPageInput extends TenantActorScopeInput {
+  page?: number;
+  pageSize?: number;
+}
+
+const DEFAULT_MEMBERSHIP_PAGE_SIZE = 20;
+const MAX_MEMBERSHIP_PAGE_SIZE = 50;
+const MAX_COMPLETE_MEMBERSHIP_ROWS = 1_000;
+
+const membershipListSelect = {
+  id: true,
+  organizationId: true,
+  userId: true,
+  status: true,
+  role: true,
+  createdAt: true,
+  updatedAt: true,
+  user: {
     select: {
       id: true,
-      organizationId: true,
-      userId: true,
+      email: true,
+      displayName: true,
       status: true,
-      role: true,
-      createdAt: true,
-      updatedAt: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          displayName: true,
-          status: true,
-        },
-      },
     },
+  },
+} as const;
+
+function normalizePage(value: number | undefined) {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value as number : 1;
+}
+
+function normalizePageSize(value: number | undefined) {
+  if (!Number.isSafeInteger(value) || (value ?? 0) < 1) return DEFAULT_MEMBERSHIP_PAGE_SIZE;
+  return Math.min(value as number, MAX_MEMBERSHIP_PAGE_SIZE);
+}
+
+export async function listMembershipsForOrganization(input: TenantActorScopeInput) {
+  const rows = await db.organizationMembership.findMany({
+    where: activeTenantOwnedCollectionScope(input),
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: MAX_COMPLETE_MEMBERSHIP_ROWS + 1,
+    select: membershipListSelect,
   });
+
+  if (rows.length > MAX_COMPLETE_MEMBERSHIP_ROWS) {
+    throw new Error('Organization membership collection exceeds the complete-read safety limit. Use the paginated membership reader.');
+  }
+
+  return rows;
+}
+
+export async function listMembershipsForOrganizationPage(input: MembershipPageInput) {
+  const where = activeTenantOwnedCollectionScope(input);
+  const pageSize = normalizePageSize(input.pageSize);
+  const requestedPage = normalizePage(input.page);
+  const total = await db.organizationMembership.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const items = await db.organizationMembership.findMany({
+    where,
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    select: membershipListSelect,
+  });
+
+  return Object.freeze({ items, total, page, pageSize, totalPages });
+}
+
+export async function readOrganizationMembershipStats(input: TenantActorScopeInput) {
+  const where = activeTenantOwnedCollectionScope(input);
+  const [total, active] = await Promise.all([
+    db.organizationMembership.count({ where }),
+    db.organizationMembership.count({ where: { AND: [where, { status: 'ACTIVE' }] } }),
+  ]);
+
+  return Object.freeze({ total, active });
 }
 
 export function findMembershipForOrganization({
@@ -44,22 +99,6 @@ export function findMembershipForOrganization({
       userId,
       resourceId: membershipId,
     }),
-    select: {
-      id: true,
-      organizationId: true,
-      userId: true,
-      status: true,
-      role: true,
-      createdAt: true,
-      updatedAt: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          displayName: true,
-          status: true,
-        },
-      },
-    },
+    select: membershipListSelect,
   });
 }

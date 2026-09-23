@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
-import { listMembershipsForOrganization } from '@/server/memberships/membership-repository.ts';
+import { readOrganizationMembershipStats } from '@/server/memberships/membership-repository.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export default async function DashboardPage() {
@@ -36,10 +36,9 @@ export default async function DashboardPage() {
     authorization.platformAdmin ||
     (authorization.role && organizationRoleHasPermission(authorization.role, 'membership:read')),
   );
-  const memberships = canReadMembers
-    ? await listMembershipsForOrganization({ organizationId: organization.id, userId: session.user.id })
-    : [];
-  const activeMembers = memberships.filter((membership) => membership.status === 'ACTIVE').length;
+  const membershipStats = canReadMembers
+    ? await readOrganizationMembershipStats({ organizationId: organization.id, userId: session.user.id })
+    : null;
 
   return (
     <div className="sf-dashboard">
@@ -70,8 +69,8 @@ export default async function DashboardPage() {
         </article>
         <article className="sf-dashboard-card">
           <span className="sf-dashboard-card__label">Team access</span>
-          <strong>{canReadMembers ? activeMembers : 'Restricted'}</strong>
-          <span>{canReadMembers ? `${memberships.length} membership records` : 'Your role cannot read memberships'}</span>
+          <strong>{membershipStats ? membershipStats.active : 'Restricted'}</strong>
+          <span>{membershipStats ? `${membershipStats.total} membership records` : 'Your role cannot read memberships'}</span>
         </article>
       </section>
 
