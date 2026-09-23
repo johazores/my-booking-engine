@@ -27,15 +27,18 @@ export async function hospitalityCommercialAmendmentHasPaymentActivityRequiringR
   bookingId: string;
   amendmentId: string;
 }) {
-  const transactions = await input.reader.paymentTransaction.findMany({
+  const transaction = await input.reader.paymentTransaction.findFirst({
     where: {
       organizationId: input.organizationId,
       bookingId: input.bookingId,
       commercialAmendmentId: input.amendmentId,
+      status: { not: 'FAILED' },
     },
     select: { status: true },
   });
-  return hospitalityCommercialAmendmentPaymentActivityRequiresRecovery(transactions);
+  return hospitalityCommercialAmendmentPaymentActivityRequiresRecovery(
+    transaction ? [transaction] : [],
+  );
 }
 
 export async function findActiveHospitalityBookingCommercialAmendment(input: {

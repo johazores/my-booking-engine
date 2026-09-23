@@ -11,15 +11,15 @@ import {
 type GuardReader = Parameters<typeof findActiveHospitalityBookingCommercialAmendment>[0]['reader'];
 
 function fakeReader({
-  findFirst,
-  findMany = async () => [],
+  findAmendment,
+  findPayment = async () => null,
 }: {
-  findFirst: (args: unknown) => Promise<unknown>;
-  findMany?: (args: unknown) => Promise<unknown[]>;
+  findAmendment: (args: unknown) => Promise<unknown>;
+  findPayment?: (args: unknown) => Promise<unknown>;
 }): GuardReader {
   return {
-    hospitalityBookingCommercialAmendment: { findFirst },
-    paymentTransaction: { findMany },
+    hospitalityBookingCommercialAmendment: { findFirst: findAmendment },
+    paymentTransaction: { findFirst: findPayment },
   } as unknown as GuardReader;
 }
 
@@ -32,13 +32,13 @@ test('active commercial amendment lookup is tenant, booking, and status scoped w
     expiresAt: new Date('2026-09-03T03:15:00.000Z'),
   };
   const reader = fakeReader({
-    findFirst: async (args) => {
+    findAmendment: async (args) => {
       amendmentQuery = args;
       return row;
     },
-    findMany: async () => {
+    findPayment: async () => {
       paymentReads += 1;
-      return [];
+      return null;
     },
   });
 
@@ -62,13 +62,18 @@ test('active commercial amendment lookup is tenant, booking, and status scoped w
   });
 });
 
-test('expired amendment without payment activity is ignored', async () => {
+test('expired amendment without payment activity is ignored using a bounded existence query', async () => {
+  let paymentQuery: unknown;
   const reader = fakeReader({
-    findFirst: async () => ({
+    findAmendment: async () => ({
       id: 'amendment-1',
       direction: 'REFUND',
       expiresAt: new Date('2026-09-03T02:59:00.000Z'),
     }),
+    findPayment: async (args) => {
+      paymentQuery = args;
+      return null;
+    },
   });
 
   const result = await findActiveHospitalityBookingCommercialAmendment({
@@ -79,26 +84,15 @@ test('expired amendment without payment activity is ignored', async () => {
   });
 
   assert.equal(result, null);
-});
-
-test('expired amendment with only definitively failed payment attempts is ignored', async () => {
-  const reader = fakeReader({
-    findFirst: async () => ({
-      id: 'amendment-1',
-      direction: 'ADDITIONAL_CHARGE',
-      expiresAt: new Date('2026-09-03T02:59:00.000Z'),
-    }),
-    findMany: async () => [{ status: 'FAILED' }, { status: 'FAILED' }],
+  assert.deepEqual(paymentQuery, {
+    where: {
+      organizationId: 'organization-1',
+      bookingId: 'booking-1',
+      commercialAmendmentId: 'amendment-1',
+      status: { not: 'FAILED' },
+    },
+    select: { status: true },
   });
-
-  const result = await findActiveHospitalityBookingCommercialAmendment({
-    reader,
-    organizationId: 'organization-1',
-    bookingId: 'booking-1',
-    now: new Date('2026-09-03T03:00:00.000Z'),
-  });
-
-  assert.equal(result, null);
 });
 
 for (const status of ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] as const) {
@@ -110,10 +104,10 @@ for (const status of ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] as const) {
       expiresAt: new Date('2026-09-03T02:59:00.000Z'),
     };
     const reader = fakeReader({
-      findFirst: async () => row,
-      findMany: async (args) => {
+      findAmendment: async () => row,
+      findPayment: async (args) => {
         paymentQuery = args;
-        return [{ status }];
+        return { status };
       },
     });
 
@@ -130,6 +124,7 @@ for (const status of ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] as const) {
         organizationId: 'organization-1',
         bookingId: 'booking-1',
         commercialAmendmentId: 'amendment-1',
+        status: { not: 'FAILED' },
       },
       select: { status: true },
     });
@@ -137,7 +132,7 @@ for (const status of ['PENDING', 'AMBIGUOUS', 'SUCCEEDED'] as const) {
 }
 
 test('active commercial amendment lookup preserves an empty result', async () => {
-  const reader = fakeReader({ findFirst: async () => null });
+  const reader = fakeReader({ findAmendment: async () => null });
 
   const result = await findActiveHospitalityBookingCommercialAmendment({
     reader,

@@ -1,8 +1,9 @@
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { readHospitalityPaymentSettlementHistory } from '../payments/hospitality-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { deriveHospitalityCommercialAmendmentSettlementState } from './booking-commercial-amendment-settlement-domain.ts';
-import { HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
+import { HospitalityBookingConflictError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
 
 export async function getHospitalityBookingCommercialAmendmentSettlementState(input: {
   organizationId: string;
@@ -51,23 +52,14 @@ export async function getHospitalityBookingCommercialAmendmentSettlementState(in
     });
     if (!amendment) throw new HospitalityBookingUnavailableError();
 
-    const transactions = await transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-      },
-      select: {
-        commercialAmendmentId: true,
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const paymentHistory = await readHospitalityPaymentSettlementHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     });
+    if (!paymentHistory.complete) {
+      throw new HospitalityBookingConflictError(paymentHistory.reason);
+    }
 
     const settlement = deriveHospitalityCommercialAmendmentSettlementState({
       amendmentId: amendment.id,
@@ -77,7 +69,7 @@ export async function getHospitalityBookingCommercialAmendmentSettlementState(in
       beforeTotalMinor: amendment.beforeTotalMinor,
       afterTotalMinor: amendment.afterTotalMinor,
       deltaMinor: amendment.deltaMinor,
-      transactions,
+      transactions: paymentHistory.transactions,
     });
     const expired = amendment.status === 'PREPARED' && amendment.expiresAt.getTime() <= now.getTime();
     const actionable = amendment.status === 'PREPARED' && !expired;
