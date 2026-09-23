@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const service = readFileSync(new URL('../src/server/payments/hospitality-commercial-adjustment-settlement-reconciliation-service.ts', import.meta.url), 'utf8');
+const authorityDomain = readFileSync(new URL('../src/server/payments/hospitality-commercial-settlement-reconciliation-authority-domain.ts', import.meta.url), 'utf8');
 const driftDomain = readFileSync(new URL('../src/server/payments/hospitality-tax-document-settlement-drift-domain.ts', import.meta.url), 'utf8');
 const reconciliation = readFileSync(new URL('../src/server/payments/hospitality-tax-document-reconciliation-service.ts', import.meta.url), 'utf8');
 const guide = readFileSync(new URL('../docs/commercial-adjustment-settlement-reconciliation.md', import.meta.url), 'utf8');
@@ -25,22 +26,23 @@ test('only fingerprint verified immutable documents can become settlement author
   assert.match(service, /new Date\(snapshot\.issuedAt\)\.getTime\(\) !== row\.issuedAt\.getTime\(\)/);
 });
 
-test('commercial settlement authority revalidates exact amendment and target pricing evidence', () => {
-  assert.match(service, /commercialAmendmentAppliedAt: new Date\(snapshot\.commercialAmendmentAppliedAt\)/);
-  assert.match(service, /targetPricingEvidenceId: snapshot\.targetPricingEvidenceId/);
-  assert.match(service, /beforePricingFingerprint: snapshot\.beforePricingFingerprint/);
-  assert.match(service, /afterPricingFingerprint: snapshot\.afterPricingFingerprint/);
-  assert.match(service, /amendment\.appliedAt\.getTime\(\) === authority\.commercialAmendmentAppliedAt\.getTime\(\)/);
-  assert.match(service, /amendment\.beforePricingFingerprint === authority\.beforePricingFingerprint/);
-  assert.match(service, /amendment\.afterPricingFingerprint === authority\.afterPricingFingerprint/);
-  assert.match(service, /id: \{ in: targetPricingEvidenceIds \}/);
-  assert.match(service, /source: 'COMMERCIAL_AMENDMENT_TARGET'/);
-  assert.match(service, /target\.commercialAmendmentId === authority\.commercialAmendmentId/);
-  assert.match(service, /target\.pricingFingerprint === authority\.afterPricingFingerprint/);
-  assert.match(service, /target\.totalMinor === authority\.afterTotalMinor/);
+test('commercial settlement authority is revalidated as one complete source chain', () => {
+  assert.match(service, /selectVerifiedHospitalityCommercialSettlementAuthorityGroups/);
+  assert.match(service, /authorities: parsedAuthorities/);
+  assert.match(authorityDomain, /amendment\.appliedAt\.getTime\(\) === authority\.commercialAmendmentAppliedAt\.getTime\(\)/);
+  assert.match(authorityDomain, /amendment\.beforePricingFingerprint === authority\.beforePricingFingerprint/);
+  assert.match(authorityDomain, /amendment\.afterPricingFingerprint === authority\.afterPricingFingerprint/);
+  assert.match(authorityDomain, /target\.commercialAmendmentId === authority\.commercialAmendmentId/);
+  assert.match(authorityDomain, /target\.pricingFingerprint === authority\.afterPricingFingerprint/);
+  assert.match(authorityDomain, /target\.totalMinor === authority\.afterTotalMinor/);
+  assert.match(authorityDomain, /authority\.beforePricingFingerprint !== previous\.afterPricingFingerprint/);
+  assert.match(authorityDomain, /amendmentIds\.has\(authority\.commercialAmendmentId\)/);
+  assert.match(authorityDomain, /targetEvidenceIds\.has\(authority\.targetPricingEvidenceId\)/);
 });
 
-test('current settlement replay is limited to the legal chain and document issue time', () => {
+test('current settlement replay uses only fully verified group members through document issue time', () => {
+  assert.match(service, /const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups/);
+  assert.match(service, /const validAuthorities = \[\.\.\.authorityGroups\.values\(\)\]\.flat\(\)/);
   assert.match(service, /candidate\.sourceAdjustmentOrdinal <= authority\.sourceAdjustmentOrdinal/);
   assert.match(service, /transaction\.createdAt\.getTime\(\) <= authority\.issuedAt\.getTime\(\)/);
   assert.match(service, /transaction\.commercialAmendmentId === null \|\| allowedAmendmentIds\.has\(transaction\.commercialAmendmentId\)/);
@@ -64,7 +66,9 @@ test('tenant reconciliation includes commercial settlement drift without weakeni
   assert.match(reconciliation, /failures\.push\(\.\.\.commercialSettlement\.failures\)/);
 });
 
-test('documentation keeps current reconciliation separate from future historical settlement evidence', () => {
+test('documentation keeps chain-atomic current drift separate from historical settlement evidence', () => {
+  assert.match(guide, /entire source-invoice commercial chain/i);
+  assert.match(guide, /excluded from settlement-drift classification/i);
   assert.match(guide, /schema versions 2 through 5/i);
   assert.match(guide, /current-state observability, not a substitute for versioned issue-time settlement evidence/i);
   assert.match(guide, /Existing schema versions are not rewritten in place/i);

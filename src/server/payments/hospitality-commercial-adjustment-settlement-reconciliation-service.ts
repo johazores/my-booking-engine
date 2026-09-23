@@ -12,29 +12,16 @@ import {
   parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
 import {
+  selectVerifiedHospitalityCommercialSettlementAuthorityGroups,
+  type HospitalityCommercialSettlementReconciliationAuthority as CommercialAdjustmentAuthority,
+} from './hospitality-commercial-settlement-reconciliation-authority-domain.ts';
+import {
   findHospitalityCommercialTaxDocumentSettlementDrift,
   type HospitalityTaxDocumentCurrentCommercialSettlement,
 } from './hospitality-tax-document-settlement-drift-domain.ts';
 import type { HospitalityTaxDocumentReconciliationFailure } from './hospitality-tax-document-reconciliation-domain.ts';
 
 const COMMERCIAL_SETTLEMENT_TRANSACTION_LIMIT = 50_000;
-
-type CommercialAdjustmentAuthority = Readonly<{
-  documentNumber: string;
-  bookingId: string;
-  sourceInvoiceId: string;
-  sourceAdjustmentOrdinal: number;
-  issuedAt: Date;
-  commercialAmendmentId: string;
-  commercialAmendmentAppliedAt: Date;
-  targetPricingEvidenceId: string;
-  beforePricingFingerprint: string;
-  afterPricingFingerprint: string;
-  adjustmentType: 'DECREASING' | 'INCREASING';
-  currency: string;
-  beforeTotalMinor: bigint;
-  afterTotalMinor: bigint;
-}>;
 
 function authorityFromRow(row: {
   bookingId: string;
@@ -119,35 +106,6 @@ function authorityFromRow(row: {
   return null;
 }
 
-function verifiedAuthorityGroups(authorities: readonly CommercialAdjustmentAuthority[]) {
-  const grouped = new Map<string, CommercialAdjustmentAuthority[]>();
-  for (const authority of authorities) {
-    const key = `${authority.bookingId}:${authority.sourceInvoiceId}`;
-    const group = grouped.get(key) ?? [];
-    group.push(authority);
-    grouped.set(key, group);
-  }
-
-  const verified = new Map<string, readonly CommercialAdjustmentAuthority[]>();
-  for (const [key, group] of grouped) {
-    const ordered = [...group].sort((left, right) => left.sourceAdjustmentOrdinal - right.sourceAdjustmentOrdinal);
-    let valid = ordered.length > 0;
-    for (let index = 0; index < ordered.length; index += 1) {
-      const current = ordered[index]!;
-      const previous = ordered[index - 1];
-      if (
-        current.sourceAdjustmentOrdinal !== index + 1
-        || (previous && current.issuedAt.getTime() < previous.issuedAt.getTime())
-      ) {
-        valid = false;
-        break;
-      }
-    }
-    if (valid) verified.set(key, Object.freeze(ordered));
-  }
-  return verified;
-}
-
 export async function currentHospitalityCommercialAdjustmentSettlementDriftFailures(input: {
   organizationId: string;
   documentLimit: number;
@@ -191,14 +149,8 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
     return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
   }
 
-  const authorityGroups = verifiedAuthorityGroups(parsedAuthorities);
-  const authorities = [...authorityGroups.values()].flat();
-  if (authorities.length === 0) {
-    return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
-  }
-
-  const amendmentIds = [...new Set(authorities.map((authority) => authority.commercialAmendmentId))];
-  const targetPricingEvidenceIds = [...new Set(authorities.map((authority) => authority.targetPricingEvidenceId))];
+  const amendmentIds = [...new Set(parsedAuthorities.map((authority) => authority.commercialAmendmentId))];
+  const targetPricingEvidenceIds = [...new Set(parsedAuthorities.map((authority) => authority.targetPricingEvidenceId))];
   const [amendments, targetPricingEvidence] = await Promise.all([
     db.hospitalityBookingCommercialAmendment.findMany({
       where: { organizationId: input.organizationId, id: { in: amendmentIds } },
@@ -235,35 +187,12 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
     }),
   ]);
   const amendmentById = new Map(amendments.map((amendment) => [amendment.id, amendment]));
-  const targetPricingEvidenceById = new Map(targetPricingEvidence.map((evidence) => [evidence.id, evidence]));
-
-  const validAuthorities = authorities.filter((authority) => {
-    const amendment = amendmentById.get(authority.commercialAmendmentId);
-    const target = targetPricingEvidenceById.get(authority.targetPricingEvidenceId);
-    const expectedDirection = authority.adjustmentType === 'DECREASING' ? 'REFUND' : 'ADDITIONAL_CHARGE';
-    return Boolean(
-      amendment
-      && target
-      && amendment.bookingId === authority.bookingId
-      && amendment.status === 'APPLIED'
-      && amendment.appliedAt
-      && amendment.appliedAt.getTime() === authority.commercialAmendmentAppliedAt.getTime()
-      && amendment.appliedAt.getTime() <= authority.issuedAt.getTime()
-      && amendment.direction === expectedDirection
-      && amendment.currency === authority.currency
-      && amendment.beforeTotalMinor === authority.beforeTotalMinor
-      && amendment.afterTotalMinor === authority.afterTotalMinor
-      && amendment.afterTotalMinor - amendment.beforeTotalMinor === amendment.deltaMinor
-      && amendment.beforePricingFingerprint === authority.beforePricingFingerprint
-      && amendment.afterPricingFingerprint === authority.afterPricingFingerprint
-      && target.bookingId === authority.bookingId
-      && target.commercialAmendmentId === authority.commercialAmendmentId
-      && target.source === 'COMMERCIAL_AMENDMENT_TARGET'
-      && target.currency === authority.currency
-      && target.totalMinor === authority.afterTotalMinor
-      && target.pricingFingerprint === authority.afterPricingFingerprint
-    );
+  const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
+    authorities: parsedAuthorities,
+    amendments,
+    targetPricingEvidence,
   });
+  const validAuthorities = [...authorityGroups.values()].flat();
   if (validAuthorities.length === 0) {
     return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
   }
