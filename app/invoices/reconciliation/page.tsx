@@ -19,7 +19,7 @@ function pageNumber(value: string | undefined) {
 function failureLabel(code: HospitalityTaxDocumentReconciliationFailureCode) {
   if (code === 'INTEGRITY_CHECK_FAILED') return 'Immutable tax-invoice evidence failed validation.';
   if (code === 'SOURCE_LINK_FAILED') return 'Adjustment-note or source-invoice evidence failed validation.';
-  if (code === 'SETTLEMENT_DRIFT') return 'Current refund settlement no longer matches the successful state that supported an issued cancellation adjustment note.';
+  if (code === 'SETTLEMENT_DRIFT') return 'Current payment settlement no longer matches the successful settlement that supported an issued adjustment note.';
   return 'The legal-document register changed while reconciliation was running.';
 }
 

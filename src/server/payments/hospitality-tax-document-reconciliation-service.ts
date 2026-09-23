@@ -2,6 +2,9 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  currentHospitalityCommercialAdjustmentSettlementDriftFailures,
+} from './hospitality-commercial-adjustment-settlement-reconciliation-service.ts';
+import {
   hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
@@ -35,8 +38,8 @@ import {
 const RECONCILIATION_PAGE_SIZE = 100;
 
 export class HospitalityTaxDocumentReconciliationLimitError extends Error {
-  constructor() {
-    super(`Synchronous tax-document reconciliation cannot exceed ${HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT} issued documents.`);
+  constructor(message = `Synchronous tax-document reconciliation cannot exceed ${HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT} issued documents.`) {
+    super(message);
     this.name = 'HospitalityTaxDocumentReconciliationLimitError';
   }
 }
@@ -198,6 +201,19 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
   }
 
   failures.push(...await currentCancellationRefundSettlementDriftFailures(input.organizationId));
+  const commercialSettlement = await currentHospitalityCommercialAdjustmentSettlementDriftFailures({
+    organizationId: input.organizationId,
+    documentLimit: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT,
+  });
+  if (commercialSettlement.status === 'DOCUMENT_LIMIT_EXCEEDED') {
+    throw new HospitalityTaxDocumentReconciliationLimitError();
+  }
+  if (commercialSettlement.status === 'TRANSACTION_LIMIT_EXCEEDED') {
+    throw new HospitalityTaxDocumentReconciliationLimitError(
+      'Commercial adjustment settlement reconciliation exceeded its bounded synchronous payment-history limit.',
+    );
+  }
+  failures.push(...commercialSettlement.failures);
 
   const after = await currentCounts(input.organizationId);
   if (after.taxInvoiceCount !== before.taxInvoiceCount || after.adjustmentNoteCount !== before.adjustmentNoteCount) {

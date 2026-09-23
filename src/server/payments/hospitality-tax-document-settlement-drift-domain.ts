@@ -11,6 +11,16 @@ export type HospitalityTaxDocumentCurrentRefundSettlement = Readonly<{
   status: string;
 }>;
 
+export type HospitalityTaxDocumentCurrentCommercialSettlement = Readonly<{
+  documentNumber: string;
+  state: string;
+  settledAdjustmentMinor: bigint;
+  remainingAdjustmentMinor: bigint;
+  netSettledMinor: bigint;
+  expectedAdjustmentMinor: bigint;
+  expectedNetSettledMinor: bigint;
+}>;
+
 export type HospitalityTaxDocumentSettlementDrift = Readonly<{
   documentNumber: string;
 }>;
@@ -61,5 +71,42 @@ export function findHospitalityTaxDocumentSettlementDrift(input: Readonly<{
     }
     if (hasCurrentStatusDrift) drift.push(Object.freeze({ documentNumber: authority.documentNumber }));
   }
+  return Object.freeze(drift);
+}
+
+export function findHospitalityCommercialTaxDocumentSettlementDrift(input: Readonly<{
+  currentSettlements: readonly HospitalityTaxDocumentCurrentCommercialSettlement[];
+}>) {
+  const seenDocuments = new Set<string>();
+  const drift: HospitalityTaxDocumentSettlementDrift[] = [];
+
+  for (const settlement of input.currentSettlements) {
+    if (!validDocumentNumber(settlement.documentNumber)) {
+      throw new TypeError('Commercial settlement document number is invalid.');
+    }
+    if (seenDocuments.has(settlement.documentNumber)) {
+      throw new TypeError('Commercial settlement document number is duplicated.');
+    }
+    seenDocuments.add(settlement.documentNumber);
+    if (
+      settlement.expectedAdjustmentMinor <= 0n
+      || settlement.expectedNetSettledMinor < 0n
+      || settlement.settledAdjustmentMinor < 0n
+      || settlement.remainingAdjustmentMinor < 0n
+      || settlement.settledAdjustmentMinor + settlement.remainingAdjustmentMinor !== settlement.expectedAdjustmentMinor
+    ) {
+      throw new TypeError('Commercial settlement amounts are invalid.');
+    }
+
+    if (
+      settlement.state !== 'READY_TO_APPLY'
+      || settlement.remainingAdjustmentMinor !== 0n
+      || settlement.settledAdjustmentMinor !== settlement.expectedAdjustmentMinor
+      || settlement.netSettledMinor !== settlement.expectedNetSettledMinor
+    ) {
+      drift.push(Object.freeze({ documentNumber: settlement.documentNumber }));
+    }
+  }
+
   return Object.freeze(drift);
 }
