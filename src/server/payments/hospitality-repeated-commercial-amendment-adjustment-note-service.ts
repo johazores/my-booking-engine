@@ -42,6 +42,9 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -320,23 +323,16 @@ export async function issueHospitalityRepeatedCommercialAmendmentAdjustmentNote(
         }
         const target = validateTargetPricingEvidence(targetRows[0]!, amendment.id);
 
-        const transactions = await transaction.paymentTransaction.findMany({
-          where: {
-            organizationId: input.organizationId,
-            bookingId: input.bookingId,
-          },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: {
-            kind: true,
-            status: true,
-            providerCode: true,
-            providerReference: true,
-            sourceProviderReference: true,
-            currency: true,
-            amountMinor: true,
-            commercialAmendmentId: true,
-          },
+        const paymentHistory = await readHospitalityLegalPaymentEvidenceHistory({
+          transaction,
+          organizationId: input.organizationId,
+          bookingId: input.bookingId,
         });
+        if (!paymentHistory.complete) {
+          throw new HospitalityCommercialAmendmentAdjustmentNotePersistenceError(
+            `Commercial-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+          );
+        }
         const settlement = deriveHospitalityCommercialAmendmentSettlementState({
           amendmentId: amendment.id,
           direction: amendment.direction,
@@ -345,7 +341,7 @@ export async function issueHospitalityRepeatedCommercialAmendmentAdjustmentNote(
           beforeTotalMinor: amendment.beforeTotalMinor,
           afterTotalMinor: amendment.afterTotalMinor,
           deltaMinor: amendment.deltaMinor,
-          transactions,
+          transactions: paymentHistory.transactions,
         });
 
         const readiness = assessAustralianCommercialAmendmentAdjustmentReadiness({
