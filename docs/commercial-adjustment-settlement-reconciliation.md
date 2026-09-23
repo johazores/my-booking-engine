@@ -6,7 +6,7 @@ SF now performs an explicit current-settlement replay for issued Australian comm
 
 Only tenant-scoped `COMMERCIAL_AMENDMENT` adjustment-note rows whose immutable snapshot parses successfully and whose canonical document fingerprint still matches the persisted fingerprint can become reconciliation authorities. The snapshot must still agree with the row on organization, booking, source invoice, adjustment ordinal, document number, issue time, commercial amendment, currency, and direction.
 
-The referenced commercial amendment is reloaded inside the same tenant and must still be `APPLIED`, belong to the same booking, match the document direction, currency, before total, after total, delta, and issue-time chronology. Malformed or drifted legal evidence is not reclassified as settlement drift; the existing immutable register/read authority owns those failures.
+The referenced commercial amendment is reloaded inside the same tenant and must still be `APPLIED`, belong to the same booking, match the document direction, currency, before total, after total, delta, exact applied timestamp, and the immutable before/after pricing fingerprints frozen into the legal snapshot. The snapshot's exact target-pricing evidence row is also reloaded inside the tenant and must still belong to the same booking and commercial amendment, remain `COMMERCIAL_AMENDMENT_TARGET` evidence, and match the document currency, after-total, and after-pricing fingerprint. Malformed or drifted legal evidence is not reclassified as settlement drift; the existing immutable register/read authority owns those failures.
 
 ## Current settlement replay
 

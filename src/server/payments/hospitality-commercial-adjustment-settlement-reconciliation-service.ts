@@ -26,6 +26,10 @@ type CommercialAdjustmentAuthority = Readonly<{
   sourceAdjustmentOrdinal: number;
   issuedAt: Date;
   commercialAmendmentId: string;
+  commercialAmendmentAppliedAt: Date;
+  targetPricingEvidenceId: string;
+  beforePricingFingerprint: string;
+  afterPricingFingerprint: string;
   adjustmentType: 'DECREASING' | 'INCREASING';
   currency: string;
   beforeTotalMinor: bigint;
@@ -66,6 +70,10 @@ function authorityFromRow(row: {
         sourceAdjustmentOrdinal: row.sourceAdjustmentOrdinal,
         issuedAt: row.issuedAt,
         commercialAmendmentId: row.commercialAmendmentId,
+        commercialAmendmentAppliedAt: new Date(snapshot.commercialAmendmentAppliedAt),
+        targetPricingEvidenceId: snapshot.targetPricingEvidenceId,
+        beforePricingFingerprint: snapshot.beforePricingFingerprint,
+        afterPricingFingerprint: snapshot.afterPricingFingerprint,
         adjustmentType: 'DECREASING' as const,
         currency: row.currency,
         beforeTotalMinor: BigInt(snapshot.beforeTotalMinor),
@@ -92,6 +100,10 @@ function authorityFromRow(row: {
         sourceAdjustmentOrdinal: row.sourceAdjustmentOrdinal,
         issuedAt: row.issuedAt,
         commercialAmendmentId: row.commercialAmendmentId,
+        commercialAmendmentAppliedAt: new Date(snapshot.commercialAmendmentAppliedAt),
+        targetPricingEvidenceId: snapshot.targetPricingEvidenceId,
+        beforePricingFingerprint: snapshot.beforePricingFingerprint,
+        afterPricingFingerprint: snapshot.afterPricingFingerprint,
         adjustmentType: 'INCREASING' as const,
         currency: row.currency,
         beforeTotalMinor: BigInt(snapshot.beforeTotalMinor),
@@ -182,37 +194,70 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
   }
 
   const amendmentIds = [...new Set(authorities.map((authority) => authority.commercialAmendmentId))];
-  const amendments = await db.hospitalityBookingCommercialAmendment.findMany({
-    where: { organizationId: input.organizationId, id: { in: amendmentIds } },
-    select: {
-      id: true,
-      bookingId: true,
-      status: true,
-      direction: true,
-      appliedAt: true,
-      paymentProviderCode: true,
-      currency: true,
-      beforeTotalMinor: true,
-      afterTotalMinor: true,
-      deltaMinor: true,
-    },
-  });
+  const targetPricingEvidenceIds = [...new Set(authorities.map((authority) => authority.targetPricingEvidenceId))];
+  const [amendments, targetPricingEvidence] = await Promise.all([
+    db.hospitalityBookingCommercialAmendment.findMany({
+      where: { organizationId: input.organizationId, id: { in: amendmentIds } },
+      select: {
+        id: true,
+        bookingId: true,
+        status: true,
+        direction: true,
+        appliedAt: true,
+        paymentProviderCode: true,
+        currency: true,
+        beforeTotalMinor: true,
+        afterTotalMinor: true,
+        deltaMinor: true,
+        beforePricingFingerprint: true,
+        afterPricingFingerprint: true,
+      },
+    }),
+    db.hospitalityBookingPricingEvidence.findMany({
+      where: {
+        organizationId: input.organizationId,
+        id: { in: targetPricingEvidenceIds },
+        source: 'COMMERCIAL_AMENDMENT_TARGET',
+      },
+      select: {
+        id: true,
+        bookingId: true,
+        commercialAmendmentId: true,
+        source: true,
+        currency: true,
+        totalMinor: true,
+        pricingFingerprint: true,
+      },
+    }),
+  ]);
   const amendmentById = new Map(amendments.map((amendment) => [amendment.id, amendment]));
+  const targetPricingEvidenceById = new Map(targetPricingEvidence.map((evidence) => [evidence.id, evidence]));
 
   const validAuthorities = authorities.filter((authority) => {
     const amendment = amendmentById.get(authority.commercialAmendmentId);
+    const target = targetPricingEvidenceById.get(authority.targetPricingEvidenceId);
     const expectedDirection = authority.adjustmentType === 'DECREASING' ? 'REFUND' : 'ADDITIONAL_CHARGE';
     return Boolean(
       amendment
+      && target
       && amendment.bookingId === authority.bookingId
       && amendment.status === 'APPLIED'
       && amendment.appliedAt
+      && amendment.appliedAt.getTime() === authority.commercialAmendmentAppliedAt.getTime()
       && amendment.appliedAt.getTime() <= authority.issuedAt.getTime()
       && amendment.direction === expectedDirection
       && amendment.currency === authority.currency
       && amendment.beforeTotalMinor === authority.beforeTotalMinor
       && amendment.afterTotalMinor === authority.afterTotalMinor
       && amendment.afterTotalMinor - amendment.beforeTotalMinor === amendment.deltaMinor
+      && amendment.beforePricingFingerprint === authority.beforePricingFingerprint
+      && amendment.afterPricingFingerprint === authority.afterPricingFingerprint
+      && target.bookingId === authority.bookingId
+      && target.commercialAmendmentId === authority.commercialAmendmentId
+      && target.source === 'COMMERCIAL_AMENDMENT_TARGET'
+      && target.currency === authority.currency
+      && target.totalMinor === authority.afterTotalMinor
+      && target.pricingFingerprint === authority.afterPricingFingerprint
     );
   });
   if (validAuthorities.length === 0) {

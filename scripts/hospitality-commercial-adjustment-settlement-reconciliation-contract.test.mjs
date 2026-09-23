@@ -25,6 +25,21 @@ test('only fingerprint verified immutable documents can become settlement author
   assert.match(service, /new Date\(snapshot\.issuedAt\)\.getTime\(\) !== row\.issuedAt\.getTime\(\)/);
 });
 
+test('commercial settlement authority revalidates exact amendment and target pricing evidence', () => {
+  assert.match(service, /commercialAmendmentAppliedAt: new Date\(snapshot\.commercialAmendmentAppliedAt\)/);
+  assert.match(service, /targetPricingEvidenceId: snapshot\.targetPricingEvidenceId/);
+  assert.match(service, /beforePricingFingerprint: snapshot\.beforePricingFingerprint/);
+  assert.match(service, /afterPricingFingerprint: snapshot\.afterPricingFingerprint/);
+  assert.match(service, /amendment\.appliedAt\.getTime\(\) === authority\.commercialAmendmentAppliedAt\.getTime\(\)/);
+  assert.match(service, /amendment\.beforePricingFingerprint === authority\.beforePricingFingerprint/);
+  assert.match(service, /amendment\.afterPricingFingerprint === authority\.afterPricingFingerprint/);
+  assert.match(service, /id: \{ in: targetPricingEvidenceIds \}/);
+  assert.match(service, /source: 'COMMERCIAL_AMENDMENT_TARGET'/);
+  assert.match(service, /target\.commercialAmendmentId === authority\.commercialAmendmentId/);
+  assert.match(service, /target\.pricingFingerprint === authority\.afterPricingFingerprint/);
+  assert.match(service, /target\.totalMinor === authority\.afterTotalMinor/);
+});
+
 test('current settlement replay is limited to the legal chain and document issue time', () => {
   assert.match(service, /candidate\.sourceAdjustmentOrdinal <= authority\.sourceAdjustmentOrdinal/);
   assert.match(service, /transaction\.createdAt\.getTime\(\) <= authority\.issuedAt\.getTime\(\)/);
