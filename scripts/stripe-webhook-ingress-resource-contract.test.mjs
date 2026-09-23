@@ -8,19 +8,30 @@ const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), 
 
 const route = source('app/api/webhooks/stripe/[organization-id]/route.ts');
 const reader = source('src/server/payments/stripe-webhook-request-body.ts');
+const signatureDomain = source('src/server/payments/stripe-webhook-ingress-signature-domain.ts');
 const service = source('src/server/payments/stripe-webhook-service.ts');
 const document = source('docs/stripe-webhook-write-scope.md');
 
 test('Stripe webhook route rejects invalid tenant/signature metadata before body acquisition', () => {
   assert.match(route, /assertUuidIdentifier\(organizationId, 'organizationId'\)/);
   assert.match(route, /request\.headers\.get\('stripe-signature'\)/);
-  assert.match(route, /STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096/);
+  assert.match(route, /hasPlausibleStripeWebhookSignatureHeader\(signature\)/);
   assert.match(route, /discardStripeWebhookRequestBody\(request\)/);
   const tenantIndex = route.indexOf("assertUuidIdentifier(organizationId, 'organizationId')");
   const signatureIndex = route.indexOf("request.headers.get('stripe-signature')");
+  const signatureShapeIndex = route.indexOf('hasPlausibleStripeWebhookSignatureHeader(signature)');
   const bodyIndex = route.indexOf('await readStripeWebhookRequestBody(request)');
-  assert.ok(tenantIndex >= 0 && signatureIndex > tenantIndex && bodyIndex > signatureIndex);
+  assert.ok(tenantIndex >= 0 && signatureIndex > tenantIndex && signatureShapeIndex > signatureIndex && bodyIndex > signatureShapeIndex);
   assert.doesNotMatch(route, /\/organizationId\|UUID\/i/);
+});
+
+test('Stripe webhook signature preflight rejects obvious non-Stripe framing without claiming HMAC authority', () => {
+  assert.match(signatureDomain, /STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096/);
+  assert.match(signatureDomain, /key === 't'/);
+  assert.match(signatureDomain, /key === 'v1'/);
+  assert.match(signatureDomain, /\^\[0-9a-f\]\{64\}\$\/i/);
+  assert.match(signatureDomain, /Number\.isSafeInteger\(timestamp\)/);
+  assert.doesNotMatch(signatureDomain, /createHmac|timingSafeEqual|webhookTolerance/i);
 });
 
 test('Stripe webhook route bounds raw ingress before cryptographic verification', () => {
@@ -68,6 +79,7 @@ test('webhook ingress resource policy is documented as fail closed', () => {
   assert.match(document, /grows one retained body buffer geometrically/i);
   assert.match(document, /discard/i);
   assert.match(document, /4,096-character/);
+  assert.match(document, /timestamp and v1 framing/i);
   assert.match(document, /10-second/);
   assert.match(document, /before body acquisition/);
   assert.match(document, /Request\.text\(\)/);

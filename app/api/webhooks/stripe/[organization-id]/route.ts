@@ -9,10 +9,11 @@ import {
   discardStripeWebhookRequestBody,
   readStripeWebhookRequestBody,
 } from '@/server/payments/stripe-webhook-request-body.ts';
+import {
+  hasPlausibleStripeWebhookSignatureHeader,
+} from '@/server/payments/stripe-webhook-ingress-signature-domain.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
 import { assertUuidIdentifier } from '@/server/tenancy/tenant-scope.ts';
-
-const STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096;
 
 export async function POST(
   request: Request,
@@ -39,7 +40,7 @@ export async function POST(
     }
 
     const signature = request.headers.get('stripe-signature');
-    if (signature === null || signature.length === 0 || signature.length > STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS) {
+    if (!hasPlausibleStripeWebhookSignatureHeader(signature)) {
       return rejectBeforeBodyAcquisition();
     }
 
