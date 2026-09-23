@@ -45,6 +45,31 @@ test('hospitality availability enforces tenant scope, physical/window capacity, 
       /permission/i,
     );
     const capacityWindow = await windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, window: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, startDate: '2026-09-11', endDate: '2026-09-13', capacityLimit: 1 } });
+
+    const windowPage = await windows.listHospitalityAvailabilityWindowsPage({
+      organizationId: organizationA.id,
+      actorUserId: staffA.id,
+      propertyId: propertyA.id,
+      roomTypeId: roomTypeA.id,
+      page: 1,
+      pageSize: 1,
+    });
+    assert.equal(windowPage.total, 1);
+    assert.equal(windowPage.page, 1);
+    assert.equal(windowPage.pageSize, 1);
+    assert.deepEqual(windowPage.windows.map((window) => window.id), [capacityWindow.id]);
+
+    const crossTenantWindowPage = await windows.listHospitalityAvailabilityWindowsPage({
+      organizationId: organizationB.id,
+      actorUserId: adminB.id,
+      propertyId: propertyA.id,
+      roomTypeId: roomTypeA.id,
+      page: 1,
+      pageSize: 20,
+    });
+    assert.equal(crossTenantWindowPage.total, 0);
+    assert.equal(crossTenantWindowPage.windows.length, 0);
+
     await assert.rejects(
       windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, window: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, startDate: '2026-09-13', endDate: '2026-09-15', capacityLimit: 1 } }),
       /overlaps/i,

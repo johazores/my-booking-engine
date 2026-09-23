@@ -12,7 +12,47 @@ export class AvailabilityWindowConflictError extends Error {
   }
 }
 
+export class AvailabilityWindowCollectionLimitError extends Error {
+  constructor(message = 'Availability window collection exceeds the supported complete-read limit.') {
+    super(message);
+    this.name = 'AvailabilityWindowCollectionLimitError';
+  }
+}
+
 const DAY_MS = 86_400_000;
+const AVAILABILITY_WINDOW_PAGE_SIZE_DEFAULT = 20;
+const AVAILABILITY_WINDOW_PAGE_SIZE_MAX = 50;
+const MAX_COMPLETE_AVAILABILITY_WINDOWS = 1_000;
+
+function normalizePage(value: number | undefined) {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value as number : 1;
+}
+
+function normalizePageSize(value: number | undefined) {
+  if (!Number.isSafeInteger(value) || (value ?? 0) < 1) return AVAILABILITY_WINDOW_PAGE_SIZE_DEFAULT;
+  return Math.min(value as number, AVAILABILITY_WINDOW_PAGE_SIZE_MAX);
+}
+
+async function requireAvailabilityWindowRead(input: {
+  organizationId: string;
+  actorUserId: string;
+  propertyId: string;
+  roomTypeId: string;
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.propertyId, 'propertyId');
+  assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:read' });
+}
+
+function availabilityWindowScope(input: { organizationId: string; propertyId: string; roomTypeId: string }) {
+  return {
+    organizationId: input.organizationId,
+    propertyId: input.propertyId,
+    roomTypeId: input.roomTypeId,
+  };
+}
 
 function peakProtectedUnitsForWindow(input: {
   startDate: Date;
@@ -28,16 +68,44 @@ function peakProtectedUnitsForWindow(input: {
   return peak;
 }
 
-export async function listHospitalityAvailabilityWindows(input: { organizationId: string; actorUserId: string; propertyId: string; roomTypeId: string }) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  assertUuidIdentifier(input.propertyId, 'propertyId');
-  assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'availability:read' });
-  return db.hospitalityAvailabilityWindow.findMany({
-    where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+export async function listHospitalityAvailabilityWindowsPage(input: {
+  organizationId: string;
+  actorUserId: string;
+  propertyId: string;
+  roomTypeId: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  await requireAvailabilityWindowRead(input);
+  const pageSize = normalizePageSize(input.pageSize);
+  const requestedPage = normalizePage(input.page);
+  const where = availabilityWindowScope(input);
+  const total = await db.hospitalityAvailabilityWindow.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const windows = await db.hospitalityAvailabilityWindow.findMany({
+    where,
     orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { id: 'asc' }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
   });
+  return { windows, total, page, totalPages, pageSize };
+}
+
+export async function listHospitalityAvailabilityWindows(input: {
+  organizationId: string;
+  actorUserId: string;
+  propertyId: string;
+  roomTypeId: string;
+}) {
+  await requireAvailabilityWindowRead(input);
+  const windows = await db.hospitalityAvailabilityWindow.findMany({
+    where: availabilityWindowScope(input),
+    orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { id: 'asc' }],
+    take: MAX_COMPLETE_AVAILABILITY_WINDOWS + 1,
+  });
+  if (windows.length > MAX_COMPLETE_AVAILABILITY_WINDOWS) throw new AvailabilityWindowCollectionLimitError();
+  return windows;
 }
 
 export async function createHospitalityAvailabilityWindow(input: { organizationId: string; actorUserId: string; window: AvailabilityWindowInput; now?: Date }) {
