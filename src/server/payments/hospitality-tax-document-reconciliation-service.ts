@@ -75,6 +75,31 @@ async function validateAdjustmentNoteRegister(input: { organizationId: string; a
   return true;
 }
 
+async function hasSchemaOneCancellationRefundSettlementDrift(organizationId: string) {
+  const issued = await db.hospitalityIssuedAdjustmentNote.findMany({
+    where: {
+      organizationId,
+      jurisdictionCode: 'AU',
+      documentType: 'ADJUSTMENT_NOTE',
+      adjustmentReason: 'BOOKING_CANCELLATION',
+      refundTransactionId: { not: null },
+    },
+    select: { refundTransactionId: true },
+    take: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT + 1,
+  });
+  if (issued.length === 0) return false;
+  if (issued.length > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) return true;
+
+  const refundIds = issued.map((row) => row.refundTransactionId).filter((value): value is string => value !== null);
+  const refunds = await db.paymentTransaction.findMany({
+    where: { organizationId, id: { in: refundIds } },
+    select: { id: true, status: true },
+  });
+  if (refunds.length !== refundIds.length) return true;
+  const statusById = new Map(refunds.map((refund) => [refund.id, refund.status]));
+  return refundIds.some((refundId) => statusById.get(refundId) !== 'SUCCEEDED');
+}
+
 export async function reconcileHospitalityAustralianTaxDocuments(input: { organizationId: string; actorUserId: string }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -100,6 +125,10 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNotePersistenceError) failures.push({ documentType: 'ADJUSTMENT_NOTE', documentNumber: null, code: 'SOURCE_LINK_FAILED' });
     else throw error;
+  }
+
+  if (await hasSchemaOneCancellationRefundSettlementDrift(input.organizationId)) {
+    failures.push({ documentType: 'ADJUSTMENT_NOTE', documentNumber: null, code: 'SETTLEMENT_DRIFT' });
   }
 
   const after = await currentCounts(input.organizationId);
