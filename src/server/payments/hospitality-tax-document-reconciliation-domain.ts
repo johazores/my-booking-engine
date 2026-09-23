@@ -12,7 +12,7 @@ export const AUSTRALIAN_TAX_DOCUMENT_RETENTION_POLICY = Object.freeze({
   rationale: 'SF does not infer disposal authority from document age. A future disposal workflow must confirm the applicable tax record period, assessment/review periods, and privacy obligations before removing or de-identifying legal-document personal information.',
 });
 
-export type HospitalityTaxDocumentReconciliationFailureCode = 'INTEGRITY_CHECK_FAILED' | 'SOURCE_LINK_FAILED' | 'CONCURRENT_CHANGE';
+export type HospitalityTaxDocumentReconciliationFailureCode = 'INTEGRITY_CHECK_FAILED' | 'SOURCE_LINK_FAILED' | 'SETTLEMENT_DRIFT' | 'CONCURRENT_CHANGE';
 
 export type HospitalityTaxDocumentReconciliationFailure = Readonly<{
   documentType: 'TAX_INVOICE' | 'ADJUSTMENT_NOTE' | 'REGISTER';
@@ -49,6 +49,7 @@ export type HospitalityTaxDocumentReconciliationResult = ReturnType<typeof creat
 const failureCodeSet = new Set<HospitalityTaxDocumentReconciliationFailureCode>([
   'INTEGRITY_CHECK_FAILED',
   'SOURCE_LINK_FAILED',
+  'SETTLEMENT_DRIFT',
   'CONCURRENT_CHANGE',
 ]);
 
