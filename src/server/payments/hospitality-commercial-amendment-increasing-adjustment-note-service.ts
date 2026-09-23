@@ -28,6 +28,9 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import {
+  readHospitalityLegalPaymentEvidenceHistory,
+} from './hospitality-legal-payment-evidence-history.ts';
 
 const AUSTRALIAN_TAX_INVOICE_NUMBER_PATTERN = /^AU-TAX-[0-9]{8,}$/;
 
@@ -341,7 +344,7 @@ async function loadAssessmentEvidence(
   }
   const target = validateTargetPricingEvidence(targetEvidenceRows[0]!, amendment.id);
 
-  const [priorAdjustmentNoteCount, transactions, competingBaselineAmendmentCount] = await Promise.all([
+  const [priorAdjustmentNoteCount, paymentHistory, competingBaselineAmendmentCount] = await Promise.all([
     transaction.hospitalityIssuedAdjustmentNote.count({
       where: {
         organizationId: input.organizationId,
@@ -349,22 +352,10 @@ async function loadAssessmentEvidence(
         sourceInvoiceId: sourceInvoice.id,
       },
     }),
-    transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: input.bookingId,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        kind: true,
-        status: true,
-        providerCode: true,
-        providerReference: true,
-        sourceProviderReference: true,
-        currency: true,
-        amountMinor: true,
-        commercialAmendmentId: true,
-      },
+    readHospitalityLegalPaymentEvidenceHistory({
+      transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
     }),
     transaction.hospitalityBookingCommercialAmendment.count({
       where: {
@@ -380,6 +371,11 @@ async function loadAssessmentEvidence(
       },
     }),
   ]);
+  if (!paymentHistory.complete) {
+    throw new HospitalityCommercialAmendmentIncreasingAdjustmentNotePersistenceError(
+      `Increasing commercial-amendment payment evidence is incomplete: ${paymentHistory.reason}`,
+    );
+  }
   if (competingBaselineAmendmentCount !== 0) {
     throw new HospitalityCommercialAmendmentIncreasingAdjustmentNoteConflictError(
       'Multiple applied commercial amendments compete for the same source tax-invoice baseline.',
@@ -394,7 +390,7 @@ async function loadAssessmentEvidence(
     beforeTotalMinor: amendment.beforeTotalMinor,
     afterTotalMinor: amendment.afterTotalMinor,
     deltaMinor: amendment.deltaMinor,
-    transactions,
+    transactions: paymentHistory.transactions,
   });
   const readiness = assessAustralianCommercialAmendmentIncreasingAdjustmentReadiness({
     sourceInvoice: source.price,
