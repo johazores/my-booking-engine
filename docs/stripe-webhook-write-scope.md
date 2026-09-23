@@ -4,6 +4,16 @@ SF treats a signed Stripe callback as externally supplied provider truth that ma
 
 This review hardens the core `src/server/payments/stripe-webhook-service.ts` state machine. It does not make a browser redirect authoritative.
 
+## Ingress resource boundary
+
+The public webhook route does not call `Request.text()` directly. `src/server/payments/stripe-webhook-request-body.ts` owns raw-body acquisition and enforces the 256 KiB Stripe webhook ceiling before the full request can be buffered by application code.
+
+A canonical decimal `Content-Length` above the ceiling is rejected before body acquisition. `Content-Length` is only an early bound, not authority: SF also counts every actual byte-stream chunk, cancels the request body best-effort as soon as the ceiling is crossed, and rejects aborted or malformed body streams. This prevents absent or understated framing metadata from bypassing the resource limit.
+
+After the bounded byte stream is complete, SF performs fatal UTF-8 decoding before passing the exact valid text to the existing Stripe signature verifier. Invalid UTF-8 is rejected instead of being replacement-normalized before HMAC verification. The service keeps its own 256 KiB UTF-8 byte-length check as defense in depth for direct callers; the route-level stream bound is what prevents pre-validation buffering abuse.
+
+Ingress body failures occur before `ingestStripePaymentWebhook`, so they never establish verified tenant log scope. Oversized bodies return HTTP 413; other malformed or aborted body conditions return the existing safe `invalid-webhook` response without echoing request data.
+
 ## Checkout Session authority
 
 A valid Stripe signature proves that Stripe signed the payload; it does not by itself prove that every Checkout Session field still represents the SF operation being finalized. For a tracked public booking Checkout, SF therefore rebinds the signed callback to the persisted Session before completion or expiry can change commercial state.
@@ -47,10 +57,14 @@ The core webhook service was swept for `PaymentTransaction`, `PaymentCheckoutSes
 
 The same Checkout authority concern was swept through the commercial-amendment webhook parsers for both charge and recovery flows. Their existing amendment-owned payment lifecycles, signed-event promotion, immutable amendment snapshots, apply/compensation semantics, and final serializable writes remain unchanged; this pass only centralizes and tightens the provider Session ownership evidence they accept. Initial authorization/capture/refund provider calls and public Checkout creation remain separate boundaries.
 
+The ingress resource sweep found only one direct `Request.text()` call in the repository: the Stripe webhook route. That public provider-ingress path now streams through the bounded raw-body reader before signature verification; no unrelated request-body abstraction was introduced.
+
 ## Verification
 
 `scripts/stripe-webhook-write-scope.test.mjs` is a dependency-free source contract that prevents the core webhook state machine from regressing to ID-only payment, booking, or checkout-session writes. It also verifies that raw-payload signature verification precedes durable event processing, that tracked Checkout callbacks pass through the Session-authority boundary before settlement/expiry handling, that commercial-amendment parsers use the normalized Checkout authority, and that serializable/advisory-lock behavior remains present.
 
 `src/server/payments/stripe-webhook-domain.test.ts` covers normalized Checkout authority and exact normal-booking decisions. The commercial-amendment Checkout webhook domain tests cover exact payment mode, booking reference, expiry presence, purpose, and amendment ownership for both normal additional-charge and recovery Sessions.
+
+`src/server/payments/stripe-webhook-request-body.test.ts` covers the exact 256 KiB boundary, declared and actual oversize rejection, understated framing, invalid UTF-8, and request-abort behavior. `scripts/stripe-webhook-ingress-resource-contract.test.mjs` protects route ordering, actual-byte counting, early `Content-Length` rejection, safe HTTP mapping, and the service-level byte-length check retained as defense in depth.
 
 Full Prisma validation/generation, repository TypeScript checking, lint, tests, production build, database-backed webhook concurrency scenarios, and live Stripe verification still require the repository-supported Node 24 environment, installed dependencies, an explicitly disposable PostgreSQL target where applicable, and provisioned provider configuration. GitHub Actions are intentionally not used.

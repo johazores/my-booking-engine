@@ -4,6 +4,10 @@ import { finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook } from '@/serv
 import { finalizeVerifiedStripeCommercialAmendmentWebhook } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentConflictError } from '@/server/payments/payment-service.ts';
+import {
+  StripeWebhookRequestBodyError,
+  readStripeWebhookRequestBody,
+} from '@/server/payments/stripe-webhook-request-body.ts';
 import { StripeWebhookRequestError, ingestStripePaymentWebhook } from '@/server/payments/stripe-webhook-service.ts';
 
 export async function POST(
@@ -20,7 +24,7 @@ export async function POST(
   try {
     const routeParams = await params;
     const organizationId = routeParams['organization-id'];
-    const payload = await request.text();
+    const payload = await readStripeWebhookRequestBody(request);
     const verifiedEvent = await ingestStripePaymentWebhook({
       organizationId,
       signature: request.headers.get('stripe-signature'),
@@ -55,6 +59,12 @@ export async function POST(
     }
     return finish(Response.json({ received: true }));
   } catch (error) {
+    if (error instanceof StripeWebhookRequestBodyError) {
+      return finish(Response.json(
+        { error: 'invalid-webhook' },
+        { status: error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400 },
+      ));
+    }
     if (error instanceof StripeWebhookRequestError) {
       if (error.code === 'CONFIGURATION') return finish(Response.json({ error: 'webhook-unavailable' }, { status: 503 }));
       return finish(Response.json({ error: 'invalid-webhook' }, { status: 400 }));
