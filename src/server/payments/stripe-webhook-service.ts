@@ -5,6 +5,7 @@ import { hospitalityBookingMutationLockKey } from '../bookings/hospitality-booki
 import { db } from '../database.ts';
 import { loadStripePaymentIntegration } from '../integrations/stripe-integration.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError } from './payment-service.ts';
@@ -499,15 +500,17 @@ export async function ingestStripePaymentWebhook(input: {
         throw new PaymentConflictError('Stripe refund webhook does not match the persisted settlement source.');
       }
 
-      const ledger = await transaction.paymentTransaction.findMany({
-        where: { organizationId: input.organizationId, bookingId: booking.id },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      const paymentHistory = await readHospitalityPaymentSettlementHistory({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
       });
+      if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
       const plan = requireStripeRefundPlan({
         bookingPaymentStatus: booking.paymentStatus,
         bookingTotalMinor: booking.totalMinor,
         currency: booking.currency,
-        transactions: ledger.filter((entry) => entry.id !== refund.id),
+        transactions: paymentHistory.transactions.filter((entry) => entry.id !== refund.id),
         requestedAmountMinor: refund.amountMinor,
       });
       if (
@@ -558,14 +561,16 @@ export async function ingestStripePaymentWebhook(input: {
 
       let bookingPaymentStatus = booking.paymentStatus;
       if (reconciledStatus === 'SUCCEEDED') {
-        const settledLedger = await transaction.paymentTransaction.findMany({
-          where: { organizationId: input.organizationId, bookingId: booking.id },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        const settledPaymentHistory = await readHospitalityPaymentSettlementHistory({
+          transaction,
+          organizationId: input.organizationId,
+          bookingId: booking.id,
         });
+        if (!settledPaymentHistory.complete) throw new PaymentConflictError(settledPaymentHistory.reason);
         bookingPaymentStatus = requireReconciledBookingPaymentStatus({
           bookingTotalMinor: booking.totalMinor,
           currency: booking.currency,
-          transactions: settledLedger,
+          transactions: settledPaymentHistory.transactions,
         });
         if (bookingPaymentStatus !== plan.nextPaymentStatus) {
           throw new PaymentConflictError('Stripe refund webhook result no longer matches the authoritative booking settlement state.');

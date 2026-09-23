@@ -7,6 +7,7 @@ const paymentService = readFileSync('src/server/payments/payment-service.ts', 'u
 const stripeRefund = readFileSync('src/server/payments/stripe-refund-service.ts', 'utf8');
 const stripeRefundReconciliation = readFileSync('src/server/payments/stripe-refund-reconciliation-service.ts', 'utf8');
 const stripeRefundLifecycle = readFileSync('src/server/payments/stripe-refund-lifecycle-service.ts', 'utf8');
+const stripeWebhook = readFileSync('src/server/payments/stripe-webhook-service.ts', 'utf8');
 const guide = readFileSync('docs/hospitality-payment-history.md', 'utf8');
 
 function section(source, start, end) {
@@ -67,12 +68,39 @@ test('verified Stripe refund lifecycle mutation requires complete bounded histor
   assert.match(fullLedgerReads[0], /take: 2/);
 });
 
+test('primary Stripe refund webhook fails closed without persisting an incomplete settlement decision', () => {
+  const refundWebhook = section(stripeWebhook, '    if (event.refund) {', '    if (!event.paymentIntent)');
+
+  assert.match(refundWebhook, /readHospitalityPaymentSettlementHistory/);
+  assert.ok((refundWebhook.match(/readHospitalityPaymentSettlementHistory/g) ?? []).length >= 2);
+  assert.match(refundWebhook, /if \(!paymentHistory\.complete\) throw new PaymentConflictError\(paymentHistory\.reason\)/);
+  assert.match(refundWebhook, /if \(!settledPaymentHistory\.complete\) throw new PaymentConflictError\(settledPaymentHistory\.reason\)/);
+  assert.match(refundWebhook, /paymentHistory\.transactions\.filter/);
+  assert.match(refundWebhook, /transactions: settledPaymentHistory\.transactions/);
+  assert.doesNotMatch(refundWebhook, /const ledger = await transaction\.paymentTransaction\.findMany/);
+  assert.doesNotMatch(refundWebhook, /const settledLedger = await transaction\.paymentTransaction\.findMany/);
+
+  const initialHistoryIndex = refundWebhook.indexOf('const paymentHistory = await readHospitalityPaymentSettlementHistory');
+  const refundUpdateIndex = refundWebhook.indexOf('await transaction.paymentTransaction.update');
+  const settledHistoryIndex = refundWebhook.indexOf('const settledPaymentHistory = await readHospitalityPaymentSettlementHistory');
+  const persistIndex = refundWebhook.lastIndexOf('return persistEvent(');
+  assert.ok(initialHistoryIndex >= 0 && refundUpdateIndex >= 0 && initialHistoryIndex < refundUpdateIndex);
+  assert.ok(settledHistoryIndex >= 0 && persistIndex >= 0 && settledHistoryIndex < persistIndex);
+
+  assert.match(refundWebhook, /const sourceCandidates = await transaction\.paymentTransaction\.findMany/);
+  assert.match(refundWebhook, /const pendingRefunds = await transaction\.paymentTransaction\.findMany/);
+  assert.ok((refundWebhook.match(/take: 8/g) ?? []).length >= 2);
+  assert.match(stripeWebhook, /\}, \{ isolationLevel: 'Serializable' \}\);/);
+});
+
 test('payment history documentation covers normal refund money authority and bounded query exceptions', () => {
   assert.match(guide, /normal booking refund/i);
   assert.match(guide, /refund availability/i);
   assert.match(guide, /manual offline refund/i);
   assert.match(guide, /direct Stripe refund/i);
   assert.match(guide, /refund reconciliation/i);
+  assert.match(guide, /primary signed Stripe refund ingestion callback/i);
+  assert.match(guide, /provider callback is therefore not falsely acknowledged and can retry/i);
   assert.match(guide, /fails closed/i);
   assert.match(guide, /exact provider-reference/i);
   assert.match(guide, /paginated transaction listing/i);
