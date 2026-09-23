@@ -23,6 +23,16 @@ function failureLabel(code: HospitalityTaxDocumentReconciliationFailureCode) {
   return 'The legal-document register changed while reconciliation was running.';
 }
 
+function failureSummary(report: Awaited<ReturnType<typeof listHospitalityTaxDocumentReconciliationHistory>>['items'][number]['report']) {
+  if (report.failureCodes.length === 0) return 'None';
+  if (report.failureCounts) {
+    return report.failureCounts
+      .map(({ code, count }) => `${failureLabel(code)} ${count} occurrence${count === 1 ? '' : 's'}.`)
+      .join(' ');
+  }
+  return report.failureCodes.map(failureLabel).join(' ');
+}
+
 const errorMessages: Record<string, string> = {
   limit: 'The tenant register exceeds the bounded synchronous reconciliation limit. No partial result was recorded as complete.',
   request: 'The reconciliation request was rejected. Refresh this page and try again from the current SF session.',
@@ -76,7 +86,7 @@ export default async function TaxDocumentReconciliationPage({ searchParams }: {
 
     <section className="sf-invoice-history-card" aria-labelledby="reconciliation-history-title">
       <div className="sf-invoice-history-card__heading"><div><p className="sf-eyebrow">Audit history</p><h2 id="reconciliation-history-title">{history.total} reconciliation run{history.total === 1 ? '' : 's'}</h2></div><span>Page {history.page} of {history.totalPages}</span></div>
-      {history.items.length === 0 ? <div className="sf-invoice-history-empty"><h3>No reconciliation has been run</h3><p>Run the integrity check when investigating document evidence, after material tax-document migrations, or before a period-close accounting export.</p></div> : <div className="sf-invoice-history-table-wrap"><table className="sf-invoice-history-table"><thead><tr><th scope="col">Checked</th><th scope="col">Status</th><th scope="col">Tax invoices</th><th scope="col">Adjustment notes</th><th scope="col">Issues</th></tr></thead><tbody>{history.items.map(({ id, report }) => <tr key={id}><th scope="row">{report.checkedAt.toLocaleString('en-AU', { timeZone: 'UTC' })} UTC</th><td><span className="sf-status-badge">{report.status.toLowerCase()}</span></td><td>{report.taxInvoiceCount}</td><td>{report.adjustmentNoteCount}</td><td>{report.failureCodes.length === 0 ? 'None' : report.failureCodes.map(failureLabel).join(' ')}</td></tr>)}</tbody></table></div>}
+      {history.items.length === 0 ? <div className="sf-invoice-history-empty"><h3>No reconciliation has been run</h3><p>Run the integrity check when investigating document evidence, after material tax-document migrations, or before a period-close accounting export.</p></div> : <div className="sf-invoice-history-table-wrap"><table className="sf-invoice-history-table"><thead><tr><th scope="col">Checked</th><th scope="col">Status</th><th scope="col">Tax invoices</th><th scope="col">Adjustment notes</th><th scope="col">Issues</th></tr></thead><tbody>{history.items.map(({ id, report }) => <tr key={id}><th scope="row">{report.checkedAt.toLocaleString('en-AU', { timeZone: 'UTC' })} UTC</th><td><span className="sf-status-badge">{report.status.toLowerCase()}</span></td><td>{report.taxInvoiceCount}</td><td>{report.adjustmentNoteCount}</td><td>{failureSummary(report)}</td></tr>)}</tbody></table></div>}
       {history.totalPages > 1 ? <nav className="sf-invoice-history-pagination" aria-label="Tax document reconciliation history pages">{history.page > 1 ? <Link className="sf-button sf-button--secondary" href={`/invoices/reconciliation?page=${history.page - 1}`}>Previous runs</Link> : <span />}{history.page < history.totalPages ? <Link className="sf-button sf-button--secondary" href={`/invoices/reconciliation?page=${history.page + 1}`}>Next runs</Link> : null}</nav> : null}
     </section>
 

@@ -2,6 +2,9 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
+} from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
+import {
   HospitalityIssuedAdjustmentNotePersistenceError,
   listHospitalityIssuedAdjustmentNotesForOrganization,
 } from './hospitality-issued-adjustment-note-read-service.ts';
@@ -19,6 +22,10 @@ import {
   parseHospitalityTaxDocumentReconciliationAuditData,
   type HospitalityTaxDocumentReconciliationFailure,
 } from './hospitality-tax-document-reconciliation-domain.ts';
+import {
+  findHospitalityTaxDocumentSettlementDrift,
+  type HospitalityTaxDocumentSettlementAuthority,
+} from './hospitality-tax-document-settlement-drift-domain.ts';
 
 const RECONCILIATION_PAGE_SIZE = 100;
 
@@ -75,29 +82,68 @@ async function validateAdjustmentNoteRegister(input: { organizationId: string; a
   return true;
 }
 
-async function hasSchemaOneCancellationRefundSettlementDrift(organizationId: string) {
+async function currentCancellationRefundSettlementDriftFailures(organizationId: string) {
   const issued = await db.hospitalityIssuedAdjustmentNote.findMany({
     where: {
       organizationId,
       jurisdictionCode: 'AU',
       documentType: 'ADJUSTMENT_NOTE',
       adjustmentReason: 'BOOKING_CANCELLATION',
-      refundTransactionId: { not: null },
     },
-    select: { refundTransactionId: true },
+    select: {
+      documentNumber: true,
+      sourceAdjustmentOrdinal: true,
+      refundTransactionId: true,
+      documentSnapshot: true,
+    },
+    orderBy: [{ documentNumber: 'asc' }, { id: 'asc' }],
     take: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT + 1,
   });
-  if (issued.length === 0) return false;
-  if (issued.length > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) return true;
+  if (issued.length > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) {
+    throw new HospitalityTaxDocumentReconciliationLimitError();
+  }
 
-  const refundIds = issued.map((row) => row.refundTransactionId).filter((value): value is string => value !== null);
-  const refunds = await db.paymentTransaction.findMany({
-    where: { organizationId, id: { in: refundIds } },
-    select: { id: true, status: true },
-  });
-  if (refunds.length !== refundIds.length) return true;
-  const statusById = new Map(refunds.map((refund) => [refund.id, refund.status]));
-  return refundIds.some((refundId) => statusById.get(refundId) !== 'SUCCEEDED');
+  const authorities: HospitalityTaxDocumentSettlementAuthority[] = [];
+  for (const row of issued) {
+    if (row.refundTransactionId) {
+      authorities.push(Object.freeze({
+        documentNumber: row.documentNumber,
+        refundTransactionIds: Object.freeze([row.refundTransactionId]),
+      }));
+      continue;
+    }
+    if (row.sourceAdjustmentOrdinal < 2) continue;
+    try {
+      const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
+      if (
+        snapshot.organizationId !== organizationId
+        || snapshot.documentNumber !== row.documentNumber
+        || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
+      ) continue;
+      authorities.push(Object.freeze({
+        documentNumber: row.documentNumber,
+        refundTransactionIds: Object.freeze(snapshot.refundAuthorities.map((authority) => authority.refundTransactionId)),
+      }));
+    } catch {
+      // The immutable adjustment-note read boundary owns malformed snapshot/source failures.
+    }
+  }
+  if (authorities.length === 0) return Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]);
+
+  const refundIds = [...new Set(authorities.flatMap((authority) => authority.refundTransactionIds))];
+  const currentRefunds = refundIds.length === 0
+    ? []
+    : await db.paymentTransaction.findMany({
+        where: { organizationId, id: { in: refundIds } },
+        select: { id: true, status: true },
+      });
+
+  const drift = findHospitalityTaxDocumentSettlementDrift({ authorities, currentRefunds });
+  return Object.freeze(drift.map((item): HospitalityTaxDocumentReconciliationFailure => Object.freeze({
+    documentType: 'ADJUSTMENT_NOTE',
+    documentNumber: item.documentNumber,
+    code: 'SETTLEMENT_DRIFT',
+  })));
 }
 
 export async function reconcileHospitalityAustralianTaxDocuments(input: { organizationId: string; actorUserId: string }) {
@@ -127,9 +173,7 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
     else throw error;
   }
 
-  if (await hasSchemaOneCancellationRefundSettlementDrift(input.organizationId)) {
-    failures.push({ documentType: 'ADJUSTMENT_NOTE', documentNumber: null, code: 'SETTLEMENT_DRIFT' });
-  }
+  failures.push(...await currentCancellationRefundSettlementDriftFailures(input.organizationId));
 
   const after = await currentCounts(input.organizationId);
   if (after.taxInvoiceCount !== before.taxInvoiceCount || after.adjustmentNoteCount !== before.adjustmentNoteCount) {
@@ -145,7 +189,11 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
       action: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION,
       resourceType: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
       resourceId: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
-      afterData: { ...auditData, failureCodes: [...auditData.failureCodes] },
+      afterData: {
+        ...auditData,
+        failureCodes: [...auditData.failureCodes],
+        failureCounts: auditData.failureCounts.map((item) => ({ ...item })),
+      },
     },
   });
   return report;
