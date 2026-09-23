@@ -1,5 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
-import type { HospitalityCommercialAmendmentRecoveryTransaction } from '../bookings/booking-commercial-amendment-recovery-domain.ts';
+import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 
 export const HOSPITALITY_PAYMENT_RECOVERY_PAGE_SIZE = 100;
 export const HOSPITALITY_PAYMENT_RECOVERY_MAX_TRANSACTIONS = 1_000;
@@ -8,7 +8,7 @@ const MAX_RECOVERY_PAGES = HOSPITALITY_PAYMENT_RECOVERY_MAX_TRANSACTIONS / HOSPI
 
 type HospitalityPaymentRecoveryHistoryReader = Pick<Prisma.TransactionClient, 'paymentTransaction'>;
 
-export type HospitalityPaymentRecoveryTransaction = HospitalityCommercialAmendmentRecoveryTransaction & Readonly<{
+export type HospitalityPaymentRecoveryTransaction = BookingSettlementTransaction & Readonly<{
   id: string;
   organizationId: string;
   bookingId: string;
