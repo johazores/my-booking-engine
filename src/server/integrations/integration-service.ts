@@ -10,6 +10,10 @@ import {
   readCurrentIntegrationHealth,
 } from './integration-domain.ts';
 
+const DEFAULT_INTEGRATION_PAGE_SIZE = 20;
+const MAX_INTEGRATION_PAGE_SIZE = 50;
+const MAX_COMPLETE_INTEGRATION_ROWS = 1_000;
+
 export class IntegrationUnavailableError extends Error {
   constructor(message = 'Integration is not available in this organization.') {
     super(message);
@@ -39,6 +43,38 @@ function prismaErrorCode(error: unknown) {
 function isIntegrationWriteConflict(error: unknown) {
   const code = prismaErrorCode(error);
   return code === 'P2002' || code === 'P2025' || code === 'P2034';
+}
+
+function normalizePage(value: number | undefined) {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value as number : 1;
+}
+
+function normalizePageSize(value: number | undefined) {
+  if (!Number.isSafeInteger(value) || (value ?? 0) < 1) return DEFAULT_INTEGRATION_PAGE_SIZE;
+  return Math.min(value as number, MAX_INTEGRATION_PAGE_SIZE);
+}
+
+async function requireIntegrationReadAccess(input: { organizationId: string; actorUserId: string }) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  await requireOrganizationPermission({
+    organizationId: input.organizationId,
+    userId: input.actorUserId,
+    permission: 'integration:read',
+  });
+}
+
+async function readIntegrationHealthEvent(input: { organizationId: string; integrationId: string }) {
+  return db.auditEvent.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      action: 'integration.connection-tested',
+      resourceType: 'integration',
+      resourceId: input.integrationId,
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { createdAt: true, afterData: true },
+  });
 }
 
 async function runIntegrationWrite<T>(operation: () => Promise<T>) {
@@ -130,29 +166,99 @@ export async function saveIntegration(input: {
   }, { isolationLevel: 'Serializable' }));
 }
 
-export async function listIntegrations(input: { organizationId: string; actorUserId: string }) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.actorUserId, 'actorUserId');
-  await requireOrganizationPermission({
-    organizationId: input.organizationId,
-    userId: input.actorUserId,
-    permission: 'integration:read',
+export async function readIntegrationByProviderCode(input: {
+  organizationId: string;
+  actorUserId: string;
+  providerCode: unknown;
+}) {
+  await requireIntegrationReadAccess(input);
+  const providerCode = normalizeIntegrationProviderCode(input.providerCode);
+  const integration = await db.integration.findUnique({
+    where: {
+      organizationId_providerCode: {
+        organizationId: input.organizationId,
+        providerCode,
+      },
+    },
   });
+  if (!integration) return null;
+
+  const healthEvent = await readIntegrationHealthEvent({
+    organizationId: input.organizationId,
+    integrationId: integration.id,
+  });
+  return publicIntegrationRecord(
+    integration,
+    readCurrentIntegrationHealth({
+      integrationStatus: integration.status,
+      credentialVersion: integration.credentialVersion,
+      event: healthEvent,
+    }),
+  );
+}
+
+export async function listIntegrationsPage(input: {
+  organizationId: string;
+  actorUserId: string;
+  page?: number;
+  pageSize?: number;
+  excludeProviderCodes?: readonly unknown[];
+}) {
+  await requireIntegrationReadAccess(input);
+  const pageSize = normalizePageSize(input.pageSize);
+  const requestedPage = normalizePage(input.page);
+  const excludeProviderCodes = [...new Set(
+    (input.excludeProviderCodes ?? []).map((providerCode) => normalizeIntegrationProviderCode(providerCode)),
+  )].sort();
+  const where = excludeProviderCodes.length > 0
+    ? { organizationId: input.organizationId, providerCode: { notIn: excludeProviderCodes } }
+    : { organizationId: input.organizationId };
+  const total = await db.integration.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const integrations = await db.integration.findMany({
+    where,
+    orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
+  const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent({
+    organizationId: input.organizationId,
+    integrationId: integration.id,
+  })));
+  const items = integrations.map((integration, index) => publicIntegrationRecord(
+    integration,
+    readCurrentIntegrationHealth({
+      integrationStatus: integration.status,
+      credentialVersion: integration.credentialVersion,
+      event: healthEvents[index] ?? null,
+    }),
+  ));
+
+  return Object.freeze({
+    items: Object.freeze(items),
+    total,
+    page,
+    pageSize,
+    totalPages,
+  });
+}
+
+export async function listIntegrations(input: { organizationId: string; actorUserId: string }) {
+  await requireIntegrationReadAccess(input);
   const integrations = await db.integration.findMany({
     where: { organizationId: input.organizationId },
     orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
+    take: MAX_COMPLETE_INTEGRATION_ROWS + 1,
   });
+  if (integrations.length > MAX_COMPLETE_INTEGRATION_ROWS) {
+    throw new Error('Integration collection exceeds the complete-read safety limit. Use the paginated integration reader.');
+  }
   if (integrations.length === 0) return [];
 
-  const healthEvents = await Promise.all(integrations.map((integration) => db.auditEvent.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      action: 'integration.connection-tested',
-      resourceType: 'integration',
-      resourceId: integration.id,
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: { createdAt: true, afterData: true },
+  const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent({
+    organizationId: input.organizationId,
+    integrationId: integration.id,
   })));
 
   return integrations.map((integration, index) => publicIntegrationRecord(

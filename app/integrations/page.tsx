@@ -4,8 +4,11 @@ import { redirect } from 'next/navigation';
 import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/auth-http.ts';
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
-import { listIntegrations } from '@/server/integrations/integration-service.ts';
+import { listIntegrationsPage, readIntegrationByProviderCode } from '@/server/integrations/integration-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+
+const INTEGRATION_COLLECTION_PAGE_SIZE = 20;
+const FEATURED_PROVIDER_CODES = ['stripe', 'travelport-stays'] as const;
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing integrations.',
@@ -60,7 +63,17 @@ const capabilityLabels: Record<string, string> = {
   refund: 'Refund',
 };
 
-type IntegrationRecord = Awaited<ReturnType<typeof listIntegrations>>[number];
+type IntegrationRecord = NonNullable<Awaited<ReturnType<typeof readIntegrationByProviderCode>>>;
+
+function parseIntegrationPage(value: string | undefined) {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return 1;
+  const page = Number(value);
+  return Number.isSafeInteger(page) ? page : 1;
+}
+
+function integrationPageHref(page: number) {
+  return `/integrations${page > 1 ? `?providerPage=${page}` : ''}#other-integrations-title`;
+}
 
 function IntegrationSummary({ integration }: { integration: IntegrationRecord }) {
   return (
@@ -129,7 +142,11 @@ function IntegrationLifecycleControls({
   );
 }
 
-export default async function IntegrationsPage({ searchParams }: { searchParams: Promise<{ status?: string; error?: string }> }) {
+export default async function IntegrationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; error?: string; providerPage?: string }>;
+}) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
   if (authRedirect) redirect(authRedirect);
@@ -152,9 +169,6 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
   const authorization = await readOrganizationAuthorization({ organizationId: activeContext.organization.id, userId: session.user.id });
   const canRead = Boolean(authorization.platformAdmin || (authorization.role && organizationRoleHasPermission(authorization.role, 'integration:read')));
   const canManage = Boolean(authorization.platformAdmin || (authorization.role && organizationRoleHasPermission(authorization.role, 'integration:manage')));
-  const integrations = canRead ? await listIntegrations({ organizationId: activeContext.organization.id, actorUserId: session.user.id }) : [];
-  const stripe = integrations.find((integration) => integration.providerCode === 'stripe');
-  const travelportStays = integrations.find((integration) => integration.providerCode === 'travelport-stays');
 
   if (!canRead) {
     return (
@@ -166,6 +180,28 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
     );
   }
 
+  const requestedProviderPage = parseIntegrationPage(params.providerPage);
+  const [stripe, travelportStays, otherIntegrations] = await Promise.all([
+    readIntegrationByProviderCode({
+      organizationId: activeContext.organization.id,
+      actorUserId: session.user.id,
+      providerCode: 'stripe',
+    }),
+    readIntegrationByProviderCode({
+      organizationId: activeContext.organization.id,
+      actorUserId: session.user.id,
+      providerCode: 'travelport-stays',
+    }),
+    listIntegrationsPage({
+      organizationId: activeContext.organization.id,
+      actorUserId: session.user.id,
+      page: requestedProviderPage,
+      pageSize: INTEGRATION_COLLECTION_PAGE_SIZE,
+      excludeProviderCodes: FEATURED_PROVIDER_CODES,
+    }),
+  ]);
+  const configuredCount = otherIntegrations.total + (stripe ? 1 : 0) + (travelportStays ? 1 : 0);
+
   return (
     <div className="sf-integrations-page">
       <header className="sf-integrations-page__header">
@@ -174,7 +210,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
           <h1>{activeContext.organization.name}</h1>
           <p>Configure tenant-owned providers without exposing stored credentials to the browser.</p>
         </div>
-        <span className="sf-integrations-page__count">{integrations.length} configured</span>
+        <span className="sf-integrations-page__count">{configuredCount} configured</span>
       </header>
 
       {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
@@ -250,12 +286,19 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
         )}
       </section>
 
-      {integrations.filter((integration) => integration.providerCode !== 'stripe' && integration.providerCode !== 'travelport-stays').length > 0 ? (
+      {otherIntegrations.total > 0 ? (
         <section className="sf-integrations-other" aria-labelledby="other-integrations-title">
           <p className="sf-eyebrow">Other configured providers</p>
           <h2 id="other-integrations-title">Provider records</h2>
           <p>These records are shown safely without credentials. Provider-specific management controls are added only when SF has a real adapter and configuration contract.</p>
-          <div className="sf-integrations-other__list">{integrations.filter((integration) => integration.providerCode !== 'stripe' && integration.providerCode !== 'travelport-stays').map((integration) => <div key={integration.id}><strong>{integration.displayName}</strong><span>{integration.providerCode} · {integration.status}</span></div>)}</div>
+          <div className="sf-integrations-other__list">{otherIntegrations.items.map((integration) => <div key={integration.id}><strong>{integration.displayName}</strong><span>{integration.providerCode} · {integration.status}</span></div>)}</div>
+          {otherIntegrations.totalPages > 1 ? (
+            <nav className="sf-pagination" aria-label="Other provider pages">
+              {otherIntegrations.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={integrationPageHref(otherIntegrations.page - 1)}>Previous providers</Link> : <span />}
+              <span>Page {otherIntegrations.page} of {otherIntegrations.totalPages}</span>
+              {otherIntegrations.page < otherIntegrations.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={integrationPageHref(otherIntegrations.page + 1)}>Next providers</Link> : <span />}
+            </nav>
+          ) : null}
         </section>
       ) : null}
     </div>
