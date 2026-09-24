@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { RentalAvailabilityIntegrityError } from './rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
 import {
@@ -155,10 +156,6 @@ async function assertRentalUnitMutationAuthority(input: Readonly<{
   }
 }
 
-function pagination(page: number, pageSize: number) {
-  return { skip: (page - 1) * pageSize, take: pageSize };
-}
-
 export async function listRentalInventory(input: {
   organizationId: string;
   actorUserId: string;
@@ -168,35 +165,63 @@ export async function listRentalInventory(input: {
   pageSize: number;
 }) {
   await requireRentalPermission(input, 'inventory:read');
-  const [unitTypeTotal, unitTypes, locationTotal, locations, unitTotal, units] = await db.$transaction([
-    db.rentalUnitType.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
-    db.rentalUnitType.findMany({
-      where: { organizationId: input.organizationId, status: 'ACTIVE' },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      ...pagination(input.unitTypePage, input.pageSize),
-    }),
-    db.rentalLocation.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
-    db.rentalLocation.findMany({
-      where: { organizationId: input.organizationId, status: 'ACTIVE' },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      ...pagination(input.locationPage, input.pageSize),
-    }),
-    db.rentalUnit.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
-    db.rentalUnit.findMany({
-      where: { organizationId: input.organizationId, status: 'ACTIVE' },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      include: {
-        unitType: { select: { name: true, code: true, currency: true } },
-        location: { select: { name: true, code: true } },
+  return db.$transaction(async (transaction) => {
+    const [unitTypeTotal, locationTotal, unitTotal] = await Promise.all([
+      transaction.rentalUnitType.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
+      transaction.rentalLocation.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
+      transaction.rentalUnit.count({ where: { organizationId: input.organizationId, status: 'ACTIVE' } }),
+    ]);
+    const unitTypePagination = resolveInventoryPagination({ total: unitTypeTotal, page: input.unitTypePage, pageSize: input.pageSize });
+    const locationPagination = resolveInventoryPagination({ total: locationTotal, page: input.locationPage, pageSize: input.pageSize });
+    const unitPagination = resolveInventoryPagination({ total: unitTotal, page: input.unitPage, pageSize: input.pageSize });
+    const [unitTypes, locations, units] = await Promise.all([
+      transaction.rentalUnitType.findMany({
+        where: { organizationId: input.organizationId, status: 'ACTIVE' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: unitTypePagination.skip,
+        take: unitTypePagination.take,
+      }),
+      transaction.rentalLocation.findMany({
+        where: { organizationId: input.organizationId, status: 'ACTIVE' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: locationPagination.skip,
+        take: locationPagination.take,
+      }),
+      transaction.rentalUnit.findMany({
+        where: { organizationId: input.organizationId, status: 'ACTIVE' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        include: {
+          unitType: { select: { name: true, code: true, currency: true } },
+          location: { select: { name: true, code: true } },
+        },
+        skip: unitPagination.skip,
+        take: unitPagination.take,
+      }),
+    ]);
+    return {
+      unitTypes: {
+        items: unitTypes,
+        total: unitTypeTotal,
+        page: unitTypePagination.page,
+        pageSize: unitTypePagination.pageSize,
+        totalPages: unitTypePagination.totalPages,
       },
-      ...pagination(input.unitPage, input.pageSize),
-    }),
-  ]);
-  return {
-    unitTypes: { items: unitTypes, total: unitTypeTotal, page: input.unitTypePage, totalPages: Math.max(1, Math.ceil(unitTypeTotal / input.pageSize)) },
-    locations: { items: locations, total: locationTotal, page: input.locationPage, totalPages: Math.max(1, Math.ceil(locationTotal / input.pageSize)) },
-    units: { items: units, total: unitTotal, page: input.unitPage, totalPages: Math.max(1, Math.ceil(unitTotal / input.pageSize)) },
-  };
+      locations: {
+        items: locations,
+        total: locationTotal,
+        page: locationPagination.page,
+        pageSize: locationPagination.pageSize,
+        totalPages: locationPagination.totalPages,
+      },
+      units: {
+        items: units,
+        total: unitTotal,
+        page: unitPagination.page,
+        pageSize: unitPagination.pageSize,
+        totalPages: unitPagination.totalPages,
+      },
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readRentalLocationInventory(input: {
@@ -208,20 +233,33 @@ export async function readRentalLocationInventory(input: {
 }) {
   await requireRentalPermission(input, 'inventory:read');
   assertUuidIdentifier(input.locationId, 'locationId');
-  const location = await db.rentalLocation.findFirst({
-    where: { id: input.locationId, organizationId: input.organizationId, status: 'ACTIVE' },
-  });
-  if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
-  const total = await db.rentalUnit.count({
-    where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
-  });
-  const units = await db.rentalUnit.findMany({
-    where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
-    orderBy: [{ name: 'asc' }, { id: 'asc' }],
-    include: { unitType: { select: { name: true, code: true } } },
-    ...pagination(input.unitPage, input.pageSize),
-  });
-  return { location, units: { items: units, total, page: input.unitPage, totalPages: Math.max(1, Math.ceil(total / input.pageSize)) } };
+  return db.$transaction(async (transaction) => {
+    const location = await transaction.rentalLocation.findFirst({
+      where: { id: input.locationId, organizationId: input.organizationId, status: 'ACTIVE' },
+    });
+    if (!location) throw new RentalInventoryUnavailableError('Rental location is not active in this organization.');
+    const total = await transaction.rentalUnit.count({
+      where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
+    });
+    const pagination = resolveInventoryPagination({ total, page: input.unitPage, pageSize: input.pageSize });
+    const units = await transaction.rentalUnit.findMany({
+      where: { organizationId: input.organizationId, locationId: location.id, status: 'ACTIVE' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      include: { unitType: { select: { name: true, code: true } } },
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+    return {
+      location,
+      units: {
+        items: units,
+        total,
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        totalPages: pagination.totalPages,
+      },
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readRentalUnitTypeInventory(input: {
@@ -234,30 +272,50 @@ export async function readRentalUnitTypeInventory(input: {
 }) {
   await requireRentalPermission(input, 'inventory:read');
   assertUuidIdentifier(input.unitTypeId, 'unitTypeId');
-  const unitType = await db.rentalUnitType.findFirst({
-    where: { id: input.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
-  });
-  if (!unitType) throw new RentalInventoryUnavailableError('Rental unit type is not active in this organization.');
-  const [unitTotal, units, rateTotal, rates] = await db.$transaction([
-    db.rentalUnit.count({ where: { organizationId: input.organizationId, unitTypeId: unitType.id, status: 'ACTIVE' } }),
-    db.rentalUnit.findMany({
-      where: { organizationId: input.organizationId, unitTypeId: unitType.id, status: 'ACTIVE' },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      include: { location: { select: { name: true, code: true } } },
-      ...pagination(input.unitPage, input.pageSize),
-    }),
-    db.rentalRatePeriod.count({ where: { organizationId: input.organizationId, unitTypeId: unitType.id } }),
-    db.rentalRatePeriod.findMany({
-      where: { organizationId: input.organizationId, unitTypeId: unitType.id },
-      orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
-      ...pagination(input.ratePage, input.pageSize),
-    }),
-  ]);
-  return {
-    unitType,
-    units: { items: units, total: unitTotal, page: input.unitPage, totalPages: Math.max(1, Math.ceil(unitTotal / input.pageSize)) },
-    rates: { items: rates, total: rateTotal, page: input.ratePage, totalPages: Math.max(1, Math.ceil(rateTotal / input.pageSize)) },
-  };
+  return db.$transaction(async (transaction) => {
+    const unitType = await transaction.rentalUnitType.findFirst({
+      where: { id: input.unitTypeId, organizationId: input.organizationId, status: 'ACTIVE' },
+    });
+    if (!unitType) throw new RentalInventoryUnavailableError('Rental unit type is not active in this organization.');
+    const [unitTotal, rateTotal] = await Promise.all([
+      transaction.rentalUnit.count({ where: { organizationId: input.organizationId, unitTypeId: unitType.id, status: 'ACTIVE' } }),
+      transaction.rentalRatePeriod.count({ where: { organizationId: input.organizationId, unitTypeId: unitType.id } }),
+    ]);
+    const unitPagination = resolveInventoryPagination({ total: unitTotal, page: input.unitPage, pageSize: input.pageSize });
+    const ratePagination = resolveInventoryPagination({ total: rateTotal, page: input.ratePage, pageSize: input.pageSize });
+    const [units, rates] = await Promise.all([
+      transaction.rentalUnit.findMany({
+        where: { organizationId: input.organizationId, unitTypeId: unitType.id, status: 'ACTIVE' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        include: { location: { select: { name: true, code: true } } },
+        skip: unitPagination.skip,
+        take: unitPagination.take,
+      }),
+      transaction.rentalRatePeriod.findMany({
+        where: { organizationId: input.organizationId, unitTypeId: unitType.id },
+        orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
+        skip: ratePagination.skip,
+        take: ratePagination.take,
+      }),
+    ]);
+    return {
+      unitType,
+      units: {
+        items: units,
+        total: unitTotal,
+        page: unitPagination.page,
+        pageSize: unitPagination.pageSize,
+        totalPages: unitPagination.totalPages,
+      },
+      rates: {
+        items: rates,
+        total: rateTotal,
+        page: ratePagination.page,
+        pageSize: ratePagination.pageSize,
+        totalPages: ratePagination.totalPages,
+      },
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readRentalUnitInventory(input: {
@@ -269,18 +327,31 @@ export async function readRentalUnitInventory(input: {
 }) {
   await requireRentalPermission(input, 'inventory:read');
   assertUuidIdentifier(input.unitId, 'unitId');
-  const unit = await db.rentalUnit.findFirst({
-    where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
-    include: { unitType: true, location: true },
-  });
-  if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
-  const total = await db.rentalAvailabilityBlock.count({ where: { organizationId: input.organizationId, unitId: unit.id } });
-  const blocks = await db.rentalAvailabilityBlock.findMany({
-    where: { organizationId: input.organizationId, unitId: unit.id },
-    orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
-    ...pagination(input.blockPage, input.pageSize),
-  });
-  return { unit, blocks: { items: blocks, total, page: input.blockPage, totalPages: Math.max(1, Math.ceil(total / input.pageSize)) } };
+  return db.$transaction(async (transaction) => {
+    const unit = await transaction.rentalUnit.findFirst({
+      where: { id: input.unitId, organizationId: input.organizationId, status: 'ACTIVE' },
+      include: { unitType: true, location: true },
+    });
+    if (!unit) throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
+    const total = await transaction.rentalAvailabilityBlock.count({ where: { organizationId: input.organizationId, unitId: unit.id } });
+    const pagination = resolveInventoryPagination({ total, page: input.blockPage, pageSize: input.pageSize });
+    const blocks = await transaction.rentalAvailabilityBlock.findMany({
+      where: { organizationId: input.organizationId, unitId: unit.id },
+      orderBy: [{ startsOn: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+    return {
+      unit,
+      blocks: {
+        items: blocks,
+        total,
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        totalPages: pagination.totalPages,
+      },
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createRentalLocation(input: {
