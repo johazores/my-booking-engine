@@ -25,22 +25,25 @@ export async function listHospitalityRatePlans(input: {
   assertUuidIdentifier(input.propertyId, 'propertyId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
-  const total = await db.hospitalityRatePlan.count({ where });
-  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
-  const ratePlans = await db.hospitalityRatePlan.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: pagination.skip,
-    take: pagination.take,
-    include: { _count: { select: { roomTypeAssignments: true, restrictions: true } } },
-  });
-  return {
-    ratePlans,
-    total,
-    page: pagination.page,
-    pageSize: pagination.pageSize,
-    totalPages: pagination.totalPages,
-  };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityRatePlan.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const ratePlans = await transaction.hospitalityRatePlan.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+      include: { _count: { select: { roomTypeAssignments: true, restrictions: true } } },
+    });
+    return {
+      ratePlans,
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalPages: pagination.totalPages,
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readHospitalityRatePlan(input: {
@@ -69,34 +72,37 @@ export async function listHospitalityRatePlanRoomTypes(input: {
   assertUuidIdentifier(input.propertyId, 'propertyId');
   assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
-  const ratePlan = await db.hospitalityRatePlan.findFirst({
-    where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
 
-  const where = { organizationId: input.organizationId, propertyId: input.propertyId };
-  const total = await db.hospitalityRoomType.count({ where });
-  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
-  const roomTypes = await db.hospitalityRoomType.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: pagination.skip,
-    take: pagination.take,
-    include: {
-      ratePlanAssignments: {
-        where: { ratePlanId: input.ratePlanId },
-        select: { ratePlanId: true, createdAt: true },
+  return db.$transaction(async (transaction) => {
+    const ratePlan = await transaction.hospitalityRatePlan.findFirst({
+      where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
+
+    const where = { organizationId: input.organizationId, propertyId: input.propertyId };
+    const total = await transaction.hospitalityRoomType.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const roomTypes = await transaction.hospitalityRoomType.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        ratePlanAssignments: {
+          where: { ratePlanId: input.ratePlanId },
+          select: { ratePlanId: true, createdAt: true },
+        },
       },
-    },
-  });
-  return {
-    roomTypes,
-    total,
-    page: pagination.page,
-    pageSize: pagination.pageSize,
-    totalPages: pagination.totalPages,
-  };
+    });
+    return {
+      roomTypes,
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalPages: pagination.totalPages,
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createHospitalityRatePlan(input: {

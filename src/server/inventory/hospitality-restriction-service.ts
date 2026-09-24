@@ -27,33 +27,35 @@ export async function listHospitalityRestrictions(input: {
   if (input.roomTypeId) assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
 
-  const ratePlan = await db.hospitalityRatePlan.findFirst({
-    where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
+  return db.$transaction(async (transaction) => {
+    const ratePlan = await transaction.hospitalityRatePlan.findFirst({
+      where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
 
-  const where = {
-    organizationId: input.organizationId,
-    propertyId: input.propertyId,
-    ratePlanId: input.ratePlanId,
-    roomTypeId: input.roomTypeId,
-  };
-  const total = await db.hospitalityRestriction.count({ where });
-  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
-  const restrictions = await db.hospitalityRestriction.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { endDate: 'asc' }, { id: 'asc' }],
-    skip: pagination.skip,
-    take: pagination.take,
-  });
-  return {
-    restrictions,
-    total,
-    page: pagination.page,
-    pageSize: pagination.pageSize,
-    totalPages: pagination.totalPages,
-  };
+    const where = {
+      organizationId: input.organizationId,
+      propertyId: input.propertyId,
+      ratePlanId: input.ratePlanId,
+      roomTypeId: input.roomTypeId,
+    };
+    const total = await transaction.hospitalityRestriction.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const restrictions = await transaction.hospitalityRestriction.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { endDate: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+    return {
+      restrictions,
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalPages: pagination.totalPages,
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listHospitalityRestrictionRoomTypeScopes(input: {
@@ -68,29 +70,31 @@ export async function listHospitalityRestrictionRoomTypeScopes(input: {
   assertUuidIdentifier(input.ratePlanId, 'ratePlanId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
 
-  const ratePlan = await db.hospitalityRatePlan.findFirst({
-    where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
+  return db.$transaction(async (transaction) => {
+    const ratePlan = await transaction.hospitalityRatePlan.findFirst({
+      where: { id: input.ratePlanId, propertyId: input.propertyId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!ratePlan) throw new HospitalityInventoryUnavailableError('Rate plan is not available for this property.');
 
-  const where = { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: input.ratePlanId };
-  const total = await db.hospitalityRoomTypeRatePlan.count({ where });
-  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
-  const assignments = await db.hospitalityRoomTypeRatePlan.findMany({
-    where,
-    orderBy: [{ roomType: { name: 'asc' } }, { roomTypeId: 'asc' }],
-    skip: pagination.skip,
-    take: pagination.take,
-    include: { roomType: { select: { id: true, name: true, code: true, status: true } } },
-  });
-  return {
-    assignments,
-    total,
-    page: pagination.page,
-    pageSize: pagination.pageSize,
-    totalPages: pagination.totalPages,
-  };
+    const where = { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: input.ratePlanId };
+    const total = await transaction.hospitalityRoomTypeRatePlan.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const assignments = await transaction.hospitalityRoomTypeRatePlan.findMany({
+      where,
+      orderBy: [{ roomType: { name: 'asc' } }, { roomTypeId: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+      include: { roomType: { select: { id: true, name: true, code: true, status: true } } },
+    });
+    return {
+      assignments,
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalPages: pagination.totalPages,
+    };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readHospitalityRestrictionRoomTypeScope(input: {

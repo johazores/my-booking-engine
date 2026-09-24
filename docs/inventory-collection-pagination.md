@@ -14,7 +14,7 @@ Inventory collection limits are enforced inside server repository and service bo
 - the helper returns normalized `page`, `pageSize`, `totalPages`, `skip`, and `take` values; and
 - impossible negative or unsafe collection totals fail closed.
 
-Collection readers must calculate the tenant/parent-scoped count first, resolve pagination from that count, and use only the resolved `skip` and `take` values in the row query.
+Collection readers must calculate the tenant/parent-scoped count first, resolve pagination from that count, and use only the resolved `skip` and `take` values in the row query. Management collections that return count-derived page metadata read the relevant parent authority, count, and rows inside one PostgreSQL `RepeatableRead` snapshot.
 
 ## Covered repository-level collections
 
@@ -37,10 +37,15 @@ The same boundary now protects the service-level management collections that pre
 - hospitality restriction room-type scope browsing;
 - rental overview unit types, operating locations, and physical units;
 - rental location physical-unit browsing;
-- rental unit-type physical units and pricing periods; and
-- rental unit availability-block browsing.
+- rental unit-type physical units and pricing periods;
+- rental unit availability-block browsing; and
+- rental unit maintenance work-order history.
+
+Hospitality rate-plan and restriction collection readers keep their parent rate-plan validation inside the same `RepeatableRead` snapshot as the scoped count and rows. Amenity management uses the same snapshot rule at its repository boundary.
 
 Rental inventory screens contain several independently paginated collections. Each collection resolves and clamps its own page from its authoritative tenant/parent-scoped count. The count and corresponding page rows are read inside a `RepeatableRead` transaction so one management response does not combine a count from one database snapshot with rows from a later snapshot.
+
+Rental maintenance applies the same rule to the active tenant-owned unit, total and active work-order counts, page clamping, and ordered work-order rows. A requested page that has become out of range after concurrent maintenance changes is clamped to the final available page.
 
 ## Complete commercial evidence is different
 

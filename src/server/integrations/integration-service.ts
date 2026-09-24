@@ -14,6 +14,8 @@ const DEFAULT_INTEGRATION_PAGE_SIZE = 20;
 const MAX_INTEGRATION_PAGE_SIZE = 50;
 const MAX_COMPLETE_INTEGRATION_ROWS = 1_000;
 
+type IntegrationHealthReadClient = Pick<typeof db, 'auditEvent'>;
+
 export class IntegrationUnavailableError extends Error {
   constructor(message = 'Integration is not available in this organization.') {
     super(message);
@@ -64,8 +66,11 @@ async function requireIntegrationReadAccess(input: { organizationId: string; act
   });
 }
 
-async function readIntegrationHealthEvent(input: { organizationId: string; integrationId: string }) {
-  return db.auditEvent.findFirst({
+async function readIntegrationHealthEvent(
+  client: IntegrationHealthReadClient,
+  input: { organizationId: string; integrationId: string },
+) {
+  return client.auditEvent.findFirst({
     where: {
       organizationId: input.organizationId,
       action: 'integration.connection-tested',
@@ -173,28 +178,31 @@ export async function readIntegrationByProviderCode(input: {
 }) {
   await requireIntegrationReadAccess(input);
   const providerCode = normalizeIntegrationProviderCode(input.providerCode);
-  const integration = await db.integration.findUnique({
-    where: {
-      organizationId_providerCode: {
-        organizationId: input.organizationId,
-        providerCode,
-      },
-    },
-  });
-  if (!integration) return null;
 
-  const healthEvent = await readIntegrationHealthEvent({
-    organizationId: input.organizationId,
-    integrationId: integration.id,
-  });
-  return publicIntegrationRecord(
-    integration,
-    readCurrentIntegrationHealth({
-      integrationStatus: integration.status,
-      credentialVersion: integration.credentialVersion,
-      event: healthEvent,
-    }),
-  );
+  return db.$transaction(async (transaction) => {
+    const integration = await transaction.integration.findUnique({
+      where: {
+        organizationId_providerCode: {
+          organizationId: input.organizationId,
+          providerCode,
+        },
+      },
+    });
+    if (!integration) return null;
+
+    const healthEvent = await readIntegrationHealthEvent(transaction, {
+      organizationId: input.organizationId,
+      integrationId: integration.id,
+    });
+    return publicIntegrationRecord(
+      integration,
+      readCurrentIntegrationHealth({
+        integrationStatus: integration.status,
+        credentialVersion: integration.credentialVersion,
+        event: healthEvent,
+      }),
+    );
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listIntegrationsPage(input: {
@@ -213,62 +221,68 @@ export async function listIntegrationsPage(input: {
   const where = excludeProviderCodes.length > 0
     ? { organizationId: input.organizationId, providerCode: { notIn: excludeProviderCodes } }
     : { organizationId: input.organizationId };
-  const total = await db.integration.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
-  const integrations = await db.integration.findMany({
-    where,
-    orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-  });
-  const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent({
-    organizationId: input.organizationId,
-    integrationId: integration.id,
-  })));
-  const items = integrations.map((integration, index) => publicIntegrationRecord(
-    integration,
-    readCurrentIntegrationHealth({
-      integrationStatus: integration.status,
-      credentialVersion: integration.credentialVersion,
-      event: healthEvents[index] ?? null,
-    }),
-  ));
 
-  return Object.freeze({
-    items: Object.freeze(items),
-    total,
-    page,
-    pageSize,
-    totalPages,
-  });
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.integration.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const integrations = await transaction.integration.findMany({
+      where,
+      orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent(transaction, {
+      organizationId: input.organizationId,
+      integrationId: integration.id,
+    })));
+    const items = integrations.map((integration, index) => publicIntegrationRecord(
+      integration,
+      readCurrentIntegrationHealth({
+        integrationStatus: integration.status,
+        credentialVersion: integration.credentialVersion,
+        event: healthEvents[index] ?? null,
+      }),
+    ));
+
+    return Object.freeze({
+      items: Object.freeze(items),
+      total,
+      page,
+      pageSize,
+      totalPages,
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listIntegrations(input: { organizationId: string; actorUserId: string }) {
   await requireIntegrationReadAccess(input);
-  const integrations = await db.integration.findMany({
-    where: { organizationId: input.organizationId },
-    orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
-    take: MAX_COMPLETE_INTEGRATION_ROWS + 1,
-  });
-  if (integrations.length > MAX_COMPLETE_INTEGRATION_ROWS) {
-    throw new Error('Integration collection exceeds the complete-read safety limit. Use the paginated integration reader.');
-  }
-  if (integrations.length === 0) return [];
 
-  const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent({
-    organizationId: input.organizationId,
-    integrationId: integration.id,
-  })));
+  return db.$transaction(async (transaction) => {
+    const integrations = await transaction.integration.findMany({
+      where: { organizationId: input.organizationId },
+      orderBy: [{ providerCode: 'asc' }, { id: 'asc' }],
+      take: MAX_COMPLETE_INTEGRATION_ROWS + 1,
+    });
+    if (integrations.length > MAX_COMPLETE_INTEGRATION_ROWS) {
+      throw new Error('Integration collection exceeds the complete-read safety limit. Use the paginated integration reader.');
+    }
+    if (integrations.length === 0) return [];
 
-  return integrations.map((integration, index) => publicIntegrationRecord(
-    integration,
-    readCurrentIntegrationHealth({
-      integrationStatus: integration.status,
-      credentialVersion: integration.credentialVersion,
-      event: healthEvents[index] ?? null,
-    }),
-  ));
+    const healthEvents = await Promise.all(integrations.map((integration) => readIntegrationHealthEvent(transaction, {
+      organizationId: input.organizationId,
+      integrationId: integration.id,
+    })));
+
+    return integrations.map((integration, index) => publicIntegrationRecord(
+      integration,
+      readCurrentIntegrationHealth({
+        integrationStatus: integration.status,
+        credentialVersion: integration.credentialVersion,
+        event: healthEvents[index] ?? null,
+      }),
+    ));
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function enableIntegration(input: {

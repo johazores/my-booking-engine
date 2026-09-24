@@ -11,7 +11,8 @@ Hospitality amenities are tenant-owned reusable inventory definitions. The manag
 - requested pages default to page 1;
 - requested page size defaults to 20 and is capped at 50 inside the repository boundary;
 - ordering is deterministic by lifecycle status, name, and stable ID;
-- out-of-range pages clamp to the last available page; and
+- out-of-range pages clamp to the last available page;
+- the scoped count, resolved page, rows, and assignment counts are observed from one PostgreSQL `RepeatableRead` snapshot; and
 - assignment counts are loaded only for the bounded page of amenity definitions.
 
 The page renders the tenant-wide total from the scoped count, a current row range, and accessible previous/next navigation. It never loads the complete amenity catalog merely to render the management table.

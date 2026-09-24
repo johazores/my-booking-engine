@@ -53,54 +53,52 @@ export async function readRentalUnitMaintenanceWorkOrders(input: Readonly<{
 }>) {
   assertUuidIdentifier(input.unitId, 'unitId');
   await requireRentalMaintenancePermission(input, 'inventory:read');
-  const page = normalizePage(input.page);
+  const requestedPage = normalizePage(input.page);
   const pageSize = normalizePageSize(input.pageSize);
 
-  const [unit, total, activeTotal, items] = await db.$transaction([
-    db.rentalUnit.findFirst({
+  return db.$transaction(async (transaction) => {
+    const unit = await transaction.rentalUnit.findFirst({
       where: {
         id: input.unitId,
         organizationId: input.organizationId,
         status: 'ACTIVE',
       },
       select: { id: true, name: true, code: true },
-    }),
-    db.rentalMaintenanceWorkOrder.count({
+    });
+    if (!unit) {
+      throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
+    }
+
+    const where = {
+      organizationId: input.organizationId,
+      unitId: input.unitId,
+    };
+    const total = await transaction.rentalMaintenanceWorkOrder.count({ where });
+    const activeTotal = await transaction.rentalMaintenanceWorkOrder.count({
       where: {
-        organizationId: input.organizationId,
-        unitId: input.unitId,
-      },
-    }),
-    db.rentalMaintenanceWorkOrder.count({
-      where: {
-        organizationId: input.organizationId,
-        unitId: input.unitId,
+        ...where,
         status: { in: ['OPEN', 'IN_PROGRESS'] },
       },
-    }),
-    db.rentalMaintenanceWorkOrder.findMany({
-      where: {
-        organizationId: input.organizationId,
-        unitId: input.unitId,
-      },
+    });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const items = await transaction.rentalMaintenanceWorkOrder.findMany({
+      where,
       orderBy: [{ status: 'asc' }, { openedAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,
-    }),
-  ]);
-  if (!unit) {
-    throw new RentalInventoryUnavailableError('Rental unit is not active in this organization.');
-  }
+    });
 
-  return Object.freeze({
-    unit,
-    items,
-    page,
-    pageSize,
-    total,
-    activeTotal,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  });
+    return Object.freeze({
+      unit,
+      items,
+      page,
+      pageSize,
+      total,
+      activeTotal,
+      totalPages,
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createRentalMaintenanceWorkOrder(input: Readonly<{

@@ -18,16 +18,19 @@ export async function listAmenitiesForOrganizationPage(input: {
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   const where = { organizationId: input.organizationId };
-  const total = await db.hospitalityAmenity.count({ where });
-  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
-  const amenities = await db.hospitalityAmenity.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: pagination.skip,
-    take: pagination.take,
-    include: { _count: { select: { propertyAssignments: true, roomTypeAssignments: true } } },
-  });
-  return { amenities, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityAmenity.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const amenities = await transaction.hospitalityAmenity.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+      include: { _count: { select: { propertyAssignments: true, roomTypeAssignments: true } } },
+    });
+    return { amenities, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listAmenitiesForOrganization(input: { organizationId: string }) {

@@ -9,15 +9,16 @@ const service = read('src/server/inventory/hospitality-amenity-service.ts');
 const page = read('app/inventory/amenities/page.tsx');
 const docs = read('docs/hospitality-amenity-pagination.md');
 
-test('amenity management collection is server paginated and tenant scoped', () => {
-  assert.match(repository, /INVENTORY_PAGE_SIZE_DEFAULT/);
-  assert.match(repository, /INVENTORY_PAGE_SIZE_MAX/);
+test('amenity management collection is server paginated, tenant scoped, and snapshot consistent', () => {
+  assert.match(repository, /resolveInventoryPagination/);
   assert.match(repository, /export async function listAmenitiesForOrganizationPage/);
   assert.match(repository, /const where = \{ organizationId: input\.organizationId \}/);
-  assert.match(repository, /hospitalityAmenity\.count\(\{ where \}\)/);
-  assert.match(repository, /skip: \(page - 1\) \* pageSize/);
-  assert.match(repository, /take: pageSize/);
+  assert.match(repository, /transaction\.hospitalityAmenity\.count\(\{ where \}\)/);
+  assert.match(repository, /transaction\.hospitalityAmenity\.findMany/);
+  assert.match(repository, /skip: pagination\.skip/);
+  assert.match(repository, /take: pagination\.take/);
   assert.match(repository, /orderBy: \[\{ status: 'asc' \}, \{ name: 'asc' \}, \{ id: 'asc' \}\]/);
+  assert.match(repository, /isolationLevel: 'RepeatableRead'/);
 });
 
 test('amenity complete reads fail closed instead of becoming unbounded', () => {
@@ -51,4 +52,5 @@ test('documentation distinguishes paginated management from bounded complete ass
   assert.match(docs, /capped at 50 inside the repository boundary/);
   assert.match(docs, /fails closed above 1,000 rows/);
   assert.match(docs, /must not be reused for new large collection screens/);
+  assert.match(docs, /RepeatableRead/);
 });
