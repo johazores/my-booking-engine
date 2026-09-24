@@ -62,6 +62,14 @@ test('historical chain prefers frozen evidence and reads mutable payment history
   assert.match(evidenceService, /row\.sourceCreatedAt\.getTime\(\) > header\.issuedAt\.getTime\(\)/);
 });
 
+test('legacy fallback is restricted to a leading prefix before frozen capture begins', () => {
+  assert.match(evidenceService, /let frozenEvidenceStarted = false/);
+  assert.match(evidenceService, /if \(frozenEvidenceStarted\)[\s\S]*cannot contain gaps after capture begins/);
+  assert.match(evidenceService, /frozenEvidenceStarted = true/);
+  assert.match(docs, /Legacy documents can exist only as a leading prefix before frozen capture begins/);
+  assert.match(docs, /gap after capture begins fails closed/i);
+});
+
 test('current provider lifecycle reconciliation remains separate from frozen historical authority', () => {
   assert.match(docs, /historical legal authority replays the frozen issue-time ledger/);
   assert.match(docs, /current provider lifecycle remains mutable operational truth/);

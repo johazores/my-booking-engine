@@ -159,10 +159,17 @@ export function buildHospitalityFrozenCommercialSettlementEvidence(input: {
     }
     return left.id.localeCompare(right.id);
   });
+  let frozenEvidenceStarted = false;
 
   for (const note of orderedNotes) {
     const header = headerByNoteId.get(note.id);
-    if (!header) continue;
+    if (!header) {
+      if (frozenEvidenceStarted) {
+        fail('Frozen commercial settlement evidence cannot contain gaps after capture begins.');
+      }
+      continue;
+    }
+    frozenEvidenceStarted = true;
 
     const allowedAmendmentIds = new Set(
       orderedNotes

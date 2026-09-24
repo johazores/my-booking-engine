@@ -31,6 +31,8 @@ Provider credentials, webhook payloads, customer PII, and secrets are not copied
 
 `loadHospitalityFrozenCommercialSettlementEvidence` reads the evidence under the exact organization, booking, and source-invoice scope. It validates the evidence header against the immutable adjustment-note identity, requires schema version 1, enforces the 5,000-row limit, checks exact transaction count, rejects duplicate transaction identities, verifies tenant scope and chronology, and rejects payment rows attributed to commercial amendments outside the legal chain prefix.
 
+Legacy documents can exist only as a leading prefix before frozen capture begins. Once any commercial adjustment note in a source chain has frozen settlement evidence, every later commercial adjustment note in that chain must also have frozen evidence. A gap after capture begins fails closed instead of silently falling back to mutable current payment state. This preserves truthful pre-migration compatibility without allowing a missing post-migration evidence record to weaken historical authority.
+
 `loadVerifiedHospitalityCommercialAmendmentAdjustmentChain` prefers that frozen evidence for each adjustment note and runs the existing provider-neutral settlement derivation against the frozen rows. Later changes to current `PaymentTransaction.status` therefore do not change historical authority for notes that have frozen evidence.
 
 Existing commercial adjustment notes are intentionally **not backfilled**. Their original provider statuses cannot be reconstructed truthfully after the fact. A legacy note without frozen evidence continues through the previous bounded retained-payment fallback and remains subject to the documented legacy settlement-evidence limitation.
