@@ -93,24 +93,28 @@ export async function listHospitalityIssuedAdjustmentNotesForOrganization(input:
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireAdjustmentNoteReadAccess(input);
 
-  const page = pageNumber(input.page, 1, 'page', 100_000);
+  const requestedPage = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 25, 'pageSize', 100);
   const where = { organizationId: input.organizationId, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE } as const;
-  const [total, rows] = await Promise.all([
-    db.hospitalityIssuedAdjustmentNote.count({ where }),
-    db.hospitalityIssuedAdjustmentNote.findMany({
+  const result = await db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityIssuedAdjustmentNote.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const rows = await transaction.hospitalityIssuedAdjustmentNote.findMany({
       where,
       orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,
-    }),
-  ]);
-  const validated = await validateRowsWithAuthorities(input.organizationId, rows);
+    });
+    return { page, total, totalPages, rows };
+  }, { isolationLevel: 'RepeatableRead' });
+
+  const validated = await validateRowsWithAuthorities(input.organizationId, result.rows);
   return Object.freeze({
-    page,
+    page: result.page,
     pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    total: result.total,
+    totalPages: result.totalPages,
     items: Object.freeze(validated.map(adjustmentSummary)),
   });
 }

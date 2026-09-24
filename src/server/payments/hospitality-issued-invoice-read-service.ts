@@ -146,21 +146,37 @@ export async function listHospitalityIssuedTaxInvoices(input: {
   assertUuidIdentifier(input.bookingId, 'bookingId');
   await requireIssuedInvoiceReadAccess(input);
 
-  const booking = await db.hospitalityBooking.findFirst({
-    where: { id: input.bookingId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  if (!booking) throw new HospitalityIssuedInvoiceUnavailableError();
-
-  const page = pageNumber(input.page, 1, 'page', 100_000);
+  const requestedPage = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 20, 'pageSize', 100);
   const where = { organizationId: input.organizationId, bookingId: input.bookingId, ...AUSTRALIAN_TAX_INVOICE_WHERE } as const;
-  const [total, rows] = await Promise.all([
-    db.hospitalityIssuedInvoice.count({ where }),
-    db.hospitalityIssuedInvoice.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
-  ]);
-  const items = rows.map(invoiceSummary);
-  return Object.freeze({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), items: Object.freeze(items) });
+
+  const result = await db.$transaction(async (transaction) => {
+    const booking = await transaction.hospitalityBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!booking) throw new HospitalityIssuedInvoiceUnavailableError();
+
+    const total = await transaction.hospitalityIssuedInvoice.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const rows = await transaction.hospitalityIssuedInvoice.findMany({
+      where,
+      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    return { page, total, totalPages, rows };
+  }, { isolationLevel: 'RepeatableRead' });
+
+  const items = result.rows.map(invoiceSummary);
+  return Object.freeze({
+    page: result.page,
+    pageSize,
+    total: result.total,
+    totalPages: result.totalPages,
+    items: Object.freeze(items),
+  });
 }
 
 export async function listHospitalityIssuedTaxInvoicesForOrganization(input: {
@@ -173,15 +189,30 @@ export async function listHospitalityIssuedTaxInvoicesForOrganization(input: {
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireIssuedInvoiceReadAccess(input);
 
-  const page = pageNumber(input.page, 1, 'page', 100_000);
+  const requestedPage = pageNumber(input.page, 1, 'page', 100_000);
   const pageSize = pageNumber(input.pageSize, 25, 'pageSize', 100);
   const where = { organizationId: input.organizationId, ...AUSTRALIAN_TAX_INVOICE_WHERE } as const;
-  const [total, rows] = await Promise.all([
-    db.hospitalityIssuedInvoice.count({ where }),
-    db.hospitalityIssuedInvoice.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
-  ]);
-  const items = rows.map(invoiceSummary);
-  return Object.freeze({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), items: Object.freeze(items) });
+  const result = await db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityIssuedInvoice.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const rows = await transaction.hospitalityIssuedInvoice.findMany({
+      where,
+      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    return { page, total, totalPages, rows };
+  }, { isolationLevel: 'RepeatableRead' });
+
+  const items = result.rows.map(invoiceSummary);
+  return Object.freeze({
+    page: result.page,
+    pageSize,
+    total: result.total,
+    totalPages: result.totalPages,
+    items: Object.freeze(items),
+  });
 }
 
 export async function createHospitalityIssuedTaxInvoiceAccountingExport(input: {

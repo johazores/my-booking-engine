@@ -206,24 +206,6 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
   });
   if (!capability) throw new PublicIssuedTaxInvoiceAuthorizationError();
 
-  const [ownership, principal, booking] = await Promise.all([
-    db.publicBookingBookingOwnership.findUnique({
-      where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
-      select: { principalId: true },
-    }),
-    db.publicBookingPrincipal.findFirst({
-      where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
-      select: { id: true },
-    }),
-    db.hospitalityBooking.findFirst({
-      where: { id: capability.bookingId, organizationId: branding.id },
-      select: { id: true },
-    }),
-  ]);
-  if (!ownership || ownership.principalId !== capability.principalId || !principal || !booking) {
-    throw new PublicIssuedTaxInvoiceAuthorizationError();
-  }
-
   const invoiceWhere = {
     organizationId: branding.id,
     bookingId: capability.bookingId,
@@ -237,27 +219,48 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
     documentType: 'ADJUSTMENT_NOTE',
   } as const;
 
-  const [total, rows, adjustmentTotal, adjustmentRows] = await Promise.all([
-    db.hospitalityIssuedInvoice.count({ where: invoiceWhere }),
-    db.hospitalityIssuedInvoice.findMany({
-      where: invoiceWhere,
-      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
-      take: PUBLIC_DOCUMENT_LIMIT,
-    }),
-    db.hospitalityIssuedAdjustmentNote.count({ where: adjustmentWhere }),
-    db.hospitalityIssuedAdjustmentNote.findMany({
-      where: adjustmentWhere,
-      orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
-      take: PUBLIC_DOCUMENT_LIMIT,
-    }),
-  ]);
+  const snapshot = await db.$transaction(async (transaction) => {
+    const [ownership, principal, booking] = await Promise.all([
+      transaction.publicBookingBookingOwnership.findUnique({
+        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
+        select: { principalId: true },
+      }),
+      transaction.publicBookingPrincipal.findFirst({
+        where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
+        select: { id: true },
+      }),
+      transaction.hospitalityBooking.findFirst({
+        where: { id: capability.bookingId, organizationId: branding.id },
+        select: { id: true },
+      }),
+    ]);
+    if (!ownership || ownership.principalId !== capability.principalId || !principal || !booking) {
+      throw new PublicIssuedTaxInvoiceAuthorizationError();
+    }
 
-  const items = rows.map((row) => customerDocument(validatePersistedInvoice(row)));
+    const [total, rows, adjustmentTotal, adjustmentRows] = await Promise.all([
+      transaction.hospitalityIssuedInvoice.count({ where: invoiceWhere }),
+      transaction.hospitalityIssuedInvoice.findMany({
+        where: invoiceWhere,
+        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+        take: PUBLIC_DOCUMENT_LIMIT,
+      }),
+      transaction.hospitalityIssuedAdjustmentNote.count({ where: adjustmentWhere }),
+      transaction.hospitalityIssuedAdjustmentNote.findMany({
+        where: adjustmentWhere,
+        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
+        take: PUBLIC_DOCUMENT_LIMIT,
+      }),
+    ]);
+    return { total, rows, adjustmentTotal, adjustmentRows };
+  }, { isolationLevel: 'RepeatableRead' });
+
+  const items = snapshot.rows.map((row) => customerDocument(validatePersistedInvoice(row)));
   let validatedAdjustments: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRows>>;
   try {
     validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRows({
       organizationId: branding.id,
-      rows: adjustmentRows,
+      rows: snapshot.adjustmentRows,
     });
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError || error instanceof Error) {
@@ -268,12 +271,12 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
 
   const adjustmentItems = validatedAdjustments.map(({ document }) => customerAdjustmentDocument(document));
   return Object.freeze({
-    total,
-    truncated: total > items.length,
+    total: snapshot.total,
+    truncated: snapshot.total > items.length,
     items: Object.freeze(items),
     adjustmentNotes: Object.freeze({
-      total: adjustmentTotal,
-      truncated: adjustmentTotal > adjustmentItems.length,
+      total: snapshot.adjustmentTotal,
+      truncated: snapshot.adjustmentTotal > adjustmentItems.length,
       items: Object.freeze(adjustmentItems),
     }),
   });
