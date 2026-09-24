@@ -8,6 +8,7 @@ import {
   type RentalAvailabilitySearchInput,
 } from './rental-availability-domain.ts';
 import { findOverdueRentalCustodyUnitIds } from './rental-custody-availability.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { RentalInventoryUnavailableError } from './rental-service.ts';
 import { rentalUnitOperationalReadinessWhere } from './rental-unit-operational-readiness.ts';
 
@@ -119,20 +120,8 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       },
     };
 
-    const [total, units, ratePeriods] = await Promise.all([
+    const [total, ratePeriods] = await Promise.all([
       transaction.rentalUnit.count({ where: unitWhere }),
-      transaction.rentalUnit.findMany({
-        where: unitWhere,
-        orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          location: { select: { id: true, name: true, code: true, timeZone: true } },
-        },
-        skip: (search.page - 1) * search.pageSize,
-        take: search.pageSize,
-      }),
       transaction.rentalRatePeriod.findMany({
         where: {
           organizationId: input.organizationId,
@@ -144,6 +133,23 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
         select: { startsOn: true, endsOn: true, dailyRateMinor: true },
       }),
     ]);
+    const pagination = resolveInventoryPagination({
+      total,
+      page: search.page,
+      pageSize: search.pageSize,
+    });
+    const units = await transaction.rentalUnit.findMany({
+      where: unitWhere,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        location: { select: { id: true, name: true, code: true, timeZone: true } },
+      },
+      skip: pagination.skip,
+      take: pagination.take,
+    });
 
     const pricingEvidence = buildRentalPricingEvidence({
       unitTypeId: unitType.id,
@@ -153,17 +159,22 @@ export async function searchRentalInventoryAvailability(input: Readonly<{
       defaultDailyRateMinor: unitType.defaultDailyRateMinor,
       ratePeriods,
     });
+    const resolvedSearch = Object.freeze({
+      ...search,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    });
 
     return Object.freeze({
-      search,
+      search: resolvedSearch,
       unitType,
       location,
       availability: Object.freeze({
         items: Object.freeze(units),
         total,
-        page: search.page,
-        pageSize: search.pageSize,
-        totalPages: Math.max(1, Math.ceil(total / search.pageSize)),
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        totalPages: pagination.totalPages,
       }),
       pricing: Object.freeze({
         ...pricingEvidence.quote,

@@ -5,11 +5,13 @@ import {
   normalizeRentalDateRange,
   RentalInventoryValidationError,
 } from './rental-domain.ts';
+import {
+  INVENTORY_PAGE_SIZE_DEFAULT,
+  INVENTORY_PAGE_SIZE_MAX,
+} from './inventory-pagination.ts';
 
 const MILLISECONDS_PER_DAY = 86_400_000;
 const MAX_RENTAL_AVAILABILITY_DAYS = 90;
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
 
 export class RentalAvailabilityIntegrityError extends Error {
   constructor(message = 'Rental availability pricing data is inconsistent.') {
@@ -68,7 +70,12 @@ export function normalizeRentalAvailabilitySearchInput(input: RentalAvailability
     startsOn: dateRange.startsOn,
     endsOn: dateRange.endsOn,
     page: normalizePositiveInteger(input.page, 1, 'Page', 10_000),
-    pageSize: normalizePositiveInteger(input.pageSize, DEFAULT_PAGE_SIZE, 'Page size', MAX_PAGE_SIZE),
+    pageSize: normalizePositiveInteger(
+      input.pageSize,
+      INVENTORY_PAGE_SIZE_DEFAULT,
+      'Page size',
+      INVENTORY_PAGE_SIZE_MAX,
+    ),
     days,
   });
 }

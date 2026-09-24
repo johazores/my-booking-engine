@@ -12,7 +12,7 @@ import {
   rentalAvailabilityHoldPayloadMatches,
   type RentalAvailabilityHoldInput,
 } from './rental-hold-domain.ts';
-import { RentalInventoryValidationError } from './rental-domain.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { rentalUnitLockKey } from './rental-lock-domain.ts';
 import {
   RentalInventoryConflictError,
@@ -22,13 +22,6 @@ import { findRentalUnitOperationalReadinessBlocker } from './rental-unit-operati
 
 function idempotencyLockKey(organizationId: string, idempotencyKey: string) {
   return `sf:rental-hold:${organizationId}:idempotency:${idempotencyKey}`;
-}
-
-function normalizePage(value: number, field: string, maximum: number) {
-  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
-    throw new RentalInventoryValidationError(`${field} is invalid.`);
-  }
-  return value;
 }
 
 async function readRentalHoldDatabaseClock(transaction: Prisma.TransactionClient, context: string) {
@@ -293,8 +286,6 @@ export async function listRentalAvailabilityHolds(input: Readonly<{
     userId: input.actorUserId,
     permission: 'availability:read',
   });
-  const page = normalizePage(input.page, 'Page', 10_000);
-  const pageSize = normalizePage(input.pageSize, 'Page size', 100);
 
   return db.$transaction(async (transaction) => {
     const now = await readRentalHoldDatabaseClock(transaction, 'rental hold listing');
@@ -303,33 +294,36 @@ export async function listRentalAvailabilityHolds(input: Readonly<{
       status: 'ACTIVE' as const,
       expiresAt: { gt: now },
     };
-    const [total, items] = await Promise.all([
-      transaction.rentalAvailabilityHold.count({ where }),
-      transaction.rentalAvailabilityHold.findMany({
-        where,
-        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include: {
-          unit: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              unitType: { select: { code: true, name: true } },
-              location: { select: { code: true, name: true } },
-            },
+    const total = await transaction.rentalAvailabilityHold.count({ where });
+    const pagination = resolveInventoryPagination({
+      total,
+      page: input.page,
+      pageSize: input.pageSize,
+    });
+    const items = await transaction.rentalAvailabilityHold.findMany({
+      where,
+      orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        unit: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            unitType: { select: { code: true, name: true } },
+            location: { select: { code: true, name: true } },
           },
         },
-      }),
-    ]);
+      },
+    });
 
     return Object.freeze({
       items: Object.freeze(items),
       total,
-      page,
-      pageSize,
-      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      totalPages: pagination.totalPages,
     });
   }, { isolationLevel: 'RepeatableRead' });
 }
