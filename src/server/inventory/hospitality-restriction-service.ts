@@ -2,6 +2,7 @@ import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { assertInventoryArchiveConfirmation } from './hospitality-domain.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import {
   formatRestrictionDate,
   normalizeHospitalityRestrictionInput,
@@ -39,15 +40,20 @@ export async function listHospitalityRestrictions(input: {
     roomTypeId: input.roomTypeId,
   };
   const total = await db.hospitalityRestriction.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const restrictions = await db.hospitalityRestriction.findMany({
     where,
     orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { endDate: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
   });
-  return { restrictions, total, page, totalPages };
+  return {
+    restrictions,
+    total,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalPages: pagination.totalPages,
+  };
 }
 
 export async function listHospitalityRestrictionRoomTypeScopes(input: {
@@ -70,16 +76,21 @@ export async function listHospitalityRestrictionRoomTypeScopes(input: {
 
   const where = { organizationId: input.organizationId, propertyId: input.propertyId, ratePlanId: input.ratePlanId };
   const total = await db.hospitalityRoomTypeRatePlan.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const assignments = await db.hospitalityRoomTypeRatePlan.findMany({
     where,
     orderBy: [{ roomType: { name: 'asc' } }, { roomTypeId: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { roomType: { select: { id: true, name: true, code: true, status: true } } },
   });
-  return { assignments, total, page, totalPages };
+  return {
+    assignments,
+    total,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalPages: pagination.totalPages,
+  };
 }
 
 export async function readHospitalityRestrictionRoomTypeScope(input: {
