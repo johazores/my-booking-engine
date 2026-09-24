@@ -70,6 +70,13 @@ test('legacy fallback is restricted to a leading prefix before frozen capture be
   assert.match(docs, /gap after capture begins fails closed/i);
 });
 
+test('frozen transaction membership is monotonic across the captured chain suffix', () => {
+  assert.match(evidenceService, /let previousFrozenPaymentIds: ReadonlySet<string> \| null = null/);
+  assert.match(evidenceService, /previousFrozenPaymentIds[\s\S]*currentPaymentIds\.has\(paymentId\)/);
+  assert.match(evidenceService, /cannot drop previously frozen payment identities/);
+  assert.match(docs, /Frozen transaction membership is also monotonic across the captured suffix/);
+});
+
 test('current provider lifecycle reconciliation remains separate from frozen historical authority', () => {
   assert.match(docs, /historical legal authority replays the frozen issue-time ledger/);
   assert.match(docs, /current provider lifecycle remains mutable operational truth/);

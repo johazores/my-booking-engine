@@ -58,7 +58,7 @@ function secondHeader(overrides: Record<string, unknown> = {}) {
     sourceAdjustmentOrdinal: 2,
     schemaVersion: 1,
     issuedAt: secondIssuedAt,
-    transactionCount: 1,
+    transactionCount: 2,
     ...overrides,
   };
 }
@@ -80,6 +80,13 @@ function payment(overrides: Record<string, unknown> = {}) {
     sourceCreatedAt: new Date('2026-09-24T11:59:00.000Z'),
     ...overrides,
   };
+}
+
+function priorPaymentInSecondEvidence(overrides: Record<string, unknown> = {}) {
+  return payment({
+    settlementEvidenceId: secondNoteId,
+    ...overrides,
+  });
 }
 
 function secondPayment(overrides: Record<string, unknown> = {}) {
@@ -108,7 +115,7 @@ test('frozen commercial settlement evidence preserves issue-time payment status 
     sourceInvoiceId,
     adjustmentNotes: notes,
     headers: [header(), secondHeader()],
-    transactionRows: [payment(), secondPayment()],
+    transactionRows: [payment(), priorPaymentInSecondEvidence(), secondPayment()],
   });
 
   assert.equal(evidence.size, 2);
@@ -128,7 +135,7 @@ test('legacy adjustment notes may form only a leading prefix before frozen evide
     sourceInvoiceId,
     adjustmentNotes: notes,
     headers: [secondHeader()],
-    transactionRows: [secondPayment()],
+    transactionRows: [priorPaymentInSecondEvidence(), secondPayment()],
   });
 
   assert.equal(evidence.size, 1);
@@ -145,6 +152,17 @@ test('a missing frozen header after capture begins fails closed instead of falli
     headers: [header()],
     transactionRows: [payment()],
   }), /cannot contain gaps after capture begins/i);
+});
+
+test('later frozen evidence cannot drop payment identities captured by an earlier frozen note', () => {
+  assert.throws(() => buildHospitalityFrozenCommercialSettlementEvidence({
+    organizationId,
+    bookingId,
+    sourceInvoiceId,
+    adjustmentNotes: notes,
+    headers: [header(), secondHeader({ transactionCount: 1 })],
+    transactionRows: [payment(), secondPayment()],
+  }), /cannot drop previously frozen payment identities/i);
 });
 
 test('fully legacy adjustment chains without frozen evidence remain supported', () => {

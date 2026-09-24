@@ -160,6 +160,7 @@ export function buildHospitalityFrozenCommercialSettlementEvidence(input: {
     return left.id.localeCompare(right.id);
   });
   let frozenEvidenceStarted = false;
+  let previousFrozenPaymentIds: ReadonlySet<string> | null = null;
 
   for (const note of orderedNotes) {
     const header = headerByNoteId.get(note.id);
@@ -196,6 +197,15 @@ export function buildHospitalityFrozenCommercialSettlementEvidence(input: {
         seenPaymentIds.add(row.paymentTransactionId);
         return validateTransactionRow({ row, header, allowedAmendmentIds });
       });
+
+    const currentPaymentIds = new Set(transactions.map((transaction) => transaction.id));
+    if (
+      previousFrozenPaymentIds
+      && [...previousFrozenPaymentIds].some((paymentId) => !currentPaymentIds.has(paymentId))
+    ) {
+      fail('Frozen commercial settlement evidence cannot drop previously frozen payment identities.');
+    }
+    previousFrozenPaymentIds = currentPaymentIds;
 
     result.set(note.id, Object.freeze(transactions));
   }

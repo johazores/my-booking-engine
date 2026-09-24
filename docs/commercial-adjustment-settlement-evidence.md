@@ -33,6 +33,8 @@ Provider credentials, webhook payloads, customer PII, and secrets are not copied
 
 Legacy documents can exist only as a leading prefix before frozen capture begins. Once any commercial adjustment note in a source chain has frozen settlement evidence, every later commercial adjustment note in that chain must also have frozen evidence. A gap after capture begins fails closed instead of silently falling back to mutable current payment state. This preserves truthful pre-migration compatibility without allowing a missing post-migration evidence record to weaken historical authority.
 
+Frozen transaction membership is also monotonic across the captured suffix. Every payment identity frozen for one commercial adjustment note must remain present in each later frozen note. A later snapshot may legitimately carry a later provider lifecycle status for that same payment identity, but it cannot silently drop payment membership that formed part of earlier legal settlement evidence.
+
 `loadVerifiedHospitalityCommercialAmendmentAdjustmentChain` prefers that frozen evidence for each adjustment note and runs the existing provider-neutral settlement derivation against the frozen rows. Later changes to current `PaymentTransaction.status` therefore do not change historical authority for notes that have frozen evidence.
 
 Existing commercial adjustment notes are intentionally **not backfilled**. Their original provider statuses cannot be reconstructed truthfully after the fact. A legacy note without frozen evidence continues through the previous bounded retained-payment fallback and remains subject to the documented legacy settlement-evidence limitation.
