@@ -307,7 +307,7 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
         action: 'inventory.rate-plan.removed-room-type',
         resourceType: 'hospitality-rate-plan',
         resourceId: input.ratePlanId,
-        beforeData: { propertyId: input.propertyId, roomTypeId: roomType.id },
+        beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId },
       },
     });
     return true;
