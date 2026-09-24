@@ -203,200 +203,202 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
     throw new RangeError('documentLimit must be a positive safe integer.');
   }
 
-  const issued = await db.hospitalityIssuedAdjustmentNote.findMany({
-    where: {
-      organizationId: input.organizationId,
-      jurisdictionCode: 'AU',
-      documentType: 'ADJUSTMENT_NOTE',
-      adjustmentReason: 'COMMERCIAL_AMENDMENT',
-    },
-    select: {
-      bookingId: true,
-      sourceInvoiceId: true,
-      documentNumber: true,
-      sourceAdjustmentOrdinal: true,
-      issuedAt: true,
-      currency: true,
-      adjustmentType: true,
-      commercialAmendmentId: true,
-      targetPricingEvidenceId: true,
-      documentFingerprint: true,
-      documentSnapshot: true,
-    },
-    orderBy: [{ bookingId: 'asc' }, { sourceInvoiceId: 'asc' }, { sourceAdjustmentOrdinal: 'asc' }, { id: 'asc' }],
-    take: input.documentLimit + 1,
-  });
-  if (issued.length > input.documentLimit) {
-    return Object.freeze({ status: 'DOCUMENT_LIMIT_EXCEEDED' as const });
-  }
-
-  const parsedAuthorities = issued
-    .map((row) => authorityFromRow(row, input.organizationId))
-    .filter((authority): authority is CommercialAdjustmentAuthority => authority !== null);
-  if (parsedAuthorities.length === 0) {
-    return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
-  }
-
-  const sourceInvoiceIds = [...new Set(parsedAuthorities.map((authority) => authority.sourceInvoiceId))];
-  const amendmentIds = [...new Set(parsedAuthorities.map((authority) => authority.commercialAmendmentId))];
-  const targetPricingEvidenceIds = [...new Set(parsedAuthorities.map((authority) => authority.targetPricingEvidenceId))];
-  const [sourceInvoiceRows, amendments, targetPricingEvidence] = await Promise.all([
-    db.hospitalityIssuedInvoice.findMany({
+  return db.$transaction(async (transaction) => {
+    const issued = await transaction.hospitalityIssuedAdjustmentNote.findMany({
       where: {
         organizationId: input.organizationId,
-        id: { in: sourceInvoiceIds },
         jurisdictionCode: 'AU',
-        documentType: 'TAX_INVOICE',
+        documentType: 'ADJUSTMENT_NOTE',
+        adjustmentReason: 'COMMERCIAL_AMENDMENT',
       },
       select: {
-        id: true,
-        organizationId: true,
         bookingId: true,
-        preparationId: true,
-        pricingEvidenceId: true,
-        issuerProfileId: true,
-        jurisdictionCode: true,
-        documentType: true,
+        sourceInvoiceId: true,
         documentNumber: true,
-        sequenceValue: true,
+        sourceAdjustmentOrdinal: true,
         issuedAt: true,
         currency: true,
-        accommodationSubtotalMinor: true,
-        taxTotalMinor: true,
-        feeTotalMinor: true,
-        addonTotalMinor: true,
-        totalMinor: true,
-        preparationFingerprint: true,
-        pricingFingerprint: true,
-        issuerFingerprint: true,
-        recipientFingerprint: true,
+        adjustmentType: true,
+        commercialAmendmentId: true,
+        targetPricingEvidenceId: true,
         documentFingerprint: true,
         documentSnapshot: true,
       },
-    }),
-    db.hospitalityBookingCommercialAmendment.findMany({
-      where: { organizationId: input.organizationId, id: { in: amendmentIds } },
-      select: {
-        id: true,
-        bookingId: true,
-        status: true,
-        direction: true,
-        appliedAt: true,
-        paymentProviderCode: true,
-        currency: true,
-        beforeTotalMinor: true,
-        afterTotalMinor: true,
-        deltaMinor: true,
-        beforePricingFingerprint: true,
-        afterPricingFingerprint: true,
-      },
-    }),
-    db.hospitalityBookingPricingEvidence.findMany({
+      orderBy: [{ bookingId: 'asc' }, { sourceInvoiceId: 'asc' }, { sourceAdjustmentOrdinal: 'asc' }, { id: 'asc' }],
+      take: input.documentLimit + 1,
+    });
+    if (issued.length > input.documentLimit) {
+      return Object.freeze({ status: 'DOCUMENT_LIMIT_EXCEEDED' as const });
+    }
+
+    const parsedAuthorities = issued
+      .map((row) => authorityFromRow(row, input.organizationId))
+      .filter((authority): authority is CommercialAdjustmentAuthority => authority !== null);
+    if (parsedAuthorities.length === 0) {
+      return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
+    }
+
+    const sourceInvoiceIds = [...new Set(parsedAuthorities.map((authority) => authority.sourceInvoiceId))];
+    const amendmentIds = [...new Set(parsedAuthorities.map((authority) => authority.commercialAmendmentId))];
+    const targetPricingEvidenceIds = [...new Set(parsedAuthorities.map((authority) => authority.targetPricingEvidenceId))];
+    const [sourceInvoiceRows, amendments, targetPricingEvidence] = await Promise.all([
+      transaction.hospitalityIssuedInvoice.findMany({
+        where: {
+          organizationId: input.organizationId,
+          id: { in: sourceInvoiceIds },
+          jurisdictionCode: 'AU',
+          documentType: 'TAX_INVOICE',
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          bookingId: true,
+          preparationId: true,
+          pricingEvidenceId: true,
+          issuerProfileId: true,
+          jurisdictionCode: true,
+          documentType: true,
+          documentNumber: true,
+          sequenceValue: true,
+          issuedAt: true,
+          currency: true,
+          accommodationSubtotalMinor: true,
+          taxTotalMinor: true,
+          feeTotalMinor: true,
+          addonTotalMinor: true,
+          totalMinor: true,
+          preparationFingerprint: true,
+          pricingFingerprint: true,
+          issuerFingerprint: true,
+          recipientFingerprint: true,
+          documentFingerprint: true,
+          documentSnapshot: true,
+        },
+      }),
+      transaction.hospitalityBookingCommercialAmendment.findMany({
+        where: { organizationId: input.organizationId, id: { in: amendmentIds } },
+        select: {
+          id: true,
+          bookingId: true,
+          status: true,
+          direction: true,
+          appliedAt: true,
+          paymentProviderCode: true,
+          currency: true,
+          beforeTotalMinor: true,
+          afterTotalMinor: true,
+          deltaMinor: true,
+          beforePricingFingerprint: true,
+          afterPricingFingerprint: true,
+        },
+      }),
+      transaction.hospitalityBookingPricingEvidence.findMany({
+        where: {
+          organizationId: input.organizationId,
+          id: { in: targetPricingEvidenceIds },
+          source: 'COMMERCIAL_AMENDMENT_TARGET',
+        },
+        select: {
+          id: true,
+          bookingId: true,
+          commercialAmendmentId: true,
+          source: true,
+          currency: true,
+          totalMinor: true,
+          pricingFingerprint: true,
+        },
+      }),
+    ]);
+    const sourceInvoices = sourceInvoiceRows
+      .map((row) => sourceInvoiceAuthorityFromRow(row, input.organizationId))
+      .filter((source): source is CommercialSourceInvoiceAuthority => source !== null);
+    const amendmentById = new Map(amendments.map((amendment) => [amendment.id, amendment]));
+    const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
+      authorities: parsedAuthorities,
+      sourceInvoices,
+      amendments,
+      targetPricingEvidence,
+    });
+    const validAuthorities = [...authorityGroups.values()].flat();
+    if (validAuthorities.length === 0) {
+      return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
+    }
+
+    const bookingIds = [...new Set(validAuthorities.map((authority) => authority.bookingId))];
+    const latestIssueTime = validAuthorities.reduce(
+      (latest, authority) => authority.issuedAt.getTime() > latest.getTime() ? authority.issuedAt : latest,
+      validAuthorities[0]!.issuedAt,
+    );
+    const transactions = await transaction.paymentTransaction.findMany({
       where: {
         organizationId: input.organizationId,
-        id: { in: targetPricingEvidenceIds },
-        source: 'COMMERCIAL_AMENDMENT_TARGET',
+        bookingId: { in: bookingIds },
+        createdAt: { lte: latestIssueTime },
       },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: COMMERCIAL_SETTLEMENT_TRANSACTION_LIMIT + 1,
       select: {
-        id: true,
         bookingId: true,
         commercialAmendmentId: true,
-        source: true,
+        kind: true,
+        status: true,
+        providerCode: true,
+        providerReference: true,
+        sourceProviderReference: true,
         currency: true,
-        totalMinor: true,
-        pricingFingerprint: true,
+        amountMinor: true,
+        createdAt: true,
       },
-    }),
-  ]);
-  const sourceInvoices = sourceInvoiceRows
-    .map((row) => sourceInvoiceAuthorityFromRow(row, input.organizationId))
-    .filter((source): source is CommercialSourceInvoiceAuthority => source !== null);
-  const amendmentById = new Map(amendments.map((amendment) => [amendment.id, amendment]));
-  const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups({
-    authorities: parsedAuthorities,
-    sourceInvoices,
-    amendments,
-    targetPricingEvidence,
-  });
-  const validAuthorities = [...authorityGroups.values()].flat();
-  if (validAuthorities.length === 0) {
-    return Object.freeze({ status: 'OK' as const, failures: Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]) });
-  }
-
-  const bookingIds = [...new Set(validAuthorities.map((authority) => authority.bookingId))];
-  const latestIssueTime = validAuthorities.reduce(
-    (latest, authority) => authority.issuedAt.getTime() > latest.getTime() ? authority.issuedAt : latest,
-    validAuthorities[0]!.issuedAt,
-  );
-  const transactions = await db.paymentTransaction.findMany({
-    where: {
-      organizationId: input.organizationId,
-      bookingId: { in: bookingIds },
-      createdAt: { lte: latestIssueTime },
-    },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    take: COMMERCIAL_SETTLEMENT_TRANSACTION_LIMIT + 1,
-    select: {
-      bookingId: true,
-      commercialAmendmentId: true,
-      kind: true,
-      status: true,
-      providerCode: true,
-      providerReference: true,
-      sourceProviderReference: true,
-      currency: true,
-      amountMinor: true,
-      createdAt: true,
-    },
-  });
-  if (transactions.length > COMMERCIAL_SETTLEMENT_TRANSACTION_LIMIT) {
-    return Object.freeze({ status: 'TRANSACTION_LIMIT_EXCEEDED' as const });
-  }
-
-  const currentSettlements: HospitalityTaxDocumentCurrentCommercialSettlement[] = [];
-  for (const authority of validAuthorities) {
-    const amendment = amendmentById.get(authority.commercialAmendmentId)!;
-    const group = authorityGroups.get(`${authority.bookingId}:${authority.sourceInvoiceId}`);
-    if (!group) continue;
-    const allowedAmendmentIds = new Set(
-      group
-        .filter((candidate) => candidate.sourceAdjustmentOrdinal <= authority.sourceAdjustmentOrdinal)
-        .map((candidate) => candidate.commercialAmendmentId),
-    );
-    const settlementTransactions = transactions.filter((transaction) => (
-      transaction.bookingId === authority.bookingId
-      && transaction.createdAt.getTime() <= authority.issuedAt.getTime()
-      && (transaction.commercialAmendmentId === null || allowedAmendmentIds.has(transaction.commercialAmendmentId))
-    ));
-    const settlement = deriveHospitalityCommercialAmendmentSettlementState({
-      amendmentId: amendment.id,
-      direction: amendment.direction,
-      paymentProviderCode: amendment.paymentProviderCode,
-      currency: amendment.currency,
-      beforeTotalMinor: amendment.beforeTotalMinor,
-      afterTotalMinor: amendment.afterTotalMinor,
-      deltaMinor: amendment.deltaMinor,
-      transactions: settlementTransactions,
     });
-    const expectedAdjustmentMinor = amendment.deltaMinor < 0n ? -amendment.deltaMinor : amendment.deltaMinor;
-    currentSettlements.push(Object.freeze({
-      documentNumber: authority.documentNumber,
-      state: settlement.state,
-      settledAdjustmentMinor: settlement.state === 'CONFLICT' ? 0n : settlement.settledAdjustmentMinor,
-      remainingAdjustmentMinor: settlement.state === 'CONFLICT' ? expectedAdjustmentMinor : settlement.remainingAdjustmentMinor,
-      netSettledMinor: settlement.state === 'CONFLICT' ? 0n : settlement.netSettledMinor,
-      expectedAdjustmentMinor,
-      expectedNetSettledMinor: amendment.afterTotalMinor,
-    }));
-  }
+    if (transactions.length > COMMERCIAL_SETTLEMENT_TRANSACTION_LIMIT) {
+      return Object.freeze({ status: 'TRANSACTION_LIMIT_EXCEEDED' as const });
+    }
 
-  const drift = findHospitalityCommercialTaxDocumentSettlementDrift({ currentSettlements });
-  return Object.freeze({
-    status: 'OK' as const,
-    failures: Object.freeze(drift.map((item): HospitalityTaxDocumentReconciliationFailure => Object.freeze({
-      documentType: 'ADJUSTMENT_NOTE',
-      documentNumber: item.documentNumber,
-      code: 'SETTLEMENT_DRIFT',
-    }))),
-  });
+    const currentSettlements: HospitalityTaxDocumentCurrentCommercialSettlement[] = [];
+    for (const authority of validAuthorities) {
+      const amendment = amendmentById.get(authority.commercialAmendmentId)!;
+      const group = authorityGroups.get(`${authority.bookingId}:${authority.sourceInvoiceId}`);
+      if (!group) continue;
+      const allowedAmendmentIds = new Set(
+        group
+          .filter((candidate) => candidate.sourceAdjustmentOrdinal <= authority.sourceAdjustmentOrdinal)
+          .map((candidate) => candidate.commercialAmendmentId),
+      );
+      const settlementTransactions = transactions.filter((item) => (
+        item.bookingId === authority.bookingId
+        && item.createdAt.getTime() <= authority.issuedAt.getTime()
+        && (item.commercialAmendmentId === null || allowedAmendmentIds.has(item.commercialAmendmentId))
+      ));
+      const settlement = deriveHospitalityCommercialAmendmentSettlementState({
+        amendmentId: amendment.id,
+        direction: amendment.direction,
+        paymentProviderCode: amendment.paymentProviderCode,
+        currency: amendment.currency,
+        beforeTotalMinor: amendment.beforeTotalMinor,
+        afterTotalMinor: amendment.afterTotalMinor,
+        deltaMinor: amendment.deltaMinor,
+        transactions: settlementTransactions,
+      });
+      const expectedAdjustmentMinor = amendment.deltaMinor < 0n ? -amendment.deltaMinor : amendment.deltaMinor;
+      currentSettlements.push(Object.freeze({
+        documentNumber: authority.documentNumber,
+        state: settlement.state,
+        settledAdjustmentMinor: settlement.state === 'CONFLICT' ? 0n : settlement.settledAdjustmentMinor,
+        remainingAdjustmentMinor: settlement.state === 'CONFLICT' ? expectedAdjustmentMinor : settlement.remainingAdjustmentMinor,
+        netSettledMinor: settlement.state === 'CONFLICT' ? 0n : settlement.netSettledMinor,
+        expectedAdjustmentMinor,
+        expectedNetSettledMinor: amendment.afterTotalMinor,
+      }));
+    }
+
+    const drift = findHospitalityCommercialTaxDocumentSettlementDrift({ currentSettlements });
+    return Object.freeze({
+      status: 'OK' as const,
+      failures: Object.freeze(drift.map((item): HospitalityTaxDocumentReconciliationFailure => Object.freeze({
+        documentType: 'ADJUSTMENT_NOTE',
+        documentNumber: item.documentNumber,
+        code: 'SETTLEMENT_DRIFT',
+      }))),
+    });
+  }, { isolationLevel: 'RepeatableRead' });
 }

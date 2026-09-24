@@ -65,11 +65,13 @@ function pageNumber(value: number | undefined, fallback: number, label: string, 
 }
 
 async function currentCounts(organizationId: string) {
-  const [taxInvoiceCount, adjustmentNoteCount] = await Promise.all([
-    db.hospitalityIssuedInvoice.count({ where: { organizationId, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' } }),
-    db.hospitalityIssuedAdjustmentNote.count({ where: { organizationId, jurisdictionCode: 'AU', documentType: 'ADJUSTMENT_NOTE' } }),
-  ]);
-  return { taxInvoiceCount, adjustmentNoteCount };
+  return db.$transaction(async (transaction) => {
+    const [taxInvoiceCount, adjustmentNoteCount] = await Promise.all([
+      transaction.hospitalityIssuedInvoice.count({ where: { organizationId, jurisdictionCode: 'AU', documentType: 'TAX_INVOICE' } }),
+      transaction.hospitalityIssuedAdjustmentNote.count({ where: { organizationId, jurisdictionCode: 'AU', documentType: 'ADJUSTMENT_NOTE' } }),
+    ]);
+    return { taxInvoiceCount, adjustmentNoteCount };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 async function validateTaxInvoiceRegister(input: { organizationId: string; actorUserId: string; expectedTotal: number }) {
@@ -91,86 +93,88 @@ async function validateAdjustmentNoteRegister(input: { organizationId: string; a
 }
 
 async function currentCancellationRefundSettlementDriftFailures(organizationId: string) {
-  const issued = await db.hospitalityIssuedAdjustmentNote.findMany({
-    where: {
-      organizationId,
-      jurisdictionCode: 'AU',
-      documentType: 'ADJUSTMENT_NOTE',
-      adjustmentReason: 'BOOKING_CANCELLATION',
-    },
-    select: {
-      bookingId: true,
-      sourceInvoiceId: true,
-      documentNumber: true,
-      sourceAdjustmentOrdinal: true,
-      refundTransactionId: true,
-      documentFingerprint: true,
-      documentSnapshot: true,
-    },
-    orderBy: [{ documentNumber: 'asc' }, { id: 'asc' }],
-    take: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT + 1,
-  });
-  if (issued.length > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) {
-    throw new HospitalityTaxDocumentReconciliationLimitError();
-  }
+  return db.$transaction(async (transaction) => {
+    const issued = await transaction.hospitalityIssuedAdjustmentNote.findMany({
+      where: {
+        organizationId,
+        jurisdictionCode: 'AU',
+        documentType: 'ADJUSTMENT_NOTE',
+        adjustmentReason: 'BOOKING_CANCELLATION',
+      },
+      select: {
+        bookingId: true,
+        sourceInvoiceId: true,
+        documentNumber: true,
+        sourceAdjustmentOrdinal: true,
+        refundTransactionId: true,
+        documentFingerprint: true,
+        documentSnapshot: true,
+      },
+      orderBy: [{ documentNumber: 'asc' }, { id: 'asc' }],
+      take: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT + 1,
+    });
+    if (issued.length > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) {
+      throw new HospitalityTaxDocumentReconciliationLimitError();
+    }
 
-  const authorities: HospitalityTaxDocumentSettlementAuthority[] = [];
-  for (const row of issued) {
-    if (row.refundTransactionId) {
+    const authorities: HospitalityTaxDocumentSettlementAuthority[] = [];
+    for (const row of issued) {
+      if (row.refundTransactionId) {
+        try {
+          const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(row.documentSnapshot);
+          if (
+            snapshot.organizationId !== organizationId
+            || snapshot.bookingId !== row.bookingId
+            || snapshot.sourceInvoiceId !== row.sourceInvoiceId
+            || snapshot.documentNumber !== row.documentNumber
+            || snapshot.refundTransactionId !== row.refundTransactionId
+            || hospitalityIssuedAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
+          ) continue;
+          authorities.push(Object.freeze({
+            documentNumber: row.documentNumber,
+            refundTransactionIds: Object.freeze([row.refundTransactionId]),
+          }));
+        } catch {
+          // The immutable adjustment-note read boundary owns malformed snapshot/source failures.
+        }
+        continue;
+      }
+      if (row.sourceAdjustmentOrdinal < 2) continue;
       try {
-        const snapshot = parseHospitalityIssuedCancellationAdjustmentNoteSnapshot(row.documentSnapshot);
+        const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
         if (
           snapshot.organizationId !== organizationId
           || snapshot.bookingId !== row.bookingId
           || snapshot.sourceInvoiceId !== row.sourceInvoiceId
           || snapshot.documentNumber !== row.documentNumber
-          || snapshot.refundTransactionId !== row.refundTransactionId
-          || hospitalityIssuedAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
+          || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
+          || hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
         ) continue;
         authorities.push(Object.freeze({
           documentNumber: row.documentNumber,
-          refundTransactionIds: Object.freeze([row.refundTransactionId]),
+          refundTransactionIds: Object.freeze(snapshot.refundAuthorities.map((authority) => authority.refundTransactionId)),
         }));
       } catch {
         // The immutable adjustment-note read boundary owns malformed snapshot/source failures.
       }
-      continue;
     }
-    if (row.sourceAdjustmentOrdinal < 2) continue;
-    try {
-      const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(row.documentSnapshot);
-      if (
-        snapshot.organizationId !== organizationId
-        || snapshot.bookingId !== row.bookingId
-        || snapshot.sourceInvoiceId !== row.sourceInvoiceId
-        || snapshot.documentNumber !== row.documentNumber
-        || Number(snapshot.sourceAdjustmentOrdinal) !== row.sourceAdjustmentOrdinal
-        || hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint(snapshot) !== row.documentFingerprint
-      ) continue;
-      authorities.push(Object.freeze({
-        documentNumber: row.documentNumber,
-        refundTransactionIds: Object.freeze(snapshot.refundAuthorities.map((authority) => authority.refundTransactionId)),
-      }));
-    } catch {
-      // The immutable adjustment-note read boundary owns malformed snapshot/source failures.
-    }
-  }
-  if (authorities.length === 0) return Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]);
+    if (authorities.length === 0) return Object.freeze([] as HospitalityTaxDocumentReconciliationFailure[]);
 
-  const refundIds = [...new Set(authorities.flatMap((authority) => authority.refundTransactionIds))];
-  const currentRefunds = refundIds.length === 0
-    ? []
-    : await db.paymentTransaction.findMany({
-        where: { organizationId, id: { in: refundIds } },
-        select: { id: true, status: true },
-      });
+    const refundIds = [...new Set(authorities.flatMap((authority) => authority.refundTransactionIds))];
+    const currentRefunds = refundIds.length === 0
+      ? []
+      : await transaction.paymentTransaction.findMany({
+          where: { organizationId, id: { in: refundIds } },
+          select: { id: true, status: true },
+        });
 
-  const drift = findHospitalityTaxDocumentSettlementDrift({ authorities, currentRefunds });
-  return Object.freeze(drift.map((item): HospitalityTaxDocumentReconciliationFailure => Object.freeze({
-    documentType: 'ADJUSTMENT_NOTE',
-    documentNumber: item.documentNumber,
-    code: 'SETTLEMENT_DRIFT',
-  })));
+    const drift = findHospitalityTaxDocumentSettlementDrift({ authorities, currentRefunds });
+    return Object.freeze(drift.map((item): HospitalityTaxDocumentReconciliationFailure => Object.freeze({
+      documentType: 'ADJUSTMENT_NOTE',
+      documentNumber: item.documentNumber,
+      code: 'SETTLEMENT_DRIFT',
+    })));
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function reconcileHospitalityAustralianTaxDocuments(input: { organizationId: string; actorUserId: string }) {
@@ -257,21 +261,24 @@ export async function listHospitalityTaxDocumentReconciliationHistory(input: {
     resourceType: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
     resourceId: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
   } as const;
-  const total = await db.auditEvent.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
-  const events = await db.auditEvent.findMany({
-    where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    select: { id: true, createdAt: true, afterData: true },
-  });
 
-  const items = events.map((event) => {
-    const report = parseHospitalityTaxDocumentReconciliationAuditData(event.afterData);
-    if (!report) throw new HospitalityTaxDocumentReconciliationHistoryError();
-    return Object.freeze({ id: event.id, recordedAt: event.createdAt, report });
-  });
-  return Object.freeze({ page, pageSize, total, totalPages, items: Object.freeze(items) });
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.auditEvent.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const events = await transaction.auditEvent.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: { id: true, createdAt: true, afterData: true },
+    });
+
+    const items = events.map((event) => {
+      const report = parseHospitalityTaxDocumentReconciliationAuditData(event.afterData);
+      if (!report) throw new HospitalityTaxDocumentReconciliationHistoryError();
+      return Object.freeze({ id: event.id, recordedAt: event.createdAt, report });
+    });
+    return Object.freeze({ page, pageSize, total, totalPages, items: Object.freeze(items) });
+  }, { isolationLevel: 'RepeatableRead' });
 }
