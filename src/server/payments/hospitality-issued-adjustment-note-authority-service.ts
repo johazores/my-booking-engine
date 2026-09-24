@@ -2,14 +2,14 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  verifyHospitalityCancellationAfterAmendmentAdjustmentRows,
+  verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction,
 } from './hospitality-cancellation-after-amendment-adjustment-authority-service.ts';
 import {
   hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
 } from './hospitality-cancellation-after-amendment-adjustment-note-domain.ts';
 import {
-  verifyHospitalityCommercialAmendmentAdjustmentRows,
+  verifyHospitalityCommercialAmendmentAdjustmentRowsInTransaction,
 } from './hospitality-commercial-amendment-adjustment-chain-read-service.ts';
 import {
   createHospitalityIssuedAdjustmentNoteDocument,
@@ -244,6 +244,7 @@ function validateRow(row: HospitalityIssuedAdjustmentNoteReadRow): ValidatedAdju
 }
 
 async function verifyCancellationAuthorities(
+  transaction: Prisma.TransactionClient,
   organizationId: string,
   items: readonly ValidatedAdjustmentNote[],
 ) {
@@ -254,7 +255,7 @@ async function verifyCancellationAuthorities(
   const sourceInvoiceIds = [...new Set(cancellations.map((item) => item.row.sourceInvoiceId))];
   const refundIds = [...new Set(cancellations.map((item) => item.row.refundTransactionId!))];
   const [sourceInvoices, refunds] = await Promise.all([
-    db.hospitalityIssuedInvoice.findMany({
+    transaction.hospitalityIssuedInvoice.findMany({
       where: {
         id: { in: sourceInvoiceIds },
         organizationId,
@@ -262,7 +263,7 @@ async function verifyCancellationAuthorities(
         documentType: 'TAX_INVOICE',
       },
     }),
-    db.paymentTransaction.findMany({
+    transaction.paymentTransaction.findMany({
       where: { id: { in: refundIds }, organizationId },
       select: {
         id: true,
@@ -338,6 +339,7 @@ async function verifyCancellationAuthorities(
 }
 
 async function verifyCancellationAfterAmendmentAuthorities(
+  transaction: Prisma.TransactionClient,
   organizationId: string,
   items: readonly ValidatedAdjustmentNote[],
 ) {
@@ -346,22 +348,27 @@ async function verifyCancellationAfterAmendmentAuthorities(
   );
   if (cancellations.length === 0) return;
   try {
-    await verifyHospitalityCancellationAfterAmendmentAdjustmentRows({
-      organizationId,
-      rows: cancellations.map((item) => item.row),
-    });
+    for (const item of cancellations) {
+      await verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction({
+        transaction,
+        organizationId,
+        row: item.row,
+      });
+    }
   } catch (error) {
     fail(error instanceof Error ? error.message : 'Cancellation-after-amendment authority verification failed.');
   }
 }
 
 async function verifyCommercialAuthorities(
+  transaction: Prisma.TransactionClient,
   organizationId: string,
   items: readonly ValidatedAdjustmentNote[],
 ) {
   const commercial = items.filter((item) => item.kind === 'COMMERCIAL_AMENDMENT');
   if (commercial.length === 0) return;
-  await verifyHospitalityCommercialAmendmentAdjustmentRows({
+  await verifyHospitalityCommercialAmendmentAdjustmentRowsInTransaction({
+    transaction,
     organizationId,
     rows: commercial.map((item) => ({
       id: item.row.id,
@@ -371,7 +378,8 @@ async function verifyCommercialAuthorities(
   });
 }
 
-export async function validateHospitalityIssuedAdjustmentNoteRows(input: {
+export async function validateHospitalityIssuedAdjustmentNoteRowsInTransaction(input: {
+  transaction: Prisma.TransactionClient;
   organizationId: string;
   rows: readonly HospitalityIssuedAdjustmentNoteReadRow[];
 }) {
@@ -381,16 +389,32 @@ export async function validateHospitalityIssuedAdjustmentNoteRows(input: {
       fail('Adjustment-note row is outside the requested tenant scope.');
     }
   }
+
   const validated = input.rows.map(validateRow);
   try {
-    await Promise.all([
-      verifyCancellationAuthorities(input.organizationId, validated),
-      verifyCancellationAfterAmendmentAuthorities(input.organizationId, validated),
-      verifyCommercialAuthorities(input.organizationId, validated),
-    ]);
+    await verifyCancellationAuthorities(input.transaction, input.organizationId, validated);
+    await verifyCancellationAfterAmendmentAuthorities(input.transaction, input.organizationId, validated);
+    await verifyCommercialAuthorities(input.transaction, input.organizationId, validated);
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError) throw error;
     fail(error instanceof Error ? error.message : 'Adjustment-note authority verification failed.');
   }
   return Object.freeze(validated);
+}
+
+export async function validateHospitalityIssuedAdjustmentNoteRows(input: {
+  organizationId: string;
+  rows: readonly HospitalityIssuedAdjustmentNoteReadRow[];
+}) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  if (input.rows.length === 0) return Object.freeze([]);
+
+  return db.$transaction(
+    (transaction) => validateHospitalityIssuedAdjustmentNoteRowsInTransaction({
+      transaction,
+      organizationId: input.organizationId,
+      rows: input.rows,
+    }),
+    { isolationLevel: 'RepeatableRead' },
+  );
 }
