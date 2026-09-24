@@ -266,10 +266,13 @@ export async function verifyHospitalityCancellationAfterAmendmentAdjustmentRows(
     assertUuidIdentifier(row.id, 'adjustmentNoteId');
     assertUuidIdentifier(row.bookingId, 'bookingId');
     assertUuidIdentifier(row.sourceInvoiceId, 'sourceInvoiceId');
-    await db.$transaction((transaction) => verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction({
-      transaction,
-      organizationId: input.organizationId,
-      row,
-    }));
+    await db.$transaction(
+      (transaction) => verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction({
+        transaction,
+        organizationId: input.organizationId,
+        row,
+      }),
+      { isolationLevel: 'RepeatableRead' },
+    );
   }
 }

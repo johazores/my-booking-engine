@@ -30,14 +30,16 @@ export async function verifyHospitalityCommercialAmendmentAdjustmentRows(input: 
 
   for (const rows of groups.values()) {
     const first = rows[0]!;
-    const verified = await db.$transaction((transaction) =>
-      loadVerifiedHospitalityCommercialAmendmentAdjustmentChain({
+    const verified = await db.$transaction(
+      (transaction) => loadVerifiedHospitalityCommercialAmendmentAdjustmentChain({
         transaction,
         organizationId: input.organizationId,
         bookingId: first.bookingId,
         sourceInvoiceId: first.sourceInvoiceId,
         allowTerminalCancellation: true,
-      }));
+      }),
+      { isolationLevel: 'RepeatableRead' },
+    );
     const verifiedIds = new Set(verified.priorAdjustments.map((entry) => entry.adjustmentNoteId));
     for (const row of rows) {
       if (!verifiedIds.has(row.id)) {
