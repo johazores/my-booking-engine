@@ -52,7 +52,8 @@ test('reconciliation audit history preserves safe occurrence counts without lega
 
 test('documentation separates historical legal evidence from current provider lifecycle', () => {
   assert.match(docs, /historical issuance authority from mutable current provider settlement/i);
-  assert.match(docs, /schema-version-6 cancellation-after-amendment snapshots already freeze an ordered set/i);
+  assert.match(docs, /Schema-version-6 cancellation-after-amendment snapshots already freeze an ordered set/i);
   assert.match(docs, /Missing refund rows remain source\/integrity failures/i);
-  assert.match(docs, /Commercial-amendment schemas 2 through 5 still need a versioned issue-time settlement-evidence contract/i);
+  assert.match(docs, /New commercial-amendment adjustment notes using schemas 2 through 5 now retain a separate versioned issue-time settlement-evidence ledger/i);
+  assert.match(docs, /Pre-migration commercial notes are intentionally not backfilled/i);
 });

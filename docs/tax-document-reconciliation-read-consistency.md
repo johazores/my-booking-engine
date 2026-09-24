@@ -12,10 +12,12 @@ Reconciliation history is a presentation collection. Its tenant-scoped audit cou
 
 ## Deliberate boundaries
 
-These snapshot changes do not turn mutable payment-provider status into immutable legal evidence. Schema-version-1 and schema-version-6 cancellation documents retain their existing frozen refund authority, while commercial-amendment schemas 2 through 5 still require a deliberate versioned issue-time settlement-evidence contract before historical legal reads can be fully separated from later provider-status changes.
+Snapshot consistency and immutable issue-time authority remain different concerns. Schema-version-1 and schema-version-6 cancellation documents keep their frozen refund identity/authority contracts. Newly issued commercial-amendment schemas 2 through 5 now replay frozen issue-time settlement evidence, while pre-migration commercial documents intentionally retain the bounded legacy payment-history fallback because SF cannot truthfully reconstruct status that was never frozen at issuance.
+
+Current provider lifecycle remains mutable operational truth. Reconciliation continues to compare current payment state with issued legal authority and may report settlement drift without rewriting, hiding, or invalidating an immutable document.
 
 The overall reconciliation operation also remains a bounded multi-stage application scan rather than one database transaction spanning every register page and audit write. Before/after legal-document counts continue to detect concurrent register changes. Live provider calls are not introduced by reconciliation.
 
 ## Validation
 
-`scripts/tax-document-reconciliation-read-consistency-contract.test.mjs` protects tenant scope, bounded reads, `RepeatableRead` isolation for the count, cancellation-drift, commercial-drift, and history collection boundaries, deterministic history ordering, and the separation between snapshot consistency and future immutable settlement-evidence work.
+`scripts/tax-document-reconciliation-read-consistency-contract.test.mjs` protects tenant scope, bounded reads, `RepeatableRead` isolation for the count, cancellation-drift, commercial-drift, and history collection boundaries, deterministic history ordering, and the separation between immutable issue-time evidence, legacy pre-migration evidence, and current provider lifecycle truth.

@@ -65,17 +65,17 @@ test('guarded disposable PostgreSQL suite exercises malformed direct evidence an
   assert.match(runner, /hospitality-v6-refund-authority-database-integrity\.integration\.ts/);
 });
 
-test('documentation separates immutable refund membership from mutable provider lifecycle truth', async () => {
+test('documentation separates terminal refund authority, commercial predecessor evidence, and mutable provider truth', async () => {
   const docs = await source(docsPath);
   const authorityDocs = await source(authorityDocsPath);
 
   assert.match(docs, /exact four-field refund authority/i);
   assert.match(docs, /does not freeze payment provider lifecycle status/i);
   assert.match(docs, /SETTLEMENT_DRIFT/);
-  assert.match(docs, /schemas 2 through 5/i);
-  assert.match(docs, /not close/i);
+  assert.match(docs, /Newly issued schema-version-2-through-5 commercial adjustment notes now freeze/i);
+  assert.match(docs, /Pre-migration commercial predecessor notes are not backfilled/i);
   assert.match(authorityDocs, /does \*\*not\*\* re-run cancellation readiness/i);
   assert.match(authorityDocs, /sf_hospitality_v6_refund_authorities_valid/);
   assert.match(authorityDocs, /cancellation-refund-authority-database-integrity\.md/);
-  assert.match(authorityDocs, /schemas 2 through 5 still lack a versioned immutable issue-time settlement-evidence contract/i);
+  assert.match(authorityDocs, /New schema-version-2-through-5 commercial adjustment notes now carry immutable issue-time settlement evidence/i);
 });

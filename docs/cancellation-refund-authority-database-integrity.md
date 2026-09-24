@@ -23,8 +23,10 @@ The immutable snapshot intentionally does not freeze payment provider lifecycle 
 
 Current provider lifecycle state remains an operational reconciliation concern. If one of the frozen refunds later moves away from `SUCCEEDED`, tax-document reconciliation reports `SETTLEMENT_DRIFT`; it does not rewrite, delete, hide, or invalidate the immutable issued document.
 
-## Deliberate remaining boundary
+## Commercial predecessor settlement evidence
 
-This database guard strengthens schema version 6 only. It does **not close** the separate commercial-amendment settlement-evidence problem for schemas 2 through 5. Those historical documents still need a deliberate versioned issue-time settlement-evidence contract before their legal authority can be independent of later mutable provider-status changes. No historical transaction membership is inferred here.
+The schema-version-6 refund guard is intentionally limited to the terminal cancellation leg; it does not duplicate commercial predecessor settlement evidence. Newly issued schema-version-2-through-5 commercial adjustment notes now freeze their provider-neutral issue-time payment ledger separately. A schema-version-6 document therefore inherits immutable settlement authority from new commercial predecessors and frozen refund authority for its terminal cancellation leg.
+
+Pre-migration commercial predecessor notes are not backfilled. Their original provider status was not frozen at issuance and cannot be reconstructed truthfully, so a terminal schema-version-6 document whose predecessor chain includes those legacy notes retains that documented legacy limitation.
 
 Live application of the migration and direct-insert PostgreSQL verification remain part of the guarded disposable-database validation path and must not be claimed unless an explicitly disposable PostgreSQL target is available.

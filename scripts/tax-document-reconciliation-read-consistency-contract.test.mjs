@@ -67,10 +67,11 @@ test('reconciliation history count and page are snapshot-consistent and determin
   assert.doesNotMatch(scope, /db\.auditEvent\.(?:count|findMany)/);
 });
 
-test('documentation preserves the legal-evidence boundary', () => {
+test('documentation preserves the separation between immutable issue-time authority and current provider truth', () => {
   assert.match(docs, /internally consistent PostgreSQL state/);
   assert.match(docs, /separate count snapshot before and after/);
-  assert.match(docs, /do not turn mutable payment-provider status into immutable legal evidence/);
-  assert.match(docs, /schemas 2 through 5 still require a deliberate versioned issue-time settlement-evidence contract/);
+  assert.match(docs, /Newly issued commercial-amendment schemas 2 through 5 now replay frozen issue-time settlement evidence/);
+  assert.match(docs, /pre-migration commercial documents intentionally retain the bounded legacy payment-history fallback/);
+  assert.match(docs, /Current provider lifecycle remains mutable operational truth/);
   assert.match(docs, /bounded multi-stage application scan/);
 });
