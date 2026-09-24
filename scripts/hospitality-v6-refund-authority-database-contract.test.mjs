@@ -7,6 +7,7 @@ const migrationPath = 'prisma/migrations/20260924202500-hospitality-v6-refund-au
 const docsPath = 'docs/cancellation-refund-authority-database-integrity.md';
 const integrationPath = 'src/server/payments/hospitality-v6-refund-authority-database-integrity.integration.ts';
 const databaseRunnerPath = 'scripts/run-database-tests.mjs';
+const authorityDocsPath = 'docs/adjustment-note-authority.md';
 
 async function source(path) {
   return readFile(new URL(path, root), 'utf8');
@@ -66,10 +67,15 @@ test('guarded disposable PostgreSQL suite exercises malformed direct evidence an
 
 test('documentation separates immutable refund membership from mutable provider lifecycle truth', async () => {
   const docs = await source(docsPath);
+  const authorityDocs = await source(authorityDocsPath);
 
   assert.match(docs, /exact four-field refund authority/i);
   assert.match(docs, /does not freeze payment provider lifecycle status/i);
   assert.match(docs, /SETTLEMENT_DRIFT/);
   assert.match(docs, /schemas 2 through 5/i);
   assert.match(docs, /not close/i);
+  assert.match(authorityDocs, /does \*\*not\*\* re-run cancellation readiness/i);
+  assert.match(authorityDocs, /sf_hospitality_v6_refund_authorities_valid/);
+  assert.match(authorityDocs, /cancellation-refund-authority-database-integrity\.md/);
+  assert.match(authorityDocs, /schemas 2 through 5 still lack a versioned immutable issue-time settlement-evidence contract/i);
 });
