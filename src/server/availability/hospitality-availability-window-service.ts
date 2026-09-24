@@ -80,16 +80,19 @@ export async function listHospitalityAvailabilityWindowsPage(input: {
   const pageSize = normalizePageSize(input.pageSize);
   const requestedPage = normalizePage(input.page);
   const where = availabilityWindowScope(input);
-  const total = await db.hospitalityAvailabilityWindow.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
-  const windows = await db.hospitalityAvailabilityWindow.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-  });
-  return { windows, total, page, totalPages, pageSize };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityAvailabilityWindow.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const windows = await transaction.hospitalityAvailabilityWindow.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { startDate: 'asc' }, { id: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    return { windows, total, page, totalPages, pageSize };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listHospitalityAvailabilityWindows(input: {

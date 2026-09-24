@@ -64,28 +64,34 @@ export async function listMembershipsForOrganizationPage(input: MembershipPageIn
   const where = activeTenantOwnedCollectionScope(input);
   const pageSize = normalizePageSize(input.pageSize);
   const requestedPage = normalizePage(input.page);
-  const total = await db.organizationMembership.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
-  const items = await db.organizationMembership.findMany({
-    where,
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    select: membershipListSelect,
-  });
 
-  return Object.freeze({ items, total, page, pageSize, totalPages });
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.organizationMembership.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const items = await transaction.organizationMembership.findMany({
+      where,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: membershipListSelect,
+    });
+
+    return Object.freeze({ items, total, page, pageSize, totalPages });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readOrganizationMembershipStats(input: TenantActorScopeInput) {
   const where = activeTenantOwnedCollectionScope(input);
-  const [total, active] = await Promise.all([
-    db.organizationMembership.count({ where }),
-    db.organizationMembership.count({ where: { AND: [where, { status: 'ACTIVE' }] } }),
-  ]);
 
-  return Object.freeze({ total, active });
+  return db.$transaction(async (transaction) => {
+    const [total, active] = await Promise.all([
+      transaction.organizationMembership.count({ where }),
+      transaction.organizationMembership.count({ where: { AND: [where, { status: 'ACTIVE' }] } }),
+    ]);
+
+    return Object.freeze({ total, active });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export function findMembershipForOrganization({

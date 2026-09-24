@@ -45,27 +45,29 @@ export async function listCustomersForOrganization(input: {
   };
 
   const pagination = normalizeCustomerPagination(input.page, input.pageSize);
-  const total = await db.customer.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const customers = await db.customer.findMany({
-    where,
-    orderBy: customerOrderBy(input.sort),
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      phone: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.customer.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const customers = await transaction.customer.findMany({
+      where,
+      orderBy: customerOrderBy(input.sort),
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-  return { customers, total, page, totalPages, pageSize: pagination.pageSize };
+    return { customers, total, page, totalPages, pageSize: pagination.pageSize };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readCustomerForOrganization(input: { organizationId: string; customerId: string }) {

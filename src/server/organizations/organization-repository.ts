@@ -52,17 +52,20 @@ export async function listOrganizationsForUserPage(input: OrganizationPageInput)
   const where = activeOrganizationMembershipScope(input.userId);
   const pageSize = normalizePageSize(input.pageSize);
   const requestedPage = normalizePage(input.page);
-  const total = await db.organization.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
-  const items = await db.organization.findMany({
-    where,
-    orderBy: [{ name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-  });
 
-  return Object.freeze({ items, total, page, pageSize, totalPages });
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.organization.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const items = await transaction.organization.findMany({
+      where,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return Object.freeze({ items, total, page, pageSize, totalPages });
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export function findOrganizationForUser({
