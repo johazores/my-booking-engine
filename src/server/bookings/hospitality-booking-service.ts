@@ -22,7 +22,9 @@ function normalizePagination(page: number, pageSize: number) {
   return { page: safePage, pageSize: safePageSize };
 }
 
-async function readBookingGuests(reader: typeof db, organizationId: string, bookingId: string) {
+type BookingGuestReader = Pick<typeof db, 'hospitalityBookingGuest'>;
+
+async function readBookingGuests(reader: BookingGuestReader, organizationId: string, bookingId: string) {
   return reader.hospitalityBookingGuest.findMany({
     where: { organizationId, bookingId },
     orderBy: { position: 'asc' },
@@ -75,13 +77,16 @@ export async function getHospitalityBooking(input: {
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   assertUuidIdentifier(input.bookingId, 'bookingId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
-  const booking = await db.hospitalityBooking.findFirst({
-    where: { id: input.bookingId, organizationId: input.organizationId },
-    include: { allocation: true, customer: true, roomType: true, ratePlan: true },
-  });
-  if (!booking) throw new HospitalityBookingUnavailableError();
-  const guests = await readBookingGuests(db, input.organizationId, booking.id);
-  return { ...booking, guests };
+
+  return db.$transaction(async (transaction) => {
+    const booking = await transaction.hospitalityBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      include: { allocation: true, customer: true, roomType: true, ratePlan: true },
+    });
+    if (!booking) throw new HospitalityBookingUnavailableError();
+    const guests = await readBookingGuests(transaction, input.organizationId, booking.id);
+    return { ...booking, guests };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function listHospitalityBookings(input: {
@@ -95,31 +100,34 @@ export async function listHospitalityBookings(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'booking:read' });
   const pagination = normalizePagination(input.page ?? 1, input.pageSize ?? 25);
   const where = { organizationId: input.organizationId };
-  const total = await db.hospitalityBooking.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const bookings = await db.hospitalityBooking.findMany({
-    where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    include: {
-      allocation: true,
-      customer: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
-      roomType: { select: { id: true, name: true, code: true } },
-      ratePlan: { select: { id: true, name: true, code: true } },
-    },
-  });
-  const guestRows = bookings.length === 0 ? [] : await db.hospitalityBookingGuest.findMany({
-    where: { organizationId: input.organizationId, bookingId: { in: bookings.map((booking) => booking.id) } },
-    orderBy: [{ bookingId: 'asc' }, { position: 'asc' }],
-    select: { bookingId: true, firstName: true, lastName: true, email: true },
-  });
-  const guestsByBooking = new Map<string, HospitalityBookingGuestInput[]>();
-  for (const guest of guestRows) {
-    const bookingGuests = guestsByBooking.get(guest.bookingId) ?? [];
-    bookingGuests.push({ firstName: guest.firstName, lastName: guest.lastName, email: guest.email });
-    guestsByBooking.set(guest.bookingId, bookingGuests);
-  }
-  return { bookings: bookings.map((booking) => ({ ...booking, guests: guestsByBooking.get(booking.id) ?? [] })), total, page, totalPages };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityBooking.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const bookings = await transaction.hospitalityBooking.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      include: {
+        allocation: true,
+        customer: { select: { id: true, firstName: true, lastName: true, email: true, status: true } },
+        roomType: { select: { id: true, name: true, code: true } },
+        ratePlan: { select: { id: true, name: true, code: true } },
+      },
+    });
+    const guestRows = bookings.length === 0 ? [] : await transaction.hospitalityBookingGuest.findMany({
+      where: { organizationId: input.organizationId, bookingId: { in: bookings.map((booking) => booking.id) } },
+      orderBy: [{ bookingId: 'asc' }, { position: 'asc' }],
+      select: { bookingId: true, firstName: true, lastName: true, email: true },
+    });
+    const guestsByBooking = new Map<string, HospitalityBookingGuestInput[]>();
+    for (const guest of guestRows) {
+      const bookingGuests = guestsByBooking.get(guest.bookingId) ?? [];
+      bookingGuests.push({ firstName: guest.firstName, lastName: guest.lastName, email: guest.email });
+      guestsByBooking.set(guest.bookingId, bookingGuests);
+    }
+    return { bookings: bookings.map((booking) => ({ ...booking, guests: guestsByBooking.get(booking.id) ?? [] })), total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }

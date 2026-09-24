@@ -390,23 +390,26 @@ export async function listBookingPaymentTransactions(input: {
     permission: 'payment:read',
   });
 
-  const booking = await db.hospitalityBooking.findFirst({
-    where: { id: input.bookingId, organizationId: input.organizationId },
-    select: { id: true, paymentStatus: true, currency: true, totalMinor: true },
-  });
-  if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
-
   const pagination = normalizePagination(input.page ?? 1, input.pageSize ?? 25);
   const where = { organizationId: input.organizationId, bookingId: input.bookingId };
-  const total = await db.paymentTransaction.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const transactions = await db.paymentTransaction.findMany({
-    where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-  });
 
-  return { booking, transactions, total, page, totalPages };
+  return db.$transaction(async (transaction) => {
+    const booking = await transaction.hospitalityBooking.findFirst({
+      where: { id: input.bookingId, organizationId: input.organizationId },
+      select: { id: true, paymentStatus: true, currency: true, totalMinor: true },
+    });
+    if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+
+    const total = await transaction.paymentTransaction.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const transactions = await transaction.paymentTransaction.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+    });
+
+    return { booking, transactions, total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }
