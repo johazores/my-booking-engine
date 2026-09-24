@@ -46,4 +46,4 @@ Rental inventory screens contain several independently paginated collections. Ea
 
 Do not apply management pagination to availability, inventory-protection, pricing, settlement, or other decisions that require complete scoped evidence. Those flows need an explicit bounded-completeness contract and must fail closed when completeness cannot be proven. UI/list pagination is not a substitute for commercial evidence.
 
-This document covers the current inventory browsing boundaries. Future collection surfaces remain subject to the platform-wide pagination invariant and should use a domain-appropriate bounded contract rather than trusting caller-supplied page sizes.
+This document covers the current inventory browsing boundaries. Additional service-level and future collection boundaries remain subject to the platform-wide pagination invariant and should use a domain-appropriate bounded contract rather than trusting caller-supplied page sizes.
