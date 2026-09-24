@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { assertInventoryArchiveConfirmation } from './hospitality-domain.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { normalizeHospitalityRatePlanInput, type HospitalityRatePlanInput } from './hospitality-rate-plan-domain.ts';
 import {
   HospitalityInventoryConflictError,
@@ -25,16 +26,21 @@ export async function listHospitalityRatePlans(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
   const total = await db.hospitalityRatePlan.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const ratePlans = await db.hospitalityRatePlan.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { roomTypeAssignments: true, restrictions: true } } },
   });
-  return { ratePlans, total, page, totalPages };
+  return {
+    ratePlans,
+    total,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalPages: pagination.totalPages,
+  };
 }
 
 export async function readHospitalityRatePlan(input: {
@@ -71,13 +77,12 @@ export async function listHospitalityRatePlanRoomTypes(input: {
 
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
   const total = await db.hospitalityRoomType.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const roomTypes = await db.hospitalityRoomType.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: {
       ratePlanAssignments: {
         where: { ratePlanId: input.ratePlanId },
@@ -85,7 +90,13 @@ export async function listHospitalityRatePlanRoomTypes(input: {
       },
     },
   });
-  return { roomTypes, total, page, totalPages };
+  return {
+    roomTypes,
+    total,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalPages: pagination.totalPages,
+  };
 }
 
 export async function createHospitalityRatePlan(input: {
@@ -296,7 +307,7 @@ export async function removeHospitalityRatePlanFromRoomType(input: {
         action: 'inventory.rate-plan.removed-room-type',
         resourceType: 'hospitality-rate-plan',
         resourceId: input.ratePlanId,
-        beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+        beforeData: { propertyId: input.propertyId, roomTypeId: roomType.id },
       },
     });
     return true;
