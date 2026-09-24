@@ -41,17 +41,20 @@ export async function listHospitalityAddons(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
   const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
-  const total = await db.hospitalityAddon.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const addons = await db.hospitalityAddon.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { name: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    include: { roomType: { select: { name: true, code: true } }, ratePlan: { select: { name: true, code: true } } },
-  });
-  return { addons, total, page, totalPages };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityAddon.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const addons = await transaction.hospitalityAddon.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { name: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      include: { roomType: { select: { name: true, code: true } }, ratePlan: { select: { name: true, code: true } } },
+    });
+    return { addons, total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createHospitalityAddon(input: {

@@ -22,20 +22,23 @@ export async function listHospitalityPricingScopes(input: {
     roomType: { status: 'ACTIVE' as const },
     ratePlan: { status: 'ACTIVE' as const },
   };
-  const total = await db.hospitalityRoomTypeRatePlan.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const scopes = await db.hospitalityRoomTypeRatePlan.findMany({
-    where,
-    orderBy: [{ createdAt: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    include: {
-      roomType: { select: { id: true, name: true, code: true, maxOccupancy: true } },
-      ratePlan: { select: { id: true, name: true, code: true } },
-    },
-  });
-  return { scopes, total, page, totalPages };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityRoomTypeRatePlan.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const scopes = await transaction.hospitalityRoomTypeRatePlan.findMany({
+      where,
+      orderBy: [{ createdAt: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      include: {
+        roomType: { select: { id: true, name: true, code: true, maxOccupancy: true } },
+        ratePlan: { select: { id: true, name: true, code: true } },
+      },
+    });
+    return { scopes, total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function readHospitalityPricingScope(input: {

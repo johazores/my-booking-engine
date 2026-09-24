@@ -27,17 +27,20 @@ export async function listHospitalityChargeRules(input: { organizationId: string
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
   const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
-  const total = await db.hospitalityChargeRule.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const rules = await db.hospitalityChargeRule.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { kind: 'asc' }, { name: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-    include: { roomType: { select: { name: true, code: true } }, ratePlan: { select: { name: true, code: true } } },
-  });
-  return { rules, total, page, totalPages };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityChargeRule.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const rules = await transaction.hospitalityChargeRule.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { kind: 'asc' }, { name: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+      include: { roomType: { select: { name: true, code: true } }, ratePlan: { select: { name: true, code: true } } },
+    });
+    return { rules, total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createHospitalityChargeRule(input: { organizationId: string; actorUserId: string; rule: HospitalityChargeRuleInput }) {

@@ -51,16 +51,19 @@ export async function listHospitalityBaseRates(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:read' });
   const pagination = normalizePricingPagination(input.page, input.pageSize);
   const where = { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId };
-  const total = await db.hospitalityBaseRate.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-  const page = Math.min(pagination.page, totalPages);
-  const baseRates = await db.hospitalityBaseRate.findMany({
-    where,
-    orderBy: [{ status: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
-    skip: (page - 1) * pagination.pageSize,
-    take: pagination.pageSize,
-  });
-  return { baseRates, total, page, totalPages };
+
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityBaseRate.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
+    const page = Math.min(pagination.page, totalPages);
+    const baseRates = await transaction.hospitalityBaseRate.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { startDate: 'desc' }, { id: 'asc' }],
+      skip: (page - 1) * pagination.pageSize,
+      take: pagination.pageSize,
+    });
+    return { baseRates, total, page, totalPages };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function createHospitalityBaseRate(input: {
