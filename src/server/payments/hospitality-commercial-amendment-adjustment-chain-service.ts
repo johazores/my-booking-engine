@@ -20,6 +20,9 @@ import {
   hospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteFingerprint,
   parseHospitalityIssuedCommercialAmendmentIncreasingAdjustmentNoteSnapshot,
 } from './hospitality-commercial-amendment-increasing-adjustment-note-domain.ts';
+import {
+  loadHospitalityFrozenCommercialSettlementEvidence,
+} from './hospitality-commercial-settlement-evidence-service.ts';
 import { createHospitalityIssuedTaxInvoiceDocument } from './hospitality-issued-invoice-document-domain.ts';
 import {
   hospitalityIssuedInvoiceFingerprint,
@@ -339,13 +342,37 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
         })
       : [],
   ]);
-  const latestCommercialIssuedAt = commercialRows.at(-1)?.issuedAt;
-  const paymentHistory = latestCommercialIssuedAt
+
+  let frozenSettlementEvidence: Awaited<ReturnType<typeof loadHospitalityFrozenCommercialSettlementEvidence>>;
+  try {
+    frozenSettlementEvidence = await loadHospitalityFrozenCommercialSettlementEvidence({
+      transaction: input.transaction,
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      sourceInvoiceId: input.sourceInvoiceId,
+      adjustmentNotes: commercialRows.map((row) => Object.freeze({
+        id: row.id,
+        commercialAmendmentId: row.commercialAmendmentId,
+        sourceAdjustmentOrdinal: row.sourceAdjustmentOrdinal,
+        issuedAt: row.issuedAt,
+      })),
+    });
+  } catch (error) {
+    throw new HospitalityCommercialAmendmentAdjustmentChainUnavailableError(
+      error instanceof Error ? error.message : 'Frozen commercial settlement evidence is invalid.',
+    );
+  }
+
+  const latestLegacyIssuedAt = [...commercialRows]
+    .reverse()
+    .find((row) => !frozenSettlementEvidence.has(row.id))
+    ?.issuedAt;
+  const paymentHistory = latestLegacyIssuedAt
     ? await readHospitalityLegalPaymentEvidenceHistory({
         transaction: input.transaction,
         organizationId: input.organizationId,
         bookingId: input.bookingId,
-        through: latestCommercialIssuedAt,
+        through: latestLegacyIssuedAt,
       })
     : Object.freeze({
         complete: true as const,
@@ -390,7 +417,8 @@ export async function loadVerifiedHospitalityCommercialAmendmentAdjustmentChain(
     progressiveCommercialAmendmentTransactions.push(
       ...(settlementTransactionsByAmendment.get(amendment.id) ?? []),
     );
-    const settlementTransactionsAtIssue = [
+    const frozenTransactions = frozenSettlementEvidence.get(row.id);
+    const settlementTransactionsAtIssue = frozenTransactions ?? [
       ...baseSettlementTransactions.filter((transaction) => transaction.createdAt.getTime() <= row.issuedAt.getTime()),
       ...progressiveCommercialAmendmentTransactions.filter(
         (transaction) => transaction.createdAt.getTime() <= row.issuedAt.getTime(),

@@ -1,0 +1,40 @@
+model HospitalityCommercialSettlementEvidence {
+  adjustmentNoteId         String   @id(map: "hospitality_commercial_settlement_evidence_pkey") @db.Uuid
+  organizationId           String   @db.Uuid
+  bookingId                String   @db.Uuid
+  sourceInvoiceId          String   @db.Uuid
+  commercialAmendmentId    String   @db.Uuid
+  sourceAdjustmentOrdinal  Int
+  schemaVersion            Int      @default(1)
+  issuedAt                 DateTime @db.Timestamptz(6)
+  transactionCount         Int
+  capturedAt               DateTime @default(now()) @db.Timestamptz(6)
+
+  transactions HospitalityCommercialSettlementEvidenceTransaction[]
+
+  @@unique([adjustmentNoteId, organizationId, bookingId], map: "hospitality_commercial_settlement_evidence_scope_key")
+  @@index([organizationId, bookingId, sourceInvoiceId, sourceAdjustmentOrdinal], map: "hospitality_commercial_settlement_evidence_source_idx")
+  @@map("hospitality_commercial_settlement_evidence")
+}
+
+model HospitalityCommercialSettlementEvidenceTransaction {
+  settlementEvidenceId    String                   @db.Uuid
+  paymentTransactionId    String                   @db.Uuid
+  organizationId          String                   @db.Uuid
+  bookingId               String                   @db.Uuid
+  commercialAmendmentId   String?                  @db.Uuid
+  kind                    PaymentTransactionKind
+  status                  PaymentTransactionStatus
+  providerCode            String                   @db.VarChar(40)
+  providerReference       String                   @db.VarChar(160)
+  sourceProviderReference String?                  @db.VarChar(160)
+  currency                String                   @db.Char(3)
+  amountMinor             BigInt                   @db.BigInt
+  sourceCreatedAt         DateTime                 @db.Timestamptz(6)
+
+  settlementEvidence HospitalityCommercialSettlementEvidence @relation(fields: [settlementEvidenceId, organizationId, bookingId], references: [adjustmentNoteId, organizationId, bookingId], onDelete: Restrict, onUpdate: Cascade, map: "hospitality_commercial_settlement_evidence_tx_scope_fkey")
+
+  @@id([settlementEvidenceId, paymentTransactionId], map: "hospitality_commercial_settlement_evidence_tx_pkey")
+  @@index([organizationId, bookingId, sourceCreatedAt, paymentTransactionId], map: "hospitality_commercial_settlement_evidence_tx_scope_idx")
+  @@map("hospitality_commercial_settlement_evidence_transactions")
+}
