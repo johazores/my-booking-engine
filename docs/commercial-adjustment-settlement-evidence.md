@@ -43,6 +43,12 @@ Existing commercial adjustment notes are intentionally **not backfilled**. Their
 
 The evidence tables are immutable after capture. Parent inserts must match a real tenant-scoped commercial adjustment note and must occur with the note issuance window. Child rows are linked to their parent evidence by tenant and booking scope. Later inserts cannot silently extend valid evidence because the parent transaction count is immutable and historical reads require an exact count match.
 
+Migration `20260924233000-hospitality-commercial-settlement-evidence-integrity` strengthens that boundary. PostgreSQL now independently binds the frozen header issue time to the immutable adjustment note, requires every frozen child row to exactly match the corresponding provider-neutral `payment_transactions` row at capture time, rejects post-issue payment rows and amendment identities outside the legal source-chain prefix, and enforces monotonic frozen payment membership with a deferred continuity guard. The continuity check works in both ordinal directions so an out-of-order/manual header insert cannot create a ledger that contradicts an already-frozen predecessor or successor.
+
+The source-payment comparison happens only when the frozen child row is inserted. Later legitimate provider lifecycle updates remain allowed because the frozen evidence is intentionally immutable and is not continuously compared with mutable current payment state.
+
+The disposable PostgreSQL suite verifies that these trigger/function guards are installed with the intended timing. Full behavioral execution still requires the guarded `npm run test:database` environment and is not replaced by source-contract checks.
+
 This boundary is supplemental legal evidence; it does not replace the immutable adjustment-note snapshot, source invoice, commercial amendment, target pricing, predecessor-chain, chronology, or document-fingerprint checks.
 
 ## Reconciliation
