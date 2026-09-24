@@ -26,21 +26,24 @@ test('terminal cancellation authority reconstruction uses one repeatable-read sn
   assert.match(source, /\{ isolationLevel: 'RepeatableRead' \}/);
 });
 
-test('terminal cancellation verifier keeps complete issue-time authority inside the caller transaction', async () => {
+test('terminal cancellation verifier uses frozen refund identity rather than current lifecycle status', async () => {
   const source = await read('src/server/payments/hospitality-cancellation-after-amendment-adjustment-authority-service.ts');
 
   assert.match(source, /loadVerifiedHospitalityCommercialAmendmentAdjustmentChain\(\{[\s\S]*transaction: input\.transaction/);
   assert.match(source, /hospitalityIssuedInvoice\.findFirst\(\{[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId/);
-  assert.match(source, /hospitalityBooking\.findFirst\(\{[\s\S]*id: input\.row\.bookingId[\s\S]*organizationId: input\.organizationId/);
-  assert.match(source, /readHospitalityLegalPaymentEvidenceHistory\(\{[\s\S]*transaction: input\.transaction[\s\S]*through: input\.row\.issuedAt/);
-  assert.match(source, /verifyFrozenRefundAuthorities/);
+  assert.match(source, /paymentTransaction\.findMany\(\{[\s\S]*id: \{ in: refundTransactionIds \}[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId/);
+  assert.match(source, /validateHospitalityFrozenCancellationRefundAuthorities/);
+  assert.doesNotMatch(source, /readHospitalityLegalPaymentEvidenceHistory/);
+  assert.doesNotMatch(source, /deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness/);
+  assert.doesNotMatch(source, /status: true/);
 });
 
-test('documentation separates snapshot consistency from unresolved frozen settlement evidence', async () => {
+test('documentation separates terminal frozen refund authority from unresolved commercial settlement evidence', async () => {
   const source = await read('docs/adjustment-note-authority-read-consistency.md');
 
   assert.match(source, /RepeatableRead/);
+  assert.match(source, /schema-version-6 terminal refund authorities/i);
+  assert.match(source, /ignoring current `PaymentTransaction\.status`/);
   assert.match(source, /schemas 2 through 5/);
-  assert.match(source, /provider lifecycle status can change later/);
   assert.match(source, /does not.*claim.*solve/is);
 });

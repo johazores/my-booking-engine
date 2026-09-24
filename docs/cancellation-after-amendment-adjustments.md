@@ -14,7 +14,7 @@ A cancellation after one or more commercial amendments can require more than one
 
 Schema version 6 therefore freezes an ordered, bounded refund-authority set rather than one caller-selected refund ID. The set contains between 1 and 256 successful refund transaction IDs, ordinals, amounts, and timestamps. Its exact sum must equal the verified current legal price.
 
-Provider-specific APIs are not embedded in the legal-document contract. SF re-derives money authority from complete bounded provider-neutral legal payment evidence.
+Provider-specific APIs are not embedded in the legal-document contract. SF re-derives money authority from complete bounded provider-neutral legal payment evidence during issuance.
 
 ## Readiness authority
 
@@ -66,9 +66,13 @@ Historical commercial reads may tolerate exactly one structurally terminal cance
 - reloads the complete tenant-scoped commercial predecessor chain;
 - proves exact predecessor ID/ordinal/document number/time/fingerprint and pricing continuity;
 - reloads the source tax invoice under tenant + booking scope;
-- reads complete bounded provider-neutral legal payment evidence under tenant + booking scope only through the immutable cancellation issue time;
-- re-runs cancellation readiness against that issue-time evidence; and
-- compares every frozen refund ID, ordinal, amount, timestamp, legal amount, and fingerprint to independently derived authority.
+- reloads only the exact frozen refund transaction IDs under the same tenant + booking scope;
+- re-proves each frozen refund's structural identity, non-commercial refund kind, AUD money, source attribution, amount, timestamp, chronology, and exact frozen total; and
+- deliberately does **not** require current `PaymentTransaction.status` to remain `SUCCEEDED`.
+
+The status distinction is intentional. Schema-version-6 issuance still requires successful refund authority inside the serializable writer. After issuance, later provider lifecycle status is current operational truth, not historical legal truth. Tax-document reconciliation separately maps the frozen refund IDs to current statuses and reports `SETTLEMENT_DRIFT` without rewriting or hiding the legal document. Missing or structurally changed refund rows still fail historical authority.
+
+The commercial predecessor chain remains separately verified. Because schemas 2 through 5 do not yet freeze their own issue-time settlement evidence, a schema-version-6 document can still inherit that legacy predecessor limitation even though its terminal refund leg no longer depends on current refund status.
 
 `hospitality-issued-adjustment-note-authority-service.ts` dispatches schema-version-6 evidence through that verifier. Staff detail/register/accounting, reconciliation, public capability history, authenticated/public HTML, and deterministic PDF delivery inherit the same verified document boundary.
 
@@ -86,7 +90,7 @@ The tax-invoice page evaluates terminal cancellation authority before any new co
 
 ## Validation boundary
 
-Dependency-free domain/source-contract coverage now includes readiness, immutable snapshot/persistence structure, historical commercial-read tolerance, bounded issue-time payment-evidence authority, schema-version-6 post-issuance authority, serializable writer contracts, idempotent verification, product routing, browser-authority exclusion, and downstream shared projection dispatch.
+Dependency-free domain/source-contract coverage now includes readiness, immutable snapshot/persistence structure, historical commercial-read tolerance, bounded issue-time payment-evidence authority, schema-version-6 post-issuance authority, frozen refund status-drift separation, serializable writer contracts, idempotent verification, product routing, browser-authority exclusion, and downstream shared projection dispatch.
 
 Full repository validation, live migration/drift execution, PostgreSQL constraint/concurrency verification, and production build remain dependent on the repository-required Node 24 dependency checkout and an explicitly disposable PostgreSQL target.
 
@@ -94,4 +98,4 @@ Jurisdiction-specific production use still requires the repository's planned leg
 
 ## Remaining adjacent work
 
-Phase 12 still has separate work for mixed-taxability and partial/non-standard-GST adjustment semantics, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe deterministic PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review.
+Phase 12 still has separate work for schemas 2 through 5 versioned issue-time commercial settlement evidence, mixed-taxability and partial/non-standard-GST adjustment semantics, generic correction/void/reissue, durable customer re-authentication and email/resend, universal Unicode-safe deterministic PDF rendering, reviewed disposal/de-identification, complete Node 24/Prisma/PostgreSQL execution, and jurisdiction/legal review.

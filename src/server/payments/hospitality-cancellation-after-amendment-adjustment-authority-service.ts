@@ -2,8 +2,8 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
-  deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness,
-} from './hospitality-cancellation-after-amendment-adjustment-domain.ts';
+  validateHospitalityFrozenCancellationRefundAuthorities,
+} from './hospitality-cancellation-after-amendment-frozen-refund-authority-domain.ts';
 import {
   hospitalityIssuedCancellationAfterAmendmentAdjustmentNoteFingerprint,
   parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot,
@@ -11,9 +11,6 @@ import {
 import {
   loadVerifiedHospitalityCommercialAmendmentAdjustmentChain,
 } from './hospitality-commercial-amendment-adjustment-chain-service.ts';
-import {
-  readHospitalityLegalPaymentEvidenceHistory,
-} from './hospitality-legal-payment-evidence-history.ts';
 
 export type HospitalityCancellationAfterAmendmentAdjustmentAuthorityRow = Readonly<{
   id: string;
@@ -64,37 +61,6 @@ function timestamp(value: Date | string) {
 
 function sameTime(left: Date | string, right: Date | string) {
   return timestamp(left) === timestamp(right);
-}
-
-function verifyFrozenRefundAuthorities(input: {
-  expected: readonly Readonly<{
-    refundTransactionId: string;
-    refundOrdinal: number;
-    amountMinor: bigint;
-    createdAt: Date;
-  }>[];
-  frozen: readonly Readonly<{
-    refundTransactionId: string;
-    refundOrdinal: string;
-    amountMinor: string;
-    createdAt: string;
-  }>[];
-}) {
-  if (input.expected.length !== input.frozen.length) {
-    fail('Cancellation refund authority count no longer matches payment truth at issue time.');
-  }
-  for (let index = 0; index < input.expected.length; index += 1) {
-    const expected = input.expected[index]!;
-    const frozen = input.frozen[index]!;
-    if (
-      expected.refundTransactionId !== frozen.refundTransactionId
-      || expected.refundOrdinal.toString() !== frozen.refundOrdinal
-      || expected.amountMinor.toString() !== frozen.amountMinor
-      || !sameTime(expected.createdAt, frozen.createdAt)
-    ) {
-      fail('Cancellation refund authority no longer matches payment truth at issue time.');
-    }
-  }
 }
 
 async function verifyRow(input: {
@@ -157,38 +123,23 @@ async function verifyRow(input: {
     fail('Cancellation-after-amendment predecessor authority does not match the verified commercial chain head.');
   }
 
-  const [sourceInvoice, booking, paymentHistory] = await Promise.all([
-    input.transaction.hospitalityIssuedInvoice.findFirst({
-      where: {
-        id: input.row.sourceInvoiceId,
-        organizationId: input.organizationId,
-        bookingId: input.row.bookingId,
-        jurisdictionCode: 'AU',
-        documentType: 'TAX_INVOICE',
-      },
-      select: {
-        documentNumber: true,
-        issuedAt: true,
-        documentFingerprint: true,
-        issuerFingerprint: true,
-        recipientFingerprint: true,
-      },
-    }),
-    input.transaction.hospitalityBooking.findFirst({
-      where: { id: input.row.bookingId, organizationId: input.organizationId },
-      select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
-    }),
-    readHospitalityLegalPaymentEvidenceHistory({
-      transaction: input.transaction,
+  const sourceInvoice = await input.transaction.hospitalityIssuedInvoice.findFirst({
+    where: {
+      id: input.row.sourceInvoiceId,
       organizationId: input.organizationId,
       bookingId: input.row.bookingId,
-      through: input.row.issuedAt,
-    }),
-  ]);
-  if (!sourceInvoice || !booking) fail('Cancellation-after-amendment tenant authority is incomplete.');
-  if (!paymentHistory.complete) {
-    fail(`Cancellation-after-amendment payment evidence is incomplete: ${paymentHistory.reason}`);
-  }
+      jurisdictionCode: 'AU',
+      documentType: 'TAX_INVOICE',
+    },
+    select: {
+      documentNumber: true,
+      issuedAt: true,
+      documentFingerprint: true,
+      issuerFingerprint: true,
+      recipientFingerprint: true,
+    },
+  });
+  if (!sourceInvoice) fail('Cancellation-after-amendment tenant authority is incomplete.');
   if (
     sourceInvoice.documentNumber !== snapshot.sourceInvoiceDocumentNumber
     || !sameTime(sourceInvoice.issuedAt, snapshot.sourceInvoiceIssuedAt)
@@ -199,47 +150,47 @@ async function verifyRow(input: {
     fail('Cancellation-after-amendment source tax-invoice authority has drifted.');
   }
 
-  const transactionsAtIssue = paymentHistory.transactions;
-  const readiness = deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness({
-    bookingStatus: booking.status,
-    bookingPaymentStatus: booking.paymentStatus,
-    bookingCurrency: booking.currency,
-    bookingTotalMinor: booking.totalMinor,
-    chainHead: {
-      adjustmentNoteId: head.adjustmentNoteId,
-      sourceAdjustmentOrdinal: head.sourceAdjustmentOrdinal,
-      documentNumber: head.documentNumber,
-      issuedAt: head.issuedAt,
-      documentFingerprint: head.documentFingerprint,
-      afterPricingFingerprint: head.afterPricingFingerprint,
-      currency: priorHead.after.currency,
-      accommodationSubtotalMinor: priorHead.after.accommodationSubtotalMinor,
-      taxTotalMinor: priorHead.after.taxTotalMinor,
-      feeTotalMinor: priorHead.after.feeTotalMinor,
-      addonTotalMinor: priorHead.after.addonTotalMinor,
-      totalMinor: priorHead.after.totalMinor,
+  const refundTransactionIds = snapshot.refundAuthorities.map(
+    (authority) => authority.refundTransactionId,
+  );
+  const refundTransactions = await input.transaction.paymentTransaction.findMany({
+    where: {
+      id: { in: refundTransactionIds },
+      organizationId: input.organizationId,
+      bookingId: input.row.bookingId,
     },
-    transactions: transactionsAtIssue,
+    select: {
+      id: true,
+      organizationId: true,
+      bookingId: true,
+      commercialAmendmentId: true,
+      kind: true,
+      providerCode: true,
+      providerReference: true,
+      sourceProviderReference: true,
+      currency: true,
+      amountMinor: true,
+      createdAt: true,
+    },
   });
-  if (!readiness.ready) {
-    fail(`Cancellation-after-amendment settlement authority failed at issue time: ${readiness.reason}`);
+
+  try {
+    validateHospitalityFrozenCancellationRefundAuthorities({
+      organizationId: input.organizationId,
+      bookingId: input.row.bookingId,
+      predecessorIssuedAt: snapshot.predecessorAdjustmentIssuedAt,
+      issuedAt: snapshot.issuedAt,
+      expectedTotalMinor: BigInt(snapshot.beforeTotalMinor),
+      frozen: snapshot.refundAuthorities,
+      current: refundTransactions,
+    });
+  } catch (error) {
+    fail(
+      error instanceof Error
+        ? error.message
+        : 'Cancellation refund authority no longer matches immutable issue-time evidence.',
+    );
   }
-  if (
-    readiness.sourceAdjustmentOrdinal !== input.row.sourceAdjustmentOrdinal
-    || readiness.predecessorAdjustmentNoteId !== snapshot.predecessorAdjustmentNoteId
-    || readiness.predecessorSourceAdjustmentOrdinal !== input.row.predecessorSourceAdjustmentOrdinal
-    || readiness.predecessorAdjustmentDocumentNumber !== snapshot.predecessorAdjustmentDocumentNumber
-    || !sameTime(readiness.predecessorAdjustmentIssuedAt, snapshot.predecessorAdjustmentIssuedAt)
-    || readiness.predecessorAdjustmentDocumentFingerprint !== snapshot.predecessorAdjustmentDocumentFingerprint
-    || readiness.predecessorAfterPricingFingerprint !== snapshot.predecessorAfterPricingFingerprint
-    || readiness.currency !== snapshot.currency
-    || readiness.decreaseSubtotalMinor.toString() !== snapshot.decreaseSubtotalMinor
-    || readiness.decreaseTaxMinor.toString() !== snapshot.decreaseTaxMinor
-    || readiness.decreaseTotalMinor.toString() !== snapshot.decreaseTotalMinor
-  ) {
-    fail('Cancellation-after-amendment legal effect no longer matches independently derived issue-time authority.');
-  }
-  verifyFrozenRefundAuthorities({ expected: readiness.refundAuthorities, frozen: snapshot.refundAuthorities });
 }
 
 export async function verifyHospitalityCancellationAfterAmendmentAdjustmentRowInTransaction(input: {
