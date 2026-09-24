@@ -1,3 +1,5 @@
+const INTERNAL_CLAIM_REFERENCE = /^sf_claim_[0-9a-f]{64}$/;
+
 export type HospitalityFrozenCancellationRefundAuthority = Readonly<{
   refundTransactionId: string;
   refundOrdinal: string;
@@ -100,7 +102,9 @@ export function validateHospitalityFrozenCancellationRefundAuthorities(input: Re
       || row.createdAt.getTime() !== createdAt
       || !row.providerCode.trim()
       || !row.providerReference.trim()
+      || INTERNAL_CLAIM_REFERENCE.test(row.providerReference)
       || !row.sourceProviderReference?.trim()
+      || INTERNAL_CLAIM_REFERENCE.test(row.sourceProviderReference)
     ) {
       fail('Cancellation refund authority no longer matches its immutable transaction identity and money evidence.');
     }

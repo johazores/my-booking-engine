@@ -70,7 +70,14 @@ async function verifyRow(input: {
 }) {
   const snapshot = parseHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot(input.row.documentSnapshot);
   if (
-    snapshot.organizationId !== input.organizationId
+    input.row.jurisdictionCode !== 'AU'
+    || input.row.documentType !== 'ADJUSTMENT_NOTE'
+    || input.row.adjustmentType !== 'DECREASING'
+    || input.row.adjustmentReason !== 'BOOKING_CANCELLATION'
+    || input.row.refundTransactionId !== null
+    || input.row.commercialAmendmentId !== null
+    || input.row.targetPricingEvidenceId !== null
+    || snapshot.organizationId !== input.organizationId
     || snapshot.organizationId !== input.row.organizationId
     || snapshot.bookingId !== input.row.bookingId
     || snapshot.sourceInvoiceId !== input.row.sourceInvoiceId

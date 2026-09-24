@@ -33,6 +33,9 @@ test('terminal cancellation verifier uses frozen refund identity rather than cur
   assert.match(source, /hospitalityIssuedInvoice\.findFirst\(\{[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId/);
   assert.match(source, /paymentTransaction\.findMany\(\{[\s\S]*id: \{ in: refundTransactionIds \}[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId/);
   assert.match(source, /validateHospitalityFrozenCancellationRefundAuthorities/);
+  assert.match(source, /input\.row\.adjustmentReason !== 'BOOKING_CANCELLATION'/);
+  assert.match(source, /input\.row\.commercialAmendmentId !== null/);
+  assert.match(source, /input\.row\.targetPricingEvidenceId !== null/);
   assert.doesNotMatch(source, /readHospitalityLegalPaymentEvidenceHistory/);
   assert.doesNotMatch(source, /deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness/);
   assert.doesNotMatch(source, /status: true/);

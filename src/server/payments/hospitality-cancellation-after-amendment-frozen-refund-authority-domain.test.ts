@@ -63,6 +63,8 @@ test('structural refund evidence still fails closed', () => {
     { current: [{ ...current('FAILED')[0]!, currency: 'USD' }] },
     { current: [{ ...current('FAILED')[0]!, amountMinor: 10_000n }] },
     { current: [{ ...current('FAILED')[0]!, sourceProviderReference: null }] },
+    { current: [{ ...current('FAILED')[0]!, providerReference: `sf_claim_${'a'.repeat(64)}` }] },
+    { current: [{ ...current('FAILED')[0]!, sourceProviderReference: `sf_claim_${'b'.repeat(64)}` }] },
     { current: [{ ...current('FAILED')[0]!, createdAt: new Date('2026-09-20T10:00:01.000Z') }] },
   ];
 
