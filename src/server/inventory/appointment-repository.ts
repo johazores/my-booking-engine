@@ -1,13 +1,6 @@
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-
-function boundedPage(page: number) {
-  return Number.isSafeInteger(page) && page > 0 ? page : 1;
-}
-
-function boundedPageSize(pageSize: number) {
-  return Number.isSafeInteger(pageSize) && pageSize >= 1 && pageSize <= 50 ? pageSize : 20;
-}
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 
 export async function listAppointmentServicesForOrganization(input: {
   organizationId: string;
@@ -15,20 +8,17 @@ export async function listAppointmentServicesForOrganization(input: {
   pageSize: number;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
-  const pageSize = boundedPageSize(input.pageSize);
-  const requestedPage = boundedPage(input.page);
   const where = { organizationId: input.organizationId };
   const total = await db.appointmentService.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const services = await db.appointmentService.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { staffAssignments: true } } },
   });
-  return { services, total, page, totalPages, pageSize };
+  return { services, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function listAppointmentStaffForOrganization(input: {
@@ -37,20 +27,17 @@ export async function listAppointmentStaffForOrganization(input: {
   pageSize: number;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
-  const pageSize = boundedPageSize(input.pageSize);
-  const requestedPage = boundedPage(input.page);
   const where = { organizationId: input.organizationId };
   const total = await db.appointmentStaff.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const staff = await db.appointmentStaff.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { schedules: true, serviceAssignments: true } } },
   });
-  return { staff, total, page, totalPages, pageSize };
+  return { staff, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function readAppointmentStaffForOrganization(input: {
@@ -72,19 +59,16 @@ export async function listAppointmentSchedulesForStaff(input: {
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.staffId, 'staffId');
-  const pageSize = boundedPageSize(input.pageSize);
-  const requestedPage = boundedPage(input.page);
   const where = { organizationId: input.organizationId, staffId: input.staffId };
   const total = await db.appointmentSchedule.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const schedules = await db.appointmentSchedule.findMany({
     where,
     orderBy: [{ status: 'asc' }, { dayOfWeek: 'asc' }, { startsAtMinute: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
   });
-  return { schedules, total, page, totalPages, pageSize };
+  return { schedules, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function listAppointmentServiceAssignmentsForStaff(input: {
@@ -95,18 +79,15 @@ export async function listAppointmentServiceAssignmentsForStaff(input: {
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.staffId, 'staffId');
-  const pageSize = boundedPageSize(input.pageSize);
-  const requestedPage = boundedPage(input.page);
   const where = { organizationId: input.organizationId, staffId: input.staffId };
   const total = await db.appointmentStaffService.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const assignments = await db.appointmentStaffService.findMany({
     where,
     orderBy: [{ service: { name: 'asc' } }, { serviceId: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { service: true },
   });
-  return { assignments, total, page, totalPages, pageSize };
+  return { assignments, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }

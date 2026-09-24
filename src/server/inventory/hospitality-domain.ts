@@ -1,3 +1,7 @@
+import { INVENTORY_PAGE_SIZE_DEFAULT, INVENTORY_PAGE_SIZE_MAX } from './inventory-pagination.ts';
+
+export { INVENTORY_PAGE_SIZE_DEFAULT, INVENTORY_PAGE_SIZE_MAX } from './inventory-pagination.ts';
+
 export type InventoryLifecycleStatus = 'ACTIVE' | 'ARCHIVED';
 export type RoomOperationalStatus = 'ACTIVE' | 'OUT_OF_SERVICE' | 'ARCHIVED';
 
@@ -130,9 +134,6 @@ export function assertInventoryArchiveConfirmation(value: string) {
     throw new HospitalityInventoryValidationError('Type ARCHIVE to confirm archival.');
   }
 }
-
-export const INVENTORY_PAGE_SIZE_DEFAULT = 20;
-export const INVENTORY_PAGE_SIZE_MAX = 50;
 
 export function parseInventoryPage(value: string | undefined) {
   const page = Number.parseInt(value ?? '', 10);

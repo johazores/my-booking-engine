@@ -1,20 +1,20 @@
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 
 export async function listHospitalityPropertiesForOrganization(input: { organizationId: string; page: number; pageSize: number }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   const where = { organizationId: input.organizationId };
   const total = await db.hospitalityProperty.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const properties = await db.hospitalityProperty.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { roomTypes: true } } },
   });
-  return { properties, total, page, totalPages };
+  return { properties, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function readPropertyForOrganization(input: { organizationId: string; propertyId: string }) {
@@ -28,16 +28,15 @@ export async function listRoomTypesForProperty(input: { organizationId: string; 
   assertUuidIdentifier(input.propertyId, 'propertyId');
   const where = { organizationId: input.organizationId, propertyId: input.propertyId };
   const total = await db.hospitalityRoomType.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const roomTypes = await db.hospitalityRoomType.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { rooms: true } } },
   });
-  return { roomTypes, total, page, totalPages };
+  return { roomTypes, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function readRoomTypeForOrganization(input: { organizationId: string; roomTypeId: string }) {
@@ -52,13 +51,12 @@ export async function listRoomsForRoomType(input: { organizationId: string; prop
   assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
   const where = { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId };
   const total = await db.hospitalityRoom.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(input.page, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const rooms = await db.hospitalityRoom.findMany({
     where,
     orderBy: [{ status: 'asc' }, { code: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * input.pageSize,
-    take: input.pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
   });
-  return { rooms, total, page, totalPages };
+  return { rooms, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }

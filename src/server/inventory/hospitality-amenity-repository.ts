@@ -1,18 +1,9 @@
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { INVENTORY_PAGE_SIZE_DEFAULT, INVENTORY_PAGE_SIZE_MAX } from './hospitality-domain.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 
 const MAX_COMPLETE_AMENITY_ROWS = 1_000;
 const MAX_AMENITY_ASSIGNMENT_ROWS = 1_000;
-
-function normalizePage(value: number | undefined) {
-  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value as number : 1;
-}
-
-function normalizePageSize(value: number | undefined) {
-  if (!Number.isSafeInteger(value) || (value ?? 0) < 1) return INVENTORY_PAGE_SIZE_DEFAULT;
-  return Math.min(value as number, INVENTORY_PAGE_SIZE_MAX);
-}
 
 function assertCompleteReadLimit(rows: unknown[], limit: number, label: string) {
   if (rows.length > limit) {
@@ -26,20 +17,17 @@ export async function listAmenitiesForOrganizationPage(input: {
   pageSize?: number;
 }) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
-  const pageSize = normalizePageSize(input.pageSize);
-  const requestedPage = normalizePage(input.page);
   const where = { organizationId: input.organizationId };
   const total = await db.hospitalityAmenity.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(requestedPage, totalPages);
+  const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
   const amenities = await db.hospitalityAmenity.findMany({
     where,
     orderBy: [{ status: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
+    skip: pagination.skip,
+    take: pagination.take,
     include: { _count: { select: { propertyAssignments: true, roomTypeAssignments: true } } },
   });
-  return { amenities, total, page, totalPages, pageSize };
+  return { amenities, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
 }
 
 export async function listAmenitiesForOrganization(input: { organizationId: string }) {
