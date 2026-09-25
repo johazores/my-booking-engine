@@ -17,13 +17,13 @@ The existing immutable invoice snapshot/fingerprint validation remains mandatory
 
 The tenant adjustment-note register also reads its count, clamped page, and ordered rows from one `RepeatableRead` snapshot. Existing `booking:read` and `payment:read` authorization is unchanged.
 
-Adjustment-note rows still pass through the shared legal authority verifier after the register page is loaded. That verifier independently reloads source invoice, refund, amendment, predecessor, pricing, and settlement evidence as required by the supported adjustment schema. Snapshot-consistent pagination is not a substitute for those fail-closed legal authority checks.
+Adjustment-note rows pass through the shared legal authority verifier inside the same `RepeatableRead` transaction that loads the register page. Source invoice, refund, amendment, predecessor, pricing, and settlement evidence therefore share the selected-row snapshot while remaining fail-closed. Snapshot-consistent pagination is not a substitute for complete legal authority.
 
 ## Public capability-owned history
 
 Public legal-document history first verifies the signed booking capability against the active organization resolved from the public slug. Persisted capability ownership, unexpired principal state, tenant-owned booking existence, tax-invoice count/rows, and adjustment-note count/rows are then read from one `RepeatableRead` transaction.
 
-This prevents one response from authorizing against one persisted ownership state while projecting legal-document collection metadata from a later state. The public projection remains fixed at 50 tax invoices and 50 adjustment notes and reports `truncated` from totals observed in that same snapshot.
+This prevents one response from authorizing against one persisted ownership state while projecting legal-document collection metadata from a later state. Adjustment-note source/refund/commercial authority is also verified inside that same snapshot before customer-safe projection. The public projection remains fixed at 50 tax invoices and 50 adjustment notes and reports `truncated` from totals observed in that same snapshot.
 
 The public response remains customer-safe. It does not expose internal legal fingerprints, payment/provider references, amendment IDs, pricing-evidence IDs, or other server-only authority fields.
 

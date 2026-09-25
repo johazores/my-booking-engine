@@ -5,6 +5,7 @@ import test from 'node:test';
 const authority = readFileSync('src/server/payments/hospitality-issued-adjustment-note-authority-service.ts', 'utf8');
 const commercial = readFileSync('src/server/payments/hospitality-commercial-amendment-adjustment-chain-read-service.ts', 'utf8');
 const staffRead = readFileSync('src/server/payments/hospitality-issued-adjustment-note-read-service.ts', 'utf8');
+const publicRead = readFileSync('src/server/payments/public-issued-tax-invoice-service.ts', 'utf8');
 const docs = readFileSync('docs/adjustment-note-authority-snapshot.md', 'utf8');
 
 function section(source, start, end) {
@@ -86,4 +87,16 @@ test('authenticated adjustment-note reads keep selected rows and authority evide
   assert.match(detail, /db\.\$transaction/);
   assert.match(detail, /transaction\.hospitalityIssuedAdjustmentNote\.findFirst/);
   assert.match(detail, /validateRowsWithAuthoritiesInTransaction\(transaction, input\.organizationId, \[row\]\)/);
+});
+
+
+test('public capability adjustment-note rows and authority evidence share one snapshot', () => {
+  const source = publicRead.slice(publicRead.indexOf('export async function listPublicBookingIssuedTaxInvoices'));
+  assert.match(source, /db\.\$transaction\(async \(transaction\) =>/);
+  assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.findMany/);
+  assert.match(source, /validateHospitalityIssuedAdjustmentNoteRowsInTransaction\(\{/);
+  assert.match(source, /transaction,/);
+  assert.match(source, /rows: adjustmentRows/);
+  assert.doesNotMatch(source, /validateHospitalityIssuedAdjustmentNoteRows\(\{/);
+  assert.match(docs, /Public booking-capability history now also validates/i);
 });

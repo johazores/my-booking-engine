@@ -8,7 +8,7 @@ import { readPublicOrganizationBrandingBySlug } from '../branding/branding-servi
 import { db } from '../database.ts';
 import {
   HospitalityIssuedAdjustmentNoteAuthorityError,
-  validateHospitalityIssuedAdjustmentNoteRows,
+  validateHospitalityIssuedAdjustmentNoteRowsInTransaction,
 } from './hospitality-issued-adjustment-note-authority-service.ts';
 import {
   createHospitalityIssuedTaxInvoiceDocument,
@@ -146,7 +146,7 @@ function customerDocument(document: ReturnType<typeof createHospitalityIssuedTax
 }
 
 function customerAdjustmentDocument(
-  document: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRows>>[number]['document'],
+  document: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRowsInTransaction>>[number]['document'],
 ) {
   return Object.freeze({
     documentTitle: document.documentTitle,
@@ -252,24 +252,25 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
         take: PUBLIC_DOCUMENT_LIMIT,
       }),
     ]);
-    return { total, rows, adjustmentTotal, adjustmentRows };
+    let validatedAdjustments: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRowsInTransaction>>;
+    try {
+      validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRowsInTransaction({
+        transaction,
+        organizationId: branding.id,
+        rows: adjustmentRows,
+      });
+    } catch (error) {
+      if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError || error instanceof Error) {
+        throw new PublicIssuedTaxInvoicePersistenceError(error.message);
+      }
+      throw new PublicIssuedTaxInvoicePersistenceError();
+    }
+
+    return { total, rows, adjustmentTotal, validatedAdjustments };
   }, { isolationLevel: 'RepeatableRead' });
 
   const items = snapshot.rows.map((row) => customerDocument(validatePersistedInvoice(row)));
-  let validatedAdjustments: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRows>>;
-  try {
-    validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRows({
-      organizationId: branding.id,
-      rows: snapshot.adjustmentRows,
-    });
-  } catch (error) {
-    if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError || error instanceof Error) {
-      throw new PublicIssuedTaxInvoicePersistenceError(error.message);
-    }
-    throw new PublicIssuedTaxInvoicePersistenceError();
-  }
-
-  const adjustmentItems = validatedAdjustments.map(({ document }) => customerAdjustmentDocument(document));
+  const adjustmentItems = snapshot.validatedAdjustments.map(({ document }) => customerAdjustmentDocument(document));
   return Object.freeze({
     total: snapshot.total,
     truncated: snapshot.total > items.length,

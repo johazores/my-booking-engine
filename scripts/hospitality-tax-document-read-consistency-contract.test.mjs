@@ -41,16 +41,14 @@ test('organization tax invoice register snapshots count and clamped page', () =>
   assert.match(source, /isolationLevel: 'RepeatableRead'/);
 });
 
-test('organization adjustment-note register snapshots count and clamped page before legal authority validation', () => {
+test('organization adjustment-note register snapshots count page and legal authority together', () => {
   const source = section(adjustments, 'export async function listHospitalityIssuedAdjustmentNotesForOrganization', 'export async function createHospitalityIssuedAdjustmentNoteAccountingExport');
   assert.match(source, /db\.\$transaction\(async \(transaction\) =>/);
   assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.count\(\{ where \}\)/);
   assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.findMany/);
   assert.match(source, /const page = Math\.min\(requestedPage, totalPages\)/);
+  assert.match(source, /validateRowsWithAuthoritiesInTransaction\(transaction, input\.organizationId, rows\)/);
   assert.match(source, /isolationLevel: 'RepeatableRead'/);
-  const transactionEnd = source.indexOf("isolationLevel: 'RepeatableRead'");
-  const authorityUse = source.indexOf('validateRowsWithAuthorities', transactionEnd);
-  assert.ok(transactionEnd >= 0 && authorityUse > transactionEnd, 'legal authority validation must remain after the paginated snapshot read');
 });
 
 test('public capability history snapshots persisted ownership and both legal-document collections', () => {
@@ -64,6 +62,8 @@ test('public capability history snapshots persisted ownership and both legal-doc
   assert.match(source, /transaction\.hospitalityIssuedInvoice\.findMany/);
   assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.count/);
   assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.findMany/);
+  assert.match(source, /validateHospitalityIssuedAdjustmentNoteRowsInTransaction\(\{/);
+  assert.match(source, /rows: adjustmentRows/);
   assert.match(source, /take: PUBLIC_DOCUMENT_LIMIT/);
   assert.match(source, /isolationLevel: 'RepeatableRead'/);
   assert.match(source, /truncated: snapshot\.total > items\.length/);
@@ -74,6 +74,7 @@ test('documentation keeps collection snapshots separate from complete legal auth
   assert.match(docs, /RepeatableRead/);
   assert.match(docs, /bookingId.*organizationId/s);
   assert.match(docs, /shared legal authority verifier/i);
+  assert.match(docs, /inside the same `RepeatableRead` transaction/i);
   assert.match(docs, /Pagination is not legal completeness/);
   assert.match(docs, /never proves settlement, adjustment-chain completeness, refund authority, reconciliation completeness, or issuance eligibility/);
   assert.match(docs, /serializable\/advisory-lock\/idempotency boundaries/);
