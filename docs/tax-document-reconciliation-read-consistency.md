@@ -6,6 +6,8 @@ Australian tax-document reconciliation deliberately separates immutable legal-do
 
 After server-side `booking:read` and `payment:read` authorization, `reconcileHospitalityAustralianTaxDocuments` opens one caller-owned `RepeatableRead` transaction. The tenant-scoped Australian tax-invoice and adjustment-note counts, bounded register pages, immutable invoice validation, complete adjustment-note authority validation, cancellation refund-status drift, commercial-amendment settlement drift, report construction, and reconciliation audit insert all use that same transaction.
 
+Before the bounded register reads begin, the transaction samples PostgreSQL `date_trunc('milliseconds', clock_timestamp())`. That one database-observed value is the reconciliation report `checkedAt` and the retained reconciliation `AuditEvent.createdAt`. The application-node wall clock does not author reconciliation chronology, so history `recordedAt` and the report check time refer to the same database observation.
+
 Register validation therefore cannot combine legal rows selected before a concurrent write with source/refund/commercial authority selected after it. Cancellation and commercial settlement drift also observe the exact payment state visible to the same reconciliation snapshot.
 
 A legal document committed after the reconciliation snapshot starts is intentionally outside that run and is picked up by the next run. It is not reported as corruption merely because it committed concurrently. The historical `CONCURRENT_CHANGE` failure code remains parseable for previously stored reconciliation audit records.

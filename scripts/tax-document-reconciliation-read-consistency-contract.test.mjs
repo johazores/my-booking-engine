@@ -34,6 +34,21 @@ test('one repeatable-read transaction owns the full reconciliation report and au
   assert.doesNotMatch(scope, /db\.auditEvent\.create/);
 });
 
+test('reconciliation uses one PostgreSQL clock observation for report and audit chronology', () => {
+  const scope = between(
+    reconciliation,
+    'export async function reconcileHospitalityAustralianTaxDocuments',
+    'export async function listHospitalityTaxDocumentReconciliationHistory',
+  );
+  assert.match(scope, /transaction\.\$queryRaw<Array<\{ checkedAt: Date \}>>/);
+  assert.match(scope, /SELECT date_trunc\('milliseconds', clock_timestamp\(\)\) AS "checkedAt"/);
+  assert.match(scope, /checkedAt instanceof Date/);
+  assert.match(scope, /Number\.isFinite\(checkedAt\.getTime\(\)\)/);
+  assert.match(scope, /createdAt: checkedAt/);
+  assert.match(scope, /HospitalityTaxDocumentReconciliationClockError/);
+  assert.doesNotMatch(scope, /const checkedAt = new Date\(\)/);
+});
+
 test('register validation pages and validates immutable authority through the caller transaction', () => {
   const invoices = between(
     reconciliation,
