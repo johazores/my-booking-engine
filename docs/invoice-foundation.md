@@ -43,7 +43,7 @@ Authenticated legal-document reads require `booking:read` plus `payment:read`. P
 
 `hospitality-issued-adjustment-note-authority-service.ts` centralizes immutable row/document verification for schema-version-1 cancellation, schema-version-6 terminal cancellation, and schema-version-2-through-5 commercial adjustments. Staff detail/register/accounting, reconciliation, public history, HTML, and deterministic PDF delivery therefore consume one shared validated document boundary.
 
-Customer projections exclude internal predecessor/amendment/target IDs, provider/payment/refund references, actors, and fingerprints unless legally required. Accounting CSV emits exact decimal money with explicit direction and separate decrease/increase columns. `/invoices/reconciliation` uses the same validated tenant-scoped read boundaries and concurrent-register checks.
+Customer projections exclude internal predecessor/amendment/target IDs, provider/payment/refund references, actors, and fingerprints unless legally required. Accounting CSV emits exact decimal money with explicit direction and separate decrease/increase columns. `/invoices/reconciliation` uses the same validated tenant-scoped read boundaries inside one bounded `RepeatableRead` snapshot that also owns settlement-drift reads and the audit insert.
 
 ## Remaining production boundaries
 

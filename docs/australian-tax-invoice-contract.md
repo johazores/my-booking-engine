@@ -65,7 +65,7 @@ Universal Unicode-safe embedded-font rendering remains open.
 
 Tenant invoice and adjustment registers use shared server-side immutable evidence validation before accounting CSV, reconciliation, HTML, or PDF projection. Schema-version-6 cancellation is accepted only after the complete commercial predecessor chain and frozen issue-time refund authority are independently reverified.
 
-`/invoices/reconciliation` performs a bounded tenant-scoped point-in-time integrity review and rejects concurrent register changes. `docs/tax-document-retention-and-reconciliation.md` defines the no-automatic-disposal rule and the separate future tax/privacy/legal authority required before disposal or de-identification.
+`/invoices/reconciliation` performs a bounded tenant-scoped point-in-time integrity review inside one caller-owned `RepeatableRead` snapshot and records its audit summary from that same snapshot. `docs/tax-document-retention-and-reconciliation.md` defines the no-automatic-disposal rule and the separate future tax/privacy/legal authority required before disposal or de-identification.
 
 ## Remaining production boundaries
 

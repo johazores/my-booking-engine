@@ -28,7 +28,7 @@ A settlement-drift result never rewrites, hides, voids, or deletes the issued ad
 
 The synchronous verifier is capped at 5,000 combined legal documents. Above that limit SF fails closed and requires an offline/batched operational review rather than reporting a partial register as verified.
 
-Because reconciliation is a point-in-time application read rather than a database snapshot held across every paginated query, the verifier compares register counts before, during, and after the scan. Concurrent legal-document issuance causes a `FAILED` result and the operator must rerun it.
+Reconciliation now holds one caller-owned PostgreSQL `RepeatableRead` snapshot across the bounded register scan, immutable authority checks, settlement-drift reads, report construction, and audit insert. Legal documents committed after that snapshot begins are outside the current run and are picked up by the next run rather than being misclassified as corruption. Historical `CONCURRENT_CHANGE` audit entries remain readable for earlier runs.
 
 A completed reconciliation writes one tenant-scoped `AuditEvent` summary using `payment.tax-document-reconciliation.completed`. Audit schema version 2 stores only jurisdiction, status, UTC check time, exact document counts, normalized failure codes, and the count of occurrences for each failure code. It deliberately excludes document numbers, customer PII, provider/payment references, credentials, raw snapshots, and fingerprints. Historical schema-version-1 audit summaries remain readable; because they stored only unique failure codes, SF does not invent occurrence counts for those older records.
 

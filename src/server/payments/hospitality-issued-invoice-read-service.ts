@@ -77,7 +77,7 @@ async function requireIssuedInvoiceReadAccess(input: { organizationId: string; a
   });
 }
 
-function validatePersistedInvoice(row: PersistedIssuedInvoice) {
+export function validateHospitalityIssuedTaxInvoiceRow(row: PersistedIssuedInvoice) {
   try {
     const snapshot = parseHospitalityIssuedTaxInvoiceSnapshot(row.documentSnapshot);
     if (
@@ -124,7 +124,7 @@ function pageNumber(value: number | undefined, fallback: number, label: string, 
 }
 
 function invoiceSummary(row: PersistedIssuedInvoice) {
-  const document = validatePersistedInvoice(row);
+  const document = validateHospitalityIssuedTaxInvoiceRow(row);
   return Object.freeze({
     documentNumber: document.documentNumber,
     bookingId: document.bookingId,
@@ -231,7 +231,7 @@ export async function createHospitalityIssuedTaxInvoiceAccountingExport(input: {
   if (rows.length > HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT) throw new HospitalityIssuedInvoiceExportLimitError();
 
   const accountingRows = rows.map((row) => {
-    const document = validatePersistedInvoice(row);
+    const document = validateHospitalityIssuedTaxInvoiceRow(row);
     return Object.freeze({
       documentNumber: document.documentNumber,
       issuedAt: new Date(document.issuedAt),
@@ -266,5 +266,5 @@ export async function getHospitalityIssuedTaxInvoiceDocument(input: {
     where: { organizationId: input.organizationId, documentNumber, ...AUSTRALIAN_TAX_INVOICE_WHERE },
   });
   if (!row) throw new HospitalityIssuedInvoiceUnavailableError();
-  return validatePersistedInvoice(row);
+  return validateHospitalityIssuedTaxInvoiceRow(row);
 }

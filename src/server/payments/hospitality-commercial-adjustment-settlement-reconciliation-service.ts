@@ -1,3 +1,4 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
 import {
   deriveHospitalityCommercialAmendmentSettlementState,
 } from '../bookings/booking-commercial-amendment-settlement-domain.ts';
@@ -194,7 +195,8 @@ function sourceInvoiceAuthorityFromRow(row: {
   }
 }
 
-export async function currentHospitalityCommercialAdjustmentSettlementDriftFailures(input: {
+export async function currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction(input: {
+  transaction: Prisma.TransactionClient;
   organizationId: string;
   documentLimit: number;
 }) {
@@ -203,7 +205,7 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
     throw new RangeError('documentLimit must be a positive safe integer.');
   }
 
-  return db.$transaction(async (transaction) => {
+  const transaction = input.transaction;
     const issued = await transaction.hospitalityIssuedAdjustmentNote.findMany({
       where: {
         organizationId: input.organizationId,
@@ -400,5 +402,18 @@ export async function currentHospitalityCommercialAdjustmentSettlementDriftFailu
         code: 'SETTLEMENT_DRIFT',
       }))),
     });
-  }, { isolationLevel: 'RepeatableRead' });
 }
+
+export async function currentHospitalityCommercialAdjustmentSettlementDriftFailures(input: {
+  organizationId: string;
+  documentLimit: number;
+}) {
+  return db.$transaction(
+    (transaction) => currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction({
+      transaction,
+      ...input,
+    }),
+    { isolationLevel: 'RepeatableRead' },
+  );
+}
+

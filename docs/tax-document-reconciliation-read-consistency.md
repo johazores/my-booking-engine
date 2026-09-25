@@ -1,23 +1,27 @@
 # Tax document reconciliation read consistency
 
-Australian tax-document reconciliation deliberately separates immutable legal-document authority from current provider/payment lifecycle observations. The reconciliation process remains a bounded point-in-time application scan, but each multi-query read unit must observe internally consistent PostgreSQL state.
+Australian tax-document reconciliation deliberately separates immutable legal-document authority from current provider/payment lifecycle observations. Each reconciliation run is a bounded point-in-time database review and records one internally consistent PostgreSQL snapshot.
 
-## Snapshot boundaries
+## Reconciliation snapshot boundary
 
-`currentCounts` reads the tenant-scoped Australian tax-invoice and adjustment-note counts inside one `RepeatableRead` transaction. The reconciliation workflow still performs a separate count snapshot before and after the register scan so concurrent legal-document issuance remains detectable as `CONCURRENT_CHANGE` rather than being hidden by one long transaction.
+After server-side `booking:read` and `payment:read` authorization, `reconcileHospitalityAustralianTaxDocuments` opens one caller-owned `RepeatableRead` transaction. The tenant-scoped Australian tax-invoice and adjustment-note counts, bounded register pages, immutable invoice validation, complete adjustment-note authority validation, cancellation refund-status drift, commercial-amendment settlement drift, report construction, and reconciliation audit insert all use that same transaction.
 
-Cancellation settlement-drift reconciliation reads the bounded tenant adjustment-note set and the current statuses of the exact frozen refund authorities inside one `RepeatableRead` transaction. Commercial-amendment settlement-drift reconciliation reads the tenant commercial adjustment-note rows, source invoices, amendments, target pricing evidence, and bounded payment history inside one `RepeatableRead` transaction. A drift result therefore cannot be assembled from mutually inconsistent database states inside either specialized scan.
+Register validation therefore cannot combine legal rows selected before a concurrent write with source/refund/commercial authority selected after it. Cancellation and commercial settlement drift also observe the exact payment state visible to the same reconciliation snapshot.
 
-Reconciliation history is a presentation collection. Its tenant-scoped audit count, clamped page calculation, and deterministic `createdAt desc, id desc` rows are read inside one `RepeatableRead` transaction so pagination metadata and returned history belong to the same snapshot.
+A legal document committed after the reconciliation snapshot starts is intentionally outside that run and is picked up by the next run. It is not reported as corruption merely because it committed concurrently. The historical `CONCURRENT_CHANGE` failure code remains parseable for previously stored reconciliation audit records.
+
+The standalone commercial settlement reconciliation entry point still owns a `RepeatableRead` compatibility wrapper for callers that do not already own a transaction. The tax-document reconciliation workflow uses its transaction-aware entry point so it does not open a nested independent snapshot.
+
+Reconciliation history is a presentation collection. Its tenant-scoped audit count, clamped page calculation, and deterministic `createdAt desc, id desc` rows are read inside one separate `RepeatableRead` transaction so pagination metadata and returned history belong to the same snapshot.
 
 ## Deliberate boundaries
 
-Snapshot consistency and immutable issue-time authority remain different concerns. Schema-version-1 and schema-version-6 cancellation documents keep their frozen refund identity/authority contracts. Newly issued commercial-amendment schemas 2 through 5 now replay frozen issue-time settlement evidence, while pre-migration commercial documents intentionally retain the bounded legacy payment-history fallback because SF cannot truthfully reconstruct status that was never frozen at issuance.
+Snapshot consistency and immutable issue-time authority remain different concerns. Schema-version-1 and schema-version-6 cancellation documents keep their frozen refund identity/authority contracts. Newly issued commercial-amendment schemas 2 through 5 replay frozen issue-time settlement evidence, while pre-migration commercial documents intentionally retain the bounded legacy payment-history fallback because SF cannot truthfully reconstruct status that was never frozen at issuance.
 
-Current provider lifecycle remains mutable operational truth. Reconciliation continues to compare current payment state with issued legal authority and may report settlement drift without rewriting, hiding, or invalidating an immutable document.
+Current provider lifecycle remains mutable operational truth. Reconciliation compares the current payment state visible to its database snapshot with issued legal authority and may report settlement drift without rewriting, hiding, or invalidating an immutable document.
 
-The overall reconciliation operation also remains a bounded multi-stage application scan rather than one database transaction spanning every register page and audit write. Before/after legal-document counts continue to detect concurrent register changes. Live provider calls are not introduced by reconciliation.
+The transaction remains bounded by the existing 5,000-document synchronous reconciliation limit, 100-row register pages, and the bounded commercial payment-history limit. Reconciliation performs no live provider calls.
 
 ## Validation
 
-`scripts/tax-document-reconciliation-read-consistency-contract.test.mjs` protects tenant scope, bounded reads, `RepeatableRead` isolation for the count, cancellation-drift, commercial-drift, and history collection boundaries, deterministic history ordering, and the separation between immutable issue-time evidence, legacy pre-migration evidence, and current provider lifecycle truth.
+`scripts/tax-document-reconciliation-read-consistency-contract.test.mjs` protects tenant scope, bounded register reads, the single caller-owned `RepeatableRead` reconciliation transaction, transaction-aware invoice/adjustment authority validation, cancellation and commercial settlement drift, same-transaction audit persistence, deterministic history ordering, and the separation between immutable issue-time evidence, legacy pre-migration evidence, and current provider lifecycle truth.
