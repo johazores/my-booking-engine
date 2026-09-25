@@ -17,6 +17,20 @@ test('commercial settlement reconciliation stays tenant scoped and bounded', () 
   assert.match(service, /createdAt: \{ lte: latestIssueTime \}/);
 });
 
+test('transaction-aware core reuses caller snapshot and standalone wrapper owns one snapshot', () => {
+  assert.match(service, /export async function currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction/);
+  assert.match(service, /transaction: Prisma\.TransactionClient/);
+  assert.match(service, /const transaction = input\.transaction/);
+  assert.match(service, /transaction\.hospitalityIssuedAdjustmentNote\.findMany/);
+  assert.match(service, /transaction\.hospitalityIssuedInvoice\.findMany/);
+  assert.match(service, /transaction\.hospitalityBookingCommercialAmendment\.findMany/);
+  assert.match(service, /transaction\.hospitalityBookingPricingEvidence\.findMany/);
+  assert.match(service, /transaction\.paymentTransaction\.findMany/);
+  assert.match(service, /return db\.\$transaction\(/);
+  assert.match(service, /currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction\(\{/);
+  assert.match(service, /isolationLevel: 'RepeatableRead'/);
+});
+
 test('only fingerprint verified immutable documents can become settlement authorities', () => {
   assert.match(service, /parseHospitalityIssuedCommercialAmendmentAdjustmentNoteSnapshot/);
   assert.match(service, /hospitalityIssuedCommercialAmendmentAdjustmentNoteFingerprint\(snapshot\) !== row\.documentFingerprint/);
@@ -26,8 +40,9 @@ test('only fingerprint verified immutable documents can become settlement author
   assert.match(service, /new Date\(snapshot\.issuedAt\)\.getTime\(\) !== row\.issuedAt\.getTime\(\)/);
 });
 
-test('source invoice immutable authority is reloaded before commercial settlement drift can be classified', () => {
-  assert.match(service, /db\.hospitalityIssuedInvoice\.findMany/);
+test('source invoice immutable authority is reloaded through the caller transaction before drift classification', () => {
+  assert.match(service, /transaction\.hospitalityIssuedInvoice\.findMany/);
+  assert.match(service, /organizationId: input\.organizationId/);
   assert.match(service, /parseHospitalityIssuedTaxInvoiceSnapshot/);
   assert.match(service, /hospitalityIssuedInvoiceFingerprint\(snapshot\) !== row\.documentFingerprint/);
   assert.match(service, /document\.documentFingerprint !== row\.documentFingerprint/);
@@ -62,8 +77,8 @@ test('current settlement replay uses only fully verified group members through d
   assert.match(service, /const authorityGroups = selectVerifiedHospitalityCommercialSettlementAuthorityGroups/);
   assert.match(service, /const validAuthorities = \[\.\.\.authorityGroups\.values\(\)\]\.flat\(\)/);
   assert.match(service, /candidate\.sourceAdjustmentOrdinal <= authority\.sourceAdjustmentOrdinal/);
-  assert.match(service, /transaction\.createdAt\.getTime\(\) <= authority\.issuedAt\.getTime\(\)/);
-  assert.match(service, /transaction\.commercialAmendmentId === null \|\| allowedAmendmentIds\.has\(transaction\.commercialAmendmentId\)/);
+  assert.match(service, /item\.createdAt\.getTime\(\) <= authority\.issuedAt\.getTime\(\)/);
+  assert.match(service, /item\.commercialAmendmentId === null \|\| allowedAmendmentIds\.has\(item\.commercialAmendmentId\)/);
   assert.match(service, /deriveHospitalityCommercialAmendmentSettlementState/);
   assert.match(service, /findHospitalityCommercialTaxDocumentSettlementDrift/);
 });
@@ -75,21 +90,26 @@ test('commercial drift requires exact expected money and ready settlement state'
   assert.match(driftDomain, /settlement\.netSettledMinor !== settlement\.expectedNetSettledMinor/);
 });
 
-test('tenant reconciliation includes commercial settlement drift without weakening register validation', () => {
-  assert.match(reconciliation, /validateAdjustmentNoteRegister/);
-  assert.match(reconciliation, /currentCancellationRefundSettlementDriftFailures/);
-  assert.match(reconciliation, /currentHospitalityCommercialAdjustmentSettlementDriftFailures/);
+test('tenant reconciliation uses transaction-aware commercial drift without weakening register validation', () => {
+  assert.match(reconciliation, /validateAdjustmentNoteRegisterInTransaction/);
+  assert.match(reconciliation, /currentCancellationRefundSettlementDriftFailuresInTransaction/);
+  assert.match(reconciliation, /currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction/);
+  assert.match(reconciliation, /transaction,\s+organizationId: input\.organizationId/);
   assert.match(reconciliation, /commercialSettlement\.status === 'DOCUMENT_LIMIT_EXCEEDED'/);
   assert.match(reconciliation, /commercialSettlement\.status === 'TRANSACTION_LIMIT_EXCEEDED'/);
   assert.match(reconciliation, /failures\.push\(\.\.\.commercialSettlement\.failures\)/);
 });
 
-test('documentation keeps chain-atomic current drift separate from historical settlement evidence', () => {
+test('documentation separates current drift from frozen historical authority and legacy evidence', () => {
   assert.match(guide, /source tax invoice is reloaded/i);
   assert.match(guide, /exact currency and monetary continuity/i);
   assert.match(guide, /entire source-invoice commercial chain/i);
   assert.match(guide, /excluded from settlement-drift classification/i);
-  assert.match(guide, /schema versions 2 through 5/i);
-  assert.match(guide, /current-state observability, not a substitute for versioned issue-time settlement evidence/i);
-  assert.match(guide, /Existing schema versions are not rewritten in place/i);
+  assert.match(guide, /current lifecycle status/i);
+  assert.match(guide, /Newly issued schema-version-2-through-5 commercial adjustment notes freeze their provider-neutral issue-time payment ledger/i);
+  assert.match(guide, /leading legacy prefix followed by a contiguous frozen-evidence suffix/i);
+  assert.match(guide, /same caller-owned PostgreSQL `RepeatableRead` snapshot/i);
+  assert.match(guide, /standalone .* entry point remains available/i);
+  assert.doesNotMatch(guide, /A future schema version must freeze/i);
+  assert.doesNotMatch(guide, /still derive their historical settlement proof from persisted transactions/i);
 });
