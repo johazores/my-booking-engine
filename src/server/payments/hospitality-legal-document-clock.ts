@@ -11,7 +11,7 @@ export async function readHospitalityLegalDocumentIssueTime(
   transaction: Pick<Prisma.TransactionClient, '$queryRaw'>,
 ) {
   const [databaseClock] = await transaction.$queryRaw<Array<{ issuedAt: Date }>>`
-    SELECT clock_timestamp() AS "issuedAt"
+    SELECT date_trunc('milliseconds', clock_timestamp()) AS "issuedAt"
   `;
   const issuedAt = databaseClock?.issuedAt;
   if (!(issuedAt instanceof Date) || !Number.isFinite(issuedAt.getTime())) {
