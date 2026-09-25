@@ -42,6 +42,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 import {
   readHospitalityLegalPaymentEvidenceHistory,
 } from './hospitality-legal-payment-evidence-history.ts';
@@ -397,7 +398,7 @@ export async function issueHospitalityRepeatedCommercialAmendmentAdjustmentNote(
           throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError('Commercial amendment is not applied.');
         }
 
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         if (amendment.appliedAt.getTime() > issuedAt.getTime()) {
           throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError(
             'Commercial amendment applied timestamp cannot be in the future.',

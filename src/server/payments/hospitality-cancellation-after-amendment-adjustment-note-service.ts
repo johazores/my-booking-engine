@@ -32,6 +32,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 import {
   readHospitalityLegalPaymentEvidenceHistory,
 } from './hospitality-legal-payment-evidence-history.ts';
@@ -324,7 +325,7 @@ export async function issueHospitalityCancellationAfterAmendmentAdjustmentNote(i
         });
         const sequenceValue = sequence.nextValue - 1n;
         const documentNumber = formatAustralianAdjustmentNoteDocumentNumber(sequenceValue);
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         const snapshot = createHospitalityIssuedCancellationAfterAmendmentAdjustmentNoteSnapshot({
           organizationId: input.organizationId,
           bookingId: input.bookingId,

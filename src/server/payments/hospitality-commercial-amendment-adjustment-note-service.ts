@@ -28,6 +28,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 import {
   readHospitalityLegalPaymentEvidenceHistory,
 } from './hospitality-legal-payment-evidence-history.ts';
@@ -571,7 +572,7 @@ export async function issueHospitalityCommercialAmendmentAdjustmentNote(input: {
         });
         const sequenceValue = sequence.nextValue - 1n;
         const documentNumber = formatAustralianAdjustmentNoteDocumentNumber(sequenceValue);
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         if (!evidence.amendment.appliedAt) {
           throw new HospitalityCommercialAmendmentAdjustmentNoteConflictError(
             'Commercial amendment is not applied.',

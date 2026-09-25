@@ -43,6 +43,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 import {
   readHospitalityLegalPaymentEvidenceHistory,
 } from './hospitality-legal-payment-evidence-history.ts';
@@ -470,7 +471,7 @@ export async function issueHospitalityRepeatedCommercialAmendmentIncreasingAdjus
           );
         }
 
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         if (
           amendment.appliedAt.getTime() > issuedAt.getTime()
           || amendment.appliedAt.getTime() < chain.head.issuedAt.getTime()

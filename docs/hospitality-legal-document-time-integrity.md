@@ -20,9 +20,11 @@ Both constraints are installed `NOT VALID` and immediately validated. Deployment
 
 ## Writer clock authority
 
-Tax-invoice issuance now reads PostgreSQL `clock_timestamp()` inside the existing serializable issuance transaction through `hospitality-legal-document-clock.ts`. The single database-observed `Date` is reused for the immutable tax-invoice snapshot, fingerprint input, and relational `issuedAt` value. Application-node time is therefore no longer the authority for newly issued Australian tax invoices.
+All seven current Australian hospitality legal-document writers use the shared `hospitality-legal-document-clock.ts` helper inside their existing `Serializable` issuance transactions. The helper reads PostgreSQL `date_trunc('milliseconds', clock_timestamp())`, so the database is the single wall-clock authority while the observed value is normalized to the canonical millisecond precision required by the immutable JSON timestamp contract.
 
-Adjustment-note writers still use their existing application-observed issue time in this revision. Their retained row/snapshot chronology remains protected by the database constraints above, but moving all adjustment-note issue-time authoring to the shared PostgreSQL clock is a separate follow-up because each large writer must be changed and validated coherently.
+The same database-observed `Date` is reused for the immutable snapshot, fingerprint input, and relational `issuedAt` value. There is no application-node issue-time fallback. If a serializable issuance attempt retries after a supported write conflict, only the database time observed by the committed attempt becomes legal evidence.
+
+This applies to the tax-invoice writer, cancellation adjustment notes, commercial decreasing and increasing adjustment notes, repeated commercial decreasing and increasing adjustment notes, and terminal cancellation-after-amendment adjustment notes.
 
 ## Scope
 

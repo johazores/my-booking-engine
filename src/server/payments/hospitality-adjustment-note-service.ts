@@ -13,6 +13,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 
 export class HospitalityAdjustmentNoteUnavailableError extends Error {
   constructor(message = 'Cancellation adjustment note is not available.') {
@@ -360,7 +361,7 @@ export async function issueHospitalityCancellationAdjustmentNote(input: {
         });
         const sequenceValue = sequence.nextValue - 1n;
         const documentNumber = formatAustralianAdjustmentNoteDocumentNumber(sequenceValue);
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         const snapshot = createHospitalityIssuedCancellationAdjustmentNoteSnapshot({
           organizationId: input.organizationId,
           bookingId: input.bookingId,
