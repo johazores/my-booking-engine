@@ -1,3 +1,4 @@
+import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -7,7 +8,7 @@ import {
 } from './hospitality-adjustment-note-accounting-export-domain.ts';
 import {
   HospitalityIssuedAdjustmentNoteAuthorityError,
-  validateHospitalityIssuedAdjustmentNoteRows,
+  validateHospitalityIssuedAdjustmentNoteRowsInTransaction,
 } from './hospitality-issued-adjustment-note-authority-service.ts';
 
 const AUSTRALIAN_ADJUSTMENT_NOTE_NUMBER_PATTERN = /^AU-ADJ-[0-9]{8,}$/;
@@ -58,9 +59,13 @@ function pageNumber(value: number | undefined, fallback: number, label: string, 
   return normalized;
 }
 
-async function validateRowsWithAuthorities(organizationId: string, rows: Parameters<typeof validateHospitalityIssuedAdjustmentNoteRows>[0]['rows']) {
+async function validateRowsWithAuthoritiesInTransaction(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  rows: Parameters<typeof validateHospitalityIssuedAdjustmentNoteRowsInTransaction>[0]['rows'],
+) {
   try {
-    return await validateHospitalityIssuedAdjustmentNoteRows({ organizationId, rows });
+    return await validateHospitalityIssuedAdjustmentNoteRowsInTransaction({ transaction, organizationId, rows });
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError || error instanceof Error) {
       throw new HospitalityIssuedAdjustmentNotePersistenceError(error.message);
@@ -69,7 +74,7 @@ async function validateRowsWithAuthorities(organizationId: string, rows: Paramet
   }
 }
 
-function adjustmentSummary(item: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRows>>[number]) {
+function adjustmentSummary(item: Awaited<ReturnType<typeof validateHospitalityIssuedAdjustmentNoteRowsInTransaction>>[number]) {
   return Object.freeze({
     documentNumber: item.document.documentNumber,
     bookingId: item.document.bookingId,
@@ -106,16 +111,16 @@ export async function listHospitalityIssuedAdjustmentNotesForOrganization(input:
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
-    return { page, total, totalPages, rows };
+    const validated = await validateRowsWithAuthoritiesInTransaction(transaction, input.organizationId, rows);
+    return { page, total, totalPages, validated };
   }, { isolationLevel: 'RepeatableRead' });
 
-  const validated = await validateRowsWithAuthorities(input.organizationId, result.rows);
   return Object.freeze({
     page: result.page,
     pageSize,
     total: result.total,
     totalPages: result.totalPages,
-    items: Object.freeze(validated.map(adjustmentSummary)),
+    items: Object.freeze(result.validated.map(adjustmentSummary)),
   });
 }
 
@@ -127,16 +132,17 @@ export async function createHospitalityIssuedAdjustmentNoteAccountingExport(inpu
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireAdjustmentNoteReadAccess(input);
 
-  const rows = await db.hospitalityIssuedAdjustmentNote.findMany({
-    where: { organizationId: input.organizationId, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE },
-    orderBy: [{ issuedAt: 'asc' }, { sequenceValue: 'asc' }, { id: 'asc' }],
-    take: HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT + 1,
-  });
-  if (rows.length > HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT) {
-    throw new HospitalityIssuedAdjustmentNoteExportLimitError();
-  }
-
-  const validated = await validateRowsWithAuthorities(input.organizationId, rows);
+  const validated = await db.$transaction(async (transaction) => {
+    const rows = await transaction.hospitalityIssuedAdjustmentNote.findMany({
+      where: { organizationId: input.organizationId, ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE },
+      orderBy: [{ issuedAt: 'asc' }, { sequenceValue: 'asc' }, { id: 'asc' }],
+      take: HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT + 1,
+    });
+    if (rows.length > HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT) {
+      throw new HospitalityIssuedAdjustmentNoteExportLimitError();
+    }
+    return validateRowsWithAuthoritiesInTransaction(transaction, input.organizationId, rows);
+  }, { isolationLevel: 'RepeatableRead' });
   const accountingRows = validated.map(({ document }) => {
     const common = {
       documentNumber: document.documentNumber,
@@ -190,17 +196,19 @@ export async function getHospitalityIssuedAdjustmentNoteDocument(input: {
   }
   await requireAdjustmentNoteReadAccess(input);
 
-  const row = await db.hospitalityIssuedAdjustmentNote.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      documentNumber,
-      ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE,
-    },
-  });
-  if (!row) throw new HospitalityIssuedAdjustmentNoteUnavailableError();
-  const [validated] = await validateRowsWithAuthorities(input.organizationId, [row]);
-  if (!validated) throw new HospitalityIssuedAdjustmentNoteUnavailableError();
-  return validated.document;
+  return db.$transaction(async (transaction) => {
+    const row = await transaction.hospitalityIssuedAdjustmentNote.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        documentNumber,
+        ...AUSTRALIAN_ADJUSTMENT_NOTE_WHERE,
+      },
+    });
+    if (!row) throw new HospitalityIssuedAdjustmentNoteUnavailableError();
+    const [validated] = await validateRowsWithAuthoritiesInTransaction(transaction, input.organizationId, [row]);
+    if (!validated) throw new HospitalityIssuedAdjustmentNoteUnavailableError();
+    return validated.document;
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 export async function getHospitalityIssuedCancellationAdjustmentNoteDocument(input: {

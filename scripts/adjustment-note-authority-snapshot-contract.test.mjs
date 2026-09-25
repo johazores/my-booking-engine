@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const authority = readFileSync('src/server/payments/hospitality-issued-adjustment-note-authority-service.ts', 'utf8');
 const commercial = readFileSync('src/server/payments/hospitality-commercial-amendment-adjustment-chain-read-service.ts', 'utf8');
+const staffRead = readFileSync('src/server/payments/hospitality-issued-adjustment-note-read-service.ts', 'utf8');
 const docs = readFileSync('docs/adjustment-note-authority-snapshot.md', 'utf8');
 
 function section(source, start, end) {
@@ -55,4 +56,34 @@ test('compatibility authority wrapper preserves RepeatableRead', () => {
   assert.match(wrapper, /isolationLevel: 'RepeatableRead'/);
   assert.match(docs, /caller-owned PostgreSQL transaction/i);
   assert.match(docs, /Tenant scope remains mandatory/i);
+});
+
+
+test('authenticated adjustment-note reads keep selected rows and authority evidence in one snapshot', () => {
+  const list = section(
+    staffRead,
+    'export async function listHospitalityIssuedAdjustmentNotesForOrganization',
+    'export async function createHospitalityIssuedAdjustmentNoteAccountingExport',
+  );
+  assert.match(list, /db\.\$transaction/);
+  assert.match(list, /validateRowsWithAuthoritiesInTransaction\(transaction, input\.organizationId, rows\)/);
+  assert.doesNotMatch(list, /validateRowsWithAuthorities\(input\.organizationId/);
+
+  const accounting = section(
+    staffRead,
+    'export async function createHospitalityIssuedAdjustmentNoteAccountingExport',
+    'export async function getHospitalityIssuedAdjustmentNoteDocument',
+  );
+  assert.match(accounting, /db\.\$transaction/);
+  assert.match(accounting, /transaction\.hospitalityIssuedAdjustmentNote\.findMany/);
+  assert.match(accounting, /validateRowsWithAuthoritiesInTransaction\(transaction, input\.organizationId, rows\)/);
+
+  const detail = section(
+    staffRead,
+    'export async function getHospitalityIssuedAdjustmentNoteDocument',
+    'export async function getHospitalityIssuedCancellationAdjustmentNoteDocument',
+  );
+  assert.match(detail, /db\.\$transaction/);
+  assert.match(detail, /transaction\.hospitalityIssuedAdjustmentNote\.findFirst/);
+  assert.match(detail, /validateRowsWithAuthoritiesInTransaction\(transaction, input\.organizationId, \[row\]\)/);
 });
