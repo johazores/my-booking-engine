@@ -15,6 +15,7 @@ import {
   hospitalityIssuedInvoiceFingerprint,
   parseHospitalityIssuedTaxInvoiceSnapshot,
 } from './hospitality-issued-invoice-domain.ts';
+import { readHospitalityLegalDocumentIssueTime } from './hospitality-legal-document-clock.ts';
 
 export class HospitalityInvoiceIssuanceUnavailableError extends Error {
   constructor(message = 'Tax invoice issuance is not available for this booking preparation.') {
@@ -197,7 +198,7 @@ export async function issueHospitalityAustralianTaxInvoice(input: {
         });
         const sequenceValue = sequence.nextValue - 1n;
         const documentNumber = formatAustralianTaxInvoiceDocumentNumber(sequenceValue);
-        const issuedAt = new Date();
+        const issuedAt = await readHospitalityLegalDocumentIssueTime(transaction);
         const snapshot = createHospitalityIssuedTaxInvoiceSnapshot({
           organizationId: input.organizationId,
           bookingId: booking.id,
