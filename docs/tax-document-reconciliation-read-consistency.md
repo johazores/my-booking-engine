@@ -14,7 +14,7 @@ A legal document committed after the reconciliation snapshot starts is intention
 
 The standalone commercial settlement reconciliation entry point still owns a `RepeatableRead` compatibility wrapper for callers that do not already own a transaction. The tax-document reconciliation workflow uses its transaction-aware entry point so it does not open a nested independent snapshot.
 
-Reconciliation history is a presentation collection. Its tenant-scoped audit count, clamped page calculation, and deterministic `createdAt desc, id desc` rows are read inside one separate `RepeatableRead` transaction so pagination metadata and returned history belong to the same snapshot.
+Reconciliation history is a presentation collection. Its tenant-scoped audit count, clamped page calculation, and deterministic `createdAt desc, id desc` rows are read inside one separate `RepeatableRead` transaction so pagination metadata and returned history belong to the same snapshot. New reconciliation summaries will use a new audit schema version before the database-clock chronology guarantee is promoted, while older history remains readable under its original contract.
 
 ## Deliberate boundaries
 
