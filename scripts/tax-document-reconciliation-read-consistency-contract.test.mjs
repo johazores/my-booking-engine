@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 const reconciliation = read('src/server/payments/hospitality-tax-document-reconciliation-service.ts');
+const reconciliationDomain = read('src/server/payments/hospitality-tax-document-reconciliation-domain.ts');
 const commercial = read('src/server/payments/hospitality-commercial-adjustment-settlement-reconciliation-service.ts');
 const invoiceRead = read('src/server/payments/hospitality-issued-invoice-read-service.ts');
 const docs = read('docs/tax-document-reconciliation-read-consistency.md');
@@ -32,6 +33,21 @@ test('one repeatable-read transaction owns the full reconciliation report and au
   assert.match(scope, /isolationLevel: 'RepeatableRead'/);
   assert.doesNotMatch(scope, /currentHospitalityCommercialAdjustmentSettlementDriftFailures\(/);
   assert.doesNotMatch(scope, /db\.auditEvent\.create/);
+});
+
+test('reconciliation uses one PostgreSQL clock observation for report and audit chronology', () => {
+  const scope = between(
+    reconciliation,
+    'export async function reconcileHospitalityAustralianTaxDocuments',
+    'export async function listHospitalityTaxDocumentReconciliationHistory',
+  );
+  assert.match(scope, /transaction\.\$queryRaw<Array<\{ checkedAt: Date \}>>/);
+  assert.match(scope, /SELECT date_trunc\('milliseconds', clock_timestamp\(\)\) AS "checkedAt"/);
+  assert.match(scope, /checkedAt instanceof Date/);
+  assert.match(scope, /Number\.isFinite\(checkedAt\.getTime\(\)\)/);
+  assert.match(scope, /createdAt: checkedAt/);
+  assert.match(scope, /HospitalityTaxDocumentReconciliationClockError/);
+  assert.doesNotMatch(scope, /const checkedAt = new Date\(\)/);
 });
 
 test('register validation pages and validates immutable authority through the caller transaction', () => {
@@ -108,6 +124,16 @@ test('reconciliation history count and page remain snapshot-consistent and deter
   assert.match(scope, /isolationLevel: 'RepeatableRead'/);
 });
 
+test('database-clock chronology guarantee is versioned without rewriting legacy audit history', () => {
+  assert.match(reconciliationDomain, /schemaVersion: 3 as const/);
+  assert.match(reconciliationDomain, /record\.schemaVersion !== 1 && record\.schemaVersion !== 2 && record\.schemaVersion !== 3/);
+
+  const scope = reconciliation.slice(reconciliation.indexOf('export async function listHospitalityTaxDocumentReconciliationHistory'));
+  assert.match(scope, /report\.schemaVersion === 3/);
+  assert.match(scope, /event\.createdAt\.getTime\(\) !== report\.checkedAt\.getTime\(\)/);
+  assert.match(scope, /Stored schema-v3 reconciliation history is not bound to its database-authored check time/);
+});
+
 test('documentation defines snapshot semantics without conflating mutable provider truth', () => {
   assert.match(docs, /one caller-owned `RepeatableRead` transaction/);
   assert.match(docs, /reconciliation audit insert all use that same transaction/);
@@ -115,4 +141,6 @@ test('documentation defines snapshot semantics without conflating mutable provid
   assert.match(docs, /historical `CONCURRENT_CHANGE` failure code remains parseable/);
   assert.match(docs, /Current provider lifecycle remains mutable operational truth/);
   assert.match(docs, /performs no live provider calls/);
+  assert.match(docs, /audit schema version 3/i);
+  assert.match(docs, /schema versions 1 and 2 remain readable/i);
 });

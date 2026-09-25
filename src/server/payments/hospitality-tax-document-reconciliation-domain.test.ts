@@ -43,7 +43,7 @@ test('integrity and current settlement failures prevent a verified result', () =
   assert.equal(result.failures.length, 2);
 });
 
-test('reconciliation audit v2 stores secret-safe canonical failure counts and round-trips', () => {
+test('reconciliation audit v3 stores secret-safe canonical failure counts and round-trips', () => {
   const result = createHospitalityTaxDocumentReconciliationResult({
     checkedAt: new Date('2026-09-04T01:02:03.000Z'),
     taxInvoiceCount: 3,
@@ -58,7 +58,7 @@ test('reconciliation audit v2 stores secret-safe canonical failure counts and ro
   });
   const audit = createHospitalityTaxDocumentReconciliationAuditData(result);
   assert.equal(HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION, 'payment.tax-document-reconciliation.completed');
-  assert.equal(audit.schemaVersion, 2);
+  assert.equal(audit.schemaVersion, 3);
   assert.deepEqual(audit.failureCodes, ['CONCURRENT_CHANGE', 'SETTLEMENT_DRIFT', 'SOURCE_LINK_FAILED']);
   assert.deepEqual(audit.failureCounts, [
     { code: 'CONCURRENT_CHANGE', count: 2 },
@@ -71,7 +71,7 @@ test('reconciliation audit v2 stores secret-safe canonical failure counts and ro
 
   const parsed = parseHospitalityTaxDocumentReconciliationAuditData(audit);
   assert.ok(parsed);
-  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.schemaVersion, 3);
   assert.equal(parsed.status, 'FAILED');
   assert.equal(parsed.checkedAt.toISOString(), '2026-09-04T01:02:03.000Z');
   assert.equal(parsed.totalDocumentCount, 6);
@@ -81,6 +81,24 @@ test('reconciliation audit v2 stores secret-safe canonical failure counts and ro
     { code: 'SETTLEMENT_DRIFT', count: 2 },
     { code: 'SOURCE_LINK_FAILED', count: 1 },
   ]);
+});
+
+test('legacy reconciliation audit v2 remains readable with occurrence counts', () => {
+  const parsed = parseHospitalityTaxDocumentReconciliationAuditData({
+    schemaVersion: 2,
+    jurisdictionCode: 'AU',
+    status: 'FAILED',
+    checkedAt: '2026-09-04T00:30:00.000Z',
+    taxInvoiceCount: 2,
+    adjustmentNoteCount: 1,
+    totalDocumentCount: 3,
+    failureCodes: ['SETTLEMENT_DRIFT'],
+    failureCounts: [{ code: 'SETTLEMENT_DRIFT', count: 2 }],
+  });
+  assert.ok(parsed);
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.checkedAt.toISOString(), '2026-09-04T00:30:00.000Z');
+  assert.deepEqual(parsed.failureCounts, [{ code: 'SETTLEMENT_DRIFT', count: 2 }]);
 });
 
 test('legacy reconciliation audit v1 remains readable without inventing historical counts', () => {
@@ -101,6 +119,17 @@ test('legacy reconciliation audit v1 remains readable without inventing historic
 
 test('malformed or contradictory reconciliation audit data fails closed', () => {
   assert.equal(parseHospitalityTaxDocumentReconciliationAuditData(null), null);
+  assert.equal(parseHospitalityTaxDocumentReconciliationAuditData({
+    schemaVersion: 4,
+    jurisdictionCode: 'AU',
+    status: 'VERIFIED',
+    checkedAt: '2026-09-04T00:00:00.000Z',
+    taxInvoiceCount: 0,
+    adjustmentNoteCount: 0,
+    totalDocumentCount: 0,
+    failureCodes: [],
+    failureCounts: [],
+  }), null);
   assert.equal(parseHospitalityTaxDocumentReconciliationAuditData({
     schemaVersion: 1,
     jurisdictionCode: 'AU',

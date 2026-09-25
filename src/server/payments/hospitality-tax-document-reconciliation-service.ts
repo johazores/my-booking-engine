@@ -53,6 +53,13 @@ export class HospitalityTaxDocumentReconciliationLimitError extends Error {
   }
 }
 
+export class HospitalityTaxDocumentReconciliationClockError extends Error {
+  constructor() {
+    super('Database clock is unavailable for tax-document reconciliation.');
+    this.name = 'HospitalityTaxDocumentReconciliationClockError';
+  }
+}
+
 export class HospitalityTaxDocumentReconciliationHistoryError extends Error {
   constructor(message = 'Stored tax-document reconciliation history is invalid.') {
     super(message);
@@ -222,7 +229,14 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
   await requireReconciliationAccess(input);
 
   return db.$transaction(async (transaction) => {
-    const checkedAt = new Date();
+    const [databaseClock] = await transaction.$queryRaw<Array<{ checkedAt: Date }>>`
+      SELECT date_trunc('milliseconds', clock_timestamp()) AS "checkedAt"
+    `;
+    const checkedAt = databaseClock?.checkedAt;
+    if (!(checkedAt instanceof Date) || !Number.isFinite(checkedAt.getTime())) {
+      throw new HospitalityTaxDocumentReconciliationClockError();
+    }
+
     const counts = await currentCountsInTransaction(transaction, input.organizationId);
     if (counts.taxInvoiceCount + counts.adjustmentNoteCount > HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_LIMIT) {
       throw new HospitalityTaxDocumentReconciliationLimitError();
@@ -291,6 +305,7 @@ export async function reconcileHospitalityAustralianTaxDocuments(input: { organi
         action: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_AUDIT_ACTION,
         resourceType: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_TYPE,
         resourceId: HOSPITALITY_TAX_DOCUMENT_RECONCILIATION_RESOURCE_ID,
+        createdAt: checkedAt,
         afterData: {
           ...auditData,
           failureCodes: [...auditData.failureCodes],
@@ -336,6 +351,11 @@ export async function listHospitalityTaxDocumentReconciliationHistory(input: {
     const items = events.map((event) => {
       const report = parseHospitalityTaxDocumentReconciliationAuditData(event.afterData);
       if (!report) throw new HospitalityTaxDocumentReconciliationHistoryError();
+      if (report.schemaVersion === 3 && event.createdAt.getTime() !== report.checkedAt.getTime()) {
+        throw new HospitalityTaxDocumentReconciliationHistoryError(
+          'Stored schema-v3 reconciliation history is not bound to its database-authored check time.',
+        );
+      }
       return Object.freeze({ id: event.id, recordedAt: event.createdAt, report });
     });
     return Object.freeze({ page, pageSize, total, totalPages, items: Object.freeze(items) });

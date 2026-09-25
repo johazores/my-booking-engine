@@ -74,7 +74,7 @@ function canonicalFailureCounts(failures: readonly HospitalityTaxDocumentReconci
 
 export function createHospitalityTaxDocumentReconciliationAuditData(result: HospitalityTaxDocumentReconciliationResult) {
   return Object.freeze({
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     jurisdictionCode: 'AU' as const,
     status: result.status,
     checkedAt: result.checkedAt.toISOString(),
@@ -125,7 +125,7 @@ function parseFailureCounts(value: unknown, failureCodes: readonly HospitalityTa
 export function parseHospitalityTaxDocumentReconciliationAuditData(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if ((record.schemaVersion !== 1 && record.schemaVersion !== 2) || record.jurisdictionCode !== 'AU') return null;
+  if ((record.schemaVersion !== 1 && record.schemaVersion !== 2 && record.schemaVersion !== 3) || record.jurisdictionCode !== 'AU') return null;
   if (record.status !== 'VERIFIED' && record.status !== 'FAILED') return null;
   if (typeof record.checkedAt !== 'string') return null;
   const checkedAt = new Date(record.checkedAt);
@@ -161,7 +161,7 @@ export function parseHospitalityTaxDocumentReconciliationAuditData(value: unknow
   if (!failureCounts) return null;
   if ((record.status === 'VERIFIED') !== (failureCounts.length === 0)) return null;
   return Object.freeze({
-    schemaVersion: 2 as const,
+    schemaVersion: record.schemaVersion as 2 | 3,
     jurisdictionCode: 'AU' as const,
     status: record.status,
     checkedAt,

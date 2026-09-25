@@ -41,7 +41,7 @@ test('reconciliation maps only fingerprint-verified schema-one and schema-six re
 });
 
 test('reconciliation audit history preserves safe occurrence counts without legal-document identifiers', () => {
-  assert.match(reconciliationDomain, /schemaVersion: 2 as const/);
+  assert.match(reconciliationDomain, /schemaVersion: 3 as const/);
   assert.match(reconciliationDomain, /failureCounts: canonicalFailureCounts/);
   assert.match(reconciliationDomain, /failureCounts: null/);
   assert.match(reconciliation, /failureCounts: auditData\.failureCounts\.map/);
