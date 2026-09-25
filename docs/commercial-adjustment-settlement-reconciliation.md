@@ -20,12 +20,28 @@ For a verified legal chain, settlement is replayed with the same provider-neutra
 - transactions owned by commercial amendments in the same fully verified source-invoice chain up to the document being checked; and
 - transactions created no later than that adjustment note's immutable issue time.
 
-A document reports `SETTLEMENT_DRIFT` when current persisted transaction state no longer produces `READY_TO_APPLY`, the exact adjustment amount is no longer fully settled, a remaining amount appears, or the current net settlement no longer equals the amendment's after-total.
+The replay intentionally reads the **current lifecycle status** of those historically eligible payment rows. A document reports `SETTLEMENT_DRIFT` when current persisted provider/payment state no longer produces `READY_TO_APPLY`, the exact adjustment amount is no longer fully settled, a remaining amount appears, or current net settlement no longer equals the amendment's after-total.
 
-The scan is tenant-scoped and bounded. It refuses to produce a partial successful reconciliation result if the commercial adjustment-note or payment-transaction scan exceeds its synchronous limit.
+That current-state replay is operational observability only. It does not redefine the immutable issue-time settlement authority that allowed the adjustment note to be issued.
+
+## Historical issue-time settlement evidence
+
+Newly issued schema-version-2-through-5 commercial adjustment notes freeze their provider-neutral issue-time payment ledger through the commercial settlement-evidence contract. Historical legal verification prefers that frozen evidence and does not let later mutable provider-status changes rewrite issue-time authority.
+
+Pre-migration commercial documents are intentionally not backfilled because SF cannot truthfully reconstruct provider status that was not frozen at issuance. A commercial chain may therefore have a leading legacy prefix followed by a contiguous frozen-evidence suffix. Once frozen evidence begins, any later missing frozen evidence fails closed instead of silently falling back to mutable current payment state.
+
+Current reconciliation remains deliberately separate from that historical authority: it compares the current lifecycle state visible for the same historically eligible payment identities against the immutable legal chain and may report drift without rewriting, hiding, voiding, or invalidating the issued document.
+
+## Snapshot consistency and bounded execution
+
+When commercial settlement drift runs as part of `reconcileHospitalityAustralianTaxDocuments`, the caller passes the reconciliation transaction into `currentHospitalityCommercialAdjustmentSettlementDriftFailuresInTransaction`. Adjustment-note rows, source invoices, commercial amendments, target pricing evidence, bounded payment history, register validation, other settlement-drift checks, report construction, and the reconciliation audit insert therefore observe the same caller-owned PostgreSQL `RepeatableRead` snapshot.
+
+The standalone `currentHospitalityCommercialAdjustmentSettlementDriftFailures` entry point remains available for callers without an existing transaction and wraps the same transaction-aware core in its own `RepeatableRead` transaction.
+
+The scan is tenant-scoped and bounded. It refuses to produce a partial successful reconciliation result if the commercial adjustment-note or payment-transaction scan exceeds its synchronous limit. Reconciliation performs no live provider calls.
 
 ## Deliberate remaining boundary
 
-This reconciliation is current-state observability, not a substitute for versioned issue-time settlement evidence. Schema versions 2 through 5 still derive their historical settlement proof from persisted transactions that existed by the document issue time, and those transaction statuses can later change as provider truth is reconciled.
+The remaining historical limitation is the pre-migration legacy prefix whose original provider statuses were never frozen and cannot be reconstructed truthfully from mutable current state alone. Existing legal documents are not rewritten or backfilled with invented evidence.
 
-A future schema version must freeze the exact issue-time settlement authorities needed for historical legal reads before SF can safely remove mutable current payment status from the commercial adjustment-note read boundary. Existing schema versions are not rewritten in place.
+Mixed taxability, partial/non-standard-GST adjustments, generic correction/void/reissue, other jurisdictions, durable customer re-authentication and email delivery, universal Unicode-safe PDF rendering, reviewed retention/disposal, live Node 24/Prisma/PostgreSQL execution, live-provider verification, and jurisdiction-specific legal review remain separate production gates.
