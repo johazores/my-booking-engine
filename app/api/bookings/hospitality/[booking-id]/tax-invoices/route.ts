@@ -1,4 +1,4 @@
-import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { hospitalityBookingApiError, hospitalityBookingJson, readHospitalityBookingJsonObject, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityInvoicePreparationConflictError,
@@ -46,14 +46,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
     if (context.response) return observation.finish(context.response);
     organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
-    const body = await request.json() as { recipient?: HospitalityInvoiceRecipientInput };
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Invoice request must be an object.');
+    const body = await readHospitalityBookingJsonObject(request);
+    const recipient = body.recipient as HospitalityInvoiceRecipientInput | undefined;
 
     const preparation = await prepareHospitalityInvoice({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
       bookingId,
-      recipient: body.recipient,
+      recipient,
     });
     const issued = await issueHospitalityAustralianTaxInvoice({
       organizationId: context.organizationId,

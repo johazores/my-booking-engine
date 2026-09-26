@@ -6,6 +6,7 @@ import {
 import {
   hospitalityBookingApiError,
   hospitalityBookingJson,
+  readHospitalityBookingJsonObject,
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
@@ -47,9 +48,7 @@ export async function POST(
     if (context.response) return finish(context.response);
     organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
-    const body = await request.json().catch(() => { throw new Error('Commercial amendment request must be valid JSON.'); });
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Commercial amendment request must be an object.');
-    const payload = body as { change?: unknown; adjustmentFingerprint?: unknown };
+    const payload = await readHospitalityBookingJsonObject(request);
     const amendment = await prepareHospitalityBookingCommercialAmendmentTransport({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
