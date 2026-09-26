@@ -1,11 +1,11 @@
 import { quoteHospitalityPrice } from '@/server/pricing/hospitality-pricing-service.ts';
-import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { hospitalityBookingApiError, hospitalityBookingJson, readHospitalityBookingJsonObject, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 
 export async function POST(request: Request) {
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return context.response;
-    const body = await request.json();
+    const body = await readHospitalityBookingJsonObject(request);
     const quote = await quoteHospitalityPrice({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,

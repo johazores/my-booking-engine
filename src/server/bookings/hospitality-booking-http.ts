@@ -11,6 +11,82 @@ import { HospitalityBookingConflictError, HospitalityBookingPriceChangedError, H
 
 const HOSPITALITY_BOOKING_NO_STORE_HEADERS = Object.freeze({ 'cache-control': 'no-store' });
 
+export const HOSPITALITY_BOOKING_REQUEST_MAX_BYTES = 64 * 1024;
+
+export class BookingApiPayloadError extends Error {
+  constructor() {
+    super('Request body must be a bounded JSON object.');
+    this.name = 'BookingApiPayloadError';
+  }
+}
+
+function hasJsonContentType(request: Request) {
+  const contentType = request.headers.get('content-type');
+  if (!contentType) return false;
+  return contentType.split(';', 1)[0]?.trim().toLowerCase() === 'application/json';
+}
+
+function hasAcceptableContentLength(request: Request, maxBytes: number) {
+  const header = request.headers.get('content-length');
+  if (header === null) return true;
+  if (!/^[0-9]+$/.test(header)) return false;
+  const contentLength = Number(header);
+  return Number.isSafeInteger(contentLength) && contentLength <= maxBytes;
+}
+
+async function readBoundedRequestText(request: Request, maxBytes: number) {
+  if (!request.body) throw new BookingApiPayloadError();
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let receivedBytes = 0;
+  let text = '';
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      receivedBytes += chunk.value.byteLength;
+      if (receivedBytes > maxBytes) {
+        await reader.cancel();
+        throw new BookingApiPayloadError();
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // The stream may already be errored or closed.
+    }
+    if (error instanceof BookingApiPayloadError) throw error;
+    throw new BookingApiPayloadError();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function readHospitalityBookingJsonObject(
+  request: Request,
+  maxBytes = HOSPITALITY_BOOKING_REQUEST_MAX_BYTES,
+): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new BookingApiPayloadError();
+  if (!hasJsonContentType(request) || !hasAcceptableContentLength(request, maxBytes)) {
+    throw new BookingApiPayloadError();
+  }
+
+  const rawBody = await readBoundedRequestText(request, maxBytes);
+  try {
+    const body: unknown = JSON.parse(rawBody);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BookingApiPayloadError();
+    return body as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof BookingApiPayloadError) throw error;
+    throw new BookingApiPayloadError();
+  }
+}
+
 export class BookingApiRequestError extends Error {
   constructor(message: string) {
     super(message);
@@ -50,6 +126,7 @@ function bookingApiErrorJson(body: Record<string, unknown>, status: number) {
 
 export function hospitalityBookingApiError(error: unknown) {
   if (error instanceof BookingApiRequestError) return bookingApiErrorJson({ error: 'invalid-request', message: error.message }, 403);
+  if (error instanceof BookingApiPayloadError) return bookingApiErrorJson({ error: 'invalid-request' }, 400);
   if (error instanceof OrganizationPermissionDeniedError) return bookingApiErrorJson({ error: 'forbidden' }, 403);
   if (error instanceof HospitalityBookingPriceChangedError) return bookingApiErrorJson({ error: 'price-changed', message: error.message }, 409);
   if (error instanceof HospitalityBookingConflictError || error instanceof AvailabilityHoldConflictError || error instanceof PaymentConflictError) {
@@ -74,7 +151,6 @@ export function hospitalityBookingApiError(error: unknown) {
   ) {
     return bookingApiErrorJson({ error: 'unavailable', message: error.message }, 409);
   }
-  if (error instanceof SyntaxError) return bookingApiErrorJson({ error: 'invalid-json' }, 400);
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
     return bookingApiErrorJson({ error: 'validation', message: error.message }, 400);
   }

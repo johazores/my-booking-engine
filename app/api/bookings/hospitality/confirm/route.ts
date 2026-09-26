@@ -1,5 +1,5 @@
 import { confirmHospitalityBookingFromHold } from '@/server/bookings/hospitality-booking-service.ts';
-import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { hospitalityBookingApiError, hospitalityBookingJson, readHospitalityBookingJsonObject, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 export async function POST(request: Request) {
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return finish(context.response);
     organizationId = context.organizationId;
-    const body = await request.json();
+    const body = await readHospitalityBookingJsonObject(request);
     const booking = await confirmHospitalityBookingFromHold({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
