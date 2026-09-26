@@ -21,7 +21,6 @@ function errorResponse(error: unknown) {
   if (error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'booking-write-unavailable' }, { status: 503, headers: { 'cache-control': 'no-store' } });
   }
-  if (error instanceof SyntaxError) return Response.json({ error: 'invalid-json' }, { status: 400, headers: { 'cache-control': 'no-store' } });
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: { 'cache-control': 'no-store' } });
   }
