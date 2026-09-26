@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   BookingApiPayloadError,
   HOSPITALITY_BOOKING_REQUEST_MAX_BYTES,
+  hospitalityBookingApiError,
   readHospitalityBookingJsonObject,
 } from './hospitality-booking-http.ts';
 
@@ -32,6 +33,10 @@ test('reads only JSON object bodies', async () => {
     headers: { 'content-type': 'text/plain' },
     body: '{}',
   }));
+  await rejectsPayload(new Request('https://booking.example.com/api', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  }));
 });
 
 test('rejects invalid and oversized advertised content lengths', async () => {
@@ -55,4 +60,12 @@ test('rejects invalid UTF-8 before JSON parsing', async () => {
 test('supports a smaller caller-specific byte ceiling', async () => {
   assert.deepEqual(await readHospitalityBookingJsonObject(jsonRequest('{"value":1}'), 32), { value: 1 });
   await rejectsPayload(jsonRequest('{"value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}'), 32);
+  await rejectsPayload(jsonRequest('{}'), 0);
+});
+
+test('normalizes bounded payload failures without exposing parser detail', async () => {
+  const response = hospitalityBookingApiError(new BookingApiPayloadError());
+  assert.equal(response.status, 400);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { error: 'invalid-request' });
 });
