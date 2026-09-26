@@ -1,5 +1,5 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
-import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
+import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { publicPaymentProviderClientError } from '@/server/payments/payment-provider-client-error.ts';
@@ -34,7 +34,6 @@ function errorResponse(error: unknown) {
     return Response.json({ error: providerError.error }, { status: providerError.status, headers: noStoreHeaders });
   }
 
-  if (error instanceof SyntaxError) return Response.json({ error: 'invalid-json' }, { status: 400, headers: noStoreHeaders });
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: noStoreHeaders });
   }
@@ -51,8 +50,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const body = await readPublicBookingJsonObject(request);
+    if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown; requestKey?: unknown };
