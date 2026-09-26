@@ -22,7 +22,7 @@ The public booking client also treats a successful hold followed by a failed quo
 
 ## HTTP policy
 
-`src/server/bookings/public-booking-http-policy.ts` centralizes the same-origin policy used by public booking mutations. Missing, malformed, and cross-origin `Origin` values are denied. This avoids slightly different security checks appearing as more anonymous booking routes are added.
+`src/server/bookings/public-booking-http-policy.ts` centralizes the same-origin policy and bounded JSON object parser used by public booking mutations. Missing, malformed, and cross-origin `Origin` values are denied. JSON bodies must use `application/json`, decode as valid UTF-8, parse to an object, and remain within the 64 KiB streamed ceiling even when `Content-Length` is absent. Hold create/release, quote, confirmation, receipt, Checkout creation, and Checkout status all use this boundary before capability-owned booking or payment work begins.
 
 ## Journey integration
 
