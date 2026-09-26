@@ -9,6 +9,7 @@ const readinessDomain = await readFile(new URL('../src/server/payments/hospitali
 const readinessService = await readFile(new URL('../src/server/payments/hospitality-cancellation-after-amendment-adjustment-service.ts', import.meta.url), 'utf8');
 const contractDoc = await readFile(new URL('../docs/cancellation-after-amendment-adjustments.md', import.meta.url), 'utf8');
 const route = await readFile(new URL('../app/api/bookings/hospitality/[booking-id]/adjustment-notes/route.ts', import.meta.url), 'utf8').catch(() => '');
+const productService = await readFile(new URL('../src/server/payments/hospitality-cancellation-adjustment-product-service.ts', import.meta.url), 'utf8');
 
 test('migration admits terminal schema-version-6 cancellation with modeled same-scope predecessor ownership', () => {
   assert.match(migration, /"adjustmentReason" = 'BOOKING_CANCELLATION'[\s\S]*"sourceAdjustmentOrdinal" >= 2/);
@@ -43,13 +44,17 @@ test('server readiness is tenant scoped and requires payment management authorit
   assert.match(readinessService, /loadVerifiedHospitalityCommercialAmendmentAdjustmentChain/);
 });
 
-test('documentation explicitly keeps schema-version-6 product reachability closed', () => {
-  assert.match(contractDoc, /not product-reachable yet/i);
-  assert.match(contractDoc, /shared post-issuance read authority/i);
+test('documentation records schema-version-6 product reachability and browser authority exclusion', () => {
+  assert.match(contractDoc, /narrow product-reachable terminal Australian booking-cancellation adjustment/i);
+  assert.match(contractDoc, /schema-version-6 issuance is selected when the request contains only the source invoice number/i);
+  assert.match(contractDoc, /browser cannot choose refund IDs/i);
 });
 
-test('existing public product route remains fail closed for schema-version-6 issuance in this foundation slice', () => {
+test('product route accepts only source invoice authority and delegates server-selected cancellation issuance', () => {
   if (!route) return;
-  assert.match(route, /refundTransactionId/);
-  assert.doesNotMatch(route, /CancellationAfterAmendment/);
+  assert.match(route, /sourceInvoiceDocumentNumber/);
+  assert.match(route, /issueHospitalityCancellationAdjustmentNoteForSource/);
+  assert.doesNotMatch(route, /body\.refundTransactionId/);
+  assert.match(productService, /state\.path === 'UNADJUSTED'/);
+  assert.match(productService, /issueHospitalityCancellationAfterAmendmentAdjustmentNote/);
 });

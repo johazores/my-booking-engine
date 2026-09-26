@@ -38,17 +38,17 @@ test('schema-version-6 issuance requires complete current bounded legal payment 
   assert.doesNotMatch(cancellationWriter, /paymentTransaction\.findMany/);
 });
 
-test('schema-version-6 cancellation authority re-proves predecessor, bounded issue-time settlement, and every frozen refund', () => {
+test('schema-version-6 historical authority re-proves predecessor and exact frozen refund identity without current lifecycle replay', () => {
   assert.match(cancellationAuthority, /allowTerminalCancellation: true/);
-  assert.match(cancellationAuthority, /readHospitalityLegalPaymentEvidenceHistory\(\{[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId[\s\S]*through: input\.row\.issuedAt/);
-  assert.match(cancellationAuthority, /if \(!paymentHistory\.complete\)[\s\S]*payment evidence is incomplete/);
-  assert.match(cancellationAuthority, /const transactionsAtIssue = paymentHistory\.transactions/);
-  assert.match(cancellationAuthority, /deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness/);
-  assert.match(cancellationAuthority, /verifyFrozenRefundAuthorities/);
+  assert.match(cancellationAuthority, /const refundTransactionIds = snapshot\.refundAuthorities\.map/);
+  assert.match(cancellationAuthority, /paymentTransaction\.findMany\(\{[\s\S]*id: \{ in: refundTransactionIds \}[\s\S]*organizationId: input\.organizationId[\s\S]*bookingId: input\.row\.bookingId/);
+  assert.match(cancellationAuthority, /validateHospitalityFrozenCancellationRefundAuthorities/);
   assert.match(cancellationAuthority, /sourceInvoice\.documentFingerprint !== snapshot\.sourceInvoiceFingerprint/);
   assert.match(cancellationAuthority, /head\.documentFingerprint !== snapshot\.predecessorAdjustmentDocumentFingerprint/);
   assert.match(cancellationAuthority, /head\.afterPricingFingerprint !== snapshot\.predecessorAfterPricingFingerprint/);
-  assert.doesNotMatch(cancellationAuthority, /paymentTransaction\.findMany/);
+  assert.doesNotMatch(cancellationAuthority, /readHospitalityLegalPaymentEvidenceHistory/);
+  assert.doesNotMatch(cancellationAuthority, /deriveHospitalityCancellationAfterAmendmentAdjustmentReadiness/);
+  assert.doesNotMatch(cancellationAuthority, /status: true/);
 });
 
 test('shared read authority and document projection explicitly dispatch schema-version-6 cancellation evidence', () => {

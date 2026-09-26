@@ -41,12 +41,13 @@ test('terminal cancellation verifier uses frozen refund identity rather than cur
   assert.doesNotMatch(source, /status: true/);
 });
 
-test('documentation separates terminal frozen refund authority from unresolved commercial settlement evidence', async () => {
+test('documentation separates frozen terminal refunds from frozen commercial evidence and the legacy prefix', async () => {
   const source = await read('docs/adjustment-note-authority-read-consistency.md');
 
   assert.match(source, /RepeatableRead/);
   assert.match(source, /schema-version-6 terminal refund authorities/i);
   assert.match(source, /ignoring current `PaymentTransaction\.status`/);
-  assert.match(source, /schemas 2 through 5/);
-  assert.match(source, /does not.*claim.*solve/is);
+  assert.match(source, /newly issued schema-version-2-through-5 commercial adjustment notes/i);
+  assert.match(source, /leading pre-migration legacy prefix/i);
+  assert.match(source, /gap after frozen capture begins fails closed/i);
 });
