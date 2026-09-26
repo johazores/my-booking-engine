@@ -1,5 +1,5 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
-import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
+import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { PaymentUnavailableError } from '@/server/payments/payment-service.ts';
@@ -32,8 +32,8 @@ export async function POST(request: Request, context: RouteContext) {
       return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const body = await readPublicBookingJsonObject(request);
+    if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown };
