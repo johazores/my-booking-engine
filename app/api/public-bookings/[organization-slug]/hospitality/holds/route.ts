@@ -2,7 +2,7 @@ import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from 
 import { AvailabilityUnavailableError } from '@/server/availability/hospitality-availability-service.ts';
 import { PublicBookingAbuseLimitError } from '@/server/bookings/public-booking-abuse-control.ts';
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
-import { isSameOriginPublicBookingWrite } from '@/server/bookings/public-booking-http-policy.ts';
+import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
 import {
   createPublicHospitalityAvailabilityHold,
   PublicHospitalityHoldAuthorizationError,
@@ -51,8 +51,8 @@ export async function POST(request: Request, context: RouteContext) {
       return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const body = await readPublicBookingJsonObject(request);
+    if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
@@ -81,8 +81,8 @@ export async function DELETE(request: Request, context: RouteContext) {
       return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const body = await readPublicBookingJsonObject(request);
+    if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 

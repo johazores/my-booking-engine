@@ -27,7 +27,7 @@ Document numbers, source-document numbers, booking IDs/references, customer deta
 
 Public tax-document history and PDF delivery remain capability-owned. Request logging never receives organization slug, booking capability, document number, customer/contact data, legal-document evidence, request body, or route URL. A public request therefore cannot cause tenant or document identifiers to appear in structured request logs before or after capability verification.
 
-`src/server/payments/public-tax-document-http.ts` owns the small JSON transport parser shared by the public history and PDF routes. Malformed JSON, arrays, null bodies, and non-string `bookingCapability` values now fail closed as `400 invalid-request` instead of falling through to a generic server error. The capability value is returned only to the existing authorization service and is never used as correlation metadata.
+`src/server/payments/public-tax-document-http.ts` owns the small JSON transport parser shared by the public history and PDF routes. It accepts only `application/json`, rejects malformed or oversized advertised content lengths, streams at most 8 KiB so chunked or missing-length requests cannot bypass the body ceiling, decodes UTF-8 fail-closed, and independently caps the booking capability at 4,096 characters. Malformed JSON, unsupported body shapes, unsupported media types, invalid UTF-8, oversized bodies, and invalid capability values all return `400 invalid-request` before capability decryption or legal-document database reads. The capability value is returned only to the existing authorization service and is never used as correlation metadata.
 
 ## Reconciliation boundary
 
@@ -37,8 +37,8 @@ Unexpected reconciliation failures now redirect to an explicit `error=internal` 
 
 ## Validation
 
-- `src/server/payments/public-tax-document-http.test.ts` covers valid capability extraction plus malformed JSON and unsupported body shapes.
-- `scripts/legal-document-delivery-request-observability.test.mjs` covers all current authenticated PDF/accounting routes, public tax-document history/PDF routes, authority ordering, tenant/capability/document-data exclusion, malformed-body fail-closed behavior, and reconciliation redirect outcome classification.
+- `src/server/payments/public-tax-document-http.test.ts` covers valid capability extraction, malformed JSON/body shapes, media-type rejection, advertised and streamed body ceilings, capability-length limits, and invalid UTF-8.
+- `scripts/legal-document-delivery-request-observability.test.mjs` covers all current authenticated PDF/accounting routes, public tax-document history/PDF routes, authority ordering, tenant/capability/document-data exclusion, the bounded public parser contract, and reconciliation redirect outcome classification.
 - TypeScript route/helper syntax is checked with the locally available Node TypeScript stripping parser where supported. TSX parsing and the full repository Node 24 typecheck/lint/test/build remain part of the normal repository validation gate.
 
 This work does not change the Prisma schema or migration chain and does not use GitHub Actions.
