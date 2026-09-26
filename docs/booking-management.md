@@ -22,7 +22,7 @@ Refund and amendment settlement writes remain inside payment orchestration bound
 
 ## Detail surface
 
-The booking view presents persisted production data only: reservation lifecycle, customer and ordered traveler snapshots, room/rate details, immutable pricing, selected add-ons, paginated payment history, customer-safe receipt settlement when proven, provider-aware refund management, paginated booking audit history, commercial modification/amendment actions, date rescheduling, traveler editing, cancellation, and amendment recovery when required. Empty/loading/error/success/disabled states are explicit. Jurisdiction-specific legal invoice issuance is not presented as complete.
+The booking view presents persisted production data only: reservation lifecycle, customer and ordered traveler snapshots, room/rate details, immutable pricing, selected add-ons, paginated payment history, customer-safe receipt settlement when proven, provider-aware refund management, paginated booking audit history, commercial modification/amendment actions, date rescheduling, traveler editing, cancellation, and amendment recovery when required. Empty/loading/error/success/disabled states are explicit. The customer-safe payment receipt remains separate from SF's narrow Australian legal-document workflows; issued tax invoices and supported adjustment notes are authorized and verified through their dedicated document surfaces rather than inferred from booking/payment UI state.
 
 ## Traveler modification contract
 
@@ -110,4 +110,4 @@ These PostgreSQL scenarios are checked in but are not claimed as executed in env
 
 The general room type/rate plan/quantity/add-on commercial modification contract is implemented for both zero-delta and versioned non-zero adjustment cases. Remaining booking-management work should not reopen that contract without a concrete requirement.
 
-A price-changing **date** reschedule remains intentionally blocked by the date-only same-price contract and would require an explicit extension of amendment stay/inventory semantics before it can be enabled. Jurisdiction-specific legal invoice/tax-document issuance also remains a separate commercial requirement rather than being implied by the current customer-safe payment receipt.
+A price-changing **date** reschedule remains intentionally blocked by the date-only same-price contract and would require an explicit extension of amendment stay/inventory semantics before it can be enabled. The narrow Australian legal-document lifecycle is implemented separately from booking modification and from the customer-safe payment receipt. Broader tax-document semantics, durable delivery/re-authentication, Unicode-safe PDF coverage, production database validation, and legal review remain Phase 12 requirements rather than booking-management responsibilities.

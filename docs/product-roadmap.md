@@ -76,7 +76,7 @@ Newly accepted hospitality commercial states also persist append-only tenant-sco
 
 Rental holds and durable rental bookings use a separate deterministic daily-rate evidence contract based on integer minor units, immutable hold observations, fresh conversion-time revalidation, and canonical pricing fingerprints. Price-neutral date rescheduling rebuilds current target pricing and permits only unchanged effective currency/exact aggregate amount. One same-unit price-changing rental date amendment is supported through the retained commercial-amendment settlement/apply boundary while immutable `RentalBooking.totalMinor` remains booking-time evidence. Same-type/same-location unit substitution retains current effective dates, accepted effective money, and effective pricing evidence while changing only the physical allocation. Taxes, discounts, deposits, unit-type/location-changing or currency-changing commercial changes, a second/chained price-changing amendment, and broader repricing remain unimplemented until concrete commercial requirements exist.
 
-Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements. Jurisdiction-specific legal issuer/tax semantics remain a separate invoice dependency.
+Future tenant/provider-specific pricing rules should be added only for concrete commercial/provider requirements. The narrow Australian legal-document issuer/tax lifecycle is implemented separately from pricing; broader jurisdiction/tax semantics remain Phase 12 work rather than part of the core pricing model.
 
 ## 12. Complete internal and public hospitality booking flow — implemented in code
 
