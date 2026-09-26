@@ -49,9 +49,16 @@ test('public tax-document history and PDF delivery stay capability-safe and tena
   }
 });
 
-test('public tax-document bodies fail closed as validation errors instead of malformed-json server failures', () => {
-  assert.match(publicHttp, /try \{/);
-  assert.match(publicHttp, /await request\.json\(\)/);
+test('public tax-document bodies are JSON-only, byte-bounded, and fail closed before capability authority', () => {
+  assert.match(publicHttp, /PUBLIC_TAX_DOCUMENT_REQUEST_MAX_BYTES = 8 \* 1024/);
+  assert.match(publicHttp, /PUBLIC_TAX_DOCUMENT_CAPABILITY_MAX_CHARACTERS = 4096/);
+  assert.match(publicHttp, /content-type/);
+  assert.match(publicHttp, /content-length/);
+  assert.match(publicHttp, /request\.body\.getReader\(\)/);
+  assert.match(publicHttp, /receivedBytes > PUBLIC_TAX_DOCUMENT_REQUEST_MAX_BYTES/);
+  assert.match(publicHttp, /TextDecoder\('utf-8', \{ fatal: true \}\)/);
+  assert.match(publicHttp, /JSON\.parse\(rawBody\)/);
+  assert.doesNotMatch(publicHttp, /request\.json\(\)/);
   assert.match(publicHttp, /catch \{/);
   assert.match(publicHttp, /return null;/);
   for (const [path] of publicRoutes) {
