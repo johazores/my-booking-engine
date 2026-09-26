@@ -10,6 +10,7 @@ const [
   bookingDoc,
   receiptDoc,
   invoiceFoundation,
+  invoicePdf,
   issuanceService,
 ] = await Promise.all([
   read('docs/pricing.md'),
@@ -17,6 +18,7 @@ const [
   read('docs/booking-management.md'),
   read('docs/payment-receipts.md'),
   read('docs/invoice-foundation.md'),
+  read('docs/invoice-pdf.md'),
   read('src/server/payments/hospitality-invoice-issuance-service.ts'),
 ]);
 
@@ -27,6 +29,8 @@ test('cross-product docs reflect the implemented narrow Australian legal-documen
   assert.match(roadmapDoc, /narrow Australian legal-document issuer\/tax lifecycle is implemented separately from pricing/i);
   assert.match(bookingDoc, /issued tax invoices and supported adjustment notes are authorized and verified through their dedicated document surfaces/i);
   assert.match(receiptDoc, /payment receipt remains customer-safe settlement evidence/i);
+  assert.match(invoicePdf, /first or repeated commercial-amendment increasing adjustment notes/i);
+  assert.match(invoicePdf, /Commercial schemas 2 through 5 are accepted only after/i);
 });
 
 test('cross-product docs do not retain pre-issuance legal-document claims', () => {
@@ -37,6 +41,8 @@ test('cross-product docs do not retain pre-issuance legal-document claims', () =
   assert.doesNotMatch(roadmapDoc, /Jurisdiction-specific legal issuer\/tax semantics remain a separate invoice dependency/i);
   assert.doesNotMatch(bookingDoc, /Jurisdiction-specific legal invoice issuance is not presented as complete/i);
   assert.doesNotMatch(bookingDoc, /Jurisdiction-specific legal invoice\/tax-document issuance also remains a separate commercial requirement/i);
+  assert.doesNotMatch(invoicePdf, /verified first-increasing commercial-amendment adjustment notes/i);
+  assert.doesNotMatch(invoicePdf, /Schema-version-4 first-increasing rows are accepted only/i);
 });
 
 test('documentation still keeps genuinely open Phase 12 boundaries open', () => {

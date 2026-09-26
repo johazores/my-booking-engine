@@ -2,11 +2,11 @@
 
 ## Status
 
-SF can generate deterministic A4 PDF copies of verified issued Australian hospitality tax invoices, full booking-cancellation adjustment notes, first or repeated commercial-amendment decreasing adjustment notes, and verified first-increasing commercial-amendment adjustment notes. PDF generation is a read projection only: it never creates, renumbers, corrects, or mutates legal-document authority.
+SF can generate deterministic A4 PDF copies of verified issued Australian hospitality tax invoices, full booking-cancellation adjustment notes, first or repeated commercial-amendment decreasing adjustment notes, and verified first or repeated commercial-amendment increasing adjustment notes. PDF generation is a read projection only: it never creates, renumbers, corrects, or mutates legal-document authority.
 
 The tax-invoice renderer consumes the customer-safe document derived from immutable `HospitalityIssuedInvoice.documentSnapshot` evidence after material-column, fingerprint, issuer, recipient, pricing, Australian GST, and total checks have passed.
 
-The adjustment-note renderer consumes the customer-safe document derived from immutable `HospitalityIssuedAdjustmentNote.documentSnapshot` evidence after material-column, fingerprint, issuer/recipient, complete source-tax-invoice, reason/direction-specific authority, and exact effect checks have passed. Commercial schema-version-3 decreasing rows are accepted only after their complete predecessor source chain has independently verified. Schema-version-4 first-increasing rows are accepted only after the post-issuance increasing verifier independently re-proves source invoice, applied amendment, unique target pricing, complete payment settlement, sole source-adjustment authority, chronology and material effect.
+The adjustment-note renderer consumes the customer-safe document derived from immutable `HospitalityIssuedAdjustmentNote.documentSnapshot` evidence after material-column, fingerprint, issuer/recipient, complete source-tax-invoice, reason/direction-specific authority, and exact effect checks have passed. Commercial schemas 2 through 5 are accepted only after their complete direction-aware source chain and schema-specific post-issuance authority independently verify source invoice, applied amendment, unique target pricing, predecessor continuity where applicable, issue-time settlement authority, chronology, and material effect.
 
 ## Server boundaries
 
@@ -45,7 +45,7 @@ The public booking tax-document history exposes **Download PDF** for each visibl
 
 Dependency-free tax-invoice renderer tests cover byte-for-byte determinism, PDF identity/object structure, multi-page output, lossless Windows-1252 handling, unsupported-script rejection, AUD-only scope, and exact total reconciliation.
 
-Dependency-free adjustment-note renderer tests cover byte-for-byte determinism, cancellation and commercial reasons, increasing/decreasing direction, source-document identity, unsupported-script rejection, AUD-only scope, exact directional effect reconciliation, cancellation/commercial before-and-after semantics, unknown-reason rejection, and source-document chronology. Direction-specific server authority is a prerequisite read-service concern and is covered separately by the decreasing-chain and first-increasing post-issuance read tests.
+Dependency-free adjustment-note renderer tests cover byte-for-byte determinism, cancellation and commercial reasons, increasing/decreasing direction, source-document identity, unsupported-script rejection, AUD-only scope, exact directional effect reconciliation, cancellation/commercial before-and-after semantics, unknown-reason rejection, and source-document chronology. Direction-specific server authority is a prerequisite read-service concern and is covered separately by the complete commercial-chain and increasing/decreasing post-issuance read tests.
 
 A generated commercial-amendment adjustment-note fixture was parsed with local `pdfinfo` and reported PDF 1.4, one A4 page, unencrypted, with no JavaScript.
 
