@@ -2,7 +2,7 @@
 
 ## Status
 
-SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, transactional revalidation, booking-level aggregate price snapshots, deterministic pricing identity, and append-only accepted-state line-item pricing evidence. Provider-specific pricing rules remain future work only when a concrete commercial/provider requirement needs them. Jurisdiction-specific legal issuance is separate from the pricing domain; SF currently implements a narrow Australian hospitality tax-document contract on top of immutable accepted-state pricing evidence.
+SF implements the production hospitality pricing foundation for normalized money/currency handling, persisted nightly base-rate windows, persisted taxes/fees, persisted optional add-ons, permission-checked pricing management, deterministic complete-price quotes, transactional revalidation, booking-level aggregate price snapshots, deterministic pricing identity, and append-only accepted-state line-item pricing evidence. Provider-specific pricing rules and jurisdiction-specific legal invoice/tax issuance remain future work.
 
 ## Money model
 
