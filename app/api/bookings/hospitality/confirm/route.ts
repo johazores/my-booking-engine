@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return finish(context.response);
     organizationId = context.organizationId;
-    const body = await readHospitalityBookingJsonObject(request);
+    const body = await readHospitalityBookingJsonObject(request) as Parameters<typeof confirmHospitalityBookingFromHold>[0]['confirmation'];
     const booking = await confirmHospitalityBookingFromHold({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,

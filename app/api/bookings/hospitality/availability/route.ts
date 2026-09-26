@@ -5,7 +5,7 @@ export async function POST(request: Request) {
   try {
     const context = await requireHospitalityBookingApiContext(request, { write: true });
     if (context.response) return context.response;
-    const body = await readHospitalityBookingJsonObject(request);
+    const body = await readHospitalityBookingJsonObject(request) as Parameters<typeof readHospitalityAvailability>[0]['request'];
     const availability = await readHospitalityAvailability({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
