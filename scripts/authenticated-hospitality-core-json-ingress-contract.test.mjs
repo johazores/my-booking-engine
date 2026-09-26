@@ -11,6 +11,7 @@ const boundedRoutes = [
   'app/api/bookings/hospitality/holds/route.ts',
   'app/api/bookings/hospitality/confirm/route.ts',
   'app/api/bookings/hospitality/[booking-id]/reschedule/route.ts',
+  'app/api/bookings/hospitality/[booking-id]/guests/route.ts',
   'app/api/bookings/hospitality/[booking-id]/modify/route.ts',
   'app/api/bookings/hospitality/[booking-id]/modify/preview/route.ts',
   'app/api/bookings/hospitality/[booking-id]/tax-invoices/route.ts',

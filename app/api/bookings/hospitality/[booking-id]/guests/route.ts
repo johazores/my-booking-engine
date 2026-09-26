@@ -1,5 +1,5 @@
 import { updateHospitalityBookingGuests } from '@/server/bookings/hospitality-booking-guest-modification-service.ts';
-import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { hospitalityBookingApiError, hospitalityBookingJson, readHospitalityBookingJsonObject, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 export async function POST(
@@ -15,7 +15,7 @@ export async function POST(
     if (context.response) return finish(context.response);
     organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
-    const change = await request.json() as { idempotencyKey: string; guests: Array<{ firstName: string; lastName: string; email?: string | null }> };
+    const change = await readHospitalityBookingJsonObject(request) as { idempotencyKey: string; guests: Array<{ firstName: string; lastName: string; email?: string | null }> };
     const result = await updateHospitalityBookingGuests({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
