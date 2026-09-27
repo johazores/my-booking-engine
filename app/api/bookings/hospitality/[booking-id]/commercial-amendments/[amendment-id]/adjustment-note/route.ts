@@ -1,6 +1,7 @@
 import {
   hospitalityBookingApiError,
   hospitalityBookingJson,
+  readHospitalityBookingJsonObject,
   requireHospitalityBookingApiContext,
 } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
@@ -48,10 +49,7 @@ export async function POST(
     if (context.response) return observation.finish(context.response);
     organizationId = context.organizationId;
     const routeParams = await params;
-    const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown };
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new TypeError('Commercial-amendment adjustment-note request must be an object.');
-    }
+    const body = await readHospitalityBookingJsonObject(request);
     if (typeof body.sourceInvoiceDocumentNumber !== 'string') {
       throw new TypeError('sourceInvoiceDocumentNumber is required.');
     }

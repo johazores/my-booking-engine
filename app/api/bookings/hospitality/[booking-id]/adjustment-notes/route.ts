@@ -1,4 +1,4 @@
-import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
+import { hospitalityBookingApiError, hospitalityBookingJson, readHospitalityBookingJsonObject, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   HospitalityAdjustmentNoteConflictError,
@@ -52,8 +52,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
     if (context.response) return observation.finish(context.response);
     organizationId = context.organizationId;
     const bookingId = (await params)['booking-id'];
-    const body = await request.json() as { sourceInvoiceDocumentNumber?: unknown };
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Adjustment-note request must be an object.');
+    const body = await readHospitalityBookingJsonObject(request);
     if (typeof body.sourceInvoiceDocumentNumber !== 'string') {
       throw new TypeError('sourceInvoiceDocumentNumber is required.');
     }

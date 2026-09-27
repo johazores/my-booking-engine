@@ -2,11 +2,11 @@
 
 ## Status
 
-SF now applies a shared bounded JSON-object reader to the authenticated hospitality booking request path used for search, availability, quote, hold creation, confirmation, date rescheduling, guest updates, commercial modification/preview, tax-invoice issuance, and commercial-amendment preparation.
+SF now applies a shared bounded JSON-object reader to authenticated hospitality booking, guest-management, commercial-modification, legal-document issuance, and commercial-amendment preparation routes that accept JSON bodies.
 
 The shared boundary lives in `src/server/bookings/hospitality-booking-http.ts` and preserves the existing authenticated active-tenant and same-origin write authority. It accepts only `application/json`, requires valid UTF-8, validates an advertised `Content-Length` when present, rejects non-object JSON, and enforces a 64 KiB streamed ceiling even when no length header is supplied.
 
-Malformed media type, length, encoding, JSON, or envelope shape fails closed as `400 invalid-request`. Authentication, active-tenant resolution, permissions, service-level validation, idempotency, tenant ownership, booking locks, pricing, availability, and commercial rules remain owned by the existing services and are not replaced by this transport boundary.
+Malformed media type, length, encoding, JSON, or envelope shape fails closed as `400 invalid-request`. Authentication, active-tenant resolution, permissions, service-level validation, idempotency, tenant ownership, booking locks, pricing, availability, settlement, and legal-document rules remain owned by the existing services and are not replaced by this transport boundary.
 
 ## Current covered routes
 
@@ -21,10 +21,12 @@ Malformed media type, length, encoding, JSON, or envelope shape fails closed as 
 - `POST /api/bookings/hospitality/[booking-id]/modify/preview`
 - `POST /api/bookings/hospitality/[booking-id]/tax-invoices`
 - `POST /api/bookings/hospitality/[booking-id]/commercial-amendments`
+- `POST /api/bookings/hospitality/[booking-id]/adjustment-notes`
+- `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/adjustment-note`
 
 ## Remaining same-pattern sweep
 
-Cancellation adjustment-note issuance, commercial-amendment manual settlement, Stripe refund execution, commercial-amendment adjustment-note issuance, and generic payment JSON routes still require the same transport review before they can be claimed as bounded. They are intentionally not described as complete here.
+Commercial-amendment manual settlement, commercial-amendment Stripe refund execution, and the generic authenticated payment JSON routes still require a dedicated transport review before they can be claimed as bounded. They are intentionally not described as complete here.
 
 ## Validation
 
