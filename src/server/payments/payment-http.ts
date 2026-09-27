@@ -141,7 +141,6 @@ export function paymentApiError(error: unknown) {
     }, providerError.retryable ? 503 : 502);
   }
 
-  if (error instanceof SyntaxError) return paymentErrorJson({ error: 'invalid-json' }, 400);
   if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|only|does not accept|zero-value/i.test(error.message)) {
     return paymentErrorJson({ error: 'validation', message: error.message }, 400);
   }
