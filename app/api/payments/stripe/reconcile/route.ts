@@ -1,5 +1,5 @@
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
-import { paymentApiError, paymentJson, requirePaymentApiContext } from '@/server/payments/payment-http.ts';
+import { paymentApiError, paymentJson, readPaymentJsonObject, requirePaymentApiContext } from '@/server/payments/payment-http.ts';
 import { reconcileStripePaymentTransaction } from '@/server/payments/stripe-reconciliation-service.ts';
 
 export async function POST(request: Request) {
@@ -11,11 +11,11 @@ export async function POST(request: Request) {
     const context = await requirePaymentApiContext(request, { write: true });
     if (context.response) return finish(context.response);
     organizationId = context.organizationId;
-    const body = await request.json();
+    const body = await readPaymentJsonObject(request);
     const payment = await reconcileStripePaymentTransaction({
       organizationId: context.organizationId,
       actorUserId: context.actorUserId,
-      transactionId: body?.transactionId,
+      transactionId: body.transactionId as Parameters<typeof reconcileStripePaymentTransaction>[0]['transactionId'],
     });
     return finish(paymentJson(payment));
   } catch (error) {
