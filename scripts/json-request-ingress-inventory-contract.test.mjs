@@ -24,10 +24,6 @@ function collectRawJsonRoutes(directory) {
 }
 
 const reviewedRemainingRawJsonRoutes = [
-  'app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/manual-settlement/route.ts',
-  'app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/stripe-refund/route.ts',
-  'app/api/payments/manual/refunds/route.ts',
-  'app/api/payments/manual/route.ts',
   'app/api/payments/stripe/reconcile/route.ts',
   'app/api/payments/stripe/refunds/reconcile/route.ts',
   'app/api/payments/stripe/refunds/route.ts',

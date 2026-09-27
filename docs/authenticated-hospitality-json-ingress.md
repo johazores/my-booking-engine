@@ -2,7 +2,7 @@
 
 ## Status
 
-SF now applies a shared bounded JSON-object reader to authenticated hospitality booking, guest-management, commercial-modification, legal-document issuance, and commercial-amendment preparation routes that accept JSON bodies.
+SF now applies a shared bounded JSON-object reader across every current authenticated hospitality route that accepts a JSON request body, including core booking, guest management, commercial modification, legal-document issuance, and commercial-amendment settlement boundaries.
 
 The shared boundary lives in `src/server/bookings/hospitality-booking-http.ts` and preserves the existing authenticated active-tenant and same-origin write authority. It accepts only `application/json`, requires valid UTF-8, validates an advertised `Content-Length` when present, rejects non-object JSON, and enforces a 64 KiB streamed ceiling even when no length header is supplied.
 
@@ -23,10 +23,12 @@ Malformed media type, length, encoding, JSON, or envelope shape fails closed as 
 - `POST /api/bookings/hospitality/[booking-id]/commercial-amendments`
 - `POST /api/bookings/hospitality/[booking-id]/adjustment-notes`
 - `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/adjustment-note`
+- `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/manual-settlement`
+- `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/stripe-refund`
 
 ## Remaining same-pattern sweep
 
-Commercial-amendment manual settlement, commercial-amendment Stripe refund execution, and the generic authenticated payment JSON routes still require a dedicated transport review before they can be claimed as bounded. They are intentionally not described as complete here.
+No authenticated hospitality JSON-body route remains on raw `request.json()`. Generic authenticated payment APIs use a separate payment transport policy rather than coupling financial routes to the hospitality parser.
 
 ## Validation
 

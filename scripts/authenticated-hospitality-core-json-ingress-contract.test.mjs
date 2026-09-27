@@ -18,6 +18,8 @@ const boundedRoutes = [
   'app/api/bookings/hospitality/[booking-id]/commercial-amendments/route.ts',
   'app/api/bookings/hospitality/[booking-id]/adjustment-notes/route.ts',
   'app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/adjustment-note/route.ts',
+  'app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/manual-settlement/route.ts',
+  'app/api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/stripe-refund/route.ts',
 ];
 
 test('authenticated hospitality JSON ingress uses the shared bounded parser', () => {
