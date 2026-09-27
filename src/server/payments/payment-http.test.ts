@@ -66,6 +66,78 @@ test('readPaymentJsonObject rejects invalid UTF-8 before JSON parsing', async ()
   await assert.rejects(() => readPaymentJsonObject(request), { name: 'PaymentApiPayloadError' });
 });
 
+test('readPaymentJsonObject rejects missing, malformed, scalar, and null JSON bodies', async () => {
+  const requests = [
+    new Request('https://sf.example.test/api/payments/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }),
+    new Request('https://sf.example.test/api/payments/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"bookingId":',
+    }),
+    new Request('https://sf.example.test/api/payments/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '"booking-1"',
+    }),
+    new Request('https://sf.example.test/api/payments/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'null',
+    }),
+  ];
+
+  for (const request of requests) {
+    await assert.rejects(() => readPaymentJsonObject(request), { name: 'PaymentApiPayloadError' });
+  }
+});
+
+test('readPaymentJsonObject honors exact byte limits and rejects invalid length metadata or limits', async () => {
+  const exactBody = '{"ok":true}';
+  const exactBytes = new TextEncoder().encode(exactBody).byteLength;
+  const exact = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: exactBody,
+  });
+  assert.deepEqual(await readPaymentJsonObject(exact, exactBytes), { ok: true });
+
+  const tooSmall = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: exactBody,
+  });
+  await assert.rejects(
+    () => readPaymentJsonObject(tooSmall, exactBytes - 1),
+    { name: 'PaymentApiPayloadError' },
+  );
+
+  const invalidLength = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': 'not-a-number',
+    },
+    body: '{}',
+  });
+  await assert.rejects(
+    () => readPaymentJsonObject(invalidLength),
+    { name: 'PaymentApiPayloadError' },
+  );
+
+  const invalidLimit = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  await assert.rejects(
+    () => readPaymentJsonObject(invalidLimit, 0),
+    { name: 'PaymentApiPayloadError' },
+  );
+});
+
 test('paymentJson never exposes internal provider-call claim references', async () => {
   const response = paymentJson({
     providerCode: 'stripe',

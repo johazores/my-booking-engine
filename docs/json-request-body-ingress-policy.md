@@ -27,6 +27,8 @@ Stripe webhook ingestion remains separate because signature verification require
 
 `scripts/json-request-ingress-inventory-contract.test.mjs` scans the production API route tree and requires the raw-parser inventory to remain empty.
 
+`scripts/payment-json-ingress-contract.test.mjs` keeps the generic authenticated payment routes on the write-authentication boundary before bounded JSON parsing and requires tenant/actor authority to remain server-derived.
+
 `src/server/payments/payment-http.test.ts` covers the payment reader's object-only parsing, media type, strict UTF-8, and byte-limit behavior.
 
 Full repository validation still requires the repository Node 24.20+ toolchain and the disposable PostgreSQL gates. GitHub Actions are intentionally not used.
