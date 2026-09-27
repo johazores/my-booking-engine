@@ -23,12 +23,6 @@ function collectRawJsonRoutes(directory) {
   return matches.sort();
 }
 
-const reviewedRemainingRawJsonRoutes = [
-  'app/api/payments/stripe/reconcile/route.ts',
-  'app/api/payments/stripe/refunds/reconcile/route.ts',
-  'app/api/payments/stripe/refunds/route.ts',
-].sort();
-
-test('raw JSON request parsing is limited to the reviewed remaining ingress gaps', () => {
-  assert.deepEqual(collectRawJsonRoutes(apiRoot), reviewedRemainingRawJsonRoutes);
+test('production API routes do not use raw request.json() parsing', () => {
+  assert.deepEqual(collectRawJsonRoutes(apiRoot), []);
 });

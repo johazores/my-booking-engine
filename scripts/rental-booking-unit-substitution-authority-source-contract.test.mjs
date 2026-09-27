@@ -62,6 +62,10 @@ test('staff surface only exposes apply after fresh ready authority and server wr
   assert.match(page, />Apply replacement unit</i);
   assert.match(page, /\/api\/inventory\/rentals\/bookings\/\$\{booking\.id\}\/unit-substitution/);
   assert.match(page, /booking\.allocation\.unit\.name/);
+  assert.match(route, /readInventoryFormData\(request\)/);
+  assert.match(route, /if \(!formData\)/);
+  assert.match(route, /error=validation/);
+  assert.doesNotMatch(route, /request\.formData\(\)/);
   assert.match(route, /buildRentalBookingUnitSubstitutionIdempotencyKey/);
   assert.match(route, /organizationId: organization\.id/);
   assert.match(route, /actorUserId: session\.user\.id/);

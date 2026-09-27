@@ -3,8 +3,68 @@ import test from 'node:test';
 
 process.env.DATABASE_URL ??= 'postgresql://sf_unit_test:sf_unit_test@127.0.0.1:5432/sf_unit_test';
 
-const { paymentApiError, paymentJson } = await import('./payment-http.ts');
+const {
+  PAYMENT_REQUEST_MAX_BYTES,
+  paymentApiError,
+  paymentJson,
+  readPaymentJsonObject,
+} = await import('./payment-http.ts');
 const { PaymentProviderError } = await import('./payment-provider.ts');
+
+test('readPaymentJsonObject accepts a JSON object with an application/json media type', async () => {
+  const request = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ bookingId: 'booking-1', amountMinor: 1200 }),
+  });
+
+  assert.deepEqual(await readPaymentJsonObject(request), { bookingId: 'booking-1', amountMinor: 1200 });
+});
+
+test('readPaymentJsonObject rejects unsupported media types and non-object JSON bodies', async () => {
+  const wrongMediaType = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' },
+    body: '{}',
+  });
+  const arrayBody = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '[]',
+  });
+
+  await assert.rejects(() => readPaymentJsonObject(wrongMediaType), { name: 'PaymentApiPayloadError' });
+  await assert.rejects(() => readPaymentJsonObject(arrayBody), { name: 'PaymentApiPayloadError' });
+});
+
+test('readPaymentJsonObject enforces advertised and streamed byte limits', async () => {
+  const advertisedTooLarge = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(PAYMENT_REQUEST_MAX_BYTES + 1),
+    },
+    body: '{}',
+  });
+  const streamedTooLarge = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ value: 'a'.repeat(PAYMENT_REQUEST_MAX_BYTES) }),
+  });
+
+  await assert.rejects(() => readPaymentJsonObject(advertisedTooLarge), { name: 'PaymentApiPayloadError' });
+  await assert.rejects(() => readPaymentJsonObject(streamedTooLarge), { name: 'PaymentApiPayloadError' });
+});
+
+test('readPaymentJsonObject rejects invalid UTF-8 before JSON parsing', async () => {
+  const request = new Request('https://sf.example.test/api/payments/manual', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: new Uint8Array([0x7b, 0x22, 0x78, 0x22, 0x3a, 0xff, 0x7d]),
+  });
+
+  await assert.rejects(() => readPaymentJsonObject(request), { name: 'PaymentApiPayloadError' });
+});
 
 test('paymentJson never exposes internal provider-call claim references', async () => {
   const response = paymentJson({
@@ -21,15 +81,15 @@ test('paymentJson never exposes internal provider-call claim references', async 
 });
 
 test('paymentJson preserves real provider references for authorized staff without allowing response caching', async () => {
-  const response = paymentJson({ providerCode: 'stripe', providerReference: 'pi_real123' });
+  const response = paymentJson({ providerCode: 'stripe', providerReference: 'provider-reference-123' });
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { providerCode: 'stripe', providerReference: 'pi_real123' });
+  assert.deepEqual(await response.json(), { providerCode: 'stripe', providerReference: 'provider-reference-123' });
 });
 
 test('paymentApiError exposes normalized retryability without forwarding raw provider messages', async () => {
   const response = paymentApiError(new PaymentProviderError(
     'PROVIDER_UNAVAILABLE',
-    'Stripe upstream said request req_secret_provider_reference could not be reached.',
+    'Raw upstream diagnostic that must not be forwarded.',
     true,
   ));
   assert.equal(response.status, 503);
@@ -45,7 +105,7 @@ test('paymentApiError exposes normalized retryability without forwarding raw pro
 test('paymentApiError keeps definitive provider failure identity while sanitizing presentation', async () => {
   const response = paymentApiError(new PaymentProviderError(
     'DECLINED',
-    'Provider raw decline detail with pi_sensitive_reference.',
+    'Raw decline diagnostic that must not be forwarded.',
     false,
   ));
   assert.equal(response.status, 502);

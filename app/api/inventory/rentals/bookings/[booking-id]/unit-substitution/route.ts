@@ -12,12 +12,11 @@ import {
 } from '@/server/bookings/rental-booking-unit-substitution-service.ts';
 import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-availability-domain.ts';
 import { RentalInventoryValidationError } from '@/server/inventory/rental-domain.ts';
-import { prepareInventoryMutationRequest } from '@/server/inventory/inventory-http.ts';
-
-function formField(formData: FormData, name: string) {
-  const value = formData.get(name);
-  return typeof value === 'string' ? value : '';
-}
+import {
+  formField,
+  prepareInventoryMutationRequest,
+  readInventoryFormData,
+} from '@/server/inventory/inventory-http.ts';
 
 function rentalBookingUnitSubstitutionErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'permission';
@@ -42,7 +41,19 @@ export async function POST(
   const { finish, organization, session } = mutation;
   const params = await context.params;
   const bookingId = params['booking-id'];
-  const formData = await request.formData();
+  const formData = await readInventoryFormData(request);
+  if (!formData) {
+    return finish(
+      NextResponse.redirect(
+        new URL(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/unit-substitution?error=validation`,
+          request.url,
+        ),
+        303,
+      ),
+      'rejected',
+    );
+  }
   const targetUnitId = formField(formData, 'targetUnitId').trim().toLowerCase();
   const authorityFingerprint = formField(formData, 'authorityFingerprint').trim().toLowerCase();
   const idempotencyKey = buildRentalBookingUnitSubstitutionIdempotencyKey(

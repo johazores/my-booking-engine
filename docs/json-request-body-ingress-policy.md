@@ -1,6 +1,6 @@
 # JSON request-body ingress policy
 
-SF treats JSON request parsing as an explicit server resource boundary. Production write routes should not rely on an unbounded `request.json()` call when a domain-owned bounded reader can reject malformed or oversized input before business work begins.
+SF treats JSON request parsing as an explicit server resource boundary. Production write routes should use a domain-owned bounded reader so malformed or oversized input is rejected before business work begins.
 
 ## Implemented boundaries
 
@@ -13,28 +13,20 @@ Public hospitality booking requests and the authenticated hospitality routes lis
 - object-only JSON payloads; and
 - normalized fail-closed request errors before service execution.
 
+Generic authenticated payment APIs use `readPaymentJsonObject()` with the same transport checks and a 64 KiB default ceiling. The manual payment/refund and Stripe refund/reconciliation routes all pass through that reader.
+
 These transport checks do not replace authentication, same-origin protection, active-tenant resolution, permissions, resource ownership, idempotency, locks, provider truth, settlement authority, or audit behavior.
 
-## Reviewed remaining gaps
+## Raw JSON parser inventory
 
-The source contract currently permits raw `request.json()` only at seven reviewed authenticated routes:
+No normal production API route currently uses raw `request.json()`.
 
-- commercial-amendment manual settlement;
-- commercial-amendment Stripe refund execution;
-- generic manual payment;
-- generic manual refund;
-- generic Stripe refund;
-- generic Stripe payment reconciliation;
-- generic Stripe refund reconciliation.
-
-These are implementation gaps, not approved permanent exceptions. They remain protected by their existing authentication, same-origin, tenant, authorization, service-validation, idempotency, and provider boundaries while their transport parsing is brought onto dedicated bounded readers.
-
-Stripe webhook ingestion is intentionally outside this JSON-parser inventory because signature verification requires the exact raw request body.
+Stripe webhook ingestion remains separate because signature verification requires the exact raw request body. Its raw-body contract is documented in `docs/stripe-webhook-write-scope.md`.
 
 ## Regression rule
 
-`scripts/json-request-ingress-inventory-contract.test.mjs` scans the production API route tree and requires the raw-parser inventory to equal the reviewed list above. A new raw JSON parser call therefore fails the source contract instead of silently expanding the exception set.
+`scripts/json-request-ingress-inventory-contract.test.mjs` scans the production API route tree and requires the raw-parser inventory to remain empty.
 
-The intended end state is an empty reviewed raw-parser list for normal JSON API routes, with raw-body cryptographic callback boundaries documented separately.
+`src/server/payments/payment-http.test.ts` covers the payment reader's object-only parsing, media type, strict UTF-8, and byte-limit behavior.
 
 Full repository validation still requires the repository Node 24.20+ toolchain and the disposable PostgreSQL gates. GitHub Actions are intentionally not used.
