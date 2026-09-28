@@ -10,7 +10,7 @@ import { readPublicTaxDocumentBookingCapability } from '@/server/payments/public
 import {
   PublicIssuedTaxInvoiceAuthorizationError,
   PublicIssuedTaxInvoicePersistenceError,
-  listPublicBookingIssuedTaxInvoices,
+  getPublicBookingIssuedAdjustmentNote,
 } from '@/server/payments/public-issued-tax-invoice-service.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
@@ -37,11 +37,11 @@ export async function POST(request: Request, context: RouteContext) {
     const bookingCapability = await readPublicTaxDocumentBookingCapability(request);
     if (bookingCapability === null) return finish(jsonError('invalid-request', 400));
 
-    const history = await listPublicBookingIssuedTaxInvoices({
+    const document = await getPublicBookingIssuedAdjustmentNote({
       organizationSlug,
       bookingCapability,
+      documentNumber,
     });
-    const document = history.adjustmentNotes.items.find((item) => item.documentNumber === documentNumber);
     if (!document) return finish(jsonError('adjustment-note-unavailable', 404));
 
     const pdf = createHospitalityAdjustmentNotePdf(document);

@@ -68,6 +68,13 @@ type PersistedInvoice = Readonly<{
   documentSnapshot: Prisma.JsonValue;
 }>;
 
+type PublicDocumentAuthority = Readonly<{
+  organizationId: string;
+  bookingId: string;
+  principalId: string;
+  now: Date;
+}>;
+
 function validatePersistedInvoice(row: PersistedInvoice) {
   try {
     const snapshot = parseHospitalityIssuedTaxInvoiceSnapshot(row.documentSnapshot);
@@ -189,11 +196,11 @@ function customerAdjustmentDocument(
   });
 }
 
-export async function listPublicBookingIssuedTaxInvoices(input: {
+async function resolvePublicDocumentAuthority(input: {
   organizationSlug: string;
   bookingCapability: string;
   now?: Date;
-}) {
+}): Promise<PublicDocumentAuthority> {
   const branding = await readPublicOrganizationBrandingBySlug(input.organizationSlug);
   if (!branding) throw new PublicHospitalityBookingUnavailableError();
 
@@ -206,37 +213,68 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
   });
   if (!capability) throw new PublicIssuedTaxInvoiceAuthorizationError();
 
-  const invoiceWhere = {
+  return Object.freeze({
     organizationId: branding.id,
     bookingId: capability.bookingId,
+    principalId: capability.principalId,
+    now,
+  });
+}
+
+async function assertPublicDocumentAuthority(
+  transaction: Prisma.TransactionClient,
+  authority: PublicDocumentAuthority,
+) {
+  const [ownership, principal, booking] = await Promise.all([
+    transaction.publicBookingBookingOwnership.findUnique({
+      where: {
+        organizationId_bookingId: {
+          organizationId: authority.organizationId,
+          bookingId: authority.bookingId,
+        },
+      },
+      select: { principalId: true },
+    }),
+    transaction.publicBookingPrincipal.findFirst({
+      where: {
+        id: authority.principalId,
+        organizationId: authority.organizationId,
+        expiresAt: { gt: authority.now },
+      },
+      select: { id: true },
+    }),
+    transaction.hospitalityBooking.findFirst({
+      where: { id: authority.bookingId, organizationId: authority.organizationId },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!ownership || ownership.principalId !== authority.principalId || !principal || !booking) {
+    throw new PublicIssuedTaxInvoiceAuthorizationError();
+  }
+}
+
+export async function listPublicBookingIssuedTaxInvoices(input: {
+  organizationSlug: string;
+  bookingCapability: string;
+  now?: Date;
+}) {
+  const authority = await resolvePublicDocumentAuthority(input);
+  const invoiceWhere = {
+    organizationId: authority.organizationId,
+    bookingId: authority.bookingId,
     jurisdictionCode: 'AU',
     documentType: 'TAX_INVOICE',
   } as const;
   const adjustmentWhere = {
-    organizationId: branding.id,
-    bookingId: capability.bookingId,
+    organizationId: authority.organizationId,
+    bookingId: authority.bookingId,
     jurisdictionCode: 'AU',
     documentType: 'ADJUSTMENT_NOTE',
   } as const;
 
   const snapshot = await db.$transaction(async (transaction) => {
-    const [ownership, principal, booking] = await Promise.all([
-      transaction.publicBookingBookingOwnership.findUnique({
-        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
-        select: { principalId: true },
-      }),
-      transaction.publicBookingPrincipal.findFirst({
-        where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
-        select: { id: true },
-      }),
-      transaction.hospitalityBooking.findFirst({
-        where: { id: capability.bookingId, organizationId: branding.id },
-        select: { id: true },
-      }),
-    ]);
-    if (!ownership || ownership.principalId !== capability.principalId || !principal || !booking) {
-      throw new PublicIssuedTaxInvoiceAuthorizationError();
-    }
+    await assertPublicDocumentAuthority(transaction, authority);
 
     const [total, rows, adjustmentTotal, adjustmentRows] = await Promise.all([
       transaction.hospitalityIssuedInvoice.count({ where: invoiceWhere }),
@@ -256,7 +294,7 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
     try {
       validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRowsInTransaction({
         transaction,
-        organizationId: branding.id,
+        organizationId: authority.organizationId,
         rows: adjustmentRows,
       });
     } catch (error) {
@@ -281,4 +319,66 @@ export async function listPublicBookingIssuedTaxInvoices(input: {
       items: Object.freeze(adjustmentItems),
     }),
   });
+}
+
+export async function getPublicBookingIssuedTaxInvoice(input: {
+  organizationSlug: string;
+  bookingCapability: string;
+  documentNumber: string;
+  now?: Date;
+}) {
+  const authority = await resolvePublicDocumentAuthority(input);
+
+  return db.$transaction(async (transaction) => {
+    await assertPublicDocumentAuthority(transaction, authority);
+    const row = await transaction.hospitalityIssuedInvoice.findFirst({
+      where: {
+        organizationId: authority.organizationId,
+        bookingId: authority.bookingId,
+        jurisdictionCode: 'AU',
+        documentType: 'TAX_INVOICE',
+        documentNumber: input.documentNumber,
+      },
+    });
+    return row ? customerDocument(validatePersistedInvoice(row)) : null;
+  }, { isolationLevel: 'RepeatableRead' });
+}
+
+export async function getPublicBookingIssuedAdjustmentNote(input: {
+  organizationSlug: string;
+  bookingCapability: string;
+  documentNumber: string;
+  now?: Date;
+}) {
+  const authority = await resolvePublicDocumentAuthority(input);
+
+  return db.$transaction(async (transaction) => {
+    await assertPublicDocumentAuthority(transaction, authority);
+    const row = await transaction.hospitalityIssuedAdjustmentNote.findFirst({
+      where: {
+        organizationId: authority.organizationId,
+        bookingId: authority.bookingId,
+        jurisdictionCode: 'AU',
+        documentType: 'ADJUSTMENT_NOTE',
+        documentNumber: input.documentNumber,
+      },
+    });
+    if (!row) return null;
+
+    try {
+      const validated = await validateHospitalityIssuedAdjustmentNoteRowsInTransaction({
+        transaction,
+        organizationId: authority.organizationId,
+        rows: [row],
+      });
+      const item = validated[0];
+      if (!item) throw new PublicIssuedTaxInvoicePersistenceError();
+      return customerAdjustmentDocument(item.document);
+    } catch (error) {
+      if (error instanceof HospitalityIssuedAdjustmentNoteAuthorityError || error instanceof Error) {
+        throw new PublicIssuedTaxInvoicePersistenceError(error.message);
+      }
+      throw new PublicIssuedTaxInvoicePersistenceError();
+    }
+  }, { isolationLevel: 'RepeatableRead' });
 }

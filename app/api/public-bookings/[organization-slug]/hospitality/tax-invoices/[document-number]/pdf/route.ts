@@ -5,7 +5,7 @@ import { createRequestObservation } from '@/server/observability/request-observa
 import {
   PublicIssuedTaxInvoiceAuthorizationError,
   PublicIssuedTaxInvoicePersistenceError,
-  listPublicBookingIssuedTaxInvoices,
+  getPublicBookingIssuedTaxInvoice,
 } from '@/server/payments/public-issued-tax-invoice-service.ts';
 import { readPublicTaxDocumentBookingCapability } from '@/server/payments/public-tax-document-http.ts';
 import {
@@ -37,11 +37,11 @@ export async function POST(request: Request, context: RouteContext) {
     const bookingCapability = await readPublicTaxDocumentBookingCapability(request);
     if (bookingCapability === null) return finish(jsonError('invalid-request', 400));
 
-    const history = await listPublicBookingIssuedTaxInvoices({
+    const invoice = await getPublicBookingIssuedTaxInvoice({
       organizationSlug,
       bookingCapability,
+      documentNumber,
     });
-    const invoice = history.items.find((item) => item.documentNumber === documentNumber);
     if (!invoice) return finish(jsonError('invoice-unavailable', 404));
 
     const pdf = createHospitalityTaxInvoicePdf(invoice);
