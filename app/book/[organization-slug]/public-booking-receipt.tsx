@@ -42,6 +42,7 @@ function formatMinor(amountMinor: string, currency: string) {
 
 export function PublicBookingSettlementReceipt({ organizationSlug }: { organizationSlug: string }) {
   const [receipt, setReceipt] = useState<PublicReceipt | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadReceipt = useCallback(async () => {
@@ -49,23 +50,22 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
     if (!bookingCapability) return;
 
     setBusy(true);
+    setError(null);
     try {
       const response = await fetch(`/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/payments/receipt`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'accept': 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
-      if (response.status === 404) {
-        setReceipt(null);
+      if (response.status === 404 || response.status === 409) return;
+      if (!response.ok) {
+        setError('Payment receipt could not be verified right now.');
         return;
       }
-      if (response.status === 409) {
-        setReceipt(null);
-        return;
-      }
-      if (!response.ok) return;
       const data = await response.json() as PublicReceipt;
       setReceipt(data);
+    } catch {
+      setError('Payment receipt could not be loaded right now.');
     } finally {
       setBusy(false);
     }
@@ -75,11 +75,45 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
     void loadReceipt();
   }, [loadReceipt]);
 
-  if (!receipt) return null;
+  if (!receipt) {
+    if (!error && !busy) return null;
+
+    return (
+      <section
+        className="sf-public-booking__search-card"
+        aria-labelledby="payment-receipt-title"
+        aria-busy={busy || undefined}
+      >
+        <div className="sf-public-booking__section-heading">
+          <div>
+            <p className="sf-public-booking__eyebrow">Payment record</p>
+            <h2 id="payment-receipt-title">Payment receipt</h2>
+          </div>
+        </div>
+        {busy ? <p className="sf-public-booking__notice" role="status">Loading payment receipt…</p> : null}
+        {error ? <p className="sf-public-booking__alert" role="alert">{error}</p> : null}
+        {error ? (
+          <button
+            type="button"
+            className="sf-public-booking__contact"
+            onClick={loadReceipt}
+            disabled={busy}
+            aria-busy={busy || undefined}
+          >
+            {busy ? 'Trying again…' : 'Try again'}
+          </button>
+        ) : null}
+      </section>
+    );
+  }
 
   const currency = receipt.booking.currency;
   return (
-    <section className="sf-public-booking__search-card" aria-labelledby="payment-receipt-title">
+    <section
+      className="sf-public-booking__search-card"
+      aria-labelledby="payment-receipt-title"
+      aria-busy={busy || undefined}
+    >
       <div className="sf-public-booking__section-heading">
         <div>
           <p className="sf-public-booking__eyebrow">Payment record</p>
@@ -87,6 +121,7 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
         </div>
         <span>{receipt.receiptNumber}</span>
       </div>
+      {error ? <p className="sf-public-booking__alert" role="alert">{error}</p> : null}
       <dl className="sf-public-booking__facts">
         <div><dt>Stay</dt><dd>{receipt.booking.arrivalDate} → {receipt.booking.departureDate}</dd></div>
         <div><dt>Room</dt><dd>{receipt.booking.roomTypeName}</dd></div>
@@ -115,7 +150,13 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
         </div>
       ) : null}
       <p className="sf-public-booking__contact-note">{receipt.note}</p>
-      <button type="button" className="sf-public-booking__contact" onClick={loadReceipt} disabled={busy}>
+      <button
+        type="button"
+        className="sf-public-booking__contact"
+        onClick={loadReceipt}
+        disabled={busy}
+        aria-busy={busy || undefined}
+      >
         {busy ? 'Refreshing…' : 'Refresh receipt'}
       </button>
     </section>
