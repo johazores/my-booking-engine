@@ -37,12 +37,29 @@ model PublicBookingBookingOwnership {
   requestFingerprint String   @db.Char(64)
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
-  principal PublicBookingPrincipal @relation(fields: [principalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_principal_fkey")
-  booking   HospitalityBooking     @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_booking_fkey")
+  principal             PublicBookingPrincipal              @relation(fields: [principalId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_principal_fkey")
+  booking               HospitalityBooking                  @relation(fields: [bookingId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_booking_owner_booking_fkey")
+  customerAccountAccess PublicBookingCustomerAccountAccess?
 
   @@id([organizationId, bookingId])
+  @@unique([organizationId, bookingId, principalId], map: "public_booking_owner_org_booking_principal_key")
   @@index([organizationId, principalId], map: "public_booking_booking_owner_principal_idx")
   @@map("public_booking_booking_ownership")
+}
+
+model PublicBookingCustomerAccountAccess {
+  organizationId String   @db.Uuid
+  bookingId      String   @db.Uuid
+  principalId    String   @db.Uuid
+  userId         String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  bookingOwnership PublicBookingBookingOwnership @relation(fields: [organizationId, bookingId, principalId], references: [organizationId, bookingId, principalId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_customer_access_ownership_fkey")
+  membership       OrganizationMembership         @relation(fields: [organizationId, userId], references: [organizationId, userId], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_customer_access_membership_fkey")
+
+  @@id([organizationId, bookingId])
+  @@index([organizationId, userId, createdAt], map: "public_booking_customer_access_user_created_idx")
+  @@map("public_booking_customer_account_access")
 }
 
 model PublicBookingAuditEvent {
