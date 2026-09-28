@@ -8,7 +8,7 @@ Authenticated staff use `getBookingPaymentReceipt`, which requires `payment:read
 
 Public-booking customers use `POST /api/public-bookings/[organization-slug]/hospitality/payments/receipt`. The request contains only the opaque booking capability. The server resolves the tenant from the slug, verifies the encrypted `booking:manage` capability, then independently verifies `PublicBookingBookingOwnership` and the unexpired tenant-bound public principal before reading the booking or payment ledger. The endpoint is same-origin only, `no-store`, and does not accept organization, booking, customer, provider, money, or transaction identifiers as browser authority.
 
-The public booking page copies the short-lived booking capability from same-tab recovery storage into a receipt-only sessionStorage slot before payment recovery can clear its Checkout state. This permits the customer to refresh the verified receipt in the same browser tab while the existing capability remains valid, without putting the capability in a URL or creating a new identity/recovery mechanism.
+The receipt request reuses the shared fail-closed public JSON reader with a tighter 8 KiB body ceiling and rejects empty or over-4,096-character booking capabilities before capability verification. The public booking page copies the short-lived booking capability from same-tab recovery storage into a receipt-only sessionStorage slot before payment recovery can clear its Checkout state. This permits the customer to refresh the verified receipt in the same browser tab while the existing capability remains valid, without putting the capability in a URL or creating a new identity/recovery mechanism.
 
 ## Receipt semantics
 
