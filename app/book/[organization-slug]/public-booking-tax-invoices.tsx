@@ -133,10 +133,7 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         headers: { 'accept': 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
-      if (response.status === 404) {
-        setHistory(null);
-        return;
-      }
+      if (response.status === 404) return;
       if (!response.ok) {
         setError('Issued tax documents could not be verified right now.');
         return;
@@ -191,10 +188,14 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
 
   const hasInvoices = Boolean(history?.items.length);
   const hasAdjustmentNotes = Boolean(history?.adjustmentNotes?.items.length);
-  if (!hasInvoices && !hasAdjustmentNotes && !error) return null;
+  if (!hasInvoices && !hasAdjustmentNotes && !error && !busy) return null;
 
   return (
-    <section className="sf-public-booking__search-card sf-public-invoice-history" aria-labelledby="tax-invoice-history-title">
+    <section
+      className="sf-public-booking__search-card sf-public-invoice-history"
+      aria-labelledby="tax-invoice-history-title"
+      aria-busy={busy || undefined}
+    >
       <div className="sf-public-booking__section-heading">
         <div>
           <p className="sf-public-booking__eyebrow">Issued documents</p>
@@ -203,6 +204,9 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         {history ? <span>{history.total + (history.adjustmentNotes?.total ?? 0)} issued</span> : null}
       </div>
 
+      {busy && !hasInvoices && !hasAdjustmentNotes ? (
+        <p className="sf-public-booking__notice" role="status">Loading issued tax documents…</p>
+      ) : null}
       {error ? <p className="sf-public-booking__alert" role="alert">{error}</p> : null}
       {history?.truncated ? <p className="sf-public-booking__notice">Showing the 50 most recent issued tax invoices for this booking.</p> : null}
 
@@ -327,9 +331,15 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         );
       })}
 
-      {hasInvoices || hasAdjustmentNotes ? (
-        <button type="button" className="sf-public-booking__contact" onClick={loadInvoices} disabled={busy || Boolean(downloadingDocumentNumber)}>
-          {busy ? 'Refreshing…' : 'Refresh tax documents'}
+      {hasInvoices || hasAdjustmentNotes || error ? (
+        <button
+          type="button"
+          className="sf-public-booking__contact"
+          onClick={loadInvoices}
+          disabled={busy || Boolean(downloadingDocumentNumber)}
+          aria-busy={busy || undefined}
+        >
+          {busy ? 'Refreshing…' : hasInvoices || hasAdjustmentNotes ? 'Refresh tax documents' : 'Try again'}
         </button>
       ) : null}
     </section>
