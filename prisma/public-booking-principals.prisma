@@ -1,9 +1,11 @@
 model PublicBookingPrincipal {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @db.Uuid
-  expiresAt      DateTime @db.Timestamptz(6)
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+  expiresAt       DateTime  @db.Timestamptz(6)
+  claimedByUserId String?   @db.Uuid
+  claimedAt       DateTime? @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
 
   organization      Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "public_booking_principals_organization_fkey")
   holdOwnerships    PublicBookingHoldOwnership[]
@@ -13,6 +15,7 @@ model PublicBookingPrincipal {
 
   @@unique([id, organizationId])
   @@index([organizationId, expiresAt], map: "public_booking_principals_org_expiry_idx")
+  @@index([organizationId, claimedByUserId, claimedAt], map: "public_booking_principals_claimed_user_idx")
   @@map("public_booking_principals")
 }
 
