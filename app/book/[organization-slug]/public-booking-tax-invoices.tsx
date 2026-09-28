@@ -172,9 +172,12 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       anchor.download = `${documentNumber}.pdf`;
       anchor.style.display = 'none';
       document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
+      try {
+        anchor.click();
+      } finally {
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+      }
     } catch {
       setError(`The ${downloadLabel(kind)} PDF could not be downloaded right now.`);
     } finally {

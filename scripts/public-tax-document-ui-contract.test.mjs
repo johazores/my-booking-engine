@@ -15,4 +15,6 @@ test('public tax-document history preserves verified evidence across recoverable
   assert.match(source, /role="alert"/);
   assert.match(source, /aria-busy=\{busy \|\| undefined\}/);
   assert.match(source, /Try again/);
+  assert.match(source, /window\.setTimeout\(\(\) => URL\.revokeObjectURL\(objectUrl\), 1_000\)/);
+  assert.doesNotMatch(source, /anchor\.remove\(\);\s*URL\.revokeObjectURL\(objectUrl\)/);
 });
