@@ -7,6 +7,8 @@ import { getPublicStripePaymentStatus } from '@/server/payments/public-stripe-pa
 import { PublicStripeCheckoutAuthorizationError } from '@/server/payments/public-stripe-checkout-service.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
+const PUBLIC_PAYMENT_STATUS_REQUEST_MAX_BYTES = 8 * 1024;
+const PUBLIC_PAYMENT_STATUS_CAPABILITY_MAX_CHARACTERS = 4096;
 type RouteContext = { params: Promise<{ 'organization-slug': string }> };
 
 function errorResponse(error: unknown) {
@@ -32,12 +34,16 @@ export async function POST(request: Request, context: RouteContext) {
       return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await readPublicBookingJsonObject(request);
+    const body = await readPublicBookingJsonObject(request, PUBLIC_PAYMENT_STATUS_REQUEST_MAX_BYTES);
     if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown };
-    if (typeof input.bookingCapability !== 'string') {
+    if (
+      typeof input.bookingCapability !== 'string'
+      || input.bookingCapability.length === 0
+      || input.bookingCapability.length > PUBLIC_PAYMENT_STATUS_CAPABILITY_MAX_CHARACTERS
+    ) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
