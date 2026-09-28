@@ -9,7 +9,6 @@ const publicRoutes = [
   'app/api/public-bookings/[organization-slug]/hospitality/quote/route.ts',
   'app/api/public-bookings/[organization-slug]/hospitality/confirmation/route.ts',
   'app/api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/route.ts',
-  'app/api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/status/route.ts',
 ];
 
 test('public booking JSON ingress uses the shared bounded parser', () => {
@@ -35,6 +34,18 @@ test('public payment receipt uses a tighter document-capability ingress bound', 
   assert.match(source, /readPublicBookingJsonObject\(request, PUBLIC_PAYMENT_RECEIPT_REQUEST_MAX_BYTES\)/);
   assert.match(source, /bookingCapability\.length === 0/);
   assert.match(source, /bookingCapability\.length > PUBLIC_PAYMENT_RECEIPT_CAPABILITY_MAX_CHARACTERS/);
+  assert.doesNotMatch(source, /request\.json\(\)/);
+  assert.match(source, /invalid-request/);
+});
+
+
+test('public Stripe payment status uses a tighter capability-only ingress bound', () => {
+  const source = read('app/api/public-bookings/[organization-slug]/hospitality/payments/stripe-checkout/status/route.ts');
+  assert.match(source, /PUBLIC_PAYMENT_STATUS_REQUEST_MAX_BYTES = 8 \* 1024/);
+  assert.match(source, /PUBLIC_PAYMENT_STATUS_CAPABILITY_MAX_CHARACTERS = 4096/);
+  assert.match(source, /readPublicBookingJsonObject\(request, PUBLIC_PAYMENT_STATUS_REQUEST_MAX_BYTES\)/);
+  assert.match(source, /bookingCapability\.length === 0/);
+  assert.match(source, /bookingCapability\.length > PUBLIC_PAYMENT_STATUS_CAPABILITY_MAX_CHARACTERS/);
   assert.doesNotMatch(source, /request\.json\(\)/);
   assert.match(source, /invalid-request/);
 });
