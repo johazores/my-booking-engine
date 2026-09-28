@@ -18,7 +18,7 @@ Only `SUCCEEDED` ledger rows participate. Successful capture rows and real offli
 
 Receipt derivation fails closed when successful ledger money has a different currency from the immutable booking currency, has a non-positive amount, has no captured settlement evidence, or claims refunds greater than captured money. Internal `sf_claim_*` references are sanitized. The staff receipt retains customer-safe provider references for operational audit; the public receipt intentionally exposes no provider references, transaction IDs, idempotency keys, fingerprints, credentials, or card data.
 
-The response includes a deterministic receipt number derived from the booking UUID, tenant business/contact identity, the attached customer, stay/room/rate data, immutable accommodation/tax/fee/add-on/total snapshots, captured/refunded/net-paid totals using integer minor units, and chronological customer-safe `PAYMENT` / `REFUND` activity. The public UI renders those stored values and supports refreshing the receipt so later verified refunds are reflected.
+The response includes a deterministic receipt number derived from the booking UUID, tenant business/contact identity, the attached customer, stay/room/rate data, immutable accommodation/tax/fee/add-on/total snapshots, captured/refunded/net-paid totals using integer minor units, and chronological customer-safe `PAYMENT` / `REFUND` activity. The public UI renders those stored values and supports refreshing the receipt so later verified refunds are reflected. The UI exposes loading, recoverable error, and retry states; a failed refresh keeps the last verified receipt visible instead of discarding it, while expected unavailable/not-ready responses remain quiet.
 
 ## Tax and fee boundary
 
