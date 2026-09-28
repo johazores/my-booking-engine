@@ -26,25 +26,29 @@ export async function getBookingPaymentReceipt(input: {
     permission: 'payment:read',
   });
 
-  const [organization, booking, paymentHistory] = await Promise.all([
-    db.organization.findFirst({
-      where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
-      select: { id: true, name: true, contactEmail: true, contactPhone: true, websiteUrl: true },
-    }),
-    db.hospitalityBooking.findFirst({
-      where: { id: input.bookingId, organizationId: input.organizationId },
-      include: {
-        customer: { select: { id: true, firstName: true, lastName: true, email: true } },
-        roomType: { select: { id: true, name: true, code: true } },
-        ratePlan: { select: { id: true, name: true, code: true } },
-      },
-    }),
-    readHospitalityPaymentReceiptHistory({
-      transaction: db,
-      organizationId: input.organizationId,
-      bookingId: input.bookingId,
-    }),
-  ]);
+  const snapshot = await db.$transaction(async (transaction) => {
+    const [organization, booking, paymentHistory] = await Promise.all([
+      transaction.organization.findFirst({
+        where: { id: input.organizationId, status: 'ACTIVE', deletedAt: null },
+        select: { id: true, name: true, contactEmail: true, contactPhone: true, websiteUrl: true },
+      }),
+      transaction.hospitalityBooking.findFirst({
+        where: { id: input.bookingId, organizationId: input.organizationId },
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true, email: true } },
+          roomType: { select: { id: true, name: true, code: true } },
+          ratePlan: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      readHospitalityPaymentReceiptHistory({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+      }),
+    ]);
+    return { organization, booking, paymentHistory };
+  }, { isolationLevel: 'RepeatableRead' });
+  const { organization, booking, paymentHistory } = snapshot;
 
   if (!organization || !booking) {
     throw new PaymentUnavailableError('Booking payment receipt is not available in this organization.');

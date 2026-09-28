@@ -12,14 +12,29 @@ test('public adjustment history delegates all commercial directions to the share
   assert.match(authority, /kind: 'COMMERCIAL_AMENDMENT'/);
 });
 
-test('public authority verification runs only after tenant and booking capability ownership checks in the same snapshot', () => {
-  const ownership = service.indexOf('publicBookingBookingOwnership.findUnique');
-  const authorityUse = service.indexOf('validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRowsInTransaction', ownership);
-  assert.ok(ownership >= 0 && authorityUse > ownership);
+test('public authority verification proves persisted principal ownership before tenant booking and legal authority', () => {
+  const helperStart = service.indexOf('async function assertPublicDocumentAuthority');
+  const helperEnd = service.indexOf('export async function listPublicBookingIssuedTaxInvoices', helperStart);
+  const helper = service.slice(helperStart, helperEnd);
+  const ownership = helper.indexOf('transaction.publicBookingBookingOwnership.findUnique');
+  const principal = helper.indexOf('transaction.publicBookingPrincipal.findFirst');
+  const authorization = helper.indexOf(
+    'if (!ownership || ownership.principalId !== authority.principalId || !principal)',
+  );
+  const booking = helper.indexOf('transaction.hospitalityBooking.findFirst');
+  const listStart = service.indexOf('export async function listPublicBookingIssuedTaxInvoices');
+  const authorityUse = service.indexOf(
+    'validatedAdjustments = await validateHospitalityIssuedAdjustmentNoteRowsInTransaction',
+    listStart,
+  );
+  assert.ok(ownership >= 0);
+  assert.ok(principal >= 0);
+  assert.ok(authorization > ownership && authorization > principal);
+  assert.ok(booking > authorization);
+  assert.ok(authorityUse > listStart);
   assert.match(service, /expectedOrganizationId: branding\.id/);
-  assert.match(service, /organizationId_bookingId: \{ organizationId: branding\.id, bookingId: capability\.bookingId \}/);
-  assert.match(service, /organizationId: branding\.id,\n\s+bookingId: capability\.bookingId/);
-  assert.match(service, /transaction,\n\s+organizationId: branding\.id,\n\s+rows: adjustmentRows/);
+  assert.match(service, /organizationId: authority\.organizationId,\n\s+bookingId: authority\.bookingId/);
+  assert.match(service, /transaction,\n\s+organizationId: authority\.organizationId,\n\s+rows: adjustmentRows/);
   assert.match(service, /isolationLevel: 'RepeatableRead'/);
 });
 

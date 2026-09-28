@@ -46,33 +46,41 @@ export async function getPublicBookingPaymentReceipt(input: {
   });
   if (!capability) throw new PublicPaymentReceiptAuthorizationError();
 
-  const [ownership, principal, booking, paymentHistory] = await Promise.all([
-    db.publicBookingBookingOwnership.findUnique({
-      where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
-      select: { principalId: true },
-    }),
-    db.publicBookingPrincipal.findFirst({
-      where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
-      select: { id: true },
-    }),
-    db.hospitalityBooking.findFirst({
-      where: { id: capability.bookingId, organizationId: branding.id },
-      include: {
-        customer: { select: { firstName: true, lastName: true, email: true } },
-        roomType: { select: { name: true } },
-        ratePlan: { select: { name: true } },
-      },
-    }),
-    readHospitalityPaymentReceiptHistory({
-      transaction: db,
-      organizationId: branding.id,
-      bookingId: capability.bookingId,
-    }),
-  ]);
+  const snapshot = await db.$transaction(async (transaction) => {
+    const [ownership, principal] = await Promise.all([
+      transaction.publicBookingBookingOwnership.findUnique({
+        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
+        select: { principalId: true },
+      }),
+      transaction.publicBookingPrincipal.findFirst({
+        where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
+        select: { id: true },
+      }),
+    ]);
 
-  if (!ownership || ownership.principalId !== capability.principalId || !principal) {
-    throw new PublicPaymentReceiptAuthorizationError();
-  }
+    if (!ownership || ownership.principalId !== capability.principalId || !principal) {
+      throw new PublicPaymentReceiptAuthorizationError();
+    }
+
+    const [booking, paymentHistory] = await Promise.all([
+      transaction.hospitalityBooking.findFirst({
+        where: { id: capability.bookingId, organizationId: branding.id },
+        include: {
+          customer: { select: { firstName: true, lastName: true, email: true } },
+          roomType: { select: { name: true } },
+          ratePlan: { select: { name: true } },
+        },
+      }),
+      readHospitalityPaymentReceiptHistory({
+        transaction,
+        organizationId: branding.id,
+        bookingId: capability.bookingId,
+      }),
+    ]);
+
+    return { booking, paymentHistory };
+  }, { isolationLevel: 'RepeatableRead' });
+  const { booking, paymentHistory } = snapshot;
   if (!booking) throw new PaymentUnavailableError('Booking payment receipt is not available in this organization.');
   if (!paymentHistory.complete) throw new PaymentConflictError(paymentHistory.reason);
   if (!['CONFIRMED', 'CANCELLED'].includes(booking.status) || !isReceiptEligiblePaymentStatus(booking.paymentStatus)) {

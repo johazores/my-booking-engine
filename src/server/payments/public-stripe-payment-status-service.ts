@@ -30,51 +30,57 @@ export async function getPublicStripePaymentStatus(input: {
   });
   if (!capability) throw new PublicStripeCheckoutAuthorizationError();
 
-  const [ownership, principal, booking] = await Promise.all([
-    db.publicBookingBookingOwnership.findUnique({
-      where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
-      select: { principalId: true, createdAt: true },
-    }),
-    db.publicBookingPrincipal.findFirst({
-      where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
-      select: { id: true },
-    }),
-    db.hospitalityBooking.findFirst({
+  const snapshot = await db.$transaction(async (transaction) => {
+    const [ownership, principal] = await Promise.all([
+      transaction.publicBookingBookingOwnership.findUnique({
+        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
+        select: { principalId: true, createdAt: true },
+      }),
+      transaction.publicBookingPrincipal.findFirst({
+        where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!ownership || ownership.principalId !== capability.principalId || !principal) {
+      throw new PublicStripeCheckoutAuthorizationError();
+    }
+
+    const booking = await transaction.hospitalityBooking.findFirst({
       where: { id: capability.bookingId, organizationId: branding.id },
       select: { id: true, status: true, paymentStatus: true, currency: true, totalMinor: true },
-    }),
-  ]);
+    });
+    if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
 
-  if (!ownership || ownership.principalId !== capability.principalId || !principal) {
-    throw new PublicStripeCheckoutAuthorizationError();
-  }
-  if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+    const [latest, openCheckout] = await Promise.all([
+      transaction.paymentTransaction.findFirst({
+        where: {
+          organizationId: branding.id,
+          bookingId: booking.id,
+          providerCode: 'stripe',
+          kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { kind: true, status: true, createdAt: true },
+      }),
+      booking.status === 'PENDING_CONFIRMATION' || booking.status === 'CONFIRMED'
+        ? transaction.paymentCheckoutSession.findFirst({
+            where: {
+              organizationId: branding.id,
+              bookingId: booking.id,
+              providerCode: 'stripe',
+              status: 'OPEN',
+              expiresAt: { gt: now },
+            },
+            orderBy: { expiresAt: 'desc' },
+            select: { expiresAt: true },
+          })
+        : Promise.resolve(null),
+    ]);
 
-  const [latest, openCheckout] = await Promise.all([
-    db.paymentTransaction.findFirst({
-      where: {
-        organizationId: branding.id,
-        bookingId: booking.id,
-        providerCode: 'stripe',
-        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { kind: true, status: true, currency: true, amountMinor: true, createdAt: true },
-    }),
-    booking.status === 'PENDING_CONFIRMATION' || booking.status === 'CONFIRMED'
-      ? db.paymentCheckoutSession.findFirst({
-          where: {
-            organizationId: branding.id,
-            bookingId: booking.id,
-            providerCode: 'stripe',
-            status: 'OPEN',
-            expiresAt: { gt: now },
-          },
-          orderBy: { expiresAt: 'desc' },
-          select: { expiresAt: true },
-        })
-      : Promise.resolve(null),
-  ]);
+    return { ownership, booking, latest, openCheckout };
+  }, { isolationLevel: 'RepeatableRead' });
+  const { ownership, booking, latest, openCheckout } = snapshot;
 
   const pendingAllocationProtected = booking.status !== 'PENDING_CONFIRMATION' || shouldProtectPendingPublicBookingAllocation({
     ownershipCreatedAt: ownership.createdAt,

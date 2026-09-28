@@ -51,13 +51,22 @@ test('organization adjustment-note register snapshots count page and legal autho
   assert.match(source, /isolationLevel: 'RepeatableRead'/);
 });
 
-test('public capability history snapshots persisted ownership and both legal-document collections', () => {
-  const source = section(publicHistory, 'export async function listPublicBookingIssuedTaxInvoices');
-  assert.match(source, /verifyPublicBookingBookingCapability/);
+test('public capability history proves persisted authority before booking and legal-document collections', () => {
+  const authority = section(publicHistory, 'async function assertPublicDocumentAuthority', 'export async function listPublicBookingIssuedTaxInvoices');
+  const source = section(publicHistory, 'export async function listPublicBookingIssuedTaxInvoices', 'export async function getPublicBookingIssuedTaxInvoice');
+  assert.match(publicHistory, /verifyPublicBookingBookingCapability/);
+  const ownershipIndex = authority.indexOf('transaction.publicBookingBookingOwnership.findUnique');
+  const principalIndex = authority.indexOf('transaction.publicBookingPrincipal.findFirst');
+  const authorizationIndex = authority.indexOf(
+    'if (!ownership || ownership.principalId !== authority.principalId || !principal)',
+  );
+  const bookingIndex = authority.indexOf('transaction.hospitalityBooking.findFirst');
+  assert.ok(ownershipIndex >= 0);
+  assert.ok(principalIndex >= 0);
+  assert.ok(authorizationIndex > ownershipIndex && authorizationIndex > principalIndex);
+  assert.ok(bookingIndex > authorizationIndex, 'tenant booking evidence must follow persisted public authority');
   assert.match(source, /db\.\$transaction\(async \(transaction\) =>/);
-  assert.match(source, /transaction\.publicBookingBookingOwnership\.findUnique/);
-  assert.match(source, /transaction\.publicBookingPrincipal\.findFirst/);
-  assert.match(source, /transaction\.hospitalityBooking\.findFirst/);
+  assert.match(source, /await assertPublicDocumentAuthority\(transaction, authority\)/);
   assert.match(source, /transaction\.hospitalityIssuedInvoice\.count/);
   assert.match(source, /transaction\.hospitalityIssuedInvoice\.findMany/);
   assert.match(source, /transaction\.hospitalityIssuedAdjustmentNote\.count/);

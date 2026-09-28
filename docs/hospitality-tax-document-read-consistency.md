@@ -21,7 +21,7 @@ Adjustment-note rows pass through the shared legal authority verifier inside the
 
 ## Public capability-owned history
 
-Public legal-document history first verifies the signed booking capability against the active organization resolved from the public slug. Persisted capability ownership, unexpired principal state, tenant-owned booking existence, tax-invoice count/rows, and adjustment-note count/rows are then read from one `RepeatableRead` transaction.
+Public legal-document history first verifies the signed booking capability against the active organization resolved from the public slug. Inside one `RepeatableRead` transaction it then proves persisted capability ownership and the matching unexpired public principal before reading the tenant-owned booking. Only after that persisted authority succeeds may it read the tax-invoice and adjustment-note collections.
 
 This prevents one response from authorizing against one persisted ownership state while projecting legal-document collection metadata from a later state. Adjustment-note source/refund/commercial authority is also verified inside that same snapshot before customer-safe projection. The public projection remains fixed at 50 tax invoices and 50 adjustment notes and reports `truncated` from totals observed in that same snapshot.
 

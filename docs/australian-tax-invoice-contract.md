@@ -47,7 +47,7 @@ Schema-version-6 readiness re-proves provider-neutral settlement at the commerci
 
 ## Customer/read boundary
 
-Authenticated document/history/register reads require both `booking:read` and `payment:read`; issuance remains `payment:manage`. Public history verifies organization slug, encrypted booking capability, persisted booking ownership, matching unexpired public principal, and tenant-owned booking before querying legal documents.
+Authenticated document/history/register reads require both `booking:read` and `payment:read`; issuance remains `payment:manage`. Public history verifies organization slug and encrypted booking capability, then inside one `RepeatableRead` snapshot proves persisted booking ownership plus the matching unexpired public principal before reading the tenant-owned booking or either legal-document collection.
 
 Public JSON excludes internal invoice/preparation/pricing/issuer IDs, predecessor/amendment/target IDs, sequence counters, user IDs, fingerprints, provider/payment/refund references, and credentials unless legally required.
 

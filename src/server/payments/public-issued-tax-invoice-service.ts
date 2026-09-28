@@ -225,7 +225,7 @@ async function assertPublicDocumentAuthority(
   transaction: Prisma.TransactionClient,
   authority: PublicDocumentAuthority,
 ) {
-  const [ownership, principal, booking] = await Promise.all([
+  const [ownership, principal] = await Promise.all([
     transaction.publicBookingBookingOwnership.findUnique({
       where: {
         organizationId_bookingId: {
@@ -243,15 +243,17 @@ async function assertPublicDocumentAuthority(
       },
       select: { id: true },
     }),
-    transaction.hospitalityBooking.findFirst({
-      where: { id: authority.bookingId, organizationId: authority.organizationId },
-      select: { id: true },
-    }),
   ]);
 
-  if (!ownership || ownership.principalId !== authority.principalId || !principal || !booking) {
+  if (!ownership || ownership.principalId !== authority.principalId || !principal) {
     throw new PublicIssuedTaxInvoiceAuthorizationError();
   }
+
+  const booking = await transaction.hospitalityBooking.findFirst({
+    where: { id: authority.bookingId, organizationId: authority.organizationId },
+    select: { id: true },
+  });
+  if (!booking) throw new PublicIssuedTaxInvoiceAuthorizationError();
 }
 
 export async function listPublicBookingIssuedTaxInvoices(input: {
