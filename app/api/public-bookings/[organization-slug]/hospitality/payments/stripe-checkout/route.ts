@@ -1,5 +1,6 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
+import { normalizePublicBookingRequestKey, PublicBookingRequestValidationError } from '@/server/bookings/public-booking-request-domain.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { publicPaymentProviderClientError } from '@/server/payments/payment-provider-client-error.ts';
@@ -11,6 +12,8 @@ import {
 } from '@/server/payments/public-stripe-checkout-service.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
+const PUBLIC_STRIPE_CHECKOUT_REQUEST_MAX_BYTES = 8 * 1024;
+const PUBLIC_STRIPE_CHECKOUT_CAPABILITY_MAX_CHARACTERS = 4096;
 
 type RouteContext = { params: Promise<{ 'organization-slug': string }> };
 
@@ -34,9 +37,6 @@ function errorResponse(error: unknown) {
     return Response.json({ error: providerError.error }, { status: providerError.status, headers: noStoreHeaders });
   }
 
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
-    return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: noStoreHeaders });
-  }
   return Response.json({ error: 'internal-error' }, { status: 500, headers: noStoreHeaders });
 }
 
@@ -50,13 +50,28 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
-    const body = await readPublicBookingJsonObject(request);
+    const body = await readPublicBookingJsonObject(request, PUBLIC_STRIPE_CHECKOUT_REQUEST_MAX_BYTES);
     if (!body) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown; requestKey?: unknown };
-    if (typeof input.bookingCapability !== 'string' || typeof input.requestKey !== 'string') {
+    if (
+      typeof input.bookingCapability !== 'string'
+      || input.bookingCapability.length === 0
+      || input.bookingCapability.length > PUBLIC_STRIPE_CHECKOUT_CAPABILITY_MAX_CHARACTERS
+      || typeof input.requestKey !== 'string'
+    ) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
+    }
+
+    let requestKey: string;
+    try {
+      requestKey = normalizePublicBookingRequestKey(input.requestKey);
+    } catch (error) {
+      if (error instanceof PublicBookingRequestValidationError) {
+        return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
+      }
+      throw error;
     }
 
     const returnUrl = new URL(`/book/${encodeURIComponent(organizationSlug)}`, request.url);
@@ -68,7 +83,7 @@ export async function POST(request: Request, context: RouteContext) {
     const result = await createPublicStripeCheckoutSession({
       organizationSlug,
       bookingCapability: input.bookingCapability,
-      requestKey: input.requestKey,
+      requestKey,
       successUrl: successUrl.toString(),
       cancelUrl: cancelUrl.toString(),
     });
