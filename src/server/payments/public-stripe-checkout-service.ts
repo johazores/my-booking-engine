@@ -5,7 +5,9 @@ import { derivePublicBookingCheckoutIdempotencyKey } from '../bookings/public-bo
 import { PublicHospitalityBookingUnavailableError } from '../bookings/public-hospitality-search-service.ts';
 import { readPublicOrganizationBrandingBySlug } from '../branding/branding-service.ts';
 import { db } from '../database.ts';
+import { IntegrationUnavailableError } from '../integrations/integration-service.ts';
 import { loadStripeCheckoutIntegration } from '../integrations/stripe-checkout-integration.ts';
+import { StripeIntegrationConfigurationError } from '../integrations/stripe-integration.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { PaymentProviderError } from './payment-provider.ts';
 import { isInternalPaymentClaimReference, paymentOperationClaimReference, paymentRequestFingerprint } from './stripe-payment-service.ts';
@@ -23,6 +25,17 @@ export class PublicStripeCheckoutUnavailableError extends Error {
   constructor(message = 'Stripe Checkout is not available for this booking.') {
     super(message);
     this.name = 'PublicStripeCheckoutUnavailableError';
+  }
+}
+
+async function loadPublicStripeCheckoutIntegration(organizationId: string) {
+  try {
+    return await loadStripeCheckoutIntegration(organizationId);
+  } catch (error) {
+    if (error instanceof IntegrationUnavailableError || error instanceof StripeIntegrationConfigurationError) {
+      throw new PublicStripeCheckoutUnavailableError();
+    }
+    throw error;
   }
 }
 
@@ -276,29 +289,46 @@ export async function createPublicStripeCheckoutSession(input: {
   });
   if (!capability) throw new PublicStripeCheckoutAuthorizationError();
 
-  const ownership = await db.publicBookingBookingOwnership.findUnique({
-    where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
+  const idempotencyKey = derivePublicBookingCheckoutIdempotencyKey({
+    secret,
+    organizationId: branding.id,
+    requestKey: input.requestKey,
   });
-  if (!ownership || ownership.principalId !== capability.principalId) throw new PublicStripeCheckoutAuthorizationError();
 
-  const principal = await db.publicBookingPrincipal.findFirst({
-    where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
-    select: { id: true },
-  });
-  if (!principal) throw new PublicStripeCheckoutAuthorizationError();
+  const snapshot = await db.$transaction(async (transaction) => {
+    const [ownership, principal] = await Promise.all([
+      transaction.publicBookingBookingOwnership.findUnique({
+        where: { organizationId_bookingId: { organizationId: branding.id, bookingId: capability.bookingId } },
+        select: { principalId: true, createdAt: true },
+      }),
+      transaction.publicBookingPrincipal.findFirst({
+        where: { id: capability.principalId, organizationId: branding.id, expiresAt: { gt: now } },
+        select: { id: true },
+      }),
+    ]);
+    if (!ownership || ownership.principalId !== capability.principalId || !principal) {
+      throw new PublicStripeCheckoutAuthorizationError();
+    }
 
-  const booking = await db.hospitalityBooking.findFirst({
-    where: { id: capability.bookingId, organizationId: branding.id },
-    select: {
-      id: true,
-      status: true,
-      paymentStatus: true,
-      currency: true,
-      totalMinor: true,
-      customer: { select: { email: true } },
-    },
-  });
-  if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+    const booking = await transaction.hospitalityBooking.findFirst({
+      where: { id: capability.bookingId, organizationId: branding.id },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        currency: true,
+        totalMinor: true,
+        customer: { select: { email: true } },
+      },
+    });
+    if (!booking) throw new PaymentUnavailableError('Booking is not available in this organization.');
+
+    const prior = await transaction.paymentTransaction.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
+    });
+    return { ownership, booking, prior };
+  }, { isolationLevel: 'RepeatableRead' });
+  const { ownership, booking, prior } = snapshot;
   if (booking.status !== 'CONFIRMED' && booking.status !== 'PENDING_CONFIRMATION') {
     throw new PaymentConflictError('Only active public bookings can start payment.');
   }
@@ -310,7 +340,6 @@ export async function createPublicStripeCheckoutSession(input: {
     return Object.freeze({ state: 'PROCESSING' as const, paymentStatus: booking.paymentStatus, checkoutUrl: null, expiresAt: null });
   }
 
-  const idempotencyKey = derivePublicBookingCheckoutIdempotencyKey({ secret, organizationId: branding.id, requestKey: input.requestKey });
   const requestFingerprint = paymentRequestFingerprint([
     STRIPE_PROVIDER_CODE,
     'public-checkout',
@@ -320,9 +349,6 @@ export async function createPublicStripeCheckoutSession(input: {
   ]);
   const claimReference = paymentOperationClaimReference(requestFingerprint);
 
-  const prior = await db.paymentTransaction.findUnique({
-    where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
-  });
   if (prior) {
     assertExactCheckoutClaim(prior, {
       bookingId: booking.id,
@@ -346,7 +372,7 @@ export async function createPublicStripeCheckoutSession(input: {
     throw new PaymentConflictError('The payment-start window expired. Search availability again before booking.');
   }
 
-  const stripe = await loadStripeCheckoutIntegration(branding.id);
+  const stripe = await loadPublicStripeCheckoutIntegration(branding.id);
   if (!stripe.integration.capabilities.includes('payment-capture')) {
     throw new PublicStripeCheckoutUnavailableError('Stripe integration is not configured for payment capture.');
   }
@@ -355,28 +381,61 @@ export async function createPublicStripeCheckoutSession(input: {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payment:${branding.id}:idempotency:${idempotencyKey}`}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: branding.id, bookingId: booking.id })}, 0))`;
 
-    const [existing, currentOwnership, currentBooking] = await Promise.all([
-      transaction.paymentTransaction.findUnique({
-        where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
-      }),
+    const claimAuthorityNow = input.now ?? new Date();
+    const [currentOwnership, currentPrincipal] = await Promise.all([
       transaction.publicBookingBookingOwnership.findUnique({
         where: { organizationId_bookingId: { organizationId: branding.id, bookingId: booking.id } },
+        select: { principalId: true, createdAt: true },
+      }),
+      transaction.publicBookingPrincipal.findFirst({
+        where: {
+          id: capability.principalId,
+          organizationId: branding.id,
+          expiresAt: { gt: claimAuthorityNow },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (
+      !currentOwnership
+      || currentOwnership.principalId !== capability.principalId
+      || !currentPrincipal
+      || capability.expiresAt.getTime() <= claimAuthorityNow.getTime()
+    ) {
+      throw new PublicStripeCheckoutAuthorizationError();
+    }
+
+    const [existing, currentBooking] = await Promise.all([
+      transaction.paymentTransaction.findUnique({
+        where: { organizationId_idempotencyKey: { organizationId: branding.id, idempotencyKey } },
       }),
       transaction.hospitalityBooking.findFirst({
         where: { id: booking.id, organizationId: branding.id },
         select: { status: true, paymentStatus: true, currency: true, totalMinor: true },
       }),
     ]);
-    if (!currentOwnership || currentOwnership.principalId !== capability.principalId) {
-      throw new PublicStripeCheckoutAuthorizationError();
-    }
     if (!currentBooking || !['CONFIRMED', 'PENDING_CONFIRMATION'].includes(currentBooking.status) || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
       throw new PaymentConflictError('Booking changed before Stripe Checkout could be claimed.');
     }
+    if (existing) {
+      assertExactCheckoutClaim(existing, {
+        bookingId: booking.id,
+        currency: booking.currency,
+        amountMinor: booking.totalMinor,
+        requestFingerprint,
+      });
+      if (existing.status === 'SUCCEEDED') {
+        return { payment: existing, callProvider: false, authorizedAt: claimAuthorityNow } as const;
+      }
+      if (existing.status === 'FAILED') {
+        throw new PaymentConflictError('This Checkout attempt failed. Start a new payment attempt.');
+      }
+    }
+
     if (
       currentBooking.status === 'PENDING_CONFIRMATION'
-      && !publicBookingPaymentStartWindowIsOpen({ ownershipCreatedAt: currentOwnership.createdAt, now })
-      && !checkoutRetryKeepsPaymentStartRecoverable(existing, now)
+      && !publicBookingPaymentStartWindowIsOpen({ ownershipCreatedAt: currentOwnership.createdAt, now: claimAuthorityNow })
+      && !checkoutRetryKeepsPaymentStartRecoverable(existing, claimAuthorityNow)
     ) {
       throw new PaymentConflictError('The payment-start window expired. Search availability again before booking.');
     }
@@ -385,16 +444,10 @@ export async function createPublicStripeCheckoutSession(input: {
     }
 
     if (existing) {
-      assertExactCheckoutClaim(existing, {
-        bookingId: booking.id,
-        currency: booking.currency,
-        amountMinor: booking.totalMinor,
-        requestFingerprint,
-      });
       if (existing.status !== 'PENDING' || existing.providerReference !== claimReference) {
-        return { payment: existing, callProvider: false } as const;
+        return { payment: existing, callProvider: false, authorizedAt: claimAuthorityNow } as const;
       }
-      return { payment: existing, callProvider: true } as const;
+      return { payment: existing, callProvider: true, authorizedAt: claimAuthorityNow } as const;
     }
 
     const blockingPayment = await transaction.paymentTransaction.findFirst({
@@ -440,7 +493,7 @@ export async function createPublicStripeCheckoutSession(input: {
         },
       },
     });
-    return { payment, callProvider: true } as const;
+    return { payment, callProvider: true, authorizedAt: claimAuthorityNow } as const;
   }, { isolationLevel: 'Serializable' });
 
   if (!claim.callProvider) {
@@ -459,7 +512,7 @@ export async function createPublicStripeCheckoutSession(input: {
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
       customerEmail: booking.customer.email,
-      now,
+      now: claim.authorizedAt,
     });
     await persistCheckoutSession({
       organizationId: branding.id,
