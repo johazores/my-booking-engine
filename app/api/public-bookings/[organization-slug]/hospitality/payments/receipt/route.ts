@@ -1,6 +1,7 @@
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import {
   getPublicBookingPaymentReceipt,
   PublicPaymentReceiptAuthorizationError,
@@ -30,15 +31,18 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const observation = createRequestObservation(request, { operation: 'public-payment.receipt.read' });
+  const finish = (response: Response) => observation.finish(response);
+
   try {
     if (!isSameOriginPublicBookingWrite(request)) {
-      return Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-origin' }, { status: 403, headers: noStoreHeaders }));
     }
 
     const { 'organization-slug': organizationSlug } = await context.params;
     const body = await readPublicBookingJsonObject(request, PUBLIC_PAYMENT_RECEIPT_REQUEST_MAX_BYTES);
     if (!body) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
     const input = body as { bookingCapability?: unknown };
     if (
@@ -46,12 +50,12 @@ export async function POST(request: Request, context: RouteContext) {
       || input.bookingCapability.length === 0
       || input.bookingCapability.length > PUBLIC_PAYMENT_RECEIPT_CAPABILITY_MAX_CHARACTERS
     ) {
-      return Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders });
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 
     const receipt = await getPublicBookingPaymentReceipt({ organizationSlug, bookingCapability: input.bookingCapability });
-    return Response.json(receipt, { status: 200, headers: noStoreHeaders });
+    return finish(Response.json(receipt, { status: 200, headers: noStoreHeaders }));
   } catch (error) {
-    return errorResponse(error);
+    return finish(errorResponse(error));
   }
 }
