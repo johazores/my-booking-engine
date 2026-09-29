@@ -4,9 +4,19 @@ SF public hospitality Checkout is a capability-owned payment start boundary, not
 
 This review hardens `src/server/payments/public-stripe-checkout-service.ts`. It does not make browser redirects authoritative, change Stripe provider semantics, or weaken the rule that SF never accepts raw card data.
 
+## Authority snapshots and claim-time revalidation
+
+After cryptographic capability verification, Checkout derives the tenant-bound idempotency key and opens one PostgreSQL `RepeatableRead` snapshot. Persisted booking ownership and the matching unexpired public principal are proven first. Only then does the snapshot read the tenant booking and same-key prior payment evidence, so authorization and retry state cannot be assembled from unrelated database snapshots.
+
+Before Stripe provider I/O, the serializable payment-claim transaction acquires the existing idempotency and booking mutation locks, takes a fresh production clock observation, and revalidates persisted ownership, the still-unexpired persisted principal, and the signed capability expiry. Protected payment and booking claim rows are read only after those checks pass. The fresh claim-time clock also governs payment-start/recovery-window decisions.
+
+An exact same-key attempt that becomes `SUCCEEDED` between preflight and the locked claim is treated as terminal success without another provider call. If it becomes `FAILED`, the claim fails with the existing fresh-attempt conflict instead of being misreported as processing. Other unresolved non-internal references remain processing-only.
+
+Expected missing/inactive Stripe integration or invalid stored Stripe configuration failures are normalized to the generic public Checkout-unavailable boundary. Unexpected infrastructure failures remain unexpected and provider behavior stays behind the adapter.
+
 ## Final-write invariants
 
-Public Checkout already serializes the tenant idempotency key and booking mutation boundary with PostgreSQL advisory locks and serializable transactions. The final mutations now retain the commercial evidence that was validated while those locks are held.
+Public Checkout serializes the tenant idempotency key and booking mutation boundary with PostgreSQL advisory locks and serializable transactions. The final mutations retain the commercial evidence that was validated while those locks are held.
 
 A non-retryable provider failure can mark an internal Checkout claim failed only when the final `PaymentTransaction` predicate still matches:
 

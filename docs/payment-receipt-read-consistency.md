@@ -16,7 +16,7 @@ A valid encrypted public booking capability is necessary but is not the complete
 
 Only after those persisted checks succeed may the public receipt service read the tenant-owned booking and successful payment history. The public Stripe status service applies the same ordering before reading the booking, latest Stripe authorization/capture evidence, or an open Checkout session. A valid capability therefore cannot be used to trigger protected booking/payment evidence reads after persisted customer ownership or principal authority has disappeared.
 
-The existing Stripe Checkout write service already follows this persisted-authority-before-booking pattern and remains unchanged.
+Stripe Checkout creation follows the same persisted-authority-before-protected-read rule. After capability verification, it proves booking ownership plus the unexpired public principal inside one `RepeatableRead` snapshot before reading protected booking state or same-key prior payment evidence. Its later serializable payment-claim boundary reacquires the booking/idempotency locks, takes a fresh production clock observation, revalidates ownership, persisted-principal freshness, and signed-capability expiry, and only then reads protected payment/booking claim state before any Stripe provider call.
 
 ## Snapshot consistency
 
