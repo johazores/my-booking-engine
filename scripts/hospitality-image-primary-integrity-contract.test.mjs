@@ -48,6 +48,6 @@ test('new PostgreSQL identifiers fit the physical identifier limit', () => {
 
 test('documentation records the database and application authority split', () => {
   assert.match(docs, /independent concurrency-safe backstop/i);
-  assert.match(docs, /does not establish authorization or tenant ownership/i);
+  assert.match(docs, /do not establish authorization or tenant ownership/i);
   assert.match(docs, /explicitly disposable PostgreSQL database gate/i);
 });
