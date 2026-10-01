@@ -65,6 +65,7 @@ test('image removal requires explicit server-validated REMOVE confirmation', () 
 });
 
 test('image mutations preserve the current room-type and image-page navigation state', () => {
+  assert.ok(route.includes("if (!/^[1-9]\\d*$/.test(value)) return;"));
   assert.match(route, /preservePage\(query, 'typePage', typePage\)/);
   assert.match(route, /preservePage\(query, 'imagePage', imagePage\)/);
   assert.ok((page.match(/name="typePage" value=\{roomTypes\.page\}/g) ?? []).length >= 3);

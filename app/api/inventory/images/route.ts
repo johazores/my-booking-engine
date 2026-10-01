@@ -13,7 +13,7 @@ import {
 } from '@/server/inventory/hospitality-image-service.ts';
 
 function preservePage(query: URLSearchParams, key: 'typePage' | 'imagePage', value: string) {
-  if (!/^[1-9]\\d*$/.test(value)) return;
+  if (!/^[1-9]\d*$/.test(value)) return;
   const parsed = Number(value);
   if (Number.isSafeInteger(parsed) && parsed > 1) query.set(key, String(parsed));
 }
