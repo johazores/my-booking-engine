@@ -38,4 +38,4 @@ Pagination does not replace tenant isolation or authorization:
 - browser query parameters never establish ownership; and
 - successful and validation redirects preserve the current room-type directory page and image page as presentation state only.
 
-The management read model remains separate from mutation authority. Image mutations retain tenant and parent scoping, and same-gallery primary-image changes now use serialized lifecycle handling. Storage policy and provider behavior are unchanged.
+The management read model remains separate from mutation authority. Image mutations retain tenant and parent scoping, and same-gallery primary-image changes now use serialized lifecycle handling. Storage policy and provider behavior are unchanged. Database-level single-primary enforcement is documented in `docs/hospitality-image-primary-integrity.md`.
