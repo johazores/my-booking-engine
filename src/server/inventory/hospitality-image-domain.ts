@@ -7,6 +7,12 @@ export type HospitalityImageInput = {
   isPrimary: string;
 };
 
+export function assertHospitalityImageRemoveConfirmation(value: string) {
+  if (value.trim().toUpperCase() !== 'REMOVE') {
+    throw new HospitalityInventoryValidationError('Type REMOVE to confirm image removal.');
+  }
+}
+
 export function normalizeHospitalityImageInput(input: HospitalityImageInput) {
   let parsedUrl: URL;
   try {

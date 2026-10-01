@@ -58,7 +58,7 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     const roomTypeImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe-balcony.jpg', altText: 'Deluxe King balcony', sortOrder: '10', isPrimary: '' } });
     await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
     await assert.rejects(images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/staff.jpg', altText: 'Denied image', sortOrder: '0', isPrimary: '' } }), /permission/i);
-    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id }), /not available/i);
+    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id, confirmation: 'REMOVE' }), /not available/i);
 
     const tenantAInventory = await inventory.listHospitalityProperties({ organizationId: organizationA.id, actorUserId: staffA.id, page: 1, pageSize: 20 });
     assert.deepEqual(tenantAInventory.properties.map((property) => property.id), [propertyA.id]);
@@ -71,12 +71,12 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     assert.equal(propertyImagesBeforeRemoval.totalPages, 2);
     assert.deepEqual(propertyImagesBeforeRemoval.images.map((image) => image.id), [propertyImageTwo.id]);
 
-    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id });
+    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id, confirmation: 'REMOVE' });
     const propertyImages = await images.listHospitalityImagesPage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, page: 1, pageSize: 20 });
     assert.equal(propertyImages.total, 1);
     assert.deepEqual(propertyImages.images.map((image) => [image.id, image.isPrimary]), [[propertyImage.id, true]]);
 
-    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
+    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id, confirmation: 'REMOVE' });
     const roomTypeImages = await images.listHospitalityImagesPage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id, page: 1, pageSize: 20 });
     assert.equal(roomTypeImages.total, 1);
     assert.deepEqual(roomTypeImages.images.map((image) => [image.id, image.isPrimary]), [[roomTypeImage.id, true]]);
@@ -99,7 +99,7 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     await inventory.archiveHospitalityRoom({ organizationId: organizationA.id, actorUserId: adminA.id, roomId: room.id, confirmation: 'ARCHIVE' });
     await inventory.archiveHospitalityRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, roomTypeId: roomType.id, confirmation: 'ARCHIVE' });
     await inventory.archiveHospitalityProperty({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, confirmation: 'ARCHIVE' });
-    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImage.id }), /active inventory scope/i);
+    await assert.rejects(images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImage.id, confirmation: 'REMOVE' }), /active inventory scope/i);
 
     const events = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, resourceType: { startsWith: 'hospitality-' } } });
     assert.ok(events.some((event) => event.action === 'inventory.property.created'));

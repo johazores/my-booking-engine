@@ -12,9 +12,17 @@ import {
   setPrimaryHospitalityImage,
 } from '@/server/inventory/hospitality-image-service.ts';
 
-function target(propertyId: string, roomTypeId: string, suffix: string) {
+function preservePage(query: URLSearchParams, key: 'typePage' | 'imagePage', value: string) {
+  if (!/^[1-9]\\d*$/.test(value)) return;
+  const parsed = Number(value);
+  if (Number.isSafeInteger(parsed) && parsed > 1) query.set(key, String(parsed));
+}
+
+function target(propertyId: string, roomTypeId: string, typePage: string, imagePage: string, suffix: string) {
   const query = new URLSearchParams();
   if (roomTypeId) query.set('roomType', roomTypeId);
+  preservePage(query, 'typePage', typePage);
+  preservePage(query, 'imagePage', imagePage);
   if (suffix) {
     const [key, value] = suffix.split('=');
     if (key && value) query.set(key, value);
@@ -35,9 +43,13 @@ export async function POST(request: Request) {
 
   let propertyId = '';
   let roomTypeId = '';
+  let typePage = '';
+  let imagePage = '';
   try {
     propertyId = formField(formData, 'propertyId');
     roomTypeId = formField(formData, 'roomTypeId');
+    typePage = formField(formData, 'typePage');
+    imagePage = formField(formData, 'imagePage');
     const action = formField(formData, 'action') || 'create';
     const scope = {
       organizationId: organization.id,
@@ -48,11 +60,11 @@ export async function POST(request: Request) {
 
     if (action === 'set-primary') {
       await setPrimaryHospitalityImage({ ...scope, imageId: formField(formData, 'imageId') });
-      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-primary'), request.url), 303));
+      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-primary'), request.url), 303));
     }
     if (action === 'remove') {
-      await removeHospitalityImage({ ...scope, imageId: formField(formData, 'imageId') });
-      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-removed'), request.url), 303));
+      await removeHospitalityImage({ ...scope, imageId: formField(formData, 'imageId'), confirmation: formField(formData, 'confirmation') });
+      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-removed'), request.url), 303));
     }
     if (action !== 'create') return finish(new Response('Bad Request', { status: 400 }));
 
@@ -65,12 +77,12 @@ export async function POST(request: Request) {
         isPrimary: formField(formData, 'isPrimary'),
       },
     });
-    return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, 'status=image-created'), request.url), 303));
+    return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-created'), request.url), 303));
   } catch (error) {
     const code = inventoryErrorCode(error);
     const response = !propertyId
       ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
-      : NextResponse.redirect(new URL(target(propertyId, roomTypeId, `error=${code}`), request.url), 303);
+      : NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, `error=${code}`), request.url), 303);
     return finish(response, code === 'server' ? 'failed' : 'rejected');
   }
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeHospitalityImageInput } from './hospitality-image-domain.ts';
+import { assertHospitalityImageRemoveConfirmation, normalizeHospitalityImageInput } from './hospitality-image-domain.ts';
 
 test('normalizes secure hospitality image metadata', () => {
   assert.deepEqual(normalizeHospitalityImageInput({
@@ -22,4 +22,10 @@ test('rejects unsafe or invalid image inputs', () => {
   assert.throws(() => normalizeHospitalityImageInput({ url: 'https://user:secret@example.test/image.jpg', altText: 'Room', sortOrder: '0', isPrimary: '' }), /without embedded credentials/);
   assert.throws(() => normalizeHospitalityImageInput({ url: 'https://example.test/image.jpg', altText: ' ', sortOrder: '0', isPrimary: '' }), /alt text/);
   assert.throws(() => normalizeHospitalityImageInput({ url: 'https://example.test/image.jpg', altText: 'Room', sortOrder: '-1', isPrimary: '' }), /sort order/);
+});
+
+
+test('requires explicit image removal confirmation', () => {
+  assert.doesNotThrow(() => assertHospitalityImageRemoveConfirmation(' remove '));
+  assert.throws(() => assertHospitalityImageRemoveConfirmation('yes'), /Type REMOVE/);
 });

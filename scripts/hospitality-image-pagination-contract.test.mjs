@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const service = readFileSync('src/server/inventory/hospitality-image-service.ts', 'utf8');
 const page = readFileSync('app/inventory/[property-id]/images/page.tsx', 'utf8');
+const route = readFileSync('app/api/inventory/images/route.ts', 'utf8');
+const domain = readFileSync('src/server/inventory/hospitality-image-domain.ts', 'utf8');
 const docs = readFileSync('docs/hospitality-image-pagination.md', 'utf8');
 
 test('image management reads are tenant scoped, paginated and snapshot consistent', () => {
@@ -50,4 +52,21 @@ test('same-gallery image mutations serialize primary authority and preserve a re
   assert.equal(service.split('pg_advisory_xact_lock').length - 1, 3);
   assert.equal(service.split('let promotedImageId: string | null = null').length - 1, 2);
   assert.equal(service.split('afterData: promotedImageId ? { promotedImageId } : {}').length - 1, 2);
+});
+
+
+test('image removal requires explicit server-validated REMOVE confirmation', () => {
+  assert.match(domain, /assertHospitalityImageRemoveConfirmation/);
+  assert.match(domain, /Type REMOVE to confirm image removal/);
+  assert.match(service, /assertHospitalityImageRemoveConfirmation\(input\.confirmation\)/);
+  assert.match(route, /confirmation: formField\(formData, 'confirmation'\)/);
+  assert.match(page, /Type REMOVE to confirm/);
+  assert.match(page, /name="confirmation"/);
+});
+
+test('image mutations preserve the current room-type and image-page navigation state', () => {
+  assert.match(route, /preservePage\(query, 'typePage', typePage\)/);
+  assert.match(route, /preservePage\(query, 'imagePage', imagePage\)/);
+  assert.ok((page.match(/name="typePage" value=\{roomTypes\.page\}/g) ?? []).length >= 3);
+  assert.ok((page.match(/name="imagePage" value=\{imageResult\.page\}/g) ?? []).length >= 3);
 });

@@ -27,7 +27,7 @@ If a future workflow genuinely requires more than 1,000 images from one scope, t
 
 Image creation, explicit primary selection, and removal use serializable transactions plus one transaction-scoped PostgreSQL advisory lock per tenant/property/optional-room-type gallery. This serializes primary-authority decisions inside one gallery without blocking unrelated galleries.
 
-When the current primary image is removed and another image remains, the same transaction promotes the next deterministic image by display order, creation time, then ID. Removal audit evidence records the promoted image ID when promotion occurs. Removing the final image leaves the gallery empty.
+When the current primary image is removed and another image remains, the same transaction promotes the next deterministic image by display order, creation time, then ID. Removal audit evidence records the promoted image ID when promotion occurs. Removing the final image leaves the gallery empty. Destructive removal additionally requires the server to validate an explicit `REMOVE` confirmation.
 
 ## Security
 
@@ -37,6 +37,7 @@ Pagination does not replace tenant isolation or authorization:
 - the image service repeats `inventory:read`;
 - mutations repeat `inventory:manage`;
 - every database predicate remains tenant and parent scoped; and
-- browser query parameters never establish ownership.
+- browser query parameters never establish ownership; and
+- successful and validation redirects preserve the current room-type directory page and image page as presentation state only.
 
 The management read model remains separate from mutation authority. Image mutations retain tenant and parent scoping, and same-gallery primary-image changes now use serialized lifecycle handling. Storage policy and provider behavior are unchanged.

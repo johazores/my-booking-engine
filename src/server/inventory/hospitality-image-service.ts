@@ -1,7 +1,7 @@
 import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { normalizeHospitalityImageInput, type HospitalityImageInput } from './hospitality-image-domain.ts';
+import { assertHospitalityImageRemoveConfirmation, normalizeHospitalityImageInput, type HospitalityImageInput } from './hospitality-image-domain.ts';
 import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { HospitalityInventoryConflictError, HospitalityInventoryUnavailableError } from './hospitality-service.ts';
 
@@ -221,9 +221,10 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
   }, { isolationLevel: 'Serializable' });
 }
 
-export async function removeHospitalityImage(input: ImageScope & { imageId: string }) {
+export async function removeHospitalityImage(input: ImageScope & { imageId: string; confirmation: string }) {
   await requireImageScope(input);
   assertUuidIdentifier(input.imageId, 'imageId');
+  assertHospitalityImageRemoveConfirmation(input.confirmation);
 
   return db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityImageMutationLockKey(input)}, 0))`;

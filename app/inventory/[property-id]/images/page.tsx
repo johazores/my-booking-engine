@@ -19,7 +19,7 @@ const errors: Record<string, string> = {
   permission: 'You do not have permission to manage inventory images.',
   conflict: 'That image URL is already used in this scope.',
   unavailable: 'That property, room type, or image is not available in this organization.',
-  validation: 'Check the image URL, alt text, and display order.',
+  validation: 'Check the image URL, alt text, display order, or removal confirmation.',
   server: 'The image operation could not be completed. Try again.',
 };
 
@@ -114,8 +114,8 @@ export default async function HospitalityImagesPage({
           <img className="sf-image-card__preview" src={image.url} alt={image.altText} loading="lazy" />
           <div className="sf-image-card__body"><div><strong>{image.altText}</strong><span>Order {image.sortOrder}{image.isPrimary ? ' · Primary' : ''}</span></div>
             {canMutateScope ? <div className="sf-image-card__actions">
-              {!image.isPrimary ? <form action="/api/inventory/images" method="post"><input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="imageId" value={image.id} /><input type="hidden" name="action" value="set-primary" /><button className="sf-button sf-button--secondary sf-button--compact" type="submit">Set primary</button></form> : null}
-              <form action="/api/inventory/images" method="post"><input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="imageId" value={image.id} /><input type="hidden" name="action" value="remove" /><button className="sf-button sf-button--danger sf-button--compact" type="submit">Remove</button></form>
+              {!image.isPrimary ? <form action="/api/inventory/images" method="post"><input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="typePage" value={roomTypes.page} /><input type="hidden" name="imagePage" value={imageResult.page} /><input type="hidden" name="imageId" value={image.id} /><input type="hidden" name="action" value="set-primary" /><button className="sf-button sf-button--secondary sf-button--compact" type="submit">Set primary</button></form> : null}
+              <form className="sf-form sf-form--inline" action="/api/inventory/images" method="post"><input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="typePage" value={roomTypes.page} /><input type="hidden" name="imagePage" value={imageResult.page} /><input type="hidden" name="imageId" value={image.id} /><input type="hidden" name="action" value="remove" /><label className="sf-field">Type REMOVE to confirm<input name="confirmation" required placeholder="REMOVE" autoComplete="off" autoCapitalize="characters" /></label><button className="sf-button sf-button--danger sf-button--compact" type="submit">Remove</button></form>
             </div> : null}
           </div>
         </li>)}
@@ -131,7 +131,7 @@ export default async function HospitalityImagesPage({
       <p className="sf-eyebrow">Add media</p><h2 id="add-image-title">Add hosted image</h2>
       <p className="sf-muted-copy">Use a production HTTPS asset URL from your existing CDN or media host. File uploads will be added only with a real storage adapter.</p>
       <form className="sf-form" action="/api/inventory/images" method="post">
-        <input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="action" value="create" />
+        <input type="hidden" name="propertyId" value={propertyId} /><input type="hidden" name="roomTypeId" value={selectedRoomType?.id ?? ''} /><input type="hidden" name="typePage" value={roomTypes.page} /><input type="hidden" name="imagePage" value={imageResult.page} /><input type="hidden" name="action" value="create" />
         <label className="sf-field">Image URL<input type="url" name="url" maxLength={2048} required placeholder="https://cdn.example.com/property.jpg" /></label>
         <label className="sf-field">Alt text<input name="altText" maxLength={200} required placeholder="Pool terrace overlooking the garden" /></label>
         <div className="sf-form-row"><label className="sf-field">Display order<input type="number" name="sortOrder" min={0} max={9999} defaultValue={0} required /></label><label className="sf-field sf-checkbox-field"><input type="checkbox" name="isPrimary" /> Make primary image</label></div>
