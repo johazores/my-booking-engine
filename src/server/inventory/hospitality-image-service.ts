@@ -5,8 +5,6 @@ import { assertHospitalityImageRemoveConfirmation, normalizeHospitalityImageInpu
 import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { HospitalityInventoryConflictError, HospitalityInventoryUnavailableError } from './hospitality-service.ts';
 
-const MAX_COMPLETE_IMAGE_ROWS = 1_000;
-
 type ImageScope = {
   organizationId: string;
   actorUserId: string;
@@ -39,12 +37,6 @@ async function requireImageScope(input: ImageScope) {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:manage' });
 }
 
-function assertCompleteImageRead(rows: unknown[], label: string) {
-  if (rows.length > MAX_COMPLETE_IMAGE_ROWS) {
-    throw new Error(`${label} exceeds the supported complete-read limit.`);
-  }
-}
-
 export async function listHospitalityImagesPage(input: ImagePageScope) {
   await requireImageReadScope(input);
 
@@ -75,28 +67,6 @@ export async function listHospitalityImagesPage(input: ImagePageScope) {
     });
     return { images, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
   }, { isolationLevel: 'RepeatableRead' });
-}
-
-export async function listHospitalityImages(input: ImageScope) {
-  await requireImageReadScope(input);
-
-  if (input.roomTypeId) {
-    const images = await db.hospitalityRoomTypeImage.findMany({
-      where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
-      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      take: MAX_COMPLETE_IMAGE_ROWS + 1,
-    });
-    assertCompleteImageRead(images, 'Room-type image collection');
-    return images;
-  }
-
-  const images = await db.hospitalityPropertyImage.findMany({
-    where: { organizationId: input.organizationId, propertyId: input.propertyId },
-    orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    take: MAX_COMPLETE_IMAGE_ROWS + 1,
-  });
-  assertCompleteImageRead(images, 'Property image collection');
-  return images;
 }
 
 export async function createHospitalityImage(input: ImageScope & { image: HospitalityImageInput }) {

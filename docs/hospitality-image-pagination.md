@@ -15,13 +15,11 @@ Hospitality property and room-type images are tenant-owned management collection
 
 The existing Prisma indexes already begin with the tenant/parent scope plus primary/display-order fields used by this reader. Stable date and ID ordering remains a deterministic tie-breaker.
 
-## Legacy complete reader
+## Collection boundary
 
-`listHospitalityImages` remains for current complete-read callers such as integration coverage. It is not a management-page API.
+`listHospitalityImagesPage` is the single image-collection read boundary. Management UI and PostgreSQL integration coverage both use the same tenant-scoped paginated contract, so there is no parallel bounded "complete" reader that can be mistaken for complete collection authority.
 
-The complete reader is tenant/parent scoped, deterministically ordered, reads at most 1,001 rows, and fails closed above the 1,000-row safety ceiling. It must not silently truncate commercial or presentation authority.
-
-If a future workflow genuinely requires more than 1,000 images from one scope, that workflow needs an explicit paginated/searchable contract instead of increasing an implicit complete-read limit.
+Any future workflow that needs to traverse an entire gallery must iterate explicit pages or introduce a purpose-specific cursor contract. It must not add a hidden synchronous row ceiling and treat the resulting prefix as complete authority.
 
 ## Primary-image mutation lifecycle
 
@@ -36,7 +34,7 @@ Pagination does not replace tenant isolation or authorization:
 - the page still performs its existing authenticated organization authorization;
 - the image service repeats `inventory:read`;
 - mutations repeat `inventory:manage`;
-- every database predicate remains tenant and parent scoped; and
+- every database predicate remains tenant and parent scoped;
 - browser query parameters never establish ownership; and
 - successful and validation redirects preserve the current room-type directory page and image page as presentation state only.
 

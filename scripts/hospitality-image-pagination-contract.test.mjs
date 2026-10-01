@@ -19,14 +19,14 @@ test('image management reads are tenant scoped, paginated and snapshot consisten
   assert.equal((service.match(/skip: pagination\.skip/g) ?? []).length, 2);
   assert.equal((service.match(/take: pagination\.take/g) ?? []).length, 2);
   assert.equal((service.match(/isolationLevel: 'RepeatableRead'/g) ?? []).length, 2);
-  assert.equal((service.match(/orderBy: \[\{ isPrimary: 'desc' \}, \{ sortOrder: 'asc' \}, \{ createdAt: 'asc' \}, \{ id: 'asc' \}\]/g) ?? []).length, 4);
+  assert.equal((service.match(/orderBy: \[\{ isPrimary: 'desc' \}, \{ sortOrder: 'asc' \}, \{ createdAt: 'asc' \}, \{ id: 'asc' \}\]/g) ?? []).length, 2);
 });
 
-test('legacy complete image reads fail closed instead of silently truncating at 50', () => {
-  assert.match(service, /MAX_COMPLETE_IMAGE_ROWS = 1_000/);
-  assert.equal((service.match(/take: MAX_COMPLETE_IMAGE_ROWS \+ 1/g) ?? []).length, 2);
-  assert.equal((service.match(/assertCompleteImageRead\(images,/g) ?? []).length, 2);
-  assert.doesNotMatch(service, /IMAGE_LIMIT = 50/);
+test('image collections expose one explicit paginated read boundary', () => {
+  assert.doesNotMatch(service, /export async function listHospitalityImages\(/);
+  assert.doesNotMatch(service, /MAX_COMPLETE_IMAGE_ROWS/);
+  assert.doesNotMatch(service, /assertCompleteImageRead/);
+  assert.equal((service.match(/\.findMany\(/g) ?? []).length, 2);
 });
 
 test('image management UI uses authoritative totals and accessible page navigation', () => {
@@ -39,11 +39,11 @@ test('image management UI uses authoritative totals and accessible page navigati
   assert.doesNotMatch(page, /\blistHospitalityImages\b/);
 });
 
-test('documentation records pagination, snapshot, complete-read and tenant boundaries', () => {
+test('documentation records pagination, snapshot, single-reader and tenant boundaries', () => {
   assert.match(docs, /RepeatableRead/);
   assert.match(docs, /defaults to 20/);
   assert.match(docs, /capped at 50/);
-  assert.match(docs, /1,000-row safety ceiling/);
+  assert.match(docs, /single image-collection read boundary/);
   assert.match(docs, /tenant isolation/);
 });
 
