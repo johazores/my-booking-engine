@@ -2,9 +2,10 @@ import { db } from '../database.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { normalizeHospitalityImageInput, type HospitalityImageInput } from './hospitality-image-domain.ts';
+import { resolveInventoryPagination } from './inventory-pagination.ts';
 import { HospitalityInventoryConflictError, HospitalityInventoryUnavailableError } from './hospitality-service.ts';
 
-const IMAGE_LIMIT = 50;
+const MAX_COMPLETE_IMAGE_ROWS = 1_000;
 
 type ImageScope = {
   organizationId: string;
@@ -12,6 +13,19 @@ type ImageScope = {
   propertyId: string;
   roomTypeId?: string;
 };
+
+type ImagePageScope = ImageScope & {
+  page?: number;
+  pageSize?: number;
+};
+
+async function requireImageReadScope(input: ImageScope) {
+  assertUuidIdentifier(input.organizationId, 'organizationId');
+  assertUuidIdentifier(input.actorUserId, 'actorUserId');
+  assertUuidIdentifier(input.propertyId, 'propertyId');
+  if (input.roomTypeId) assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
+  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
+}
 
 async function requireImageScope(input: ImageScope) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
@@ -21,25 +35,64 @@ async function requireImageScope(input: ImageScope) {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:manage' });
 }
 
-export async function listHospitalityImages(input: ImageScope) {
-  assertUuidIdentifier(input.organizationId, 'organizationId');
-  assertUuidIdentifier(input.propertyId, 'propertyId');
-  if (input.roomTypeId) assertUuidIdentifier(input.roomTypeId, 'roomTypeId');
-  await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'inventory:read' });
+function assertCompleteImageRead(rows: unknown[], label: string) {
+  if (rows.length > MAX_COMPLETE_IMAGE_ROWS) {
+    throw new Error(`${label} exceeds the supported complete-read limit.`);
+  }
+}
+
+export async function listHospitalityImagesPage(input: ImagePageScope) {
+  await requireImageReadScope(input);
 
   if (input.roomTypeId) {
-    return db.hospitalityRoomTypeImage.findMany({
-      where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
-      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      take: IMAGE_LIMIT,
-    });
+    const where = { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId };
+    return db.$transaction(async (transaction) => {
+      const total = await transaction.hospitalityRoomTypeImage.count({ where });
+      const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+      const images = await transaction.hospitalityRoomTypeImage.findMany({
+        where,
+        orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      });
+      return { images, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
+    }, { isolationLevel: 'RepeatableRead' });
   }
 
-  return db.hospitalityPropertyImage.findMany({
+  const where = { organizationId: input.organizationId, propertyId: input.propertyId };
+  return db.$transaction(async (transaction) => {
+    const total = await transaction.hospitalityPropertyImage.count({ where });
+    const pagination = resolveInventoryPagination({ total, page: input.page, pageSize: input.pageSize });
+    const images = await transaction.hospitalityPropertyImage.findMany({
+      where,
+      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+    return { images, total, page: pagination.page, totalPages: pagination.totalPages, pageSize: pagination.pageSize };
+  }, { isolationLevel: 'RepeatableRead' });
+}
+
+export async function listHospitalityImages(input: ImageScope) {
+  await requireImageReadScope(input);
+
+  if (input.roomTypeId) {
+    const images = await db.hospitalityRoomTypeImage.findMany({
+      where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: MAX_COMPLETE_IMAGE_ROWS + 1,
+    });
+    assertCompleteImageRead(images, 'Room-type image collection');
+    return images;
+  }
+
+  const images = await db.hospitalityPropertyImage.findMany({
     where: { organizationId: input.organizationId, propertyId: input.propertyId },
     orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    take: IMAGE_LIMIT,
+    take: MAX_COMPLETE_IMAGE_ROWS + 1,
   });
+  assertCompleteImageRead(images, 'Property image collection');
+  return images;
 }
 
 export async function createHospitalityImage(input: ImageScope & { image: HospitalityImageInput }) {

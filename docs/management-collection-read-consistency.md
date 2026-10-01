@@ -11,7 +11,7 @@ The current implementation applies that rule to:
 - user-accessible organization pages;
 - tenant membership pages and membership dashboard aggregates;
 - customer directory pages;
-- hospitality property, room-type, room, amenity, rate-plan, rate-plan room-type, restriction, and restriction-scope pages;
+- hospitality property, room-type, room, amenity, image, rate-plan, rate-plan room-type, restriction, and restriction-scope pages;
 - tour product, departure, and add-on pages;
 - appointment service, staff, schedule, and staff-service assignment pages;
 - hospitality availability-window management pages;
@@ -59,4 +59,4 @@ Existing bounded complete readers remain intentionally separate where a workflow
 
 ## Validation contract
 
-`scripts/management-collection-read-consistency-contract.test.mjs` guards the original collection boundaries. `scripts/remaining-management-read-consistency-contract.test.mjs` covers the follow-up hospitality inventory, rental maintenance, and integration control-plane surfaces. Together they check that count/row reads use the transaction client, that each boundary declares `RepeatableRead`, that tenant/parent scoping and deterministic ordering remain present, and that related evidence is observed from the same snapshot.
+`scripts/management-collection-read-consistency-contract.test.mjs` guards the original collection boundaries. `scripts/remaining-management-read-consistency-contract.test.mjs` covers the follow-up hospitality inventory, rental maintenance, and integration control-plane surfaces. `scripts/hospitality-image-pagination-contract.test.mjs` covers property and room-type image galleries. Together they check that count/row reads use the transaction client, that each boundary declares `RepeatableRead`, that tenant/parent scoping and deterministic ordering remain present, and that related evidence is observed from the same snapshot.

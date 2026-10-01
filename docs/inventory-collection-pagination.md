@@ -31,6 +31,7 @@ These reads keep their existing organization and parent-resource filters and det
 
 The same boundary now protects the service-level management collections that previously trusted caller pagination directly:
 
+- hospitality property and room-type image galleries;
 - hospitality rate plans for one tenant property;
 - hospitality rate-plan room-type assignment browsing;
 - hospitality restrictions for one tenant property/rate-plan/scope;
@@ -41,7 +42,7 @@ The same boundary now protects the service-level management collections that pre
 - rental unit availability-block browsing; and
 - rental unit maintenance work-order history.
 
-Hospitality rate-plan and restriction collection readers keep their parent rate-plan validation inside the same `RepeatableRead` snapshot as the scoped count and rows. Amenity management uses the same snapshot rule at its repository boundary.
+Hospitality image galleries keep the tenant/property/optional-room-type scoped count, page clamp, and rows inside one `RepeatableRead` snapshot. Hospitality rate-plan and restriction collection readers keep their parent rate-plan validation inside the same snapshot as the scoped count and rows. Amenity management uses the same snapshot rule at its repository boundary.
 
 Rental inventory screens contain several independently paginated collections. Each collection resolves and clamps its own page from its authoritative tenant/parent-scoped count. The count and corresponding page rows are read inside a `RepeatableRead` transaction so one management response does not combine a count from one database snapshot with rows from a later snapshot.
 

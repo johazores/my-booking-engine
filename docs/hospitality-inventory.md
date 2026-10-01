@@ -106,7 +106,7 @@ Inventory, amenity, and rate-plan codes are canonical uppercase 1–32 character
 - room-type maximum occupancy is 1–50
 - image and restriction metadata is validated before persistence and backed by PostgreSQL constraints where appropriate
 
-Large management collections use bounded pagination with default page size 20 and maximum 50. Restriction rate plans, assigned room-type scopes, and restriction history are all paginated.
+Large management collections use bounded pagination with default page size 20 and maximum 50. Property and room-type image galleries, restriction rate plans, assigned room-type scopes, and restriction history are all paginated.
 
 ## Auditing
 

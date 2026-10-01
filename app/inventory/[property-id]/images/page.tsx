@@ -5,7 +5,7 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { organizationRoleHasPermission } from '@/server/authorization/authorization-domain.ts';
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { parseInventoryPage } from '@/server/inventory/hospitality-domain.ts';
-import { listHospitalityImages } from '@/server/inventory/hospitality-image-service.ts';
+import { listHospitalityImagesPage } from '@/server/inventory/hospitality-image-service.ts';
 import { listHospitalityRoomTypes, readHospitalityProperty, readHospitalityRoomType } from '@/server/inventory/hospitality-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
@@ -23,10 +23,11 @@ const errors: Record<string, string> = {
   server: 'The image operation could not be completed. Try again.',
 };
 
-function scopeHref(propertyId: string, roomTypeId?: string, page = 1) {
+function scopeHref(propertyId: string, roomTypeId?: string, typePage = 1, imagePage = 1) {
   const query = new URLSearchParams();
   if (roomTypeId) query.set('roomType', roomTypeId);
-  if (page > 1) query.set('typePage', String(page));
+  if (typePage > 1) query.set('typePage', String(typePage));
+  if (imagePage > 1) query.set('imagePage', String(imagePage));
   const encoded = query.toString();
   return `/inventory/${propertyId}/images${encoded ? `?${encoded}` : ''}`;
 }
@@ -36,7 +37,7 @@ export default async function HospitalityImagesPage({
   searchParams,
 }: {
   params: Promise<{ 'property-id': string }>;
-  searchParams: Promise<{ roomType?: string; typePage?: string; status?: string; error?: string }>;
+  searchParams: Promise<{ roomType?: string; typePage?: string; imagePage?: string; status?: string; error?: string }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -59,16 +60,19 @@ export default async function HospitalityImagesPage({
   if (!property) notFound();
 
   const typePage = parseInventoryPage(query.typePage);
+  const imagePage = parseInventoryPage(query.imagePage);
   const roomTypes = await listHospitalityRoomTypes({ organizationId: organization.id, actorUserId: session.user.id, propertyId, page: typePage, pageSize: 20 });
   const requestedRoomType = query.roomType
     ? await readHospitalityRoomType({ organizationId: organization.id, actorUserId: session.user.id, roomTypeId: query.roomType })
     : null;
   const selectedRoomType = requestedRoomType?.propertyId === propertyId ? requestedRoomType : null;
-  const images = await listHospitalityImages({
+  const imageResult = await listHospitalityImagesPage({
     organizationId: organization.id,
     actorUserId: session.user.id,
     propertyId,
     ...(selectedRoomType ? { roomTypeId: selectedRoomType.id } : {}),
+    page: imagePage,
+    pageSize: 20,
   });
   const canMutateScope = canManage && property.status === 'ACTIVE' && (!selectedRoomType || selectedRoomType.status === 'ACTIVE');
 
@@ -87,7 +91,7 @@ export default async function HospitalityImagesPage({
     {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
 
     <section className="sf-inventory-card sf-image-scope" aria-labelledby="image-scope-title">
-      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Image scope</p><h2 id="image-scope-title">Choose what these images describe</h2></div><span>{images.length} images</span></div>
+      <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Image scope</p><h2 id="image-scope-title">Choose what these images describe</h2></div><span>{imageResult.total} images</span></div>
       <nav className="sf-image-scope__nav" aria-label="Image scope">
         <Link className={`sf-button sf-button--compact${!selectedRoomType ? ' sf-button--primary' : ' sf-button--secondary'}`} href={scopeHref(propertyId)}>Property</Link>
         {roomTypes.roomTypes.map((roomType) => <Link key={roomType.id} className={`sf-button sf-button--compact${selectedRoomType?.id === roomType.id ? ' sf-button--primary' : ' sf-button--secondary'}`} href={scopeHref(propertyId, roomType.id, roomTypes.page)}>{roomType.name}</Link>)}
@@ -103,8 +107,8 @@ export default async function HospitalityImagesPage({
       <div className="sf-inventory-card__heading">
         <div><p className="sf-eyebrow">{selectedRoomType ? 'Room type gallery' : 'Property gallery'}</p><h2 id="image-list-title">{selectedRoomType ? selectedRoomType.name : property.name} images</h2><p>Primary images sort first. Display order controls the remaining gallery sequence.</p></div>
       </div>
-      {images.length === 0 ? <div className="sf-empty-state"><h3>No images yet</h3><p>{canMutateScope ? 'Add the first hosted image below.' : 'No images are configured for this scope.'}</p></div> : <ul className="sf-image-grid">
-        {images.map((image) => <li className="sf-image-card" key={image.id}>
+      {imageResult.images.length === 0 ? <div className="sf-empty-state"><h3>No images yet</h3><p>{canMutateScope ? 'Add the first hosted image below.' : 'No images are configured for this scope.'}</p></div> : <ul className="sf-image-grid">
+        {imageResult.images.map((image) => <li className="sf-image-card" key={image.id}>
           {/* Arbitrary tenant-hosted HTTPS assets cannot use next/image without a deployment-wide remote-host allowlist. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="sf-image-card__preview" src={image.url} alt={image.altText} loading="lazy" />
@@ -116,6 +120,11 @@ export default async function HospitalityImagesPage({
           </div>
         </li>)}
       </ul>}
+      {imageResult.totalPages > 1 ? <nav className="sf-pagination" aria-label="Image pages">
+        {imageResult.page > 1 ? <Link className="sf-button sf-button--secondary sf-button--compact" href={scopeHref(propertyId, selectedRoomType?.id, roomTypes.page, imageResult.page - 1)}>Previous images</Link> : <span />}
+        <span>Images page {imageResult.page} of {imageResult.totalPages}</span>
+        {imageResult.page < imageResult.totalPages ? <Link className="sf-button sf-button--secondary sf-button--compact" href={scopeHref(propertyId, selectedRoomType?.id, roomTypes.page, imageResult.page + 1)}>Next images</Link> : <span />}
+      </nav> : null}
     </section>
 
     {canMutateScope ? <section className="sf-inventory-card sf-inventory-card--create" aria-labelledby="add-image-title">
