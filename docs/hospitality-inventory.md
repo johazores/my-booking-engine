@@ -88,7 +88,7 @@ Rate plans deliberately do not store monetary amounts or inventory counts. Restr
 
 ## Image contract
 
-SF stores real HTTPS-hosted image references for tenants that already have CDN/media hosting. It does not present a fake upload integration. Images carry explicit property or room-type ownership, required alt text, display order, primary state, and timestamps. Embedded URL credentials are rejected.
+SF stores real HTTPS-hosted image references for tenants that already have CDN/media hosting. It does not present a fake upload integration. Images carry explicit property or room-type ownership, required alt text, display order, primary state, and timestamps. Embedded URL credentials are rejected. Same-gallery image mutations serialize primary authority, and removing the current primary promotes the next deterministic image when one remains.
 
 The first image in a scope becomes primary. Primary changes are transactional and idempotent. A future direct-upload capability must use a real storage-provider adapter and feed the same normalized image records.
 

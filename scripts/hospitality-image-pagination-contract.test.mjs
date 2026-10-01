@@ -44,3 +44,10 @@ test('documentation records pagination, snapshot, complete-read and tenant bound
   assert.match(docs, /1,000-row safety ceiling/);
   assert.match(docs, /tenant isolation/);
 });
+
+test('same-gallery image mutations serialize primary authority and preserve a replacement on primary removal', () => {
+  assert.match(service, /function hospitalityImageMutationLockKey/);
+  assert.equal(service.split('pg_advisory_xact_lock').length - 1, 3);
+  assert.equal(service.split('let promotedImageId: string | null = null').length - 1, 2);
+  assert.equal(service.split('afterData: promotedImageId ? { promotedImageId } : {}').length - 1, 2);
+});

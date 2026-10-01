@@ -5,7 +5,7 @@ Hospitality inventory, pricing, availability, and booking-allocation state is te
 ## Covered boundaries
 
 - Hospitality inventory property, room-type, room, and amenity archival repeats `organizationId` at mutation time.
-- Property and room-type image primary selection and removal repeat the organization/property scope, and room-type image writes also repeat `roomTypeId`.
+- Property and room-type image creation, primary selection, and removal repeat organization/property scope, room-type image writes also repeat `roomTypeId`, and same-gallery primary-authority mutations serialize with a transaction-scoped advisory lock. Removing a current primary promotes the next deterministic image when one remains.
 - Hospitality base-rate, charge-rule, and add-on archival repeats both `organizationId` and `propertyId`.
 - Availability-window archival repeats organization/property/room-type scope while retaining the existing allocation advisory lock.
 - Availability-hold release and booking-confirmation hold consumption repeat organization/property/room-type scope while retaining the same allocation lock and lifecycle rules.

@@ -23,6 +23,12 @@ The complete reader is tenant/parent scoped, deterministically ordered, reads at
 
 If a future workflow genuinely requires more than 1,000 images from one scope, that workflow needs an explicit paginated/searchable contract instead of increasing an implicit complete-read limit.
 
+## Primary-image mutation lifecycle
+
+Image creation, explicit primary selection, and removal use serializable transactions plus one transaction-scoped PostgreSQL advisory lock per tenant/property/optional-room-type gallery. This serializes primary-authority decisions inside one gallery without blocking unrelated galleries.
+
+When the current primary image is removed and another image remains, the same transaction promotes the next deterministic image by display order, creation time, then ID. Removal audit evidence records the promoted image ID when promotion occurs. Removing the final image leaves the gallery empty.
+
 ## Security
 
 Pagination does not replace tenant isolation or authorization:
@@ -33,4 +39,4 @@ Pagination does not replace tenant isolation or authorization:
 - every database predicate remains tenant and parent scoped; and
 - browser query parameters never establish ownership.
 
-This change affects the management read model only. It does not change image creation, primary-image mutation, removal, storage policy, or provider behavior.
+The management read model remains separate from mutation authority. Image mutations retain tenant and parent scoping, and same-gallery primary-image changes now use serialized lifecycle handling. Storage policy and provider behavior are unchanged.

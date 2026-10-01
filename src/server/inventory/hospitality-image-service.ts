@@ -19,6 +19,10 @@ type ImagePageScope = ImageScope & {
   pageSize?: number;
 };
 
+function hospitalityImageMutationLockKey(input: ImageScope) {
+  return ['sf', 'hospitality-image', input.organizationId, input.propertyId, input.roomTypeId ?? 'property'].join(':');
+}
+
 async function requireImageReadScope(input: ImageScope) {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
@@ -100,6 +104,7 @@ export async function createHospitalityImage(input: ImageScope & { image: Hospit
   const image = normalizeHospitalityImageInput(input.image);
 
   return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityImageMutationLockKey(input)}, 0))`;
     const property = await transaction.hospitalityProperty.findFirst({
       where: { id: input.propertyId, organizationId: input.organizationId, status: 'ACTIVE' },
       select: { id: true },
@@ -176,6 +181,7 @@ export async function setPrimaryHospitalityImage(input: ImageScope & { imageId: 
   assertUuidIdentifier(input.imageId, 'imageId');
 
   return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityImageMutationLockKey(input)}, 0))`;
     if (input.roomTypeId) {
       const current = await transaction.hospitalityRoomTypeImage.findFirst({
         where: {
@@ -220,6 +226,7 @@ export async function removeHospitalityImage(input: ImageScope & { imageId: stri
   assertUuidIdentifier(input.imageId, 'imageId');
 
   return db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityImageMutationLockKey(input)}, 0))`;
     if (input.roomTypeId) {
       const current = await transaction.hospitalityRoomTypeImage.findFirst({
         where: {
@@ -234,7 +241,36 @@ export async function removeHospitalityImage(input: ImageScope & { imageId: stri
       await transaction.hospitalityRoomTypeImage.delete({
         where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
       });
-      await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-room-type', resourceType: 'hospitality-room-type-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
+      let promotedImageId: string | null = null;
+      if (current.isPrimary) {
+        const replacement = await transaction.hospitalityRoomTypeImage.findFirst({
+          where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true },
+        });
+        if (replacement) {
+          await transaction.hospitalityRoomTypeImage.updateMany({
+            where: { organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: true },
+            data: { isPrimary: false },
+          });
+          await transaction.hospitalityRoomTypeImage.update({
+            where: { id: replacement.id, organizationId: input.organizationId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
+            data: { isPrimary: true },
+          });
+          promotedImageId = replacement.id;
+        }
+      }
+      await transaction.auditEvent.create({
+        data: {
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: 'inventory.image.removed-room-type',
+          resourceType: 'hospitality-room-type-image',
+          resourceId: current.id,
+          beforeData: { propertyId: input.propertyId, roomTypeId: input.roomTypeId, isPrimary: current.isPrimary, sortOrder: current.sortOrder },
+          afterData: promotedImageId ? { promotedImageId } : {},
+        },
+      });
       return current;
     }
 
@@ -243,7 +279,36 @@ export async function removeHospitalityImage(input: ImageScope & { imageId: stri
     await transaction.hospitalityPropertyImage.delete({
       where: { id: current.id, organizationId: input.organizationId, propertyId: input.propertyId },
     });
-    await transaction.auditEvent.create({ data: { organizationId: input.organizationId, actorUserId: input.actorUserId, action: 'inventory.image.removed-property', resourceType: 'hospitality-property-image', resourceId: current.id, beforeData: { propertyId: input.propertyId, isPrimary: current.isPrimary, sortOrder: current.sortOrder } } });
+    let promotedImageId: string | null = null;
+    if (current.isPrimary) {
+      const replacement = await transaction.hospitalityPropertyImage.findFirst({
+        where: { organizationId: input.organizationId, propertyId: input.propertyId },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      if (replacement) {
+        await transaction.hospitalityPropertyImage.updateMany({
+          where: { organizationId: input.organizationId, propertyId: input.propertyId, isPrimary: true },
+          data: { isPrimary: false },
+        });
+        await transaction.hospitalityPropertyImage.update({
+          where: { id: replacement.id, organizationId: input.organizationId, propertyId: input.propertyId },
+          data: { isPrimary: true },
+        });
+        promotedImageId = replacement.id;
+      }
+    }
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'inventory.image.removed-property',
+        resourceType: 'hospitality-property-image',
+        resourceId: current.id,
+        beforeData: { propertyId: input.propertyId, isPrimary: current.isPrimary, sortOrder: current.sortOrder },
+        afterData: promotedImageId ? { promotedImageId } : {},
+      },
+    });
     return current;
   }, { isolationLevel: 'Serializable' });
 }

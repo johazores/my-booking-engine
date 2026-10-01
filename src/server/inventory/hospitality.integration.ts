@@ -55,6 +55,8 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id });
     const roomTypeImage = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe.jpg', altText: 'Deluxe King room', sortOrder: '0', isPrimary: '' } });
     assert.equal(roomTypeImage.isPrimary, true);
+    const roomTypeImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe-balcony.jpg', altText: 'Deluxe King balcony', sortOrder: '10', isPrimary: '' } });
+    await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
     await assert.rejects(images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/staff.jpg', altText: 'Denied image', sortOrder: '0', isPrimary: '' } }), /permission/i);
     await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id }), /not available/i);
 
@@ -64,10 +66,20 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     assert.deepEqual(propertyAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
     const roomTypeAmenities = await amenities.listHospitalityRoomTypeAmenities({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id });
     assert.deepEqual(roomTypeAmenities.map((assignment) => assignment.amenityId), [wifi.id]);
-    const propertyImages = await images.listHospitalityImages({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id });
-    assert.deepEqual(propertyImages.map((image) => image.id), [propertyImageTwo.id, propertyImage.id]);
-    const roomTypeImages = await images.listHospitalityImages({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id });
-    assert.deepEqual(roomTypeImages.map((image) => image.id), [roomTypeImage.id]);
+    const propertyImagesBeforeRemoval = await images.listHospitalityImagesPage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, page: 1, pageSize: 1 });
+    assert.equal(propertyImagesBeforeRemoval.total, 2);
+    assert.equal(propertyImagesBeforeRemoval.totalPages, 2);
+    assert.deepEqual(propertyImagesBeforeRemoval.images.map((image) => image.id), [propertyImageTwo.id]);
+
+    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id });
+    const propertyImages = await images.listHospitalityImagesPage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, page: 1, pageSize: 20 });
+    assert.equal(propertyImages.total, 1);
+    assert.deepEqual(propertyImages.images.map((image) => [image.id, image.isPrimary]), [[propertyImage.id, true]]);
+
+    await images.removeHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
+    const roomTypeImages = await images.listHospitalityImagesPage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, roomTypeId: roomType.id, page: 1, pageSize: 20 });
+    assert.equal(roomTypeImages.total, 1);
+    assert.deepEqual(roomTypeImages.images.map((image) => [image.id, image.isPrimary]), [[roomTypeImage.id, true]]);
 
     const assignmentEvents = await db.auditEvent.findMany({
       where: {
@@ -95,7 +107,9 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     assert.ok(events.some((event) => event.action === 'inventory.amenity.archived'));
     assert.ok(events.some((event) => event.action === 'inventory.image.created-property'));
     assert.ok(events.some((event) => event.action === 'inventory.image.primary-property'));
+    assert.ok(events.some((event) => event.action === 'inventory.image.removed-property'));
     assert.ok(events.some((event) => event.action === 'inventory.image.created-room-type'));
+    assert.ok(events.some((event) => event.action === 'inventory.image.removed-room-type'));
     assert.ok(events.some((event) => event.action === 'inventory.room.archived'));
   } finally {
     await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
