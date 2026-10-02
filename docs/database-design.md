@@ -191,6 +191,7 @@ Checked-in migrations include:
 - `20260831143000_hospitality-charges`
 - `20260831204000_hospitality-addons`
 - `20260831223500_hospitality-booking-allocations`
+- `20261002012000-hospitality-image-primary-integrity`
 
 The repository agent has **not** claimed these migrations as applied to a real database. They must be applied and verified against an explicitly disposable PostgreSQL instance before the live PostgreSQL checklist gates are marked complete.
 
@@ -207,7 +208,7 @@ npm run db:deploy
 
 For migration authoring, use `npm run db:migrate` only against an isolated development database.
 
-`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality availability, pricing, and booking allocation. It must never target the normal application database.
+`npm run test:database` requires a separate `TEST_DATABASE_URL` plus explicit disposable-database confirmation. It validates Prisma, deploys migrations, checks migration status/drift, and runs checked-in PostgreSQL integration suites including hospitality availability, pricing, booking allocation, and direct hospitality image-primary database integrity. It must never target the normal application database.
 
 ## Tenant ownership rule
 
