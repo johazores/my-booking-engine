@@ -85,7 +85,7 @@ Amenities cannot be archived while assignment rows still exist. Assignment remov
 
 Hospitality image records model real media metadata without coupling the inventory domain to a storage provider. Property images carry `(propertyId, organizationId)` and room-type images carry `(roomTypeId, propertyId, organizationId)` through composite foreign keys.
 
-Both image models store a validated HTTPS URL, required alt text, display order, primary-image state, and timestamps. PostgreSQL checks HTTPS storage, non-blank trimmed alt text, and display-order bounds. Application services reject embedded URL credentials and use serializable transactions for primary-image changes.
+Both image models store a validated HTTPS URL, required alt text, display order, primary-image state, and timestamps. PostgreSQL checks HTTPS storage, non-blank trimmed alt text, and display-order bounds. Application services reject embedded URL credentials and use serializable transactions for primary-image changes. PostgreSQL unique expression indexes independently enforce at most one primary row per tenant/property gallery and per tenant/property/room-type gallery, including writes that bypass the application service.
 
 Images remain readable when parent inventory is archived for historical/configuration visibility, but server mutation services require the property/room type to remain active before set-primary or remove operations.
 
@@ -237,7 +237,7 @@ Customer, hospitality inventory, pricing, and booking collections use bounded qu
 - out-of-range pages clamp to the final valid page where applicable
 - customer sort/filter values come from fixed allowlists
 - inventory/pricing hierarchy queries remain constrained by tenant and parent IDs
-- image galleries are capped at 50 records per property or room-type scope
+- image galleries use tenant-scoped pagination with 20 rows by default and 50 rows maximum per page, with authoritative totals observed in the same `RepeatableRead` snapshot
 - rate plans, restriction scopes/history, pricing scopes, base-rate history, tax/fee history, add-on catalog history, and booking history are paginated
 - hold expiry cleanup is bounded to at most 500 rows per invocation
 
