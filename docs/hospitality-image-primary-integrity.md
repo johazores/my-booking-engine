@@ -37,6 +37,8 @@ The unique indexes protect bypass paths and concurrent direct writes. They do no
 
 ## Validation
 
-`scripts/hospitality-image-primary-integrity-contract.test.mjs` verifies the checked-in SQL, scoped expressions, fail-closed retained-data preflight, identifier lengths, and the existing serialized service lifecycle.
+`scripts/hospitality-image-primary-integrity-contract.test.mjs` verifies the checked-in SQL, scoped expressions, fail-closed retained-data preflight, identifier lengths, the serialized service lifecycle, and presence of direct-database regression coverage.
 
-The migration still requires execution through the repository's explicitly disposable PostgreSQL database gate before live-database validation can be claimed.
+The guarded `src/server/inventory/hospitality.integration.ts` database suite also bypasses the image service to prove that non-primary rows and an independent property gallery remain valid while a second primary in the same property or room-type gallery is rejected with Prisma `P2002` and the authoritative primary remains unchanged.
+
+That integration coverage runs only through `npm run test:database`; the migration and direct-database assertions still require execution against the repository's explicitly disposable PostgreSQL database gate before live-database validation can be claimed.

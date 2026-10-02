@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf
 
 const migration = read('prisma/migrations/20261002012000-hospitality-image-primary-integrity/migration.sql');
 const service = read('src/server/inventory/hospitality-image-service.ts');
+const integration = read('src/server/inventory/hospitality.integration.ts');
 const docs = read('docs/hospitality-image-primary-integrity.md');
 
 test('image primary migration fails closed before installing database backstops', () => {
@@ -44,6 +45,22 @@ test('new PostgreSQL identifiers fit the physical identifier limit', () => {
   for (const identifier of identifiers) {
     assert.ok(Buffer.byteLength(identifier, 'utf8') <= 63, identifier);
   }
+});
+
+test('guarded PostgreSQL coverage bypasses services and verifies uniqueness errors', () => {
+  for (const token of [
+    'direct-property-non-primary-',
+    'direct-independent-property-primary-',
+    'direct-property-duplicate-primary-',
+    'direct-room-type-non-primary-',
+    'direct-room-type-duplicate-primary-',
+  ]) {
+    assert.ok(integration.includes(token), `missing database regression token: ${token}`);
+  }
+  assert.equal((integration.match(/\.code, 'P2002'/g) ?? []).length, 2);
+  assert.equal((integration.match(/isPrimary: true \},\s*\}\),\s*1,/g) ?? []).length, 2);
+  assert.match(integration, /propertyImageTwo\.id/);
+  assert.match(integration, /roomTypeImageTwo\.id/);
 });
 
 test('documentation records the database and application authority split', () => {

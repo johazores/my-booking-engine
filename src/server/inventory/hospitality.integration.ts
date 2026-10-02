@@ -57,6 +57,107 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     assert.equal(roomTypeImage.isPrimary, true);
     const roomTypeImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe-balcony.jpg', altText: 'Deluxe King balcony', sortOrder: '10', isPrimary: '' } });
     await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
+
+    const directPropertyNonPrimary = await db.hospitalityPropertyImage.create({
+      data: {
+        organizationId: organizationA.id,
+        propertyId: propertyA.id,
+        url: `https://cdn.example.test/direct-property-non-primary-${runId}.jpg`,
+        altText: 'Direct property non-primary',
+        sortOrder: 30,
+        isPrimary: false,
+      },
+    });
+    const independentPropertyPrimary = await db.hospitalityPropertyImage.create({
+      data: {
+        organizationId: organizationB.id,
+        propertyId: propertyB.id,
+        url: `https://cdn.example.test/direct-independent-property-primary-${runId}.jpg`,
+        altText: 'Independent property primary',
+        sortOrder: 0,
+        isPrimary: true,
+      },
+    });
+    assert.equal(directPropertyNonPrimary.isPrimary, false);
+    assert.equal(independentPropertyPrimary.isPrimary, true);
+    await assert.rejects(
+      db.hospitalityPropertyImage.create({
+        data: {
+          organizationId: organizationA.id,
+          propertyId: propertyA.id,
+          url: `https://cdn.example.test/direct-property-duplicate-primary-${runId}.jpg`,
+          altText: 'Rejected duplicate property primary',
+          sortOrder: 40,
+          isPrimary: true,
+        },
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, 'P2002');
+        return true;
+      },
+    );
+    assert.equal(
+      await db.hospitalityPropertyImage.count({
+        where: { organizationId: organizationA.id, propertyId: propertyA.id, isPrimary: true },
+      }),
+      1,
+    );
+    assert.equal(
+      (
+        await db.hospitalityPropertyImage.findFirstOrThrow({
+          where: { organizationId: organizationA.id, propertyId: propertyA.id, isPrimary: true },
+          select: { id: true },
+        })
+      ).id,
+      propertyImageTwo.id,
+    );
+
+    const directRoomTypeNonPrimary = await db.hospitalityRoomTypeImage.create({
+      data: {
+        organizationId: organizationA.id,
+        propertyId: propertyA.id,
+        roomTypeId: roomType.id,
+        url: `https://cdn.example.test/direct-room-type-non-primary-${runId}.jpg`,
+        altText: 'Direct room type non-primary',
+        sortOrder: 20,
+        isPrimary: false,
+      },
+    });
+    assert.equal(directRoomTypeNonPrimary.isPrimary, false);
+    await assert.rejects(
+      db.hospitalityRoomTypeImage.create({
+        data: {
+          organizationId: organizationA.id,
+          propertyId: propertyA.id,
+          roomTypeId: roomType.id,
+          url: `https://cdn.example.test/direct-room-type-duplicate-primary-${runId}.jpg`,
+          altText: 'Rejected duplicate room type primary',
+          sortOrder: 30,
+          isPrimary: true,
+        },
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, 'P2002');
+        return true;
+      },
+    );
+    assert.equal(
+      await db.hospitalityRoomTypeImage.count({
+        where: { organizationId: organizationA.id, propertyId: propertyA.id, roomTypeId: roomType.id, isPrimary: true },
+      }),
+      1,
+    );
+    assert.equal(
+      (
+        await db.hospitalityRoomTypeImage.findFirstOrThrow({
+          where: { organizationId: organizationA.id, propertyId: propertyA.id, roomTypeId: roomType.id, isPrimary: true },
+          select: { id: true },
+        })
+      ).id,
+      roomTypeImageTwo.id,
+    );
+    await db.hospitalityPropertyImage.delete({ where: { id: directPropertyNonPrimary.id } });
+    await db.hospitalityRoomTypeImage.delete({ where: { id: directRoomTypeNonPrimary.id } });
     await assert.rejects(images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/staff.jpg', altText: 'Denied image', sortOrder: '0', isPrimary: '' } }), /permission/i);
     await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id, confirmation: 'REMOVE' }), /not available/i);
 
