@@ -8,6 +8,7 @@ const migration = read('prisma/migrations/20261002012000-hospitality-image-prima
 const service = read('src/server/inventory/hospitality-image-service.ts');
 const integration = read('src/server/inventory/hospitality.integration.ts');
 const docs = read('docs/hospitality-image-primary-integrity.md');
+const databaseDocs = read('docs/database-design.md');
 
 test('image primary migration fails closed before installing database backstops', () => {
   assert.equal((migration.match(/duplicate primary rows exist/g) ?? []).length, 2);
@@ -67,4 +68,9 @@ test('documentation records the database and application authority split', () =>
   assert.match(docs, /independent concurrency-safe backstop/i);
   assert.match(docs, /do not establish authorization or tenant ownership/i);
   assert.match(docs, /explicitly disposable PostgreSQL database gate/i);
+});
+
+test('database design records migration and guarded direct-database coverage', () => {
+  assert.match(databaseDocs, /20261002012000-hospitality-image-primary-integrity/);
+  assert.match(databaseDocs, /direct hospitality image-primary database integrity/i);
 });
