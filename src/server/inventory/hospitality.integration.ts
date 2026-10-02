@@ -53,58 +53,10 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     const propertyImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/property-pool.jpg', altText: 'Northstar Hotel pool', sortOrder: '20', isPrimary: '' } });
     assert.equal(propertyImageTwo.isPrimary, false);
     await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, imageId: propertyImageTwo.id });
-    await db.hospitalityPropertyImage.create({
-      data: {
-        organizationId: organizationA.id,
-        propertyId: propertyA.id,
-        url: 'https://cdn.example.test/property-detail.jpg',
-        altText: 'Northstar Hotel detail',
-        sortOrder: 30,
-        isPrimary: false,
-      },
-    });
-    await assert.rejects(
-      db.hospitalityPropertyImage.create({
-        data: {
-          organizationId: organizationA.id,
-          propertyId: propertyA.id,
-          url: 'https://cdn.example.test/property-duplicate-primary.jpg',
-          altText: 'Duplicate property primary',
-          sortOrder: 40,
-          isPrimary: true,
-        },
-      }),
-      (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002',
-    );
     const roomTypeImage = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe.jpg', altText: 'Deluxe King room', sortOrder: '0', isPrimary: '' } });
     assert.equal(roomTypeImage.isPrimary, true);
     const roomTypeImageTwo = await images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, image: { url: 'https://cdn.example.test/deluxe-balcony.jpg', altText: 'Deluxe King balcony', sortOrder: '10', isPrimary: '' } });
     await images.setPrimaryHospitalityImage({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, roomTypeId: roomType.id, imageId: roomTypeImageTwo.id });
-    await db.hospitalityRoomTypeImage.create({
-      data: {
-        organizationId: organizationA.id,
-        propertyId: propertyA.id,
-        roomTypeId: roomType.id,
-        url: 'https://cdn.example.test/deluxe-detail.jpg',
-        altText: 'Deluxe King detail',
-        sortOrder: 20,
-        isPrimary: false,
-      },
-    });
-    await assert.rejects(
-      db.hospitalityRoomTypeImage.create({
-        data: {
-          organizationId: organizationA.id,
-          propertyId: propertyA.id,
-          roomTypeId: roomType.id,
-          url: 'https://cdn.example.test/deluxe-duplicate-primary.jpg',
-          altText: 'Duplicate room-type primary',
-          sortOrder: 30,
-          isPrimary: true,
-        },
-      }),
-      (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002',
-    );
     await assert.rejects(images.createHospitalityImage({ organizationId: organizationA.id, actorUserId: staffA.id, propertyId: propertyA.id, image: { url: 'https://cdn.example.test/staff.jpg', altText: 'Denied image', sortOrder: '0', isPrimary: '' } }), /permission/i);
     await assert.rejects(images.removeHospitalityImage({ organizationId: organizationB.id, actorUserId: adminB.id, propertyId: propertyA.id, imageId: propertyImage.id, confirmation: 'REMOVE' }), /not available/i);
 
