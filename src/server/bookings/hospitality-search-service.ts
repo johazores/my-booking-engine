@@ -25,9 +25,9 @@ async function loadSearchScopes(input: { organizationId: string; propertyId: str
     roomType: { is: { status: 'ACTIVE' as const, property: { is: { status: 'ACTIVE' as const } } } },
     ratePlan: { is: { status: 'ACTIVE' as const, property: { is: { status: 'ACTIVE' as const } } } },
   };
-  const [totalScopes, scopes] = await Promise.all([
-    db.hospitalityRoomTypeRatePlan.count({ where }),
-    db.hospitalityRoomTypeRatePlan.findMany({
+  return db.$transaction(async (transaction) => {
+    const totalScopes = await transaction.hospitalityRoomTypeRatePlan.count({ where });
+    const scopes = await transaction.hospitalityRoomTypeRatePlan.findMany({
       where,
       select: {
         propertyId: true,
@@ -38,9 +38,9 @@ async function loadSearchScopes(input: { organizationId: string; propertyId: str
       },
       orderBy: [{ propertyId: 'asc' }, { roomTypeId: 'asc' }, { ratePlanId: 'asc' }],
       take: MAX_SEARCH_SCOPES,
-    }),
-  ]);
-  return { totalScopes, scopes };
+    });
+    return { totalScopes, scopes };
+  }, { isolationLevel: 'RepeatableRead' });
 }
 
 async function evaluateScope(input: {
