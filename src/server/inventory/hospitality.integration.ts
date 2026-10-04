@@ -37,6 +37,7 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
     await assert.rejects(inventory.createHospitalityProperty({ organizationId: organizationA.id, actorUserId: staffA.id, property: { name: 'Staff Property', code: 'STAFF', timezone: 'UTC', addressLine1: '', city: '', region: '', postalCode: '', countryCode: 'US' } }), /permission/i);
 
     const roomType = await inventory.createHospitalityRoomType({ organizationId: organizationA.id, actorUserId: adminA.id, roomType: { propertyId: propertyA.id, name: 'Deluxe King', code: 'DLX', maxOccupancy: '3', bedsDescription: '1 king bed' } });
+    const roomTypeB = await inventory.createHospitalityRoomType({ organizationId: organizationB.id, actorUserId: adminB.id, roomType: { propertyId: propertyB.id, name: 'Other Room', code: 'OTHER', maxOccupancy: '2', bedsDescription: '' } });
     const room = await inventory.createHospitalityRoom({ organizationId: organizationA.id, actorUserId: adminA.id, room: { propertyId: propertyA.id, roomTypeId: roomType.id, code: '101', floor: '1' } });
 
     const wifi = await amenities.createHospitalityAmenity({ organizationId: organizationA.id, actorUserId: adminA.id, amenity: { name: 'Wi-Fi', code: 'wifi' } });
@@ -123,7 +124,19 @@ test('hospitality inventory enforces tenant scope, hierarchy, amenities, images,
         isPrimary: false,
       },
     });
+    const independentRoomTypePrimary = await db.hospitalityRoomTypeImage.create({
+      data: {
+        organizationId: organizationB.id,
+        propertyId: propertyB.id,
+        roomTypeId: roomTypeB.id,
+        url: `https://cdn.example.test/direct-independent-room-type-primary-${runId}.jpg`,
+        altText: 'Independent room type primary',
+        sortOrder: 0,
+        isPrimary: true,
+      },
+    });
     assert.equal(directRoomTypeNonPrimary.isPrimary, false);
+    assert.equal(independentRoomTypePrimary.isPrimary, true);
     await assert.rejects(
       db.hospitalityRoomTypeImage.create({
         data: {

@@ -54,6 +54,7 @@ test('guarded PostgreSQL coverage bypasses services and verifies uniqueness erro
     'direct-independent-property-primary-',
     'direct-property-duplicate-primary-',
     'direct-room-type-non-primary-',
+    'direct-independent-room-type-primary-',
     'direct-room-type-duplicate-primary-',
   ]) {
     assert.ok(integration.includes(token), `missing database regression token: ${token}`);
