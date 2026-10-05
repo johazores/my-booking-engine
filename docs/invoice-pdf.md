@@ -24,6 +24,7 @@ Both authenticated and public routes use `no-store`, `application/pdf`, `nosniff
 
 - no current-clock value, random identifier, mutable branding record, external provider response, or runtime metadata enters the PDF;
 - immutable issued timestamps are the only legal date authority;
+- legal-document timestamps must use canonical UTC millisecond form (`YYYY-MM-DDTHH:mm:ss.sssZ`) and must round-trip exactly through `Date.toISOString()`, so offset aliases, omitted milliseconds, and normalized impossible calendar dates fail closed;
 - A4 dimensions, layout, object numbering, page ordering, fonts, and page composition are fixed;
 - exact AUD minor-unit strings are converted without floating-point arithmetic;
 - legal identity, document/source-document numbers, GST values, totals, direction and adjustment effects come only from verified issued evidence; and
@@ -43,9 +44,9 @@ The public booking tax-document history exposes **Download PDF** for each visibl
 
 ## Validation
 
-Dependency-free tax-invoice renderer tests cover byte-for-byte determinism, PDF identity/object structure, multi-page output, lossless Windows-1252 handling, unsupported-script rejection, AUD-only scope, and exact total reconciliation.
+Dependency-free tax-invoice renderer tests cover byte-for-byte determinism, PDF identity/object structure, multi-page output, lossless Windows-1252 handling, unsupported-script rejection, AUD-only scope, exact total reconciliation, and canonical issued-timestamp rejection.
 
-Dependency-free adjustment-note renderer tests cover byte-for-byte determinism, cancellation and commercial reasons, increasing/decreasing direction, source-document identity, unsupported-script rejection, AUD-only scope, exact directional effect reconciliation, cancellation/commercial before-and-after semantics, unknown-reason rejection, and source-document chronology. Direction-specific server authority is a prerequisite read-service concern and is covered separately by the complete commercial-chain and increasing/decreasing post-issuance read tests.
+Dependency-free adjustment-note renderer tests cover byte-for-byte determinism, cancellation and commercial reasons, increasing/decreasing direction, source-document identity, unsupported-script rejection, AUD-only scope, exact directional effect reconciliation, cancellation/commercial before-and-after semantics, unknown-reason rejection, source-document chronology, and canonical timestamp rejection for both the adjustment note and its source tax invoice. Direction-specific server authority is a prerequisite read-service concern and is covered separately by the complete commercial-chain and increasing/decreasing post-issuance read tests.
 
 A generated commercial-amendment adjustment-note fixture was parsed with local `pdfinfo` and reported PDF 1.4, one A4 page, unencrypted, with no JavaScript.
 
