@@ -51,3 +51,16 @@ test('rejects inconsistent totals and non-AUD documents', () => {
   assert.throws(() => createHospitalityTaxInvoicePdf({ ...base, totalMinor: '12000' }), HospitalityTaxInvoicePdfValidationError);
   assert.throws(() => createHospitalityTaxInvoicePdf({ ...base, currency: 'USD' }), HospitalityTaxInvoicePdfValidationError);
 });
+
+test('rejects non-canonical or normalized issuedAt timestamps', () => {
+  for (const issuedAt of [
+    '2026-09-04T02:30:00Z',
+    '2026-09-04T12:30:00.000+10:00',
+    '2026-02-30T02:30:00.000Z',
+  ]) {
+    assert.throws(
+      () => createHospitalityTaxInvoicePdf({ ...base, issuedAt }),
+      HospitalityTaxInvoicePdfValidationError,
+    );
+  }
+});
