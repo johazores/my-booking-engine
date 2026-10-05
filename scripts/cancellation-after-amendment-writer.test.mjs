@@ -26,7 +26,9 @@ test('writer derives legal money, predecessor, refunds, numbering, and issue tim
   assert.match(writer, /predecessorAdjustmentNoteId: readiness\.predecessorAdjustmentNoteId/);
   assert.match(writer, /refundAuthorities: readiness\.refundAuthorities/);
   assert.match(writer, /formatAustralianAdjustmentNoteDocumentNumber\(sequenceValue\)/);
-  assert.match(writer, /const issuedAt = new Date\(\)/);
+  assert.match(writer, /readHospitalityLegalDocumentIssueTime/);
+  assert.match(writer, /const issuedAt = await readHospitalityLegalDocumentIssueTime\\(transaction\\)/);
+  assert.doesNotMatch(writer, /const issuedAt = new Date\\(\\)/);
   assert.doesNotMatch(writer, /input\.refundTransactionId/);
 });
 
