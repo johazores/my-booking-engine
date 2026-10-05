@@ -113,9 +113,19 @@ function formatAudMinor(value: string) {
   return `AUD ${whole.toString()}.${fraction.toString().padStart(2, '0')}`;
 }
 
-function dateAu(value: string) {
+function parseCanonicalUtcTimestamp(value: string, label: string) {
+  if (typeof value !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)) {
+    throw new HospitalityTaxInvoicePdfValidationError(`${label} must be a canonical UTC timestamp with millisecond precision.`);
+  }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new HospitalityTaxInvoicePdfValidationError('issuedAt must be a valid date.');
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== value) {
+    throw new HospitalityTaxInvoicePdfValidationError(`${label} must be a real canonical UTC timestamp.`);
+  }
+  return date;
+}
+
+function dateAu(value: string) {
+  const date = parseCanonicalUtcTimestamp(value, 'issuedAt');
   const day = date.getUTCDate().toString().padStart(2, '0');
   const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
   return `${day}/${month}/${date.getUTCFullYear()}`;
