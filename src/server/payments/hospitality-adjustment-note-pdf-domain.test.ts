@@ -142,3 +142,27 @@ test('rejects non-AUD, unknown reasons, and impossible source-document chronolog
     HospitalityAdjustmentNotePdfValidationError,
   );
 });
+
+test('rejects non-canonical or normalized legal-document timestamps', () => {
+  for (const issuedAt of [
+    '2026-09-04T05:00:00Z',
+    '2026-09-04T15:00:00.000+10:00',
+    '2026-02-30T05:00:00.000Z',
+  ]) {
+    assert.throws(
+      () => createHospitalityAdjustmentNotePdf({ ...base, issuedAt }),
+      HospitalityAdjustmentNotePdfValidationError,
+    );
+  }
+
+  for (const sourceTaxInvoiceIssuedAt of [
+    '2026-09-03T02:30:00Z',
+    '2026-09-03T12:30:00.000+10:00',
+    '2026-02-30T02:30:00.000Z',
+  ]) {
+    assert.throws(
+      () => createHospitalityAdjustmentNotePdf({ ...base, sourceTaxInvoiceIssuedAt }),
+      HospitalityAdjustmentNotePdfValidationError,
+    );
+  }
+});
