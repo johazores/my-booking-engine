@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
     const invoice = await getHospitalityIssuedTaxInvoiceDocument({
       organizationId: apiContext.organizationId,
       actorUserId: apiContext.actorUserId,
-      documentNumber: decodeURIComponent(rawDocumentNumber),
+      documentNumber: rawDocumentNumber,
     });
     const pdf = createHospitalityTaxInvoicePdf(invoice);
     return finish(new Response(new Uint8Array(pdf), {
