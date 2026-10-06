@@ -51,7 +51,7 @@ export default async function TaxInvoicePage({ params }: { params: Promise<{ 'do
     invoice = await getHospitalityIssuedTaxInvoiceDocument({
       organizationId: organization.id,
       actorUserId: session.user.id,
-      documentNumber: decodeURIComponent((await params)['document-number']),
+      documentNumber: (await params)['document-number'],
     });
   } catch (error) {
     if (error instanceof HospitalityIssuedInvoiceUnavailableError) notFound();
