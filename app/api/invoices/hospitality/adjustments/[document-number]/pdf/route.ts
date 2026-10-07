@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
     const document = await getHospitalityIssuedAdjustmentNoteDocument({
       organizationId: apiContext.organizationId,
       actorUserId: apiContext.actorUserId,
-      documentNumber: decodeURIComponent(rawDocumentNumber),
+      documentNumber: rawDocumentNumber,
     });
     const pdf = createHospitalityAdjustmentNotePdf(document);
     return finish(new Response(new Uint8Array(pdf), {
