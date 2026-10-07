@@ -40,7 +40,7 @@ export default async function AdjustmentNotePage({ params }: { params: Promise<{
     document = await getHospitalityIssuedAdjustmentNoteDocument({
       organizationId: activeContext.organization.id,
       actorUserId: session.user.id,
-      documentNumber: decodeURIComponent((await params)['document-number']),
+      documentNumber: (await params)['document-number'],
     });
   } catch (error) {
     if (error instanceof HospitalityIssuedAdjustmentNoteUnavailableError) notFound();
