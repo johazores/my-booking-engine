@@ -42,6 +42,6 @@ The dependency-free `scripts/public-booking-hold-client-lifecycle-contract.test.
 
 ## Malformed public response handling
 
-The browser's shared public booking response reader normalizes malformed, empty, null, array, and primitive JSON bodies to an empty object. It preserves only nonblank string error messages on unsuccessful HTTP responses, otherwise showing a safe generic request error. This prevents raw JavaScript property-access exceptions from reaching customer-facing hold, confirmation, Checkout, and recovery states. The existing server-side tenant, capability, and payment-authority checks remain unchanged.
+The browser's shared public booking response reader currently normalizes malformed, empty, null, array, and primitive JSON bodies to an empty object. Successful responses should instead fail closed; this remains pending validation and deployment. It preserves only nonblank string error messages on unsuccessful HTTP responses, otherwise showing a safe generic request error. This prevents raw JavaScript property-access exceptions from reaching customer-facing hold, confirmation, Checkout, and recovery states. The existing server-side tenant, capability, and payment-authority checks remain unchanged.
 
 The hold lifecycle contract includes focused executable parser cases for malformed success and error responses. Full repository Node 24 and PostgreSQL validation is still pending in an appropriately provisioned environment.
