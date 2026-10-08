@@ -18,6 +18,8 @@ Customer tax-invoice download is exposed through `POST /api/public-bookings/[org
 
 Both authenticated and public routes use `no-store`, `application/pdf`, `nosniff`, and attachment disposition. Authorization failures remain generic and do not reveal whether another tenant's document exists.
 
+Next.js supplies decoded dynamic route parameters. Public PDF routes normalize the document number directly (trim and uppercase), validate the strict `AU-TAX-` / `AU-ADJ-` number contract, and never call `decodeURIComponent` a second time. Malformed literal percent sequences therefore remain unavailable-document responses rather than causing decoding exceptions. The booking capability stays in the request body and authorization still precedes document lookup.
+
 ## Deterministic rendering contract
 
 `src/server/payments/hospitality-tax-invoice-pdf-domain.ts` owns tax-invoice PDF generation. `src/server/payments/hospitality-adjustment-note-pdf-domain.ts` owns adjustment-note PDF generation. For the same verified customer document each renderer produces byte-for-byte identical output:

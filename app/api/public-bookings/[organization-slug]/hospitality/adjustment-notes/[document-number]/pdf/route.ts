@@ -31,7 +31,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (!isSameOriginPublicBookingWrite(request)) return finish(jsonError('invalid-origin', 403));
 
     const { 'organization-slug': organizationSlug, 'document-number': rawDocumentNumber } = await context.params;
-    const documentNumber = decodeURIComponent(rawDocumentNumber).trim().toUpperCase();
+    const documentNumber = rawDocumentNumber.trim().toUpperCase();
     if (!/^AU-ADJ-[0-9]{8,}$/.test(documentNumber)) return finish(jsonError('adjustment-note-unavailable', 404));
 
     const bookingCapability = await readPublicTaxDocumentBookingCapability(request);

@@ -19,6 +19,24 @@ test('public PDF routes use exact capability-owned document reads instead of bou
   assert.doesNotMatch(adjustmentRoute, /\.items\.find/);
 });
 
+test('public PDF routes never double-decode Next.js document-number params', () => {
+  for (const [route, documentType] of [
+    [taxRoute, 'tax invoice'],
+    [adjustmentRoute, 'adjustment note'],
+  ]) {
+    assert.match(
+      route,
+      /const documentNumber = rawDocumentNumber\.trim\(\)\.toUpperCase\(\);/,
+      `${documentType} must normalize the framework-decoded route param directly`,
+    );
+    assert.doesNotMatch(
+      route,
+      /decodeURIComponent\s*\(/,
+      `${documentType} must not decode an already-decoded route param again`,
+    );
+  }
+});
+
 test('exact public document reads authorize before document lookup and remain tenant-booking scoped', () => {
   for (const functionName of [
     'getPublicBookingIssuedTaxInvoice',
