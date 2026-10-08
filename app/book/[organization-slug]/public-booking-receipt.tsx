@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { readPublicBookingDocumentCapability } from './public-booking-document-capability.ts';
+import { readPublicBookingDocumentCapability, usePublicBookingDocumentCapability } from './public-booking-document-capability.ts';
 
 type PublicReceipt = {
   receiptNumber: string;
@@ -41,39 +41,53 @@ function formatMinor(amountMinor: string, currency: string) {
 }
 
 export function PublicBookingSettlementReceipt({ organizationSlug }: { organizationSlug: string }) {
-  const [receipt, setReceipt] = useState<PublicReceipt | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const bookingCapability = usePublicBookingDocumentCapability(organizationSlug);
+  const [receiptState, setReceiptState] = useState<{ capability: string; value: PublicReceipt } | null>(null);
+  const [errorState, setErrorState] = useState<{ capability: string; message: string } | null>(null);
+  const [busyCapability, setBusyCapability] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   const loadReceipt = useCallback(async () => {
-    const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
     if (!bookingCapability) return;
+    const generation = ++requestGeneration.current;
+    const isCurrent = () => generation === requestGeneration.current
+      && readPublicBookingDocumentCapability(organizationSlug) === bookingCapability;
 
-    setBusy(true);
-    setError(null);
+    setBusyCapability(bookingCapability);
+    setErrorState(null);
     try {
       const response = await fetch(`/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/payments/receipt`, {
         method: 'POST',
         headers: { 'accept': 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
-      if (response.status === 404 || response.status === 409) return;
+      if (!isCurrent()) return;
+      if (response.status === 404 || response.status === 409) {
+        setReceiptState(null);
+        return;
+      }
       if (!response.ok) {
-        setError('Payment receipt could not be verified right now.');
+        setErrorState({ capability: bookingCapability, message: 'Payment receipt could not be verified right now.' });
         return;
       }
       const data = await response.json() as PublicReceipt;
-      setReceipt(data);
+      if (isCurrent()) setReceiptState({ capability: bookingCapability, value: data });
     } catch {
-      setError('Payment receipt could not be loaded right now.');
+      if (isCurrent()) setErrorState({ capability: bookingCapability, message: 'Payment receipt could not be loaded right now.' });
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusyCapability(null);
     }
-  }, [organizationSlug]);
+  }, [bookingCapability, organizationSlug]);
 
   useEffect(() => {
     void loadReceipt();
+    return () => { requestGeneration.current += 1; };
   }, [loadReceipt]);
+
+  // A new booking must never render the previous booking's receipt, even for one frame.
+  const receipt = receiptState?.capability === bookingCapability ? receiptState.value : null;
+  const error = errorState?.capability === bookingCapability ? errorState.message : null;
+  const busy = Boolean(bookingCapability && busyCapability === bookingCapability);
 
   if (!receipt) {
     if (!error && !busy) return null;

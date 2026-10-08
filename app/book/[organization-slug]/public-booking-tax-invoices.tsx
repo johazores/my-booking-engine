@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { readPublicBookingDocumentCapability } from './public-booking-document-capability.ts';
+import { readPublicBookingDocumentCapability, usePublicBookingDocumentCapability } from './public-booking-document-capability.ts';
 
 type InvoiceParty = {
   legalName: string;
@@ -116,56 +116,73 @@ function adjustmentNoteStatement(note: PublicAdjustmentNote) {
 }
 
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {
-  const [history, setHistory] = useState<InvoiceHistory | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [downloadingDocumentNumber, setDownloadingDocumentNumber] = useState<string | null>(null);
+  const bookingCapability = usePublicBookingDocumentCapability(organizationSlug);
+  const [historyState, setHistoryState] = useState<{ capability: string; value: InvoiceHistory } | null>(null);
+  const [errorState, setErrorState] = useState<{ capability: string; message: string } | null>(null);
+  const [busyCapability, setBusyCapability] = useState<string | null>(null);
+  const [downloadState, setDownloadState] = useState<{ capability: string; documentNumber: string } | null>(null);
+  const loadGeneration = useRef(0);
+  const downloadGeneration = useRef(0);
 
   const loadInvoices = useCallback(async () => {
-    const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
     if (!bookingCapability) return;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => generation === loadGeneration.current
+      && readPublicBookingDocumentCapability(organizationSlug) === bookingCapability;
 
-    setBusy(true);
-    setError(null);
+    setBusyCapability(bookingCapability);
+    setErrorState(null);
     try {
       const response = await fetch(`/api/public-bookings/${encodeURIComponent(organizationSlug)}/hospitality/tax-invoices`, {
         method: 'POST',
         headers: { 'accept': 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
-      if (response.status === 404) return;
+      if (!isCurrent()) return;
+      if (response.status === 404) {
+        setHistoryState(null);
+        return;
+      }
       if (!response.ok) {
-        setError('Issued tax documents could not be verified right now.');
+        setErrorState({ capability: bookingCapability, message: 'Issued tax documents could not be verified right now.' });
         return;
       }
       const data = await response.json() as InvoiceHistory;
-      setHistory(data);
+      if (isCurrent()) setHistoryState({ capability: bookingCapability, value: data });
     } catch {
-      setError('Issued tax documents could not be loaded right now.');
+      if (isCurrent()) setErrorState({ capability: bookingCapability, message: 'Issued tax documents could not be loaded right now.' });
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusyCapability(null);
     }
-  }, [organizationSlug]);
+  }, [bookingCapability, organizationSlug]);
+
+  const downloadingDocumentNumber = downloadState?.capability === bookingCapability
+    ? downloadState.documentNumber
+    : null;
 
   const downloadPdf = useCallback(async (documentNumber: string, kind: DownloadDocumentKind) => {
-    const bookingCapability = readPublicBookingDocumentCapability(organizationSlug);
     if (!bookingCapability || downloadingDocumentNumber) return;
+    const generation = ++downloadGeneration.current;
+    const isCurrent = () => generation === downloadGeneration.current
+      && readPublicBookingDocumentCapability(organizationSlug) === bookingCapability;
 
-    setDownloadingDocumentNumber(documentNumber);
-    setError(null);
+    setDownloadState({ capability: bookingCapability, documentNumber });
+    setErrorState(null);
     try {
       const response = await fetch(downloadPath(organizationSlug, documentNumber, kind), {
         method: 'POST',
         headers: { 'accept': 'application/pdf', 'content-type': 'application/json' },
         body: JSON.stringify({ bookingCapability }),
       });
+      if (!isCurrent()) return;
       if (!response.ok) {
-        setError(response.status === 422
+        setErrorState({ capability: bookingCapability, message: response.status === 422
           ? `This ${downloadLabel(kind)} contains text that cannot be represented losslessly in the current PDF format. You can still print the verified document.`
-          : `The ${downloadLabel(kind)} PDF could not be prepared right now.`);
+          : `The ${downloadLabel(kind)} PDF could not be prepared right now.` });
         return;
       }
       const blob = await response.blob();
+      if (!isCurrent()) return;
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
@@ -173,21 +190,30 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
       anchor.style.display = 'none';
       document.body.append(anchor);
       try {
-        anchor.click();
+        if (isCurrent()) anchor.click();
       } finally {
         anchor.remove();
         window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
       }
     } catch {
-      setError(`The ${downloadLabel(kind)} PDF could not be downloaded right now.`);
+      if (isCurrent()) setErrorState({ capability: bookingCapability, message: `The ${downloadLabel(kind)} PDF could not be downloaded right now.` });
     } finally {
-      setDownloadingDocumentNumber(null);
+      if (isCurrent()) setDownloadState(null);
     }
-  }, [downloadingDocumentNumber, organizationSlug]);
+  }, [bookingCapability, downloadingDocumentNumber, organizationSlug]);
 
   useEffect(() => {
     void loadInvoices();
+    return () => {
+      loadGeneration.current += 1;
+      downloadGeneration.current += 1;
+    };
   }, [loadInvoices]);
+
+  // The render is capability-keyed so old legal documents disappear synchronously.
+  const history = historyState?.capability === bookingCapability ? historyState.value : null;
+  const error = errorState?.capability === bookingCapability ? errorState.message : null;
+  const busy = Boolean(bookingCapability && busyCapability === bookingCapability);
 
   const hasInvoices = Boolean(history?.items.length);
   const hasAdjustmentNotes = Boolean(history?.adjustmentNotes?.items.length);

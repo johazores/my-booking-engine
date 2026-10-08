@@ -84,3 +84,7 @@ The master invoice/tax-document item remains open for:
 Dependency-free tests cover Australian ABN/readiness rules, issued-document identity/fingerprints, cumulative mixed-direction commercial adjustment chains, terminal cancellation readiness/evidence/read authority/writer/product boundaries, deterministic PDF behavior, and retention/reconciliation contracts. Disposable PostgreSQL suites remain required for live authorization, cross-tenant denial, issuance idempotency/sequence uniqueness, constraints, concurrency, stale-state rejection, persisted money, and audits.
 
 GitHub Actions are not used.
+
+## Same-tab document switching
+
+The public booking capability store broadcasts active booking changes to the customer tax-document view. Invoice and adjustment-note history, loading/error state, and PDF download completion are bound to the requesting capability; a new booking cannot inherit the prior booking's rendered documents or finish a stale PDF download. Server-side tenant, public-principal, and ownership checks remain the source of authorization. This does not add durable document delivery or customer re-authentication.

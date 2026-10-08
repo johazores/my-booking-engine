@@ -1,8 +1,11 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
+
 const DOCUMENT_CAPABILITY_PREFIX = 'sf-public-booking-document-capability:';
 const LEGACY_RECEIPT_PREFIX = 'sf-public-booking-receipt:';
 const RECOVERY_PREFIX = 'sf-public-booking-recovery:';
+const DOCUMENT_CAPABILITY_CHANGE = 'sf-public-booking-document-capability-change';
 
 function documentCapabilityKey(organizationSlug: string) {
   return `${DOCUMENT_CAPABILITY_PREFIX}${organizationSlug}`;
@@ -23,7 +26,10 @@ function recoveryCapability(organizationSlug: string) {
 
 export function storePublicBookingDocumentCapability(organizationSlug: string, bookingCapability: string) {
   if (!bookingCapability) return;
-  window.sessionStorage.setItem(documentCapabilityKey(organizationSlug), bookingCapability);
+  const key = documentCapabilityKey(organizationSlug);
+  if (window.sessionStorage.getItem(key) === bookingCapability) return;
+  window.sessionStorage.setItem(key, bookingCapability);
+  window.dispatchEvent(new Event(DOCUMENT_CAPABILITY_CHANGE));
 }
 
 export function readPublicBookingDocumentCapability(organizationSlug: string) {
@@ -32,15 +38,31 @@ export function readPublicBookingDocumentCapability(organizationSlug: string) {
 
   const legacyReceipt = window.sessionStorage.getItem(`${LEGACY_RECEIPT_PREFIX}${organizationSlug}`);
   if (legacyReceipt) {
-    storePublicBookingDocumentCapability(organizationSlug, legacyReceipt);
     return legacyReceipt;
   }
 
   const recovery = recoveryCapability(organizationSlug);
   if (recovery) {
-    storePublicBookingDocumentCapability(organizationSlug, recovery);
     return recovery;
   }
 
   return null;
+}
+
+function subscribeToDocumentCapability(onChange: () => void) {
+  window.addEventListener(DOCUMENT_CAPABILITY_CHANGE, onChange);
+  window.addEventListener('storage', onChange);
+  return () => {
+    window.removeEventListener(DOCUMENT_CAPABILITY_CHANGE, onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+/** Reactively follows the active same-tab booking, never a previous booking's document authority. */
+export function usePublicBookingDocumentCapability(organizationSlug: string) {
+  return useSyncExternalStore(
+    subscribeToDocumentCapability,
+    () => readPublicBookingDocumentCapability(organizationSlug),
+    () => null,
+  );
 }
