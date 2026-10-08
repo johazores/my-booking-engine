@@ -31,3 +31,11 @@ The hold and quote boundaries are now connected to the real public booking journ
 ## Validation
 
 The customer-safe quote projection and shared same-origin policy have dependency-free Node tests. Public payment-recovery domain tests additionally cover the safe continuation states used after hosted Checkout returns. Full typecheck, lint, Prisma validation, PostgreSQL integration coverage, and production build still require the repository Node 24 environment and disposable database target documented in the development guide. GitHub Actions are not part of this validation process.
+
+## Client-side overlapping-action and malformed-quote safety
+
+Each public offer card serializes its own hold creation, confirmation, and release actions in the browser as well as relying on the server's authoritative locking/idempotency. A release enters a dedicated pending state so customers cannot submit confirmation or another release while the first release is unresolved. An uncertain release keeps the original hold capability and offers a direct retry; the UI clears it only after the release endpoint confirms success. A failed quote after successful hold creation still triggers best-effort release and preserves the capability if cleanup cannot be confirmed.
+
+The client checks the fields needed for reviewed pricing (currency, bounded exact nonnegative minor-unit amount, fingerprint, and parseable expiry) before displaying the confirmation form. An incomplete/malformed quote follows the same release/retry path instead of crashing while rendering a price. These browser checks do not replace server-side tenant, capability, inventory, expiry, and pricing revalidation.
+
+The dependency-free `scripts/public-booking-hold-client-lifecycle-contract.test.mjs` guards these UI state transitions. Full Next.js/TypeScript and disposable PostgreSQL validation remains required in the documented Node 24 environment.

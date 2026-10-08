@@ -28,15 +28,7 @@ type PublicOffer = {
 };
 
 type Quote = {
-  arrivalDate: string;
-  departureDate: string;
-  stayNights: number;
-  quantity: number;
   currency: string;
-  accommodationSubtotalMinor: string;
-  taxTotalMinor: string;
-  feeTotalMinor: string;
-  addonTotalMinor: string;
   totalMinor: string;
   pricingFingerprint: string;
   holdExpiresAt: string;
@@ -84,6 +76,20 @@ function formatMinor(amountMinor: string, currency: string) {
   return fractionDigits === 0
     ? `${currency} ${whole.toString()}`
     : `${currency} ${whole.toString()}.${fraction.toString().padStart(fractionDigits, '0')}`;
+}
+
+function isReviewedQuote(value: unknown): value is Quote {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const quote = value as Record<string, unknown>;
+  return typeof quote.currency === 'string'
+    && /^[A-Z]{3}$/.test(quote.currency)
+    && typeof quote.totalMinor === 'string'
+    && /^(0|[1-9][0-9]{0,18})$/.test(quote.totalMinor)
+    && typeof quote.pricingFingerprint === 'string'
+    && quote.pricingFingerprint.length > 0
+    && quote.pricingFingerprint.length <= 256
+    && typeof quote.holdExpiresAt === 'string'
+    && Number.isFinite(Date.parse(quote.holdExpiresAt));
 }
 
 function recoveryKey(organizationSlug: string) {
@@ -302,11 +308,13 @@ export function PublicBookingOfferCard({
 }) {
   const activeBookingCapability = usePublicBookingDocumentCapability(organizationSlug);
   const [paymentBookingCapability, setPaymentBookingCapability] = useState<string | null>(null);
-  const [stage, setStage] = useState<'idle' | 'holding' | 'details' | 'confirming' | 'payment' | 'error'>('idle');
+  const [stage, setStage] = useState<'idle' | 'holding' | 'details' | 'confirming' | 'releasing' | 'payment' | 'error'>('idle');
   const [holdCapability, setHoldCapability] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [paymentState, setPaymentState] = useState<string | null>(null);
+  const [releaseFailed, setReleaseFailed] = useState(false);
+  const holdOperation = useRef<'reserving' | 'confirming' | 'releasing' | null>(null);
   const holdRequestKey = useRef<string | null>(null);
   const confirmationRequestKey = useRef<string | null>(null);
   const checkoutRequestKey = useRef<string | null>(null);
@@ -332,6 +340,9 @@ export function PublicBookingOfferCard({
   }
 
   async function reserve() {
+    if (holdOperation.current) return;
+    holdOperation.current = 'reserving';
+    setReleaseFailed(false);
     setStage('holding');
     setMessage(null);
     holdRequestKey.current ??= crypto.randomUUID();
@@ -363,8 +374,8 @@ export function PublicBookingOfferCard({
         body: JSON.stringify({ capability: createdCapability, addonSelections: [] }),
       });
       const quoteResult = await readJson(quoteResponse) as { quote?: unknown };
-      if (!quoteResult.quote || typeof quoteResult.quote !== 'object') throw new Error('Current pricing could not be reviewed.');
-      setQuote(quoteResult.quote as Quote);
+      if (!isReviewedQuote(quoteResult.quote)) throw new Error('Current pricing could not be reviewed.');
+      setQuote(quoteResult.quote);
       setStage('details');
     } catch (error) {
       const baseMessage = error instanceof Error ? error.message : 'This stay could not be held.';
@@ -374,35 +385,45 @@ export function PublicBookingOfferCard({
           clearHoldClientState();
           setMessage(`${baseMessage} The temporary hold was released.`);
         } else {
+          setReleaseFailed(true);
           setMessage(`${baseMessage} The temporary hold could not be released right now; you can retry releasing it below.`);
         }
       } else {
         setMessage(baseMessage);
       }
       setStage('error');
+    } finally {
+      holdOperation.current = null;
     }
   }
 
   async function releaseHold() {
-    const capability = holdCapability;
-    if (!capability) {
+    if (holdOperation.current) return;
+    holdOperation.current = 'releasing';
+    setStage('releasing');
+    setReleaseFailed(false);
+    setMessage(null);
+    try {
+      const capability = holdCapability;
+      if (!capability) {
+        clearHoldClientState();
+        setStage('idle');
+        return;
+      }
+
+      const released = await requestHoldRelease(capability);
+      if (!released) {
+        setReleaseFailed(true);
+        setStage('error');
+        setMessage('The temporary hold could not be released right now. You can retry; otherwise it will expire automatically.');
+        return;
+      }
+
       clearHoldClientState();
       setStage('idle');
-      setMessage(null);
-      return;
+    } finally {
+      holdOperation.current = null;
     }
-
-    setMessage('Releasing the temporary hold…');
-    const released = await requestHoldRelease(capability);
-    if (!released) {
-      setStage('error');
-      setMessage('The temporary hold could not be released right now. You can retry; otherwise it will expire automatically.');
-      return;
-    }
-
-    clearHoldClientState();
-    setStage('idle');
-    setMessage(null);
   }
 
   async function startCheckout(bookingCapability: string, currency: string, totalMinor: string) {
@@ -447,7 +468,8 @@ export function PublicBookingOfferCard({
 
   async function confirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!holdCapability || !quote) return;
+    if (holdOperation.current || !holdCapability || !quote) return;
+    holdOperation.current = 'confirming';
     setStage('confirming');
     setMessage(null);
 
@@ -505,6 +527,8 @@ export function PublicBookingOfferCard({
       }
       setStage('error');
       setMessage(error instanceof Error ? error.message : 'The reservation could not be confirmed.');
+    } finally {
+      holdOperation.current = null;
     }
   }
 
@@ -541,6 +565,7 @@ export function PublicBookingOfferCard({
         <button type="button" className="sf-public-booking__contact" onClick={reserve}>Reserve this stay</button>
       ) : null}
       {stage === 'holding' ? <p className="sf-public-booking__notice" role="status">Holding current inventory and rechecking price…</p> : null}
+      {stage === 'releasing' ? <p className="sf-public-booking__notice" role="status">Releasing the temporary hold…</p> : null}
 
       {stage === 'details' && quote ? (
         <form className="sf-public-booking__rate" onSubmit={confirm}>
@@ -584,8 +609,9 @@ export function PublicBookingOfferCard({
         <div className="sf-public-booking__alert" role="alert">
           <p>{message || 'The reservation could not be completed.'}</p>
           {!holdCapability ? <button type="button" className="sf-public-booking__contact" onClick={reserve}>Try this stay again</button> : null}
-          {holdCapability && quote ? <button type="button" className="sf-public-booking__contact" onClick={() => setStage('details')}>Review details</button> : null}
-          {holdCapability && !quote ? <button type="button" className="sf-public-booking__contact" onClick={releaseHold}>Release temporary hold</button> : null}
+          {holdCapability && releaseFailed ? <button type="button" className="sf-public-booking__contact" onClick={releaseHold}>Retry releasing hold</button> : null}
+          {holdCapability && quote && !releaseFailed ? <button type="button" className="sf-public-booking__contact" onClick={() => setStage('details')}>Review details</button> : null}
+          {holdCapability && !quote && !releaseFailed ? <button type="button" className="sf-public-booking__contact" onClick={releaseHold}>Release temporary hold</button> : null}
         </div>
       ) : null}
     </article>
