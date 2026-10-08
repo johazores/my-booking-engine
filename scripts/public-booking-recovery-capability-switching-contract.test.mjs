@@ -29,3 +29,10 @@ test('new recovery authority is persisted before notifying document views', () =
 test('late initial Checkout responses cannot redirect a different booking', () => {
   assert.match(source, /readPublicBookingDocumentCapability\(organizationSlug\) !== bookingCapability\) return;/);
 });
+
+test('an older offer card cannot show stale payment status or recovery actions', () => {
+  assert.match(source, /const paymentIsCurrent = paymentBookingCapability !== null && activeBookingCapability === paymentBookingCapability/);
+  assert.match(source, /setPaymentBookingCapability\(bookingCapability\);\s*storeRecovery\(organizationSlug, recovery\)/);
+  assert.match(source, /stage === 'payment' && !paymentIsCurrent/);
+  assert.match(source, /stage === 'payment' && paymentIsCurrent/);
+});

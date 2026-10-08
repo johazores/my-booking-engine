@@ -300,6 +300,8 @@ export function PublicBookingOfferCard({
   organizationSlug: string;
   offer: PublicOffer;
 }) {
+  const activeBookingCapability = usePublicBookingDocumentCapability(organizationSlug);
+  const [paymentBookingCapability, setPaymentBookingCapability] = useState<string | null>(null);
   const [stage, setStage] = useState<'idle' | 'holding' | 'details' | 'confirming' | 'payment' | 'error'>('idle');
   const [holdCapability, setHoldCapability] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -411,6 +413,7 @@ export function PublicBookingOfferCard({
       currency,
       totalMinor,
     };
+    setPaymentBookingCapability(bookingCapability);
     storeRecovery(organizationSlug, recovery);
     storePublicBookingDocumentCapability(organizationSlug, bookingCapability);
     setStage('payment');
@@ -496,6 +499,8 @@ export function PublicBookingOfferCard({
     }
   }
 
+  const paymentIsCurrent = paymentBookingCapability !== null && activeBookingCapability === paymentBookingCapability;
+
   return (
     <article className="sf-public-booking__offer">
       <div className="sf-public-booking__offer-main">
@@ -552,7 +557,10 @@ export function PublicBookingOfferCard({
       ) : null}
 
       {stage === 'confirming' ? <p className="sf-public-booking__notice" role="status">Confirming the reservation and current price…</p> : null}
-      {stage === 'payment' ? (
+      {stage === 'payment' && !paymentIsCurrent ? (
+        <p className="sf-public-booking__notice" role="status">Another reservation is now active. Check its payment status above.</p>
+      ) : null}
+      {stage === 'payment' && paymentIsCurrent ? (
         <div className="sf-public-booking__notice" role="status">
           <strong>{paymentState === 'PAID' ? 'Reservation confirmed' : 'Preparing secure payment…'}</strong>
           {message ? <span>{message}</span> : null}
