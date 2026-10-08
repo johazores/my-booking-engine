@@ -36,14 +36,15 @@ export function readPublicBookingDocumentCapability(organizationSlug: string) {
   const stored = window.sessionStorage.getItem(documentCapabilityKey(organizationSlug));
   if (stored) return stored;
 
-  const legacyReceipt = window.sessionStorage.getItem(`${LEGACY_RECEIPT_PREFIX}${organizationSlug}`);
-  if (legacyReceipt) {
-    return legacyReceipt;
-  }
-
+  // A live recovery attempt supersedes a legacy receipt slot from an older booking.
   const recovery = recoveryCapability(organizationSlug);
   if (recovery) {
     return recovery;
+  }
+
+  const legacyReceipt = window.sessionStorage.getItem(`${LEGACY_RECEIPT_PREFIX}${organizationSlug}`);
+  if (legacyReceipt) {
+    return legacyReceipt;
   }
 
   return null;

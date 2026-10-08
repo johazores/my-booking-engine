@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { storePublicBookingDocumentCapability } from './public-booking-document-capability.ts';
+import { readPublicBookingDocumentCapability, storePublicBookingDocumentCapability, usePublicBookingDocumentCapability } from './public-booking-document-capability.ts';
 
 type PublicOffer = {
   propertyId: string;
@@ -120,13 +120,47 @@ function readRecovery(organizationSlug: string): BookingRecovery | null {
 }
 
 export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: string }) {
+  const activeBookingCapability = usePublicBookingDocumentCapability(organizationSlug);
+  return (
+    <PublicBookingRecoveryPanel
+      key={activeBookingCapability ?? 'none'}
+      organizationSlug={organizationSlug}
+      activeBookingCapability={activeBookingCapability}
+    />
+  );
+}
+
+function PublicBookingRecoveryPanel({
+  organizationSlug,
+  activeBookingCapability,
+}: {
+  organizationSlug: string;
+  activeBookingCapability: string | null;
+}) {
   const [recovery, setRecovery] = useState<BookingRecovery | null>(null);
   const [state, setState] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [canContinuePayment, setCanContinuePayment] = useState(false);
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(false);
+  const statusGeneration = useRef(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      statusGeneration.current += 1;
+    };
+  }, []);
+
+  const isActive = useCallback((capability: string) =>
+    mounted.current && readPublicBookingDocumentCapability(organizationSlug) === capability,
+  [organizationSlug]);
 
   const checkStatus = useCallback(async (current: BookingRecovery, context: { cancelledReturn?: boolean } = {}) => {
+    if (!isActive(current.bookingCapability)) return;
+    const generation = ++statusGeneration.current;
+    const isCurrent = () => generation === statusGeneration.current && isActive(current.bookingCapability);
     setBusy(true);
     try {
       const response = await fetch(apiPath(organizationSlug, 'payments/stripe-checkout/status'), {
@@ -135,6 +169,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         body: JSON.stringify({ bookingCapability: current.bookingCapability }),
       });
       const result = await readJson(response) as PaymentRecoveryStatus;
+      if (!isCurrent()) return;
       const nextState = typeof result.state === 'string' ? result.state : 'PROCESSING';
       const canResumeCheckout = result.canResumeCheckout === true;
       const canContinue = result.canContinuePayment === true;
@@ -175,15 +210,17 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         setCanContinuePayment(false);
       }
     } catch (error) {
+      if (!isCurrent()) return;
       setCanContinuePayment(false);
       setMessage(error instanceof Error ? error.message : 'Payment status could not be checked.');
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
-  }, [organizationSlug]);
+  }, [isActive, organizationSlug]);
 
   async function resumePayment() {
-    if (!recovery) return;
+    if (!recovery || !isActive(recovery.bookingCapability)) return;
+    const capability = recovery.bookingCapability;
     setBusy(true);
     setMessage(null);
 
@@ -205,6 +242,7 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
         }),
       });
       const result = await readJson(response) as { state?: unknown; checkoutUrl?: unknown };
+      if (!isActive(capability)) return;
       if (result.state === 'CHECKOUT_REQUIRED' && typeof result.checkoutUrl === 'string') {
         const target = new URL(result.checkoutUrl);
         if (target.protocol !== 'https:') throw new Error('Secure payment redirect was invalid.');
@@ -221,18 +259,18 @@ export function PublicBookingRecovery({ organizationSlug }: { organizationSlug: 
       }
       await checkStatus(activeRecovery);
     } catch {
-      await checkStatus(activeRecovery);
+      if (isActive(capability)) await checkStatus(activeRecovery);
     }
   }
 
   useEffect(() => {
     const current = readRecovery(organizationSlug);
-    if (!current) return;
+    if (!current || (activeBookingCapability && activeBookingCapability !== current.bookingCapability)) return;
     storePublicBookingDocumentCapability(organizationSlug, current.bookingCapability);
     setRecovery(current);
     const cancelledReturn = new URLSearchParams(window.location.search).get('payment') === 'cancelled';
     void checkStatus(current, { cancelledReturn });
-  }, [checkStatus, organizationSlug]);
+  }, [activeBookingCapability, checkStatus, organizationSlug]);
 
   if (!recovery && !message) return null;
 
@@ -373,8 +411,8 @@ export function PublicBookingOfferCard({
       currency,
       totalMinor,
     };
-    storePublicBookingDocumentCapability(organizationSlug, bookingCapability);
     storeRecovery(organizationSlug, recovery);
+    storePublicBookingDocumentCapability(organizationSlug, bookingCapability);
     setStage('payment');
 
     const response = await fetch(apiPath(organizationSlug, 'payments/stripe-checkout'), {
@@ -386,6 +424,8 @@ export function PublicBookingOfferCard({
       }),
     });
     const result = await readJson(response) as { state?: unknown; checkoutUrl?: unknown };
+    // An older offer's Checkout response must not redirect away from the active booking.
+    if (readPublicBookingDocumentCapability(organizationSlug) !== bookingCapability) return;
     if (result.state === 'CHECKOUT_REQUIRED' && typeof result.checkoutUrl === 'string') {
       const target = new URL(result.checkoutUrl);
       if (target.protocol !== 'https:') throw new Error('Secure payment redirect was invalid.');
