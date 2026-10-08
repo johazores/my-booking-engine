@@ -36,3 +36,9 @@ test('an older offer card cannot show stale payment status or recovery actions',
   assert.match(source, /stage === 'payment' && !paymentIsCurrent/);
   assert.match(source, /stage === 'payment' && paymentIsCurrent/);
 });
+
+test('late confirmation cannot overwrite a booking that became active during the request', () => {
+  assert.match(source, /const capabilityAtConfirmationStart = readPublicBookingDocumentCapability\(organizationSlug\)/);
+  assert.match(source, /bookingCreated = true;\s*clearHoldClientState\(\);\s*if \(readPublicBookingDocumentCapability\(organizationSlug\) !== capabilityAtConfirmationStart\)/);
+  assert.match(source, /setPaymentBookingCapability\(result\.bookingCapability\);\s*setStage\('payment'\);\s*return;\s*}\s*await startCheckout\(result\.bookingCapability/);
+});

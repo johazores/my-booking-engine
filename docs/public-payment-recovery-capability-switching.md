@@ -9,3 +9,9 @@ Both the payment-status request and Checkout resume request verify that their or
 The dependency-free contract test in `scripts/public-booking-recovery-capability-switching-contract.test.mjs` guards the client lifecycle. Full Next.js/TypeScript and live PostgreSQL validation remains required in a Node 24 environment. No GitHub Actions are used.
 
 The originating offer card also keys its payment-stage presentation to the capability returned by its own confirmation. If a different offer confirms a newer booking while an older Checkout request is still pending, the old card shows only a neutral current-reservation pointer rather than its stale payment state or recovery action. Late initial Checkout redirects remain blocked by the active capability check.
+
+## Competing offer confirmations
+
+Two offer cards can independently submit confirmation requests while a customer compares stays. The browser snapshots the active booking capability when each confirmation starts. If another booking becomes active before an earlier confirmation response returns, the late response **does not** overwrite the current recovery slot or initiate a Checkout redirect. The older offer shows only a neutral pointer to the currently active reservation. The server-created but unpaid booking remains subject to the existing bounded payment-start expiry and inventory release rules; the browser must not claim it was cancelled or paid. This is a same-tab UI safety measure, not a substitute for tenant, principal, and capability authorization at the server boundary.
+
+The public recovery capability-switching source contract also guards this confirmation-to-Checkout transition. Full Node 24, TypeScript, and disposable PostgreSQL validation is still required before claiming end-to-end production verification.

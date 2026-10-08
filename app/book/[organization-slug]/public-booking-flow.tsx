@@ -457,6 +457,8 @@ export function PublicBookingOfferCard({
     const email = String(form.get('email') || '');
     const phone = String(form.get('phone') || '');
 
+    // Preserve the active booking when a competing confirmation finishes first.
+    const capabilityAtConfirmationStart = readPublicBookingDocumentCapability(organizationSlug);
     confirmationRequestKey.current ??= crypto.randomUUID();
     let bookingCreated = false;
     try {
@@ -486,6 +488,13 @@ export function PublicBookingOfferCard({
 
       bookingCreated = true;
       clearHoldClientState();
+      if (readPublicBookingDocumentCapability(organizationSlug) !== capabilityAtConfirmationStart) {
+        // The booking exists, but a different booking became active while this request was pending.
+        // Do not replace its recovery credentials or launch an older Checkout session.
+        setPaymentBookingCapability(result.bookingCapability);
+        setStage('payment');
+        return;
+      }
       await startCheckout(result.bookingCapability, result.booking.currency, result.booking.totalMinor);
     } catch (error) {
       if (bookingCreated) {
