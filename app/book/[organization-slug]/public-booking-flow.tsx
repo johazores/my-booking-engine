@@ -41,11 +41,6 @@ type BookingRecovery = {
   totalMinor: string;
 };
 
-type ApiError = {
-  error?: string;
-  message?: string;
-};
-
 type PaymentRecoveryStatus = {
   state?: unknown;
   canResumeCheckout?: unknown;
@@ -59,10 +54,15 @@ function apiPath(organizationSlug: string, suffix: string) {
 }
 
 async function readJson(response: Response) {
-  const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const parsed: unknown = await response.json().catch(() => null);
+  const data = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
   if (!response.ok) {
-    const error = data as ApiError;
-    throw new Error(error.message || 'This booking request could not be completed.');
+    const message = typeof data.message === 'string' && data.message.trim()
+      ? data.message
+      : 'This booking request could not be completed.';
+    throw new Error(message);
   }
   return data;
 }

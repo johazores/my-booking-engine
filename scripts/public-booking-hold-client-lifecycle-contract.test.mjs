@@ -30,3 +30,20 @@ test('malformed reviewed quote follows the hold cleanup path', () => {
   assert.ok(source.includes('const released = await requestHoldRelease(createdCapability)'));
   assert.ok(source.includes('setReleaseFailed(true)'));
 });
+
+test('public response parser rejects malformed response shapes without leaking parser exceptions', async () => {
+  const declaration = source.match(/async function readJson\(response: Response\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(declaration, 'public response parser should be present');
+  const runnable = declaration
+    .replace('response: Response', 'response')
+    .replace('const parsed: unknown', 'const parsed')
+    .replace(' as Record<string, unknown>', '');
+  const readJson = new Function('return (' + runnable + ')')();
+  assert.deepEqual(await readJson({ ok: true, json: async () => null }), {});
+  assert.deepEqual(await readJson({ ok: true, json: async () => [] }), {});
+  assert.deepEqual(await readJson({ ok: true, json: async () => 'not-an-object' }), {});
+  await assert.rejects(readJson({ ok: false, json: async () => null }), /This booking request could not be completed/);
+  await assert.rejects(readJson({ ok: false, json: async () => ({ message: 12 }) }), /This booking request could not be completed/);
+  await assert.rejects(readJson({ ok: false, json: async () => ({ message: '  ' }) }), /This booking request could not be completed/);
+  await assert.rejects(readJson({ ok: false, json: async () => ({ message: 'Offer expired' }) }), /Offer expired/);
+});

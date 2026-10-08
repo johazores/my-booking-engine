@@ -39,3 +39,9 @@ Each public offer card serializes its own hold creation, confirmation, and relea
 The client checks the fields needed for reviewed pricing (currency, bounded exact nonnegative minor-unit amount, fingerprint, and parseable expiry) before displaying the confirmation form. An incomplete/malformed quote follows the same release/retry path instead of crashing while rendering a price. These browser checks do not replace server-side tenant, capability, inventory, expiry, and pricing revalidation.
 
 The dependency-free `scripts/public-booking-hold-client-lifecycle-contract.test.mjs` guards these UI state transitions. Full Next.js/TypeScript and disposable PostgreSQL validation remains required in the documented Node 24 environment.
+
+## Malformed public response handling
+
+The browser's shared public booking response reader normalizes malformed, empty, null, array, and primitive JSON bodies to an empty object. It preserves only nonblank string error messages on unsuccessful HTTP responses, otherwise showing a safe generic request error. This prevents raw JavaScript property-access exceptions from reaching customer-facing hold, confirmation, Checkout, and recovery states. The existing server-side tenant, capability, and payment-authority checks remain unchanged.
+
+The hold lifecycle contract includes focused executable parser cases for malformed success and error responses. Full repository Node 24 and PostgreSQL validation is still pending in an appropriately provisioned environment.
