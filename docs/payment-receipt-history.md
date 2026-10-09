@@ -8,7 +8,7 @@ Both authenticated staff receipts and public capability-owned receipts use the s
 
 ## Bounded successful activity
 
-`readHospitalityPaymentReceiptHistory` reads successful receipt evidence in deterministic 100-row cursor pages by immutable payment transaction ID. Every returned row is revalidated against the requested organization and booking, must still be `SUCCEEDED`, and must carry a valid database creation timestamp. The reader then restores deterministic `createdAt` + ID chronology for the receipt projection.
+`readHospitalityPaymentReceiptHistory` reads successful receipt evidence in deterministic 100-row cursor pages by immutable payment transaction ID. Every returned row is revalidated against the requested organization and booking, must still be `SUCCEEDED`, and must carry a valid database creation timestamp. The receipt read also selects persisted refund-source references so staff and public projections can validate source attribution and per-source refund ceilings without a provider call. The reader then restores deterministic `createdAt` + ID chronology for the receipt projection.
 
 The synchronous presentation ceiling is 1,000 successful transactions for one hospitality booking. Exactly 1,000 rows are accepted only after a one-row overflow probe proves the successful history is complete. Above that limit the reader fails closed. SF does not silently truncate a receipt or present a partial customer settlement history as complete.
 

@@ -4,6 +4,7 @@ export type PaymentReceiptTransaction = Readonly<{
   status: string;
   providerCode: string;
   providerReference: string | null;
+  sourceProviderReference?: string | null;
   currency: string;
   amountMinor: bigint;
   createdAt: Date;
@@ -92,28 +93,88 @@ export function isReceiptEligiblePaymentStatus(paymentStatus: string): boolean {
   return SETTLED_PAYMENT_STATUSES.has(paymentStatus);
 }
 
+
+/** A refund must belong to received money, not merely match aggregate totals. */
+function assertReceiptRefundSources(transactions: readonly PaymentReceiptTransaction[]): void {
+  const captured = transactions.filter((row) => row.kind === 'CAPTURE' || row.kind === 'OFFLINE_PAYMENT');
+  const lastAuthorization = captured.length === 0
+    ? [...transactions].reverse().find((row) => row.kind === 'AUTHORIZATION') : undefined;
+  const sources = lastAuthorization ? [lastAuthorization] : captured;
+  const amounts = new Map<string, { gross: bigint; refunded: bigint }>();
+  const byProvider = new Map<string, string[]>();
+  for (const source of sources) {
+    const key = JSON.stringify([source.providerCode, source.providerReference]);
+    if (amounts.has(key)) throw new PaymentReceiptEvidenceError('Payment receipt contains duplicate settlement sources.');
+    amounts.set(key, { gross: source.amountMinor, refunded: 0n });
+    byProvider.set(source.providerCode, [...(byProvider.get(source.providerCode) ?? []), key]);
+  }
+  for (const refund of transactions.filter((row) => row.kind === 'REFUND')) {
+    const candidates = byProvider.get(refund.providerCode) ?? [];
+    const key = refund.sourceProviderReference != null
+      ? JSON.stringify([refund.providerCode, refund.sourceProviderReference])
+      : candidates.length === 1 ? candidates[0] : undefined;
+    const source = key ? amounts.get(key) : undefined;
+    if (!source) throw new PaymentReceiptEvidenceError('Payment receipt refund source is missing or ambiguous.');
+    source.refunded += refund.amountMinor;
+    if (source.refunded > source.gross) {
+      throw new PaymentReceiptEvidenceError('Payment receipt refunds exceed their settled payment source.');
+    }
+  }
+}
+
+function hasReceiptIdentityControls(value: string): boolean {
+  return [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+
 export function sanitizeSuccessfulPaymentTransactions(
-  transactions: PaymentReceiptTransaction[],
+  transactions: readonly PaymentReceiptTransaction[],
   expectedCurrency: string,
 ): PaymentReceiptTransaction[] {
   const seenSettlements = new Set<string>();
   const seenRefunds = new Set<string>();
   const seenAuthorizations = new Set<string>();
+  const seenIds = new Set<string>();
   const safeTransactions = transactions
     .filter((transaction) => transaction.status === 'SUCCEEDED')
     .map((transaction) => {
       if (transaction.currency !== expectedCurrency) {
         throw new PaymentReceiptEvidenceError('Successful payment activity has a currency mismatch.');
       }
-      if (transaction.amountMinor <= 0n) {
-        throw new PaymentReceiptEvidenceError('Successful payment activity must have a positive amount.');
+      if (typeof transaction.amountMinor !== 'bigint' || transaction.amountMinor <= 0n) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity must have a positive bigint amount.');
       }
+      if (!['OFFLINE_PAYMENT', 'AUTHORIZATION', 'CAPTURE', 'REFUND'].includes(transaction.kind)) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity has an unsupported operation kind.');
+      }
+      if (!(transaction.createdAt instanceof Date) || !Number.isFinite(transaction.createdAt.getTime())) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity has an invalid creation timestamp.');
+      }
+      if (typeof transaction.id !== 'string' || !transaction.id || seenIds.has(transaction.id)) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity has a missing or duplicate transaction ID.');
+      }
+      seenIds.add(transaction.id);
       if (
         typeof transaction.providerCode !== 'string' || !transaction.providerCode.trim()
+        || transaction.providerCode.trim() !== transaction.providerCode
         || typeof transaction.providerReference !== 'string' || !transaction.providerReference.trim()
+        || transaction.providerReference.trim() !== transaction.providerReference
+        || hasReceiptIdentityControls(transaction.providerCode)
+        || hasReceiptIdentityControls(transaction.providerReference)
         || transaction.providerReference.startsWith('sf_claim_')
       ) {
         throw new PaymentReceiptEvidenceError('Successful payment activity is missing verified provider identity.');
+      }
+      const sourceReference = transaction.sourceProviderReference;
+      if (sourceReference != null && (
+        typeof sourceReference !== 'string' || !sourceReference.trim()
+        || sourceReference.trim() !== sourceReference
+        || hasReceiptIdentityControls(sourceReference)
+        || sourceReference.startsWith('sf_claim_')
+      )) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity has an invalid refund source reference.');
+      }
+      if (transaction.kind !== 'REFUND' && sourceReference != null) {
+        throw new PaymentReceiptEvidenceError('Non-refund receipt evidence has refund source attribution.');
       }
       const referenceKey = `${transaction.providerCode}\u001f${transaction.providerReference}`;
       const seen = transaction.kind === 'REFUND'
@@ -126,6 +187,7 @@ export function sanitizeSuccessfulPaymentTransactions(
       return { ...transaction };
     });
 
+  assertReceiptRefundSources(safeTransactions);
   return safeTransactions;
 }
 

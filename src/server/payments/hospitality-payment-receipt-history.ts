@@ -16,6 +16,7 @@ export type HospitalityPaymentReceiptHistoryTransaction = Readonly<{
   status: 'SUCCEEDED';
   providerCode: string;
   providerReference: string;
+  sourceProviderReference: string | null;
   currency: string;
   amountMinor: bigint;
   createdAt: Date;
@@ -34,6 +35,7 @@ const receiptHistorySelect = {
   status: true,
   providerCode: true,
   providerReference: true,
+  sourceProviderReference: true,
   currency: true,
   amountMinor: true,
   createdAt: true,
