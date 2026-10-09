@@ -58,7 +58,7 @@ type InvoiceHistory = {
   total: number;
   truncated: boolean;
   items: PublicTaxInvoice[];
-  adjustmentNotes?: {
+  adjustmentNotes: {
     total: number;
     truncated: boolean;
     items: PublicAdjustmentNote[];
@@ -209,8 +209,9 @@ function isInvoiceHistory(value: unknown): value is InvoiceHistory {
     || typeof value.truncated !== 'boolean' || !Array.isArray(value.items)
     || value.items.length !== Math.min(value.total, 50)
     || value.truncated !== (value.total > value.items.length)
-    || !value.items.every(isTaxInvoice)) return false;
-  if (value.adjustmentNotes === undefined) return true;
+    || !value.items.every(isTaxInvoice)
+    || new Set(value.items.map((item: PublicTaxInvoice) => item.documentNumber)).size !== value.items.length) return false;
+  // The server always returns the adjustment-note collection, including when empty.
   const notes = value.adjustmentNotes;
   return isRecord(notes)
     && typeof notes.total === 'number' && Number.isSafeInteger(notes.total) && notes.total >= 0
@@ -218,7 +219,8 @@ function isInvoiceHistory(value: unknown): value is InvoiceHistory {
     && Array.isArray(notes.items)
     && notes.items.length === Math.min(notes.total, 50)
     && notes.truncated === (notes.total > notes.items.length)
-    && notes.items.every(isAdjustmentNote);
+    && notes.items.every(isAdjustmentNote)
+    && new Set(notes.items.map((item: PublicAdjustmentNote) => item.documentNumber)).size === notes.items.length;
 }
 
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {

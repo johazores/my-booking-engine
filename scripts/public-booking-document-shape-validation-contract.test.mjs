@@ -58,18 +58,21 @@ test('adjustment note rejects unknown direction, reason and malformed money', ()
 });
 
 test('document history validates all entries and pagination metadata', () => {
-  assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice] }), true);
+  const emptyNotes = { total: 0, truncated: false, items: [] };
+  assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice] }), false);
+  assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice], adjustmentNotes: emptyNotes }), true);
   assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice], adjustmentNotes: { total: 1, truncated: false, items: [adjustment] } }), true);
-  for (const bad of [null, [], {}, { total: -1, truncated: false, items: [] },
-    { total: 0, truncated: false, items: [invoice] },
-    { total: 1, truncated: false, items: [null] },
-    { total: 1, truncated: false, items: 'not-an-array' },
+  for (const bad of [
+    null, [], {},
+    { total: -1, truncated: false, items: [], adjustmentNotes: emptyNotes },
+    { total: 0, truncated: false, items: [invoice], adjustmentNotes: emptyNotes },
+    { total: 1, truncated: false, items: [null], adjustmentNotes: emptyNotes },
+    { total: 1, truncated: false, items: 'not-an-array', adjustmentNotes: emptyNotes },
     { total: 1, truncated: false, items: [invoice], adjustmentNotes: { total: 1, truncated: false, items: [null] } },
-    { total: 1, truncated: false, items: [invoice], adjustmentNotes: { total: 0, truncated: false, items: [adjustment] } }]) {
-    assert.equal(isInvoiceHistory(bad), false);
-  }
+    { total: 1, truncated: false, items: [invoice], adjustmentNotes: { total: 0, truncated: false, items: [adjustment] } },
+    { total: 1, truncated: false, items: [invoice], adjustmentNotes: null },
+  ]) assert.equal(isInvoiceHistory(bad), false);
 });
-
 
 test('tax invoice rejects contradictory monetary evidence and impossible calendar dates', () => {
   for (const bad of [
@@ -102,29 +105,35 @@ test('adjustment notes reject invalid direction, effects, chronology and arithme
   ]) assert.equal(isAdjustmentNote(bad), false);
 });
 
-test('document history requires exact bounded first-page counts and truthful truncation', () => {
+test('document history requires exact bounded first-page counts, uniqueness and truthful truncation', () => {
   const empty = { total: 0, truncated: false, items: [] };
-  assert.equal(isInvoiceHistory(empty), true);
-  assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice] }), true);
-  assert.equal(isInvoiceHistory({ total: 51, truncated: true, items: Array(50).fill(invoice) }), true);
-  assert.equal(isInvoiceHistory({ total: 50, truncated: false, items: Array(50).fill(invoice) }), true);
-
+  const invoices = Array.from({ length: 50 }, (_, index) => ({ ...invoice, documentNumber: `INV-${index + 1}` }));
+  const adjustments = Array.from({ length: 50 }, (_, index) => ({ ...adjustment, documentNumber: `ADJ-${index + 1}` }));
+  const withNotes = (history) => ({ adjustmentNotes: empty, ...history });
+  assert.equal(isInvoiceHistory(empty), false);
+  assert.equal(isInvoiceHistory(withNotes(empty)), true);
+  assert.equal(isInvoiceHistory(withNotes({ total: 1, truncated: false, items: [invoice] })), true);
+  assert.equal(isInvoiceHistory(withNotes({ total: 51, truncated: true, items: invoices })), true);
+  assert.equal(isInvoiceHistory(withNotes({ total: 50, truncated: false, items: invoices })), true);
+  assert.equal(isInvoiceHistory(withNotes({ total: 2, truncated: false, items: [invoice, invoice] })), false);
+  assert.equal(isInvoiceHistory(withNotes({ total: 51, truncated: true, items: [...invoices.slice(0, 49), invoices[0]] })), false);
+  assert.equal(isInvoiceHistory(withNotes({ ...empty, adjustmentNotes: { total: 2, truncated: false, items: [adjustment, adjustment] } })), false);
   for (const bad of [
     { total: 1, truncated: true, items: [] },
     { total: 1, truncated: false, items: [] },
     { total: 0, truncated: true, items: [] },
-    { total: 51, truncated: true, items: Array(49).fill(invoice) },
-    { total: 51, truncated: false, items: Array(50).fill(invoice) },
-    { total: 50, truncated: true, items: Array(50).fill(invoice) },
-    { total: 51, truncated: true, items: Array(51).fill(invoice) },
+    { total: 51, truncated: true, items: invoices.slice(0, 49) },
+    { total: 51, truncated: false, items: invoices },
+    { total: 50, truncated: true, items: invoices },
+    { total: 51, truncated: true, items: [...invoices, invoice] },
     { ...empty, adjustmentNotes: { total: 1, truncated: true, items: [] } },
     { ...empty, adjustmentNotes: { total: 1, truncated: false, items: [] } },
     { ...empty, adjustmentNotes: { total: 0, truncated: true, items: [] } },
-    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(49).fill(adjustment) } },
-    { ...empty, adjustmentNotes: { total: 51, truncated: false, items: Array(50).fill(adjustment) } },
-    { ...empty, adjustmentNotes: { total: 50, truncated: true, items: Array(50).fill(adjustment) } },
-    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(51).fill(adjustment) } },
-  ]) assert.equal(isInvoiceHistory(bad), false);
-  assert.equal(isInvoiceHistory({ ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(50).fill(adjustment) } }), true);
-  assert.equal(isInvoiceHistory({ ...empty, adjustmentNotes: { total: 50, truncated: false, items: Array(50).fill(adjustment) } }), true);
+    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: adjustments.slice(0, 49) } },
+    { ...empty, adjustmentNotes: { total: 51, truncated: false, items: adjustments } },
+    { ...empty, adjustmentNotes: { total: 50, truncated: true, items: adjustments } },
+    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: [...adjustments, adjustment] } },
+  ]) assert.equal(isInvoiceHistory(withNotes(bad)), false);
+  assert.equal(isInvoiceHistory(withNotes({ ...empty, adjustmentNotes: { total: 51, truncated: true, items: adjustments } })), true);
+  assert.equal(isInvoiceHistory(withNotes({ ...empty, adjustmentNotes: { total: 50, truncated: false, items: adjustments } })), true);
 });
