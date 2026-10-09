@@ -50,4 +50,10 @@ The hold lifecycle contract includes focused executable parser cases for malform
 
 Successful public booking JSON must be an object. The payment recovery client also requires a known payment status and explicit boolean continuation flags; Checkout responses require a known state and a nonempty URL when Checkout is required. Malformed success payloads fail closed rather than appearing as payment processing. The customer receipt client verifies nested exact-money strings, dates, activity, and booking data before rendering, and shows its existing retry state on invalid responses. These browser checks do not replace server-side tenant, capability, booking, or provider-truth authorization.
 
-This scope does not yet include tax-document history and PDF response-shape verification. Full Node 24, Prisma, PostgreSQL, typecheck, lint, and production-build validation is still required in the documented environment.
+The tax-document history client now validates nested invoice and adjustment-note evidence before rendering. PDF downloads verify both the application/pdf media type and the %PDF- signature. This is defensive browser validation, not an independent guarantee of document authenticity or a substitute for server-side authorization. Full Node 24, Prisma, PostgreSQL, typecheck, lint, and production-build validation is still required in the documented environment.
+
+## Public tax-document and PDF response checks
+
+The customer tax-document view rejects malformed successful history, invoice lines, seller/buyer identity, exact-money strings, adjustment direction/reason, and pagination metadata before rendering. PDF downloads require an `application/pdf` response and a `%PDF-` file signature before a browser download is created. Invalid responses show the existing retry/error UI without presenting arbitrary server content as a legal document. Same-tab booking capability changes continue to invalidate stale history and download responses.
+
+The focused `scripts/public-booking-document-shape-validation-contract.test.mjs` executes the production TypeScript validators against valid and invalid nested fixtures. Complete Node 24, Prisma, PostgreSQL, lint, typecheck, and production-build validation remains outstanding in the documented environment.

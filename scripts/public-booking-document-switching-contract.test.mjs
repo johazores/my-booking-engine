@@ -29,3 +29,16 @@ test('stale PDF responses cannot create a customer download', () => {
   assert.match(documents, /const blob = await response\.blob\(\);\s*if \(!isCurrent\(\)\) return;/);
   assert.match(documents, /if \(isCurrent\(\)\) anchor\.click\(\)/);
 });
+
+test('malformed public legal documents cannot enter the customer render state', () => {
+  assert.match(documents, /function isInvoiceHistory\(value: unknown\): value is InvoiceHistory/);
+  assert.match(documents, /value\.items\.every\(isTaxInvoice\)/);
+  assert.match(documents, /notes\.items\.every\(isAdjustmentNote\)/);
+  assert.match(documents, /if \(!isInvoiceHistory\(data\)\) throw new Error/);
+});
+
+test('PDF downloads reject incorrect media type and invalid PDF signatures', () => {
+  assert.match(documents, /response\.headers\.get\('content-type'\)/);
+  assert.match(documents, /'application\/pdf'/);
+  assert.match(documents, /blob\.slice\(0, 5\)\.text\(\) !== '%PDF-'/);
+});

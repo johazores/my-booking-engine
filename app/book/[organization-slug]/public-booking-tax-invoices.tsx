@@ -115,6 +115,77 @@ function adjustmentNoteStatement(note: PublicAdjustmentNote) {
     : 'This decreasing adjustment records the applied commercial booking amendment against the taxable sale shown on the original tax invoice. The original tax invoice remains unchanged.';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isMinor(value: unknown): value is string {
+  return typeof value === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(value);
+}
+
+function isDate(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)
+    && Number.isFinite(Date.parse(value));
+}
+
+function isParty(value: unknown): value is InvoiceParty {
+  if (!isRecord(value) || typeof value.legalName !== 'string') return false;
+  return ['addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'countryCode']
+    .every((key) => value[key] === null || typeof value[key] === 'string')
+    && ['email', 'contactEmail'].every((key) => value[key] === undefined || value[key] === null || typeof value[key] === 'string');
+}
+
+function isTaxInvoice(value: unknown): value is PublicTaxInvoice {
+  if (!isRecord(value)) return false;
+  return value.documentTitle === 'Tax invoice'
+    && typeof value.documentNumber === 'string' && value.documentNumber.length > 0
+    && isDate(value.issuedAt)
+    && typeof value.currency === 'string' && /^[A-Z]{3}$/.test(value.currency)
+    && isParty(value.seller) && isParty(value.buyer)
+    && typeof value.supplierAbn === 'string'
+    && (value.buyerAbn === null || typeof value.buyerAbn === 'string')
+    && typeof value.taxableSaleStatement === 'string'
+    && ['subtotalBeforeGstMinor', 'gstMinor', 'totalMinor'].every((key) => isMinor(value[key]))
+    && Array.isArray(value.lines)
+    && value.lines.every((line: unknown) => isRecord(line)
+      && typeof line.description === 'string'
+      && typeof line.quantity === 'number' && Number.isSafeInteger(line.quantity) && line.quantity > 0
+      && isMinor(line.amountMinor));
+}
+
+function isAdjustmentNote(value: unknown): value is PublicAdjustmentNote {
+  if (!isRecord(value)) return false;
+  return value.documentTitle === 'Adjustment note'
+    && typeof value.documentNumber === 'string' && value.documentNumber.length > 0
+    && isDate(value.issuedAt) && isDate(value.sourceTaxInvoiceIssuedAt)
+    && typeof value.currency === 'string' && /^[A-Z]{3}$/.test(value.currency)
+    && typeof value.sourceTaxInvoiceNumber === 'string'
+    && isParty(value.seller) && isParty(value.buyer)
+    && typeof value.supplierAbn === 'string'
+    && (value.adjustmentType === 'Decreasing adjustment' || value.adjustmentType === 'Increasing adjustment')
+    && (value.adjustmentReason === 'Booking cancellation' || value.adjustmentReason === 'Commercial booking amendment')
+    && (value.adjustmentReason !== 'Booking cancellation' || value.adjustmentType === 'Decreasing adjustment')
+    && ['priceBeforeAdjustmentMinor', 'priceAfterAdjustmentMinor', 'decreaseSubtotalMinor',
+      'decreaseGstMinor', 'decreaseTotalMinor', 'increaseSubtotalMinor', 'increaseGstMinor',
+      'increaseTotalMinor'].every((key) => isMinor(value[key]));
+}
+
+function isInvoiceHistory(value: unknown): value is InvoiceHistory {
+  if (!isRecord(value)) return false;
+  if (typeof value.total !== 'number' || !Number.isSafeInteger(value.total) || value.total < 0
+    || typeof value.truncated !== 'boolean' || !Array.isArray(value.items)
+    || value.total < value.items.length
+    || !value.items.every(isTaxInvoice)) return false;
+  if (value.adjustmentNotes === undefined) return true;
+  const notes = value.adjustmentNotes;
+  return isRecord(notes)
+    && typeof notes.total === 'number' && Number.isSafeInteger(notes.total) && notes.total >= 0
+    && typeof notes.truncated === 'boolean'
+    && Array.isArray(notes.items) && notes.total >= notes.items.length
+    && notes.items.every(isAdjustmentNote);
+}
+
 export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlug: string }) {
   const bookingCapability = usePublicBookingDocumentCapability(organizationSlug);
   const [historyState, setHistoryState] = useState<{ capability: string; value: InvoiceHistory } | null>(null);
@@ -147,8 +218,10 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
         setErrorState({ capability: bookingCapability, message: 'Issued tax documents could not be verified right now.' });
         return;
       }
-      const data = await response.json() as InvoiceHistory;
-      if (isCurrent()) setHistoryState({ capability: bookingCapability, value: data });
+      const data: unknown = await response.json();
+      if (!isCurrent()) return;
+      if (!isInvoiceHistory(data)) throw new Error('Malformed tax document history response');
+      setHistoryState({ capability: bookingCapability, value: data });
     } catch {
       if (isCurrent()) setErrorState({ capability: bookingCapability, message: 'Issued tax documents could not be loaded right now.' });
     } finally {
@@ -181,7 +254,14 @@ export function PublicBookingTaxInvoices({ organizationSlug }: { organizationSlu
           : `The ${downloadLabel(kind)} PDF could not be prepared right now.` });
         return;
       }
+      if (response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== 'application/pdf') {
+        throw new Error('Unexpected PDF response content type');
+      }
       const blob = await response.blob();
+      if (!isCurrent()) return;
+      if (blob.size < 5 || await blob.slice(0, 5).text() !== '%PDF-') {
+        throw new Error('Invalid PDF response signature');
+      }
       if (!isCurrent()) return;
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
