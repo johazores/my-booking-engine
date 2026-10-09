@@ -4,6 +4,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
   assertPaymentReceiptBookingSnapshot,
+  assertPaymentReceiptSettlementState,
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
   PaymentReceiptEvidenceError,
@@ -65,22 +66,17 @@ export async function getBookingPaymentReceipt(input: {
   }
 
   let safeTransactions;
+  let settlement;
   try {
     assertPaymentReceiptBookingSnapshot(booking);
     safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
+    settlement = summarizeSuccessfulPaymentActivity(safeTransactions, booking.paymentStatus);
+    assertPaymentReceiptSettlementState(booking.paymentStatus, booking.totalMinor, settlement);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) {
       throw new PaymentConflictError(error.message);
     }
     throw error;
-  }
-  const settlement = summarizeSuccessfulPaymentActivity(safeTransactions, booking.paymentStatus);
-
-  if (settlement.capturedMinor <= 0n) {
-    throw new PaymentConflictError('No successful captured payment is available for this receipt.');
-  }
-  if (settlement.refundedMinor > settlement.capturedMinor) {
-    throw new PaymentConflictError('Persisted refund activity exceeds captured payment activity.');
   }
 
   return {

@@ -9,6 +9,7 @@ import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-rece
 import {
   buildCustomerSettlementEntries,
   assertPaymentReceiptBookingSnapshot,
+  assertPaymentReceiptSettlementState,
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
   PaymentReceiptEvidenceError,
@@ -89,17 +90,15 @@ export async function getPublicBookingPaymentReceipt(input: {
   }
 
   let safeTransactions;
+  let settlement;
   try {
     assertPaymentReceiptBookingSnapshot(booking);
     safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
+    settlement = summarizeSuccessfulPaymentActivity(safeTransactions, booking.paymentStatus);
+    assertPaymentReceiptSettlementState(booking.paymentStatus, booking.totalMinor, settlement);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) throw new PaymentConflictError(error.message);
     throw error;
-  }
-
-  const settlement = summarizeSuccessfulPaymentActivity(safeTransactions, booking.paymentStatus);
-  if (settlement.capturedMinor <= 0n || settlement.refundedMinor > settlement.capturedMinor) {
-    throw new PaymentConflictError('Successful payment evidence is not sufficient for a receipt.');
   }
 
   return Object.freeze({

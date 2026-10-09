@@ -39,7 +39,7 @@ const validReceipt = {
   documentType: 'PAYMENT_RECEIPT', receiptNumber: 'SF-1234', issuedAt: '2026-10-08T12:00:00Z',
   organization: { name: 'Example Pty Ltd' },
   booking: {
-    currency: 'AUD', arrivalDate: '2026-10-10', departureDate: '2026-10-12',
+    currency: 'AUD', paymentStatus: 'PAID', arrivalDate: '2026-10-10', departureDate: '2026-10-12',
     roomTypeName: 'Standard', ratePlanName: 'Flexible',
     accommodationSubtotalMinor: '10000', taxTotalMinor: '1000',
     feeTotalMinor: '0', addonTotalMinor: '0', totalMinor: '11000',
@@ -87,4 +87,30 @@ test('staff and public receipt services enforce the same persisted snapshot guar
     const source = await readFile(new URL(path, import.meta.url), 'utf8');
     assert.match(source, /assertPaymentReceiptBookingSnapshot\(booking\)/);
   }
+});
+
+test('public receipt rejects settlement totals inconsistent with the persisted payment status', () => {
+  for (const paymentStatus of ['REFUNDED', 'PARTIALLY_REFUNDED', 'AUTHORIZED']) {
+    assert.equal(isPublicReceipt({
+      ...validReceipt, booking: { ...validReceipt.booking, paymentStatus },
+    }), false);
+  }
+  assert.equal(isPublicReceipt({
+    ...validReceipt,
+    booking: { ...validReceipt.booking, paymentStatus: 'PARTIALLY_REFUNDED' },
+    settlement: { capturedMinor: '11000', refundedMinor: '3000', netPaidMinor: '8000' },
+    activity: [
+      { kind: 'PAYMENT', amountMinor: '11000', createdAt: '2026-10-08T10:00:00Z' },
+      { kind: 'REFUND', amountMinor: '3000', createdAt: '2026-10-08T11:00:00Z' },
+    ],
+  }), true);
+  assert.equal(isPublicReceipt({
+    ...validReceipt,
+    booking: { ...validReceipt.booking, paymentStatus: 'REFUNDED' },
+    settlement: { capturedMinor: '11000', refundedMinor: '11000', netPaidMinor: '0' },
+    activity: [
+      { kind: 'PAYMENT', amountMinor: '11000', createdAt: '2026-10-08T10:00:00Z' },
+      { kind: 'REFUND', amountMinor: '11000', createdAt: '2026-10-08T11:00:00Z' },
+    ],
+  }), true);
 });

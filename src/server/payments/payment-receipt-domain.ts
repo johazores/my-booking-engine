@@ -50,6 +50,40 @@ export function assertPaymentReceiptBookingSnapshot(booking: PaymentReceiptBooki
   }
 }
 
+export type PaymentReceiptSettlementSnapshot = Readonly<{
+  capturedMinor: bigint;
+  refundedMinor: bigint;
+  netPaidMinor: bigint;
+}>;
+
+/** Do not publish a settled receipt when the booking state contradicts persisted money. */
+export function assertPaymentReceiptSettlementState(
+  paymentStatus: string,
+  bookingTotalMinor: bigint,
+  settlement: PaymentReceiptSettlementSnapshot,
+): void {
+  const { capturedMinor, refundedMinor, netPaidMinor } = settlement;
+  if (
+    !isReceiptEligiblePaymentStatus(paymentStatus)
+    || typeof bookingTotalMinor !== 'bigint' || bookingTotalMinor <= 0n
+    || typeof capturedMinor !== 'bigint' || capturedMinor <= 0n
+    || typeof refundedMinor !== 'bigint' || refundedMinor < 0n || refundedMinor > capturedMinor
+    || typeof netPaidMinor !== 'bigint' || netPaidMinor !== capturedMinor - refundedMinor
+  ) {
+    throw new PaymentReceiptEvidenceError('Payment receipt settlement evidence is inconsistent.');
+  }
+
+  const reconciled = paymentStatus === 'PAID'
+    ? netPaidMinor === bookingTotalMinor
+    : paymentStatus === 'PARTIALLY_REFUNDED'
+      ? refundedMinor > 0n && netPaidMinor > 0n && netPaidMinor < bookingTotalMinor
+      : refundedMinor > 0n && netPaidMinor === 0n;
+
+  if (!reconciled) {
+    throw new PaymentReceiptEvidenceError('Booking payment status does not match settled receipt money.');
+  }
+}
+
 export function buildPaymentReceiptNumber(bookingId: string): string {
   return `SF-${bookingId.replaceAll('-', '').slice(0, 16).toUpperCase()}`;
 }
@@ -62,6 +96,9 @@ export function sanitizeSuccessfulPaymentTransactions(
   transactions: PaymentReceiptTransaction[],
   expectedCurrency: string,
 ): PaymentReceiptTransaction[] {
+  const seenSettlements = new Set<string>();
+  const seenRefunds = new Set<string>();
+  const seenAuthorizations = new Set<string>();
   const safeTransactions = transactions
     .filter((transaction) => transaction.status === 'SUCCEEDED')
     .map((transaction) => {
@@ -71,10 +108,22 @@ export function sanitizeSuccessfulPaymentTransactions(
       if (transaction.amountMinor <= 0n) {
         throw new PaymentReceiptEvidenceError('Successful payment activity must have a positive amount.');
       }
-      return {
-        ...transaction,
-        providerReference: transaction.providerReference?.startsWith('sf_claim_') ? null : transaction.providerReference,
-      };
+      if (
+        typeof transaction.providerCode !== 'string' || !transaction.providerCode.trim()
+        || typeof transaction.providerReference !== 'string' || !transaction.providerReference.trim()
+        || transaction.providerReference.startsWith('sf_claim_')
+      ) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity is missing verified provider identity.');
+      }
+      const referenceKey = `${transaction.providerCode}\u001f${transaction.providerReference}`;
+      const seen = transaction.kind === 'REFUND'
+        ? seenRefunds
+        : transaction.kind === 'AUTHORIZATION' ? seenAuthorizations : seenSettlements;
+      if (seen.has(referenceKey)) {
+        throw new PaymentReceiptEvidenceError('Successful payment activity contains a duplicate provider operation.');
+      }
+      seen.add(referenceKey);
+      return { ...transaction };
     });
 
   return safeTransactions;

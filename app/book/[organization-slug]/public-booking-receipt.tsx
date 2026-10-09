@@ -10,6 +10,7 @@ type PublicReceipt = {
   organization: { name: string };
   booking: {
     currency: string;
+    paymentStatus: 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
     arrivalDate: string;
     departureDate: string;
     roomTypeName: string;
@@ -68,6 +69,17 @@ function hasConsistentSettlementMoney(value: Record<string, unknown>): boolean {
 }
 
 
+function hasConsistentPaymentState(value: Record<string, unknown>): boolean {
+  const booking = value.booking as PublicReceipt['booking'];
+  const settlement = value.settlement as PublicReceipt['settlement'];
+  const net = BigInt(settlement.netPaidMinor);
+  const refunded = BigInt(settlement.refundedMinor);
+  const total = BigInt(booking.totalMinor);
+  if (booking.paymentStatus === 'PAID') return net === total;
+  if (booking.paymentStatus === 'PARTIALLY_REFUNDED') return refunded > 0n && net > 0n && net < total;
+  return booking.paymentStatus === 'REFUNDED' && refunded > 0n && net === 0n;
+}
+
 function hasConsistentBookingMoney(value: Record<string, unknown>): boolean {
   const booking = value.booking as PublicReceipt['booking'];
   return BigInt(booking.totalMinor) > 0n
@@ -96,6 +108,7 @@ function isPublicReceipt(value: unknown): value is PublicReceipt {
     && typeof value.organization.name === 'string'
     && typeof value.note === 'string'
     && typeof booking.currency === 'string' && /^[A-Z]{3}$/.test(booking.currency)
+    && (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'PARTIALLY_REFUNDED' || booking.paymentStatus === 'REFUNDED')
     && isDate(booking.arrivalDate) && isDate(booking.departureDate)
     && typeof booking.roomTypeName === 'string' && typeof booking.ratePlanName === 'string'
     && ['accommodationSubtotalMinor', 'taxTotalMinor', 'feeTotalMinor', 'addonTotalMinor', 'totalMinor']
@@ -106,6 +119,7 @@ function isPublicReceipt(value: unknown): value is PublicReceipt {
       && (entry.kind === 'PAYMENT' || entry.kind === 'REFUND')
       && isMinor(entry.amountMinor) && BigInt(entry.amountMinor) > 0n && isDate(entry.createdAt))
     && hasConsistentSettlementMoney(value)
+    && hasConsistentPaymentState(value)
     && hasConsistentBookingMoney(value)
     && hasConsistentReceiptChronology(value);
 }

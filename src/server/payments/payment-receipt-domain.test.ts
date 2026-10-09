@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   assertPaymentReceiptBookingSnapshot,
+  assertPaymentReceiptSettlementState,
   buildCustomerSettlementEntries,
   buildPaymentReceiptNumber,
   PaymentReceiptEvidenceError,
@@ -38,17 +39,28 @@ test('receipt number is deterministic and contains no UUID separators', () => {
   assert.equal(buildPaymentReceiptNumber('123e4567-e89b-12d3-a456-426614174000'), 'SF-123E4567E89B12D3');
 });
 
-test('sanitizer returns only successful activity and hides internal claim references', () => {
+test('sanitizer returns only verified successful provider activity', () => {
   const result = sanitizeSuccessfulPaymentTransactions([
     transaction({ id: 'pending', status: 'PENDING' }),
-    transaction({ id: 'claim', providerReference: 'sf_claim_private' }),
     transaction({ id: 'real', providerReference: 'pi_real' }),
   ], 'USD');
+  assert.deepEqual(result.map((item) => [item.id, item.providerReference]), [['real', 'pi_real']]);
+});
 
-  assert.deepEqual(result.map((item) => [item.id, item.providerReference]), [
-    ['claim', null],
-    ['real', 'pi_real'],
-  ]);
+test('successful internal claims and missing provider identities never become receipt money', () => {
+  for (const change of [
+    { providerReference: 'sf_claim_private' },
+    { providerReference: null },
+    { providerReference: '' },
+    { providerReference: '  ' },
+    { providerCode: '' },
+    { providerCode: '  ' },
+  ]) {
+    assert.throws(
+      () => sanitizeSuccessfulPaymentTransactions([transaction(change)], 'USD'),
+      PaymentReceiptEvidenceError,
+    );
+  }
 });
 
 test('sanitizer fails closed on successful currency drift or non-positive money', () => {
@@ -137,4 +149,47 @@ test('receipt booking evidence rejects invalid, reversed or zero-night stays', (
   ]) {
     assert.throws(() => assertPaymentReceiptBookingSnapshot({ ...receiptBookingSnapshot, ...change }), PaymentReceiptEvidenceError);
   }
+});
+
+test('receipt state must reconcile with the complete settled booking total', () => {
+  const paid = { capturedMinor: 11000n, refundedMinor: 0n, netPaidMinor: 11000n };
+  const partial = { capturedMinor: 11000n, refundedMinor: 3000n, netPaidMinor: 8000n };
+  const refunded = { capturedMinor: 11000n, refundedMinor: 11000n, netPaidMinor: 0n };
+  assert.doesNotThrow(() => assertPaymentReceiptSettlementState('PAID', 11000n, paid));
+  assert.doesNotThrow(() => assertPaymentReceiptSettlementState('PARTIALLY_REFUNDED', 11000n, partial));
+  assert.doesNotThrow(() => assertPaymentReceiptSettlementState('REFUNDED', 11000n, refunded));
+  for (const [status, money] of [
+    ['PAID', partial], ['PAID', { ...paid, netPaidMinor: 11001n }],
+    ['PARTIALLY_REFUNDED', paid], ['PARTIALLY_REFUNDED', refunded],
+    ['REFUNDED', partial], ['REFUNDED', paid],
+    ['AUTHORIZED', paid], ['PAID', { ...paid, capturedMinor: 0n }],
+    ['PAID', { ...paid, refundedMinor: 12000n }],
+  ] as const) {
+    assert.throws(() => assertPaymentReceiptSettlementState(status, 11000n, money), PaymentReceiptEvidenceError);
+  }
+});
+
+test('receipt rejects duplicate successful provider operations without double-counting money', () => {
+  for (const kind of ['CAPTURE', 'REFUND', 'AUTHORIZATION', 'OFFLINE_PAYMENT'] as const) {
+    const same = transaction({ kind, providerReference: 'provider-reference' });
+    assert.throws(
+      () => sanitizeSuccessfulPaymentTransactions([same, { ...same, id: 'second' }], 'USD'),
+      PaymentReceiptEvidenceError,
+    );
+  }
+  assert.throws(
+    () => sanitizeSuccessfulPaymentTransactions([
+      transaction({ kind: 'CAPTURE', providerReference: 'shared' }),
+      transaction({ kind: 'OFFLINE_PAYMENT', providerReference: 'shared' }),
+    ], 'USD'),
+    PaymentReceiptEvidenceError,
+  );
+  assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
+    transaction({ kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
+    transaction({ kind: 'CAPTURE', providerReference: 'pi_shared' }),
+  ], 'USD'));
+  assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
+    transaction({ providerCode: 'stripe', providerReference: 'same' }),
+    transaction({ providerCode: 'manual', providerReference: 'same' }),
+  ], 'USD'));
 });
