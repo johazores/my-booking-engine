@@ -12,6 +12,8 @@ Both authenticated staff receipts and public capability-owned receipts use the s
 
 The synchronous presentation ceiling is 1,000 successful transactions for one hospitality booking. Exactly 1,000 rows are accepted only after a one-row overflow probe proves the successful history is complete. Above that limit the reader fails closed. SF does not silently truncate a receipt or present a partial customer settlement history as complete.
 
+Every page is checked for its requested size and strictly increasing transaction IDs, including across cursor boundaries. Duplicate, missing, out-of-order, and repeated cursor evidence fails closed before it can be presented as complete receipt history. These guards supplement database uniqueness and the repeatable-read receipt snapshot.
+
 This 1,000-row successful-only boundary is intentionally separate from whole-ledger financial authority. Refund execution, commercial-amendment settlement, recovery, provider reconciliation, and legal-document decisions continue to use their stricter complete-history or exact-identity contracts. A receipt read is not financial authority merely because it observes successful payment rows.
 
 ## Authorization and tenant isolation

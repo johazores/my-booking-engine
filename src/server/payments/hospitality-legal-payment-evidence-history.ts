@@ -1,4 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { validatePaymentHistoryPage } from './payment-history-page-integrity.ts';
 import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 
 export const HOSPITALITY_LEGAL_PAYMENT_EVIDENCE_PAGE_SIZE = 100;
@@ -102,6 +103,16 @@ export async function readHospitalityLegalPaymentEvidenceHistory(input: Readonly
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     });
 
+    const pageError = validatePaymentHistoryPage(rows, cursorId, HOSPITALITY_LEGAL_PAYMENT_EVIDENCE_PAGE_SIZE);
+    if (pageError) {
+      return Object.freeze({
+        complete: false as const,
+        reason: pageError === 'page-size'
+          ? 'Hospitality legal payment evidence returned an oversized transaction page.'
+          : 'Hospitality legal payment evidence returned duplicate, missing, or out-of-order transaction IDs.',
+      });
+    }
+
     for (const row of rows) {
       const transaction = row as HospitalityLegalPaymentEvidenceTransaction;
       const invalidReason = validateLegalEvidenceRow(
@@ -111,6 +122,12 @@ export async function readHospitalityLegalPaymentEvidenceHistory(input: Readonly
       );
       if (invalidReason) {
         return Object.freeze({ complete: false as const, reason: invalidReason });
+      }
+      if (input.through && transaction.createdAt.getTime() > input.through.getTime()) {
+        return Object.freeze({
+          complete: false as const,
+          reason: 'Hospitality legal payment evidence exceeded the requested issue-time horizon.',
+        });
       }
       transactions.push(transaction);
     }

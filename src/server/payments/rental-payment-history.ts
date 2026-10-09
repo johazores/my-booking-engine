@@ -1,4 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { validatePaymentHistoryPage } from './payment-history-page-integrity.ts';
 import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 import { buildRentalPaymentIdempotencyKey, buildRentalPaymentRequestFingerprint } from './rental-payment-domain.ts';
 
@@ -154,6 +155,16 @@ export async function readRentalPaymentSettlementHistory(input: Readonly<{
       take: RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE,
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     });
+
+    const pageError = validatePaymentHistoryPage(rows, cursorId, RENTAL_PAYMENT_SETTLEMENT_PAGE_SIZE);
+    if (pageError) {
+      return Object.freeze({
+        complete: false as const,
+        reason: pageError === 'page-size'
+          ? 'Rental payment history returned an oversized transaction page.'
+          : 'Rental payment history returned duplicate, missing, or out-of-order transaction IDs.',
+      });
+    }
 
     for (const row of rows) {
       const evidenceRow = row as RentalPaymentHistoryRow;

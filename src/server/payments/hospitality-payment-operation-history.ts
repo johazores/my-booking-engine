@@ -1,4 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { validatePaymentHistoryPage } from './payment-history-page-integrity.ts';
 import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 
 export const HOSPITALITY_PAYMENT_OPERATION_PAGE_SIZE = 100;
@@ -83,6 +84,16 @@ export async function readHospitalityPaymentOperationHistory(input: Readonly<{
       take: HOSPITALITY_PAYMENT_OPERATION_PAGE_SIZE,
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     });
+
+    const pageError = validatePaymentHistoryPage(rows, cursorId, HOSPITALITY_PAYMENT_OPERATION_PAGE_SIZE);
+    if (pageError) {
+      return Object.freeze({
+        complete: false as const,
+        reason: pageError === 'page-size'
+          ? 'Hospitality payment operation history returned an oversized transaction page.'
+          : 'Hospitality payment operation history returned duplicate, missing, or out-of-order transaction IDs.',
+      });
+    }
 
     for (const row of rows) {
       const transaction = row as HospitalityPaymentOperationTransaction;

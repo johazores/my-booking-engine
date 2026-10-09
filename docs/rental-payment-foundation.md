@@ -12,6 +12,8 @@ Database checks reject non-positive money, invalid currency/provider identity, m
 
 ## Bounded settlement reconciliation
 
+The bounded rental reader also rejects oversized pages and duplicate, missing, regressing, or repeated transaction IDs within and across cursor pages. It cannot treat malformed or repeated persistence results as complete settlement evidence. These checks supplement tenant-scoped database constraints and transaction authority.
+
 Every financial decision reads the complete tenant-owned payment/refund chain through bounded 100-row cursor pages. The current safety limit is 1,000 transactions. Exceeding that limit fails closed rather than making a payment, refund, or cancellation decision from truncated history.
 
 Rental-specific settlement remains intentionally stricter than the generic provider-neutral settlement model:

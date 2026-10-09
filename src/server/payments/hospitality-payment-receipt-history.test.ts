@@ -166,3 +166,35 @@ test('fails closed above the successful receipt safety limit', async () => {
   if (result.complete) return;
   assert.match(result.reason, /exceeds the 1000-transaction presentation safety limit/i);
 });
+
+test('rejects duplicated transaction IDs rather than accepting repeated payment evidence', async () => {
+  const valid = row(1);
+  const result = await readHospitalityPaymentReceiptHistory({
+    transaction: { paymentTransaction: { async findMany() { return [valid, valid]; } } } as never,
+    organizationId: valid.organizationId,
+    bookingId: valid.bookingId,
+  });
+  assert.equal(result.complete, false);
+  if (!result.complete) assert.match(result.reason, /duplicate, missing, or out-of-order transaction IDs/i);
+});
+
+test('rejects repeated cursor pages and oversized payment evidence pages', async () => {
+  const page = Array.from({ length: HOSPITALITY_PAYMENT_RECEIPT_PAGE_SIZE }, (_, index) => row(index + 1));
+  let calls = 0;
+  const repeated = await readHospitalityPaymentReceiptHistory({
+    transaction: { paymentTransaction: { async findMany() { calls += 1; return page; } } } as never,
+    organizationId: page[0]!.organizationId,
+    bookingId: page[0]!.bookingId,
+  });
+  assert.equal(repeated.complete, false);
+  if (!repeated.complete) assert.match(repeated.reason, /out-of-order transaction IDs/i);
+  assert.equal(calls, 2);
+
+  const oversized = await readHospitalityPaymentReceiptHistory({
+    transaction: { paymentTransaction: { async findMany() { return [...page, row(101)]; } } } as never,
+    organizationId: page[0]!.organizationId,
+    bookingId: page[0]!.bookingId,
+  });
+  assert.equal(oversized.complete, false);
+  if (!oversized.complete) assert.match(oversized.reason, /oversized transaction page/i);
+});
