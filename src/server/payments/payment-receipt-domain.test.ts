@@ -180,16 +180,16 @@ test('receipt rejects duplicate successful provider operations without double-co
   assert.throws(
     () => sanitizeSuccessfulPaymentTransactions([
       transaction({ kind: 'CAPTURE', providerReference: 'shared' }),
-      transaction({ kind: 'OFFLINE_PAYMENT', providerReference: 'shared' }),
+      transaction({ id: 'offline', kind: 'OFFLINE_PAYMENT', providerReference: 'shared' }),
     ], 'USD'),
     PaymentReceiptEvidenceError,
   );
   assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
     transaction({ kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
-    transaction({ kind: 'CAPTURE', providerReference: 'pi_shared' }),
+    transaction({ id: 'capture', kind: 'CAPTURE', providerReference: 'pi_shared' }),
   ], 'USD'));
   assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
     transaction({ providerCode: 'stripe', providerReference: 'same' }),
-    transaction({ providerCode: 'manual', providerReference: 'same' }),
+    transaction({ id: 'manual', providerCode: 'manual', providerReference: 'same' }),
   ], 'USD'));
 });
