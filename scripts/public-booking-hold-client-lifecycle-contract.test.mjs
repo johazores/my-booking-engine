@@ -37,11 +37,13 @@ test('public response parser rejects malformed response shapes without leaking p
   const runnable = declaration
     .replace('response: Response', 'response')
     .replace('const parsed: unknown', 'const parsed')
-    .replace(' as Record<string, unknown>', '');
+    .replace(' as Record<string, unknown>', '')
+    .replace('const data = parsed', 'const data = parsed');
   const readJson = new Function('return (' + runnable + ')')();
-  assert.deepEqual(await readJson({ ok: true, json: async () => null }), {});
-  assert.deepEqual(await readJson({ ok: true, json: async () => [] }), {});
-  assert.deepEqual(await readJson({ ok: true, json: async () => 'not-an-object' }), {});
+  await assert.rejects(readJson({ ok: true, json: async () => null }), /could not be verified/);
+  await assert.rejects(readJson({ ok: true, json: async () => [] }), /could not be verified/);
+  await assert.rejects(readJson({ ok: true, json: async () => 'not-an-object' }), /could not be verified/);
+  await assert.rejects(readJson({ ok: true, json: async () => { throw new SyntaxError('bad json'); } }), /could not be verified/);
   await assert.rejects(readJson({ ok: false, json: async () => null }), /This booking request could not be completed/);
   await assert.rejects(readJson({ ok: false, json: async () => ({ message: 12 }) }), /This booking request could not be completed/);
   await assert.rejects(readJson({ ok: false, json: async () => ({ message: '  ' }) }), /This booking request could not be completed/);

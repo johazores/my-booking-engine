@@ -42,3 +42,11 @@ test('late confirmation cannot overwrite a booking that became active during the
   assert.match(source, /bookingCreated = true;\s*clearHoldClientState\(\);\s*if \(readPublicBookingDocumentCapability\(organizationSlug\) !== capabilityAtConfirmationStart\)/);
   assert.match(source, /setPaymentBookingCapability\(result\.bookingCapability\);\s*setStage\('payment'\);\s*return;\s*}\s*await startCheckout\(result\.bookingCapability/);
 });
+
+test('public payment recovery rejects unknown successful response states', () => {
+  assert.match(source, /function isPaymentRecoveryStatus\(value: unknown\)/);
+  assert.match(source, /if \(!isPaymentRecoveryStatus\(result\)\) throw new Error/);
+  assert.match(source, /function isCheckoutResponse\(value: unknown\)/);
+  assert.equal((source.match(/if \(!isCheckoutResponse\(result\)\) throw new Error/g) || []).length, 2);
+  assert.doesNotMatch(source, /typeof result\.state === 'string' \? result\.state : 'PROCESSING'/);
+});

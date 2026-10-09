@@ -40,6 +40,41 @@ function formatMinor(amountMinor: string, currency: string) {
     : `${currency} ${whole.toString()}.${fraction.toString().padStart(fractionDigits, '0')}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isMinor(value: unknown): value is string {
+  return typeof value === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(value);
+}
+
+function isDate(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)
+    && Number.isFinite(Date.parse(value));
+}
+
+function isPublicReceipt(value: unknown): value is PublicReceipt {
+  if (!isRecord(value) || !isRecord(value.organization) || !isRecord(value.booking) || !isRecord(value.settlement)) return false;
+  const booking = value.booking;
+  const settlement = value.settlement;
+  return value.documentType === 'PAYMENT_RECEIPT'
+    && typeof value.receiptNumber === 'string' && value.receiptNumber.length > 0
+    && isDate(value.issuedAt)
+    && typeof value.organization.name === 'string'
+    && typeof value.note === 'string'
+    && typeof booking.currency === 'string' && /^[A-Z]{3}$/.test(booking.currency)
+    && isDate(booking.arrivalDate) && isDate(booking.departureDate)
+    && typeof booking.roomTypeName === 'string' && typeof booking.ratePlanName === 'string'
+    && ['accommodationSubtotalMinor', 'taxTotalMinor', 'feeTotalMinor', 'addonTotalMinor', 'totalMinor']
+      .every((key) => isMinor(booking[key]))
+    && ['capturedMinor', 'refundedMinor', 'netPaidMinor'].every((key) => isMinor(settlement[key]))
+    && Array.isArray(value.activity)
+    && value.activity.every((entry: unknown) => isRecord(entry)
+      && (entry.kind === 'PAYMENT' || entry.kind === 'REFUND')
+      && isMinor(entry.amountMinor) && isDate(entry.createdAt));
+}
+
 export function PublicBookingSettlementReceipt({ organizationSlug }: { organizationSlug: string }) {
   const bookingCapability = usePublicBookingDocumentCapability(organizationSlug);
   const [receiptState, setReceiptState] = useState<{ capability: string; value: PublicReceipt } | null>(null);
@@ -70,8 +105,10 @@ export function PublicBookingSettlementReceipt({ organizationSlug }: { organizat
         setErrorState({ capability: bookingCapability, message: 'Payment receipt could not be verified right now.' });
         return;
       }
-      const data = await response.json() as PublicReceipt;
-      if (isCurrent()) setReceiptState({ capability: bookingCapability, value: data });
+      const data: unknown = await response.json();
+      if (!isCurrent()) return;
+      if (!isPublicReceipt(data)) throw new Error('Malformed payment receipt response');
+      setReceiptState({ capability: bookingCapability, value: data });
     } catch {
       if (isCurrent()) setErrorState({ capability: bookingCapability, message: 'Payment receipt could not be loaded right now.' });
     } finally {

@@ -42,6 +42,12 @@ The dependency-free `scripts/public-booking-hold-client-lifecycle-contract.test.
 
 ## Malformed public response handling
 
-The browser's shared public booking response reader currently normalizes malformed, empty, null, array, and primitive JSON bodies to an empty object. Successful responses should instead fail closed; this remains pending validation and deployment. It preserves only nonblank string error messages on unsuccessful HTTP responses, otherwise showing a safe generic request error. This prevents raw JavaScript property-access exceptions from reaching customer-facing hold, confirmation, Checkout, and recovery states. The existing server-side tenant, capability, and payment-authority checks remain unchanged.
+The browser's shared public booking response reader rejects malformed, empty, null, array, and primitive successful JSON bodies instead of converting them into a synthetic payment-processing state. It preserves only nonblank string error messages on unsuccessful HTTP responses, otherwise showing a safe generic request error. This prevents raw JavaScript property-access exceptions from reaching customer-facing hold, confirmation, Checkout, and recovery states. The existing server-side tenant, capability, and payment-authority checks remain unchanged.
 
 The hold lifecycle contract includes focused executable parser cases for malformed success and error responses. Full repository Node 24 and PostgreSQL validation is still pending in an appropriately provisioned environment.
+
+## Successful payment and receipt response validation
+
+Successful public booking JSON must be an object. The payment recovery client also requires a known payment status and explicit boolean continuation flags; Checkout responses require a known state and a nonempty URL when Checkout is required. Malformed success payloads fail closed rather than appearing as payment processing. The customer receipt client verifies nested exact-money strings, dates, activity, and booking data before rendering, and shows its existing retry state on invalid responses. These browser checks do not replace server-side tenant, capability, booking, or provider-truth authorization.
+
+This scope does not yet include tax-document history and PDF response-shape verification. Full Node 24, Prisma, PostgreSQL, typecheck, lint, and production-build validation is still required in the documented environment.

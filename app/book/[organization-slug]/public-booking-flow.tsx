@@ -57,14 +57,39 @@ async function readJson(response: Response) {
   const parsed: unknown = await response.json().catch(() => null);
   const data = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
-    : {};
+    : null;
   if (!response.ok) {
-    const message = typeof data.message === 'string' && data.message.trim()
+    const message = typeof data?.message === 'string' && data.message.trim()
       ? data.message
       : 'This booking request could not be completed.';
     throw new Error(message);
   }
+  // Successful public booking responses must be JSON objects, never synthetic status.
+  if (!data) throw new Error('This booking response could not be verified. Please try again.');
   return data;
+}
+
+function isPaymentRecoveryStatus(value: unknown): value is {
+  state: 'PAYMENT_REQUIRED' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
+  canResumeCheckout: boolean;
+  canContinuePayment: boolean;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const status = value as Record<string, unknown>;
+  return typeof status.state === 'string'
+    && ['PAYMENT_REQUIRED', 'PROCESSING', 'PAID', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(status.state)
+    && typeof status.canResumeCheckout === 'boolean'
+    && typeof status.canContinuePayment === 'boolean';
+}
+
+function isCheckoutResponse(value: unknown): value is {
+  state: 'CHECKOUT_REQUIRED' | 'PAID' | 'PROCESSING';
+  checkoutUrl?: string | null;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  return (result.state === 'CHECKOUT_REQUIRED' || result.state === 'PAID' || result.state === 'PROCESSING')
+    && (result.state !== 'CHECKOUT_REQUIRED' || (typeof result.checkoutUrl === 'string' && result.checkoutUrl.length > 0));
 }
 
 function formatMinor(amountMinor: string, currency: string) {
@@ -176,9 +201,10 @@ function PublicBookingRecoveryPanel({
       });
       const result = await readJson(response) as PaymentRecoveryStatus;
       if (!isCurrent()) return;
-      const nextState = typeof result.state === 'string' ? result.state : 'PROCESSING';
-      const canResumeCheckout = result.canResumeCheckout === true;
-      const canContinue = result.canContinuePayment === true;
+      if (!isPaymentRecoveryStatus(result)) throw new Error('Payment status response could not be verified.');
+      const nextState = result.state;
+      const canResumeCheckout = result.canResumeCheckout;
+      const canContinue = result.canContinuePayment;
       setState(nextState);
       setCanContinuePayment(canContinue);
       if (nextState === 'PAID') {
@@ -249,6 +275,7 @@ function PublicBookingRecoveryPanel({
       });
       const result = await readJson(response) as { state?: unknown; checkoutUrl?: unknown };
       if (!isActive(capability)) return;
+      if (!isCheckoutResponse(result)) throw new Error('Payment response could not be verified.');
       if (result.state === 'CHECKOUT_REQUIRED' && typeof result.checkoutUrl === 'string') {
         const target = new URL(result.checkoutUrl);
         if (target.protocol !== 'https:') throw new Error('Secure payment redirect was invalid.');
@@ -450,6 +477,7 @@ export function PublicBookingOfferCard({
     const result = await readJson(response) as { state?: unknown; checkoutUrl?: unknown };
     // An older offer's Checkout response must not redirect away from the active booking.
     if (readPublicBookingDocumentCapability(organizationSlug) !== bookingCapability) return;
+    if (!isCheckoutResponse(result)) throw new Error('Payment response could not be verified.');
     if (result.state === 'CHECKOUT_REQUIRED' && typeof result.checkoutUrl === 'string') {
       const target = new URL(result.checkoutUrl);
       if (target.protocol !== 'https:') throw new Error('Secure payment redirect was invalid.');
@@ -462,7 +490,7 @@ export function PublicBookingOfferCard({
       setMessage('Payment confirmed. Your reservation is confirmed.');
       return;
     }
-    setPaymentState(typeof result.state === 'string' ? result.state : 'PROCESSING');
+    setPaymentState(result.state);
     setMessage('Your reservation was created and payment is being verified.');
   }
 
