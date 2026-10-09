@@ -57,3 +57,5 @@ Full repository Node 24 typecheck/lint/test/build, Prisma checks, and PostgreSQL
 ## Public browser document arithmetic defense
 
 The public document-history view rejects invoice line/subtotal/GST/total inconsistencies, directionally inconsistent adjustment-note effects, inactive-direction amounts, invalid cancellation balances, source-invoice chronology violations, and normalized impossible calendar dates. This is defensive presentation validation; immutable issued evidence and server PDF authority remain unchanged. The document-shape regression suite covers these cases.
+
+The public history response is an unpaged first-page projection capped at 50 records per document type. The browser now requires exactly `min(total, 50)` invoice and adjustment-note entries and checks that `truncated` agrees with the returned count. Contradictory metadata, missing first-page rows, or an over-limit response fails closed instead of rendering a misleading incomplete legal-document history.

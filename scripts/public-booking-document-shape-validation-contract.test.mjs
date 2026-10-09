@@ -101,3 +101,30 @@ test('adjustment notes reject invalid direction, effects, chronology and arithme
     { ...increasing, decreaseTotalMinor: '1' },
   ]) assert.equal(isAdjustmentNote(bad), false);
 });
+
+test('document history requires exact bounded first-page counts and truthful truncation', () => {
+  const empty = { total: 0, truncated: false, items: [] };
+  assert.equal(isInvoiceHistory(empty), true);
+  assert.equal(isInvoiceHistory({ total: 1, truncated: false, items: [invoice] }), true);
+  assert.equal(isInvoiceHistory({ total: 51, truncated: true, items: Array(50).fill(invoice) }), true);
+  assert.equal(isInvoiceHistory({ total: 50, truncated: false, items: Array(50).fill(invoice) }), true);
+
+  for (const bad of [
+    { total: 1, truncated: true, items: [] },
+    { total: 1, truncated: false, items: [] },
+    { total: 0, truncated: true, items: [] },
+    { total: 51, truncated: true, items: Array(49).fill(invoice) },
+    { total: 51, truncated: false, items: Array(50).fill(invoice) },
+    { total: 50, truncated: true, items: Array(50).fill(invoice) },
+    { total: 51, truncated: true, items: Array(51).fill(invoice) },
+    { ...empty, adjustmentNotes: { total: 1, truncated: true, items: [] } },
+    { ...empty, adjustmentNotes: { total: 1, truncated: false, items: [] } },
+    { ...empty, adjustmentNotes: { total: 0, truncated: true, items: [] } },
+    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(49).fill(adjustment) } },
+    { ...empty, adjustmentNotes: { total: 51, truncated: false, items: Array(50).fill(adjustment) } },
+    { ...empty, adjustmentNotes: { total: 50, truncated: true, items: Array(50).fill(adjustment) } },
+    { ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(51).fill(adjustment) } },
+  ]) assert.equal(isInvoiceHistory(bad), false);
+  assert.equal(isInvoiceHistory({ ...empty, adjustmentNotes: { total: 51, truncated: true, items: Array(50).fill(adjustment) } }), true);
+  assert.equal(isInvoiceHistory({ ...empty, adjustmentNotes: { total: 50, truncated: false, items: Array(50).fill(adjustment) } }), true);
+});

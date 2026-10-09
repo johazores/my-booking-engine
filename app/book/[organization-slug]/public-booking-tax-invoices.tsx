@@ -207,14 +207,17 @@ function isInvoiceHistory(value: unknown): value is InvoiceHistory {
   if (!isRecord(value)) return false;
   if (typeof value.total !== 'number' || !Number.isSafeInteger(value.total) || value.total < 0
     || typeof value.truncated !== 'boolean' || !Array.isArray(value.items)
-    || value.total < value.items.length
+    || value.items.length !== Math.min(value.total, 50)
+    || value.truncated !== (value.total > value.items.length)
     || !value.items.every(isTaxInvoice)) return false;
   if (value.adjustmentNotes === undefined) return true;
   const notes = value.adjustmentNotes;
   return isRecord(notes)
     && typeof notes.total === 'number' && Number.isSafeInteger(notes.total) && notes.total >= 0
     && typeof notes.truncated === 'boolean'
-    && Array.isArray(notes.items) && notes.total >= notes.items.length
+    && Array.isArray(notes.items)
+    && notes.items.length === Math.min(notes.total, 50)
+    && notes.truncated === (notes.total > notes.items.length)
     && notes.items.every(isAdjustmentNote);
 }
 
