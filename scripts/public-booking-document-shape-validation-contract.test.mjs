@@ -69,3 +69,35 @@ test('document history validates all entries and pagination metadata', () => {
     assert.equal(isInvoiceHistory(bad), false);
   }
 });
+
+
+test('tax invoice rejects contradictory monetary evidence and impossible calendar dates', () => {
+  for (const bad of [
+    { ...invoice, subtotalBeforeGstMinor: '9999' },
+    { ...invoice, gstMinor: '999' },
+    { ...invoice, totalMinor: '10999' },
+    { ...invoice, lines: [{ description: 'Room', quantity: 1, amountMinor: '9999' }] },
+    { ...invoice, issuedAt: '2026-02-30T00:00:00Z' },
+  ]) assert.equal(isTaxInvoice(bad), false);
+});
+
+test('adjustment notes reject invalid direction, effects, chronology and arithmetic', () => {
+  const increasing = {
+    ...adjustment, adjustmentType: 'Increasing adjustment',
+    adjustmentReason: 'Commercial booking amendment',
+    priceBeforeAdjustmentMinor: '11000', priceAfterAdjustmentMinor: '12100',
+    decreaseSubtotalMinor: '0', decreaseGstMinor: '0', decreaseTotalMinor: '0',
+    increaseSubtotalMinor: '1000', increaseGstMinor: '100', increaseTotalMinor: '1100',
+  };
+  assert.equal(isAdjustmentNote(increasing), true);
+  for (const bad of [
+    { ...adjustment, priceAfterAdjustmentMinor: '1' },
+    { ...adjustment, decreaseGstMinor: '999' },
+    { ...adjustment, increaseTotalMinor: '1' },
+    { ...adjustment, issuedAt: '2026-10-07T00:00:00Z' },
+    { ...adjustment, sourceTaxInvoiceIssuedAt: '2026-02-30T00:00:00Z' },
+    { ...increasing, increaseGstMinor: '99' },
+    { ...increasing, priceAfterAdjustmentMinor: '12101' },
+    { ...increasing, decreaseTotalMinor: '1' },
+  ]) assert.equal(isAdjustmentNote(bad), false);
+});

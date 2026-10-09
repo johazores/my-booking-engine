@@ -53,3 +53,7 @@ Dependency-free adjustment-note renderer tests cover byte-for-byte determinism, 
 A generated commercial-amendment adjustment-note fixture was parsed with local `pdfinfo` and reported PDF 1.4, one A4 page, unencrypted, with no JavaScript.
 
 Full repository Node 24 typecheck/lint/test/build, Prisma checks, and PostgreSQL integration validation require the repository-supported Node 24 dependency checkout and an explicitly disposable database. GitHub Actions are not used.
+
+## Public browser document arithmetic defense
+
+The public document-history view rejects invoice line/subtotal/GST/total inconsistencies, directionally inconsistent adjustment-note effects, inactive-direction amounts, invalid cancellation balances, source-invoice chronology violations, and normalized impossible calendar dates. This is defensive presentation validation; immutable issued evidence and server PDF authority remain unchanged. The document-shape regression suite covers these cases.

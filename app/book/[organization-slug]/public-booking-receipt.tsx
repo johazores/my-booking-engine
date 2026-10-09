@@ -49,9 +49,22 @@ function isMinor(value: unknown): value is string {
 }
 
 function isDate(value: unknown): value is string {
-  return typeof value === 'string'
-    && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)
-    && Number.isFinite(Date.parse(value));
+  if (typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value.slice(0, 10);
+}
+
+function hasConsistentSettlementMoney(value: Record<string, unknown>): boolean {
+  const settlement = value.settlement as PublicReceipt['settlement'];
+  const activity = value.activity as PublicReceipt['activity'];
+  const captured = BigInt(settlement.capturedMinor);
+  const refunded = BigInt(settlement.refundedMinor);
+  const payments = activity.reduce((sum, entry) => sum + (entry.kind === 'PAYMENT' ? BigInt(entry.amountMinor) : 0n), 0n);
+  const refunds = activity.reduce((sum, entry) => sum + (entry.kind === 'REFUND' ? BigInt(entry.amountMinor) : 0n), 0n);
+  return captured > 0n && refunded <= captured
+    && captured - refunded === BigInt(settlement.netPaidMinor)
+    && payments === captured && refunds === refunded;
 }
 
 function isPublicReceipt(value: unknown): value is PublicReceipt {
@@ -72,7 +85,8 @@ function isPublicReceipt(value: unknown): value is PublicReceipt {
     && Array.isArray(value.activity)
     && value.activity.every((entry: unknown) => isRecord(entry)
       && (entry.kind === 'PAYMENT' || entry.kind === 'REFUND')
-      && isMinor(entry.amountMinor) && isDate(entry.createdAt));
+      && isMinor(entry.amountMinor) && BigInt(entry.amountMinor) > 0n && isDate(entry.createdAt))
+    && hasConsistentSettlementMoney(value);
 }
 
 export function PublicBookingSettlementReceipt({ organizationSlug }: { organizationSlug: string }) {

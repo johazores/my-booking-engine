@@ -15,3 +15,11 @@ test('public payment receipt has recoverable loading and retry states', () => {
   assert.match(receiptUi, /Try again/);
   assert.doesNotMatch(receiptUi, /setReceipt\(null\)/);
 });
+
+test('receipt client rejects inconsistent monetary and calendar evidence before rendering', () => {
+  assert.match(receiptUi, /function hasConsistentSettlementMoney\(value: Record<string, unknown>\)/);
+  assert.match(receiptUi, /captured - refunded === BigInt\(settlement\.netPaidMinor\)/);
+  assert.match(receiptUi, /payments === captured && refunds === refunded/);
+  assert.match(receiptUi, /hasConsistentSettlementMoney\(value\)/);
+  assert.match(receiptUi, /parsed\.toISOString\(\)\.slice\(0, 10\)/);
+});

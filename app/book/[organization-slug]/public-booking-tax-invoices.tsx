@@ -124,9 +124,10 @@ function isMinor(value: unknown): value is string {
 }
 
 function isDate(value: unknown): value is string {
-  return typeof value === 'string'
-    && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)
-    && Number.isFinite(Date.parse(value));
+  if (typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z)?$/.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value.slice(0, 10);
 }
 
 function isParty(value: unknown): value is InvoiceParty {
@@ -134,6 +135,35 @@ function isParty(value: unknown): value is InvoiceParty {
   return ['addressLine1', 'addressLine2', 'city', 'region', 'postalCode', 'countryCode']
     .every((key) => value[key] === null || typeof value[key] === 'string')
     && ['email', 'contactEmail'].every((key) => value[key] === undefined || value[key] === null || typeof value[key] === 'string');
+}
+
+function hasConsistentInvoiceMoney(value: Record<string, unknown>): boolean {
+  const lines = value.lines as PublicTaxInvoice['lines'];
+  const subtotal = BigInt(value.subtotalBeforeGstMinor as string);
+  return lines.length > 0 && subtotal > 0n
+    && lines.reduce((sum, line) => sum + BigInt(line.amountMinor), 0n) === subtotal
+    && subtotal + BigInt(value.gstMinor as string) === BigInt(value.totalMinor as string);
+}
+
+function hasConsistentAdjustmentMoney(value: Record<string, unknown>): boolean {
+  const before = BigInt(value.priceBeforeAdjustmentMinor as string);
+  const after = BigInt(value.priceAfterAdjustmentMinor as string);
+  const decreaseSubtotal = BigInt(value.decreaseSubtotalMinor as string);
+  const decreaseGst = BigInt(value.decreaseGstMinor as string);
+  const decreaseTotal = BigInt(value.decreaseTotalMinor as string);
+  const increaseSubtotal = BigInt(value.increaseSubtotalMinor as string);
+  const increaseGst = BigInt(value.increaseGstMinor as string);
+  const increaseTotal = BigInt(value.increaseTotalMinor as string);
+  if (Date.parse(value.issuedAt as string) < Date.parse(value.sourceTaxInvoiceIssuedAt as string)) return false;
+  if (value.adjustmentType === 'Decreasing adjustment') {
+    return before > after && before - after === decreaseTotal
+      && decreaseSubtotal + decreaseGst === decreaseTotal
+      && increaseSubtotal === 0n && increaseGst === 0n && increaseTotal === 0n
+      && (value.adjustmentReason !== 'Booking cancellation' || after === 0n);
+  }
+  return after > before && after - before === increaseTotal
+    && increaseSubtotal + increaseGst === increaseTotal
+    && decreaseSubtotal === 0n && decreaseGst === 0n && decreaseTotal === 0n;
 }
 
 function isTaxInvoice(value: unknown): value is PublicTaxInvoice {
@@ -151,7 +181,8 @@ function isTaxInvoice(value: unknown): value is PublicTaxInvoice {
     && value.lines.every((line: unknown) => isRecord(line)
       && typeof line.description === 'string'
       && typeof line.quantity === 'number' && Number.isSafeInteger(line.quantity) && line.quantity > 0
-      && isMinor(line.amountMinor));
+      && isMinor(line.amountMinor))
+    && hasConsistentInvoiceMoney(value);
 }
 
 function isAdjustmentNote(value: unknown): value is PublicAdjustmentNote {
@@ -168,7 +199,8 @@ function isAdjustmentNote(value: unknown): value is PublicAdjustmentNote {
     && (value.adjustmentReason !== 'Booking cancellation' || value.adjustmentType === 'Decreasing adjustment')
     && ['priceBeforeAdjustmentMinor', 'priceAfterAdjustmentMinor', 'decreaseSubtotalMinor',
       'decreaseGstMinor', 'decreaseTotalMinor', 'increaseSubtotalMinor', 'increaseGstMinor',
-      'increaseTotalMinor'].every((key) => isMinor(value[key]));
+      'increaseTotalMinor'].every((key) => isMinor(value[key]))
+    && hasConsistentAdjustmentMoney(value);
 }
 
 function isInvoiceHistory(value: unknown): value is InvoiceHistory {

@@ -43,3 +43,7 @@ Full repository validation, Prisma checks, PostgreSQL integration execution, and
 ## Same-tab booking changes
 
 The document capability store notifies mounted customer document views when a newly confirmed booking replaces the active capability. Receipt data, loading/error states, and late network responses are keyed to the capability that requested them; previously verified receipt details are not shown under a different booking's authority. Expected unavailable/not-ready responses clear that capability's receipt, while transient refresh errors may retain the last verified receipt for the same capability. This is browser presentation isolation in addition to (not instead of) the server's tenant/capability/ownership checks.
+
+## Public browser arithmetic defense
+
+The public receipt view now verifies captured/refunded/net-paid arithmetic and the complete customer-visible positive payment/refund activity before rendering a successful response. It rejects impossible normalized calendar dates and preserves the existing retry/error state for invalid responses. These checks do not replace server-side ledger, capability, tenant, or settlement authority. Source-contract coverage lives in `scripts/public-payment-receipt-ui-contract.test.mjs`; full Node 24 and database validation remains required.
