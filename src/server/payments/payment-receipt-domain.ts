@@ -18,6 +18,38 @@ export class PaymentReceiptEvidenceError extends Error {
   }
 }
 
+
+export type PaymentReceiptBookingSnapshot = Readonly<{
+  arrivalDate: Date;
+  departureDate: Date;
+  accommodationSubtotalMinor: bigint;
+  taxTotalMinor: bigint;
+  feeTotalMinor: bigint;
+  addonTotalMinor: bigint;
+  totalMinor: bigint;
+}>;
+
+/** Refuse receipts based on contradictory persisted booking money or stay dates. */
+export function assertPaymentReceiptBookingSnapshot(booking: PaymentReceiptBookingSnapshot): void {
+  if (!(booking.arrivalDate instanceof Date) || !Number.isFinite(booking.arrivalDate.getTime())
+    || !(booking.departureDate instanceof Date) || !Number.isFinite(booking.departureDate.getTime())
+    || booking.arrivalDate.getTime() >= booking.departureDate.getTime()) {
+    throw new PaymentReceiptEvidenceError('Booking receipt stay dates are inconsistent.');
+  }
+
+  const components = [
+    booking.accommodationSubtotalMinor,
+    booking.taxTotalMinor,
+    booking.feeTotalMinor,
+    booking.addonTotalMinor,
+  ];
+  if (components.some((amount) => typeof amount !== 'bigint' || amount < 0n)
+    || typeof booking.totalMinor !== 'bigint' || booking.totalMinor <= 0n
+    || components.reduce((total, amount) => total + amount, 0n) !== booking.totalMinor) {
+    throw new PaymentReceiptEvidenceError('Booking receipt price snapshot is inconsistent.');
+  }
+}
+
 export function buildPaymentReceiptNumber(bookingId: string): string {
   return `SF-${bookingId.replaceAll('-', '').slice(0, 16).toUpperCase()}`;
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertPaymentReceiptBookingSnapshot,
   buildCustomerSettlementEntries,
   buildPaymentReceiptNumber,
   PaymentReceiptEvidenceError,
@@ -103,4 +104,37 @@ test('customer settlement activity exposes direct-settlement authorization as pa
   assert.deepEqual(buildCustomerSettlementEntries([auth], 'PAID'), [
     { kind: 'PAYMENT', amountMinor: 9000n, createdAt },
   ]);
+});
+
+const receiptBookingSnapshot = {
+  arrivalDate: new Date('2026-10-10T00:00:00Z'),
+  departureDate: new Date('2026-10-12T00:00:00Z'),
+  accommodationSubtotalMinor: 10000n,
+  taxTotalMinor: 1000n,
+  feeTotalMinor: 0n,
+  addonTotalMinor: 0n,
+  totalMinor: 11000n,
+};
+
+test('receipt booking evidence requires exact nonnegative component arithmetic', () => {
+  assert.doesNotThrow(() => assertPaymentReceiptBookingSnapshot(receiptBookingSnapshot));
+  for (const change of [
+    { totalMinor: 10999n },
+    { accommodationSubtotalMinor: -1n },
+    { taxTotalMinor: -1n },
+    { totalMinor: 0n },
+    { feeTotalMinor: '0' as unknown as bigint },
+  ]) {
+    assert.throws(() => assertPaymentReceiptBookingSnapshot({ ...receiptBookingSnapshot, ...change }), PaymentReceiptEvidenceError);
+  }
+});
+
+test('receipt booking evidence rejects invalid, reversed or zero-night stays', () => {
+  for (const change of [
+    { departureDate: receiptBookingSnapshot.arrivalDate },
+    { departureDate: new Date('2026-10-09T00:00:00Z') },
+    { arrivalDate: new Date('invalid') },
+  ]) {
+    assert.throws(() => assertPaymentReceiptBookingSnapshot({ ...receiptBookingSnapshot, ...change }), PaymentReceiptEvidenceError);
+  }
 });

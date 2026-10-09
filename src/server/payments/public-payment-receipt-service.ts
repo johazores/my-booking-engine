@@ -8,6 +8,7 @@ import { db } from '../database.ts';
 import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
   buildCustomerSettlementEntries,
+  assertPaymentReceiptBookingSnapshot,
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
   PaymentReceiptEvidenceError,
@@ -89,6 +90,7 @@ export async function getPublicBookingPaymentReceipt(input: {
 
   let safeTransactions;
   try {
+    assertPaymentReceiptBookingSnapshot(booking);
     safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) throw new PaymentConflictError(error.message);

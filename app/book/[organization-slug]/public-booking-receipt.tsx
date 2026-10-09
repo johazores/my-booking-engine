@@ -67,6 +67,25 @@ function hasConsistentSettlementMoney(value: Record<string, unknown>): boolean {
     && payments === captured && refunds === refunded;
 }
 
+
+function hasConsistentBookingMoney(value: Record<string, unknown>): boolean {
+  const booking = value.booking as PublicReceipt['booking'];
+  return BigInt(booking.totalMinor) > 0n
+    && BigInt(booking.accommodationSubtotalMinor) + BigInt(booking.taxTotalMinor)
+      + BigInt(booking.feeTotalMinor) + BigInt(booking.addonTotalMinor) === BigInt(booking.totalMinor);
+}
+
+function hasConsistentReceiptChronology(value: Record<string, unknown>): boolean {
+  const booking = value.booking as PublicReceipt['booking'];
+  const activity = value.activity as PublicReceipt['activity'];
+  const issuedAt = Date.parse(value.issuedAt as string);
+  return booking.arrivalDate < booking.departureDate
+    && activity.every((entry, index) => {
+      const createdAt = Date.parse(entry.createdAt);
+      return createdAt <= issuedAt && (index === 0 || Date.parse(activity[index - 1].createdAt) <= createdAt);
+    });
+}
+
 function isPublicReceipt(value: unknown): value is PublicReceipt {
   if (!isRecord(value) || !isRecord(value.organization) || !isRecord(value.booking) || !isRecord(value.settlement)) return false;
   const booking = value.booking;
@@ -86,7 +105,9 @@ function isPublicReceipt(value: unknown): value is PublicReceipt {
     && value.activity.every((entry: unknown) => isRecord(entry)
       && (entry.kind === 'PAYMENT' || entry.kind === 'REFUND')
       && isMinor(entry.amountMinor) && BigInt(entry.amountMinor) > 0n && isDate(entry.createdAt))
-    && hasConsistentSettlementMoney(value);
+    && hasConsistentSettlementMoney(value)
+    && hasConsistentBookingMoney(value)
+    && hasConsistentReceiptChronology(value);
 }
 
 export function PublicBookingSettlementReceipt({ organizationSlug }: { organizationSlug: string }) {

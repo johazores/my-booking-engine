@@ -3,6 +3,7 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
+  assertPaymentReceiptBookingSnapshot,
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
   PaymentReceiptEvidenceError,
@@ -65,6 +66,7 @@ export async function getBookingPaymentReceipt(input: {
 
   let safeTransactions;
   try {
+    assertPaymentReceiptBookingSnapshot(booking);
     safeTransactions = sanitizeSuccessfulPaymentTransactions(paymentHistory.transactions, booking.currency);
   } catch (error) {
     if (error instanceof PaymentReceiptEvidenceError) {

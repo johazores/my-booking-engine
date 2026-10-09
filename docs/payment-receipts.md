@@ -47,3 +47,11 @@ The document capability store notifies mounted customer document views when a ne
 ## Public browser arithmetic defense
 
 The public receipt view now verifies captured/refunded/net-paid arithmetic and the complete customer-visible positive payment/refund activity before rendering a successful response. It rejects impossible normalized calendar dates and preserves the existing retry/error state for invalid responses. These checks do not replace server-side ledger, capability, tenant, or settlement authority. Source-contract coverage lives in `scripts/public-payment-receipt-ui-contract.test.mjs`; full Node 24 and database validation remains required.
+
+## Booking snapshot and chronology integrity
+
+Staff and capability-owned public receipts share a fail-closed booking-snapshot check before payment activity is projected. The server requires valid forward-moving stay dates, nonnegative bigint accommodation/tax/fee/add-on components, a positive total, and exact equality between the components and the persisted booking total. Contradictory booking snapshots return a payment conflict rather than a misleading receipt. The check is read-only and does not repair or change commercial authority.
+
+The public receipt independently verifies the displayed booking arithmetic and stay order. It also requires customer-visible settlement activity to be chronological and no later than the receipt issuance timestamp, alongside existing payment/refund reconciliation. These checks are presentation defense in depth, not a replacement for tenant authorization or complete server-side settlement evidence.
+
+Shared domain tests and public receipt UI behavior contracts cover arithmetic drift, invalid stay dates, and impossible settlement chronology. Full repository Node 24/Prisma/PostgreSQL validation remains outstanding. GitHub Actions are not used.
