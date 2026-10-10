@@ -94,18 +94,31 @@ export function isReceiptEligiblePaymentStatus(paymentStatus: string): boolean {
 }
 
 
+/** Select the latest successful authorization without trusting input ordering. */
+function latestReceiptAuthorization(transactions: readonly PaymentReceiptTransaction[]): PaymentReceiptTransaction | undefined {
+  let latest: PaymentReceiptTransaction | undefined;
+  for (const transaction of transactions) {
+    if (transaction.status !== 'SUCCEEDED' || transaction.kind !== 'AUTHORIZATION') continue;
+    if (!latest || transaction.createdAt.getTime() > latest.createdAt.getTime()
+      || (transaction.createdAt.getTime() === latest.createdAt.getTime() && transaction.id > latest.id)) {
+      latest = transaction;
+    }
+  }
+  return latest;
+}
+
 /** A refund must belong to received money, not merely match aggregate totals. */
 function assertReceiptRefundSources(transactions: readonly PaymentReceiptTransaction[]): void {
   const captured = transactions.filter((row) => row.kind === 'CAPTURE' || row.kind === 'OFFLINE_PAYMENT');
   const lastAuthorization = captured.length === 0
-    ? [...transactions].reverse().find((row) => row.kind === 'AUTHORIZATION') : undefined;
+    ? latestReceiptAuthorization(transactions) : undefined;
   const sources = lastAuthorization ? [lastAuthorization] : captured;
-  const amounts = new Map<string, { gross: bigint; refunded: bigint }>();
+  const amounts = new Map<string, { gross: bigint; refunded: bigint; createdAt: Date }>();
   const byProvider = new Map<string, string[]>();
   for (const source of sources) {
     const key = JSON.stringify([source.providerCode, source.providerReference]);
     if (amounts.has(key)) throw new PaymentReceiptEvidenceError('Payment receipt contains duplicate settlement sources.');
-    amounts.set(key, { gross: source.amountMinor, refunded: 0n });
+    amounts.set(key, { gross: source.amountMinor, refunded: 0n, createdAt: source.createdAt });
     byProvider.set(source.providerCode, [...(byProvider.get(source.providerCode) ?? []), key]);
   }
   for (const refund of transactions.filter((row) => row.kind === 'REFUND')) {
@@ -115,6 +128,9 @@ function assertReceiptRefundSources(transactions: readonly PaymentReceiptTransac
       : candidates.length === 1 ? candidates[0] : undefined;
     const source = key ? amounts.get(key) : undefined;
     if (!source) throw new PaymentReceiptEvidenceError('Payment receipt refund source is missing or ambiguous.');
+    if (refund.createdAt.getTime() < source.createdAt.getTime()) {
+      throw new PaymentReceiptEvidenceError('Payment receipt refund predates its settled payment source.');
+    }
     source.refunded += refund.amountMinor;
     if (source.refunded > source.gross) {
       throw new PaymentReceiptEvidenceError('Payment receipt refunds exceed their settled payment source.');
@@ -188,7 +204,11 @@ export function sanitizeSuccessfulPaymentTransactions(
     });
 
   assertReceiptRefundSources(safeTransactions);
-  return safeTransactions;
+  return safeTransactions.sort((left, right) => {
+    const chronology = left.createdAt.getTime() - right.createdAt.getTime();
+    if (chronology !== 0) return chronology;
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  });
 }
 
 export function summarizeSuccessfulPaymentActivity(
@@ -197,7 +217,6 @@ export function summarizeSuccessfulPaymentActivity(
 ) {
   let capturedMinor = 0n;
   let refundedMinor = 0n;
-  let successfulAuthorizationMinor = 0n;
 
   for (const transaction of transactions) {
     if (transaction.status !== 'SUCCEEDED') continue;
@@ -205,13 +224,12 @@ export function summarizeSuccessfulPaymentActivity(
       capturedMinor += transaction.amountMinor;
     } else if (transaction.kind === 'REFUND') {
       refundedMinor += transaction.amountMinor;
-    } else if (transaction.kind === 'AUTHORIZATION') {
-      successfulAuthorizationMinor = transaction.amountMinor;
     }
   }
 
-  if (capturedMinor === 0n && isReceiptEligiblePaymentStatus(bookingPaymentStatus ?? '') && successfulAuthorizationMinor > 0n) {
-    capturedMinor = successfulAuthorizationMinor;
+  const directAuthorization = latestReceiptAuthorization(transactions);
+  if (capturedMinor === 0n && isReceiptEligiblePaymentStatus(bookingPaymentStatus ?? '') && directAuthorization) {
+    capturedMinor = directAuthorization.amountMinor;
   }
 
   return {
@@ -238,23 +256,30 @@ export function buildCustomerSettlementEntries(
   let fallbackAuthorizationId: string | null = null;
 
   if (!hasDirectCapture && isReceiptEligiblePaymentStatus(bookingPaymentStatus)) {
-    fallbackAuthorizationId = [...transactions]
-      .reverse()
-      .find((transaction) => transaction.status === 'SUCCEEDED' && transaction.kind === 'AUTHORIZATION')?.id ?? null;
+    fallbackAuthorizationId = latestReceiptAuthorization(transactions)?.id ?? null;
   }
 
-  return transactions.flatMap((transaction) => {
-    if (transaction.status !== 'SUCCEEDED') return [];
-    if (transaction.kind === 'REFUND') {
-      return [{ kind: 'REFUND' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
-    }
-    if (
-      transaction.kind === 'OFFLINE_PAYMENT'
-      || transaction.kind === 'CAPTURE'
-      || (transaction.kind === 'AUTHORIZATION' && transaction.id === fallbackAuthorizationId)
-    ) {
-      return [{ kind: 'PAYMENT' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
-    }
-    return [];
-  });
+  return transactions
+    .filter((transaction) => transaction.status === 'SUCCEEDED')
+    .sort((left, right) => {
+      const chronology = left.createdAt.getTime() - right.createdAt.getTime();
+      if (chronology !== 0) return chronology;
+      // Show payments before refunds when database timestamps coincide.
+      if (left.kind === 'REFUND' && right.kind !== 'REFUND') return 1;
+      if (right.kind === 'REFUND' && left.kind !== 'REFUND') return -1;
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    })
+    .flatMap((transaction) => {
+      if (transaction.kind === 'REFUND') {
+        return [{ kind: 'REFUND' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
+      }
+      if (
+        transaction.kind === 'OFFLINE_PAYMENT'
+        || transaction.kind === 'CAPTURE'
+        || (transaction.kind === 'AUTHORIZATION' && transaction.id === fallbackAuthorizationId)
+      ) {
+        return [{ kind: 'PAYMENT' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
+      }
+      return [];
+    });
 }
