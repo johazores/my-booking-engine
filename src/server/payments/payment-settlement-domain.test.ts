@@ -227,3 +227,32 @@ test('fails closed on duplicate successful refund references', () => {
   if (result.reconciled) return;
   assert.match(result.reason, /duplicate refund reference/i);
 });
+
+
+test('settlement rejects C0/C1 provider identity and padded or internal references', () => {
+  const codes = [...Array.from({ length: 32 }, (_, code) => code), ...Array.from({ length: 33 }, (_, index) => index + 127)];
+  for (const code of codes) {
+    const control = String.fromCharCode(code);
+    for (const invalid of [
+      transaction({ providerCode: `stri${control}pe` }),
+      transaction({ providerReference: `pi${control}first` }),
+      transaction({ kind: 'REFUND', providerReference: 're_1',
+        sourceProviderReference: `pi${control}first`, amountMinor: 1000n }),
+    ]) {
+      const result = deriveBookingSettlementSummary({ currency: 'AUD', transactions: [transaction(), invalid] });
+      assert.equal(result.reconciled, false);
+      if (!result.reconciled) assert.match(result.reason, /provider identity|settlement-source reference/i);
+    }
+  }
+  for (const invalid of [
+    transaction({ providerCode: ' stripe' }),
+    transaction({ providerReference: 'pi_1 ' }),
+    transaction({ providerReference: 'sf_claim_incomplete' }),
+    transaction({ kind: 'REFUND', providerReference: 're_1', sourceProviderReference: 'sf_claim_unresolved' }),
+  ]) {
+    assert.equal(deriveBookingSettlementSummary({ currency: 'AUD', transactions: [invalid] }).reconciled, false);
+  }
+  assert.equal(deriveBookingSettlementSummary({ currency: 'AUD', transactions: [
+    transaction({ providerReference: 'pi_é日本語' }),
+  ] }).reconciled, true);
+});

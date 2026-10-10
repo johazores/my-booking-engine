@@ -24,7 +24,7 @@ Payment writes serialize relevant tenant idempotency, booking/mutation, and prov
 
 Successful refunds reduce the exact settlement source identified by `sourceProviderReference`. Each source exposes gross, refunded, and remaining money. Legacy unattributed refunds are accepted only when a provider has exactly one effective settlement source; ambiguous multi-source history fails closed.
 
-Settlement also fails closed for unresolved `PENDING`/`AMBIGUOUS` operations, cross-currency success, missing provider identity, successful internal `sf_claim_*` markers, duplicate provider references, unknown refund sources, or over-refunds.
+Settlement also fails closed for unresolved `PENDING`/`AMBIGUOUS` operations, cross-currency success, missing or padded provider identity, C0/C1 control characters in provider/refund-source identity, successful internal `sf_claim_*` markers (including malformed reserved-prefix claims and refund sources), duplicate provider references, unknown refund sources, or over-refunds. Provider identity pairs use unambiguous tuple keys rather than separator-delimited strings. Refund-source allocation independently rejects unsafe provider identities before producing a plan.
 
 Commercial amendment preparation requires reconciled net settlement equal to the current booking total through exactly one supported provider (`manual` or `stripe`). Multiple sources from that one provider remain valid when refund attribution is unambiguous.
 

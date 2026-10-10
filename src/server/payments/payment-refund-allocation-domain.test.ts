@@ -95,3 +95,27 @@ test('keeps large exact-money totals in bigint arithmetic', () => {
   });
   assert.equal(result.allocated && result.bookingRefundableMinor, (large * 2n) - 1n);
 });
+
+
+test('refund allocation rejects C0/C1 provider identity, padding and internal claims', () => {
+  const codes = [...Array.from({ length: 32 }, (_, code) => code), ...Array.from({ length: 33 }, (_, index) => index + 127)];
+  for (const code of codes) {
+    const control = String.fromCharCode(code);
+    for (const invalid of [
+      source({ providerCode: `stri${control}pe` }),
+      source({ providerReference: `pi${control}first` }),
+    ]) {
+      assert.equal(deriveNextBookingRefundSource({ sources: [invalid] }).allocated, false);
+    }
+  }
+  for (const invalid of [
+    source({ providerCode: ' stripe' }),
+    source({ providerReference: 'pi_1 ' }),
+    source({ providerReference: 'sf_claim_unresolved' }),
+  ]) {
+    assert.equal(deriveNextBookingRefundSource({ sources: [invalid] }).allocated, false);
+  }
+  assert.equal(deriveNextBookingRefundSource({
+    sources: [source({ providerReference: 'pi_é日本語' })],
+  }).allocated, true);
+});

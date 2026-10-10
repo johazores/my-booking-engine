@@ -123,7 +123,8 @@ function assertReceiptRefundSources(transactions: readonly PaymentReceiptTransac
 }
 
 function hasReceiptIdentityControls(value: string): boolean {
-  return [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+  // C0/C1 controls cannot be part of provider identity.
+  return /[\u0000-\u001f\u007f-\u009f]/u.test(value);
 }
 
 export function sanitizeSuccessfulPaymentTransactions(
@@ -176,7 +177,7 @@ export function sanitizeSuccessfulPaymentTransactions(
       if (transaction.kind !== 'REFUND' && sourceReference != null) {
         throw new PaymentReceiptEvidenceError('Non-refund receipt evidence has refund source attribution.');
       }
-      const referenceKey = `${transaction.providerCode}\u001f${transaction.providerReference}`;
+      const referenceKey = JSON.stringify([transaction.providerCode, transaction.providerReference]);
       const seen = transaction.kind === 'REFUND'
         ? seenRefunds
         : transaction.kind === 'AUTHORIZATION' ? seenAuthorizations : seenSettlements;

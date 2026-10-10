@@ -47,10 +47,11 @@ type BookingSettlementInput = Readonly<{
   transactions: readonly BookingSettlementTransaction[];
 }>;
 
-const INTERNAL_CLAIM_REFERENCE = /^sf_claim_[0-9a-f]{64}$/;
+const INTERNAL_CLAIM_REFERENCE = /^sf_claim_/;
+const UNSAFE_PROVIDER_IDENTITY = /[\u0000-\u001f\u007f-\u009f]/u;
 
 function transactionKey(providerCode: string, providerReference: string) {
-  return `${providerCode}\u001f${providerReference}`;
+  return JSON.stringify([providerCode, providerReference]);
 }
 
 function isUnresolved(transaction: BookingSettlementTransaction) {
@@ -72,7 +73,11 @@ function validateSuccessfulTransaction(
   if (transaction.amountMinor <= 0n) {
     return 'Successful payment history contains a non-positive amount. Reconcile payment history before continuing.';
   }
-  if (!transaction.providerCode.trim() || !transaction.providerReference.trim()) {
+  if (!transaction.providerCode.trim() || !transaction.providerReference.trim()
+    || transaction.providerCode.trim() !== transaction.providerCode
+    || transaction.providerReference.trim() !== transaction.providerReference
+    || UNSAFE_PROVIDER_IDENTITY.test(transaction.providerCode)
+    || UNSAFE_PROVIDER_IDENTITY.test(transaction.providerReference)) {
     return 'Successful payment history is missing provider identity. Reconcile payment history before continuing.';
   }
   if (INTERNAL_CLAIM_REFERENCE.test(transaction.providerReference)) {
@@ -81,7 +86,12 @@ function validateSuccessfulTransaction(
   if (transaction.kind !== 'REFUND' && transaction.sourceProviderReference != null) {
     return 'Successful settlement history contains refund-source attribution on a non-refund transaction. Reconcile payment history before continuing.';
   }
-  if (transaction.sourceProviderReference != null && !transaction.sourceProviderReference.trim()) {
+  if (transaction.sourceProviderReference != null && (
+    !transaction.sourceProviderReference.trim()
+    || transaction.sourceProviderReference.trim() !== transaction.sourceProviderReference
+    || UNSAFE_PROVIDER_IDENTITY.test(transaction.sourceProviderReference)
+    || INTERNAL_CLAIM_REFERENCE.test(transaction.sourceProviderReference)
+  )) {
     return 'Successful refund history contains an invalid settlement-source reference. Reconcile payment history before continuing.';
   }
   return null;

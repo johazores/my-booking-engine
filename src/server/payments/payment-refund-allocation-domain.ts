@@ -21,6 +21,8 @@ type BookingRefundSourceAllocationInput = Readonly<{
   sources: readonly BookingSettlementSource[];
 }>;
 
+const UNSAFE_PROVIDER_IDENTITY = /[\u0000-\u001f\u007f-\u009f]/u;
+
 function sourceKey(source: BookingSettlementSource) {
   return JSON.stringify([source.providerCode, source.providerReference]);
 }
@@ -33,6 +35,11 @@ export function deriveNextBookingRefundSource(
     if (
       !source.providerCode.trim()
       || !source.providerReference.trim()
+      || source.providerCode.trim() !== source.providerCode
+      || source.providerReference.trim() !== source.providerReference
+      || UNSAFE_PROVIDER_IDENTITY.test(source.providerCode)
+      || UNSAFE_PROVIDER_IDENTITY.test(source.providerReference)
+      || source.providerReference.startsWith('sf_claim_')
       || !source.currency.trim()
       || source.amountMinor <= 0n
       || source.refundedMinor < 0n
