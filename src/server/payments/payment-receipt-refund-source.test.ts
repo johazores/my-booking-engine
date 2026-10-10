@@ -33,3 +33,21 @@ test('ambiguous or excessive source refunds cannot appear on a receipt', () => {
   assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([first, second, { ...refund, sourceProviderReference: 'pi_first' }], 'AUD'));
   assert.throws(() => sanitizeSuccessfulPaymentTransactions([first, second, { ...refund, sourceProviderReference: 'pi_first', amountMinor: 2001n }], 'AUD'), PaymentReceiptEvidenceError);
 });
+
+test('refund source chronology rejects pre-settlement refunds for capture, offline, and direct authorization', () => {
+  for (const kind of ['CAPTURE', 'OFFLINE_PAYMENT', 'AUTHORIZATION'] as const) {
+    const source = payment({ kind, createdAt: new Date('2026-10-05T00:00:00Z') });
+    const refund = payment({
+      id: 'refund', kind: 'REFUND', providerReference: 're_early',
+      sourceProviderReference: 'pi_first', amountMinor: 1000n,
+      createdAt: new Date('2026-10-04T00:00:00Z'),
+    });
+    assert.throws(() => sanitizeSuccessfulPaymentTransactions([refund, source], 'AUD'), PaymentReceiptEvidenceError);
+    assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
+      source, { ...refund, createdAt: new Date('2026-10-06T00:00:00Z') },
+    ], 'AUD'));
+    assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
+      source, { ...refund, createdAt: source.createdAt },
+    ], 'AUD'));
+  }
+});
