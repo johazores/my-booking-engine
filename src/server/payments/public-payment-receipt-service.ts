@@ -101,10 +101,12 @@ export async function getPublicBookingPaymentReceipt(input: {
     throw error;
   }
 
+  const activity = buildCustomerSettlementEntries(safeTransactions, booking.paymentStatus);
+
   return Object.freeze({
     documentType: 'PAYMENT_RECEIPT' as const,
     receiptNumber: buildPaymentReceiptNumber(booking.id),
-    issuedAt: (safeTransactions.at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt).toISOString(),
+    issuedAt: (activity.at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt).toISOString(),
     organization: Object.freeze({
       name: branding.name,
       contactEmail: branding.contactEmail,
@@ -132,7 +134,7 @@ export async function getPublicBookingPaymentReceipt(input: {
       refundedMinor: settlement.refundedMinor.toString(),
       netPaidMinor: settlement.netPaidMinor.toString(),
     }),
-    activity: buildCustomerSettlementEntries(safeTransactions, booking.paymentStatus).map((entry) => Object.freeze({
+    activity: activity.map((entry) => Object.freeze({
       kind: entry.kind,
       amountMinor: entry.amountMinor.toString(),
       createdAt: entry.createdAt.toISOString(),

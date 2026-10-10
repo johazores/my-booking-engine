@@ -71,3 +71,17 @@ test('same-time multiple captures appear before refunds in customer activity', (
     ]);
   }
 });
+
+test('later successful authorization holds cannot advance monetary receipt activity', () => {
+  const capture = payment({ id: 'capture', providerReference: 'pi_paid', amountMinor: 9000n, createdAt: new Date('2026-10-01T00:00:00Z') });
+  const refund = payment({ id: 'refund', kind: 'REFUND', providerReference: 're_paid', sourceProviderReference: 'pi_paid', amountMinor: 1000n, createdAt: new Date('2026-10-02T00:00:00Z') });
+  const laterHold = payment({ id: 'later-hold', kind: 'AUTHORIZATION', providerReference: 'pi_later', createdAt: new Date('2026-10-09T00:00:00Z') });
+  const rows = sanitizeSuccessfulPaymentTransactions([laterHold, refund, capture], 'AUD');
+  assert.equal(rows.at(-1)?.id, 'later-hold');
+  const activity = buildCustomerSettlementEntries(rows, 'PARTIALLY_REFUNDED');
+  assert.deepEqual(activity.map((entry) => [entry.kind, entry.createdAt.toISOString()]), [
+    ['PAYMENT', '2026-10-01T00:00:00.000Z'],
+    ['REFUND', '2026-10-02T00:00:00.000Z'],
+  ]);
+  assert.equal(activity.at(-1)?.createdAt.toISOString(), '2026-10-02T00:00:00.000Z');
+});

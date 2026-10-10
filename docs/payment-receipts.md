@@ -24,6 +24,8 @@ Both receipt services require the persisted booking payment status to agree with
 
 The response includes a deterministic receipt number derived from the booking UUID, tenant business/contact identity, the attached customer, stay/room/rate data, immutable accommodation/tax/fee/add-on/total snapshots, captured/refunded/net-paid totals using integer minor units, and chronological customer-safe `PAYMENT` / `REFUND` activity. The public UI renders those stored values and supports refreshing the receipt so later verified refunds are reflected. The UI exposes loading, recoverable error, and retry states; a failed refresh keeps the last verified receipt visible instead of discarding it, while expected unavailable/not-ready responses remain quiet.
 
+Receipt issuance time is the latest verified received-money or refund activity, not a later successful authorization hold that did not settle money. For directly settled provider lifecycles without a capture/offline row, only the selected successful authorization is treated as customer payment activity. Staff and public receipts share this timestamp policy; the receipt remains presentation evidence, not legal issuance authority.
+
 ## Tax and fee boundary
 
 `taxTotalMinor` and `feeTotalMinor` on the receipt remain the accepted aggregate booking pricing values. The receipt contract intentionally does not re-read current mutable pricing rules to invent historical tax or fee descriptions.
