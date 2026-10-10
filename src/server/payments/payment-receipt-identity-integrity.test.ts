@@ -58,3 +58,16 @@ test('same-time authorizations select a stable ID and show payments before refun
   assert.equal(summarizeSuccessfulPaymentActivity(rows, 'PARTIALLY_REFUNDED').capturedMinor, 9000n);
   assert.deepEqual(buildCustomerSettlementEntries(rows, 'PARTIALLY_REFUNDED').map((row) => row.kind), ['PAYMENT', 'REFUND']);
 });
+
+test('same-time multiple captures appear before refunds in customer activity', () => {
+  const when = new Date('2026-10-03T00:00:00Z');
+  const a = payment({ id: 'a', providerReference: 'pi_a', amountMinor: 1000n, createdAt: when });
+  const z = payment({ id: 'z', providerReference: 'pi_z', amountMinor: 2000n, createdAt: when });
+  const refund = payment({ id: 'r', kind: 'REFUND', providerReference: 're_z', sourceProviderReference: 'pi_z', amountMinor: 500n, createdAt: when });
+  for (const order of [[refund, z, a], [a, refund, z]]) {
+    const rows = sanitizeSuccessfulPaymentTransactions(order, 'AUD');
+    assert.deepEqual(buildCustomerSettlementEntries(rows, 'PARTIALLY_REFUNDED').map((row) => [row.kind, row.amountMinor]), [
+      ['PAYMENT', 1000n], ['PAYMENT', 2000n], ['REFUND', 500n],
+    ]);
+  }
+});

@@ -270,17 +270,16 @@ export function buildCustomerSettlementEntries(
       return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
     })
     .flatMap((transaction) => {
-    if (transaction.status !== 'SUCCEEDED') return [];
-    if (transaction.kind === 'REFUND') {
-      return [{ kind: 'REFUND' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
-    }
-    if (
-      transaction.kind === 'OFFLINE_PAYMENT'
-      || transaction.kind === 'CAPTURE'
-      || (transaction.kind === 'AUTHORIZATION' && transaction.id === fallbackAuthorizationId)
-    ) {
-      return [{ kind: 'PAYMENT' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
-    }
-    return [];
-  });
+      if (transaction.kind === 'REFUND') {
+        return [{ kind: 'REFUND' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
+      }
+      if (
+        transaction.kind === 'OFFLINE_PAYMENT'
+        || transaction.kind === 'CAPTURE'
+        || (transaction.kind === 'AUTHORIZATION' && transaction.id === fallbackAuthorizationId)
+      ) {
+        return [{ kind: 'PAYMENT' as const, amountMinor: transaction.amountMinor, createdAt: transaction.createdAt }];
+      }
+      return [];
+    });
 }
