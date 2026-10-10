@@ -74,6 +74,9 @@ export function normalizeManualPaymentReference(value: unknown): string {
   }
 
   const normalized = value.trim();
+  if (normalized.startsWith('sf_claim_')) {
+    throw new Error('Manual payment reference cannot use a reserved internal claim prefix.');
+  }
   if (!MANUAL_REFERENCE_PATTERN.test(normalized)) {
     throw new Error('Manual payment reference must be 1-120 safe printable characters.');
   }
