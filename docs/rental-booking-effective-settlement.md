@@ -66,7 +66,7 @@ The writer also fails closed on stale effective state, unsupported providers, du
 
 ## Malformed in-memory evidence
 
-Pure effective-settlement reconciliation rejects non-bigint booking/amendment/refund money, unsupported amendment directions, malformed amendment identity, padded/control-character manual references, and reserved internal claim markers without allowing JavaScript coercion or an unchecked `trim()` call to determine commercial authority. These are defense-in-depth guards for server-derived evidence; tenant-scoped persistence and PostgreSQL constraints remain authoritative.
+Pure effective-settlement reconciliation rejects non-bigint booking/amendment/refund money, unsupported amendment directions, malformed amendment identity, padded/control-character manual references, and reserved internal claim markers without allowing JavaScript coercion or an unchecked `trim()` call to determine commercial authority. These are defense-in-depth guards for server-derived evidence. Post-apply refund identities also cannot collide with successful original or amendment operation references; missing refund rows and malformed amendment settlement collections fail closed. Tenant-scoped persistence and PostgreSQL constraints remain authoritative.
 
 ## Current boundary
 

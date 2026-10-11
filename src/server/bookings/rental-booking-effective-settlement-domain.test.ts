@@ -6,6 +6,7 @@ import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain
 import {
   deriveRentalBookingEffectiveSettlement,
   type AppliedRentalBookingCommercialAmendmentSettlementEvidence,
+  type RentalBookingEffectiveRefundEvidence,
 } from './rental-booking-effective-settlement-domain.ts';
 
 const payment = (reference = 'PAY-1', amountMinor = 10_000n): BookingSettlementTransaction => ({
@@ -233,4 +234,61 @@ test('post-apply rental refund evidence rejects unsafe identities and non-bigint
     postApplyRefunds: [baseline],
   });
   assert.equal(valid.reconciled, true);
+});
+
+test('effective rental refunds cannot reuse successful original or amendment provider identities', () => {
+  const base: RentalBookingEffectiveRefundEvidence = {
+    sourceLedger: 'COMMERCIAL_AMENDMENT',
+    status: 'SUCCEEDED',
+    providerCode: 'manual',
+    providerReference: 'POST-REF-1',
+    sourceProviderReference: 'AMEND-PAY-1',
+    currency: 'AUD',
+    amountMinor: 500n,
+  };
+  for (const providerReference of ['PAY-1', 'AMEND-PAY-1']) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      originalBookingTotalMinor: 10_000n,
+      currency: 'AUD',
+      originalTransactions: [payment()],
+      appliedAmendment: applied('ADDITIONAL_CHARGE'),
+      postApplyRefunds: [{ ...base, providerReference }],
+    });
+    assert.equal(result.reconciled, false);
+  }
+  const amendmentRefundCollision = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('REFUND'),
+    postApplyRefunds: [{
+      ...base,
+      sourceLedger: 'BOOKING_PRICE',
+      providerReference: 'AMEND-REF-1',
+      sourceProviderReference: 'PAY-1',
+    }],
+  });
+  assert.equal(amendmentRefundCollision.reconciled, false);
+});
+
+test('effective rental settlement rejects missing post-apply rows and malformed amendment history', () => {
+  const invalidRow = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('ADDITIONAL_CHARGE'),
+    postApplyRefunds: [null as unknown as RentalBookingEffectiveRefundEvidence],
+  });
+  assert.equal(invalidRow.reconciled, false);
+
+  const invalidHistory = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: {
+      ...applied('ADDITIONAL_CHARGE'),
+      settlementRows: null as unknown as AppliedRentalBookingCommercialAmendmentSettlementEvidence['settlementRows'],
+    },
+  });
+  assert.equal(invalidHistory.reconciled, false);
 });

@@ -164,7 +164,8 @@ function normalizePostApplyRefundEvidence(input: Readonly<{
 
   for (const row of input.rows) {
     if (
-      (row.sourceLedger !== 'BOOKING_PRICE' && row.sourceLedger !== 'COMMERCIAL_AMENDMENT')
+      !row || typeof row !== 'object'
+      || (row.sourceLedger !== 'BOOKING_PRICE' && row.sourceLedger !== 'COMMERCIAL_AMENDMENT')
       || row.status !== 'SUCCEEDED'
       || row.providerCode !== 'manual'
       || row.currency !== input.currency
@@ -278,6 +279,9 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
     return conflict('Applied rental commercial amendment arithmetic does not reconcile.');
   }
 
+  if (!Array.isArray(amendment.settlementRows)) {
+    return conflict('Applied rental commercial amendment settlement history is malformed.');
+  }
   const amendmentSettlement = deriveRentalBookingCommercialAmendmentSettlementState({
     direction: amendment.direction,
     currency: amendment.currency,
@@ -289,6 +293,21 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
       ? amendmentSettlement.reason
       : `Applied rental commercial amendment settlement is ${amendmentSettlement.state.toLowerCase()} instead of settled.`;
     return conflict(reason);
+  }
+
+  // Provider references identify a real commercial operation across all
+  // rental money ledgers. A post-apply refund cannot reuse an existing
+  // successful original or amendment operation identity.
+  const retainedManualReferences = new Set([
+    ...input.originalTransactions
+      .filter((row) => row.status === 'SUCCEEDED' && row.providerCode === 'manual')
+      .map((row) => row.providerReference),
+    ...amendment.settlementRows
+      .filter((row) => row.status === 'SUCCEEDED' && row.providerCode === 'manual')
+      .map((row) => row.providerReference),
+  ]);
+  if ((input.postApplyRefunds ?? []).some((row) => retainedManualReferences.has(row.providerReference))) {
+    return conflict('Post-apply rental refund reuses a retained payment or amendment provider reference.');
   }
 
   if (amendment.direction === 'ADDITIONAL_CHARGE') {
