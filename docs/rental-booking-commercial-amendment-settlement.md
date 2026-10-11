@@ -66,6 +66,10 @@ After apply, the protected [effective settlement contract](./rental-booking-effe
 
 Only one price-changing amendment remains supported. Later same-unit price-neutral reschedules/extensions may continue when fresh pricing preserves the applied amendment currency and exact `afterTotalMinor`; another price change and direct writes to the original booking-price ledger remain blocked. Before custody transfer, same-type/same-location physical-unit substitution may also continue when it preserves the same effective dates, applied amendment currency, exact `afterTotalMinor`, and latest pricing fingerprint. A `PREPARED` amendment still freezes substitution until that commercial workflow is finished, compensated, or closed.
 
+## Malformed evidence boundary
+
+The pure commercial amendment refund-source planner rejects non-bigint deltas, non-string currencies, malformed source/refund collections, invalid retained source balances, and unsafe or non-string source references before performing bigint arithmetic or source allocation. These checks are defense in depth for tenant-scoped, database-derived settlement evidence; they do not replace the PostgreSQL constraints or the serializable write boundary.
+
 ## Validation
 
 - `src/server/bookings/rental-booking-commercial-amendment-settlement-domain.test.ts` covers exact direction-aware settlement/compensation and deterministic refund-source allocation.

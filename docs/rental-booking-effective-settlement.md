@@ -68,6 +68,8 @@ The writer also fails closed on stale effective state, unsupported providers, du
 
 Pure effective-settlement reconciliation rejects non-bigint booking/amendment/refund money, unsupported amendment directions, malformed amendment identity, padded/control-character manual references, and reserved internal claim markers without allowing JavaScript coercion or an unchecked `trim()` call to determine commercial authority. These are defense-in-depth guards for server-derived evidence. Post-apply refund identities also cannot collide with successful original or amendment operation references; missing refund rows and malformed amendment settlement collections fail closed. Tenant-scoped persistence and PostgreSQL constraints remain authoritative.
 
+The reconciliation boundary rejects non-string currency evidence, explicit null post-apply refund collections, and non-object applied-amendment values instead of silently treating malformed commercial evidence as an absent amendment.
+
 ## Current boundary
 
 Post-apply manual refund recording, authenticated staff orchestration, exact-zero cancellation, later same-unit price-neutral date changes, and pre-custody same-type/same-location unit substitutions are implemented for the one supported manual/offline commercial amendment.

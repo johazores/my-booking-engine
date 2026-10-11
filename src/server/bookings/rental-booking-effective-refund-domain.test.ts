@@ -236,7 +236,7 @@ test('post-apply refund planner rejects non-bigint amounts without coercion', ()
   for (const requestedAmountMinor of [null, undefined, 500, '500', NaN, { valueOf() { throw new Error('coercion'); } }]) {
     const result = deriveRentalBookingEffectiveRefundPlan({
       settlement,
-      requestedAmountMinor: requestedAmountMinor as bigint,
+      requestedAmountMinor: requestedAmountMinor as unknown as bigint,
     });
     assert.equal(result.planned, false);
   }

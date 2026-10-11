@@ -300,6 +300,12 @@ test('effective rental settlement rejects malformed history collections without 
     originalTransactions: [payment()],
     appliedAmendment: applied('ADDITIONAL_CHARGE'),
   };
+  for (const currency of [null, undefined, 123, { toString() { throw new Error('unexpected coercion'); } }]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      ...base, currency: currency as unknown as string,
+    });
+    assert.equal(result.reconciled, false);
+  }
   for (const originalTransactions of [null, {}, [null]]) {
     const result = deriveRentalBookingEffectiveSettlement({
       ...base,
@@ -307,10 +313,22 @@ test('effective rental settlement rejects malformed history collections without 
     });
     assert.equal(result.reconciled, false);
   }
-  for (const postApplyRefunds of [{}, [undefined]]) {
+  for (const postApplyRefunds of [null, {}, [undefined]]) {
     const result = deriveRentalBookingEffectiveSettlement({
       ...base,
       postApplyRefunds: postApplyRefunds as unknown as RentalBookingEffectiveRefundEvidence[],
+    });
+    assert.equal(result.reconciled, false);
+  }
+});
+
+test('effective rental settlement does not silently discard malformed applied amendment evidence', () => {
+  for (const appliedAmendment of [false, 0, '']) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      originalBookingTotalMinor: 10_000n,
+      currency: 'AUD',
+      originalTransactions: [payment()],
+      appliedAmendment: appliedAmendment as unknown as AppliedRentalBookingCommercialAmendmentSettlementEvidence,
     });
     assert.equal(result.reconciled, false);
   }

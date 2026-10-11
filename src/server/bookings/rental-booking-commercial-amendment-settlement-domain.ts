@@ -102,7 +102,7 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
   if (input.direction !== 'ADDITIONAL_CHARGE' && input.direction !== 'REFUND') {
     return conflict('Commercial amendment direction is unsupported.');
   }
-  if (!/^[A-Z]{3}$/.test(input.currency)) return conflict('Commercial amendment currency is invalid.');
+  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) return conflict('Commercial amendment currency is invalid.');
   if (typeof input.deltaMinor !== 'bigint' || input.deltaMinor <= 0n) return conflict('Commercial amendment delta must be positive.');
   if (!Array.isArray(input.rows) || input.rows.some((row) => !row || typeof row !== 'object'
     || (row.purpose !== 'ADJUSTMENT' && row.purpose !== 'COMPENSATION'))) {
@@ -132,7 +132,8 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
   if (adjustment.kind === 'REFUND' && (typeof adjustment.sourceProviderReference !== 'string'
     || !adjustment.sourceProviderReference.trim()
     || adjustment.sourceProviderReference.trim() !== adjustment.sourceProviderReference
-    || /[\u0000-\u001f\u007f-\u009f]/u.test(adjustment.sourceProviderReference))) {
+    || /[\u0000-\u001f\u007f-\u009f]/u.test(adjustment.sourceProviderReference)
+    || adjustment.sourceProviderReference.startsWith('sf_claim_'))) {
     return conflict('Commercial amendment refund is missing original payment-source attribution.');
   }
 
@@ -171,35 +172,60 @@ export function deriveRentalBookingCommercialAmendmentRefundSource(input: Readon
   bookingSources: readonly BookingSettlementSource[];
   priorAmendmentRefunds: readonly RentalBookingCommercialAmendmentPriorRefund[];
 }>): RentalBookingCommercialAmendmentRefundSource {
-  if (!/^[A-Z]{3}$/.test(input.currency)) {
+  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) {
     return refundSourceUnavailable('Commercial amendment refund currency is invalid.');
   }
-  if (input.deltaMinor <= 0n) {
+  if (typeof input.deltaMinor !== 'bigint' || input.deltaMinor <= 0n) {
     return refundSourceUnavailable('Commercial amendment refund amount must be positive.');
   }
 
-  const sources = input.bookingSources.map((source) => ({ ...source }));
+  if (!Array.isArray(input.bookingSources) || !Array.isArray(input.priorAmendmentRefunds)) {
+    return refundSourceUnavailable('Commercial amendment refund source history is malformed.');
+  }
+
+  const sources: Array<{ -readonly [Key in keyof BookingSettlementSource]: BookingSettlementSource[Key] }> = [];
   const sourceByReference = new Map<string, (typeof sources)[number]>();
-  for (const source of sources) {
+  for (const source of input.bookingSources) {
     if (
-      source.providerCode !== 'manual'
+      !source || typeof source !== 'object'
+      || source.providerCode !== 'manual'
       || source.kind !== 'OFFLINE_PAYMENT'
       || source.currency !== input.currency
+      || typeof source.providerReference !== 'string'
+      || !source.providerReference.trim()
+      || source.providerReference.trim() !== source.providerReference
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(source.providerReference)
+      || source.providerReference.startsWith('sf_claim_')
+      || typeof source.amountMinor !== 'bigint'
+      || typeof source.refundedMinor !== 'bigint'
+      || typeof source.remainingMinor !== 'bigint'
+      || source.amountMinor <= 0n
+      || source.refundedMinor < 0n
+      || source.remainingMinor < 0n
+      || source.refundedMinor + source.remainingMinor !== source.amountMinor
     ) {
       return refundSourceUnavailable('Commercial amendment refund source history is outside the supported manual booking-price contract.');
     }
     if (sourceByReference.has(source.providerReference)) {
       return refundSourceUnavailable('Commercial amendment refund source history contains duplicate retained payment references.');
     }
-    sourceByReference.set(source.providerReference, source);
+    const retained = { ...source };
+    sources.push(retained);
+    sourceByReference.set(retained.providerReference, retained);
   }
 
   for (const refund of input.priorAmendmentRefunds) {
     if (
-      refund.providerCode !== 'manual'
+      !refund || typeof refund !== 'object'
+      || refund.providerCode !== 'manual'
       || refund.currency !== input.currency
+      || typeof refund.amountMinor !== 'bigint'
       || refund.amountMinor <= 0n
-      || !refund.sourceProviderReference?.trim()
+      || typeof refund.sourceProviderReference !== 'string'
+      || !refund.sourceProviderReference.trim()
+      || refund.sourceProviderReference.trim() !== refund.sourceProviderReference
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(refund.sourceProviderReference)
+      || refund.sourceProviderReference.startsWith('sf_claim_')
     ) {
       return refundSourceUnavailable('Prior commercial amendment refund evidence is malformed or outside the supported manual contract.');
     }

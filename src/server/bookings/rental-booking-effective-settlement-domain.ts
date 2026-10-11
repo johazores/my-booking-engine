@@ -213,14 +213,14 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
   if (typeof input.originalBookingTotalMinor !== 'bigint' || input.originalBookingTotalMinor <= 0n) {
     return conflict('Rental booking total must remain positive for effective settlement reconciliation.');
   }
-  if (!/^[A-Z]{3}$/.test(input.currency)) {
+  if (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency)) {
     return conflict('Rental booking currency is invalid for effective settlement reconciliation.');
   }
 
   if (!Array.isArray(input.originalTransactions) || input.originalTransactions.some((row) => !row || typeof row !== 'object')) {
     return conflict('Original rental booking-price settlement history is malformed.');
   }
-  if (input.postApplyRefunds != null && !Array.isArray(input.postApplyRefunds)) {
+  if (input.postApplyRefunds !== undefined && !Array.isArray(input.postApplyRefunds)) {
     return conflict('Post-apply rental refund history is malformed.');
   }
 
@@ -240,6 +240,9 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
   if (!postApply.valid) return conflict(postApply.reason);
 
   const amendment = input.appliedAmendment ?? null;
+  if (amendment !== null && (typeof amendment !== 'object' || Array.isArray(amendment))) {
+    return conflict('Applied rental commercial amendment evidence is malformed.');
+  }
   if (!amendment) {
     if (postApply.bookingPriceRows.length > 0 || postApply.amendmentChargeRows.length > 0) {
       return conflict('Post-apply rental refund evidence cannot exist without an applied commercial amendment.');
