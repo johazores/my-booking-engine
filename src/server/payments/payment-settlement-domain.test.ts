@@ -279,3 +279,39 @@ test('settlement rejects malformed successful operation kinds, money and provide
     transactions: [transaction({ amountMinor: 10_000n })],
   }).reconciled, true);
 });
+
+
+test('settlement rejects unsupported operation statuses instead of ignoring ledger rows', () => {
+  for (const status of ['REVERSED', '', null, undefined]) {
+    const result = deriveBookingSettlementSummary({
+      currency: 'AUD',
+      transactions: [transaction(), transaction({ status: status as BookingSettlementTransaction['status'] })],
+    });
+    assert.equal(result.reconciled, false);
+    if (!result.reconciled) assert.match(result.reason, /unsupported operation status/i);
+  }
+  assert.equal(deriveBookingSettlementSummary({
+    currency: 'AUD',
+    transactions: [transaction(), transaction({ status: 'FAILED', providerReference: 'failed' })],
+  }).reconciled, true);
+});
+
+test('settlement rejects repeated successful authorizations even when a matching capture exists', () => {
+  const result = deriveBookingSettlementSummary({
+    currency: 'AUD',
+    transactions: [
+      transaction({ kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
+      transaction({ kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
+      transaction({ kind: 'CAPTURE', providerReference: 'pi_shared' }),
+    ],
+  });
+  assert.equal(result.reconciled, false);
+  if (!result.reconciled) assert.match(result.reason, /duplicate authorization reference/i);
+  assert.equal(deriveBookingSettlementSummary({
+    currency: 'AUD',
+    transactions: [
+      transaction({ kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
+      transaction({ kind: 'CAPTURE', providerReference: 'pi_shared' }),
+    ],
+  }).reconciled, true);
+});

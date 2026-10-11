@@ -103,6 +103,12 @@ function validateSuccessfulTransaction(
 }
 
 export function deriveBookingSettlementSummary(input: BookingSettlementInput): BookingSettlementSummary {
+  if (input.transactions.some((transaction) => !['PENDING', 'SUCCEEDED', 'FAILED', 'AMBIGUOUS'].includes(transaction.status))) {
+    return {
+      reconciled: false,
+      reason: 'Payment history contains an unsupported operation status. Reconcile payment history before continuing.',
+    };
+  }
   if (input.transactions.some(isUnresolved)) {
     return {
       reconciled: false,
@@ -114,6 +120,20 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
   for (const transaction of successful) {
     const invalidReason = validateSuccessfulTransaction(transaction, input.currency);
     if (invalidReason) return { reconciled: false, reason: invalidReason };
+  }
+
+  // Captures may share an authorization reference, but repeated authorizations
+  // must not disappear when the captured authorization is de-duplicated.
+  const seenAuthorizations = new Set<string>();
+  for (const authorization of successful.filter((transaction) => transaction.kind === 'AUTHORIZATION')) {
+    const key = transactionKey(authorization.providerCode, authorization.providerReference);
+    if (seenAuthorizations.has(key)) {
+      return {
+        reconciled: false,
+        reason: 'Successful payment history contains a duplicate authorization reference. Reconcile payment history before continuing.',
+      };
+    }
+    seenAuthorizations.add(key);
   }
 
   const successfulCaptures = new Set(
