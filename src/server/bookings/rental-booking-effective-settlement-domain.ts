@@ -346,6 +346,9 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
       return conflict(`Post-apply booking-price refunds do not reconcile against retained sources. ${effectiveBookingPriceSettlement.reason}`);
     }
     const amendmentChargeRefundRemainingMinor = amendment.deltaMinor - amendmentChargeRefundedMinor;
+    if (amendmentChargeRefundRemainingMinor > 0n && postApply.bookingPriceRows.length > 0) {
+      return conflict('Post-apply booking-price refunds cannot precede full refund of the applied amendment charge.');
+    }
     const currentNetSettledMinor = effectiveBookingPriceSettlement.netSettledMinor + amendmentChargeRefundRemainingMinor;
     let nextRefundSource: RentalBookingEffectiveRefundSource | null;
     if (amendmentChargeRefundRemainingMinor > 0n) {

@@ -16,7 +16,7 @@ Original booking-price evidence uses the bounded rental payment-history reader. 
 
 Without a prepared or applied amendment, effective settlement is the normal reconciled booking-price settlement.
 
-For an applied `ADDITIONAL_CHARGE`, the amendment adjustment payment is a separate source. Post-apply refunds unwind that amendment source first; only after it reaches zero does server allocation move to original booking-price sources.
+For an applied `ADDITIONAL_CHARGE`, the amendment adjustment payment is a separate source. Post-apply refunds unwind that amendment source first; only after it reaches zero does server allocation move to original booking-price sources. Reconciliation rejects booking-price refund evidence while an amendment-charge balance remains. PostgreSQL independently guards that order.
 
 For an applied `REFUND`, the amendment adjustment already consumed refundable value from a retained original payment source. Later post-apply refunds cannot reuse that consumed value.
 

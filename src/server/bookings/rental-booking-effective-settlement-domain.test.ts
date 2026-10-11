@@ -333,3 +333,14 @@ test('effective rental settlement does not silently discard malformed applied am
     assert.equal(result.reconciled, false);
   }
 });
+
+test('booking-price post-apply refund cannot bypass remaining amendment charge', () => {
+  const result = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('ADDITIONAL_CHARGE'),
+    postApplyRefunds: [postRefund('BOOKING_PRICE', 'POST-REF-1', 'PAY-1', 100n)],
+  });
+  assert.equal(result.reconciled, false);
+});
