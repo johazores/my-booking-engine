@@ -70,10 +70,14 @@ function validateSuccessfulTransaction(
   if (transaction.currency !== currency) {
     return 'Successful payment history contains money in a different currency. Reconcile payment history before continuing.';
   }
-  if (transaction.amountMinor <= 0n) {
-    return 'Successful payment history contains a non-positive amount. Reconcile payment history before continuing.';
+  if (!['OFFLINE_PAYMENT', 'AUTHORIZATION', 'CAPTURE', 'REFUND'].includes(transaction.kind)) {
+    return 'Successful payment history contains an unsupported operation kind. Reconcile payment history before continuing.';
   }
-  if (!transaction.providerCode.trim() || !transaction.providerReference.trim()
+  if (typeof transaction.amountMinor !== 'bigint' || transaction.amountMinor <= 0n) {
+    return 'Successful payment history contains an invalid or non-positive amount. Reconcile payment history before continuing.';
+  }
+  if (typeof transaction.providerCode !== 'string' || typeof transaction.providerReference !== 'string'
+    || !transaction.providerCode.trim() || !transaction.providerReference.trim()
     || transaction.providerCode.trim() !== transaction.providerCode
     || transaction.providerReference.trim() !== transaction.providerReference
     || UNSAFE_PROVIDER_IDENTITY.test(transaction.providerCode)
@@ -87,7 +91,8 @@ function validateSuccessfulTransaction(
     return 'Successful settlement history contains refund-source attribution on a non-refund transaction. Reconcile payment history before continuing.';
   }
   if (transaction.sourceProviderReference != null && (
-    !transaction.sourceProviderReference.trim()
+    typeof transaction.sourceProviderReference !== 'string'
+    || !transaction.sourceProviderReference.trim()
     || transaction.sourceProviderReference.trim() !== transaction.sourceProviderReference
     || UNSAFE_PROVIDER_IDENTITY.test(transaction.sourceProviderReference)
     || INTERNAL_CLAIM_REFERENCE.test(transaction.sourceProviderReference)

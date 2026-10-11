@@ -256,3 +256,26 @@ test('settlement rejects C0/C1 provider identity and padded or internal referenc
     transaction({ providerReference: 'pi_é日本語' }),
   ] }).reconciled, true);
 });
+
+test('settlement rejects malformed successful operation kinds, money and provider identities without throwing', () => {
+  const invalid: Array<Partial<BookingSettlementTransaction>> = [
+    { kind: 'RELEASE_AUTHORIZATION' as BookingSettlementTransaction['kind'] },
+    { amountMinor: '10000' as unknown as bigint },
+    { amountMinor: 10000 as unknown as bigint },
+    { amountMinor: null as unknown as bigint },
+    { providerCode: null as unknown as string },
+    { providerReference: undefined as unknown as string },
+    { sourceProviderReference: 123 as unknown as string, kind: 'REFUND' },
+  ];
+  for (const change of invalid) {
+    const result = deriveBookingSettlementSummary({
+      currency: 'AUD',
+      transactions: [transaction(change)],
+    });
+    assert.equal(result.reconciled, false);
+  }
+  assert.equal(deriveBookingSettlementSummary({
+    currency: 'AUD',
+    transactions: [transaction({ amountMinor: 10_000n })],
+  }).reconciled, true);
+});

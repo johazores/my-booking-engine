@@ -119,3 +119,20 @@ test('refund allocation rejects C0/C1 provider identity, padding and internal cl
     sources: [source({ providerReference: 'pi_é日本語' })],
   }).allocated, true);
 });
+
+test('refund allocation fails closed on malformed source identities, kinds and money without throwing', () => {
+  const invalid: Array<Partial<BookingSettlementSource>> = [
+    { kind: 'REFUND' as BookingSettlementSource['kind'] },
+    { providerCode: null as unknown as string },
+    { providerReference: undefined as unknown as string },
+    { currency: null as unknown as string },
+    { amountMinor: '10000' as unknown as bigint },
+    { amountMinor: 10000 as unknown as bigint },
+    { refundedMinor: null as unknown as bigint },
+    { remainingMinor: '10000' as unknown as bigint },
+  ];
+  for (const change of invalid) {
+    assert.equal(deriveNextBookingRefundSource({ sources: [source(change)] }).allocated, false);
+  }
+  assert.equal(deriveNextBookingRefundSource({ sources: [source()] }).allocated, true);
+});

@@ -33,14 +33,21 @@ export function deriveNextBookingRefundSource(
   const seenSources = new Set<string>();
   for (const source of input.sources) {
     if (
-      !source.providerCode.trim()
+      !['OFFLINE_PAYMENT', 'AUTHORIZATION', 'CAPTURE'].includes(source.kind)
+      || typeof source.providerCode !== 'string'
+      || typeof source.providerReference !== 'string'
+      || !source.providerCode.trim()
       || !source.providerReference.trim()
       || source.providerCode.trim() !== source.providerCode
       || source.providerReference.trim() !== source.providerReference
       || UNSAFE_PROVIDER_IDENTITY.test(source.providerCode)
       || UNSAFE_PROVIDER_IDENTITY.test(source.providerReference)
       || source.providerReference.startsWith('sf_claim_')
+      || typeof source.currency !== 'string'
       || !source.currency.trim()
+      || typeof source.amountMinor !== 'bigint'
+      || typeof source.refundedMinor !== 'bigint'
+      || typeof source.remainingMinor !== 'bigint'
       || source.amountMinor <= 0n
       || source.refundedMinor < 0n
       || source.remainingMinor < 0n
