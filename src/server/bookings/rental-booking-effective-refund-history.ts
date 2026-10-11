@@ -1,5 +1,7 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 
+import { validatePaymentHistoryPage } from '../payments/payment-history-page-integrity.ts';
+
 import {
   buildRentalBookingEffectiveRefundIdempotencyKey,
   buildRentalBookingEffectiveRefundRequestFingerprint,
@@ -52,6 +54,13 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
   amendmentId: string;
   appliedAt: Date;
 }>): Promise<EffectiveRefundHistoryResult> {
+  if (!(input.appliedAt instanceof Date) || Number.isNaN(input.appliedAt.getTime())) {
+    return Object.freeze({
+      complete: false as const,
+      reason: 'Applied rental amendment has an invalid terminal timestamp.',
+    });
+  }
+
   const transactions: RentalBookingEffectiveRefundEvidence[] = [];
   let cursorId: string | undefined;
 
@@ -68,6 +77,16 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
     });
 
+    const pageError = validatePaymentHistoryPage(rows, cursorId, RENTAL_BOOKING_EFFECTIVE_REFUND_PAGE_SIZE);
+    if (pageError) {
+      return Object.freeze({
+        complete: false as const,
+        reason: pageError === 'page-size'
+          ? 'Post-apply rental refund history returned an oversized transaction page.'
+          : 'Post-apply rental refund history returned duplicate, missing, or out-of-order transaction IDs.',
+      });
+    }
+
     for (const row of rows) {
       if (
         row.organizationId !== input.organizationId
@@ -79,11 +98,20 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
         || (row.sourceLedger !== 'BOOKING_PRICE' && row.sourceLedger !== 'COMMERCIAL_AMENDMENT')
         || row.status !== 'SUCCEEDED'
         || row.providerCode !== 'manual'
-        || !row.sourceProviderReference
+        || typeof row.providerReference !== 'string'
+        || !row.providerReference.trim()
+        || typeof row.sourceProviderReference !== 'string'
+        || !row.sourceProviderReference.trim()
+        || typeof row.currency !== 'string'
+        || !/^[A-Z]{3}$/.test(row.currency)
+        || typeof row.amountMinor !== 'bigint'
+        || row.amountMinor <= 0n
+        || typeof row.idempotencyKey !== 'string'
+        || typeof row.requestFingerprint !== 'string'
       ) {
         return Object.freeze({
           complete: false as const,
-          reason: 'Post-apply rental refund history contains invalid tenant, lifecycle, provider, or chronology evidence.',
+          reason: 'Post-apply rental refund history contains invalid tenant, lifecycle, provider, monetary, or chronology evidence.',
         });
       }
 

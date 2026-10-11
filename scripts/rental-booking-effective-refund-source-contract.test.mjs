@@ -72,6 +72,9 @@ test('writer derives source server-side under permission and serializable bookin
 test('bounded reader and staff orchestration keep post-apply refund source authority on the server', () => {
   assert.match(history, /MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /expectedIdempotencyKey/);
+  assert.match(history, /validatePaymentHistoryPage\(rows, cursorId, RENTAL_BOOKING_EFFECTIVE_REFUND_PAGE_SIZE\)/);
+  assert.match(history, /typeof row\.amountMinor !== 'bigint'/);
+  assert.match(history, /input\.appliedAt instanceof Date/);
   assert.match(history, /expectedFingerprint/);
   assert.match(effectiveService, /postApplyRefunds: effectiveRefundHistory\.transactions/);
   assert.match(page, /nextRefundSource/);
