@@ -112,6 +112,8 @@ Security bonds, damage liability, late-return settlement, commercial-amendment a
 
 No placeholder route or fake provider action is exposed for unsupported workflows.
 
+The rental settlement domain rejects non-bigint booking totals before any arithmetic, matching the stricter shared payment/refund settlement contract. This guards internal projections against malformed in-memory commercial evidence and does not replace database money constraints.
+
 ## Validation
 
 - `src/server/payments/rental-payment-domain.test.ts` covers unpaid/partial-paid/paid/partial-refund/refunded states, multiple manual sources, replacement funding after retained refunds, outstanding balance, next refundable source amount, and fail-closed reconciliation.

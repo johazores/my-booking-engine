@@ -64,6 +64,10 @@ Reconciliation fails rather than guessing on incomplete history, any prepared co
 
 The writer also fails closed on stale effective state, unsupported providers, duplicate/conflicting idempotency evidence, reference reuse, and requested amounts that would span sources.
 
+## Malformed in-memory evidence
+
+Pure effective-settlement reconciliation rejects non-bigint booking/amendment/refund money, unsupported amendment directions, malformed amendment identity, padded/control-character manual references, and reserved internal claim markers without allowing JavaScript coercion or an unchecked `trim()` call to determine commercial authority. These are defense-in-depth guards for server-derived evidence; tenant-scoped persistence and PostgreSQL constraints remain authoritative.
+
 ## Current boundary
 
 Post-apply manual refund recording, authenticated staff orchestration, exact-zero cancellation, later same-unit price-neutral date changes, and pre-custody same-type/same-location unit substitutions are implemented for the one supported manual/offline commercial amendment.

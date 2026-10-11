@@ -22,7 +22,7 @@ export function deriveRentalPaymentSettlement(input: Readonly<{
   currency: string;
   transactions: readonly BookingSettlementTransaction[];
 }>): RentalPaymentSettlement {
-  if (input.bookingTotalMinor <= 0n) {
+  if (typeof input.bookingTotalMinor !== 'bigint' || input.bookingTotalMinor <= 0n) {
     return { reconciled: false, reason: 'Rental booking total must be positive before payment settlement can be reconciled.' };
   }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { BookingSettlementTransaction } from '../payments/payment-settlement-domain.ts';
+import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
 import {
   deriveRentalBookingEffectiveSettlement,
   type AppliedRentalBookingCommercialAmendmentSettlementEvidence,
@@ -155,4 +156,81 @@ test('fails closed when retained amendment evidence is compensated, arithmetical
     appliedAmendment: applied('REFUND'),
   });
   assert.equal(overRefundResult.reconciled, false);
+});
+
+test('rental settlement projections reject malformed booking money without coercion', () => {
+  for (const bookingTotalMinor of ['10000', 10_000, null, undefined]) {
+    const result = deriveRentalPaymentSettlement({
+      bookingTotalMinor: bookingTotalMinor as unknown as bigint,
+      currency: 'AUD',
+      transactions: [payment()],
+    });
+    assert.equal(result.reconciled, false);
+  }
+});
+
+test('effective rental settlement rejects malformed money and amendment identity without throwing', () => {
+  for (const originalBookingTotalMinor of ['10000', 10_000, null, undefined]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      originalBookingTotalMinor: originalBookingTotalMinor as unknown as bigint,
+      currency: 'AUD',
+      originalTransactions: [payment()],
+    });
+    assert.equal(result.reconciled, false);
+  }
+  const baseline = applied('ADDITIONAL_CHARGE');
+  for (const amendment of [
+    { ...baseline, id: null as unknown as string },
+    { ...baseline, direction: 'UNKNOWN' as unknown as 'ADDITIONAL_CHARGE' },
+    { ...baseline, afterTotalMinor: '12000' as unknown as bigint },
+    { ...baseline, deltaMinor: 2_000 as unknown as bigint },
+  ]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      originalBookingTotalMinor: 10_000n,
+      currency: 'AUD',
+      originalTransactions: [payment()],
+      appliedAmendment: amendment,
+    });
+    assert.equal(result.reconciled, false);
+  }
+});
+
+test('post-apply rental refund evidence rejects unsafe identities and non-bigint money', () => {
+  const baseline = {
+    sourceLedger: 'COMMERCIAL_AMENDMENT' as const,
+    status: 'SUCCEEDED' as const,
+    providerCode: 'manual',
+    providerReference: 'AMEND-REF-1',
+    sourceProviderReference: 'AMEND-PAY-1',
+    currency: 'AUD',
+    amountMinor: 500n,
+  };
+  for (const row of [
+    { ...baseline, amountMinor: '500' as unknown as bigint },
+    { ...baseline, amountMinor: 500 as unknown as bigint },
+    { ...baseline, providerReference: null as unknown as string },
+    { ...baseline, sourceProviderReference: null as unknown as string },
+    { ...baseline, providerReference: ' padded ' },
+    { ...baseline, providerReference: 'bad\u0000ref' },
+    { ...baseline, sourceProviderReference: 'bad\u0085source' },
+    { ...baseline, providerReference: 'sf_claim_unsettled' },
+    { ...baseline, sourceProviderReference: 'sf_claim_source' },
+  ]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      originalBookingTotalMinor: 10_000n,
+      currency: 'AUD',
+      originalTransactions: [payment()],
+      appliedAmendment: applied('ADDITIONAL_CHARGE'),
+      postApplyRefunds: [row],
+    });
+    assert.equal(result.reconciled, false);
+  }
+  const valid = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('ADDITIONAL_CHARGE'),
+    postApplyRefunds: [baseline],
+  });
+  assert.equal(valid.reconciled, true);
 });

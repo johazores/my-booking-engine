@@ -146,6 +146,14 @@ function summarize(input: Readonly<{
   });
 }
 
+function invalidManualReference(value: unknown) {
+  return typeof value !== 'string'
+    || !value.trim()
+    || value.trim() !== value
+    || /[\u0000-\u001f\u007f-\u009f]/u.test(value)
+    || value.startsWith('sf_claim_');
+}
+
 function normalizePostApplyRefundEvidence(input: Readonly<{
   currency: string;
   rows: readonly RentalBookingEffectiveRefundEvidence[];
@@ -160,9 +168,10 @@ function normalizePostApplyRefundEvidence(input: Readonly<{
       || row.status !== 'SUCCEEDED'
       || row.providerCode !== 'manual'
       || row.currency !== input.currency
+      || typeof row.amountMinor !== 'bigint'
       || row.amountMinor <= 0n
-      || !row.providerReference.trim()
-      || !row.sourceProviderReference.trim()
+      || invalidManualReference(row.providerReference)
+      || invalidManualReference(row.sourceProviderReference)
       || row.providerReference === row.sourceProviderReference
     ) {
       return { valid: false as const, reason: 'Post-apply rental refund evidence is malformed or outside the supported manual/offline contract.' };
@@ -200,7 +209,7 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
   appliedAmendment?: AppliedRentalBookingCommercialAmendmentSettlementEvidence | null;
   postApplyRefunds?: readonly RentalBookingEffectiveRefundEvidence[];
 }>): RentalBookingEffectiveSettlement {
-  if (input.originalBookingTotalMinor <= 0n) {
+  if (typeof input.originalBookingTotalMinor !== 'bigint' || input.originalBookingTotalMinor <= 0n) {
     return conflict('Rental booking total must remain positive for effective settlement reconciliation.');
   }
   if (!/^[A-Z]{3}$/.test(input.currency)) {
@@ -247,14 +256,18 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
     });
   }
 
-  if (!amendment.id.trim()) return conflict('Applied rental commercial amendment identity is missing.');
+  if (typeof amendment.id !== 'string' || !amendment.id.trim()) return conflict('Applied rental commercial amendment identity is missing.');
+  if (amendment.direction !== 'ADDITIONAL_CHARGE' && amendment.direction !== 'REFUND') {
+    return conflict('Applied rental commercial amendment direction is unsupported.');
+  }
   if (amendment.currency !== input.currency) {
     return conflict('Applied rental commercial amendment currency differs from the booking currency.');
   }
   if (amendment.beforeTotalMinor !== input.originalBookingTotalMinor) {
     return conflict('Applied rental commercial amendment source total does not match the immutable booking total.');
   }
-  if (amendment.afterTotalMinor <= 0n || amendment.deltaMinor <= 0n) {
+  if (typeof amendment.afterTotalMinor !== 'bigint' || typeof amendment.deltaMinor !== 'bigint'
+    || amendment.afterTotalMinor <= 0n || amendment.deltaMinor <= 0n) {
     return conflict('Applied rental commercial amendment money is invalid.');
   }
   if (
