@@ -50,4 +50,4 @@ export function deriveBookingPaymentStatusFromSettlementTransactions(input: {
     };
   }
   return derived;
-
+}
