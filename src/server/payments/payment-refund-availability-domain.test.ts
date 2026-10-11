@@ -130,3 +130,14 @@ test('partially refunded status requires a strictly positive balance below the b
   if (result.available) return;
   assert.match(result.reason, /payment status is inconsistent/i);
 });
+
+
+test('refund availability rejects malformed payment status', () => {
+  for (const invalid of [null, undefined, 123, {}]) {
+    const result = deriveBookingRefundAvailability({
+      ...booking, paymentStatus: invalid as unknown as string, transactions: [transaction()],
+    });
+    assert.equal(result.available, false);
+    if (!result.available) assert.match(result.reason, /payment state is invalid/i);
+  }
+});

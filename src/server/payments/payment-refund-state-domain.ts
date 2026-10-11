@@ -11,10 +11,10 @@ export function deriveBookingPaymentStatusFromNetSettlement(input: {
   bookingTotalMinor: bigint;
   netSettledMinor: bigint;
 }): BookingPaymentStatusFromSettlement {
-  if (input.bookingTotalMinor <= 0n) {
+  if (typeof input.bookingTotalMinor !== 'bigint' || input.bookingTotalMinor <= 0n) {
     return { reconciled: false, reason: 'Booking total must be positive before payment refund state can be reconciled.' };
   }
-  if (input.netSettledMinor < 0n || input.netSettledMinor > input.bookingTotalMinor) {
+  if (typeof input.netSettledMinor !== 'bigint' || input.netSettledMinor < 0n || input.netSettledMinor > input.bookingTotalMinor) {
     return {
       reconciled: false,
       reason: 'Net settled money is inconsistent with the authoritative booking total. Reconcile payment history before continuing.',
@@ -35,6 +35,10 @@ export function deriveBookingPaymentStatusFromSettlementTransactions(input: {
     transactions: input.transactions,
   });
   if (settlement.reconciled === false) return { reconciled: false, reason: settlement.reason };
+  // A missing/failed-only ledger has zero net, but it is not evidence of a completed refund.
+  if (settlement.grossSettledMinor <= 0n) {
+    return { reconciled: false, reason: 'No successful received payment exists to establish a refunded booking state.' };
+  }
   return deriveBookingPaymentStatusFromNetSettlement({
     bookingTotalMinor: input.bookingTotalMinor,
     netSettledMinor: settlement.netSettledMinor,

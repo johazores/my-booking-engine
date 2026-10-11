@@ -120,3 +120,20 @@ test('expected provider prevents crossing the wrong adapter boundary', () => {
   if (result.planned) return;
   assert.match(result.reason, /manual, not stripe/i);
 });
+
+
+test('refund planner rejects malformed explicit amounts without coercion', () => {
+  for (const invalid of ['500', 500, false]) {
+    const result = deriveBookingRefundExecutionPlan({
+      bookingPaymentStatus: 'PAID', bookingTotalMinor: 12_500n, currency: 'AUD',
+      transactions: [transaction()], requestedAmountMinor: invalid as unknown as bigint,
+    });
+    assert.equal(result.planned, false);
+  }
+  const valid = deriveBookingRefundExecutionPlan({
+    bookingPaymentStatus: 'PAID', bookingTotalMinor: 12_500n, currency: 'AUD',
+    transactions: [transaction()], requestedAmountMinor: 500n,
+  });
+  assert.equal(valid.planned, true);
+  if (valid.planned) assert.equal(valid.amountMinor, 500n);
+});

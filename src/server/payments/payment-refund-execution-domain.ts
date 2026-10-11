@@ -55,7 +55,7 @@ export function deriveBookingRefundExecutionPlan(input: {
   }
 
   const requestedAmountMinor = input.requestedAmountMinor ?? null;
-  if (requestedAmountMinor !== null && requestedAmountMinor <= 0n) {
+  if (requestedAmountMinor !== null && (typeof requestedAmountMinor !== 'bigint' || requestedAmountMinor <= 0n)) {
     return { planned: false, reason: 'Refund amount must be greater than zero.' };
   }
   const amountMinor = requestedAmountMinor ?? allocation.sourceRefundableMinor;

@@ -35,6 +35,9 @@ export function deriveBookingRefundAvailability(input: BookingRefundAvailability
   if (input.paymentStatus === 'REFUNDED') {
     return { available: false, reason: 'This booking payment has already been fully refunded.' };
   }
+  if (typeof input.paymentStatus !== 'string') {
+    return { available: false, reason: 'Booking payment state is invalid. Reconcile payment history before refunding.' };
+  }
   if (input.paymentStatus !== 'PAID' && input.paymentStatus !== 'PARTIALLY_REFUNDED') {
     return { available: false, reason: `Booking payment state ${input.paymentStatus.toLowerCase().replaceAll('_', ' ')} does not accept a refund.` };
   }
