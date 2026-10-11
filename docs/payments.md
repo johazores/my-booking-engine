@@ -115,3 +115,8 @@ Dependency-free coverage includes settlement reconciliation, refund-source attri
 The guarded disposable PostgreSQL suite remains the required gate for Prisma schema/migrations, tenant isolation, locking, idempotency, provider persistence, webhook concurrency, amendment-payment foreign keys, provider executors, signed callback finalization, product transport routes, and final apply. Full typecheck/lint/test/build and Prisma validation must run in the repository-required Node 24 environment. Do not claim those checks passed without that environment and an explicitly disposable PostgreSQL target.
 
 Still open in the broader payments roadmap are invoices/tax documents and production provider operational validation. Do not regress to fake redirects, browser-success payment truth, browser-selected settlement sources, browser-selected financial identity, or browser-authorized amendment apply. GitHub Actions are not used for validation.
+
+
+## Successful provider operation identity
+
+Settlement reconciliation rejects a successful refund whose provider reference collides with any successful payment, capture, or authorization reference from the same provider. This is distinct from the permitted authorization/capture reuse of a provider PaymentIntent identity. A refund must carry its own operation identity; refund-source attribution points separately at the original settlement. Receipt presentation enforces the same rule, so corrupt cross-kind evidence cannot be displayed as valid money movement. Provider-qualified references remain independent across different providers.

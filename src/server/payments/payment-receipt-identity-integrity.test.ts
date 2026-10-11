@@ -111,3 +111,25 @@ test('receipt provider identities reject C0/C1 controls without excluding legiti
     payment({ providerReference: 'pi_é日本語' }),
   ], 'AUD'));
 });
+
+test('receipt evidence rejects refund identity collisions in either row order', () => {
+  for (const kind of ['OFFLINE_PAYMENT', 'AUTHORIZATION', 'CAPTURE'] as const) {
+    const received = payment({ id: 'received', kind, providerReference: 'shared-reference' });
+    const refund = payment({
+      id: 'refund', kind: 'REFUND', providerReference: 'shared-reference',
+      sourceProviderReference: 'shared-reference', amountMinor: 1_000n,
+    });
+    for (const rows of [[received, refund], [refund, received]]) {
+      assert.throws(() => sanitizeSuccessfulPaymentTransactions(rows, 'AUD'), {
+        name: 'PaymentReceiptEvidenceError',
+        message: 'Successful refund activity reuses a payment provider reference.',
+      });
+    }
+  }
+
+  assert.doesNotThrow(() => sanitizeSuccessfulPaymentTransactions([
+    payment({ id: 'authorization', kind: 'AUTHORIZATION', providerReference: 'pi_shared' }),
+    payment({ id: 'capture', kind: 'CAPTURE', providerReference: 'pi_shared' }),
+    payment({ id: 'refund', kind: 'REFUND', providerReference: 're_distinct', sourceProviderReference: 'pi_shared', amountMinor: 1_000n }),
+  ], 'AUD'));
+});

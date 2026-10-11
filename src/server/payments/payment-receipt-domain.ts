@@ -150,6 +150,7 @@ export function sanitizeSuccessfulPaymentTransactions(
   const seenSettlements = new Set<string>();
   const seenRefunds = new Set<string>();
   const seenAuthorizations = new Set<string>();
+  const seenPaymentReferences = new Set<string>();
   const seenIds = new Set<string>();
   const safeTransactions = transactions
     .filter((transaction) => transaction.status === 'SUCCEEDED')
@@ -197,10 +198,15 @@ export function sanitizeSuccessfulPaymentTransactions(
       const seen = transaction.kind === 'REFUND'
         ? seenRefunds
         : transaction.kind === 'AUTHORIZATION' ? seenAuthorizations : seenSettlements;
+      if ((transaction.kind === 'REFUND' && seenPaymentReferences.has(referenceKey))
+        || (transaction.kind !== 'REFUND' && seenRefunds.has(referenceKey))) {
+        throw new PaymentReceiptEvidenceError('Successful refund activity reuses a payment provider reference.');
+      }
       if (seen.has(referenceKey)) {
         throw new PaymentReceiptEvidenceError('Successful payment activity contains a duplicate provider operation.');
       }
       seen.add(referenceKey);
+      if (transaction.kind !== 'REFUND') seenPaymentReferences.add(referenceKey);
       return { ...transaction };
     });
 

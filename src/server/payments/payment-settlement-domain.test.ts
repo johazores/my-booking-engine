@@ -315,3 +315,29 @@ test('settlement rejects repeated successful authorizations even when a matching
     ],
   }).reconciled, true);
 });
+
+test('refund references cannot collide with successful payment or authorization identities', () => {
+  for (const kind of ['OFFLINE_PAYMENT', 'AUTHORIZATION', 'CAPTURE'] as const) {
+    const payment = transaction({ kind, providerReference: 'shared-reference' });
+    const refund = transaction({
+      kind: 'REFUND', providerReference: 'shared-reference',
+      sourceProviderReference: 'shared-reference', amountMinor: 1_000n,
+    });
+    for (const transactions of [[payment, refund], [refund, payment]]) {
+      const result = deriveBookingSettlementSummary({ currency: 'AUD', transactions });
+      assert.equal(result.reconciled, false);
+      if (!result.reconciled) assert.match(result.reason, /refund history reuses a payment provider reference/i);
+    }
+  }
+
+  // References are provider-scoped: unrelated providers may issue identical strings.
+  const independent = deriveBookingSettlementSummary({
+    currency: 'AUD',
+    transactions: [
+      transaction({ kind: 'OFFLINE_PAYMENT', providerCode: 'manual', providerReference: 'shared-reference' }),
+      transaction({ providerReference: 'pi_stripe' }),
+      transaction({ kind: 'REFUND', providerReference: 'shared-reference', sourceProviderReference: 'pi_stripe', amountMinor: 1_000n }),
+    ],
+  });
+  assert.equal(independent.reconciled, true);
+});

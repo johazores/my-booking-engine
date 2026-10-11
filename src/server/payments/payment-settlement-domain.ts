@@ -122,6 +122,21 @@ export function deriveBookingSettlementSummary(input: BookingSettlementInput): B
     if (invalidReason) return { reconciled: false, reason: invalidReason };
   }
 
+  // A refund must have its own provider operation identity. Authorization and
+  // capture may legitimately share a reference, but a refund cannot reuse it.
+  const successfulPaymentReferences = new Set(
+    successful
+      .filter((transaction) => transaction.kind !== 'REFUND')
+      .map((transaction) => transactionKey(transaction.providerCode, transaction.providerReference)),
+  );
+  if (successful.some((transaction) => transaction.kind === 'REFUND'
+    && successfulPaymentReferences.has(transactionKey(transaction.providerCode, transaction.providerReference)))) {
+    return {
+      reconciled: false,
+      reason: 'Successful refund history reuses a payment provider reference. Reconcile payment history before continuing.',
+    };
+  }
+
   // Captures may share an authorization reference, but repeated authorizations
   // must not disappear when the captured authorization is de-duplicated.
   const seenAuthorizations = new Set<string>();
