@@ -86,7 +86,13 @@ function validateCommon(
   if (row.providerCode !== 'manual') return 'Commercial amendment settlement contains unsupported provider evidence.';
   if (row.currency !== input.currency) return 'Commercial amendment settlement currency does not match the amendment.';
   if (row.amountMinor !== input.deltaMinor) return 'Commercial amendment settlement amount does not match the exact amendment delta.';
-  if (!row.providerReference.trim()) return 'Commercial amendment settlement reference is missing.';
+  if (typeof row.providerReference !== 'string'
+    || !row.providerReference.trim()
+    || row.providerReference !== row.providerReference.trim()
+    || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
+    || row.providerReference.startsWith('sf_claim_')) {
+    return 'Commercial amendment settlement reference is malformed.';
+  }
   return null;
 }
 
@@ -94,7 +100,11 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
   input: SettlementInput,
 ): RentalBookingCommercialAmendmentSettlementState {
   if (!/^[A-Z]{3}$/.test(input.currency)) return conflict('Commercial amendment currency is invalid.');
-  if (input.deltaMinor <= 0n) return conflict('Commercial amendment delta must be positive.');
+  if (typeof input.deltaMinor !== 'bigint' || input.deltaMinor <= 0n) return conflict('Commercial amendment delta must be positive.');
+  if (!Array.isArray(input.rows) || input.rows.some((row) => !row || typeof row !== 'object'
+    || (row.purpose !== 'ADJUSTMENT' && row.purpose !== 'COMPENSATION'))) {
+    return conflict('Commercial amendment settlement history is malformed.');
+  }
   if (input.rows.length > 2) return conflict('Commercial amendment settlement exceeds the supported adjustment and compensation evidence.');
 
   const adjustmentRows = input.rows.filter((row) => row.purpose === 'ADJUSTMENT');
@@ -116,7 +126,8 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
   if (adjustment.kind === 'OFFLINE_PAYMENT' && adjustment.sourceProviderReference !== null) {
     return conflict('Commercial amendment payment unexpectedly contains refund-source attribution.');
   }
-  if (adjustment.kind === 'REFUND' && !adjustment.sourceProviderReference?.trim()) {
+  if (adjustment.kind === 'REFUND' && (typeof adjustment.sourceProviderReference !== 'string'
+    || !adjustment.sourceProviderReference.trim())) {
     return conflict('Commercial amendment refund is missing original payment-source attribution.');
   }
 

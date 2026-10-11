@@ -217,6 +217,13 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
     return conflict('Rental booking currency is invalid for effective settlement reconciliation.');
   }
 
+  if (!Array.isArray(input.originalTransactions) || input.originalTransactions.some((row) => !row || typeof row !== 'object')) {
+    return conflict('Original rental booking-price settlement history is malformed.');
+  }
+  if (input.postApplyRefunds != null && !Array.isArray(input.postApplyRefunds)) {
+    return conflict('Post-apply rental refund history is malformed.');
+  }
+
   const originalSettlement = deriveRentalPaymentSettlement({
     bookingTotalMinor: input.originalBookingTotalMinor,
     currency: input.currency,
@@ -306,7 +313,8 @@ export function deriveRentalBookingEffectiveSettlement(input: Readonly<{
       .filter((row) => row.status === 'SUCCEEDED' && row.providerCode === 'manual')
       .map((row) => row.providerReference),
   ]);
-  if ((input.postApplyRefunds ?? []).some((row) => retainedManualReferences.has(row.providerReference))) {
+  if ([...postApply.bookingPriceRows, ...postApply.amendmentChargeRows]
+    .some((row) => retainedManualReferences.has(row.providerReference))) {
     return conflict('Post-apply rental refund reuses a retained payment or amendment provider reference.');
   }
 

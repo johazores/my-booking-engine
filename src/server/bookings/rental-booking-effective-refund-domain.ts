@@ -38,7 +38,7 @@ export function deriveRentalBookingEffectiveRefundPlan(input: Readonly<{
       reason: 'Post-apply rental refund authority requires an applied commercial amendment.',
     });
   }
-  if (input.requestedAmountMinor <= 0n) {
+  if (typeof input.requestedAmountMinor !== 'bigint' || input.requestedAmountMinor <= 0n) {
     return Object.freeze({
       planned: false as const,
       reason: 'Post-apply rental refund amount must be greater than zero.',

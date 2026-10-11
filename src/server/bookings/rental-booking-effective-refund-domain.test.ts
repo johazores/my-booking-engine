@@ -224,3 +224,20 @@ test('refund idempotency and request fingerprints are deterministic and commerci
     }),
   );
 });
+
+test('post-apply refund planner rejects non-bigint amounts without coercion', () => {
+  const settlement = deriveRentalBookingEffectiveSettlement({
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('ADDITIONAL_CHARGE'),
+  });
+  assert.equal(settlement.reconciled, true);
+  for (const requestedAmountMinor of [null, undefined, 500, '500', NaN, { valueOf() { throw new Error('coercion'); } }]) {
+    const result = deriveRentalBookingEffectiveRefundPlan({
+      settlement,
+      requestedAmountMinor: requestedAmountMinor as bigint,
+    });
+    assert.equal(result.planned, false);
+  }
+});

@@ -292,3 +292,26 @@ test('effective rental settlement rejects missing post-apply rows and malformed 
   });
   assert.equal(invalidHistory.reconciled, false);
 });
+
+test('effective rental settlement rejects malformed history collections without throwing', () => {
+  const base = {
+    originalBookingTotalMinor: 10_000n,
+    currency: 'AUD',
+    originalTransactions: [payment()],
+    appliedAmendment: applied('ADDITIONAL_CHARGE'),
+  };
+  for (const originalTransactions of [null, {}, [null]]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      ...base,
+      originalTransactions: originalTransactions as unknown as BookingSettlementTransaction[],
+    });
+    assert.equal(result.reconciled, false);
+  }
+  for (const postApplyRefunds of [{}, [undefined]]) {
+    const result = deriveRentalBookingEffectiveSettlement({
+      ...base,
+      postApplyRefunds: postApplyRefunds as unknown as RentalBookingEffectiveRefundEvidence[],
+    });
+    assert.equal(result.reconciled, false);
+  }
+});

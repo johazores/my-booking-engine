@@ -89,3 +89,5 @@ Chained price-changing amendments remain blocked after that applied amendment. D
 - Database execution remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 GitHub Actions are not required or used.
+
+The effective-refund planner rejects non-bigint requested money without JavaScript coercion. Original and post-apply settlement collections reject missing/non-array rows, and cross-ledger reference collision checks consume already-validated normalized refund rows rather than dereferencing unchecked evidence. Commercial-amendment settlement rejects missing/unknown-purpose rows, non-bigint deltas, malformed references, and invalid source-reference types before deriving refund authority.

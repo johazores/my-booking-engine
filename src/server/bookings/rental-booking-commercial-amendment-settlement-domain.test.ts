@@ -109,3 +109,36 @@ test('commercial amendment settlement request evidence is deterministic and sens
     buildRentalBookingCommercialAmendmentSettlementRequestFingerprint({ ...base, amountMinor: 2501n }),
   );
 });
+
+test('commercial amendment settlement rejects malformed collections, identities, and money without throwing', () => {
+  const base = { direction: 'ADDITIONAL_CHARGE' as const, currency: 'AUD', deltaMinor: 2500n };
+  for (const rows of [null, {}, [null], [{ ...payment, purpose: 'UNKNOWN' }]]) {
+    const result = deriveRentalBookingCommercialAmendmentSettlementState({
+      ...base,
+      rows: rows as RentalBookingCommercialAmendmentSettlementRow[],
+    });
+    assert.equal(result.state, 'CONFLICT');
+  }
+  for (const providerReference of [null, 123, ' padded ', 'sf_claim_reserved', 'line\\nbreak']) {
+    const result = deriveRentalBookingCommercialAmendmentSettlementState({
+      ...base,
+      rows: [{ ...payment, providerReference: providerReference as string }],
+    });
+    assert.equal(result.state, 'CONFLICT');
+  }
+  for (const deltaMinor of [null, undefined, 2500, '2500']) {
+    const result = deriveRentalBookingCommercialAmendmentSettlementState({
+      ...base,
+      deltaMinor: deltaMinor as bigint,
+      rows: [payment],
+    });
+    assert.equal(result.state, 'CONFLICT');
+  }
+  const invalidSource = deriveRentalBookingCommercialAmendmentSettlementState({
+    direction: 'REFUND',
+    currency: 'AUD',
+    deltaMinor: 2500n,
+    rows: [{ ...refund, sourceProviderReference: 123 as unknown as string }],
+  });
+  assert.equal(invalidSource.state, 'CONFLICT');
+});
