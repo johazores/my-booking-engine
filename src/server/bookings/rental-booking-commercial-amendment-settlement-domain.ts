@@ -99,6 +99,9 @@ function validateCommon(
 export function deriveRentalBookingCommercialAmendmentSettlementState(
   input: SettlementInput,
 ): RentalBookingCommercialAmendmentSettlementState {
+  if (input.direction !== 'ADDITIONAL_CHARGE' && input.direction !== 'REFUND') {
+    return conflict('Commercial amendment direction is unsupported.');
+  }
   if (!/^[A-Z]{3}$/.test(input.currency)) return conflict('Commercial amendment currency is invalid.');
   if (typeof input.deltaMinor !== 'bigint' || input.deltaMinor <= 0n) return conflict('Commercial amendment delta must be positive.');
   if (!Array.isArray(input.rows) || input.rows.some((row) => !row || typeof row !== 'object'
@@ -127,7 +130,9 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
     return conflict('Commercial amendment payment unexpectedly contains refund-source attribution.');
   }
   if (adjustment.kind === 'REFUND' && (typeof adjustment.sourceProviderReference !== 'string'
-    || !adjustment.sourceProviderReference.trim())) {
+    || !adjustment.sourceProviderReference.trim()
+    || adjustment.sourceProviderReference.trim() !== adjustment.sourceProviderReference
+    || /[\u0000-\u001f\u007f-\u009f]/u.test(adjustment.sourceProviderReference))) {
     return conflict('Commercial amendment refund is missing original payment-source attribution.');
   }
 

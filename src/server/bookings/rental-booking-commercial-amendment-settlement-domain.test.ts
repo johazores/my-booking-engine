@@ -119,7 +119,7 @@ test('commercial amendment settlement rejects malformed collections, identities,
     });
     assert.equal(result.state, 'CONFLICT');
   }
-  for (const providerReference of [null, 123, ' padded ', 'sf_claim_reserved', 'line\\nbreak']) {
+  for (const providerReference of [null, 123, ' padded ', 'sf_claim_reserved', 'line\nbreak']) {
     const result = deriveRentalBookingCommercialAmendmentSettlementState({
       ...base,
       rows: [{ ...payment, providerReference: providerReference as string }],
@@ -131,6 +131,21 @@ test('commercial amendment settlement rejects malformed collections, identities,
       ...base,
       deltaMinor: deltaMinor as bigint,
       rows: [payment],
+    });
+    assert.equal(result.state, 'CONFLICT');
+  }
+  const invalidDirection = deriveRentalBookingCommercialAmendmentSettlementState({
+    ...base,
+    direction: 'UNKNOWN' as 'ADDITIONAL_CHARGE',
+    rows: [],
+  });
+  assert.equal(invalidDirection.state, 'CONFLICT');
+  for (const sourceProviderReference of [' padded ', 'line\nbreak']) {
+    const result = deriveRentalBookingCommercialAmendmentSettlementState({
+      direction: 'REFUND',
+      currency: 'AUD',
+      deltaMinor: 2500n,
+      rows: [{ ...refund, sourceProviderReference }],
     });
     assert.equal(result.state, 'CONFLICT');
   }
