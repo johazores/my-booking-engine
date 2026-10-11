@@ -39,8 +39,15 @@ export function deriveBookingPaymentStatusFromSettlementTransactions(input: {
   if (settlement.grossSettledMinor <= 0n) {
     return { reconciled: false, reason: 'No successful received payment exists to establish a refunded booking state.' };
   }
-  return deriveBookingPaymentStatusFromNetSettlement({
+  const derived = deriveBookingPaymentStatusFromNetSettlement({
     bookingTotalMinor: input.bookingTotalMinor,
     netSettledMinor: settlement.netSettledMinor,
   });
-}
+  if (derived.reconciled && derived.paymentStatus === 'PARTIALLY_REFUNDED' && settlement.refundedMinor === 0n) {
+    return {
+      reconciled: false,
+      reason: 'A partially refunded booking requires successful refund evidence. Reconcile payment history before continuing.',
+    };
+  }
+  return derived;
+
