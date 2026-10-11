@@ -4,6 +4,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { readHospitalityPaymentReceiptHistory } from './hospitality-payment-receipt-history.ts';
 import {
   assertPaymentReceiptBookingSnapshot,
+  buildCustomerSettlementEntries,
   assertPaymentReceiptSettlementState,
   buildPaymentReceiptNumber,
   isReceiptEligiblePaymentStatus,
@@ -82,7 +83,7 @@ export async function getBookingPaymentReceipt(input: {
   return {
     documentType: 'PAYMENT_RECEIPT' as const,
     receiptNumber: buildPaymentReceiptNumber(booking.id),
-    issuedAt: safeTransactions.at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt,
+    issuedAt: buildCustomerSettlementEntries(safeTransactions, booking.paymentStatus).at(-1)?.createdAt ?? booking.confirmedAt ?? booking.createdAt,
     organization,
     customer: booking.customer,
     booking: {

@@ -45,3 +45,12 @@ test('documentation distinguishes receipt presentation evidence from settlement 
   assert.match(guide, /authenticated staff/i);
   assert.match(guide, /public capability/i);
 });
+
+test('receipt issuance follows monetary customer activity rather than unrelated authorization holds', () => {
+  assert.match(staffReceipt, /issuedAt: buildCustomerSettlementEntries\(safeTransactions, booking\.paymentStatus\)\.at\(-1\)\?\.createdAt/);
+  assert.match(publicReceipt, /const activity = buildCustomerSettlementEntries\(safeTransactions, booking\.paymentStatus\);/);
+  assert.match(publicReceipt, /issuedAt: \(activity\.at\(-1\)\?\.createdAt/);
+  assert.match(publicReceipt, /activity: activity\.map/);
+  assert.doesNotMatch(staffReceipt, /issuedAt: safeTransactions\.at\(-1\)/);
+  assert.doesNotMatch(publicReceipt, /issuedAt: \(safeTransactions\.at\(-1\)/);
+});
