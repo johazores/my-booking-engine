@@ -5,6 +5,7 @@ import { db } from '../database.ts';
 import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
+  buildRentalBookingCommercialAmendmentSettlementIdempotencyKey,
   buildRentalBookingCommercialAmendmentSettlementRequestFingerprint,
   type RentalBookingCommercialAmendmentSettlementRow,
 } from './rental-booking-commercial-amendment-settlement-domain.ts';
@@ -147,6 +148,48 @@ async function readAmendmentSettlementRows(
         ),
       });
     }
+    if (
+      typeof row.idempotencyKey !== 'string'
+      || !row.idempotencyKey.trim()
+      || row.providerCode !== 'manual'
+      || typeof row.providerReference !== 'string'
+      || !row.providerReference.trim()
+      || row.providerReference !== row.providerReference.trim()
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
+      || row.providerReference.startsWith('sf_claim_')
+      || (row.sourceProviderReference !== null && (
+        typeof row.sourceProviderReference !== 'string'
+        || !row.sourceProviderReference.trim()
+        || row.sourceProviderReference !== row.sourceProviderReference.trim()
+        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
+        || row.sourceProviderReference.startsWith('sf_claim_')
+      ))
+      || typeof row.currency !== 'string'
+      || !/^[A-Z]{3}$/.test(row.currency)
+      || typeof row.amountMinor !== 'bigint'
+      || row.amountMinor <= 0n
+      || typeof row.requestFingerprint !== 'string'
+    ) {
+      return Object.freeze({
+        rows: [] as readonly RentalBookingCommercialAmendmentSettlementRow[],
+        settlement: reconciliationFailure(
+          'Applied rental commercial amendment settlement contains malformed retained payment evidence.',
+        ),
+      });
+    }
+    const expectedIdempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({
+      amendmentId: input.amendmentId,
+      purpose: row.purpose,
+      reference: row.providerReference,
+    });
+    if (row.idempotencyKey !== expectedIdempotencyKey) {
+      return Object.freeze({
+        rows: [] as readonly RentalBookingCommercialAmendmentSettlementRow[],
+        settlement: reconciliationFailure(
+          'Applied rental commercial amendment settlement contains invalid deterministic idempotency authority.',
+        ),
+      });
+    }
     const expectedFingerprint = buildRentalBookingCommercialAmendmentSettlementRequestFingerprint({
       organizationId: input.organizationId,
       bookingId: input.bookingId,
@@ -268,7 +311,6 @@ export async function readRentalBookingEffectiveSettlementInTransaction(input: R
       organizationId: input.organizationId,
       bookingId: input.bookingId,
       amendmentId: amendment.id,
-      appliedAt: amendment.appliedAt,
     }),
   ]);
   if (amendmentRows.settlement) {

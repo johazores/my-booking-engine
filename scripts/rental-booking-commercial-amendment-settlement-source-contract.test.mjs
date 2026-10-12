@@ -88,6 +88,9 @@ test('manual settlement service derives money and refund source server-side and 
     'payment.rental.commercial-amendment-compensated',
   ]) assert.ok(service.includes(token), `missing settlement service token: ${token}`);
   assert.match(service, /amountMinor: amendment\.deltaMinor/);
+  assert.match(service, /row\.idempotencyKey !== expectedIdempotencyKey/);
+  assert.match(service, /typeof row\.amountMinor !== 'bigint'/);
+  assert.match(service, /row\.providerReference\.startsWith\('sf_claim_'\)/);
   assert.match(service, /currency: amendment\.currency/);
   assert.match(service, /purpose: 'ADJUSTMENT'/);
   assert.match(service, /amendmentId: \{ not: input\.amendmentId \}/);

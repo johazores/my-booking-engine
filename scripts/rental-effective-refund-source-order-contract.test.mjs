@@ -37,5 +37,8 @@ test('history reader rechecks tenant-owned amendment authority and chronological
   assert.match(history, /rentalBookingCommercialAmendment\.findFirst/);
   assert.match(history, /organizationId: input\.organizationId/);
   assert.match(history, /chronologicalRows\.push/);
+  assert.match(history, /select: \{ direction: true, deltaMinor: true, appliedAt: true \}/);
+  assert.match(history, /row\.createdAt\.getTime\(\) < amendment\.appliedAt\.getTime\(\)/);
+  assert.doesNotMatch(history, /input\.appliedAt/);
   assert.equal((history.match(/return completeHistory\(\)/g) ?? []).length, 2);
 });

@@ -32,6 +32,11 @@ test('protected reader remains tenant scoped, bounded, fingerprint checked, and 
   assert.match(service, /permission: 'payment:read'/);
   assert.match(service, /readRentalPaymentSettlementHistory/);
   assert.match(service, /readRentalBookingEffectiveRefundHistory/);
+  assert.match(service, /typeof row\.amountMinor !== 'bigint'/);
+  assert.match(service, /row\.providerReference\.startsWith\('sf_claim_'\)/);
+  assert.match(service, /typeof row\.requestFingerprint !== 'string'/);
+  assert.match(service, /buildRentalBookingCommercialAmendmentSettlementIdempotencyKey/);
+  assert.match(service, /row\.idempotencyKey !== expectedIdempotencyKey/);
   assert.match(service, /status: 'APPLIED'/);
   assert.match(service, /take: 2/);
   assert.match(service, /take: 3/);
@@ -43,13 +48,13 @@ test('protected reader remains tenant scoped, bounded, fingerprint checked, and 
   assert.match(history, /RENTAL_BOOKING_EFFECTIVE_REFUND_MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /buildRentalBookingEffectiveRefundIdempotencyKey/);
   assert.match(history, /buildRentalBookingEffectiveRefundRequestFingerprint/);
-  assert.match(history, /row\.createdAt\.getTime\(\) < input\.appliedAt\.getTime\(\)/);
+  assert.match(history, /row\.createdAt\.getTime\(\) < amendment\.appliedAt\.getTime\(\)/);
 });
 
 test('documentation states implemented post-apply refunds and exact-zero effective cancellation authority', () => {
-  assert.match(docs, /post-apply manual refund writer/i);
-  assert.match(docs, /do not accept a client-selected payment source/i);
-  assert.match(docs, /cancellation writer now consumes this combined effective settlement/i);
-  assert.match(docs, /former blanket block/i);
+  assert.match(docs, /manual\/offline post-apply refund writer/i);
+  assert.match(docs, /Post-apply refund requests never choose a source/i);
+  assert.match(docs, /Rental cancellation consumes this combined effective settlement/i);
+  assert.match(docs, /makes the effective settlement deliberately unreconciled/i);
   assert.match(docs, /one applied price-changing amendment/i);
 });

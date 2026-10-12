@@ -77,6 +77,40 @@ async function readRows(transaction: Prisma.TransactionClient, input: Readonly<{
   });
   if (rows.length > 2) throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment settlement history exceeds the supported adjustment and compensation contract.');
   for (const row of rows) {
+    if (
+      (row.purpose !== 'ADJUSTMENT' && row.purpose !== 'COMPENSATION')
+      || (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')
+      || row.status !== 'SUCCEEDED'
+      || row.providerCode !== 'manual'
+      || typeof row.idempotencyKey !== 'string'
+      || typeof row.providerReference !== 'string'
+      || !row.providerReference.trim()
+      || row.providerReference !== row.providerReference.trim()
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
+      || row.providerReference.startsWith('sf_claim_')
+      || (row.sourceProviderReference !== null && (
+        typeof row.sourceProviderReference !== 'string'
+        || !row.sourceProviderReference.trim()
+        || row.sourceProviderReference !== row.sourceProviderReference.trim()
+        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
+        || row.sourceProviderReference.startsWith('sf_claim_')
+      ))
+      || typeof row.currency !== 'string'
+      || !/^[A-Z]{3}$/.test(row.currency)
+      || typeof row.amountMinor !== 'bigint'
+      || row.amountMinor <= 0n
+      || typeof row.requestFingerprint !== 'string'
+    ) {
+      throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment settlement history contains malformed retained evidence.');
+    }
+    const expectedIdempotencyKey = buildRentalBookingCommercialAmendmentSettlementIdempotencyKey({
+      amendmentId: input.amendmentId,
+      purpose: row.purpose,
+      reference: row.providerReference,
+    });
+    if (row.idempotencyKey !== expectedIdempotencyKey) {
+      throw new RentalBookingCommercialAmendmentConflictError('Commercial amendment settlement history contains invalid deterministic idempotency authority.');
+    }
     const expected = fingerprint({
       organizationId: input.organizationId, bookingId: input.bookingId, amendmentId: input.amendmentId,
       idempotencyKey: row.idempotencyKey, purpose: row.purpose as RentalBookingCommercialAmendmentSettlementPurpose,

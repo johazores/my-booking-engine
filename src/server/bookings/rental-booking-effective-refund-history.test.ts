@@ -47,6 +47,7 @@ type Row = Omit<ReturnType<typeof makeRows>[number], 'sourceLedger'> & {
 type AmendmentEvidence = Readonly<{
   direction: 'ADDITIONAL_CHARGE' | 'REFUND';
   deltaMinor: bigint;
+  appliedAt: Date;
 }>;
 
 function withSource(row: Row, changes: Partial<Pick<Row, 'sourceLedger' | 'sourceProviderReference' | 'amountMinor' | 'createdAt'>>): Row {
@@ -77,13 +78,13 @@ function createReader(
       rentalBookingCommercialAmendment: {
         async findFirst(args: Readonly<{
           where: { id: string; bookingId: string; organizationId: string; status: 'APPLIED' };
-          select: { direction: true; deltaMinor: true };
+          select: { direction: true; deltaMinor: true; appliedAt: true };
         }>) {
           amendmentCalls.push(args);
           assert.deepEqual(args.where, { id: amendmentId, bookingId, organizationId, status: 'APPLIED' });
-          assert.deepEqual(args.select, { direction: true, deltaMinor: true });
+          assert.deepEqual(args.select, { direction: true, deltaMinor: true, appliedAt: true });
           return amendmentOverride === undefined
-            ? { direction: 'REFUND' as const, deltaMinor: 200n }
+            ? { direction: 'REFUND' as const, deltaMinor: 200n, appliedAt }
             : amendmentOverride;
         },
       },
@@ -105,10 +106,10 @@ function createReader(
   };
 }
 
-async function read(reader: ReturnType<typeof createReader>, timestamp = appliedAt) {
+async function read(reader: ReturnType<typeof createReader>) {
   return readRentalBookingEffectiveRefundHistory({
     transaction: reader.transaction as never,
-    organizationId, bookingId, amendmentId, appliedAt: timestamp,
+    organizationId, bookingId, amendmentId,
   });
 }
 
@@ -160,8 +161,10 @@ test('post-apply refund history rejects repeated IDs across cursor pages', async
 });
 
 test('post-apply refund history rejects invalid amendment time without querying payment evidence', async () => {
-  const reader = createReader(makeRows(1));
-  const result = await read(reader, new Date(Number.NaN));
+  const reader = createReader(makeRows(1), undefined, {
+    direction: 'REFUND', deltaMinor: 200n, appliedAt: new Date(Number.NaN),
+  });
+  const result = await read(reader);
   assert.equal(result.complete, false);
   assert.match(result.complete ? '' : result.reason, /invalid terminal timestamp/i);
   assert.equal(reader.calls.length, 0);
@@ -214,7 +217,7 @@ test('post-apply refund history rechecks chronology rather than UUID order or fi
     amountMinor: 200n,
     createdAt: new Date(appliedAt.getTime() + 2_000),
   });
-  const reader = createReader([first, second], undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n });
+  const reader = createReader([first, second], undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n, appliedAt });
   const result = await read(reader);
   assert.equal(result.complete, false);
   assert.match(result.complete ? '' : result.reason, /predate full refund/i);
@@ -226,7 +229,7 @@ test('post-apply refund chronology is reconciled across page boundaries', async 
     sourceProviderReference: index < 100 ? 'AMENDMENT-PAY-1' : 'ORIGINAL-PAY-1',
     amountMinor: index < 100 ? 2n : 1n,
   }));
-  const good = createReader(rows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n });
+  const good = createReader(rows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n, appliedAt });
   const accepted = await read(good);
   assert.equal(accepted.complete, true);
   assert.equal(good.calls.length, 2);
@@ -236,20 +239,45 @@ test('post-apply refund chronology is reconciled across page boundaries', async 
     : index === 100
       ? withSource(item, { sourceLedger: 'COMMERCIAL_AMENDMENT', sourceProviderReference: 'AMENDMENT-PAY-1' })
       : item);
-  const rejected = await read(createReader(badRows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n }));
+  const rejected = await read(createReader(badRows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n, appliedAt }));
   assert.equal(rejected.complete, false);
   assert.match(rejected.complete ? '' : rejected.reason, /predate full refund/i);
+});
+
+test('post-apply refund history rejects missing and non-Date applied timestamps', async () => {
+  for (const invalid of [null, undefined, '2026-09-20T00:00:00.000Z']) {
+    const reader = createReader(makeRows(1), undefined, {
+      direction: 'REFUND', deltaMinor: 200n, appliedAt: invalid as never,
+    });
+    const result = await read(reader);
+    assert.equal(result.complete, false);
+    assert.match(result.complete ? '' : result.reason, /invalid terminal timestamp/i);
+    assert.equal(reader.calls.length, 0);
+  }
+});
+
+test('post-apply refund history binds chronology to tenant-owned applied time', async () => {
+  const reader = createReader(makeRows(1), undefined, {
+    direction: 'REFUND', deltaMinor: 200n,
+    appliedAt: new Date(appliedAt.getTime() + 2_000),
+  });
+  const result = await read(reader);
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /chronology evidence/i);
+  assert.equal(reader.amendmentCalls.length, 1);
 });
 
 test('post-apply refund history rejects malformed amendment authority', async () => {
   const rows = makeRows(1);
   for (const invalid of [
-    { direction: 'INVALID', deltaMinor: 200n },
-    { direction: 'ADDITIONAL_CHARGE', deltaMinor: '200' },
+    { direction: 'INVALID', deltaMinor: 200n, appliedAt },
+    { direction: 'ADDITIONAL_CHARGE', deltaMinor: '200', appliedAt },
+    { direction: 'ADDITIONAL_CHARGE', deltaMinor: 0n, appliedAt },
   ]) {
     const reader = createReader(rows, undefined, invalid as never);
     const result = await read(reader);
     assert.equal(result.complete, false);
     assert.match(result.complete ? '' : result.reason, /invalid amendment authority/i);
+    assert.equal(reader.calls.length, 0);
   }
 });

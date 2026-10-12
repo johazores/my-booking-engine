@@ -56,17 +56,9 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
   organizationId: string;
   bookingId: string;
   amendmentId: string;
-  appliedAt: Date;
 }>): Promise<EffectiveRefundHistoryResult> {
-  if (!(input.appliedAt instanceof Date) || Number.isNaN(input.appliedAt.getTime())) {
-    return Object.freeze({
-      complete: false as const,
-      reason: 'Applied rental amendment has an invalid terminal timestamp.',
-    });
-  }
-
   // Recheck the applied amendment inside this same transaction; callers
-  // cannot supply source-order direction or charge amount as authority.
+  // cannot supply source-order direction, charge amount, or applied time as authority.
   const amendment = await input.transaction.rentalBookingCommercialAmendment.findFirst({
     where: {
       id: input.amendmentId,
@@ -74,12 +66,26 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
       organizationId: input.organizationId,
       status: 'APPLIED',
     },
-    select: { direction: true, deltaMinor: true },
+    select: { direction: true, deltaMinor: true, appliedAt: true },
   });
   if (!amendment) {
     return Object.freeze({
       complete: false as const,
       reason: 'Post-apply rental refund history has no tenant-owned applied amendment authority.',
+    });
+  }
+
+  if ((amendment.direction !== 'ADDITIONAL_CHARGE' && amendment.direction !== 'REFUND')
+    || typeof amendment.deltaMinor !== 'bigint' || amendment.deltaMinor <= 0n) {
+    return Object.freeze({
+      complete: false as const,
+      reason: 'Post-apply rental refund history has invalid amendment authority.',
+    });
+  }
+  if (!(amendment.appliedAt instanceof Date) || !Number.isFinite(amendment.appliedAt.getTime())) {
+    return Object.freeze({
+      complete: false as const,
+      reason: 'Applied rental amendment has an invalid terminal timestamp.',
     });
   }
 
@@ -129,7 +135,7 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
         || row.amendmentId !== input.amendmentId
         || !(row.createdAt instanceof Date)
         || Number.isNaN(row.createdAt.getTime())
-        || row.createdAt.getTime() < input.appliedAt.getTime()
+        || row.createdAt.getTime() < amendment.appliedAt.getTime()
         || (row.sourceLedger !== 'BOOKING_PRICE' && row.sourceLedger !== 'COMMERCIAL_AMENDMENT')
         || row.status !== 'SUCCEEDED'
         || row.providerCode !== 'manual'
