@@ -30,3 +30,12 @@ test('database source ordering retains tenant scope and migration preflight', ()
   assert.ok(authorityTrigger < sourceOrderTrigger, 'booking lock must precede source-order check');
   assert.ok(Buffer.byteLength(sourceOrderTrigger, 'utf8') <= 63, 'trigger name must fit PostgreSQL identifier limit');
 });
+
+test('history reader rechecks tenant-owned amendment authority and chronological source order', () => {
+  const history = read('src/server/bookings/rental-booking-effective-refund-history.ts');
+  assert.match(history, /validateRentalEffectiveRefundSourceOrder/);
+  assert.match(history, /rentalBookingCommercialAmendment\.findFirst/);
+  assert.match(history, /organizationId: input\.organizationId/);
+  assert.match(history, /chronologicalRows\.push/);
+  assert.equal((history.match(/return completeHistory\(\)/g) ?? []).length, 2);
+});

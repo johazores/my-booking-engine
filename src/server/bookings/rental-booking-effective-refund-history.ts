@@ -1,6 +1,10 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 
 import { validatePaymentHistoryPage } from '../payments/payment-history-page-integrity.ts';
+import {
+  validateRentalEffectiveRefundSourceOrder,
+  type EffectiveRefundOrderEvidence,
+} from './rental-booking-effective-refund-order-domain.ts';
 
 import {
   buildRentalBookingEffectiveRefundIdempotencyKey,
@@ -16,7 +20,7 @@ const MAX_PAGES =
 
 type EffectiveRefundHistoryReader = Pick<
   Prisma.TransactionClient,
-  'rentalBookingEffectiveRefundTransaction'
+  'rentalBookingEffectiveRefundTransaction' | 'rentalBookingCommercialAmendment'
 >;
 
 type EffectiveRefundHistoryResult = Readonly<
@@ -61,7 +65,38 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
     });
   }
 
+  // Recheck the applied amendment inside this same transaction; callers
+  // cannot supply source-order direction or charge amount as authority.
+  const amendment = await input.transaction.rentalBookingCommercialAmendment.findFirst({
+    where: {
+      id: input.amendmentId,
+      bookingId: input.bookingId,
+      organizationId: input.organizationId,
+      status: 'APPLIED',
+    },
+    select: { direction: true, deltaMinor: true },
+  });
+  if (!amendment) {
+    return Object.freeze({
+      complete: false as const,
+      reason: 'Post-apply rental refund history has no tenant-owned applied amendment authority.',
+    });
+  }
+
   const transactions: RentalBookingEffectiveRefundEvidence[] = [];
+  const chronologicalRows: EffectiveRefundOrderEvidence[] = [];
+  const completeHistory = (): EffectiveRefundHistoryResult => {
+    const orderError = validateRentalEffectiveRefundSourceOrder({
+      direction: amendment.direction,
+      deltaMinor: amendment.deltaMinor,
+      rows: chronologicalRows,
+    });
+    if (orderError) return Object.freeze({ complete: false as const, reason: orderError });
+    return Object.freeze({
+      complete: true as const,
+      transactions: Object.freeze(transactions),
+    });
+  };
   let cursorId: string | undefined;
 
   for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
@@ -146,6 +181,11 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
         });
       }
 
+      chronologicalRows.push(Object.freeze({
+        sourceLedger: row.sourceLedger,
+        amountMinor: row.amountMinor,
+        createdAt: row.createdAt,
+      }));
       transactions.push(Object.freeze({
         sourceLedger: row.sourceLedger,
         status: 'SUCCEEDED' as const,
@@ -158,10 +198,7 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
     }
 
     if (rows.length < RENTAL_BOOKING_EFFECTIVE_REFUND_PAGE_SIZE) {
-      return Object.freeze({
-        complete: true as const,
-        transactions: Object.freeze(transactions),
-      });
+      return completeHistory();
     }
     cursorId = rows.at(-1)?.id;
   }
@@ -192,8 +229,5 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
     });
   }
 
-  return Object.freeze({
-    complete: true as const,
-    transactions: Object.freeze(transactions),
-  });
+  return completeHistory();
 }

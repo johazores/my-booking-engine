@@ -41,7 +41,21 @@ function makeRows(count: number) {
   });
 }
 
-type Row = ReturnType<typeof makeRows>[number];
+type Row = Omit<ReturnType<typeof makeRows>[number], 'sourceLedger'> & {
+  sourceLedger: 'BOOKING_PRICE' | 'COMMERCIAL_AMENDMENT';
+};
+type AmendmentEvidence = Readonly<{
+  direction: 'ADDITIONAL_CHARGE' | 'REFUND';
+  deltaMinor: bigint;
+}>;
+
+function withSource(row: Row, changes: Partial<Pick<Row, 'sourceLedger' | 'sourceProviderReference' | 'amountMinor' | 'createdAt'>>): Row {
+  const updated = { ...row, ...changes };
+  return {
+    ...updated,
+    requestFingerprint: buildRentalBookingEffectiveRefundRequestFingerprint(updated),
+  };
+}
 type FindManyArgs = Readonly<{
   where: { organizationId: string; bookingId: string; amendmentId: string };
   take: number;
@@ -49,11 +63,30 @@ type FindManyArgs = Readonly<{
   skip?: number;
 }>;
 
-function createReader(rows: Row[], override?: (args: FindManyArgs, page: Row[]) => Row[]) {
+function createReader(
+  rows: Row[],
+  override?: (args: FindManyArgs, page: Row[]) => Row[],
+  amendmentOverride?: AmendmentEvidence | null,
+) {
   const calls: FindManyArgs[] = [];
+  const amendmentCalls: unknown[] = [];
   return {
     calls,
+    amendmentCalls,
     transaction: {
+      rentalBookingCommercialAmendment: {
+        async findFirst(args: Readonly<{
+          where: { id: string; bookingId: string; organizationId: string; status: 'APPLIED' };
+          select: { direction: true; deltaMinor: true };
+        }>) {
+          amendmentCalls.push(args);
+          assert.deepEqual(args.where, { id: amendmentId, bookingId, organizationId, status: 'APPLIED' });
+          assert.deepEqual(args.select, { direction: true, deltaMinor: true });
+          return amendmentOverride === undefined
+            ? { direction: 'REFUND' as const, deltaMinor: 200n }
+            : amendmentOverride;
+        },
+      },
       rentalBookingEffectiveRefundTransaction: {
         async findMany(args: FindManyArgs) {
           calls.push(args);
@@ -160,5 +193,63 @@ test('post-apply refund history rejects tampered idempotency and fingerprint evi
     const result = await read(createReader([row]));
     assert.equal(result.complete, false);
     assert.match(result.complete ? '' : result.reason, /idempotency authority|request fingerprint/i);
+  }
+});
+
+test('post-apply refund history requires tenant-owned applied amendment before reading rows', async () => {
+  const reader = createReader(makeRows(1), undefined, null);
+  const result = await read(reader);
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /no tenant-owned applied amendment/i);
+  assert.equal(reader.calls.length, 0);
+  assert.equal(reader.amendmentCalls.length, 1);
+});
+
+test('post-apply refund history rechecks chronology rather than UUID order or final totals', async () => {
+  const rows = makeRows(2);
+  const first = withSource(rows[0]!, { createdAt: new Date(appliedAt.getTime() + 1_000) });
+  const second = withSource(rows[1]!, {
+    sourceLedger: 'COMMERCIAL_AMENDMENT',
+    sourceProviderReference: 'AMENDMENT-PAY-1',
+    amountMinor: 200n,
+    createdAt: new Date(appliedAt.getTime() + 2_000),
+  });
+  const reader = createReader([first, second], undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n });
+  const result = await read(reader);
+  assert.equal(result.complete, false);
+  assert.match(result.complete ? '' : result.reason, /predate full refund/i);
+});
+
+test('post-apply refund chronology is reconciled across page boundaries', async () => {
+  const rows = makeRows(101).map((item, index) => withSource(item, {
+    sourceLedger: index < 100 ? 'COMMERCIAL_AMENDMENT' : 'BOOKING_PRICE',
+    sourceProviderReference: index < 100 ? 'AMENDMENT-PAY-1' : 'ORIGINAL-PAY-1',
+    amountMinor: index < 100 ? 2n : 1n,
+  }));
+  const good = createReader(rows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n });
+  const accepted = await read(good);
+  assert.equal(accepted.complete, true);
+  assert.equal(good.calls.length, 2);
+
+  const badRows = rows.map((item, index) => index === 99
+    ? withSource(item, { sourceLedger: 'BOOKING_PRICE', sourceProviderReference: 'ORIGINAL-PAY-1' })
+    : index === 100
+      ? withSource(item, { sourceLedger: 'COMMERCIAL_AMENDMENT', sourceProviderReference: 'AMENDMENT-PAY-1' })
+      : item);
+  const rejected = await read(createReader(badRows, undefined, { direction: 'ADDITIONAL_CHARGE', deltaMinor: 200n }));
+  assert.equal(rejected.complete, false);
+  assert.match(rejected.complete ? '' : rejected.reason, /predate full refund/i);
+});
+
+test('post-apply refund history rejects malformed amendment authority', async () => {
+  const rows = makeRows(1);
+  for (const invalid of [
+    { direction: 'INVALID', deltaMinor: 200n },
+    { direction: 'ADDITIONAL_CHARGE', deltaMinor: '200' },
+  ]) {
+    const reader = createReader(rows, undefined, invalid as never);
+    const result = await read(reader);
+    assert.equal(result.complete, false);
+    assert.match(result.complete ? '' : result.reason, /invalid amendment authority/i);
   }
 });
