@@ -2,6 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
+import { isCanonicalManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { readRentalPaymentSettlementHistory } from '../payments/rental-payment-history.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
@@ -152,17 +153,9 @@ async function readAmendmentSettlementRows(
       typeof row.idempotencyKey !== 'string'
       || !row.idempotencyKey.trim()
       || row.providerCode !== 'manual'
-      || typeof row.providerReference !== 'string'
-      || !row.providerReference.trim()
-      || row.providerReference !== row.providerReference.trim()
-      || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
-      || row.providerReference.startsWith('sf_claim_')
+      || !isCanonicalManualPaymentReference(row.providerReference)
       || (row.sourceProviderReference !== null && (
-        typeof row.sourceProviderReference !== 'string'
-        || !row.sourceProviderReference.trim()
-        || row.sourceProviderReference !== row.sourceProviderReference.trim()
-        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
-        || row.sourceProviderReference.startsWith('sf_claim_')
+        !isCanonicalManualPaymentReference(row.sourceProviderReference)
         || row.sourceProviderReference === row.providerReference
       ))
       || typeof row.currency !== 'string'
