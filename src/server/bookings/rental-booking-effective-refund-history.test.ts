@@ -187,6 +187,28 @@ test('post-apply refund history rejects cross-tenant, pre-apply, and malformed m
   }
 });
 
+test('post-apply refund history rejects noncanonical or self-attributed references even with matching fingerprints', async () => {
+  const original = makeRows(1)[0]!;
+  for (const changes of [
+    { providerReference: ' POST-REF-1' },
+    { providerReference: 'POST-REF-1\\n' },
+    { providerReference: 'sf_claim_reserved' },
+    { sourceProviderReference: ' ORIGINAL-PAY-1' },
+    { sourceProviderReference: 'ORIGINAL-PAY-1\\u007f' },
+    { sourceProviderReference: 'sf_claim_reserved' },
+    { sourceProviderReference: original.providerReference },
+  ]) {
+    const row = { ...original, ...changes };
+    row.idempotencyKey = buildRentalBookingEffectiveRefundIdempotencyKey({
+      bookingId, amendmentId, reference: row.providerReference,
+    });
+    row.requestFingerprint = buildRentalBookingEffectiveRefundRequestFingerprint(row);
+    const result = await read(createReader([row]));
+    assert.equal(result.complete, false);
+    assert.match(result.complete ? '' : result.reason, /invalid tenant, lifecycle, provider, monetary, or chronology evidence/i);
+  }
+});
+
 test('post-apply refund history rejects tampered idempotency and fingerprint evidence', async () => {
   const original = makeRows(1)[0]!;
   for (const row of [

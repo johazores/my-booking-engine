@@ -91,6 +91,7 @@ test('manual settlement service derives money and refund source server-side and 
   assert.match(service, /row\.idempotencyKey !== expectedIdempotencyKey/);
   assert.match(service, /typeof row\.amountMinor !== 'bigint'/);
   assert.match(service, /row\.providerReference\.startsWith\('sf_claim_'\)/);
+  assert.match(service, /row\.sourceProviderReference === row\.providerReference/);
   assert.match(service, /currency: amendment\.currency/);
   assert.match(service, /purpose: 'ADJUSTMENT'/);
   assert.match(service, /amendmentId: \{ not: input\.amendmentId \}/);
@@ -101,6 +102,7 @@ test('manual settlement service derives money and refund source server-side and 
 test('settlement domain has exact lifecycle states and deterministic one-source refund authority', () => {
   for (const state of ['UNSETTLED', 'SETTLED', 'COMPENSATED', 'CONFLICT']) assert.ok(domain.includes(`'${state}'`));
   assert.match(domain, /row\.amountMinor !== input\.deltaMinor/);
+  assert.match(domain, /adjustment\.sourceProviderReference === adjustment\.providerReference/);
   assert.match(domain, /compensation\.sourceProviderReference !== adjustment\.providerReference/);
   assert.match(domain, /deriveRentalBookingCommercialAmendmentRefundSource/);
   assert.match(domain, /deriveNextBookingRefundSource/);

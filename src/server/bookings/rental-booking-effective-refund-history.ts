@@ -141,8 +141,15 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
         || row.providerCode !== 'manual'
         || typeof row.providerReference !== 'string'
         || !row.providerReference.trim()
+        || row.providerReference !== row.providerReference.trim()
+        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
+        || row.providerReference.startsWith('sf_claim_')
         || typeof row.sourceProviderReference !== 'string'
         || !row.sourceProviderReference.trim()
+        || row.sourceProviderReference !== row.sourceProviderReference.trim()
+        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
+        || row.sourceProviderReference.startsWith('sf_claim_')
+        || row.sourceProviderReference === row.providerReference
         || typeof row.currency !== 'string'
         || !/^[A-Z]{3}$/.test(row.currency)
         || typeof row.amountMinor !== 'bigint'
