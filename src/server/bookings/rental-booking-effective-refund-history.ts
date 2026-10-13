@@ -1,5 +1,6 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 
+import { isCanonicalManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { validatePaymentHistoryPage } from '../payments/payment-history-page-integrity.ts';
 import {
   validateRentalEffectiveRefundSourceOrder,
@@ -139,16 +140,8 @@ export async function readRentalBookingEffectiveRefundHistory(input: Readonly<{
         || (row.sourceLedger !== 'BOOKING_PRICE' && row.sourceLedger !== 'COMMERCIAL_AMENDMENT')
         || row.status !== 'SUCCEEDED'
         || row.providerCode !== 'manual'
-        || typeof row.providerReference !== 'string'
-        || !row.providerReference.trim()
-        || row.providerReference !== row.providerReference.trim()
-        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
-        || row.providerReference.startsWith('sf_claim_')
-        || typeof row.sourceProviderReference !== 'string'
-        || !row.sourceProviderReference.trim()
-        || row.sourceProviderReference !== row.sourceProviderReference.trim()
-        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
-        || row.sourceProviderReference.startsWith('sf_claim_')
+        || !isCanonicalManualPaymentReference(row.providerReference)
+        || !isCanonicalManualPaymentReference(row.sourceProviderReference)
         || row.sourceProviderReference === row.providerReference
         || typeof row.currency !== 'string'
         || !/^[A-Z]{3}$/.test(row.currency)

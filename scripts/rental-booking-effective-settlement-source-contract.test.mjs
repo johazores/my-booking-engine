@@ -46,6 +46,8 @@ test('protected reader remains tenant scoped, bounded, fingerprint checked, and 
   assert.match(service, /isolationLevel: 'RepeatableRead'/);
 
   assert.match(history, /RENTAL_BOOKING_EFFECTIVE_REFUND_PAGE_SIZE = 100/);
+  assert.match(history, /isCanonicalManualPaymentReference\(row\.providerReference\)/);
+  assert.match(history, /isCanonicalManualPaymentReference\(row\.sourceProviderReference\)/);
   assert.match(history, /RENTAL_BOOKING_EFFECTIVE_REFUND_MAX_TRANSACTIONS = 1_000/);
   assert.match(history, /buildRentalBookingEffectiveRefundIdempotencyKey/);
   assert.match(history, /buildRentalBookingEffectiveRefundRequestFingerprint/);
