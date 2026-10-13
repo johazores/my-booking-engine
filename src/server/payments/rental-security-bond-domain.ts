@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { isCanonicalManualPaymentReference } from './manual-payment-provider.ts';
+
 export type RentalSecurityBondState = 'REQUIRED' | 'COLLECTED' | 'RELEASED' | 'FORFEITED';
 
 export type RentalSecurityBondTransactionEvidence = Readonly<{
@@ -55,6 +57,10 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
       || row.providerCode !== 'manual'
       || row.currency !== input.currency
       || row.amountMinor !== input.requiredAmountMinor
+      || !isCanonicalManualPaymentReference(row.providerReference)
+      || (row.sourceProviderReference !== null && !isCanonicalManualPaymentReference(row.sourceProviderReference))
+      || !(row.createdAt instanceof Date)
+      || !Number.isFinite(row.createdAt.getTime())
     ) {
       return { reconciled: false, reason: 'Security bond history does not match the enabled full-value manual/offline contract.' };
     }
@@ -65,6 +71,8 @@ export function deriveRentalSecurityBondSettlement(input: Readonly<{
     !forfeiture.liabilityDecisionId
     || forfeiture.currency !== input.currency
     || forfeiture.amountMinor !== input.requiredAmountMinor
+    || !(forfeiture.createdAt instanceof Date)
+    || !Number.isFinite(forfeiture.createdAt.getTime())
   )) {
     return { reconciled: false, reason: 'Security bond forfeiture does not match the retained full-value bond authority.' };
   }

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { isCanonicalManualPaymentReference } from './manual-payment-provider.ts';
+
 export type RentalDamageSettlementState = 'UNPAID' | 'PAID' | 'REFUNDED';
 
 export type RentalDamageSettlementTransactionEvidence = Readonly<{
@@ -46,6 +48,10 @@ export function deriveRentalDamageSettlement(input: Readonly<{
       || row.providerCode !== 'manual'
       || row.currency !== input.currency
       || row.amountMinor !== input.liableAmountMinor
+      || !isCanonicalManualPaymentReference(row.providerReference)
+      || (row.sourceProviderReference !== null && !isCanonicalManualPaymentReference(row.sourceProviderReference))
+      || !(row.createdAt instanceof Date)
+      || !Number.isFinite(row.createdAt.getTime())
     ) {
       return { reconciled: false, reason: 'Damage settlement history does not match the enabled full-value manual/offline contract.' };
     }
