@@ -43,3 +43,7 @@ The current one-requirement, one-full-collection, one-terminal-disposition contr
 Full repository validation remains `npm run validate` under the Node version declared by `package.json`. Live database validation remains `npm run test:database` against an explicitly disposable PostgreSQL target.
 
 GitHub Actions are not required or used.
+
+## Retained-evidence parity
+
+The booking pickup/cancellation projection uses the same retained security-bond transaction identity validation as the payment reader, including canonical manual references, deterministic operation idempotency and request fingerprint. A forged or inconsistent retained collection cannot unblock pickup or cancellation. The projection also verifies forfeiture source collection identity and idempotency. This does not grant payment-read authority to booking-only callers.

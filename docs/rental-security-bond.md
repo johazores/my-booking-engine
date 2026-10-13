@@ -75,3 +75,7 @@ Forfeiture is never automatic. A damage decision alone cannot consume the bond; 
 - Full repository validation remains `npm run validate` under the Node version declared by `package.json`.
 
 GitHub Actions are not required or used.
+
+## Retained bond evidence validation
+
+The financial settlement reader and booking pickup/cancellation guard share a pure retained-transaction validator. Both independently reject noncanonical references, invalid source attribution, malformed timestamps, amounts, currency and fingerprints, and operation/reference idempotency mismatches before trusting a stored fingerprint. The operational guard also verifies the forfeiture collection source and derived idempotency key. The dedicated forfeiture service still requires the same validation to be wired in; do not treat that reader as complete. Existing tenant and permission checks remain in their services. Live Node 24 and disposable PostgreSQL validation remain outstanding.

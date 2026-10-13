@@ -2,8 +2,9 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import {
-  buildRentalSecurityBondRequestFingerprint,
+  buildRentalSecurityBondForfeitureIdempotencyKey,
   deriveRentalSecurityBondSettlement,
+  isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondTransactionEvidence,
 } from '../payments/rental-security-bond-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -66,6 +67,7 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
+        id: true,
         idempotencyKey: true,
         requestFingerprint: true,
         kind: true,
@@ -87,6 +89,8 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
       },
       select: {
         liabilityDecisionId: true,
+        collectionTransactionId: true,
+        idempotencyKey: true,
         currency: true,
         amountMinor: true,
         createdAt: true,
@@ -101,32 +105,16 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
   }
 
   const transactions: RentalSecurityBondTransactionEvidence[] = rows.map((row) => {
-    if (
-      (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')
-      || row.status !== 'SUCCEEDED'
-      || row.providerCode !== 'manual'
-    ) {
-      throw new RentalBookingSecurityBondGuardConflictError(
-        'Security bond history contains unsupported settlement evidence.',
-      );
+    if (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND') {
+      throw new RentalBookingSecurityBondGuardConflictError('Security bond history contains unsupported transaction kind.');
     }
-
-    const expectedFingerprint = buildRentalSecurityBondRequestFingerprint({
+    if (!isValidRentalSecurityBondRetainedTransaction({
       organizationId: input.organizationId,
       bookingId: input.bookingId,
       bondId: bond.id,
-      idempotencyKey: row.idempotencyKey,
-      kind: row.kind,
-      providerCode: row.providerCode,
-      providerReference: row.providerReference,
-      sourceProviderReference: row.sourceProviderReference,
-      currency: row.currency,
-      amountMinor: row.amountMinor,
-    });
-    if (row.requestFingerprint !== expectedFingerprint) {
-      throw new RentalBookingSecurityBondGuardConflictError(
-        'Security bond history contains invalid retained request evidence.',
-      );
+      transaction: row,
+    })) {
+      throw new RentalBookingSecurityBondGuardConflictError('Security bond history contains invalid retained manual evidence.');
     }
 
     return {
@@ -140,6 +128,20 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
       createdAt: row.createdAt,
     };
   });
+
+  if (forfeiture) {
+    const collection = rows.find((row) => row.kind === 'OFFLINE_PAYMENT');
+    if (
+      !collection
+      || forfeiture.collectionTransactionId !== collection.id
+      || forfeiture.idempotencyKey !== buildRentalSecurityBondForfeitureIdempotencyKey({
+        bondId: bond.id,
+        liabilityDecisionId: forfeiture.liabilityDecisionId,
+      })
+    ) {
+      throw new RentalBookingSecurityBondGuardConflictError('Security bond forfeiture source evidence is invalid.');
+    }
+  }
 
   const settlement = deriveRentalSecurityBondSettlement({
     requiredAmountMinor: bond.amountMinor,

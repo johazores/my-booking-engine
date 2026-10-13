@@ -13,6 +13,7 @@ import {
   buildRentalSecurityBondRequirementIdempotencyKey,
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
+  isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondTransactionEvidence,
 } from './rental-security-bond-domain.ts';
 
@@ -136,11 +137,12 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
   });
   if (rows.length > 2) throw new RentalSecurityBondConflictError('Security bond history exceeds the enabled one-collection/one-release contract.');
   const evidence: RentalSecurityBondTransactionEvidence[] = rows.map((row) => {
-    if ((row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND') || row.status !== 'SUCCEEDED' || row.providerCode !== manualProvider.code) {
-      throw new RentalSecurityBondConflictError('Security bond history contains unsupported settlement evidence.');
+    if (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND') {
+      throw new RentalSecurityBondConflictError('Security bond history contains unsupported transaction kind.');
     }
-    const expected = fingerprint({ organizationId, bookingId, bondId: bond.id, idempotencyKey: row.idempotencyKey, kind: row.kind, providerReference: row.providerReference, sourceProviderReference: row.sourceProviderReference, currency: row.currency, amountMinor: row.amountMinor });
-    if (row.requestFingerprint !== expected) throw new RentalSecurityBondConflictError('Security bond history contains invalid retained request evidence.');
+    if (!isValidRentalSecurityBondRetainedTransaction({ organizationId, bookingId, bondId: bond.id, transaction: row })) {
+      throw new RentalSecurityBondConflictError('Security bond history contains invalid retained manual evidence.');
+    }
     return { kind: row.kind, status: 'SUCCEEDED', providerCode: row.providerCode, providerReference: row.providerReference, sourceProviderReference: row.sourceProviderReference, currency: row.currency, amountMinor: row.amountMinor, createdAt: row.createdAt };
   });
   const settlement = deriveRentalSecurityBondSettlement({ requiredAmountMinor: bond.amountMinor, currency: bond.currency, transactions: evidence });

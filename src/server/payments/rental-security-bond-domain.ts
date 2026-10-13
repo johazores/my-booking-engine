@@ -162,6 +162,68 @@ export function buildRentalSecurityBondTransactionIdempotencyKey(input: Readonly
   return `rental-bond:${input.kind}:${digest.slice(0, 48)}`;
 }
 
+/**
+ * Validate retained security-bond transaction identity independently of the
+ * fingerprint stored alongside it. Shared by financial and operational
+ * readers so one reader cannot trust evidence another rejects.
+ */
+export function isValidRentalSecurityBondRetainedTransaction(input: Readonly<{
+  organizationId: string;
+  bookingId: string;
+  bondId: string;
+  transaction: Readonly<{
+    idempotencyKey: string;
+    requestFingerprint: string;
+    kind: string;
+    status: string;
+    providerCode: string;
+    providerReference: string;
+    sourceProviderReference: string | null;
+    currency: string;
+    amountMinor: bigint;
+    createdAt: Date;
+  }>;
+}>): boolean {
+  const row = input.transaction;
+  if (
+    (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')
+    || row.status !== 'SUCCEEDED'
+    || row.providerCode !== 'manual'
+    || !isCanonicalManualPaymentReference(row.providerReference)
+    || (row.kind === 'OFFLINE_PAYMENT' && row.sourceProviderReference !== null)
+    || (row.kind === 'REFUND' && (
+      !isCanonicalManualPaymentReference(row.sourceProviderReference)
+      || row.sourceProviderReference === row.providerReference
+    ))
+    || !(row.createdAt instanceof Date)
+    || !Number.isFinite(row.createdAt.getTime())
+    || typeof row.amountMinor !== 'bigint'
+    || row.amountMinor <= 0n
+    || !/^[A-Z]{3}$/.test(row.currency)
+    || !/^[a-f0-9]{64}$/.test(row.requestFingerprint)
+  ) return false;
+
+  const kind = row.kind === 'OFFLINE_PAYMENT' ? 'manual-collection' : 'manual-release';
+  if (row.idempotencyKey !== buildRentalSecurityBondTransactionIdempotencyKey({
+    kind,
+    bondId: input.bondId,
+    reference: row.providerReference,
+  })) return false;
+
+  return row.requestFingerprint === buildRentalSecurityBondRequestFingerprint({
+    organizationId: input.organizationId,
+    bookingId: input.bookingId,
+    bondId: input.bondId,
+    idempotencyKey: row.idempotencyKey,
+    kind: row.kind,
+    providerCode: row.providerCode,
+    providerReference: row.providerReference,
+    sourceProviderReference: row.sourceProviderReference,
+    currency: row.currency,
+    amountMinor: row.amountMinor,
+  });
+}
+
 export function buildRentalSecurityBondForfeitureIdempotencyKey(input: Readonly<{
   bondId: string;
   liabilityDecisionId: string;

@@ -4,7 +4,7 @@ import { classifyRentalBookingWriteError } from '../bookings/rental-booking-writ
 import { rentalBookingLockKey } from '../bookings/rental-booking-reschedule-domain.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
+import { isCanonicalManualPaymentReference, ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import { assertPaymentProviderCapability } from './payment-provider.ts';
 import {
   buildRentalLateReturnSettlementIdempotencyKey,
@@ -125,6 +125,30 @@ async function readRows(transaction: Prisma.TransactionClient, input: Readonly<{
     throw new RentalLateReturnSettlementConflictError('Late-return settlement history exceeds the enabled one-payment/one-refund contract.');
   }
   for (const row of rows) {
+    if (
+      (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')
+      || row.status !== 'SUCCEEDED'
+      || row.providerCode !== manualProvider.code
+      || !isCanonicalManualPaymentReference(row.providerReference)
+      || (row.kind === 'OFFLINE_PAYMENT' && row.sourceProviderReference !== null)
+      || (row.kind === 'REFUND' && (
+        !isCanonicalManualPaymentReference(row.sourceProviderReference)
+        || row.sourceProviderReference === row.providerReference
+      ))
+      || !(row.createdAt instanceof Date)
+      || !Number.isFinite(row.createdAt.getTime())
+      || typeof row.amountMinor !== 'bigint'
+      || row.amountMinor <= 0n
+      || !/^[A-Z]{3}$/.test(row.currency)
+      || !/^[a-f0-9]{64}$/.test(row.requestFingerprint)
+      || row.idempotencyKey !== buildRentalLateReturnSettlementIdempotencyKey({
+        kind: row.kind === 'OFFLINE_PAYMENT' ? 'manual-payment' : 'manual-refund',
+        assessmentId: input.assessmentId,
+        reference: row.providerReference,
+      })
+    ) {
+      throw new RentalLateReturnSettlementConflictError('Late-return settlement history contains noncanonical retained manual evidence.');
+    }
     const fingerprint = expectedFingerprint({
       organizationId: input.organizationId,
       bookingId: input.bookingId,
