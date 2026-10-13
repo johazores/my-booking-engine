@@ -14,6 +14,7 @@ import {
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
+  isValidRentalSecurityBondRetainedForfeiture,
   type RentalSecurityBondTransactionEvidence,
 } from './rental-security-bond-domain.ts';
 
@@ -130,11 +131,24 @@ function fingerprint(input: Readonly<{
 async function loadBondState(transaction: Prisma.TransactionClient, organizationId: string, bookingId: string) {
   const bond = await transaction.rentalSecurityBondRequirement.findFirst({ where: { organizationId, bookingId } });
   if (!bond) return null;
-  const rows = await transaction.rentalSecurityBondTransaction.findMany({
-    where: { organizationId, bookingId, bondId: bond.id },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    take: 3,
-  });
+  const [rows, forfeiture] = await Promise.all([
+    transaction.rentalSecurityBondTransaction.findMany({
+      where: { organizationId, bookingId, bondId: bond.id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 3,
+    }),
+    transaction.rentalSecurityBondForfeiture.findFirst({
+      where: { organizationId, bookingId, bondId: bond.id },
+      select: {
+        liabilityDecisionId: true,
+        collectionTransactionId: true,
+        idempotencyKey: true,
+        currency: true,
+        amountMinor: true,
+        createdAt: true,
+      },
+    }),
+  ]);
   if (rows.length > 2) throw new RentalSecurityBondConflictError('Security bond history exceeds the enabled one-collection/one-release contract.');
   const evidence: RentalSecurityBondTransactionEvidence[] = rows.map((row) => {
     if (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND') {
@@ -145,7 +159,19 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
     }
     return { kind: row.kind, status: 'SUCCEEDED', providerCode: row.providerCode, providerReference: row.providerReference, sourceProviderReference: row.sourceProviderReference, currency: row.currency, amountMinor: row.amountMinor, createdAt: row.createdAt };
   });
-  const settlement = deriveRentalSecurityBondSettlement({ requiredAmountMinor: bond.amountMinor, currency: bond.currency, transactions: evidence });
+  if (forfeiture && !isValidRentalSecurityBondRetainedForfeiture({
+    bondId: bond.id,
+    collectionTransactionId: rows.find((row) => row.kind === 'OFFLINE_PAYMENT')?.id ?? null,
+    forfeiture,
+  })) {
+    throw new RentalSecurityBondConflictError('Security bond forfeiture does not match its retained collection source.');
+  }
+  const settlement = deriveRentalSecurityBondSettlement({
+    requiredAmountMinor: bond.amountMinor,
+    currency: bond.currency,
+    transactions: evidence,
+    forfeiture,
+  });
   if (!settlement.reconciled) throw new RentalSecurityBondConflictError(settlement.reason);
   return Object.freeze({ bond, rows, settlement });
 }
@@ -246,7 +272,7 @@ async function recordManualBondEvidence(input: Readonly<{ organizationId: string
     if (existing) {
       if (existing.bondId !== state.bond.id || existing.bookingId !== booking.id || existing.kind !== kind || existing.status !== 'SUCCEEDED' || existing.providerCode !== 'manual' || existing.providerReference !== reference || existing.sourceProviderReference !== (operation === 'release' ? source?.providerReference ?? null : null) || existing.currency !== state.bond.currency || existing.amountMinor !== state.bond.amountMinor || existing.requestFingerprint !== requestFingerprint) throw new RentalSecurityBondConflictError(`Security bond ${operation} idempotency is bound to different retained evidence.`);
       const replay = await loadBondState(transaction, input.organizationId, booking.id);
-      if (!replay || (operation === 'collection' ? !['COLLECTED', 'RELEASED'].includes(replay.settlement.state) : replay.settlement.state !== 'RELEASED')) throw new RentalSecurityBondConflictError(`Security bond ${operation} replay no longer reconciles.`);
+      if (!replay || (operation === 'collection' ? !['COLLECTED', 'RELEASED', 'FORFEITED'].includes(replay.settlement.state) : replay.settlement.state !== 'RELEASED')) throw new RentalSecurityBondConflictError(`Security bond ${operation} replay no longer reconciles.`);
       return Object.freeze({ transaction: existing, settlement: replay.settlement, idempotent: true as const });
     }
 

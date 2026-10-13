@@ -2,7 +2,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import {
-  buildRentalSecurityBondForfeitureIdempotencyKey,
+  isValidRentalSecurityBondRetainedForfeiture,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondTransactionEvidence,
@@ -129,18 +129,12 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
     };
   });
 
-  if (forfeiture) {
-    const collection = rows.find((row) => row.kind === 'OFFLINE_PAYMENT');
-    if (
-      !collection
-      || forfeiture.collectionTransactionId !== collection.id
-      || forfeiture.idempotencyKey !== buildRentalSecurityBondForfeitureIdempotencyKey({
-        bondId: bond.id,
-        liabilityDecisionId: forfeiture.liabilityDecisionId,
-      })
-    ) {
-      throw new RentalBookingSecurityBondGuardConflictError('Security bond forfeiture source evidence is invalid.');
-    }
+  if (forfeiture && !isValidRentalSecurityBondRetainedForfeiture({
+    bondId: bond.id,
+    collectionTransactionId: rows.find((row) => row.kind === 'OFFLINE_PAYMENT')?.id ?? null,
+    forfeiture,
+  })) {
+    throw new RentalBookingSecurityBondGuardConflictError('Security bond forfeiture source evidence is invalid.');
   }
 
   const settlement = deriveRentalSecurityBondSettlement({

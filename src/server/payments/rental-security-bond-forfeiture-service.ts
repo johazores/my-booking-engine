@@ -8,6 +8,8 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import {
   buildRentalSecurityBondForfeitureIdempotencyKey,
   deriveRentalSecurityBondSettlement,
+  isValidRentalSecurityBondRetainedForfeiture,
+  isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondForfeitureEvidence,
   type RentalSecurityBondTransactionEvidence,
 } from './rental-security-bond-domain.ts';
@@ -63,14 +65,13 @@ async function loadForfeitureContext(
   const bond = await transaction.rentalSecurityBondRequirement.findFirst({
     where: { organizationId, bookingId },
   });
-  if (!bond) return Object.freeze({ bond: null, collection: null, release: null, forfeiture: null, liability: null, returnEvent: null, hasDamageSettlement: false });
+  if (!bond) return Object.freeze({ bond: null, rows: [], collection: null, release: null, forfeiture: null, liability: null, returnEvent: null, hasDamageSettlement: false });
 
-  const [collection, release, forfeiture, liability] = await Promise.all([
-    transaction.rentalSecurityBondTransaction.findFirst({
-      where: { organizationId, bookingId, bondId: bond.id, kind: 'OFFLINE_PAYMENT', status: 'SUCCEEDED' },
-    }),
-    transaction.rentalSecurityBondTransaction.findFirst({
-      where: { organizationId, bookingId, bondId: bond.id, kind: 'REFUND', status: 'SUCCEEDED' },
+  const [rows, forfeiture, liability] = await Promise.all([
+    transaction.rentalSecurityBondTransaction.findMany({
+      where: { organizationId, bookingId, bondId: bond.id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 3,
     }),
     transaction.rentalSecurityBondForfeiture.findFirst({
       where: { organizationId, bookingId, bondId: bond.id },
@@ -88,6 +89,8 @@ async function loadForfeitureContext(
       },
     }),
   ]);
+  const collection = rows.find((row) => row.kind === 'OFFLINE_PAYMENT') ?? null;
+  const release = rows.find((row) => row.kind === 'REFUND') ?? null;
 
   const [returnEvent, damageSettlement] = liability ? await Promise.all([
     transaction.rentalBookingFulfillmentEvent.findFirst({
@@ -102,6 +105,7 @@ async function loadForfeitureContext(
 
   return Object.freeze({
     bond,
+    rows,
     collection,
     release,
     forfeiture,
@@ -113,13 +117,20 @@ async function loadForfeitureContext(
 
 function reconcileForfeitureContext(context: Awaited<ReturnType<typeof loadForfeitureContext>>) {
   if (!context.bond) return null;
+  if (context.rows.length > 2) {
+    throw new RentalSecurityBondConflictError('Security bond history exceeds the enabled one-collection/one-release contract.');
+  }
   const transactions: RentalSecurityBondTransactionEvidence[] = [];
-  for (const row of [context.collection, context.release]) {
-    if (!row) continue;
+  for (const row of context.rows) {
     if (
       (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')
-      || row.status !== 'SUCCEEDED'
-    ) throw new RentalSecurityBondConflictError('Security bond history contains unsupported retained disposition evidence.');
+      || !isValidRentalSecurityBondRetainedTransaction({
+        organizationId: context.bond.organizationId,
+        bookingId: context.bond.bookingId,
+        bondId: context.bond.id,
+        transaction: row,
+      })
+    ) throw new RentalSecurityBondConflictError('Security bond history contains invalid retained manual evidence.');
     transactions.push({
       kind: row.kind,
       status: 'SUCCEEDED',
@@ -130,6 +141,13 @@ function reconcileForfeitureContext(context: Awaited<ReturnType<typeof loadForfe
       amountMinor: row.amountMinor,
       createdAt: row.createdAt,
     });
+  }
+  if (context.forfeiture && !isValidRentalSecurityBondRetainedForfeiture({
+    bondId: context.bond.id,
+    collectionTransactionId: context.collection?.id ?? null,
+    forfeiture: context.forfeiture,
+  })) {
+    throw new RentalSecurityBondConflictError('Security bond forfeiture source evidence is invalid.');
   }
   const forfeiture: RentalSecurityBondForfeitureEvidence | null = context.forfeiture ? {
     liabilityDecisionId: context.forfeiture.liabilityDecisionId,

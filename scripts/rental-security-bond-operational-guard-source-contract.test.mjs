@@ -17,7 +17,7 @@ test('booking operational guard reconciles tenant-owned bond evidence without ex
   assert.match(guardService, /rentalSecurityBondRequirement\.findFirst/);
   assert.match(guardService, /rentalSecurityBondTransaction\.findMany/);
   assert.match(guardService, /rentalSecurityBondForfeiture\.findFirst/);
-  assert.match(guardService, /buildRentalSecurityBondRequestFingerprint/);
+  assert.match(guardService, /isValidRentalSecurityBondRetainedTransaction/);
   assert.match(guardService, /deriveRentalSecurityBondSettlement/);
   assert.match(guardService, /blocksPickup: settlement\.state !== 'COLLECTED'/);
   assert.match(guardService, /blocksCancellation: settlement\.state === 'COLLECTED'/);

@@ -26,5 +26,21 @@ test('bond financial and operational readers share retained identity validation'
   }
   assert.match(domain, /isCanonicalManualPaymentReference\(row\.providerReference\)/);
   assert.match(domain, /row\.idempotencyKey !== buildRentalSecurityBondTransactionIdempotencyKey/);
-  assert.match(guard, /forfeiture\.collectionTransactionId !== collection\.id/);
+  assert.match(guard, /isValidRentalSecurityBondRetainedForfeiture\(/);
+});
+
+test('all security-bond readers fail closed on retained collection and forfeiture identity', () => {
+  const financial = readFileSync('src/server/payments/rental-security-bond-service.ts', 'utf8');
+  const forfeiture = readFileSync('src/server/payments/rental-security-bond-forfeiture-service.ts', 'utf8');
+  const guard = readFileSync('src/server/bookings/rental-booking-security-bond-guard-service.ts', 'utf8');
+  for (const source of [financial, forfeiture, guard]) {
+    assert.match(source, /isValidRentalSecurityBondRetainedTransaction\(/);
+    assert.match(source, /isValidRentalSecurityBondRetainedForfeiture\(/);
+    assert.match(source, /deriveRentalSecurityBondSettlement/);
+  }
+  assert.match(financial, /rentalSecurityBondForfeiture\.findFirst/);
+  assert.match(financial, /transactions: evidence,[\s\S]*forfeiture,/);
+  assert.match(forfeiture, /rentalSecurityBondTransaction\.findMany/);
+  assert.doesNotMatch(forfeiture, /kind: 'OFFLINE_PAYMENT', status: 'SUCCEEDED'/);
+  assert.match(forfeiture, /context\.rows\.length > 2/);
 });

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildRentalSecurityBondForfeitureIdempotencyKey,
+  isValidRentalSecurityBondRetainedForfeiture,
   buildRentalSecurityBondRequestFingerprint,
   buildRentalSecurityBondTransactionIdempotencyKey,
   isValidRentalSecurityBondRetainedTransaction,
@@ -84,4 +86,17 @@ test('rejects idempotency, fingerprint and tenant-context tampering', () => {
   assert.equal(isValidRentalSecurityBondRetainedTransaction({
     organizationId, bookingId: 'other', bondId, transaction: row,
   }), false);
+});
+
+test('forfeiture identity requires the exact retained collection and derived idempotency', () => {
+  const liabilityDecisionId = 'liability-1';
+  const idempotencyKey = buildRentalSecurityBondForfeitureIdempotencyKey({ bondId, liabilityDecisionId });
+  const forfeiture = { liabilityDecisionId, collectionTransactionId: 'collection-1', idempotencyKey };
+  const validForfeiture = (collectionTransactionId: string | null, evidence = forfeiture) =>
+    isValidRentalSecurityBondRetainedForfeiture({ bondId, collectionTransactionId, forfeiture: evidence });
+  assert.equal(validForfeiture('collection-1'), true);
+  assert.equal(validForfeiture(null), false);
+  assert.equal(validForfeiture('other-collection'), false);
+  assert.equal(validForfeiture('collection-1', { ...forfeiture, idempotencyKey: 'tampered' }), false);
+  assert.equal(validForfeiture('collection-1', { ...forfeiture, liabilityDecisionId: 'other-liability' }), false);
 });

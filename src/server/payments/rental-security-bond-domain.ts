@@ -224,6 +224,24 @@ export function isValidRentalSecurityBondRetainedTransaction(input: Readonly<{
   });
 }
 
+/** Verify that forfeiture consumes the exact retained collection and server-derived identity. */
+export function isValidRentalSecurityBondRetainedForfeiture(input: Readonly<{
+  bondId: string;
+  collectionTransactionId: string | null;
+  forfeiture: Readonly<{
+    liabilityDecisionId: string;
+    collectionTransactionId: string;
+    idempotencyKey: string;
+  }>;
+}>): boolean {
+  return input.collectionTransactionId !== null
+    && input.forfeiture.collectionTransactionId === input.collectionTransactionId
+    && input.forfeiture.idempotencyKey === buildRentalSecurityBondForfeitureIdempotencyKey({
+      bondId: input.bondId,
+      liabilityDecisionId: input.forfeiture.liabilityDecisionId,
+    });
+}
+
 export function buildRentalSecurityBondForfeitureIdempotencyKey(input: Readonly<{
   bondId: string;
   liabilityDecisionId: string;
