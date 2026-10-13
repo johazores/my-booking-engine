@@ -191,10 +191,10 @@ test('post-apply refund history rejects noncanonical or self-attributed referenc
   const original = makeRows(1)[0]!;
   for (const changes of [
     { providerReference: ' POST-REF-1' },
-    { providerReference: 'POST-REF-1\\n' },
+    { providerReference: 'POST-REF-1\n' },
     { providerReference: 'sf_claim_reserved' },
     { sourceProviderReference: ' ORIGINAL-PAY-1' },
-    { sourceProviderReference: 'ORIGINAL-PAY-1\\u007f' },
+    { sourceProviderReference: 'ORIGINAL-PAY-1\u007f' },
     { sourceProviderReference: 'sf_claim_reserved' },
     { sourceProviderReference: original.providerReference },
   ]) {
