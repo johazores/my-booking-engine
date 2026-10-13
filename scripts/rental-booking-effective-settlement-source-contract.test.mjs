@@ -11,6 +11,7 @@ test('effective settlement reconciles original, amendment, and post-apply refund
   assert.match(domain, /deriveRentalPaymentSettlement/);
   assert.match(domain, /deriveRentalBookingCommercialAmendmentSettlementState/);
   assert.match(domain, /postApplyRefunds/);
+  assert.match(domain, /isCanonicalManualPaymentReference\(value\)/);
   assert.match(domain, /nextRefundSource/);
   assert.match(domain, /sourceLedger: 'COMMERCIAL_AMENDMENT'/);
   assert.match(domain, /sourceLedger: 'BOOKING_PRICE'/);

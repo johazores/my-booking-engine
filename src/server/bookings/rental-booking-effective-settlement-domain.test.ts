@@ -215,7 +215,13 @@ test('post-apply rental refund evidence rejects unsafe identities and non-bigint
     { ...baseline, providerReference: 'bad\u0000ref' },
     { ...baseline, sourceProviderReference: 'bad\u0085source' },
     { ...baseline, providerReference: 'sf_claim_unsettled' },
+    { ...baseline, providerReference: 'REF-🚀' },
+    { ...baseline, providerReference: 'A'.repeat(121) },
+    { ...baseline, providerReference: '#invalid' },
     { ...baseline, sourceProviderReference: 'sf_claim_source' },
+    { ...baseline, sourceProviderReference: 'PAY-🚀' },
+    { ...baseline, sourceProviderReference: 'A'.repeat(121) },
+    { ...baseline, sourceProviderReference: '#invalid' },
   ]) {
     const result = deriveRentalBookingEffectiveSettlement({
       originalBookingTotalMinor: 10_000n,
@@ -340,7 +346,15 @@ test('booking-price post-apply refund cannot bypass remaining amendment charge',
     currency: 'AUD',
     originalTransactions: [payment()],
     appliedAmendment: applied('ADDITIONAL_CHARGE'),
-    postApplyRefunds: [postRefund('BOOKING_PRICE', 'POST-REF-1', 'PAY-1', 100n)],
+    postApplyRefunds: [{
+      sourceLedger: 'BOOKING_PRICE',
+      status: 'SUCCEEDED',
+      providerCode: 'manual',
+      providerReference: 'POST-REF-1',
+      sourceProviderReference: 'PAY-1',
+      currency: 'AUD',
+      amountMinor: 100n,
+    }],
   });
   assert.equal(result.reconciled, false);
 });

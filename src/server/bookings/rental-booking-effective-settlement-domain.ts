@@ -1,3 +1,4 @@
+import { isCanonicalManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { deriveNextBookingRefundSource } from '../payments/payment-refund-allocation-domain.ts';
 import {
   deriveBookingSettlementSummary,
@@ -147,11 +148,7 @@ function summarize(input: Readonly<{
 }
 
 function invalidManualReference(value: unknown) {
-  return typeof value !== 'string'
-    || !value.trim()
-    || value.trim() !== value
-    || /[\u0000-\u001f\u007f-\u009f]/u.test(value)
-    || value.startsWith('sf_claim_');
+  return !isCanonicalManualPaymentReference(value);
 }
 
 function normalizePostApplyRefundEvidence(input: Readonly<{
