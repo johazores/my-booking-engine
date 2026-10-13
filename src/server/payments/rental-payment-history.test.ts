@@ -138,6 +138,27 @@ test('legacy null request fingerprints remain readable when deterministic operat
   assert.equal(result.complete ? result.transactions.length : -1, 1);
 });
 
+test('rental payment history rejects malformed retained manual evidence', async () => {
+  for (const changes of [
+    { providerReference: ' REF-1' },
+    { providerReference: 'sf_claim_reserved' },
+    { amountMinor: '1' },
+    { amountMinor: 0n },
+    { currency: 'php' },
+    { requestFingerprint: {} },
+    { sourceProviderReference: 'REF-2' },
+  ]) {
+    const rows = makeRows(1) as Array<Record<string, unknown>>;
+    rows[0] = { ...rows[0], ...changes };
+    const reader = createReader(rows as never);
+    const result = await readRentalPaymentSettlementHistory({
+      transaction: reader.transaction as never, organizationId, bookingId,
+    });
+    assert.equal(result.complete, false);
+    assert.match(result.complete ? '' : result.reason, /invalid retained manual payment or refund evidence/i);
+  }
+});
+
 test('rental settlement history rejects invalid database-authored creation timestamps', async () => {
   const source = makeRows(1);
   source[0] = { ...source[0]!, createdAt: new Date(Number.NaN) };

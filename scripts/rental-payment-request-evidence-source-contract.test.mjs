@@ -71,6 +71,8 @@ test('bounded settlement history still revalidates deterministic evidence and da
   assert.match(history, /invalid deterministic idempotency authority/);
   assert.match(history, /invalid request fingerprint/);
   assert.match(history, /if \(row\.requestFingerprint === null\) return null/);
+  assert.match(history, /isCanonicalManualPaymentReference/);
+  assert.match(history, /row\.amountMinor <= 0n/);
 });
 
 test('database requires request evidence shape, database-authored time, and net outstanding payment authority', () => {

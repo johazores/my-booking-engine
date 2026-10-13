@@ -18,7 +18,7 @@ Payment and refund replay always re-read the tenant booking and bounded complete
 
 If a caller supplies an amount on payment or refund replay, it must equal the retained amount. A partial payment remains replayable after later payments, refunds, full settlement, and eventual cancellation because replay verifies immutable evidence instead of attempting another payment. A partial refund likewise remains replayable while the booking is still `PARTIALLY_REFUNDED`, after subsequent settlement reaches `REFUNDED`, and after later cancellation when its retained source still reconciles. An idempotency key alone is never sufficient authority.
 
-The bounded settlement reader also validates deterministic operation idempotency, request fingerprints when present, database-authored timestamps, and refund/source chronology before any payment, refund, cancellation, or staff settlement decision consumes the history.
+The bounded settlement reader also validates deterministic operation idempotency, request fingerprints when present, database-authored timestamps, and refund/source chronology before any payment, refund, cancellation, or staff settlement decision consumes the history. Retained manual rows now fail closed before hashing when payment/refund references are noncanonical, source attribution is missing or self-referential, exact money or currency is malformed, or a non-null fingerprint has an invalid shape. Legacy `NULL` fingerprints do not bypass these checks.
 
 ## PostgreSQL defense in depth
 

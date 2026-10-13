@@ -19,6 +19,14 @@ export type ManualRefundInput = PaymentOperationContext & Readonly<{
 
 const MANUAL_REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._:/#-]{0,119}$/;
 
+/** Validate retained evidence without silently trimming its external identity. */
+export function isCanonicalManualPaymentReference(value: unknown): value is string {
+  return typeof value === 'string'
+    && value === value.trim()
+    && !value.startsWith('sf_claim_')
+    && MANUAL_REFERENCE_PATTERN.test(value);
+}
+
 export class ManualPaymentProvider implements PaymentProviderAdapter {
   readonly code = 'manual';
   readonly capabilities: ReadonlySet<PaymentProviderCapability> = new Set([

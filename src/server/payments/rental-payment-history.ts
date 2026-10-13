@@ -1,4 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { isCanonicalManualPaymentReference } from './manual-payment-provider.ts';
 import { validatePaymentHistoryPage } from './payment-history-page-integrity.ts';
 import type { BookingSettlementTransaction } from './payment-settlement-domain.ts';
 import { buildRentalPaymentIdempotencyKey, buildRentalPaymentRequestFingerprint } from './rental-payment-domain.ts';
@@ -60,6 +61,27 @@ function validateRentalPaymentRequestEvidence(
   }
   if (row.providerCode !== 'manual' || (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND')) {
     return null;
+  }
+
+  // Retained manual evidence must be canonical before fingerprint derivation.
+  // Legacy NULL fingerprints do not relax source, money, or reference authority.
+  if (
+    !isCanonicalManualPaymentReference(row.providerReference)
+    || (row.kind === 'OFFLINE_PAYMENT' && row.sourceProviderReference !== null)
+    || (row.kind === 'REFUND' && (
+      !isCanonicalManualPaymentReference(row.sourceProviderReference)
+      || row.sourceProviderReference === row.providerReference
+    ))
+    || typeof row.currency !== 'string'
+    || !/^[A-Z]{3}$/.test(row.currency)
+    || typeof row.amountMinor !== 'bigint'
+    || row.amountMinor <= 0n
+    || (row.requestFingerprint !== null && (
+      typeof row.requestFingerprint !== 'string'
+      || !/^[a-f0-9]{64}$/.test(row.requestFingerprint)
+    ))
+  ) {
+    return 'Rental payment history contains invalid retained manual payment or refund evidence.';
   }
 
   const expectedIdempotencyKey = buildRentalPaymentIdempotencyKey({
