@@ -90,7 +90,8 @@ test('manual settlement service derives money and refund source server-side and 
   assert.match(service, /amountMinor: amendment\.deltaMinor/);
   assert.match(service, /row\.idempotencyKey !== expectedIdempotencyKey/);
   assert.match(service, /typeof row\.amountMinor !== 'bigint'/);
-  assert.match(service, /row\.providerReference\.startsWith\('sf_claim_'\)/);
+  assert.match(service, /isCanonicalManualPaymentReference\(row\.providerReference\)/);
+  assert.match(service, /isCanonicalManualPaymentReference\(row\.sourceProviderReference\)/);
   assert.match(service, /row\.sourceProviderReference === row\.providerReference/);
   assert.match(service, /currency: amendment\.currency/);
   assert.match(service, /purpose: 'ADJUSTMENT'/);

@@ -23,6 +23,8 @@ Partial adjustment money, multiple adjustments, ambiguous provider states, curre
 
 `RentalBookingCommercialAmendmentSettlementTransaction` is append-only tenant evidence linked by `(amendmentId, bookingId, organizationId)`. It retains deterministic idempotency, request fingerprint, lifecycle purpose, kind, successful provider/reference evidence, source attribution when relevant, exact currency/amount, and database-authored time.
 
+Both pure commercial-amendment reconciliation and its persisted settlement reader now validate retained manual payment/refund references against the shared canonical 1–120-character ASCII-safe provider contract, including prior refund-source evidence.
+
 PostgreSQL independently enforces tenant ownership, exact currency/delta, supported direction/kind shape, one adjustment and one compensation, live preparation for new adjustment money, exact reverse compensation, append-only rows, and tenant-wide manual-reference isolation.
 
 The physical PostgreSQL identifiers for this unusually long settlement table use explicit compact names. This is intentional: the target PostgreSQL identifier boundary is 63 bytes, so several former generated-style index names collapsed to the same stored identifier and the later readiness trigger collapsed onto the existing authority trigger. The creation migration now assigns distinct compact keys/indexes and the readiness trigger has its own compact name while preserving authority -> readiness -> cross-scope execution order. The Prisma `map` names match those physical objects, and the source contract protects both identifier length and truncation uniqueness.

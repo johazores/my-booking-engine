@@ -4,7 +4,7 @@ import { db } from '../database.ts';
 import { findOverdueRentalCustodyUnitIds } from '../inventory/rental-custody-availability.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { findRentalUnitOperationalReadinessBlocker } from '../inventory/rental-unit-operational-readiness.ts';
-import { ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
+import { isCanonicalManualPaymentReference, ManualPaymentProvider, normalizeManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { deriveBookingSettlementSummary } from '../payments/payment-settlement-domain.ts';
 import { assertPaymentProviderCapability } from '../payments/payment-provider.ts';
 import { deriveRentalPaymentSettlement } from '../payments/rental-payment-domain.ts';
@@ -83,17 +83,9 @@ async function readRows(transaction: Prisma.TransactionClient, input: Readonly<{
       || row.status !== 'SUCCEEDED'
       || row.providerCode !== 'manual'
       || typeof row.idempotencyKey !== 'string'
-      || typeof row.providerReference !== 'string'
-      || !row.providerReference.trim()
-      || row.providerReference !== row.providerReference.trim()
-      || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
-      || row.providerReference.startsWith('sf_claim_')
+      || !isCanonicalManualPaymentReference(row.providerReference)
       || (row.sourceProviderReference !== null && (
-        typeof row.sourceProviderReference !== 'string'
-        || !row.sourceProviderReference.trim()
-        || row.sourceProviderReference !== row.sourceProviderReference.trim()
-        || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
-        || row.sourceProviderReference.startsWith('sf_claim_')
+        !isCanonicalManualPaymentReference(row.sourceProviderReference)
         || row.sourceProviderReference === row.providerReference
       ))
       || typeof row.currency !== 'string'
