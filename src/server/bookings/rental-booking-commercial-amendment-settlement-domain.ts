@@ -133,7 +133,8 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
     || !adjustment.sourceProviderReference.trim()
     || adjustment.sourceProviderReference.trim() !== adjustment.sourceProviderReference
     || /[\u0000-\u001f\u007f-\u009f]/u.test(adjustment.sourceProviderReference)
-    || adjustment.sourceProviderReference.startsWith('sf_claim_'))) {
+    || adjustment.sourceProviderReference.startsWith('sf_claim_')
+    || adjustment.sourceProviderReference === adjustment.providerReference)) {
     return conflict('Commercial amendment refund is missing original payment-source attribution.');
   }
 

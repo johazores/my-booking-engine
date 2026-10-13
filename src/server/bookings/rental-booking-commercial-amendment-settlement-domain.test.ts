@@ -209,7 +209,7 @@ test('commercial amendment settlement rejects malformed collections, identities,
     rows: [],
   });
   assert.equal(invalidDirection.state, 'CONFLICT');
-  for (const sourceProviderReference of [' padded ', 'line\nbreak', 'sf_claim_pending']) {
+  for (const sourceProviderReference of [' padded ', 'line\nbreak', 'sf_claim_pending', refund.providerReference]) {
     const result = deriveRentalBookingCommercialAmendmentSettlementState({
       direction: 'REFUND',
       currency: 'AUD',

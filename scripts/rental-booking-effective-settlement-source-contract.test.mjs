@@ -34,6 +34,7 @@ test('protected reader remains tenant scoped, bounded, fingerprint checked, and 
   assert.match(service, /readRentalBookingEffectiveRefundHistory/);
   assert.match(service, /typeof row\.amountMinor !== 'bigint'/);
   assert.match(service, /row\.providerReference\.startsWith\('sf_claim_'\)/);
+  assert.match(service, /row\.sourceProviderReference === row\.providerReference/);
   assert.match(service, /typeof row\.requestFingerprint !== 'string'/);
   assert.match(service, /buildRentalBookingCommercialAmendmentSettlementIdempotencyKey/);
   assert.match(service, /row\.idempotencyKey !== expectedIdempotencyKey/);

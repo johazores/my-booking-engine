@@ -94,6 +94,7 @@ async function readRows(transaction: Prisma.TransactionClient, input: Readonly<{
         || row.sourceProviderReference !== row.sourceProviderReference.trim()
         || /[\u0000-\u001f\u007f-\u009f]/u.test(row.sourceProviderReference)
         || row.sourceProviderReference.startsWith('sf_claim_')
+        || row.sourceProviderReference === row.providerReference
       ))
       || typeof row.currency !== 'string'
       || !/^[A-Z]{3}$/.test(row.currency)
