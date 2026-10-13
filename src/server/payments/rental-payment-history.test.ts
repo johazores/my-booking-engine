@@ -159,6 +159,19 @@ test('rental payment history rejects malformed retained manual evidence', async 
   }
 });
 
+test('rental refund history rejects missing and self-attributed payment sources', async () => {
+  for (const sourceProviderReference of [null, ' REF-1', 'REF-2']) {
+    const rows = makeRows(2) as Array<Record<string, unknown>>;
+    rows[1] = { ...rows[1], sourceProviderReference };
+    const reader = createReader(rows as never);
+    const result = await readRentalPaymentSettlementHistory({
+      transaction: reader.transaction as never, organizationId, bookingId,
+    });
+    assert.equal(result.complete, false);
+    assert.match(result.complete ? '' : result.reason, /invalid retained manual payment or refund evidence/i);
+  }
+});
+
 test('rental settlement history rejects invalid database-authored creation timestamps', async () => {
   const source = makeRows(1);
   source[0] = { ...source[0]!, createdAt: new Date(Number.NaN) };

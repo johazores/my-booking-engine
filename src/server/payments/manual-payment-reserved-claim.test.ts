@@ -10,7 +10,6 @@ test('manual payment and refund references cannot impersonate internal claims', 
   assert.equal(normalizeManualPaymentReference('Bank claim 123'), 'Bank claim 123');
 });
 
-
 test('retained manual references must be canonical and cannot be silently normalized', () => {
   for (const reference of ['Bank claim 123', 'REF-1/abc#123', 'A'.repeat(120)]) {
     assert.equal(isCanonicalManualPaymentReference(reference), true);
