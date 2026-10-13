@@ -142,6 +142,9 @@ test('rental payment history rejects malformed retained manual evidence', async 
   for (const changes of [
     { providerReference: ' REF-1' },
     { providerReference: 'sf_claim_reserved' },
+    { providerReference: 'REF-🚀' },
+    { providerReference: 'A'.repeat(121) },
+    { providerReference: '#invalid' },
     { amountMinor: '1' },
     { amountMinor: 0n },
     { currency: 'php' },
@@ -160,7 +163,7 @@ test('rental payment history rejects malformed retained manual evidence', async 
 });
 
 test('rental refund history rejects missing and self-attributed payment sources', async () => {
-  for (const sourceProviderReference of [null, ' REF-1', 'REF-2']) {
+  for (const sourceProviderReference of [null, ' REF-1', 'REF-2', 'SOURCE-🚀', 'A'.repeat(121), '#invalid']) {
     const rows = makeRows(2) as Array<Record<string, unknown>>;
     rows[1] = { ...rows[1], sourceProviderReference };
     const reader = createReader(rows as never);

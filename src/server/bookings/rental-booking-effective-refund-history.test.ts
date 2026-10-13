@@ -193,9 +193,15 @@ test('post-apply refund history rejects noncanonical or self-attributed referenc
     { providerReference: ' POST-REF-1' },
     { providerReference: 'POST-REF-1\n' },
     { providerReference: 'sf_claim_reserved' },
+    { providerReference: 'POST-REF-🚀' },
+    { providerReference: 'A'.repeat(121) },
+    { providerReference: '#invalid' },
     { sourceProviderReference: ' ORIGINAL-PAY-1' },
     { sourceProviderReference: 'ORIGINAL-PAY-1\u007f' },
     { sourceProviderReference: 'sf_claim_reserved' },
+    { sourceProviderReference: 'SOURCE-🚀' },
+    { sourceProviderReference: 'A'.repeat(121) },
+    { sourceProviderReference: '#invalid' },
     { sourceProviderReference: original.providerReference },
   ]) {
     const row = { ...original, ...changes };
