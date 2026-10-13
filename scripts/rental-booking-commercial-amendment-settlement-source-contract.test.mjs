@@ -105,6 +105,10 @@ test('settlement domain has exact lifecycle states and deterministic one-source 
   assert.match(domain, /adjustment\.sourceProviderReference === adjustment\.providerReference/);
   assert.match(domain, /compensation\.sourceProviderReference !== adjustment\.providerReference/);
   assert.match(domain, /deriveRentalBookingCommercialAmendmentRefundSource/);
+  assert.match(domain, /isCanonicalManualPaymentReference\(row\.providerReference\)/);
+  assert.match(domain, /isCanonicalManualPaymentReference\(adjustment\.sourceProviderReference\)/);
+  assert.match(domain, /isCanonicalManualPaymentReference\(source\.providerReference\)/);
+  assert.match(domain, /isCanonicalManualPaymentReference\(refund\.sourceProviderReference\)/);
   assert.match(domain, /deriveNextBookingRefundSource/);
   assert.match(domain, /No single retained booking-price payment source can cover/);
   assert.match(domain, /buildRentalBookingCommercialAmendmentSettlementRequestFingerprint/);

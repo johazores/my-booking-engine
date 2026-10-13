@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { isCanonicalManualPaymentReference } from '../payments/manual-payment-provider.ts';
 import { deriveNextBookingRefundSource } from '../payments/payment-refund-allocation-domain.ts';
 import type { BookingSettlementSource } from '../payments/payment-settlement-domain.ts';
 
@@ -86,11 +87,7 @@ function validateCommon(
   if (row.providerCode !== 'manual') return 'Commercial amendment settlement contains unsupported provider evidence.';
   if (row.currency !== input.currency) return 'Commercial amendment settlement currency does not match the amendment.';
   if (row.amountMinor !== input.deltaMinor) return 'Commercial amendment settlement amount does not match the exact amendment delta.';
-  if (typeof row.providerReference !== 'string'
-    || !row.providerReference.trim()
-    || row.providerReference !== row.providerReference.trim()
-    || /[\u0000-\u001f\u007f-\u009f]/u.test(row.providerReference)
-    || row.providerReference.startsWith('sf_claim_')) {
+  if (!isCanonicalManualPaymentReference(row.providerReference)) {
     return 'Commercial amendment settlement reference is malformed.';
   }
   return null;
@@ -129,11 +126,7 @@ export function deriveRentalBookingCommercialAmendmentSettlementState(
   if (adjustment.kind === 'OFFLINE_PAYMENT' && adjustment.sourceProviderReference !== null) {
     return conflict('Commercial amendment payment unexpectedly contains refund-source attribution.');
   }
-  if (adjustment.kind === 'REFUND' && (typeof adjustment.sourceProviderReference !== 'string'
-    || !adjustment.sourceProviderReference.trim()
-    || adjustment.sourceProviderReference.trim() !== adjustment.sourceProviderReference
-    || /[\u0000-\u001f\u007f-\u009f]/u.test(adjustment.sourceProviderReference)
-    || adjustment.sourceProviderReference.startsWith('sf_claim_')
+  if (adjustment.kind === 'REFUND' && (!isCanonicalManualPaymentReference(adjustment.sourceProviderReference)
     || adjustment.sourceProviderReference === adjustment.providerReference)) {
     return conflict('Commercial amendment refund is missing original payment-source attribution.');
   }
@@ -192,11 +185,7 @@ export function deriveRentalBookingCommercialAmendmentRefundSource(input: Readon
       || source.providerCode !== 'manual'
       || source.kind !== 'OFFLINE_PAYMENT'
       || source.currency !== input.currency
-      || typeof source.providerReference !== 'string'
-      || !source.providerReference.trim()
-      || source.providerReference.trim() !== source.providerReference
-      || /[\u0000-\u001f\u007f-\u009f]/u.test(source.providerReference)
-      || source.providerReference.startsWith('sf_claim_')
+      || !isCanonicalManualPaymentReference(source.providerReference)
       || typeof source.amountMinor !== 'bigint'
       || typeof source.refundedMinor !== 'bigint'
       || typeof source.remainingMinor !== 'bigint'
@@ -222,11 +211,7 @@ export function deriveRentalBookingCommercialAmendmentRefundSource(input: Readon
       || refund.currency !== input.currency
       || typeof refund.amountMinor !== 'bigint'
       || refund.amountMinor <= 0n
-      || typeof refund.sourceProviderReference !== 'string'
-      || !refund.sourceProviderReference.trim()
-      || refund.sourceProviderReference.trim() !== refund.sourceProviderReference
-      || /[\u0000-\u001f\u007f-\u009f]/u.test(refund.sourceProviderReference)
-      || refund.sourceProviderReference.startsWith('sf_claim_')
+      || !isCanonicalManualPaymentReference(refund.sourceProviderReference)
     ) {
       return refundSourceUnavailable('Prior commercial amendment refund evidence is malformed or outside the supported manual contract.');
     }
