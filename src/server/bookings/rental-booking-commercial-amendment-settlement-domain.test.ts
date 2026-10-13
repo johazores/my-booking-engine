@@ -125,6 +125,7 @@ test('commercial amendment refund source rejects malformed money and retained hi
     [{ ...source('payment-a', 5_000n), remainingMinor: 6_000n }],
     [{ ...source('payment-a', 5_000n), providerReference: ' padded ' }],
     [{ ...source('payment-a', 5_000n), providerReference: 'sf_claim_pending' }],
+    [{ ...source('payment-a', 5_000n), providerReference: 'PAY-🚀' }],
     [source('payment-a', 5_000n), source('payment-a', 5_000n)],
   ]) {
     const result = deriveRentalBookingCommercialAmendmentRefundSource({
@@ -139,6 +140,7 @@ test('commercial amendment refund source rejects malformed money and retained hi
     [{ providerCode: 'manual', currency: 'AUD', sourceProviderReference: unsafe, amountMinor: 1_000n }],
     [{ providerCode: 'manual', currency: 'AUD', sourceProviderReference: ' payment-a ', amountMinor: 1_000n }],
     [{ providerCode: 'manual', currency: 'AUD', sourceProviderReference: 'sf_claim_source', amountMinor: 1_000n }],
+    [{ providerCode: 'manual', currency: 'AUD', sourceProviderReference: 'SOURCE-🚀', amountMinor: 1_000n }],
   ]) {
     const result = deriveRentalBookingCommercialAmendmentRefundSource({
       ...base,
@@ -180,7 +182,7 @@ test('commercial amendment settlement rejects malformed collections, identities,
     });
     assert.equal(result.state, 'CONFLICT');
   }
-  for (const providerReference of [null, 123, ' padded ', 'sf_claim_reserved', 'line\nbreak']) {
+  for (const providerReference of [null, 123, ' padded ', 'sf_claim_reserved', 'line\nbreak', 'REF-🚀', 'A'.repeat(121), '#invalid']) {
     const result = deriveRentalBookingCommercialAmendmentSettlementState({
       ...base,
       rows: [{ ...payment, providerReference: providerReference as string }],
@@ -209,7 +211,7 @@ test('commercial amendment settlement rejects malformed collections, identities,
     rows: [],
   });
   assert.equal(invalidDirection.state, 'CONFLICT');
-  for (const sourceProviderReference of [' padded ', 'line\nbreak', 'sf_claim_pending', refund.providerReference]) {
+  for (const sourceProviderReference of [' padded ', 'line\nbreak', 'sf_claim_pending', 'SOURCE-🚀', 'A'.repeat(121), '#invalid', refund.providerReference]) {
     const result = deriveRentalBookingCommercialAmendmentSettlementState({
       direction: 'REFUND',
       currency: 'AUD',
