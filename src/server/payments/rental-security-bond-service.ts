@@ -15,6 +15,7 @@ import {
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
   isValidRentalSecurityBondRetainedForfeiture,
+  isValidRentalSecurityBondRetainedLiabilityDisposition,
   type RentalSecurityBondTransactionEvidence,
 } from './rental-security-bond-domain.ts';
 
@@ -166,6 +167,27 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
     forfeiture,
   })) {
     throw new RentalSecurityBondConflictError('Security bond forfeiture does not match its retained collection source.');
+  }
+  if (forfeiture) {
+    const liability = await transaction.rentalDamageLiabilityDecision.findFirst({
+      where: { organizationId, bookingId, id: forfeiture.liabilityDecisionId, outcome: 'CUSTOMER_LIABLE' },
+      select: { id: true, unitId: true, currency: true, liableAmountMinor: true, decidedAt: true },
+    });
+    const [returnEvent, damageSettlement] = liability ? await Promise.all([
+      transaction.rentalBookingFulfillmentEvent.findFirst({
+        where: { organizationId, bookingId, unitId: liability.unitId, kind: 'RETURNED' },
+        select: { occurredAt: true },
+      }),
+      transaction.rentalDamageSettlementTransaction.findFirst({
+        where: { organizationId, bookingId, liabilityDecisionId: liability.id },
+        select: { id: true },
+      }),
+    ]) : [null, null];
+    if (!isValidRentalSecurityBondRetainedLiabilityDisposition({
+      forfeiture, liability, returnEvent, hasDamageSettlement: Boolean(damageSettlement),
+    })) {
+      throw new RentalSecurityBondConflictError('Security bond forfeiture no longer matches retained liability, custody, or exclusive settlement evidence.');
+    }
   }
   const settlement = deriveRentalSecurityBondSettlement({
     requiredAmountMinor: bond.amountMinor,

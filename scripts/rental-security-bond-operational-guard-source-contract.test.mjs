@@ -65,3 +65,14 @@ test('documentation keeps application UX and database authority boundaries expli
   assert.match(docs, /PostgreSQL remains the independent final authority/);
   assert.match(docs, /does not move, collect, release, or forfeit money/);
 });
+
+
+test('booking-only guard rejects stale forfeiture liability and custody evidence without exposing payment data', () => {
+  assert.match(guardService, /isValidRentalSecurityBondRetainedLiabilityDisposition/);
+  assert.match(guardService, /outcome: 'CUSTOMER_LIABLE'/);
+  assert.match(guardService, /unitId: liability\.unitId, kind: 'RETURNED'/);
+  assert.match(guardService, /rentalDamageSettlementTransaction\.findFirst/);
+  assert.match(guardService, /hasDamageSettlement: Boolean\(damageSettlement\)/);
+  assert.match(guardService, /RentalBookingSecurityBondGuardConflictError\('Security bond forfeiture no longer matches/);
+  assert.match(docs, /retained liability and custody evidence/i);
+});

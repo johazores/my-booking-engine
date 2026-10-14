@@ -92,3 +92,20 @@ test('forfeiture eligibility and staff actions fail closed across booking and bo
   assert.match(page, /Reload security bond/);
   assert.doesNotMatch(page, /forfeitureData\.settlement\?\.state \?\? data\.settlement\?\.state/);
 });
+
+
+test('both financial and forfeiture readers reject stale retained liability, custody and double settlement', () => {
+  assert.match(domain, /export function isValidRentalSecurityBondRetainedLiabilityDisposition/);
+  assert.match(domain, /liability\.id !== forfeiture\.liabilityDecisionId/);
+  assert.match(domain, /liability\.liableAmountMinor !== forfeiture\.amountMinor/);
+  assert.match(domain, /decidedAt <= forfeitedAt/);
+  assert.match(domain, /returnedAt <= forfeitedAt/);
+  assert.match(service, /isValidRentalSecurityBondRetainedLiabilityDisposition\(\{/);
+  assert.match(financialService, /isValidRentalSecurityBondRetainedLiabilityDisposition\(\{/);
+  assert.match(financialService, /outcome: 'CUSTOMER_LIABLE'/);
+  assert.match(financialService, /kind: 'RETURNED'/);
+  assert.match(financialService, /unitId: liability\.unitId/);
+  assert.match(financialService, /rentalDamageSettlementTransaction\.findFirst/);
+  assert.match(service, /hasDamageSettlement: context\.hasDamageSettlement/);
+  assert.match(bondDocs, /retained liability and custody evidence/i);
+});

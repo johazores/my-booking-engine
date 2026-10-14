@@ -242,6 +242,35 @@ export function isValidRentalSecurityBondRetainedForfeiture(input: Readonly<{
     });
 }
 
+/** Revalidate immutable forfeiture against customer liability and returned custody. */
+export function isValidRentalSecurityBondRetainedLiabilityDisposition(input: Readonly<{
+  forfeiture: Readonly<{ liabilityDecisionId: string; currency: string; amountMinor: bigint; createdAt: Date }>;
+  liability: Readonly<{ id: string; currency: string; liableAmountMinor: bigint | null; decidedAt: Date }> | null;
+  returnEvent: Readonly<{ occurredAt: Date }> | null;
+  hasDamageSettlement: boolean;
+}>): boolean {
+  const { forfeiture, liability, returnEvent } = input;
+  if (
+    !liability || !returnEvent || input.hasDamageSettlement
+    || liability.id !== forfeiture.liabilityDecisionId
+    || liability.currency !== forfeiture.currency
+    || typeof forfeiture.amountMinor !== 'bigint'
+    || forfeiture.amountMinor <= 0n
+    || liability.liableAmountMinor !== forfeiture.amountMinor
+    || !(forfeiture.createdAt instanceof Date)
+    || !(liability.decidedAt instanceof Date)
+    || !(returnEvent.occurredAt instanceof Date)
+  ) return false;
+  const forfeitedAt = forfeiture.createdAt.getTime();
+  const decidedAt = liability.decidedAt.getTime();
+  const returnedAt = returnEvent.occurredAt.getTime();
+  return Number.isFinite(forfeitedAt)
+    && Number.isFinite(decidedAt)
+    && Number.isFinite(returnedAt)
+    && decidedAt <= forfeitedAt
+    && returnedAt <= forfeitedAt;
+}
+
 export function buildRentalSecurityBondForfeitureIdempotencyKey(input: Readonly<{
   bondId: string;
   liabilityDecisionId: string;

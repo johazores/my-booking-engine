@@ -65,6 +65,10 @@ The forfeiture eligibility reader requires the same confirmed-booking status as 
 
 Matching projections are not a shared database snapshot: intervening liability or custody changes can still occur. All writes revalidate authority under their own locks and PostgreSQL constraints.
 
+## Retained liability and custody evidence
+
+The financial security-bond reader, forfeiture eligibility reader, and booking-only operational projection each fail closed when retained forfeiture no longer matches its tenant-owned `CUSTOMER_LIABLE` decision, exact amount/currency, or returned custody of the same physical unit. They also reject a forfeiture that predates its liability decision or return event, or coexists with separate damage settlement evidence. These checks run within each reader's tenant-scoped transaction and do not expose payment details to booking-only callers. PostgreSQL remains the independent serializable write authority.
+
 ## Deliberate boundaries
 
 This contract does not implement card authorization or capture, online bond checkout, partial bond collection/release, partial damage offset, split tenders, excess-bond remainder handling, undersecured liability allocation, insurance claims, chargebacks, provider-backed bond settlement, or customer self-service.

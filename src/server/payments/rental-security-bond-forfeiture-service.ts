@@ -9,6 +9,7 @@ import {
   buildRentalSecurityBondForfeitureIdempotencyKey,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedForfeiture,
+  isValidRentalSecurityBondRetainedLiabilityDisposition,
   isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondForfeitureEvidence,
   type RentalSecurityBondTransactionEvidence,
@@ -148,6 +149,14 @@ function reconcileForfeitureContext(context: Awaited<ReturnType<typeof loadForfe
     forfeiture: context.forfeiture,
   })) {
     throw new RentalSecurityBondConflictError('Security bond forfeiture source evidence is invalid.');
+  }
+  if (context.forfeiture && !isValidRentalSecurityBondRetainedLiabilityDisposition({
+    forfeiture: context.forfeiture,
+    liability: context.liability,
+    returnEvent: context.returnEvent,
+    hasDamageSettlement: context.hasDamageSettlement,
+  })) {
+    throw new RentalSecurityBondConflictError('Security bond forfeiture no longer matches retained liability, custody, or exclusive settlement evidence.');
   }
   const forfeiture: RentalSecurityBondForfeitureEvidence | null = context.forfeiture ? {
     liabilityDecisionId: context.forfeiture.liabilityDecisionId,

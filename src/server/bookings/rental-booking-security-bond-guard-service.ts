@@ -3,6 +3,7 @@ import { requireOrganizationPermission } from '../authorization/authorization-se
 import { db } from '../database.ts';
 import {
   isValidRentalSecurityBondRetainedForfeiture,
+  isValidRentalSecurityBondRetainedLiabilityDisposition,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
   type RentalSecurityBondTransactionEvidence,
@@ -137,6 +138,27 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
     throw new RentalBookingSecurityBondGuardConflictError('Security bond forfeiture source evidence is invalid.');
   }
 
+  if (forfeiture) {
+    const liability = await input.transaction.rentalDamageLiabilityDecision.findFirst({
+      where: { organizationId: input.organizationId, bookingId: input.bookingId, id: forfeiture.liabilityDecisionId, outcome: 'CUSTOMER_LIABLE' },
+      select: { id: true, unitId: true, currency: true, liableAmountMinor: true, decidedAt: true },
+    });
+    const [returnEvent, damageSettlement] = liability ? await Promise.all([
+      input.transaction.rentalBookingFulfillmentEvent.findFirst({
+        where: { organizationId: input.organizationId, bookingId: input.bookingId, unitId: liability.unitId, kind: 'RETURNED' },
+        select: { occurredAt: true },
+      }),
+      input.transaction.rentalDamageSettlementTransaction.findFirst({
+        where: { organizationId: input.organizationId, bookingId: input.bookingId, liabilityDecisionId: liability.id },
+        select: { id: true },
+      }),
+    ]) : [null, null];
+    if (!isValidRentalSecurityBondRetainedLiabilityDisposition({
+      forfeiture, liability, returnEvent, hasDamageSettlement: Boolean(damageSettlement),
+    })) {
+      throw new RentalBookingSecurityBondGuardConflictError('Security bond forfeiture no longer matches retained liability, custody, or exclusive settlement evidence.');
+    }
+  }
   const settlement = deriveRentalSecurityBondSettlement({
     requiredAmountMinor: bond.amountMinor,
     currency: bond.currency,

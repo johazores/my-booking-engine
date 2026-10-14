@@ -6,6 +6,7 @@ import {
   buildRentalSecurityBondRequirementIdempotencyKey,
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
+  isValidRentalSecurityBondRetainedLiabilityDisposition,
 } from './rental-security-bond-domain.ts';
 
 const now = new Date('2026-09-17T02:00:00.000Z');
@@ -57,4 +58,24 @@ test('security bond idempotency is deterministic and operation-scoped', () => {
   assert.match(forfeiture, /^rental-bond:forfeiture:[a-f0-9]{48}$/);
   assert.notEqual(collectionKey, release);
   assert.notEqual(collectionKey, forfeiture);
+});
+
+
+test('retained forfeiture requires exact liability, prior decision and return, and exclusive settlement', () => {
+  const forfeiture = { liabilityDecisionId: 'liability-1', currency: 'PHP', amountMinor: 50000n, createdAt: new Date('2026-09-17T03:00:00Z') };
+  const liability = { id: 'liability-1', currency: 'PHP', liableAmountMinor: 50000n, decidedAt: new Date('2026-09-17T02:30:00Z') };
+  const returnEvent = { occurredAt: new Date('2026-09-17T02:00:00Z') };
+  const evidence = { forfeiture, liability, returnEvent, hasDamageSettlement: false };
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition(evidence), true);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: null }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, id: 'another' } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, currency: 'USD' } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, liableAmountMinor: 1n } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, forfeiture: { ...forfeiture, amountMinor: 0n } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: null }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: { occurredAt: new Date('2026-09-17T04:00:00Z') } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, decidedAt: new Date('2026-09-17T04:00:00Z') } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, hasDamageSettlement: true }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, forfeiture: { ...forfeiture, createdAt: new Date(Number.NaN) } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: { occurredAt: new Date(Number.NaN) } }), false);
 });
