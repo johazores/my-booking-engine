@@ -10,6 +10,7 @@ import {
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedForfeiture,
   isValidRentalSecurityBondRetainedLiabilityDisposition,
+  isValidRentalSecurityBondLiabilityReturnChronology,
   isValidRentalSecurityBondRetainedTransaction,
   isValidRentalSecurityBondRetainedRequirement,
   type RentalSecurityBondForfeitureEvidence,
@@ -193,6 +194,9 @@ function deriveEligibility(context: Awaited<ReturnType<typeof loadForfeitureCont
     return Object.freeze({ eligible: false as const, reason: 'A retained customer-liable damage decision is required before forfeiture.', liability: context.liability });
   }
   if (!context.returnEvent) return Object.freeze({ eligible: false as const, reason: 'Retained return custody evidence is required before forfeiture.', liability: context.liability });
+  if (!isValidRentalSecurityBondLiabilityReturnChronology({ liability: context.liability, returnEvent: context.returnEvent })) {
+    return Object.freeze({ eligible: false as const, reason: 'Retained damage liability decision must follow valid return custody chronology.', liability: context.liability });
+  }
   if (context.hasDamageSettlement) return Object.freeze({ eligible: false as const, reason: 'This damage liability already has separate settlement evidence and cannot also consume the security bond.', liability: context.liability });
   if (context.bond.currency !== context.liability.currency || context.bond.amountMinor !== context.liability.liableAmountMinor) {
     return Object.freeze({ eligible: false as const, reason: 'Bond forfeiture is enabled only when the collected bond exactly matches the retained damage liability amount and currency.', liability: context.liability });

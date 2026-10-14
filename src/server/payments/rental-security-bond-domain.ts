@@ -284,6 +284,28 @@ export function isValidRentalSecurityBondRetainedForfeiture(input: Readonly<{
     });
 }
 
+/**
+ * A customer liability decision is downstream of returned custody. Validate
+ * this before enabling new forfeiture and when reading retained forfeiture.
+ */
+export function isValidRentalSecurityBondLiabilityReturnChronology(input: Readonly<{
+  liability: Readonly<{ decidedAt: Date }> | null;
+  returnEvent: Readonly<{ occurredAt: Date }> | null;
+}>): boolean {
+  const { liability, returnEvent } = input;
+  if (
+    !liability || !returnEvent
+    || !(liability.decidedAt instanceof Date)
+    || !(returnEvent.occurredAt instanceof Date)
+  ) return false;
+
+  const decidedAt = liability.decidedAt.getTime();
+  const returnedAt = returnEvent.occurredAt.getTime();
+  return Number.isFinite(decidedAt)
+    && Number.isFinite(returnedAt)
+    && returnedAt <= decidedAt;
+}
+
 /** Revalidate immutable forfeiture against customer liability and returned custody. */
 export function isValidRentalSecurityBondRetainedLiabilityDisposition(input: Readonly<{
   forfeiture: Readonly<{ liabilityDecisionId: string; currency: string; amountMinor: bigint; createdAt: Date }>;
@@ -300,8 +322,7 @@ export function isValidRentalSecurityBondRetainedLiabilityDisposition(input: Rea
     || forfeiture.amountMinor <= 0n
     || liability.liableAmountMinor !== forfeiture.amountMinor
     || !(forfeiture.createdAt instanceof Date)
-    || !(liability.decidedAt instanceof Date)
-    || !(returnEvent.occurredAt instanceof Date)
+    || !isValidRentalSecurityBondLiabilityReturnChronology({ liability, returnEvent })
   ) return false;
   const forfeitedAt = forfeiture.createdAt.getTime();
   const decidedAt = liability.decidedAt.getTime();
@@ -309,6 +330,7 @@ export function isValidRentalSecurityBondRetainedLiabilityDisposition(input: Rea
   return Number.isFinite(forfeitedAt)
     && Number.isFinite(decidedAt)
     && Number.isFinite(returnedAt)
+    && returnedAt <= decidedAt
     && decidedAt <= forfeitedAt
     && returnedAt <= forfeitedAt;
 }

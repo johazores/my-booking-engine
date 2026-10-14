@@ -7,6 +7,7 @@ import {
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedLiabilityDisposition,
+  isValidRentalSecurityBondLiabilityReturnChronology,
   isValidRentalSecurityBondRetainedRequirement,
 } from './rental-security-bond-domain.ts';
 
@@ -76,11 +77,25 @@ test('retained forfeiture requires exact liability, prior decision and return, a
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: null }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: { occurredAt: new Date('2026-09-17T04:00:00Z') } }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, decidedAt: new Date('2026-09-17T04:00:00Z') } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, decidedAt: new Date('2026-09-17T01:59:59Z') } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, liability: { ...liability, decidedAt: returnEvent.occurredAt } }), true);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, hasDamageSettlement: true }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, forfeiture: { ...forfeiture, createdAt: new Date(Number.NaN) } }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: { occurredAt: new Date(Number.NaN) } }), false);
 });
 
+
+test('fresh forfeiture eligibility rejects liability decisions before returned custody', () => {
+  const liability = { decidedAt: new Date('2026-09-17T02:30:00Z') };
+  const returnEvent = { occurredAt: new Date('2026-09-17T02:00:00Z') };
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability, returnEvent }), true);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability: { decidedAt: returnEvent.occurredAt }, returnEvent }), true);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability: { decidedAt: new Date('2026-09-17T01:59:59Z') }, returnEvent }), false);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability: { decidedAt: new Date(Number.NaN) }, returnEvent }), false);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability, returnEvent: { occurredAt: new Date(Number.NaN) } }), false);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability: null, returnEvent }), false);
+  assert.equal(isValidRentalSecurityBondLiabilityReturnChronology({ liability, returnEvent: null }), false);
+});
 
 test('retained requirement identity and chronology fail closed before bond authority is trusted', () => {
   const requirement = {

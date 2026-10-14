@@ -11,6 +11,7 @@ const schema = read('prisma/rental-security-bond.prisma');
 const rentalSchema = read('prisma/rental-inventory.prisma');
 const liabilitySchema = read('prisma/rental-damage-liability.prisma');
 const migration = read('prisma/migrations/20260917060000_rental_security_bond_forfeiture/migration.sql');
+const chronologyMigration = read('prisma/migrations/20261015013000-rental-bond-liability-return-chronology/migration.sql');
 const service = read('src/server/payments/rental-security-bond-forfeiture-service.ts');
 const financialService = read('src/server/payments/rental-security-bond-service.ts');
 const domain = read('src/server/payments/rental-security-bond-domain.ts');
@@ -100,6 +101,9 @@ test('both financial and forfeiture readers reject stale retained liability, cus
   assert.match(domain, /liability\.liableAmountMinor !== forfeiture\.amountMinor/);
   assert.match(domain, /decidedAt <= forfeitedAt/);
   assert.match(domain, /returnedAt <= forfeitedAt/);
+  assert.match(domain, /returnedAt <= decidedAt/);
+  assert.match(domain, /isValidRentalSecurityBondLiabilityReturnChronology\(\{ liability, returnEvent \}\)/);
+  assert.match(service, /isValidRentalSecurityBondLiabilityReturnChronology\(\{ liability: context\.liability, returnEvent: context\.returnEvent \}\)/);
   assert.match(service, /isValidRentalSecurityBondRetainedLiabilityDisposition\(\{/);
   assert.match(financialService, /isValidRentalSecurityBondRetainedLiabilityDisposition\(\{/);
   assert.match(financialService, /outcome: 'CUSTOMER_LIABLE'/);
@@ -108,4 +112,19 @@ test('both financial and forfeiture readers reject stale retained liability, cus
   assert.match(financialService, /rentalDamageSettlementTransaction\.findFirst/);
   assert.match(service, /hasDamageSettlement: context\.hasDamageSettlement/);
   assert.match(bondDocs, /retained liability and custody evidence/i);
+});
+
+test('PostgreSQL independently rejects forfeiture when liability predates returned custody', () => {
+  assert.match(chronologyMigration, /CREATE FUNCTION sf_guard_rental_bond_liability_return_chronology\(\)/);
+  assert.match(chronologyMigration, /rental_security_bond_forfeitures_chronology_guard/);
+  assert.match(chronologyMigration, /BEFORE INSERT ON "rental_security_bond_forfeitures"/);
+  assert.match(chronologyMigration, /returned\."organizationId" = liability\."organizationId"/);
+  assert.match(chronologyMigration, /returned\."bookingId" = liability\."bookingId"/);
+  assert.match(chronologyMigration, /returned\."unitId" = liability\."unitId"/);
+  assert.match(chronologyMigration, /returned\."kind" = 'RETURNED'/);
+  assert.match(chronologyMigration, /returned\."occurredAt" <= liability\."decidedAt"/);
+  assert.match(chronologyMigration, /liability\."organizationId" = NEW\."organizationId"/);
+  assert.match(chronologyMigration, /liability\."bookingId" = NEW\."bookingId"/);
+  assert.match(chronologyMigration, /liability\."id" = NEW\."liabilityDecisionId"/);
+  assert.match(chronologyMigration, /ERRCODE = '23514'/);
 });
