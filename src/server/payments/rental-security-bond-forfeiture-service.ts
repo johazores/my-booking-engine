@@ -11,6 +11,7 @@ import {
   isValidRentalSecurityBondRetainedForfeiture,
   isValidRentalSecurityBondRetainedLiabilityDisposition,
   isValidRentalSecurityBondRetainedTransaction,
+  isValidRentalSecurityBondRetainedRequirement,
   type RentalSecurityBondForfeitureEvidence,
   type RentalSecurityBondTransactionEvidence,
 } from './rental-security-bond-domain.ts';
@@ -120,6 +121,14 @@ function reconcileForfeitureContext(context: Awaited<ReturnType<typeof loadForfe
   if (!context.bond) return null;
   if (context.rows.length > 2) {
     throw new RentalSecurityBondConflictError('Security bond history exceeds the enabled one-collection/one-release contract.');
+  }
+  if (!isValidRentalSecurityBondRetainedRequirement({
+    bookingId: context.bond.bookingId,
+    requirement: context.bond,
+    transactions: context.rows,
+    forfeiture: context.forfeiture,
+  })) {
+    throw new RentalSecurityBondConflictError('Security bond requirement identity or chronology is inconsistent with retained evidence.');
   }
   const transactions: RentalSecurityBondTransactionEvidence[] = [];
   for (const row of context.rows) {

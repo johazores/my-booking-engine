@@ -14,6 +14,7 @@ import {
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
+  isValidRentalSecurityBondRetainedRequirement,
   isValidRentalSecurityBondRetainedForfeiture,
   isValidRentalSecurityBondRetainedLiabilityDisposition,
   type RentalSecurityBondTransactionEvidence,
@@ -152,6 +153,9 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
     }),
   ]);
   if (rows.length > 2) throw new RentalSecurityBondConflictError('Security bond history exceeds the enabled one-collection/one-release contract.');
+  if (!isValidRentalSecurityBondRetainedRequirement({ bookingId, requirement: bond, transactions: rows, forfeiture })) {
+    throw new RentalSecurityBondConflictError('Security bond requirement identity or chronology is inconsistent with retained evidence.');
+  }
   const evidence: RentalSecurityBondTransactionEvidence[] = rows.map((row) => {
     if (row.kind !== 'OFFLINE_PAYMENT' && row.kind !== 'REFUND') {
       throw new RentalSecurityBondConflictError('Security bond history contains unsupported transaction kind.');
@@ -231,6 +235,10 @@ export async function createRentalSecurityBondRequirement(input: Readonly<{ orga
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'requirement', booking.id)}, 0))`;
     const existing = await transaction.rentalSecurityBondRequirement.findFirst({ where: { organizationId: input.organizationId, bookingId: booking.id } });
     if (existing) {
+      const retained = await loadBondState(transaction, input.organizationId, booking.id);
+      if (!retained || retained.bond.id !== existing.id) {
+        throw new RentalSecurityBondConflictError('Security bond requirement replay no longer reconciles to retained evidence.');
+      }
       if (existing.idempotencyKey !== idempotencyKey || existing.currency !== money.currency || existing.amountMinor !== money.amountMinor) throw new RentalSecurityBondConflictError('This booking already has a different immutable security bond requirement.');
       return Object.freeze({ bond: existing, idempotent: true as const });
     }

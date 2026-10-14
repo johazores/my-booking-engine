@@ -7,6 +7,7 @@ import {
   buildRentalSecurityBondTransactionIdempotencyKey,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedLiabilityDisposition,
+  isValidRentalSecurityBondRetainedRequirement,
 } from './rental-security-bond-domain.ts';
 
 const now = new Date('2026-09-17T02:00:00.000Z');
@@ -78,4 +79,40 @@ test('retained forfeiture requires exact liability, prior decision and return, a
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, hasDamageSettlement: true }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, forfeiture: { ...forfeiture, createdAt: new Date(Number.NaN) } }), false);
   assert.equal(isValidRentalSecurityBondRetainedLiabilityDisposition({ ...evidence, returnEvent: { occurredAt: new Date(Number.NaN) } }), false);
+});
+
+
+test('retained requirement identity and chronology fail closed before bond authority is trusted', () => {
+  const requirement = {
+    bookingId: 'booking-1',
+    currency: 'PHP',
+    amountMinor: 50000n,
+    createdAt: new Date('2026-09-17T01:00:00Z'),
+    idempotencyKey: buildRentalSecurityBondRequirementIdempotencyKey({
+      bookingId: 'booking-1', currency: 'PHP', amountMinor: 50000n,
+    }),
+  };
+  const evidence = {
+    bookingId: 'booking-1',
+    requirement,
+    transactions: [{ createdAt: new Date('2026-09-17T02:00:00Z') }],
+    forfeiture: { createdAt: new Date('2026-09-17T03:00:00Z') },
+  };
+  assert.equal(isValidRentalSecurityBondRetainedRequirement(evidence), true);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, bookingId: 'other-booking' }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, currency: 'USD' } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, currency: 'php' } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, amountMinor: 0n } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, amountMinor: 1n } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, idempotencyKey: 'rental-bond:requirement:forged' } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, requirement: { ...requirement, createdAt: new Date(Number.NaN) } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, transactions: [{ createdAt: new Date('2026-09-17T00:59:59Z') }] }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, transactions: [{ createdAt: new Date(Number.NaN) }] }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, forfeiture: { createdAt: new Date('2026-09-17T00:59:59Z') } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, forfeiture: { createdAt: new Date(Number.NaN) } }), false);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, forfeiture: null }), true);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({ ...evidence, transactions: [], forfeiture: null }), true);
+  assert.equal(isValidRentalSecurityBondRetainedRequirement({
+    ...evidence, transactions: [{ createdAt: requirement.createdAt }], forfeiture: { createdAt: requirement.createdAt },
+  }), true);
 });

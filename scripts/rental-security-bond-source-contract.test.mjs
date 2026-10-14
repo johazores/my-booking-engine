@@ -106,3 +106,19 @@ test('guarded PostgreSQL coverage is registered for tenant scope, custody, cance
   assert.match(integration, /rentalSecurityBondTransaction\.delete/);
   assert.match(integration, /recordRentalManualOfflinePayment/);
 });
+
+
+test('all bond readers and requirement replay rebuild immutable requirement identity and chronology', () => {
+  const guard = read('src/server/bookings/rental-booking-security-bond-guard-service.ts');
+  const forfeiture = read('src/server/payments/rental-security-bond-forfeiture-service.ts');
+  assert.match(domain, /export function isValidRentalSecurityBondRetainedRequirement/);
+  assert.match(domain, /buildRentalSecurityBondRequirementIdempotencyKey\(\{/);
+  assert.match(domain, /row\.createdAt\.getTime\(\) >= requiredAt/);
+  for (const reader of [service, guard, forfeiture]) {
+    assert.match(reader, /isValidRentalSecurityBondRetainedRequirement\(\{/);
+    assert.match(reader, /requirement identity or chronology is inconsistent with retained evidence/);
+  }
+  assert.match(guard, /bookingId: true,\s+idempotencyKey: true,\s+createdAt: true/);
+  assert.match(service, /const retained = await loadBondState\(transaction, input\.organizationId, booking\.id\)/);
+  assert.match(docs, /deterministic requirement identity and chronology/);
+});

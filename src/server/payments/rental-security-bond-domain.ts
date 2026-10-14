@@ -151,6 +151,48 @@ export function buildRentalSecurityBondRequirementIdempotencyKey(input: Readonly
   return `rental-bond:requirement:${digest.slice(0, 48)}`;
 }
 
+/**
+ * Rebuild immutable bond requirement identity and chronology before using
+ * retained collection or disposition evidence as operational authority.
+ * Database constraints enforce the write shape, but readers must not trust
+ * an arbitrary persisted requirement idempotency key.
+ */
+export function isValidRentalSecurityBondRetainedRequirement(input: Readonly<{
+  bookingId: string;
+  requirement: Readonly<{
+    bookingId: string;
+    idempotencyKey: string;
+    currency: string;
+    amountMinor: bigint;
+    createdAt: Date;
+  }>;
+  transactions: readonly Readonly<{ createdAt: Date }>[];
+  forfeiture?: Readonly<{ createdAt: Date }> | null;
+}>): boolean {
+  const requirement = input.requirement;
+  if (
+    requirement.bookingId !== input.bookingId
+    || !/^[A-Z]{3}$/.test(requirement.currency)
+    || typeof requirement.amountMinor !== 'bigint'
+    || requirement.amountMinor <= 0n
+    || !(requirement.createdAt instanceof Date)
+    || !Number.isFinite(requirement.createdAt.getTime())
+    || requirement.idempotencyKey !== buildRentalSecurityBondRequirementIdempotencyKey({
+      bookingId: input.bookingId,
+      currency: requirement.currency,
+      amountMinor: requirement.amountMinor,
+    })
+  ) return false;
+
+  const requiredAt = requirement.createdAt.getTime();
+  return input.transactions.every((row) => row.createdAt instanceof Date
+    && Number.isFinite(row.createdAt.getTime())
+    && row.createdAt.getTime() >= requiredAt)
+    && (!input.forfeiture || (input.forfeiture.createdAt instanceof Date
+      && Number.isFinite(input.forfeiture.createdAt.getTime())
+      && input.forfeiture.createdAt.getTime() >= requiredAt));
+}
+
 export function buildRentalSecurityBondTransactionIdempotencyKey(input: Readonly<{
   kind: 'manual-collection' | 'manual-release';
   bondId: string;

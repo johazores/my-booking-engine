@@ -6,6 +6,7 @@ import {
   isValidRentalSecurityBondRetainedLiabilityDisposition,
   deriveRentalSecurityBondSettlement,
   isValidRentalSecurityBondRetainedTransaction,
+  isValidRentalSecurityBondRetainedRequirement,
   type RentalSecurityBondTransactionEvidence,
 } from '../payments/rental-security-bond-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -53,6 +54,9 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
     },
     select: {
       id: true,
+      bookingId: true,
+      idempotencyKey: true,
+      createdAt: true,
       currency: true,
       amountMinor: true,
     },
@@ -102,6 +106,16 @@ export async function readRentalBookingSecurityBondGuardInTransaction(input: Rea
   if (rows.length > 2) {
     throw new RentalBookingSecurityBondGuardConflictError(
       'Security bond history exceeds the enabled one-collection/one-release contract.',
+    );
+  }
+  if (!isValidRentalSecurityBondRetainedRequirement({
+    bookingId: input.bookingId,
+    requirement: bond,
+    transactions: rows,
+    forfeiture,
+  })) {
+    throw new RentalBookingSecurityBondGuardConflictError(
+      'Security bond requirement identity or chronology is inconsistent with retained evidence.',
     );
   }
 

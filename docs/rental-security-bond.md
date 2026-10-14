@@ -65,6 +65,10 @@ The forfeiture eligibility reader requires the same confirmed-booking status as 
 
 Matching projections are not a shared database snapshot: intervening liability or custody changes can still occur. All writes revalidate authority under their own locks and PostgreSQL constraints.
 
+## Deterministic requirement identity and chronology
+
+The financial security-bond reader, forfeiture reader, and booking-only pickup/cancellation guard all rebuild the retained requirement idempotency key from the exact booking identity, currency, and positive amount. They also reject invalid requirement timestamps and any collection, release, or forfeiture evidence that predates the requirement. An exact requirement-creation replay reconciles the entire retained bond history before reporting success. This deterministic requirement identity and chronology check does not replace PostgreSQL constraints or serializable write authority. The booking-only projection still exposes no amounts, provider references, or payment details.
+
 ## Retained liability and custody evidence
 
 The financial security-bond reader, forfeiture eligibility reader, and booking-only operational projection each fail closed when retained forfeiture no longer matches its tenant-owned `CUSTOMER_LIABLE` decision, exact amount/currency, or returned custody of the same physical unit. They also reject a forfeiture that predates its liability decision or return event, or coexists with separate damage settlement evidence. These checks run within each reader's tenant-scoped transaction and do not expose payment details to booking-only callers. PostgreSQL remains the independent serializable write authority.
