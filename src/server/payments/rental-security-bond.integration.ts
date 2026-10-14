@@ -24,7 +24,7 @@ function addUtcDays(date: Date, days: number) {
 }
 
 test('rental security bond is tenant-scoped, append-only, pickup/cancellation guarded, and reference-isolated', async () => {
-  const [{ db }, holds, bookings, authority, cancellations, fulfillment, bonds, rentalPayments, inspections, damageCases, liabilities, forfeitures, damagePayments] = await Promise.all([
+  const [{ db }, holds, bookings, authority, cancellations, fulfillment, bonds, rentalPayments, inspections, damageCases, liabilities, forfeitures, damagePayments, bondGuards] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('../bookings/rental-booking-service.ts'),
@@ -38,6 +38,7 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     import('../bookings/rental-damage-liability-service.ts'),
     import('./rental-security-bond-forfeiture-service.ts'),
     import('./rental-damage-settlement-service.ts'),
+    import('../bookings/rental-booking-security-bond-guard-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -240,6 +241,92 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     /append-only/i,
   );
 
+
+  // The same immutable forfeiture must reconcile in every authorized reader.
+  // Booking-only callers must not receive financial evidence.
+  const damageSettlement = await damagePayments.readRentalDamageSettlement({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCaseId: damageCase.damageCase.id,
+  });
+  assert.equal(damageSettlement.forfeitureId, forfeiture.forfeiture.id);
+  assert.equal(damageSettlement.transactions.length, 0);
+  const operationalGuard = await bondGuards.readRentalBookingSecurityBondGuard({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.deepEqual(operationalGuard, {
+    required: true, state: 'FORFEITED', blocksPickup: true, blocksCancellation: false,
+  });
+  await assert.rejects(
+    bondGuards.readRentalBookingSecurityBondGuard({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    damagePayments.readRentalDamageSettlement({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+      damageCaseId: damageCase.damageCase.id,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /not available|confirmed tenant rental booking/i,
+  );
+
+  // A direct database insert must not bind Tenant B to Tenant A bond,
+  // collection, booking or liability evidence, even with otherwise valid IDs.
+  await assert.rejects(
+    db.rentalSecurityBondForfeiture.create({
+      data: {
+        organizationId: otherOrganization.id,
+        bookingId: pickupBooking.booking.id,
+        bondId: requirement.bond.id,
+        liabilityDecisionId: decision.decision.id,
+        collectionTransactionId: collection.transaction.id,
+        idempotencyKey: forfeiture.forfeiture.idempotencyKey,
+        currency: 'PHP',
+        amountMinor: 50000n,
+        forfeitedByUserId: otherAdmin.id,
+      },
+    }),
+    /retained bond requirement|foreign key/i,
+  );
+  await assert.rejects(
+    db.rentalSecurityBondForfeiture.update({
+      where: { id: forfeiture.forfeiture.id },
+      data: { amountMinor: 1n },
+    }),
+    /append-only/i,
+  );
+
+  // Replays and rejected competing actions must not produce another
+  // financial disposition, damage payment, or forfeiture audit event.
+  const [forfeitureCount, bondTransactions, damagePaymentsCount, forfeitureAudits] = await Promise.all([
+    db.rentalSecurityBondForfeiture.count({
+      where: { organizationId: organization.id, bookingId: pickupBooking.booking.id },
+    }),
+    db.rentalSecurityBondTransaction.count({
+      where: { organizationId: organization.id, bookingId: pickupBooking.booking.id, bondId: requirement.bond.id },
+    }),
+    db.rentalDamageSettlementTransaction.count({
+      where: { organizationId: organization.id, liabilityDecisionId: decision.decision.id },
+    }),
+    db.auditEvent.count({
+      where: {
+        organizationId: organization.id,
+        action: 'payment.rental.security-bond-forfeited',
+        resourceType: 'rental-security-bond-forfeiture',
+        resourceId: forfeiture.forfeiture.id,
+      },
+    }),
+  ]);
+  assert.equal(forfeitureCount, 1);
+  assert.equal(bondTransactions, 1);
+  assert.equal(damagePaymentsCount, 0);
+  assert.equal(forfeitureAudits, 1);
 
   const cancellationBooking = await createBooking('cancel');
   const cancellationRequirement = await bonds.createRentalSecurityBondRequirement({

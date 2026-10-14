@@ -140,4 +140,10 @@ test('disposable PostgreSQL coverage exercises applied forfeiture chronology and
   assert.match(bondIntegration, /forfeitureReplay\.idempotent, true/);
   assert.match(bondIntegration, /recordRentalDamageManualOfflinePayment/);
   assert.match(bondIntegration, /recordRentalSecurityBondManualRelease/);
+  assert.match(bondIntegration, /readRentalDamageSettlement/);
+  assert.match(bondIntegration, /readRentalBookingSecurityBondGuard/);
+  assert.match(bondIntegration, /db\.rentalSecurityBondForfeiture\.create/);
+  assert.match(bondIntegration, /db\.rentalSecurityBondForfeiture\.update/);
+  assert.match(bondIntegration, /forfeitureAudits, 1/);
+  assert.match(bondIntegration, /damagePaymentsCount, 0/);
 });
