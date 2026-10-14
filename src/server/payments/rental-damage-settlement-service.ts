@@ -249,7 +249,15 @@ export async function readRentalDamageSettlement(input: Readonly<{
       liabilityDecisionId: liability.id,
     });
     const settlement = reconcileRows(liability, transactions);
-    return Object.freeze({ liability, transactions, settlement });
+    // Observe terminal alternative inside the same repeatable-read snapshot.
+    const forfeiture = await transaction.rentalSecurityBondForfeiture.findFirst({
+      where: { organizationId: input.organizationId, bookingId: input.bookingId, liabilityDecisionId: liability.id },
+      select: { id: true },
+    });
+    if (forfeiture && transactions.length > 0) {
+      throw new RentalDamageSettlementConflictError('Damage liability has both bond forfeiture and separate payment evidence.');
+    }
+    return Object.freeze({ liability, transactions, settlement, forfeitureId: forfeiture?.id ?? null });
   }, { isolationLevel: 'RepeatableRead' });
 }
 

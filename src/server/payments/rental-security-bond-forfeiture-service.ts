@@ -165,8 +165,9 @@ function reconcileForfeitureContext(context: Awaited<ReturnType<typeof loadForfe
   return settlement;
 }
 
-function deriveEligibility(context: Awaited<ReturnType<typeof loadForfeitureContext>>) {
+function deriveEligibility(context: Awaited<ReturnType<typeof loadForfeitureContext>>, bookingStatus: string) {
   if (!context.bond) return Object.freeze({ eligible: false as const, reason: 'No retained security bond requirement exists for this booking.', liability: null });
+  if (bookingStatus !== 'CONFIRMED') return Object.freeze({ eligible: false as const, reason: 'Only a confirmed rental booking can forfeit a security bond.', liability: context.liability });
   const settlement = reconcileForfeitureContext(context);
   if (settlement?.state === 'FORFEITED') return Object.freeze({ eligible: false as const, reason: 'This security bond has already been forfeited.', liability: context.liability });
   if (settlement?.state !== 'COLLECTED' || !context.collection) return Object.freeze({ eligible: false as const, reason: 'Only an actively collected security bond can be forfeited.', liability: context.liability });
@@ -191,15 +192,18 @@ export async function readRentalSecurityBondForfeiture(input: Readonly<{
   return db.$transaction(async (transaction) => {
     const booking = await transaction.rentalBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!booking) throw new RentalSecurityBondUnavailableError();
     const context = await loadForfeitureContext(transaction, input.organizationId, booking.id);
     const settlement = reconcileForfeitureContext(context);
     return Object.freeze({
+      bookingStatus: booking.status,
+      bondId: context.bond?.id ?? null,
+      transactionIds: context.rows.map((row) => row.id),
       forfeiture: context.forfeiture,
       settlement,
-      eligibility: deriveEligibility(context),
+      eligibility: deriveEligibility(context, booking.status),
     });
   }, { isolationLevel: 'RepeatableRead' });
 }
@@ -216,12 +220,12 @@ export async function forfeitRentalSecurityBondAgainstDamageLiability(input: Rea
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalBookingLockKey(input.organizationId, input.bookingId)}, 0))`;
     const booking = await transaction.rentalBooking.findFirst({
       where: { id: input.bookingId, organizationId: input.organizationId, status: 'CONFIRMED' },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!booking) throw new RentalSecurityBondUnavailableError('A confirmed tenant rental booking is required before security bond forfeiture.');
 
     const located = await loadForfeitureContext(transaction, input.organizationId, booking.id);
-    const locatedEligibility = deriveEligibility(located);
+    const locatedEligibility = deriveEligibility(located, booking.status);
     if (!located.liability) throw new RentalSecurityBondUnavailableError('A retained customer-liable damage decision is required before security bond forfeiture.');
 
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${rentalUnitLockKey(input.organizationId, located.liability.unitId)}, 0))`;
@@ -251,7 +255,7 @@ export async function forfeitRentalSecurityBondAgainstDamageLiability(input: Rea
       return Object.freeze({ forfeiture: existing, settlement, idempotent: true as const });
     }
 
-    const eligibility = deriveEligibility(context);
+    const eligibility = deriveEligibility(context, booking.status);
     if (!eligibility.eligible) throw new RentalSecurityBondConflictError(eligibility.reason ?? locatedEligibility.reason ?? 'Security bond forfeiture is not currently allowed.');
 
     const created = await transaction.rentalSecurityBondForfeiture.create({

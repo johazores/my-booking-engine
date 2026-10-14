@@ -12,6 +12,7 @@ const rentalSchema = read('prisma/rental-inventory.prisma');
 const liabilitySchema = read('prisma/rental-damage-liability.prisma');
 const migration = read('prisma/migrations/20260917060000_rental_security_bond_forfeiture/migration.sql');
 const service = read('src/server/payments/rental-security-bond-forfeiture-service.ts');
+const financialService = read('src/server/payments/rental-security-bond-service.ts');
 const domain = read('src/server/payments/rental-security-bond-domain.ts');
 const route = read('app/api/inventory/rentals/bookings/[booking-id]/security-bond/forfeiture/route.ts');
 const page = read('app/inventory/rentals/bookings/[booking-id]/security-bond/page.tsx');
@@ -70,4 +71,24 @@ test('staff workflow requires explicit destructive confirmation and never presen
   assert.match(damagePanel, /!forfeiture && result\.settlement\.state === 'UNPAID'/);
   assert.match(bondDocs, /Partial amounts|partial damage offset/i);
   assert.match(damageDocs, /Partial bond offsets are intentionally unsupported/i);
+});
+
+test('forfeiture eligibility and staff actions fail closed across booking and bond snapshots', () => {
+  assert.match(service, /bookingStatus !== 'CONFIRMED'/);
+  assert.match(service, /eligibility: deriveEligibility\(context, booking\.status\)/);
+  assert.match(service, /const locatedEligibility = deriveEligibility\(located, booking\.status\)/);
+  assert.match(service, /const eligibility = deriveEligibility\(context, booking\.status\)/);
+  assert.match(service, /bookingStatus: booking\.status/);
+  assert.match(service, /bondId: context\.bond\?\.id \?\? null/);
+  assert.match(service, /transactionIds: context\.rows\.map/);
+  assert.match(page, /financialState !== forfeitureState/);
+  assert.match(page, /data\.booking\.status !== forfeitureData\.bookingStatus/);
+  assert.match(page, /data\.forfeitureId !== \(forfeitureData\.forfeiture\?\.id \?\? null\)/);
+  assert.match(page, /data\.transactions\.length !== forfeitureData\.transactionIds\.length/);
+  assert.match(page, /data\.transactions\.some/);
+  assert.match(financialService, /forfeitureId: state\?\.forfeitureId \?\? null/);
+  assert.match(page, /\(data\.bond\?\.id \?\? null\) !== forfeitureData\.bondId/);
+  assert.match(page, /Boolean\(forfeitureData\.forfeiture\) !== \(financialState === 'FORFEITED'\)/);
+  assert.match(page, /Reload security bond/);
+  assert.doesNotMatch(page, /forfeitureData\.settlement\?\.state \?\? data\.settlement\?\.state/);
 });

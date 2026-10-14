@@ -79,3 +79,13 @@ test('staff UI and routes expose real evidence actions without pretending to mov
   assert.match(docs, /Security-bond forfeiture alternative/);
   assert.match(docs, /manual\/offline settlement evidence/i);
 });
+
+test('damage payment actions require coherent forfeiture evidence across snapshots', () => {
+  assert.match(service, /isolationLevel: 'RepeatableRead'/);
+  assert.match(service, /transaction\.rentalSecurityBondForfeiture\.findFirst/);
+  assert.match(service, /organizationId: input\.organizationId, bookingId: input\.bookingId, liabilityDecisionId: liability\.id/);
+  assert.match(service, /forfeitureId: forfeiture\?\.id \?\? null/);
+  assert.match(panel, /\(forfeiture\?\.id \?\? null\) !== result\.forfeitureId/);
+  assert.match(panel, /Damage settlement evidence changed/);
+  assert.match(panel, /Reload booking/);
+});

@@ -59,6 +59,12 @@ The dedicated security-bond workspace exposes only actions backed by persisted p
 
 The destructive action is shown only when the exact-match contract is eligible. After forfeiture, the retained evidence is read-only, separate damage collection is suppressed, and bond release is unavailable.
 
+## Staff action and snapshot consistency
+
+The forfeiture eligibility reader requires the same confirmed-booking status as the serializable forfeiture writer. The staff bond workspace reads the financial bond and forfeiture projections in separate tenant-authorized repeatable-read transactions; it compares booking status, retained bond identity, transaction identities, forfeiture identity, derived settlement state, and terminal forfeiture presence before displaying actions. If those projections disagree, it fails closed with a reload link rather than showing a potentially stale action.
+
+Matching projections are not a shared database snapshot: intervening liability or custody changes can still occur. All writes revalidate authority under their own locks and PostgreSQL constraints.
+
 ## Deliberate boundaries
 
 This contract does not implement card authorization or capture, online bond checkout, partial bond collection/release, partial damage offset, split tenders, excess-bond remainder handling, undersecured liability allocation, insurance claims, chargebacks, provider-backed bond settlement, or customer self-service.

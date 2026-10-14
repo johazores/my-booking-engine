@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readRentalDamageSettlement } from '@/server/payments/rental-damage-settlement-service.ts';
 import { readRentalSecurityBondForfeiture } from '@/server/payments/rental-security-bond-forfeiture-service.ts';
@@ -33,6 +35,13 @@ export async function RentalDamageSettlementPanel({
   const forfeiture = bondDisposition.forfeiture?.liabilityDecisionId === result.liability.id
     ? bondDisposition.forfeiture
     : null;
+  if ((forfeiture?.id ?? null) !== result.forfeitureId) {
+    return <section className="sf-inventory-card" role="alert" aria-labelledby="rental-damage-settlement-changed">
+      <h2 id="rental-damage-settlement-changed">Damage settlement evidence changed</h2>
+      <p>The payment and security-bond records changed while this page was loading. Reload before recording a damage payment or refund.</p>
+      <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}`}>Reload booking</Link>
+    </section>;
+  }
   if (forfeiture && result.transactions.length > 0) {
     throw new Error('Rental damage liability cannot have both bond forfeiture and separate settlement evidence.');
   }

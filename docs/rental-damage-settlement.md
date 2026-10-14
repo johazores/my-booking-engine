@@ -34,6 +34,12 @@ After a customer-liable damage decision is retained, authorized readers see the 
 
 The dedicated security-bond workspace owns the explicit destructive forfeiture action and requires the user to type `FORFEIT` before the full collected bond can be applied.
 
+## Cross-ledger staff read consistency
+
+The damage settlement reader observes the matching bond-forfeiture identity inside the same tenant-scoped repeatable-read snapshot as the liability and payment rows, and fails closed if both settlement paths coexist. The separate security-bond reader independently validates retained bond source evidence. The staff panel compares the forfeiture identity from those independently authorized reads and renders a reload-only error state when they disagree, instead of exposing a stale payment or refund action.
+
+These reads are not a substitute for serializable writer and PostgreSQL exclusion guards. A write always rechecks current liability, tenant ownership, and terminal disposition before retaining commercial evidence.
+
 ## Deliberate boundaries
 
 This workflow does not implement card checkout, partial damage payments, partial refunds, partial bond offsets, split tenders, invoices, chargebacks, insurance claims, repair-vendor settlement, provider-backed bond settlement, or automated collection.

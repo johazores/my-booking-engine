@@ -64,7 +64,27 @@ export default async function RentalSecurityBondPage({ params, searchParams }: {
     throw error;
   }
 
-  const effectiveState = forfeitureData.settlement?.state ?? data.settlement?.state ?? null;
+  // Independently authorized readers can observe different database snapshots.
+  // Never expose actions when their retained booking, bond, or disposition evidence disagrees.
+  const financialState = data.settlement?.state ?? null;
+  const forfeitureState = forfeitureData.settlement?.state ?? null;
+  if (
+    financialState !== forfeitureState
+    || data.booking.status !== forfeitureData.bookingStatus
+    || (data.bond?.id ?? null) !== forfeitureData.bondId
+    || data.forfeitureId !== (forfeitureData.forfeiture?.id ?? null)
+    || data.transactions.length !== forfeitureData.transactionIds.length
+    || data.transactions.some((row, index) => row.id !== forfeitureData.transactionIds[index])
+    || Boolean(forfeitureData.forfeiture) !== (financialState === 'FORFEITED')
+  ) {
+    return <section className="sf-inventory-empty" role="alert">
+      <p className="sf-eyebrow">Rental security bond</p>
+      <h1>Security bond evidence changed</h1>
+      <p>Booking or settlement evidence changed while this page was loading. Reload before recording a bond action.</p>
+      <Link className="sf-button sf-button--primary" href={`/inventory/rentals/bookings/${encodeURIComponent(data.booking.id)}/security-bond`}>Reload security bond</Link>
+    </section>;
+  }
+  const effectiveState = financialState;
   const amount = data.bond ? `${data.bond.currency} ${moneyMinorToMajorString(data.bond.amountMinor, data.bond.currency)}` : null;
   const bondSetupBlocked = canManage
     && data.booking.status === 'CONFIRMED'

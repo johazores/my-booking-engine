@@ -140,6 +140,7 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
     transaction.rentalSecurityBondForfeiture.findFirst({
       where: { organizationId, bookingId, bondId: bond.id },
       select: {
+        id: true,
         liabilityDecisionId: true,
         collectionTransactionId: true,
         idempotencyKey: true,
@@ -173,7 +174,7 @@ async function loadBondState(transaction: Prisma.TransactionClient, organization
     forfeiture,
   });
   if (!settlement.reconciled) throw new RentalSecurityBondConflictError(settlement.reason);
-  return Object.freeze({ bond, rows, settlement });
+  return Object.freeze({ bond, rows, settlement, forfeitureId: forfeiture?.id ?? null });
 }
 
 export async function readRentalSecurityBond(input: Readonly<{ organizationId: string; actorUserId: string; bookingId: string }>) {
@@ -190,6 +191,7 @@ export async function readRentalSecurityBond(input: Readonly<{ organizationId: s
       bond: state?.bond ?? null,
       transactions: state?.rows ?? [],
       settlement: state?.settlement ?? null,
+      forfeitureId: state?.forfeitureId ?? null,
       preCustodyAuthority,
     });
   }, { isolationLevel: 'RepeatableRead' });
