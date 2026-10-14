@@ -12,6 +12,7 @@ const rentalSchema = read('prisma/rental-inventory.prisma');
 const liabilitySchema = read('prisma/rental-damage-liability.prisma');
 const migration = read('prisma/migrations/20260917060000_rental_security_bond_forfeiture/migration.sql');
 const chronologyMigration = read('prisma/migrations/20261015013000-rental-bond-liability-return-chronology/migration.sql');
+const bondIntegration = read('src/server/payments/rental-security-bond.integration.ts');
 const service = read('src/server/payments/rental-security-bond-forfeiture-service.ts');
 const financialService = read('src/server/payments/rental-security-bond-service.ts');
 const domain = read('src/server/payments/rental-security-bond-domain.ts');
@@ -127,4 +128,16 @@ test('PostgreSQL independently rejects forfeiture when liability predates return
   assert.match(chronologyMigration, /liability\."bookingId" = NEW\."bookingId"/);
   assert.match(chronologyMigration, /liability\."id" = NEW\."liabilityDecisionId"/);
   assert.match(chronologyMigration, /ERRCODE = '23514'/);
+});
+
+test('disposable PostgreSQL coverage exercises applied forfeiture chronology and exclusivity', () => {
+  assert.match(bondIntegration, /rental_security_bond_forfeitures_chronology_guard/);
+  assert.match(bondIntegration, /chronologyTriggers/);
+  assert.match(bondIntegration, /recordRentalBookingReturn/);
+  assert.match(bondIntegration, /recordRentalReturnInspection/);
+  assert.match(bondIntegration, /decideRentalDamageLiability/);
+  assert.match(bondIntegration, /forfeitRentalSecurityBondAgainstDamageLiability/);
+  assert.match(bondIntegration, /forfeitureReplay\.idempotent, true/);
+  assert.match(bondIntegration, /recordRentalDamageManualOfflinePayment/);
+  assert.match(bondIntegration, /recordRentalSecurityBondManualRelease/);
 });

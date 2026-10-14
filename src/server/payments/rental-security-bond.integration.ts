@@ -24,7 +24,7 @@ function addUtcDays(date: Date, days: number) {
 }
 
 test('rental security bond is tenant-scoped, append-only, pickup/cancellation guarded, and reference-isolated', async () => {
-  const [{ db }, holds, bookings, authority, cancellations, fulfillment, bonds, rentalPayments] = await Promise.all([
+  const [{ db }, holds, bookings, authority, cancellations, fulfillment, bonds, rentalPayments, inspections, damageCases, liabilities, forfeitures, damagePayments] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
     import('../bookings/rental-booking-service.ts'),
@@ -33,6 +33,11 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     import('../bookings/rental-booking-fulfillment-service.ts'),
     import('./rental-security-bond-service.ts'),
     import('./rental-payment-service.ts'),
+    import('../bookings/rental-return-inspection-service.ts'),
+    import('../bookings/rental-damage-case-service.ts'),
+    import('../bookings/rental-damage-liability-service.ts'),
+    import('./rental-security-bond-forfeiture-service.ts'),
+    import('./rental-damage-settlement-service.ts'),
   ]);
 
   const runId = crypto.randomUUID();
@@ -147,6 +152,94 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
 
   const pickedUp = await fulfillment.recordRentalBookingPickup({ organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id });
   assert.equal(pickedUp.fulfillment.state, 'PICKED_UP');
+
+  // Real custody -> inspection -> assessed damage -> liability -> forfeiture.
+  // This exercises the applied PostgreSQL trigger, not just source regexes.
+  const returned = await fulfillment.recordRentalBookingReturn({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.equal(returned.fulfillment.state, 'RETURNED');
+  const inspection = await inspections.recordRentalReturnInspection({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    inspection: { outcome: 'DAMAGE_REPORTED', notes: 'Damage found on return' },
+  });
+  const damageCase = await damageCases.openRentalDamageCase({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCase: { summary: 'Returned bike requires repair' },
+  });
+  await damageCases.assessRentalDamageCase({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCaseId: damageCase.damageCase.id,
+    assessment: { estimatedRepairCostMajor: '500.00', notes: 'Verified repair estimate' },
+  });
+  await damageCases.closeRentalDamageCase({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCaseId: damageCase.damageCase.id,
+    closure: { notes: 'Assessment complete and responsibility reviewed' },
+  });
+  const decision = await liabilities.decideRentalDamageLiability({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCaseId: damageCase.damageCase.id,
+    decision: { outcome: 'CUSTOMER_LIABLE', liableAmountMajor: '500.00', reason: 'Damage attributable to customer use' },
+  });
+  assert.equal(inspection.inspection.unitId, returned.event.unitId);
+  assert.ok(returned.event.occurredAt.getTime() <= decision.decision.decidedAt.getTime());
+
+  // Ensure the new migration was applied and its guard is enabled on the
+  // disposable database. A checked-in SQL file alone does not prove this.
+  const chronologyTriggers = await db.$queryRaw<Array<{ enabled: string }>>`
+    SELECT t.tgenabled::text AS "enabled"
+      FROM pg_trigger t
+      JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE c.relname = 'rental_security_bond_forfeitures'
+       AND t.tgname = 'rental_security_bond_forfeitures_chronology_guard'
+       AND NOT t.tgisinternal
+  `;
+  assert.deepEqual(chronologyTriggers, [{ enabled: 'O' }]);
+
+  const forfeiture = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.equal(forfeiture.idempotent, false);
+  assert.equal(forfeiture.settlement.state, 'FORFEITED');
+  assert.equal(forfeiture.forfeiture.liabilityDecisionId, decision.decision.id);
+  assert.equal(forfeiture.forfeiture.collectionTransactionId, collection.transaction.id);
+  const forfeitureReplay = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.equal(forfeitureReplay.idempotent, true);
+  assert.equal(forfeitureReplay.forfeiture.id, forfeiture.forfeiture.id);
+  const retainedBond = await bonds.readRentalSecurityBond({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.equal(retainedBond.settlement?.state, 'FORFEITED');
+
+  await assert.rejects(
+    forfeitures.readRentalSecurityBondForfeiture({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    bonds.recordRentalSecurityBondManualRelease({
+      organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+      reference: `BOND-AFTER-FORFEIT-${runId.slice(0, 10)}`,
+    }),
+    /forfeit|settlement|release|contract/i,
+  );
+  await assert.rejects(
+    damagePayments.recordRentalDamageManualOfflinePayment({
+      organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+      damageCaseId: damageCase.damageCase.id,
+      reference: `DAMAGE-AFTER-FORFEIT-${runId.slice(0, 10)}`,
+    }),
+    /forfeit|settlement|conflict|contract/i,
+  );
+  await assert.rejects(
+    db.rentalSecurityBondForfeiture.delete({ where: { id: forfeiture.forfeiture.id } }),
+    /append-only/i,
+  );
+
 
   const cancellationBooking = await createBooking('cancel');
   const cancellationRequirement = await bonds.createRentalSecurityBondRequirement({
