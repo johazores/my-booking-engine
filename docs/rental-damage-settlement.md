@@ -40,6 +40,12 @@ The damage settlement reader observes the matching bond-forfeiture identity insi
 
 These reads are not a substitute for serializable writer and PostgreSQL exclusion guards. A write always rechecks current liability, tenant ownership, and terminal disposition before retaining commercial evidence.
 
+## Retained forfeiture integrity and replay safety
+
+The damage settlement reader revalidates a matching forfeiture through the booking-only security-bond guard inside the **same repeatable-read snapshot**. That guard independently verifies the tenant-owned bond, exact collection source and fingerprint, forfeiture idempotency, liability decision, return custody, chronology, and exclusive disposition. An invalid retained forfeiture fails closed rather than appearing as a valid settled-by-bond result.
+
+Both manual damage payment and refund writers check for competing forfeiture under the shared liability settlement lock **before idempotent replays** as well as before new evidence. Replays must not report success if retained commercial evidence has become contradictory. PostgreSQL still provides the independent serializable exclusion boundary.
+
 ## Deliberate boundaries
 
 This workflow does not implement card checkout, partial damage payments, partial refunds, partial bond offsets, split tenders, invoices, chargebacks, insurance claims, repair-vendor settlement, provider-backed bond settlement, or automated collection.

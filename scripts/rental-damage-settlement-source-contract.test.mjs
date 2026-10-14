@@ -89,3 +89,26 @@ test('damage payment actions require coherent forfeiture evidence across snapsho
   assert.match(panel, /Damage settlement evidence changed/);
   assert.match(panel, /Reload booking/);
 });
+
+
+test('damage reader revalidates forfeiture through the tenant-scoped booking guard in the same snapshot', () => {
+  const reader = service.split('export async function readRentalDamageSettlement(')[1].split('export async function recordRentalDamageManualOfflinePayment(')[0];
+  assert.match(service, /import \{ readRentalBookingSecurityBondGuardInTransaction \}/);
+  assert.match(reader, /readRentalBookingSecurityBondGuardInTransaction\(\{/);
+  assert.match(reader, /bondGuard\.state !== 'FORFEITED'/);
+  assert.match(reader, /isolationLevel: 'RepeatableRead'/);
+  assert.match(docs, /same repeatable-read snapshot/);
+});
+
+test('both damage payment and refund idempotent replays reject competing forfeiture before returning success', () => {
+  const payment = service.split('export async function recordRentalDamageManualOfflinePayment(')[1].split('export async function recordRentalDamageManualOfflineRefund(')[0];
+  const refund = service.split('export async function recordRentalDamageManualOfflineRefund(')[1];
+  for (const writer of [payment, refund]) {
+    const lock = writer.indexOf('liabilitySettlementLockKey(input.organizationId, liability.id)');
+    const guard = writer.indexOf('await assertLiabilityNotForfeited(transaction, input.organizationId, liability.bookingId, liability.id)');
+    const replay = writer.indexOf('if (existing) {');
+    assert.ok(lock >= 0 && guard > lock && replay > guard, 'exclusive settlement preflight must precede replay');
+  }
+  assert.match(service, /where: \{ organizationId, bookingId, liabilityDecisionId \}/);
+  assert.match(docs, /idempotent replays/);
+});

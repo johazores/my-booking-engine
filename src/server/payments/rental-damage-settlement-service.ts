@@ -1,6 +1,7 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { classifyRentalBookingWriteError } from '../bookings/rental-booking-write-errors.ts';
+import { readRentalBookingSecurityBondGuardInTransaction } from '../bookings/rental-booking-security-bond-guard-service.ts';
 import { db } from '../database.ts';
 import { rentalUnitLockKey } from '../inventory/rental-lock-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -230,6 +231,22 @@ async function readRows(transaction: Prisma.TransactionClient, input: Readonly<{
   }[];
 }
 
+/** Keep idempotent replays subject to the same exclusive settlement authority as new writes. */
+async function assertLiabilityNotForfeited(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  bookingId: string,
+  liabilityDecisionId: string,
+) {
+  const forfeiture = await transaction.rentalSecurityBondForfeiture.findFirst({
+    where: { organizationId, bookingId, liabilityDecisionId },
+    select: { id: true },
+  });
+  if (forfeiture) {
+    throw new RentalDamageSettlementConflictError('Customer damage liability is already settled by security bond forfeiture.');
+  }
+}
+
 export async function readRentalDamageSettlement(input: Readonly<{
   organizationId: string;
   actorUserId: string;
@@ -254,8 +271,20 @@ export async function readRentalDamageSettlement(input: Readonly<{
       where: { organizationId: input.organizationId, bookingId: input.bookingId, liabilityDecisionId: liability.id },
       select: { id: true },
     });
-    if (forfeiture && transactions.length > 0) {
-      throw new RentalDamageSettlementConflictError('Damage liability has both bond forfeiture and separate payment evidence.');
+    if (forfeiture) {
+      if (transactions.length > 0) {
+        throw new RentalDamageSettlementConflictError('Damage liability has both bond forfeiture and separate payment evidence.');
+      }
+      // Verify the source collection, return custody, liability, and terminal bond
+      // disposition in this exact tenant-scoped repeatable-read snapshot.
+      const bondGuard = await readRentalBookingSecurityBondGuardInTransaction({
+        transaction,
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+      });
+      if (bondGuard.state !== 'FORFEITED') {
+        throw new RentalDamageSettlementConflictError('Damage forfeiture no longer reconciles to the retained security bond.');
+      }
     }
     return Object.freeze({ liability, transactions, settlement, forfeitureId: forfeiture?.id ?? null });
   }, { isolationLevel: 'RepeatableRead' });
@@ -286,6 +315,7 @@ export async function recordRentalDamageManualOfflinePayment(input: Readonly<{
     });
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${liabilitySettlementLockKey(input.organizationId, liability.id)}, 0))`;
+    await assertLiabilityNotForfeited(transaction, input.organizationId, liability.bookingId, liability.id);
 
     const fingerprint = expectedFingerprint({
       organizationId: input.organizationId,
@@ -321,14 +351,6 @@ export async function recordRentalDamageManualOfflinePayment(input: Readonly<{
       const settlement = reconcileRows(liability, rows);
       if (settlement.state !== 'PAID' && settlement.state !== 'REFUNDED') throw new RentalDamageSettlementConflictError('Damage payment replay no longer reconciles to retained settlement evidence.');
       return Object.freeze({ transaction: existing, settlement, idempotent: true as const });
-    }
-
-    const forfeiture = await transaction.rentalSecurityBondForfeiture.findFirst({
-      where: { organizationId: input.organizationId, liabilityDecisionId: liability.id },
-      select: { id: true },
-    });
-    if (forfeiture) {
-      throw new RentalDamageSettlementConflictError('Customer damage liability is already settled by security bond forfeiture.');
     }
 
     const rows = await readRows(transaction, { organizationId: input.organizationId, bookingId: liability.bookingId, damageCaseId: liability.damageCaseId, liabilityDecisionId: liability.id });
@@ -402,6 +424,7 @@ export async function recordRentalDamageManualOfflineRefund(input: Readonly<{
     const idempotencyKey = buildRentalDamageSettlementIdempotencyKey({ kind: 'manual-refund', liabilityDecisionId: liability.id, reference: refundReference });
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${settlementLockKey(input.organizationId, 'idempotency', idempotencyKey)}, 0))`;
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${liabilitySettlementLockKey(input.organizationId, liability.id)}, 0))`;
+    await assertLiabilityNotForfeited(transaction, input.organizationId, liability.bookingId, liability.id);
 
     const rows = await readRows(transaction, { organizationId: input.organizationId, bookingId: liability.bookingId, damageCaseId: liability.damageCaseId, liabilityDecisionId: liability.id });
     const before = reconcileRows(liability, rows);
