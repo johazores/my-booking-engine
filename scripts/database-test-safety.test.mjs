@@ -47,6 +47,53 @@ test('rejects the same database when credentials or connection options differ', 
   );
 });
 
+test('rejects reuse of a local database through common hostname aliases', () => {
+  for (const host of ['127.0.0.1', '127.1', '[::1]', 'localhost.', 'localhost.localdomain', '0.0.0.0']) {
+    assert.throws(
+      () => validateDisposableTestDatabase({
+        ...validInput,
+        testDatabaseUrl: 'postgresql://test-user@' + host + ':5432/sf_test',
+        applicationDatabaseUrl: 'postgres://app-user@localhost/sf_test',
+      }),
+      /different PostgreSQL database from DATABASE_URL/,
+      'must reject local alias ' + host,
+    );
+  }
+});
+
+test('rejects target-changing URL query parameters on either connection', () => {
+  for (const parameter of ['host', 'hostaddr', 'port', 'database', 'dbname', 'service']) {
+    for (const variable of ['testDatabaseUrl', 'applicationDatabaseUrl']) {
+      assert.throws(
+        () => validateDisposableTestDatabase({
+          ...validInput,
+          [variable]: 'postgresql://localhost/sf_test?' + parameter + '=production',
+        }),
+        /must not override PostgreSQL host, port, database, or service/,
+        'must reject ' + parameter + ' in ' + variable,
+      );
+    }
+  }
+});
+
+test('rejects implicit local socket targets and invalid encoded database names', () => {
+  for (const variable of ['testDatabaseUrl', 'applicationDatabaseUrl']) {
+    assert.throws(
+      () => validateDisposableTestDatabase({ ...validInput, [variable]: 'postgresql:///sf_test' }),
+      /explicit PostgreSQL hostname/,
+    );
+    assert.throws(
+      () => validateDisposableTestDatabase({ ...validInput, [variable]: 'postgresql://localhost/sf_test%E0%A4%A' }),
+      /valid encoded PostgreSQL database name/,
+    );
+  }
+});
+
+test('still permits different databases through loopback aliases', () => {
+  const testDatabaseUrl = 'postgresql://127.0.0.1/sf_test';
+  assert.equal(validateDisposableTestDatabase({ ...validInput, testDatabaseUrl }), testDatabaseUrl);
+});
+
 test('allows the same PostgreSQL server when the database name is different', () => {
   const testDatabaseUrl = 'postgresql://test-user@localhost/sf_test?sslmode=require';
 
