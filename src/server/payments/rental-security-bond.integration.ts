@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  buildRentalSecurityBondRequestFingerprint,
+  buildRentalSecurityBondTransactionIdempotencyKey,
+} from './rental-security-bond-domain.ts';
+import {
+  buildRentalDamageSettlementIdempotencyKey,
+  buildRentalDamageSettlementRequestFingerprint,
+} from './rental-damage-settlement-domain.ts';
+
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
@@ -198,6 +207,22 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   `;
   assert.deepEqual(chronologyTriggers, [{ enabled: 'O' }]);
 
+  // Check both inverse double-settlement guards on the actual disposable DB.
+  const exclusivityTriggers = await db.$queryRaw<Array<{ name: string; enabled: string }>>`
+    SELECT t.tgname AS "name", t.tgenabled::text AS "enabled"
+      FROM pg_trigger t
+      JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE (
+       (c.relname = 'rental_security_bond_transactions' AND t.tgname = 'rental_security_bond_transactions_forfeiture_guard')
+       OR (c.relname = 'rental_damage_settlement_transactions' AND t.tgname = 'rental_damage_settlement_transactions_bond_forfeiture_guard')
+     ) AND NOT t.tgisinternal
+     ORDER BY t.tgname
+  `;
+  assert.deepEqual(exclusivityTriggers, [
+    { name: 'rental_damage_settlement_transactions_bond_forfeiture_guard', enabled: 'O' },
+    { name: 'rental_security_bond_transactions_forfeiture_guard', enabled: 'O' },
+  ]);
+
   const forfeiture = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
     organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
   });
@@ -300,6 +325,80 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
       data: { amountMinor: 1n },
     }),
     /append-only/i,
+  );
+
+  // A direct Prisma insert must also fail after forfeiture. Use canonical
+  // fingerprints/identities so the inverse DB guards are the rejection cause.
+  const directReleaseReference = `BOND-DIRECT-RELEASE-${runId.slice(0, 10)}`;
+  const directReleaseIdempotencyKey = buildRentalSecurityBondTransactionIdempotencyKey({
+    kind: 'manual-release', bondId: requirement.bond.id, reference: directReleaseReference,
+  });
+  await assert.rejects(
+    db.rentalSecurityBondTransaction.create({
+      data: {
+        organizationId: organization.id,
+        bookingId: pickupBooking.booking.id,
+        bondId: requirement.bond.id,
+        idempotencyKey: directReleaseIdempotencyKey,
+        requestFingerprint: buildRentalSecurityBondRequestFingerprint({
+          organizationId: organization.id,
+          bookingId: pickupBooking.booking.id,
+          bondId: requirement.bond.id,
+          idempotencyKey: directReleaseIdempotencyKey,
+          kind: 'REFUND',
+          providerCode: 'manual',
+          providerReference: directReleaseReference,
+          sourceProviderReference: collectionReference,
+          currency: 'PHP',
+          amountMinor: 50000n,
+        }),
+        kind: 'REFUND',
+        status: 'SUCCEEDED',
+        providerCode: 'manual',
+        providerReference: directReleaseReference,
+        sourceProviderReference: collectionReference,
+        currency: 'PHP',
+        amountMinor: 50000n,
+      },
+    }),
+    /forfeited rental security bond cannot also be released/i,
+  );
+
+  const directDamageReference = `DAMAGE-DIRECT-${runId.slice(0, 10)}`;
+  const directDamageIdempotencyKey = buildRentalDamageSettlementIdempotencyKey({
+    kind: 'manual-payment', liabilityDecisionId: decision.decision.id, reference: directDamageReference,
+  });
+  await assert.rejects(
+    db.rentalDamageSettlementTransaction.create({
+      data: {
+        organizationId: organization.id,
+        bookingId: pickupBooking.booking.id,
+        damageCaseId: damageCase.damageCase.id,
+        liabilityDecisionId: decision.decision.id,
+        idempotencyKey: directDamageIdempotencyKey,
+        requestFingerprint: buildRentalDamageSettlementRequestFingerprint({
+          organizationId: organization.id,
+          bookingId: pickupBooking.booking.id,
+          damageCaseId: damageCase.damageCase.id,
+          liabilityDecisionId: decision.decision.id,
+          idempotencyKey: directDamageIdempotencyKey,
+          kind: 'OFFLINE_PAYMENT',
+          providerCode: 'manual',
+          providerReference: directDamageReference,
+          sourceProviderReference: null,
+          currency: 'PHP',
+          amountMinor: 50000n,
+        }),
+        kind: 'OFFLINE_PAYMENT',
+        status: 'SUCCEEDED',
+        providerCode: 'manual',
+        providerReference: directDamageReference,
+        sourceProviderReference: null,
+        currency: 'PHP',
+        amountMinor: 50000n,
+      },
+    }),
+    /customer damage liability is already settled by security bond forfeiture/i,
   );
 
   // Replays and rejected competing actions must not produce another
