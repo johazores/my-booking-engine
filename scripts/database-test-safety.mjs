@@ -15,7 +15,10 @@ const LOOPBACK_HOSTS = new Set([
 function normalizeHost(hostname) {
   const host = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   // 127/8, including abbreviated loopback spellings such as 127.1, is local.
-  if (LOOPBACK_HOSTS.has(host) || /^127(?:\.\d{1,3}){0,3}$/.test(host)) {
+  const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host);
+  // WHATWG URL canonicalizes IPv4-mapped IPv6, e.g. [::ffff:127.0.0.1] to [::ffff:7f00:1].
+  const isMappedIpv4Loopback = /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
+  if (LOOPBACK_HOSTS.has(host) || isIpv4Loopback || isMappedIpv4Loopback) {
     return 'loopback';
   }
   return host;

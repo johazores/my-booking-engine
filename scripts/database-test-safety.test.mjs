@@ -48,7 +48,7 @@ test('rejects the same database when credentials or connection options differ', 
 });
 
 test('rejects reuse of a local database through common hostname aliases', () => {
-  for (const host of ['127.0.0.1', '127.1', '[::1]', 'localhost.', 'localhost.localdomain', '0.0.0.0']) {
+  for (const host of ['127.0.0.1', '127.1', '[::1]', '[::ffff:127.0.0.1]', '[::ffff:127.0.0.2]', 'localhost.', 'localhost.localdomain', '0.0.0.0']) {
     assert.throws(
       () => validateDisposableTestDatabase({
         ...validInput,
