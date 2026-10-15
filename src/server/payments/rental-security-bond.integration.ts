@@ -267,7 +267,7 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
       organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
       damageCaseId: damageCase.damageCase.id,
     }),
-    /not available/i,
+    /retained customer-liable damage decision/i,
   );
   await assert.rejects(
     forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
