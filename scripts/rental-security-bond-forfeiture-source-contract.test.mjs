@@ -148,6 +148,14 @@ test('disposable PostgreSQL coverage exercises applied forfeiture chronology and
   assert.match(bondIntegration, /rental_damage_settlement_transactions_bond_forfeiture_guard/);
   assert.match(bondIntegration, /db\.rentalSecurityBondTransaction\.create/);
   assert.match(bondIntegration, /db\.rentalDamageSettlementTransaction\.create/);
+  assert.match(bondIntegration, /transaction\.rentalSecurityBondForfeiture\.create\(\{ data: directForfeitureData \}\)/);
+  assert.match(bondIntegration, /released rental security bond cannot be forfeited/);
+  assert.match(bondIntegration, /customer damage liability already has separate settlement evidence/);
+  assert.match(bondIntegration, /rentalManualProviderReference\.count/);
+  assert.match(bondIntegration, /rentalSecurityBondForfeiture\.count/);
+  assert.match(bondIntegration, /inverseReleaseReference, inverseDamageReference/);
+  assert.match(bondIntegration, /preForfeitureBond\.settlement\?\.state, 'COLLECTED'/);
+  assert.match(bondIntegration, /preForfeitureDamage\.settlement\.state, 'UNPAID'/);
   assert.match(bondIntegration, /forfeited rental security bond cannot also be released/);
   assert.match(bondIntegration, /customer damage liability is already settled by security bond forfeiture/);
   assert.match(bondIntegration, /forfeitureAudits, 1/);

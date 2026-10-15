@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildRentalSecurityBondForfeitureIdempotencyKey,
   buildRentalSecurityBondRequestFingerprint,
   buildRentalSecurityBondTransactionIdempotencyKey,
 } from './rental-security-bond-domain.ts';
@@ -222,6 +223,121 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     { name: 'rental_damage_settlement_transactions_bond_forfeiture_guard', enabled: 'O' },
     { name: 'rental_security_bond_transactions_forfeiture_guard', enabled: 'O' },
   ]);
+
+
+  // Verify both settlement orderings against the installed PostgreSQL
+  // triggers. Rollback must remove the first successful write as well.
+  const inverseReleaseReference = `BOND-PRIOR-RELEASE-${runId.slice(0, 10)}`;
+  const inverseReleaseKey = buildRentalSecurityBondTransactionIdempotencyKey({
+    kind: 'manual-release', bondId: requirement.bond.id, reference: inverseReleaseReference,
+  });
+  const inverseDamageReference = `DAMAGE-PRIOR-PAYMENT-${runId.slice(0, 10)}`;
+  const inverseDamageKey = buildRentalDamageSettlementIdempotencyKey({
+    kind: 'manual-payment', liabilityDecisionId: decision.decision.id, reference: inverseDamageReference,
+  });
+  const directForfeitureData = {
+    organizationId: organization.id,
+    bookingId: pickupBooking.booking.id,
+    bondId: requirement.bond.id,
+    liabilityDecisionId: decision.decision.id,
+    collectionTransactionId: collection.transaction.id,
+    idempotencyKey: buildRentalSecurityBondForfeitureIdempotencyKey({
+      bondId: requirement.bond.id, liabilityDecisionId: decision.decision.id,
+    }),
+    currency: 'PHP',
+    amountMinor: 50000n,
+    forfeitedByUserId: admin.id,
+  };
+  await assert.rejects(
+    db.$transaction(async (transaction) => {
+      await transaction.rentalSecurityBondTransaction.create({
+        data: {
+          organizationId: organization.id,
+          bookingId: pickupBooking.booking.id,
+          bondId: requirement.bond.id,
+          idempotencyKey: inverseReleaseKey,
+          requestFingerprint: buildRentalSecurityBondRequestFingerprint({
+            organizationId: organization.id,
+            bookingId: pickupBooking.booking.id,
+            bondId: requirement.bond.id,
+            idempotencyKey: inverseReleaseKey,
+            kind: 'REFUND',
+            providerCode: 'manual',
+            providerReference: inverseReleaseReference,
+            sourceProviderReference: collectionReference,
+            currency: 'PHP',
+            amountMinor: 50000n,
+          }),
+          kind: 'REFUND',
+          status: 'SUCCEEDED',
+          providerCode: 'manual',
+          providerReference: inverseReleaseReference,
+          sourceProviderReference: collectionReference,
+          currency: 'PHP',
+          amountMinor: 50000n,
+        },
+      });
+      await transaction.rentalSecurityBondForfeiture.create({ data: directForfeitureData });
+    }, { isolationLevel: 'Serializable' }),
+    /released rental security bond cannot be forfeited/i,
+  );
+  await assert.rejects(
+    db.$transaction(async (transaction) => {
+      await transaction.rentalDamageSettlementTransaction.create({
+        data: {
+          organizationId: organization.id,
+          bookingId: pickupBooking.booking.id,
+          damageCaseId: damageCase.damageCase.id,
+          liabilityDecisionId: decision.decision.id,
+          idempotencyKey: inverseDamageKey,
+          requestFingerprint: buildRentalDamageSettlementRequestFingerprint({
+            organizationId: organization.id,
+            bookingId: pickupBooking.booking.id,
+            damageCaseId: damageCase.damageCase.id,
+            liabilityDecisionId: decision.decision.id,
+            idempotencyKey: inverseDamageKey,
+            kind: 'OFFLINE_PAYMENT',
+            providerCode: 'manual',
+            providerReference: inverseDamageReference,
+            sourceProviderReference: null,
+            currency: 'PHP',
+            amountMinor: 50000n,
+          }),
+          kind: 'OFFLINE_PAYMENT',
+          status: 'SUCCEEDED',
+          providerCode: 'manual',
+          providerReference: inverseDamageReference,
+          sourceProviderReference: null,
+          currency: 'PHP',
+          amountMinor: 50000n,
+        },
+      });
+      await transaction.rentalSecurityBondForfeiture.create({ data: directForfeitureData });
+    }, { isolationLevel: 'Serializable' }),
+    /customer damage liability already has separate settlement evidence/i,
+  );
+  assert.equal(await db.rentalSecurityBondTransaction.count({
+    where: { organizationId: organization.id, bondId: requirement.bond.id, kind: 'REFUND' },
+  }), 0);
+  assert.equal(await db.rentalDamageSettlementTransaction.count({
+    where: { organizationId: organization.id, liabilityDecisionId: decision.decision.id },
+  }), 0);
+  assert.equal(await db.rentalManualProviderReference.count({
+    where: { organizationId: organization.id, providerReference: { in: [inverseReleaseReference, inverseDamageReference] } },
+  }), 0);
+  assert.equal(await db.rentalSecurityBondForfeiture.count({
+    where: { organizationId: organization.id, bondId: requirement.bond.id },
+  }), 0);
+  const preForfeitureBond = await bonds.readRentalSecurityBond({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+  });
+  assert.equal(preForfeitureBond.settlement?.state, 'COLLECTED');
+  const preForfeitureDamage = await damagePayments.readRentalDamageSettlement({
+    organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
+    damageCaseId: damageCase.damageCase.id,
+  });
+  assert.equal(preForfeitureDamage.settlement.state, 'UNPAID');
+  assert.equal(preForfeitureDamage.forfeitureId, null);
 
   const forfeiture = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
     organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
