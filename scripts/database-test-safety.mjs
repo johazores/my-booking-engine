@@ -22,10 +22,11 @@ function normalizeHost(hostname) {
   // PostgreSQL is a non-special URL scheme: its URL.hostname preserves legacy
   // numeric IPv4 spellings that the TCP resolver treats as the same address.
   // Canonicalize with a special URL scheme before comparing database targets.
+  const originalHost = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   const canonicalHostname = new URL(`http://${hostname}`).hostname;
   const host = canonicalHostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   // 127/8, including abbreviated loopback spellings such as 127.1, is local.
-  const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host);
+  const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host) || /^127(?:\.\d{1,3}){0,3}$/.test(originalHost);
   // WHATWG URL canonicalizes IPv4-mapped IPv6, e.g. [::ffff:127.0.0.1] to [::ffff:7f00:1].
   const isMappedIpv4Loopback = /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
   if (LOOPBACK_HOSTS.has(host) || isIpv4Loopback || isMappedIpv4Loopback) {

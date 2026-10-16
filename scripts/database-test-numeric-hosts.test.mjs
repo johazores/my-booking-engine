@@ -30,3 +30,11 @@ test('different database names and ports remain allowed', () => {
     confirmation: DATABASE_TEST_CONFIRMATION,
   }), 'postgresql://0x7f000001/sf_test');
 });
+
+test('retains conservative rejection of bare 127 host alias', () => {
+  assert.throws(() => validateDisposableTestDatabase({
+    testDatabaseUrl: 'postgresql://127/sf_test',
+    applicationDatabaseUrl: 'postgresql://localhost/sf_test',
+    confirmation: DATABASE_TEST_CONFIRMATION,
+  }), /different PostgreSQL database/);
+});
