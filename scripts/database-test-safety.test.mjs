@@ -157,3 +157,36 @@ test('fails closed when DATABASE_URL is present but invalid', () => {
     /DATABASE_URL must be a valid PostgreSQL URL/,
   );
 });
+
+test('compares every additional application database target', () => {
+  assert.throws(
+    () => validateDisposableTestDatabase({
+      ...validInput,
+      applicationDatabaseUrls: [
+        'postgresql://localhost/other',
+        'postgres://another-user@127.0.0.1:5432/sf_test',
+      ],
+    }),
+    /different PostgreSQL database from DATABASE_URL/,
+  );
+});
+
+test('fails closed when any additional application target is malformed', () => {
+  assert.throws(
+    () => validateDisposableTestDatabase({
+      ...validInput,
+      applicationDatabaseUrls: ['postgresql://localhost/sf_safe', 'not-a-url'],
+    }),
+    /DATABASE_URL must be a valid PostgreSQL URL/,
+  );
+});
+
+test('accepts distinct additional application database targets', () => {
+  assert.equal(
+    validateDisposableTestDatabase({
+      ...validInput,
+      applicationDatabaseUrls: ['postgresql://localhost/sf_dev_2', 'postgres://another-host/sf_test'],
+    }),
+    validInput.testDatabaseUrl,
+  );
+});

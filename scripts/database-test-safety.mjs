@@ -76,6 +76,7 @@ function databaseTargetsMatch(left, right) {
 export function validateDisposableTestDatabase({
   testDatabaseUrl,
   applicationDatabaseUrl,
+  applicationDatabaseUrls = [],
   confirmation,
 }) {
   const value = testDatabaseUrl?.trim();
@@ -98,11 +99,11 @@ export function validateDisposableTestDatabase({
     );
   }
 
-  const applicationValue = applicationDatabaseUrl?.trim();
+  for (const candidate of [applicationDatabaseUrl, ...applicationDatabaseUrls]) {
+    const applicationValue = candidate?.trim();
+    if (!applicationValue) continue;
 
-  if (applicationValue) {
     const applicationTarget = parsePostgresDatabaseTarget(applicationValue, 'DATABASE_URL');
-
     if (databaseTargetsMatch(testTarget, applicationTarget)) {
       throw new Error(
         'TEST_DATABASE_URL must target a different PostgreSQL database from DATABASE_URL, regardless of credentials or connection options.',

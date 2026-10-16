@@ -71,6 +71,8 @@ Database-target comparison also treats common local loopback hostname spellings 
 
 These checks reduce accidental misuse but do not make arbitrary databases safe. `TEST_DATABASE_URL` must still point only at a disposable database created for SF tests. Do not point it at production or any shared database containing valuable data.
 
+The runner also compares the test target with every `DATABASE_URL` found in local `.env`, `.env.local`, and their development/production/test variants. It parses these files without loading `TEST_DATABASE_URL` or `SF_DATABASE_TEST_CONFIRM` into the process, so an environment file cannot silently provide the explicit test confirmation. Unreadable local environment files and malformed application targets fail closed. Environment-file comparison is defense in depth; DNS aliases and tunnels still require manual destination verification.
+
 The database runner discovers every `src/server/**/*.integration.ts` file in stable path order, so newly added database regression suites cannot be silently skipped. The 50 existing critical suites remain a mandatory baseline manifest: the runner fails closed if one disappears or is renamed without updating the manifest. Discovery also fails when no suites exist, rejects symbolic-link test roots, and does not traverse symbolic links. The dependency-free discovery tests do not replace disposable PostgreSQL execution.
 
 The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B organization or membership data, and verifies suspended users/memberships immediately lose tenant access. It removes the records it creates when the test finishes.

@@ -3,10 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { assertRequiredDatabaseIntegrationTests, discoverDatabaseIntegrationTests } from './database-integration-discovery.mjs';
 
 import { validateDisposableTestDatabase } from './database-test-safety.mjs';
+import { readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
 
 const testDatabaseUrl = validateDisposableTestDatabase({
   testDatabaseUrl: process.env.TEST_DATABASE_URL,
   applicationDatabaseUrl: process.env.DATABASE_URL,
+  applicationDatabaseUrls: readLocalApplicationDatabaseUrls(),
   confirmation: process.env.SF_DATABASE_TEST_CONFIRM,
 });
 

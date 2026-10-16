@@ -47,6 +47,8 @@ Membership mutation APIs remain intentionally unavailable until roles and permis
 
 `npm run test:database` is allowed only against an explicitly disposable PostgreSQL database. The runner requires `TEST_DATABASE_URL`, rejects reuse of `DATABASE_URL`, requires a named database, and requires `SF_DATABASE_TEST_CONFIRM=sf-disposable-test-database` before it validates/applies migrations or runs integration tests.
 
+The runner also checks every local `.env` variant for application `DATABASE_URL` values without loading environment-file test confirmation. These comparisons are defense in depth and cannot prove DNS/proxy isolation; operators must verify the disposable database destination manually.
+
 The database test path verifies Prisma schema validity, deploys checked-in migrations, verifies migration status, checks Prisma-supported schema drift, and runs tenant/authentication repository tests. Never weaken these guards to make local setup more convenient.
 
 ## Integration credentials
