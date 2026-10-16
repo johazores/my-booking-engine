@@ -5,7 +5,9 @@ const TARGET_OVERRIDE_PARAMETERS = new Set(['host', 'hostaddr', 'port', 'databas
 const LOOPBACK_HOSTS = new Set([
   'localhost',
   'localhost.localdomain',
-  // Common Linux IPv6 loopback host aliases.
+  // Common Linux IPv4 and IPv6 loopback host aliases.
+  'localhost4',
+  'localhost4.localdomain4',
   'localhost6',
   'localhost6.localdomain6',
   'ip6-localhost',
@@ -60,13 +62,19 @@ function parsePostgresDatabaseTarget(value, variableName) {
 
   let databaseName;
   try {
-    databaseName = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ''));
+    databaseName = decodeURIComponent(parsedUrl.pathname.slice(1));
   } catch {
     throw new Error(`${variableName} must have a valid encoded PostgreSQL database name.`);
   }
 
   if (!databaseName) {
     throw new Error(`${variableName} must identify a database name.`);
+  }
+
+  // PostgreSQL stores database identifiers within its default 63-byte limit.
+  // Invalid/truncated names must never be compared as if they were distinct.
+  if (/[\x00-\x1f\x7f\/\\]/.test(databaseName) || Buffer.byteLength(databaseName, 'utf8') > 63) {
+    throw new Error(`${variableName} must identify a valid PostgreSQL database name within 63 UTF-8 bytes.`);
   }
 
   let hostname;
