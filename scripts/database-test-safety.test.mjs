@@ -48,7 +48,7 @@ test('rejects the same database when credentials or connection options differ', 
 });
 
 test('rejects reuse of a local database through common hostname aliases', () => {
-  for (const host of ['127.0.0.1', '127.1', '[::1]', '[::ffff:127.0.0.1]', '[::ffff:127.0.0.2]', 'localhost.', 'localhost.localdomain', '0.0.0.0', '[::]', '[::ffff:0:0]', '[::ffff:0.0.0.0]']) {
+  for (const host of ['127.0.0.1', '127.1', '[::1]', '[::ffff:127.0.0.1]', '[::ffff:127.0.0.2]', 'localhost.', 'localhost.localdomain', 'localhost6', 'localhost6.localdomain6', '0.0.0.0', '[::]', '[::ffff:0:0]', '[::ffff:0.0.0.0]']) {
     assert.throws(
       () => validateDisposableTestDatabase({
         ...validInput,
@@ -57,6 +57,20 @@ test('rejects reuse of a local database through common hostname aliases', () => 
       }),
       /different PostgreSQL database from DATABASE_URL/,
       'must reject local alias ' + host,
+    );
+  }
+});
+
+test('rejects Linux IPv6 localhost aliases as application targets too', () => {
+  for (const host of ['localhost6', 'localhost6.localdomain6', 'LOCALHOST6.']) {
+    assert.throws(
+      () => validateDisposableTestDatabase({
+        ...validInput,
+        testDatabaseUrl: 'postgresql://localhost/sf_test',
+        applicationDatabaseUrl: `postgresql://${host}/sf_test`,
+      }),
+      /different PostgreSQL database from DATABASE_URL/,
+      `must reject application alias ${host}`,
     );
   }
 });

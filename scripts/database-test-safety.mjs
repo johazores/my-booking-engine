@@ -5,6 +5,9 @@ const TARGET_OVERRIDE_PARAMETERS = new Set(['host', 'hostaddr', 'port', 'databas
 const LOOPBACK_HOSTS = new Set([
   'localhost',
   'localhost.localdomain',
+  // Common Linux IPv6 loopback host aliases.
+  'localhost6',
+  'localhost6.localdomain6',
   'ip6-localhost',
   'ip6-loopback',
   '::1',
