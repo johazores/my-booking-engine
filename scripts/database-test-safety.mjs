@@ -10,6 +10,9 @@ const LOOPBACK_HOSTS = new Set([
   '::1',
   '0:0:0:0:0:0:0:1',
   '0.0.0.0',
+  // Unspecified IPv6 addresses can connect to the local server on Node/POSIX.
+  '::',
+  '::ffff:0:0',
 ]);
 
 function normalizeHost(hostname) {
