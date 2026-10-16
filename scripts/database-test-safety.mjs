@@ -19,7 +19,11 @@ const LOOPBACK_HOSTS = new Set([
 ]);
 
 function normalizeHost(hostname) {
-  const host = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+  // PostgreSQL is a non-special URL scheme: its URL.hostname preserves legacy
+  // numeric IPv4 spellings that the TCP resolver treats as the same address.
+  // Canonicalize with a special URL scheme before comparing database targets.
+  const canonicalHostname = new URL(`http://${hostname}`).hostname;
+  const host = canonicalHostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   // 127/8, including abbreviated loopback spellings such as 127.1, is local.
   const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host);
   // WHATWG URL canonicalizes IPv4-mapped IPv6, e.g. [::ffff:127.0.0.1] to [::ffff:7f00:1].
@@ -64,8 +68,15 @@ function parsePostgresDatabaseTarget(value, variableName) {
     throw new Error(`${variableName} must identify a database name.`);
   }
 
+  let hostname;
+  try {
+    hostname = normalizeHost(parsedUrl.hostname);
+  } catch {
+    throw new Error(`${variableName} must have a valid PostgreSQL hostname.`);
+  }
+
   return {
-    hostname: normalizeHost(parsedUrl.hostname),
+    hostname,
     port: parsedUrl.port || DEFAULT_POSTGRES_PORT,
     databaseName,
   };
