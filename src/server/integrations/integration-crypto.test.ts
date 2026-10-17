@@ -29,6 +29,10 @@ test('integration credential encryption rejects tampering and invalid shapes', (
   assert.throws(() => normalizeIntegrationCredentials({ secretKey: '' }), /is invalid/);
 });
 
+test('duplicate credential keys are rejected', () => {
+  assert.throws(() => normalizeIntegrationCredentials({ alpha: 'one', ' alpha ': 'two' }), /unique after normalization/);
+});
+
 test('integration master key requires an exact base64url 32-byte deployment secret', () => {
   const encoded = TEST_KEY.toString('base64url');
   assert.equal(readIntegrationMasterKey(encoded).equals(TEST_KEY), true);
