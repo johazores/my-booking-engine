@@ -47,3 +47,41 @@ test('rejects ambiguous slash-path aliases instead of silently stripping path se
     }), /valid PostgreSQL database name within 63 UTF-8 bytes/, slashPath);
   }
 });
+
+test('reserved .localhost subdomains cannot bypass application/test target separation', () => {
+  for (const alias of ['api.localhost', 'tenant.api.localhost', 'API.LOCALHOST.', 'a.b.localhost']) {
+    for (const reversed of [false, true]) {
+      assert.throws(() => validateDisposableTestDatabase({
+        ...baseline,
+        testDatabaseUrl: `postgresql://${reversed ? 'localhost' : alias}/sf_test`,
+        applicationDatabaseUrl: `postgresql://${reversed ? alias : 'localhost'}/sf_test`,
+      }), /different PostgreSQL database/, `${alias} reversed=${reversed}`);
+    }
+  }
+});
+
+test('distinct database names remain allowed with reserved .localhost subdomains', () => {
+  assert.equal(validateDisposableTestDatabase({
+    ...baseline,
+    testDatabaseUrl: 'postgresql://api.localhost/sf_test',
+  }), 'postgresql://api.localhost/sf_test');
+});
+
+test('rejects zero TCP port for test and application targets', () => {
+  for (const variable of ['testDatabaseUrl', 'applicationDatabaseUrl']) {
+    for (const port of ['0', '0000']) {
+      assert.throws(() => validateDisposableTestDatabase({
+        ...baseline,
+        [variable]: `postgresql://localhost:${port}/sf_test`,
+      }), /valid nonzero PostgreSQL port/, `${variable} port=${port}`);
+    }
+  }
+});
+
+test('default TCP port with leading zeros remains equivalent', () => {
+  assert.throws(() => validateDisposableTestDatabase({
+    ...baseline,
+    testDatabaseUrl: 'postgresql://api.localhost:0005432/sf_test',
+    applicationDatabaseUrl: 'postgresql://localhost/sf_test',
+  }), /different PostgreSQL database/);
+});

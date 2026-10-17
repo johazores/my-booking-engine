@@ -31,7 +31,7 @@ function normalizeHost(hostname) {
   const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host) || /^127(?:\.\d{1,3}){0,3}$/.test(originalHost);
   // WHATWG URL canonicalizes IPv4-mapped IPv6, e.g. [::ffff:127.0.0.1] to [::ffff:7f00:1].
   const isMappedIpv4Loopback = /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
-  if (LOOPBACK_HOSTS.has(host) || isIpv4Loopback || isMappedIpv4Loopback) {
+  if (LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost') || isIpv4Loopback || isMappedIpv4Loopback) {
     return 'loopback';
   }
   return host;
@@ -58,6 +58,12 @@ function parsePostgresDatabaseTarget(value, variableName) {
 
   if (!parsedUrl.hostname) {
     throw new Error(`${variableName} must specify an explicit PostgreSQL hostname.`);
+  }
+
+  // Port zero is not a usable PostgreSQL TCP destination. Do not treat it
+  // as a separate database target when comparing against the default port.
+  if (parsedUrl.port === '0') {
+    throw new Error(`${variableName} must use a valid nonzero PostgreSQL port.`);
   }
 
   let databaseName;
