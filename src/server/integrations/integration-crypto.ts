@@ -13,9 +13,12 @@ export function normalizeIntegrationCredentials(value: unknown): IntegrationCred
   if (entries.length === 0 || entries.length > 20) throw new Error('Integration credentials must contain between 1 and 20 values.');
 
   const normalized: Record<string, string> = {};
+  const seenKeys = new Set<string>();
   for (const [rawKey, rawValue] of entries) {
     const key = rawKey.trim();
     if (!/^[a-z][a-zA-Z0-9]{1,63}$/.test(key)) throw new Error('Integration credential keys are invalid.');
+    if (seenKeys.has(key)) throw new Error('Integration credential keys must be unique after normalization.');
+    seenKeys.add(key);
     if (typeof rawValue !== 'string') throw new Error(`Integration credential ${key} must be a string.`);
     const credential = rawValue.trim();
     if (!credential || credential.length > 4096) throw new Error(`Integration credential ${key} is invalid.`);
