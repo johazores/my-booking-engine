@@ -15,6 +15,8 @@
 - Organization creation persists the organization and creator membership atomically.
 - Active organization selection is stored only as an HttpOnly preference cookie and is revalidated against the authenticated user's membership on every context read.
 - Database integration tests require a separate explicitly acknowledged disposable PostgreSQL target.
+- Tenant role and membership lifecycle mutations are implemented with capability checks, serializable last-active-administrator protection, and safe audit events.
+- Tenant integration credentials are encrypted at rest with a deployment-only master key; management reads never return stored secrets.
 - Next.js removes the framework powered-by header.
 
 ## Authentication security
@@ -33,7 +35,7 @@ The `sf_organization` cookie contains only the selected organization UUID. It is
 
 The organization-selection POST endpoint validates authentication, exact same-origin submission, accepted form content type, identifier shape, and active membership before replacing the selected-organization cookie.
 
-Creating a new organization is allowed for an authenticated active user because it creates a new tenant rather than mutating an existing one. The creator receives an active membership in the same database transaction. Management authority is intentionally not inferred from that membership; roles and permissions are the next dependency phase.
+Creating a new organization is allowed for an authenticated active user because it creates a new tenant rather than mutating an existing one. The creator receives an active `ADMIN` membership in the same database transaction. Management authority is derived from the current server-validated role-to-capability mapping, never merely from possession of a session or a tenant identifier.
 
 ## Required application security
 
@@ -41,7 +43,7 @@ Protected operations must validate authentication, active user status, tenant me
 
 Suspending or archiving a user must remove tenant access even if an organization membership was not separately changed. Suspending or archiving a membership must also remove tenant access while leaving the user identity available for other organizations. Invited memberships never grant tenant access. Archived memberships are terminal in the current domain contract.
 
-Membership mutation APIs remain intentionally unavailable until roles and permissions exist. Future membership writes must use explicit lifecycle transition rules in addition to checking actor authorization; raw client-supplied status changes are not an authorization or lifecycle boundary.
+Membership role and lifecycle mutations are implemented through authenticated, same-origin server operations. They require `membership-role:manage` or `membership:manage` as appropriate, bind the target membership to the active tenant, validate allowed transitions, protect the final active organization administrator inside serializable transactions, and audit successful changes without secrets. Client-supplied roles or statuses are requests, not authority.
 
 ## Database test safety
 
@@ -53,7 +55,7 @@ The database test path verifies Prisma schema validity, deploys checked-in migra
 
 ## Integration credentials
 
-Future database-managed provider credentials must be encrypted before storage. Never store plaintext provider secrets, passwords, access tokens, payment card data, or session tokens in logs or audit records. The server-level master encryption key belongs in deployment secrets or a managed key service, never alongside encrypted credentials in the database.
+Implemented tenant-managed integrations encrypt normalized provider credentials with AES-256-GCM before persistence. The credential envelope contains ciphertext, IV, authentication tag, and version; the 32-byte `SF_INTEGRATION_MASTER_KEY` is supplied by the deployment environment, never stored with tenant records. Only authorized server adapters decrypt credentials, and management reads omit both ciphertext and plaintext. Never store plaintext provider secrets, passwords, access tokens, payment card data, or session tokens in logs or audit records. Credential envelopes and the deployment master key require canonical unpadded base64url encoding, rejecting equivalent noncanonical aliases. Credential rotation and archival preserve tenant authorization and safe audit boundaries. Encrypted envelopes over 1 MiB are rejected before decoding to bound processing of corrupted stored data.
 
 ## Payments
 

@@ -4,6 +4,8 @@ const KEY_BYTES = 32;
 const IV_BYTES = 12;
 const ENVELOPE_VERSION = 'v1';
 const MASTER_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+const MAX_ENVELOPE_CHARACTERS = 1_048_576;
 
 export type IntegrationCredentials = Readonly<Record<string, string>>;
 
@@ -27,11 +29,22 @@ export function normalizeIntegrationCredentials(value: unknown): IntegrationCred
   return Object.freeze(normalized);
 }
 
+function decodeCanonicalEnvelopePart(value: string): Buffer {
+  if (!BASE64URL_PATTERN.test(value)) throw new Error('Encrypted integration credentials are malformed.');
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.toString('base64url') !== value) throw new Error('Encrypted integration credentials are malformed.');
+  return decoded;
+}
+
 export function readIntegrationMasterKey(value = process.env.SF_INTEGRATION_MASTER_KEY): Buffer {
   if (!value || !MASTER_KEY_PATTERN.test(value.trim())) {
     throw new Error('SF_INTEGRATION_MASTER_KEY must be an unpadded base64url-encoded 32-byte key.');
   }
-  const key = Buffer.from(value.trim(), 'base64url');
+  const encoded = value.trim();
+  const key = Buffer.from(encoded, 'base64url');
+  if (key.toString('base64url') !== encoded) {
+    throw new Error('SF_INTEGRATION_MASTER_KEY must be a canonical unpadded base64url-encoded 32-byte key.');
+  }
   if (key.length !== KEY_BYTES) throw new Error('SF_INTEGRATION_MASTER_KEY must decode to exactly 32 bytes.');
   return key;
 }
@@ -49,13 +62,15 @@ export function encryptIntegrationCredentials(credentials: unknown, key = readIn
 
 export function decryptIntegrationCredentials(envelope: string, key = readIntegrationMasterKey()): IntegrationCredentials {
   if (key.length !== KEY_BYTES) throw new Error('Integration encryption key must be exactly 32 bytes.');
+  if (typeof envelope !== 'string') throw new Error('Encrypted integration credentials use an unsupported envelope.');
+  if (envelope.length > MAX_ENVELOPE_CHARACTERS) throw new Error('Encrypted integration credentials are malformed.');
   const [version, ivValue, tagValue, ciphertextValue, extra] = envelope.split('.');
   if (version !== ENVELOPE_VERSION || !ivValue || !tagValue || !ciphertextValue || extra !== undefined) {
     throw new Error('Encrypted integration credentials use an unsupported envelope.');
   }
-  const iv = Buffer.from(ivValue, 'base64url');
-  const tag = Buffer.from(tagValue, 'base64url');
-  const ciphertext = Buffer.from(ciphertextValue, 'base64url');
+  const iv = decodeCanonicalEnvelopePart(ivValue);
+  const tag = decodeCanonicalEnvelopePart(tagValue);
+  const ciphertext = decodeCanonicalEnvelopePart(ciphertextValue);
   if (iv.length !== IV_BYTES || tag.length !== 16 || ciphertext.length === 0) throw new Error('Encrypted integration credentials are malformed.');
 
   try {
