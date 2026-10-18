@@ -1,8 +1,10 @@
+import { AvailabilityValidationError } from '@/server/availability/availability-domain.ts';
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '@/server/availability/hospitality-availability-hold-core.ts';
 import { AvailabilityUnavailableError } from '@/server/availability/hospitality-availability-service.ts';
-import { PublicBookingAbuseLimitError } from '@/server/bookings/public-booking-abuse-control.ts';
+import { PublicBookingAbuseLimitError, PublicBookingHoldQuantityValidationError } from '@/server/bookings/public-booking-abuse-control.ts';
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
+import { PublicBookingRequestValidationError } from '@/server/bookings/public-booking-request-domain.ts';
 import {
   createPublicHospitalityAvailabilityHold,
   PublicHospitalityHoldAuthorizationError,
@@ -33,7 +35,7 @@ function errorResponse(error: unknown) {
   if (error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'booking-write-unavailable' }, { status: 503, headers: noStoreHeaders });
   }
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
+  if (error instanceof AvailabilityValidationError || error instanceof PublicBookingRequestValidationError || error instanceof PublicBookingHoldQuantityValidationError) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: noStoreHeaders });
   }
   return Response.json({ error: 'internal-error' }, { status: 500, headers: noStoreHeaders });
@@ -57,6 +59,14 @@ export async function POST(request: Request, context: RouteContext) {
 
     const input = body as { requestKey?: unknown; request?: unknown };
     if (typeof input.requestKey !== 'string' || !input.request || typeof input.request !== 'object' || Array.isArray(input.request)) {
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
+    }
+
+    const requestDetails = input.request as Record<string, unknown>;
+    if (
+      ['propertyId', 'roomTypeId', 'ratePlanId', 'arrivalDate', 'departureDate'].some((field) => typeof requestDetails[field] !== 'string')
+      || (typeof requestDetails.quantity !== 'string' && typeof requestDetails.quantity !== 'number')
+    ) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }
 

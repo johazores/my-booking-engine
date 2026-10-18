@@ -39,6 +39,8 @@ Server code authorizes capabilities rather than scattering role-name checks thro
 - `booking:manage`
 - `payment:read`
 - `payment:manage`
+- `integration:read`
+- `integration:manage`
 
 `src/server/authorization/authorization-domain.ts` is the canonical role-to-capability mapping. Protected services call `requireOrganizationPermission` after authenticated user and tenant context are established.
 
@@ -54,8 +56,9 @@ Current role mapping:
 | pricing | read/manage | read/manage | read | none |
 | bookings | read/manage | read/manage | read | none |
 | payments | read/manage | read/manage | read | none |
+| integrations | read/manage | read | none | none |
 
-Platform `ADMIN` authority is evaluated separately and is never represented by an organization role.
+Platform `ADMIN` authority is evaluated separately and is never represented by an organization role. Branding and organization settings use the existing `organization-settings:manage` capability; no separate branding capability is invented. Integration configuration, credential rotation, and lifecycle changes require `integration:manage`, while safe integration metadata requires `integration:read`.
 
 ## Membership role changes
 

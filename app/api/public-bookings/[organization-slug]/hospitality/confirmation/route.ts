@@ -1,5 +1,8 @@
+import { BookingDomainValidationError } from '@/server/bookings/booking-domain.ts';
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
+import { PublicBookingRequestValidationError } from '@/server/bookings/public-booking-request-domain.ts';
+import { CustomerValidationError } from '@/server/customers/customer-domain.ts';
 import {
   confirmPublicHospitalityBookingFromHold,
   HospitalityBookingConflictError,
@@ -10,6 +13,7 @@ import {
 } from '@/server/bookings/public-hospitality-confirmation-service.ts';
 import { PublicHospitalityHoldAuthorizationError } from '@/server/bookings/public-hospitality-hold-service.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { PricingValidationError } from '@/server/pricing/money.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
@@ -41,7 +45,12 @@ function errorResponse(error: unknown) {
   if (error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'booking-write-unavailable' }, { status: 503, headers: noStoreHeaders });
   }
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
+  if (
+    error instanceof BookingDomainValidationError
+    || error instanceof CustomerValidationError
+    || error instanceof PricingValidationError
+    || error instanceof PublicBookingRequestValidationError
+  ) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: noStoreHeaders });
   }
   return Response.json({ error: 'internal-error' }, { status: 500, headers: noStoreHeaders });
@@ -79,6 +88,31 @@ export async function POST(request: Request, context: RouteContext) {
       || Array.isArray(input.customer)
       || !Array.isArray(input.guests)
       || (input.addonSelections !== undefined && !Array.isArray(input.addonSelections))
+    ) {
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
+    }
+
+    const customer = input.customer as Record<string, unknown>;
+    if (
+      typeof customer.firstName !== 'string'
+      || typeof customer.lastName !== 'string'
+      || typeof customer.email !== 'string'
+      || (customer.phone !== undefined && customer.phone !== null && typeof customer.phone !== 'string')
+      || !input.guests.every((guest) =>
+        guest !== null
+        && typeof guest === 'object'
+        && !Array.isArray(guest)
+        && typeof guest.firstName === 'string'
+        && typeof guest.lastName === 'string'
+        && (guest.email === undefined || guest.email === null || typeof guest.email === 'string')
+      )
+      || (input.addonSelections !== undefined && !input.addonSelections.every((selection) =>
+        selection !== null
+        && typeof selection === 'object'
+        && !Array.isArray(selection)
+        && typeof selection.addonId === 'string'
+        && typeof selection.quantity === 'number'
+      ))
     ) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: noStoreHeaders }));
     }

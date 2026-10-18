@@ -34,15 +34,15 @@ All authentication mutations reject requests whose `Origin` does not exactly mat
 
 `/sign-in` and `/sign-up` provide labeled browser forms with native validation and safe error feedback. Authenticated users who visit either page are redirected back to `/account` rather than being encouraged to create or sign into another identity in the same session. Route-level loading states and the protected account loading state use accessible live/busy semantics and respect reduced-motion preferences.
 
-`/account` is the first protected server-rendered surface: it resolves identity exclusively from the server session cookie, redirects requests with no session cookie to sign-in with a normal authentication-required message, and redirects requests carrying an invalid or expired session cookie with an explicit session-expired/invalid message. The redirect decision is centralized in the authentication HTTP policy and regression-tested. The account page then queries tenant access using only the authenticated user ID.
+`/account` is a protected server-rendered surface within the authenticated application shell: it resolves identity exclusively from the server session cookie, redirects requests with no session cookie to sign-in with a normal authentication-required message, and redirects requests carrying an invalid or expired session cookie with an explicit session-expired/invalid message. The redirect decision is centralized in the authentication HTTP policy and regression-tested. The account page then queries tenant access using only the authenticated user ID.
 
-The account page intentionally shows an empty tenant state when the user has no active organization memberships. Authentication never creates or implies organization access; organization onboarding remains Phase 3 work.
+The account page intentionally shows an empty tenant state when the user has no active organization memberships. Authentication never creates or implies access to an existing organization. Authenticated users can create a new organization through the separately authorized onboarding workflow; the creator receives an active `ADMIN` membership atomically with the new tenant.
 
 ## Tenant authorization
 
 Every tenant-owned operation must derive user identity from a validated server session and then enforce current organization membership, permissions, and resource ownership. Client-supplied user IDs are never an authentication boundary.
 
-The protected account organization list currently reuses the tenant-safe organization repository, which requires active organization membership and active principal state. Future protected routes and mutations must follow the same pattern.
+The protected account organization list reuses the tenant-safe organization repository, which requires active organization membership and active principal state. Implemented organization, membership, customer, inventory, booking, payment, and integration operations additionally enforce current capabilities and tenant/resource ownership at their own server boundaries. The shared authenticated shell is presentation and never substitutes for operation-level authorization.
 
 ## Verification coverage
 
@@ -75,9 +75,13 @@ Implemented:
 - dependency-free authentication domain and HTTP policy tests,
 - PostgreSQL authentication persistence integration coverage including forced expiry and revocation.
 
-Still pending within the broader roadmap:
+Implemented in the broader product after the authentication foundation:
 
-- organization onboarding and tenant selection/switching,
-- role/permission enforcement beyond active membership scope,
-- password reset/recovery and additional security-event workflows,
+- organization onboarding and active-tenant selection/switching;
+- organization roles, fine-grained capability checks, and audited membership lifecycle/role management;
+- the shared authenticated application shell and operation-level tenant authorization.
+
+Still pending or gated:
+
+- password reset/recovery and additional security-event workflows, which must not be presented as available;
 - live PostgreSQL verification of checked-in migrations in an available disposable database environment.

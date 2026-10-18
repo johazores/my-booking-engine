@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { PublicBookingCapabilityConfigurationError } from './public-booking-capability.ts';
 
 const PUBLIC_REQUEST_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MINIMUM_SECRET_BYTES = 32;
@@ -24,7 +25,7 @@ function derivePublicBookingIdempotencyKey(input: {
   scope: 'hold' | 'confirmation' | 'payment-checkout';
 }) {
   if (Buffer.byteLength(input.secret, 'utf8') < MINIMUM_SECRET_BYTES) {
-    throw new PublicBookingRequestValidationError(`Public booking request secret must be at least ${MINIMUM_SECRET_BYTES} bytes.`);
+    throw new PublicBookingCapabilityConfigurationError(`Public booking request secret must be at least ${MINIMUM_SECRET_BYTES} bytes.`);
   }
   if (!input.organizationId) throw new PublicBookingRequestValidationError('Organization is required.');
   const requestKey = normalizePublicBookingRequestKey(input.requestKey);

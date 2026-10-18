@@ -58,8 +58,60 @@ test('hold capability rejects ciphertext, tag, legacy-version, and malformed-tok
   assert.equal(verifyPublicBookingHoldCapability({ secret, token: 'not-a-token', now }), null);
 });
 
+test('hold and booking capabilities reject noncanonical and malformed base64url aliases', () => {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const capabilities = [
+    { token: issuePublicBookingHoldCapability({ secret, organizationId, principalId, holdId, expiresAt }), verify: verifyPublicBookingHoldCapability },
+    { token: issuePublicBookingBookingCapability({ secret, organizationId, principalId, bookingId, expiresAt }), verify: verifyPublicBookingBookingCapability },
+  ];
+  for (const { token, verify } of capabilities) {
+    const parts = token.split('.');
+    const last = parts[3].at(-1) ?? '';
+    const index = alphabet.indexOf(last);
+    assert.notEqual(index, -1);
+    const alias = [...parts];
+    alias[3] = `${parts[3].slice(0, -1)}${alphabet[index ^ 1]}`;
+    assert.deepEqual(Buffer.from(alias[3], 'base64url'), Buffer.from(parts[3], 'base64url'));
+    assert.equal(verify({ secret, token: alias.join('.'), now }), null);
+    for (const part of [1, 2, 3]) {
+      const padded = [...parts];
+      padded[part] += '=';
+      assert.equal(verify({ secret, token: padded.join('.'), now }), null);
+      const junk = [...parts];
+      junk[part] += '!';
+      assert.equal(verify({ secret, token: junk.join('.'), now }), null);
+    }
+    assert.equal(verify({ secret, token: null as unknown as string, now }), null);
+    assert.equal(verify({ secret, token: 'x'.repeat(4097), now }), null);
+  }
+});
+
+test('both capability scopes fail closed for empty expected identity and invalid verification time', () => {
+  const capabilities = [
+    { token: issuePublicBookingHoldCapability({ secret, organizationId, principalId, holdId, expiresAt }), verify: verifyPublicBookingHoldCapability },
+    { token: issuePublicBookingBookingCapability({ secret, organizationId, principalId, bookingId, expiresAt }), verify: verifyPublicBookingBookingCapability },
+  ];
+  for (const { token, verify } of capabilities) {
+    assert.equal(verify({ secret, token, expectedOrganizationId: '', now }), null);
+    assert.equal(verify({ secret, token, expectedPrincipalId: '', now }), null);
+    assert.equal(verify({ secret, token, expectedOrganizationId: organizationId, expectedPrincipalId: principalId, now: new Date(NaN) }), null);
+    assert.notEqual(verify({ secret, token, expectedOrganizationId: organizationId, expectedPrincipalId: principalId, now }), null);
+  }
+});
+
 test('capability secret fails closed when production key material is too weak', () => {
   assert.throws(() => issuePublicBookingHoldCapability({ secret: 'short', organizationId, principalId, holdId, expiresAt }), PublicBookingCapabilityConfigurationError);
+});
+
+test('capability verification surfaces weak deployment secrets as configuration errors', () => {
+  const capabilities = [
+    { token: issuePublicBookingHoldCapability({ secret, organizationId, principalId, holdId, expiresAt }), verify: verifyPublicBookingHoldCapability },
+    { token: issuePublicBookingBookingCapability({ secret, organizationId, principalId, bookingId, expiresAt }), verify: verifyPublicBookingBookingCapability },
+  ];
+  for (const { token, verify } of capabilities) {
+    assert.throws(() => verify({ secret: 'short', token, now }), PublicBookingCapabilityConfigurationError);
+    assert.throws(() => verify({ secret: 'short', token: 'invalid-token', now }), PublicBookingCapabilityConfigurationError);
+  }
 });
 
 test('public request keys derive scope-separated tenant-bound idempotency keys', () => {

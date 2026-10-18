@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { PublicBookingCapabilityConfigurationError } from './public-booking-capability.ts';
 import {
   derivePublicBookingCheckoutIdempotencyKey,
   derivePublicBookingConfirmationIdempotencyKey,
   derivePublicBookingHoldIdempotencyKey,
+  normalizePublicBookingRequestKey,
+  PublicBookingRequestValidationError,
 } from './public-booking-request-domain.ts';
 
 const secret = '0123456789abcdef0123456789abcdef';
@@ -27,4 +30,18 @@ test('public checkout idempotency is tenant bound', () => {
     requestKey,
   });
   assert.notEqual(first, second);
+});
+
+test('deployment secret failures are configuration errors for every public idempotency scope', () => {
+  for (const derive of [
+    derivePublicBookingHoldIdempotencyKey,
+    derivePublicBookingConfirmationIdempotencyKey,
+    derivePublicBookingCheckoutIdempotencyKey,
+  ]) {
+    assert.throws(() => derive({ secret: 'short', organizationId, requestKey }), PublicBookingCapabilityConfigurationError);
+    assert.throws(() => derive({ secret: 'short', organizationId, requestKey: 'invalid' }), PublicBookingCapabilityConfigurationError);
+    assert.match(derive({ secret, organizationId, requestKey }), /^public:[0-9a-f]{64}$/);
+    assert.throws(() => derive({ secret, organizationId, requestKey: 'invalid' }), PublicBookingRequestValidationError);
+  }
+  assert.throws(() => normalizePublicBookingRequestKey('invalid'), PublicBookingRequestValidationError);
 });

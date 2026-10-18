@@ -6,6 +6,7 @@ import {
   quotePublicHospitalityHold,
 } from '@/server/bookings/public-hospitality-quote-service.ts';
 import { PublicHospitalityBookingUnavailableError } from '@/server/bookings/public-hospitality-search-service.ts';
+import { PricingValidationError } from '@/server/pricing/money.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 
 function errorResponse(error: unknown) {
@@ -21,7 +22,7 @@ function errorResponse(error: unknown) {
   if (error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'booking-write-unavailable' }, { status: 503, headers: { 'cache-control': 'no-store' } });
   }
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
+  if (error instanceof PricingValidationError) {
     return Response.json({ error: 'validation', message: error.message }, { status: 400, headers: { 'cache-control': 'no-store' } });
   }
   return Response.json({ error: 'internal-error' }, { status: 500, headers: { 'cache-control': 'no-store' } });
@@ -49,6 +50,15 @@ export async function POST(request: Request, context: RouteContext) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
     }
     if (input.addonSelections !== undefined && !Array.isArray(input.addonSelections)) {
+      return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
+    }
+    if (input.addonSelections && !input.addonSelections.every((selection) =>
+      selection !== null
+      && typeof selection === 'object'
+      && !Array.isArray(selection)
+      && typeof selection.addonId === 'string'
+      && typeof selection.quantity === 'number'
+    )) {
       return finish(Response.json({ error: 'invalid-request' }, { status: 400, headers: { 'cache-control': 'no-store' } }));
     }
 

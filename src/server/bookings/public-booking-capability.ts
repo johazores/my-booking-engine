@@ -7,6 +7,7 @@ const BOOKING_SCOPE = 'booking:manage' as const;
 const MINIMUM_SECRET_BYTES = 32;
 const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export class PublicBookingCapabilityConfigurationError extends Error {
   constructor(message: string) {
@@ -51,14 +52,18 @@ function encryptCapability(secret: string, version: 'v2' | 'v3', payload: object
 }
 
 function decryptCapability(secret: string, token: string, expectedVersion: 'v2' | 'v3') {
+  const key = capabilityKey(secret);
+  if (typeof token !== 'string' || token.length > 4096) return null;
   const [version, encodedIv, encodedCiphertext, encodedTag, extra] = token.split('.');
   if (version !== expectedVersion || !encodedIv || !encodedCiphertext || !encodedTag || extra !== undefined) return null;
   try {
+    if (![encodedIv, encodedCiphertext, encodedTag].every((part) => BASE64URL_PATTERN.test(part))) return null;
     const iv = Buffer.from(encodedIv, 'base64url');
     const ciphertext = Buffer.from(encodedCiphertext, 'base64url');
     const tag = Buffer.from(encodedTag, 'base64url');
+    if (iv.toString('base64url') !== encodedIv || ciphertext.toString('base64url') !== encodedCiphertext || tag.toString('base64url') !== encodedTag) return null;
     if (iv.length !== IV_BYTES || tag.length !== AUTH_TAG_BYTES || ciphertext.length === 0) return null;
-    const decipher = createDecipheriv('aes-256-gcm', capabilityKey(secret), iv, { authTagLength: AUTH_TAG_BYTES });
+    const decipher = createDecipheriv('aes-256-gcm', key, iv, { authTagLength: AUTH_TAG_BYTES });
     decipher.setAuthTag(tag);
     return JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')) as Record<string, unknown>;
   } catch {
@@ -77,10 +82,11 @@ export function issuePublicBookingHoldCapability(input: { secret: string; organi
 export function verifyPublicBookingHoldCapability(input: { secret: string; token: string; expectedOrganizationId?: string; expectedPrincipalId?: string; now?: Date }): PublicBookingHoldCapability | null {
   const payload = decryptCapability(input.secret, input.token, 'v2');
   if (!payload || payload.v !== HOLD_CAPABILITY_VERSION || payload.s !== HOLD_SCOPE || typeof payload.o !== 'string' || typeof payload.p !== 'string' || typeof payload.h !== 'string' || typeof payload.e !== 'number' || !Number.isSafeInteger(payload.e)) return null;
-  if (input.expectedOrganizationId && payload.o !== input.expectedOrganizationId) return null;
-  if (input.expectedPrincipalId && payload.p !== input.expectedPrincipalId) return null;
+  if (input.expectedOrganizationId !== undefined && payload.o !== input.expectedOrganizationId) return null;
+  if (input.expectedPrincipalId !== undefined && payload.p !== input.expectedPrincipalId) return null;
   const now = input.now ?? new Date();
-  if (payload.e <= now.getTime()) return null;
+  const nowMilliseconds = now.getTime();
+  if (!Number.isFinite(nowMilliseconds) || payload.e <= nowMilliseconds) return null;
   return { version: 2, scope: HOLD_SCOPE, organizationId: payload.o, principalId: payload.p, holdId: payload.h, expiresAt: new Date(payload.e) };
 }
 
@@ -95,9 +101,10 @@ export function issuePublicBookingBookingCapability(input: { secret: string; org
 export function verifyPublicBookingBookingCapability(input: { secret: string; token: string; expectedOrganizationId?: string; expectedPrincipalId?: string; now?: Date }): PublicBookingBookingCapability | null {
   const payload = decryptCapability(input.secret, input.token, 'v3');
   if (!payload || payload.v !== BOOKING_CAPABILITY_VERSION || payload.s !== BOOKING_SCOPE || typeof payload.o !== 'string' || typeof payload.p !== 'string' || typeof payload.b !== 'string' || typeof payload.e !== 'number' || !Number.isSafeInteger(payload.e)) return null;
-  if (input.expectedOrganizationId && payload.o !== input.expectedOrganizationId) return null;
-  if (input.expectedPrincipalId && payload.p !== input.expectedPrincipalId) return null;
+  if (input.expectedOrganizationId !== undefined && payload.o !== input.expectedOrganizationId) return null;
+  if (input.expectedPrincipalId !== undefined && payload.p !== input.expectedPrincipalId) return null;
   const now = input.now ?? new Date();
-  if (payload.e <= now.getTime()) return null;
+  const nowMilliseconds = now.getTime();
+  if (!Number.isFinite(nowMilliseconds) || payload.e <= nowMilliseconds) return null;
   return { version: 3, scope: BOOKING_SCOPE, organizationId: payload.o, principalId: payload.p, bookingId: payload.b, expiresAt: new Date(payload.e) };
 }

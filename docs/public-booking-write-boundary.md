@@ -53,6 +53,14 @@ Public write routes use the shared same-origin policy and `Cache-Control: no-sto
 
 Capabilities must never appear in URLs, logs, analytics, audit payloads, or rendered server HTML. The public browser keeps the short-lived booking capability only in same-tab `sessionStorage` for Checkout return/recovery and clears terminal recovery state. HTTPS remains mandatory in production.
 
+Public hold, quote, and confirmation ingress now classify only explicit domain validation errors as HTTP 400. Unexpected internal errors are HTTP 500 with a generic response; their messages are not reflected to anonymous callers merely because they contain words such as `required` or `invalid`. Nested customer, guest, add-on, and availability request shapes are checked before service calls to keep malformed browser payloads in the client-error contract.
+
+Both hold and booking capabilities reject padded, malformed, noncanonical, and oversized (more than 4,096 characters) base64url token encodings before AES-GCM authentication. Canonical token encoding is only an input boundary: authorization still requires matching tenant, principal, scope, expiry, and persisted ownership.
+
+A missing or weak deployment capability secret is a server configuration error, not an invalid customer credential. Verification checks key strength before decoding either capability scope so the public routes return their unavailable (503) responses instead of misleading authorization failures.
+
+The hold, confirmation, and Checkout idempotency HMAC derivations also classify weak deployment secrets as configuration failures. In particular, anonymous hold creation returns the existing 503 `booking-write-unavailable` response rather than exposing a server deployment problem as a customer validation error. Invalid browser UUID request keys still use the normal client-validation contract.
+
 ## Validation
 
 Public capability/request tests cover capability tampering, tenant/principal binding, hold-vs-booking scope separation, idempotency namespace separation, weak-secret rejection, deterministic request fingerprints, payment-start windows, and payment recovery decisions.
