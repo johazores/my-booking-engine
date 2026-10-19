@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { RentalBookingEarlyReturnReleaseIntegrityError } from '@/server/bookings/rental-booking-early-return-release-domain.ts';
 import {
@@ -20,7 +21,7 @@ function releaseErrorCode(error: unknown) {
     || error instanceof RentalAvailabilityIntegrityError
   ) return 'conflict';
   if (error instanceof RentalBookingEarlyReturnReleaseUnavailableError) return 'unavailable';
-  if (error instanceof Error && /invalid|required|must|cannot/i.test(error.message)) return 'validation';
+  if (error instanceof TenantIdentifierValidationError) return 'validation';
   return 'server';
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
   archiveIntegration,
@@ -52,7 +53,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
         ? 'unavailable'
         : error instanceof IntegrationLifecycleError
           ? 'lifecycle'
-          : error instanceof Error && /identifier|UUID/i.test(error.message)
+          : error instanceof TenantIdentifierValidationError
             ? 'validation'
             : 'server';
     return finish(

@@ -45,3 +45,7 @@ Connection testing does not mutate the `Integration` row. It already rechecks te
 The checked-in disposable PostgreSQL integration suite remains the end-to-end authority for database ownership, lifecycle behavior, credential rotation, archive/reconnect behavior, secret-safe reads/audits, and future concurrency scenarios. Full repository validation still requires the repository Node 24 toolchain and an explicitly disposable PostgreSQL target.
 
 GitHub Actions are intentionally not used.
+
+## Lifecycle redirect error classification
+
+The integration enable/disable/archive form route recognizes malformed route identifiers only through the explicit `TenantIdentifierValidationError`. Unexpected database, provider, or infrastructure errors cannot be misclassified as user validation by including `identifier` or `UUID` in their message. The redirect exposes only a fixed status code, while tenant ownership, authorization, lifecycle conflicts, and encrypted credential rules remain in the service.

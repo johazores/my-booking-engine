@@ -102,3 +102,7 @@ Damage/inspection state, security bonds, maintenance, late-return assessment, an
 - Full Prisma/migration/database execution remains part of `npm run test:database` against an explicitly disposable PostgreSQL target under the Node version declared in `package.json`.
 
 GitHub Actions are not required or used.
+
+## Staff redirect error classification
+
+The pickup, return, and early-return inventory-release routes classify malformed route identifiers only through the explicit `TenantIdentifierValidationError` from the shared tenant identifier guard. Arbitrary infrastructure or persisted-state errors containing English words such as `invalid` or `required` are treated as server failures, not rejected customer input. Domain-owned custody, allocation, and availability integrity errors retain their existing conflict mappings. Staff redirects contain a fixed error code only, never the thrown message. Rental hold confirmation likewise retains its explicit `RentalBookingValidationError` for submitted hold/customer/review fields and uses typed tenant identifiers rather than message keywords.

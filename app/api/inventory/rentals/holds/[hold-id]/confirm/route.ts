@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-availability-domain.ts';
 import {
@@ -19,7 +20,7 @@ function rentalBookingErrorCode(error: unknown) {
   if (error instanceof RentalBookingValidationError) return 'validation';
   if (error instanceof RentalBookingConflictError || error instanceof RentalAvailabilityIntegrityError) return 'conflict';
   if (error instanceof RentalInventoryUnavailableError) return 'unavailable';
-  if (error instanceof Error && /invalid|required|must|cannot/i.test(error.message)) return 'validation';
+  if (error instanceof TenantIdentifierValidationError) return 'validation';
   return 'server';
 }
 
