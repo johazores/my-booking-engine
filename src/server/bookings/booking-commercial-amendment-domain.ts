@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 
+import { BookingDomainValidationError } from './booking-domain.ts';
+
 export const HOSPITALITY_COMMERCIAL_AMENDMENT_EXPIRES_MINUTES = 15;
 
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 
 function normalizeFingerprint(value: unknown, label: string) {
-  if (typeof value !== 'string') throw new Error(`${label} must be a SHA-256 fingerprint.`);
+  if (typeof value !== 'string') throw new BookingDomainValidationError(`${label} must be a SHA-256 fingerprint.`);
   const normalized = value.trim().toLowerCase();
-  if (!FINGERPRINT_PATTERN.test(normalized)) throw new Error(`${label} must be a SHA-256 fingerprint.`);
+  if (!FINGERPRINT_PATTERN.test(normalized)) throw new BookingDomainValidationError(`${label} must be a SHA-256 fingerprint.`);
   return normalized;
 }
 

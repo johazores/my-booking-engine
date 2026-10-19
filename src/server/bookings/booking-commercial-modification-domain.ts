@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { hospitalityAvailabilityAllocationLockKey } from '../availability/availability-allocation-lock.ts';
 import { normalizeHospitalityAddonSelections, type HospitalityAddonSelectionInput } from '../pricing/hospitality-addon-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { normalizeBookingIdempotencyKey } from './booking-domain.ts';
+import { BookingDomainValidationError, normalizeBookingIdempotencyKey } from './booking-domain.ts';
 
 export type HospitalityBookingCommercialModificationInput = {
   roomTypeId: string;
@@ -22,9 +22,13 @@ export type NormalizedHospitalityBookingCommercialModification = {
 };
 
 function normalizeUuid(value: unknown, label: string) {
-  if (typeof value !== 'string') throw new Error(`${label} must be a valid UUID.`);
+  if (typeof value !== 'string') throw new BookingDomainValidationError(`${label} must be a valid UUID.`);
   const normalized = value.trim().toLowerCase();
-  assertUuidIdentifier(normalized, label);
+  try {
+    assertUuidIdentifier(normalized, label);
+  } catch {
+    throw new BookingDomainValidationError(`${label} must be a valid UUID.`);
+  }
   return normalized;
 }
 
@@ -35,7 +39,7 @@ function normalizeQuantity(value: number | string) {
       ? Number(value.trim())
       : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 50) {
-    throw new Error('Room quantity must be a whole number between 1 and 50.');
+    throw new BookingDomainValidationError('Room quantity must be a whole number between 1 and 50.');
   }
   return parsed;
 }
@@ -44,15 +48,15 @@ export function normalizeHospitalityBookingCommercialModificationInput(
   input: HospitalityBookingCommercialModificationInput | unknown,
 ): NormalizedHospitalityBookingCommercialModification {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new Error('Commercial modification payload must be an object.');
+    throw new BookingDomainValidationError('Commercial modification payload must be an object.');
   }
   const payload = input as Record<string, unknown>;
   const rawAddons = payload.addonSelections ?? [];
-  if (!Array.isArray(rawAddons)) throw new Error('Add-on selections must be an array.');
+  if (!Array.isArray(rawAddons)) throw new BookingDomainValidationError('Add-on selections must be an array.');
 
   const addonSelections = rawAddons.map((selection, index) => {
     if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
-      throw new Error(`Add-on selection ${index + 1} must be an object.`);
+      throw new BookingDomainValidationError(`Add-on selection ${index + 1} must be an object.`);
     }
     const record = selection as Record<string, unknown>;
     return {

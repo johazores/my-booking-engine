@@ -7,6 +7,7 @@ import {
   activeTenantOwnedCollectionScope,
   activeTenantOwnedResourceScope,
   assertUuidIdentifier,
+  TenantIdentifierValidationError,
   tenantOwnedCollectionScope,
   tenantOwnedResourceScope,
 } from './tenant-scope.ts';
@@ -134,4 +135,9 @@ test('active tenant-owned scopes also require active actor access to the owning 
       },
     },
   );
+});
+
+test('malformed tenant identifiers have explicit validation identity', () => {
+  assert.throws(() => assertUuidIdentifier('not-a-uuid', 'bookingId'), TenantIdentifierValidationError);
+  assert.equal(assertUuidIdentifier(tenantA, 'organizationId'), tenantA);
 });

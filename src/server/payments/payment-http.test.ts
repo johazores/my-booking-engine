@@ -9,7 +9,8 @@ const {
   paymentJson,
   readPaymentJsonObject,
 } = await import('./payment-http.ts');
-const { PaymentProviderError } = await import('./payment-provider.ts');
+const { TenantIdentifierValidationError } = await import('../tenancy/tenant-scope.ts');
+const { PaymentProviderError, PaymentInputValidationError } = await import('./payment-provider.ts');
 
 test('readPaymentJsonObject accepts a JSON object with an application/json media type', async () => {
   const request = new Request('https://sf.example.test/api/payments/manual', {
@@ -202,4 +203,28 @@ test('paymentApiError does not grant provider presentation authority to structur
   assert.equal(response.status, 500);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), { error: 'internal-error' });
+});
+
+test('authenticated payment HTTP does not expose arbitrary internal errors as validation', async () => {
+  for (const message of [
+    'DATABASE_URL is required to initialize the database client.',
+    'Provider secret is invalid and must be rotated.',
+    'Internal settlement cannot proceed.',
+  ]) {
+    const response = paymentApiError(new Error(message));
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal-error' });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  for (const thrown of [null, { message: 'Payment secret is required by provider.' }]) {
+    const response = paymentApiError(thrown);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal-error' });
+  }
+  const validation = paymentApiError(new PaymentInputValidationError('Refund amount must be greater than zero.'));
+  assert.equal(validation.status, 400);
+  assert.deepEqual(await validation.json(), { error: 'validation', message: 'Refund amount must be greater than zero.' });
+  const invalidId = paymentApiError(new TenantIdentifierValidationError('bookingId must be a valid UUID.'));
+  assert.equal(invalidId.status, 400);
+  assert.deepEqual(await invalidId.json(), { error: 'validation', message: 'bookingId must be a valid UUID.' });
 });

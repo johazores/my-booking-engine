@@ -12,6 +12,7 @@ import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-dom
 import { deriveBookingPaymentStatusFromSettlementTransactions } from './payment-refund-state-domain.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import {
+  PaymentInputValidationError,
   PaymentProviderError,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
@@ -59,7 +60,7 @@ export function normalizeStripeRefundAmount(value: unknown): bigint | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value === 'bigint' && value > 0n) return value;
   if (typeof value === 'string' && /^\d+$/.test(value) && BigInt(value) > 0n) return BigInt(value);
-  throw new Error('Refund amount must be a positive integer minor-unit value.');
+  throw new PaymentInputValidationError('Refund amount must be a positive integer minor-unit value.');
 }
 
 export function stripeRefundPersistenceStatus(status: ProviderRefundResult['status']): 'PENDING' | 'SUCCEEDED' | 'FAILED' {

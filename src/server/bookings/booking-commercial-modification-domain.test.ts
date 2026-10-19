@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { BookingDomainValidationError } from './booking-domain.ts';
 import {
   hospitalityBookingCommercialAllocationLockKeys,
   hospitalityBookingCommercialModificationFingerprint,
@@ -143,4 +144,11 @@ test('commercial modification rejects invalid quantities and identifiers', () =>
     quantity: 1,
     idempotencyKey: 'commercial:invalid-room',
   }), /uuid/i);
+});
+
+test('commercial modification customer input errors are explicitly typed', () => {
+  const valid = { roomTypeId: roomA, ratePlanId: rateA, quantity: 1, idempotencyKey: 'commercial:typed-1' };
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput({ ...valid, roomTypeId: 'not-a-uuid' }), BookingDomainValidationError);
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput({ ...valid, quantity: 51 }), BookingDomainValidationError);
+  assert.throws(() => normalizeHospitalityBookingCommercialModificationInput({ ...valid, addonSelections: [null] }), BookingDomainValidationError);
 });

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  BookingDomainValidationError,
   normalizeBookingIdempotencyKey,
   normalizeHospitalityBookingGuests,
   type HospitalityBookingGuestInput,
@@ -33,7 +34,7 @@ export function assertHospitalityBookingGuestCapacity(input: {
   }
   const maximumGuests = input.quantity * input.maxOccupancy;
   if (input.guests.length > maximumGuests) {
-    throw new Error(`Booking guests cannot exceed the reserved occupancy of ${maximumGuests}.`);
+    throw new BookingDomainValidationError(`Booking guests cannot exceed the reserved occupancy of ${maximumGuests}.`);
   }
   return maximumGuests;
 }

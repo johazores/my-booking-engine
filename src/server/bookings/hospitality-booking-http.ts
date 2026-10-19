@@ -1,12 +1,22 @@
 import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
+import { AvailabilityHoldValidationError } from '../availability/availability-hold-domain.ts';
+import { AvailabilityValidationError } from '../availability/availability-domain.ts';
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '../availability/hospitality-availability-hold-service.ts';
 import { AvailabilityUnavailableError } from '../availability/hospitality-availability-service.ts';
+import { PaymentInputValidationError } from '../payments/payment-provider.ts';
+import { InvoiceIssuerValidationError } from '../payments/invoice-issuer-domain.ts';
+import { HospitalityInvoiceRecipientValidationError } from '../payments/hospitality-invoice-recipient-domain.ts';
+import { HospitalityInvoicePreparationValidationError } from '../payments/hospitality-invoice-preparation-domain.ts';
+import { PricingValidationError } from '../pricing/money.ts';
 import { paymentProviderClientErrorFromThrown } from '../payments/payment-provider-client-error.ts';
 import { PaymentConflictError, PaymentUnavailableError } from '../payments/payment-service.ts';
 import { HospitalityPricingUnavailableError } from '../pricing/hospitality-pricing-service.ts';
 import { HospitalityTransactionalPricingUnavailableError } from '../pricing/hospitality-transactional-pricing.ts';
+import { TenantIdentifierValidationError } from '../tenancy/tenant-scope.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
+import { BookingDomainValidationError } from './booking-domain.ts';
+import { HospitalityBookingRescheduleValidationError } from './booking-reschedule-domain.ts';
 import { HospitalityBookingConflictError, HospitalityBookingPriceChangedError, HospitalityBookingUnavailableError } from './hospitality-booking-service.ts';
 
 const HOSPITALITY_BOOKING_NO_STORE_HEADERS = Object.freeze({ 'cache-control': 'no-store' });
@@ -151,7 +161,18 @@ export function hospitalityBookingApiError(error: unknown) {
   ) {
     return bookingApiErrorJson({ error: 'unavailable', message: error.message }, 409);
   }
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|unsupported/i.test(error.message)) {
+  if (
+    error instanceof AvailabilityValidationError
+    || error instanceof AvailabilityHoldValidationError
+    || error instanceof BookingDomainValidationError
+    || error instanceof TenantIdentifierValidationError
+    || error instanceof HospitalityBookingRescheduleValidationError
+    || error instanceof PricingValidationError
+    || error instanceof PaymentInputValidationError
+    || error instanceof InvoiceIssuerValidationError
+    || error instanceof HospitalityInvoiceRecipientValidationError
+    || error instanceof HospitalityInvoicePreparationValidationError
+  ) {
     return bookingApiErrorJson({ error: 'validation', message: error.message }, 400);
   }
   return bookingApiErrorJson({ error: 'internal-error' }, 500);

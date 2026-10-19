@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { BookingDomainValidationError } from './booking-domain.ts';
 import {
   assertHospitalityBookingGuestCapacity,
   hospitalityBookingGuestFingerprint,
@@ -30,4 +31,14 @@ test('rejects guest counts beyond reserved room occupancy', () => {
     quantity: 1,
     maxOccupancy: 2,
   }), /cannot exceed the reserved occupancy of 2/);
+});
+
+test('guest occupancy input errors are typed but corrupt persisted capacity stays internal', () => {
+  const guests = [{ firstName: 'A', lastName: 'One' }, { firstName: 'B', lastName: 'Two' }];
+  assert.throws(() => assertHospitalityBookingGuestCapacity({ guests, quantity: 1, maxOccupancy: 1 }), BookingDomainValidationError);
+  assert.throws(() => assertHospitalityBookingGuestCapacity({ guests, quantity: 0, maxOccupancy: 1 }), (error: unknown) => {
+    assert.equal(error instanceof BookingDomainValidationError, false);
+    assert.match((error as Error).message, /Persisted booking occupancy configuration/);
+    return true;
+  });
 });

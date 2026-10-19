@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { BookingDomainValidationError } from './booking-domain.ts';
+import { AvailabilityValidationError } from '../availability/availability-domain.ts';
+import { TenantIdentifierValidationError } from '../tenancy/tenant-scope.ts';
+import { PaymentInputValidationError } from '../payments/payment-provider.ts';
 import {
   BookingApiPayloadError,
   HOSPITALITY_BOOKING_REQUEST_MAX_BYTES,
@@ -68,4 +72,40 @@ test('normalizes bounded payload failures without exposing parser detail', async
   assert.equal(response.status, 400);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await response.json(), { error: 'invalid-request' });
+});
+
+test('authenticated booking HTTP only exposes explicitly classified customer validation', async () => {
+  for (const message of [
+    'DATABASE_URL is required to initialize the database client.',
+    'Provider authorization is invalid: internal token is required.',
+    'Internal payment state cannot be reconciled.',
+  ]) {
+    const response = hospitalityBookingApiError(new Error(message));
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal-error' });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  for (const thrown of [null, { message: 'Database password is invalid and must be rotated.' }]) {
+    const response = hospitalityBookingApiError(thrown);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal-error' });
+  }
+  const bookingValidation = hospitalityBookingApiError(new BookingDomainValidationError('Guest first name is required.'));
+  assert.equal(bookingValidation.status, 400);
+  assert.deepEqual(await bookingValidation.json(), { error: 'validation', message: 'Guest first name is required.' });
+  const availabilityValidation = hospitalityBookingApiError(new AvailabilityValidationError('Arrival date must use YYYY-MM-DD.'));
+  assert.equal(availabilityValidation.status, 400);
+  assert.deepEqual(await availabilityValidation.json(), { error: 'validation', message: 'Arrival date must use YYYY-MM-DD.' });
+  const paymentInput = hospitalityBookingApiError(new PaymentInputValidationError('Payment idempotency key is required.'));
+  assert.equal(paymentInput.status, 400);
+  assert.deepEqual(await paymentInput.json(), { error: 'validation', message: 'Payment idempotency key is required.' });
+  const manualReference = hospitalityBookingApiError(new PaymentInputValidationError('Manual payment reference is required.'));
+  assert.equal(manualReference.status, 400);
+  assert.deepEqual(await manualReference.json(), { error: 'validation', message: 'Manual payment reference is required.' });
+  const invalidFingerprint = hospitalityBookingApiError(new BookingDomainValidationError('adjustmentFingerprint must be a SHA-256 fingerprint.'));
+  assert.equal(invalidFingerprint.status, 400);
+  assert.deepEqual(await invalidFingerprint.json(), { error: 'validation', message: 'adjustmentFingerprint must be a SHA-256 fingerprint.' });
+  const invalidId = hospitalityBookingApiError(new TenantIdentifierValidationError('bookingId must be a valid UUID.'));
+  assert.equal(invalidId.status, 400);
+  assert.deepEqual(await invalidId.json(), { error: 'validation', message: 'bookingId must be a valid UUID.' });
 });

@@ -1,4 +1,5 @@
 import {
+  PaymentInputValidationError,
   normalizePaymentOperationContext,
   normalizePaymentMoney,
   type PaymentOperationContext,
@@ -63,7 +64,7 @@ export class ManualPaymentProvider implements PaymentProviderAdapter {
     const paymentReference = normalizeManualPaymentReference(input.paymentReference);
     const refundReference = normalizeManualPaymentReference(input.refundReference);
     if (paymentReference === refundReference) {
-      throw new Error('Manual refund reference must be different from the original payment reference.');
+      throw new PaymentInputValidationError('Manual refund reference must be different from the original payment reference.');
     }
 
     return Object.freeze({
@@ -78,15 +79,15 @@ export class ManualPaymentProvider implements PaymentProviderAdapter {
 
 export function normalizeManualPaymentReference(value: unknown): string {
   if (typeof value !== 'string') {
-    throw new Error('Manual payment reference is required.');
+    throw new PaymentInputValidationError('Manual payment reference is required.');
   }
 
   const normalized = value.trim();
   if (normalized.startsWith('sf_claim_')) {
-    throw new Error('Manual payment reference cannot use a reserved internal claim prefix.');
+    throw new PaymentInputValidationError('Manual payment reference cannot use a reserved internal claim prefix.');
   }
   if (!MANUAL_REFERENCE_PATTERN.test(normalized)) {
-    throw new Error('Manual payment reference must be 1-120 safe printable characters.');
+    throw new PaymentInputValidationError('Manual payment reference must be 1-120 safe printable characters.');
   }
 
   return normalized;

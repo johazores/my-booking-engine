@@ -32,3 +32,7 @@ Stripe webhook ingestion remains separate because signature verification require
 `src/server/payments/payment-http.test.ts` covers the payment reader's object-only parsing, media type, strict UTF-8, and byte-limit behavior.
 
 Full repository validation still requires the repository Node 24.20+ toolchain and the disposable PostgreSQL gates. GitHub Actions are intentionally not used.
+
+## Authenticated payment error classification
+
+Payment HTTP accepts explicitly typed `PaymentInputValidationError` and tenant UUID validation errors for customer-correctable money, idempotency, manual-reference, and refund-amount input. Arbitrary errors containing words such as “required” or “invalid” no longer reveal internal diagnostics or masquerade as HTTP 400; they receive generic HTTP 500 responses. Known conflicts, unavailable resources, and provider failures retain their explicit mappings. Transport errors remain bounded and generic. This does not alter provider settlement authority, refund source selection, or tenant permissions.

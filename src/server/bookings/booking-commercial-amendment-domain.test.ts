@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { BookingDomainValidationError } from './booking-domain.ts';
 import {
   HOSPITALITY_COMMERCIAL_AMENDMENT_EXPIRES_MINUTES,
   hospitalityCommercialAmendmentExpiresAt,
@@ -53,4 +54,21 @@ test('creates stable hold identities without exposing the original idempotency k
 
 test('rejects malformed adjustment fingerprints', () => {
   assert.throws(() => normalizeHospitalityCommercialAdjustmentFingerprint('not-a-fingerprint'), /SHA-256/);
+});
+
+test('customer-supplied amendment fingerprint has typed validation identity', () => {
+  for (const value of [undefined, null, '', 'not-a-fingerprint', 'z'.repeat(64)]) {
+    assert.throws(() => normalizeHospitalityCommercialAdjustmentFingerprint(value), BookingDomainValidationError);
+  }
+  assert.equal(normalizeHospitalityCommercialAdjustmentFingerprint('A'.repeat(64)), 'a'.repeat(64));
+  assert.throws(() => hospitalityCommercialAmendmentExpiresAt(new Date('invalid')), (error: unknown) => {
+    assert.equal(error instanceof BookingDomainValidationError, false);
+    return true;
+  });
+  assert.throws(() => hospitalityCommercialAmendmentProtectionQuantity({
+    currentRoomTypeId: 'room-a', currentQuantity: 0, targetRoomTypeId: 'room-a', targetQuantity: 1,
+  }), (error: unknown) => {
+    assert.equal(error instanceof BookingDomainValidationError, false);
+    return true;
+  });
 });

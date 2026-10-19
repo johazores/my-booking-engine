@@ -1,7 +1,9 @@
 import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
+import { TenantIdentifierValidationError } from '../tenancy/tenant-scope.ts';
 import { readActiveOrganizationContext } from '../tenancy/tenant-context.ts';
 import { paymentProviderClientErrorFromThrown } from './payment-provider-client-error.ts';
+import { PaymentInputValidationError } from './payment-provider.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 
@@ -141,7 +143,7 @@ export function paymentApiError(error: unknown) {
     }, providerError.retryable ? 503 : 502);
   }
 
-  if (error instanceof Error && /must|required|invalid|cannot|between|at least|at most|only|does not accept|zero-value/i.test(error.message)) {
+  if (error instanceof PaymentInputValidationError || error instanceof TenantIdentifierValidationError) {
     return paymentErrorJson({ error: 'validation', message: error.message }, 400);
   }
   return paymentErrorJson({ error: 'internal-error' }, 500);

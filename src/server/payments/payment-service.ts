@@ -9,6 +9,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
 import {
+  PaymentInputValidationError,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
 } from './payment-provider.ts';
@@ -43,15 +44,15 @@ function normalizePagination(page: number, pageSize: number) {
 function normalizeOptionalPositiveMinorAmount(value: unknown): bigint | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value === 'bigint') {
-    if (value <= 0n) throw new Error('Refund amount must be greater than zero.');
+    if (value <= 0n) throw new PaymentInputValidationError('Refund amount must be greater than zero.');
     return value;
   }
   if (typeof value === 'string' && /^\d+$/.test(value)) {
     const amount = BigInt(value);
-    if (amount <= 0n) throw new Error('Refund amount must be greater than zero.');
+    if (amount <= 0n) throw new PaymentInputValidationError('Refund amount must be greater than zero.');
     return amount;
   }
-  throw new Error('Refund amount must be a positive integer minor-unit value.');
+  throw new PaymentInputValidationError('Refund amount must be a positive integer minor-unit value.');
 }
 
 export async function recordManualOfflinePayment(input: {

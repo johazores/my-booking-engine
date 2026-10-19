@@ -5,6 +5,7 @@ import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual
 import {
   inspectPaymentProviderFailure,
   PaymentProviderError,
+  PaymentInputValidationError,
   paymentProviderFailureCodes,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
@@ -158,4 +159,14 @@ test('payment provider constructor rejects failure authority outside the runtime
     () => new PaymentProviderError('TIMEOUT', 'provider diagnostic', 'yes' as never),
     TypeError,
   );
+});
+
+test('payment input normalizers use typed customer validation rather than generic errors', () => {
+  assert.throws(() => normalizePaymentMoney('US', '100'), PaymentInputValidationError);
+  assert.throws(() => normalizePaymentMoney('USD', '1.00'), PaymentInputValidationError);
+  assert.throws(() => normalizePaymentIdempotencyKey('short'), PaymentInputValidationError);
+  assert.throws(() => normalizePaymentOperationContext({
+    organizationId: 'not-a-tenant', bookingId, idempotencyKey: 'payment:typed-1', currency: 'USD', amountMinor: '100',
+  }), PaymentInputValidationError);
+  assert.throws(() => normalizeManualPaymentReference('sf_claim_internal'), PaymentInputValidationError);
 });

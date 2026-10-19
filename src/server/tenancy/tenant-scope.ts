@@ -11,9 +11,16 @@ export interface TenantResourceScopeInput extends TenantActorScopeInput {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export class TenantIdentifierValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TenantIdentifierValidationError';
+  }
+}
+
 export function assertUuidIdentifier(value: string, fieldName: string) {
   if (!UUID_PATTERN.test(value)) {
-    throw new Error(`${fieldName} must be a valid UUID.`);
+    throw new TenantIdentifierValidationError(`${fieldName} must be a valid UUID.`);
   }
 
   return value;

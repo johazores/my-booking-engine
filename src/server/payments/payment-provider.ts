@@ -29,6 +29,13 @@ export const paymentProviderFailureCodes = [
 
 export type PaymentProviderFailureCode = (typeof paymentProviderFailureCodes)[number];
 
+export class PaymentInputValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaymentInputValidationError';
+  }
+}
+
 export type PaymentMoney = Readonly<{ currency: string; amountMinor: bigint }>;
 export type PaymentOperationContext = Readonly<{ organizationId: string; bookingId: string; idempotencyKey: string; money: PaymentMoney }>;
 export type PaymentAuthorizationInput = PaymentOperationContext & Readonly<{ paymentMethodReference: string }>;
@@ -133,9 +140,9 @@ export function normalizePaymentOperationContext(input: {
 }
 
 export function normalizePaymentMoney(currency: unknown, amountMinor: unknown): PaymentMoney {
-  if (typeof currency !== 'string') throw new Error('Payment currency is required.');
+  if (typeof currency !== 'string') throw new PaymentInputValidationError('Payment currency is required.');
   const normalizedCurrency = currency.trim().toUpperCase();
-  if (!CURRENCY_PATTERN.test(normalizedCurrency)) throw new Error('Payment currency must be a three-letter ISO currency code.');
+  if (!CURRENCY_PATTERN.test(normalizedCurrency)) throw new PaymentInputValidationError('Payment currency must be a three-letter ISO currency code.');
 
   let normalizedAmount: bigint;
   try {
@@ -143,18 +150,18 @@ export function normalizePaymentMoney(currency: unknown, amountMinor: unknown): 
     else if (typeof amountMinor === 'string' && /^\d+$/.test(amountMinor)) normalizedAmount = BigInt(amountMinor);
     else throw new Error();
   } catch {
-    throw new Error('Payment amount must be a non-negative integer minor-unit value.');
+    throw new PaymentInputValidationError('Payment amount must be a non-negative integer minor-unit value.');
   }
 
-  if (normalizedAmount < 0n) throw new Error('Payment amount must be a non-negative integer minor-unit value.');
+  if (normalizedAmount < 0n) throw new PaymentInputValidationError('Payment amount must be a non-negative integer minor-unit value.');
   return Object.freeze({ currency: normalizedCurrency, amountMinor: normalizedAmount });
 }
 
 export function normalizePaymentIdempotencyKey(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Payment idempotency key is required.');
+  if (typeof value !== 'string') throw new PaymentInputValidationError('Payment idempotency key is required.');
   const normalized = value.trim();
   if (!IDEMPOTENCY_KEY_PATTERN.test(normalized)) {
-    throw new Error('Payment idempotency key must be 8-120 characters using letters, numbers, colon, underscore, or hyphen.');
+    throw new PaymentInputValidationError('Payment idempotency key must be 8-120 characters using letters, numbers, colon, underscore, or hyphen.');
   }
   return normalized;
 }
@@ -166,8 +173,8 @@ export function assertPaymentProviderCapability(adapter: Pick<PaymentProviderAda
 }
 
 function normalizeUuid(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} is required.`);
+  if (typeof value !== 'string') throw new PaymentInputValidationError(`${label} is required.`);
   const normalized = value.trim().toLowerCase();
-  if (!UUID_PATTERN.test(normalized)) throw new Error(`${label} must be a valid UUID.`);
+  if (!UUID_PATTERN.test(normalized)) throw new PaymentInputValidationError(`${label} must be a valid UUID.`);
   return normalized;
 }
