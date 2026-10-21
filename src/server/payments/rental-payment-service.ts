@@ -7,7 +7,7 @@ import { db } from '../database.ts';
 import { parseMoneyMajorToMinor } from '../pricing/money.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
-import { assertPaymentProviderCapability } from './payment-provider.ts';
+import { assertPaymentProviderCapability, PaymentInputValidationError } from './payment-provider.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 import {
   buildRentalPaymentIdempotencyKey,
@@ -87,21 +87,21 @@ function normalizePagination(page: number, pageSize: number) {
 
 function parseOptionalRentalPaymentAmount(value: unknown, currency: string) {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') throw new Error('Rental payment amount must be a valid money value.');
+  if (typeof value !== 'string') throw new PaymentInputValidationError('Rental payment amount must be a valid money value.');
   const normalized = value.trim();
   if (!normalized) return null;
   const parsed = parseMoneyMajorToMinor(normalized, currency);
-  if (parsed.amountMinor <= 0n) throw new Error('Rental payment amount must be greater than zero.');
+  if (parsed.amountMinor <= 0n) throw new PaymentInputValidationError('Rental payment amount must be greater than zero.');
   return parsed.amountMinor;
 }
 
 function parseOptionalRentalRefundAmount(value: unknown, currency: string) {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') throw new Error('Rental refund amount must be a valid money value.');
+  if (typeof value !== 'string') throw new PaymentInputValidationError('Rental refund amount must be a valid money value.');
   const normalized = value.trim();
   if (!normalized) return null;
   const parsed = parseMoneyMajorToMinor(normalized, currency);
-  if (parsed.amountMinor <= 0n) throw new Error('Rental refund amount must be greater than zero.');
+  if (parsed.amountMinor <= 0n) throw new PaymentInputValidationError('Rental refund amount must be greater than zero.');
   return parsed.amountMinor;
 }
 

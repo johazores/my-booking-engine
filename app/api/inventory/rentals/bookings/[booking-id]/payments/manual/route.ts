@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { isRentalFinancialInputValidationError } from '@/server/payments/rental-financial-input-validation.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { formField, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
 import {
@@ -12,7 +13,7 @@ function rentalPaymentErrorCode(error: unknown) {
   if (error instanceof OrganizationPermissionDeniedError) return 'payment-permission';
   if (error instanceof RentalPaymentConflictError) return 'payment-conflict';
   if (error instanceof RentalPaymentUnavailableError) return 'payment-unavailable';
-  if (error instanceof Error && /invalid|required|must|cannot|only|zero-value|amount|balance/i.test(error.message)) return 'payment-validation';
+  if (isRentalFinancialInputValidationError(error)) return 'payment-validation';
   return 'payment-server';
 }
 
