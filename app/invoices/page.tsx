@@ -5,6 +5,7 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { listHospitalityIssuedTaxInvoicesForOrganization } from '@/server/payments/hospitality-issued-invoice-read-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
+import { parseHospitalityLegalDocumentPage } from '@/server/payments/hospitality-legal-document-page-query.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 const PAGE_SIZE = 25;
@@ -13,13 +14,8 @@ function money(amountMinor: bigint, currency: string) {
   return `${currency} ${moneyMinorToMajorString(amountMinor, currency)}`;
 }
 
-function pageNumber(value: string | undefined) {
-  const page = Number(value ?? '1');
-  return Number.isSafeInteger(page) && page > 0 ? page : 1;
-}
-
 export default async function InvoiceRegisterPage({ searchParams }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string | string[] }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -29,7 +25,7 @@ export default async function InvoiceRegisterPage({ searchParams }: {
 
   const activeContext = await readActiveOrganizationContext(session.user.id);
   if (!activeContext.organization) redirect('/dashboard?error=tenant');
-  const page = pageNumber((await searchParams).page);
+  const page = parseHospitalityLegalDocumentPage((await searchParams).page);
 
   let invoices;
   try {
@@ -44,7 +40,7 @@ export default async function InvoiceRegisterPage({ searchParams }: {
     throw error;
   }
 
-  if (invoices.total > 0 && invoices.page > invoices.totalPages) redirect(`/invoices?page=${invoices.totalPages}`);
+  if (invoices.total > 0 && page > invoices.totalPages) redirect(`/invoices?page=${invoices.totalPages}`);
 
   return <div className="sf-invoice-page sf-invoice-history-page sf-invoice-register-page">
     <header className="sf-invoice-history-page__header">

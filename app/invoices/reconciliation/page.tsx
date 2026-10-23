@@ -5,16 +5,12 @@ import { getAuthRequiredRedirect, readAuthSessionState } from '@/server/auth/aut
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import type { HospitalityTaxDocumentReconciliationFailureCode } from '@/server/payments/hospitality-tax-document-reconciliation-domain.ts';
 import { listHospitalityTaxDocumentReconciliationHistory } from '@/server/payments/hospitality-tax-document-reconciliation-service.ts';
+import { parseHospitalityLegalDocumentPage } from '@/server/payments/hospitality-legal-document-page-query.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 import { ReconciliationRunForm } from './reconciliation-run-form.tsx';
 
 const PAGE_SIZE = 20;
-
-function pageNumber(value: string | undefined) {
-  const page = Number(value ?? '1');
-  return Number.isSafeInteger(page) && page > 0 ? page : 1;
-}
 
 function failureLabel(code: HospitalityTaxDocumentReconciliationFailureCode) {
   if (code === 'INTEGRITY_CHECK_FAILED') return 'Immutable tax-invoice evidence failed validation.';
@@ -40,7 +36,7 @@ const errorMessages: Record<string, string> = {
 };
 
 export default async function TaxDocumentReconciliationPage({ searchParams }: {
-  searchParams: Promise<{ page?: string; status?: string; error?: string }>;
+  searchParams: Promise<{ page?: string | string[]; status?: string | string[]; error?: string | string[] }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -52,7 +48,7 @@ export default async function TaxDocumentReconciliationPage({ searchParams }: {
   if (!activeContext.organization) redirect('/dashboard?error=tenant');
 
   const query = await searchParams;
-  const requestedPage = pageNumber(query.page);
+  const requestedPage = parseHospitalityLegalDocumentPage(query.page);
   let history;
   try {
     history = await listHospitalityTaxDocumentReconciliationHistory({
@@ -76,7 +72,7 @@ export default async function TaxDocumentReconciliationPage({ searchParams }: {
 
     {query.status === 'verified' ? <p className="sf-alert sf-alert--success" role="status">Reconciliation completed and the bounded register passed all implemented integrity checks.</p> : null}
     {query.status === 'failed' ? <p className="sf-alert sf-alert--error" role="alert">Reconciliation completed with integrity concerns. Review the newest recorded result before using this register for close or investigation.</p> : null}
-    {query.error && errorMessages[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errorMessages[query.error]}</p> : null}
+    {typeof query.error === 'string' && Object.hasOwn(errorMessages, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{errorMessages[query.error]}</p> : null}
 
     <section className="sf-invoice-history-card" aria-labelledby="run-reconciliation-title">
       <div className="sf-invoice-history-card__heading"><div><p className="sf-eyebrow">Point-in-time verification</p><h2 id="run-reconciliation-title">Run an integrity check</h2></div><span>AU</span></div>

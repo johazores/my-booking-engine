@@ -8,6 +8,7 @@ import {
   listHospitalityIssuedTaxInvoices,
 } from '@/server/payments/hospitality-issued-invoice-read-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
+import { parseHospitalityLegalDocumentPage } from '@/server/payments/hospitality-legal-document-page-query.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 const PAGE_SIZE = 25;
@@ -16,14 +17,9 @@ function money(amountMinor: bigint, currency: string) {
   return `${currency} ${moneyMinorToMajorString(amountMinor, currency)}`;
 }
 
-function pageNumber(value: string | undefined) {
-  const page = Number(value ?? '1');
-  return Number.isSafeInteger(page) && page > 0 ? page : 1;
-}
-
 export default async function BookingInvoiceHistoryPage({ params, searchParams }: {
   params: Promise<{ 'booking-id': string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string | string[] }>;
 }) {
   const authState = await readAuthSessionState();
   const authRedirect = getAuthRequiredRedirect(authState);
@@ -35,7 +31,7 @@ export default async function BookingInvoiceHistoryPage({ params, searchParams }
   if (!activeContext.organization) redirect('/dashboard?error=tenant');
 
   const bookingId = (await params)['booking-id'];
-  const page = pageNumber((await searchParams).page);
+  const page = parseHospitalityLegalDocumentPage((await searchParams).page);
 
   let invoices;
   try {
@@ -52,7 +48,7 @@ export default async function BookingInvoiceHistoryPage({ params, searchParams }
     throw error;
   }
 
-  if (invoices.total > 0 && invoices.page > invoices.totalPages) {
+  if (invoices.total > 0 && page > invoices.totalPages) {
     redirect(`/invoices/booking/${encodeURIComponent(bookingId)}?page=${invoices.totalPages}`);
   }
 
