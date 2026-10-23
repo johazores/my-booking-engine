@@ -85,14 +85,18 @@ export function normalizeHospitalityAddonInput(input: HospitalityAddonInput, cur
   };
 }
 
-export function normalizeHospitalityAddonSelections(input: HospitalityAddonSelectionInput[]) {
+export function normalizeHospitalityAddonSelections(input: unknown) {
   if (!Array.isArray(input) || input.length > MAX_SELECTED_ADDONS) throw new PricingValidationError(`A quote may include no more than ${MAX_SELECTED_ADDONS} add-ons.`);
   const seen = new Set<string>();
-  return input.map((selection) => {
-    const addonId = selection.addonId.trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(addonId)) throw new PricingValidationError('Selected add-on identifier is invalid.');
+  const selections: unknown[] = input;
+  return selections.map((selection) => {
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection) || !('addonId' in selection) || typeof selection.addonId !== 'string') {
+      throw new PricingValidationError('Selected add-on identifier is invalid.');
+    }
+    const addonId = selection.addonId.trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(addonId)) throw new PricingValidationError('Selected add-on identifier is invalid.');
     if (seen.has(addonId)) throw new PricingValidationError('The same add-on cannot be selected more than once.');
-    if (!Number.isSafeInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > MAX_ADDON_QUANTITY) throw new PricingValidationError(`Selected add-on quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
+    if (!('quantity' in selection) || typeof selection.quantity !== 'number' || !Number.isSafeInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > MAX_ADDON_QUANTITY) throw new PricingValidationError(`Selected add-on quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
     seen.add(addonId);
     return { addonId, quantity: selection.quantity };
   }).sort((left, right) => left.addonId.localeCompare(right.addonId));
@@ -107,6 +111,9 @@ export function hospitalityAddonAmountMinor(input: {
   maxQuantity: number;
 }) {
   if (input.amountMinor <= 0n) throw new PricingValidationError('Add-on amount must be greater than zero.');
+  if (!['PER_BOOKING', 'PER_ROOM', 'PER_ROOM_NIGHT', 'PER_UNIT'].includes(input.pricingModel)) {
+    throw new PricingValidationError('Add-on pricing model is not supported.');
+  }
   for (const [label, value, max] of [
     ['selected quantity', input.selectedQuantity, input.maxQuantity],
     ['room quantity', input.roomQuantity, 50],

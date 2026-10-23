@@ -8,7 +8,7 @@ SF implements the production hospitality pricing foundation for normalized money
 
 Money is never stored or calculated with JavaScript floating-point values. Persisted amounts use integer minor units (`BIGINT`) plus a canonical three-letter currency code. Form input is parsed according to the runtime currency minor-unit rules, so currencies such as JPY (0 decimals), PHP/USD (2), and BHD (3) are handled without rounding through binary floats.
 
-Pricing arithmetic rejects negative components and values outside SF's bounded commercial range. Service/audit payloads serialize bigint values to decimal strings before JSON use. Decimal form amounts are limited to 64 input characters before exact integer conversion, including leading zeroes and whitespace; overlong values are rejected with a typed pricing validation error rather than processed as unbounded BigInt input.
+Pricing arithmetic rejects negative components and values outside SF's bounded commercial range, including multiplication by zero of an invalid input component. Service/audit payloads serialize bigint values to decimal strings before JSON use. Decimal form amounts are limited to 64 input characters before exact integer conversion, including leading zeroes and whitespace; overlong values are rejected with a typed pricing validation error rather than processed as unbounded BigInt input.
 
 ## Hospitality base rates
 
@@ -47,7 +47,7 @@ Supported pricing models are explicit:
 - `PER_ROOM_NIGHT`: fixed amount multiplied by room quantity and occupied nights
 - `PER_UNIT`: fixed amount multiplied only by the explicit selected quantity
 
-Only `PER_UNIT` catalog entries may configure a maximum selected quantity greater than one. Quote selection accepts at most 25 unique add-ons and a quantity of 1–100 per selection. Duplicate identifiers are rejected and selections are sorted deterministically before pricing/fingerprinting. A browser cannot multiply `PER_BOOKING`, `PER_ROOM`, or `PER_ROOM_NIGHT` through an arbitrary submitted quantity.
+Only `PER_UNIT` catalog entries may configure a maximum selected quantity greater than one. Quote selection accepts at most 25 unique add-ons and a quantity of 1–100 per selection. Duplicate identifiers are rejected after canonicalizing UUID case, and selections are sorted deterministically before pricing/fingerprinting. Malformed selection shapes fail with typed pricing validation errors; unsupported stored pricing-model values cannot silently fall back to per-booking charging. A browser cannot multiply `PER_BOOKING`, `PER_ROOM`, or `PER_ROOM_NIGHT` through an arbitrary submitted quantity.
 
 An add-on is eligible only when it is active, belongs to the same tenant/property, applies property-wide or to the exact requested room-type/rate-plan scope, matches the quote currency, and its applicability window covers every occupied night. Departure itself is not treated as an occupied night. Selected quantities are checked again against the persisted catalog maximum server-side.
 

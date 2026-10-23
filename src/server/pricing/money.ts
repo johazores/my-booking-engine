@@ -53,6 +53,7 @@ export function moneyMinorToMajorString(amountMinor: bigint, currencyInput: stri
 }
 
 export function multiplyMoneyMinor(amountMinor: bigint, quantity: number) {
+  if (amountMinor < 0n || amountMinor > MAX_MONEY_MINOR) throw new PricingValidationError('Money component is outside the supported money range.');
   if (!Number.isSafeInteger(quantity) || quantity < 0) throw new PricingValidationError('Money quantity must be a non-negative integer.');
   const result = amountMinor * BigInt(quantity);
   if (result > MAX_MONEY_MINOR) throw new PricingValidationError('Calculated amount exceeds the supported money range.');

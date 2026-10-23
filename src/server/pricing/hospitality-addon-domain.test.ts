@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { hospitalityAddonAmountMinor, normalizeHospitalityAddonInput, normalizeHospitalityAddonSelections } from './hospitality-addon-domain.ts';
+import { PricingValidationError } from './money.ts';
 
 const propertyId = '11111111-1111-4111-8111-111111111111';
 const roomTypeId = '22222222-2222-4222-8222-222222222222';
@@ -76,4 +77,40 @@ test('calculates each add-on pricing model with integer minor units', () => {
 test('prevents browser quantity from multiplying non-unit add-ons', () => {
   assert.throws(() => hospitalityAddonAmountMinor({ amountMinor: 1000n, pricingModel: 'PER_ROOM_NIGHT', selectedQuantity: 2, roomQuantity: 2, stayNights: 3, maxQuantity: 5 }), /only per-unit/i);
   assert.throws(() => normalizeHospitalityAddonSelections([{ addonId: propertyId, quantity: 101 }]), /quantity must be between/i);
+});
+
+test('normalizes mixed-case add-on UUIDs and rejects case-aliased duplicates', () => {
+  const addonId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  assert.deepEqual(normalizeHospitalityAddonSelections([
+    { addonId: ` ${addonId.toUpperCase()} `, quantity: 2 },
+  ]), [{ addonId, quantity: 2 }]);
+  assert.throws(() => normalizeHospitalityAddonSelections([
+    { addonId, quantity: 1 },
+    { addonId: addonId.toUpperCase(), quantity: 1 },
+  ]), /cannot be selected more than once/i);
+});
+
+test('rejects malformed add-on selection shapes as pricing validation failures', () => {
+  const addonId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  for (const input of [
+    null, {}, 'invalid', [null], [42], [[]], [{}],
+    [{ addonId: 42, quantity: 1 }],
+    [{ addonId, quantity: '2' }],
+    [{ addonId, quantity: 0 }],
+    [{ addonId, quantity: 101 }],
+    [{ addonId, quantity: 1 }, null],
+  ]) {
+    assert.throws(() => normalizeHospitalityAddonSelections(input), PricingValidationError);
+  }
+});
+
+test('rejects unknown add-on pricing models before calculating money', () => {
+  assert.throws(() => hospitalityAddonAmountMinor({
+    amountMinor: 1000n,
+    pricingModel: 'PER_GUEST' as never,
+    selectedQuantity: 1,
+    roomQuantity: 2,
+    stayNights: 3,
+    maxQuantity: 1,
+  }), /pricing model is not supported/i);
 });

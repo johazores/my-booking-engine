@@ -165,6 +165,7 @@ test('keeps booking lifecycle explicit and separate from payment state', () => {
 test('detects idempotent booking retries and mismatched payload reuse including add-ons and guests', () => {
   const original = { holdId, customerId, idempotencyKey: 'booking:12345', expectedPricingFingerprint: fingerprint, addonSelections: [{ addonId: addonA, quantity: 2 }], guests };
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original }), true);
+  assert.equal(bookingConfirmationPayloadMatches(original, { ...original, addonSelections: [{ addonId: addonA.toUpperCase(), quantity: 2 }] }), true);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, holdId: '55555555-5555-4555-8555-555555555555' }), false);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, customerId: '66666666-6666-4666-8666-666666666666' }), false);
   assert.equal(bookingConfirmationPayloadMatches(original, { ...original, expectedPricingFingerprint: 'b'.repeat(64) }), false);

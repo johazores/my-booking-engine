@@ -4,8 +4,10 @@ import test from 'node:test';
 import {
   currencyMinorUnitDigits,
   moneyMinorToMajorString,
+  multiplyMoneyMinor,
   normalizeCurrency,
   parseMoneyMajorToMinor,
+  PricingValidationError,
 } from './money.ts';
 
 test('normalizes supported currencies and respects minor-unit digits', () => {
@@ -33,4 +35,14 @@ test('rejects unsafe or ambiguous monetary input', () => {
   assert.throws(() => parseMoneyMajorToMinor('1,000.00', 'USD'), /without separators/);
   assert.throws(() => parseMoneyMajorToMinor('1.001', 'USD'), /more than 2 decimal/);
   assert.throws(() => normalizeCurrency('US'), /three-letter/);
+});
+
+test('money multiplication rejects negative and out-of-range components before multiplying', () => {
+  assert.equal(multiplyMoneyMinor(125n, 2), 250n);
+  assert.equal(multiplyMoneyMinor(0n, 0), 0n);
+  for (const amount of [-1n, 9_000_000_000_000_001n]) {
+    assert.throws(() => multiplyMoneyMinor(amount, 0), PricingValidationError);
+    assert.throws(() => multiplyMoneyMinor(amount, 1), PricingValidationError);
+  }
+  assert.throws(() => multiplyMoneyMinor(9_000_000_000_000_000n, 2), PricingValidationError);
 });
