@@ -92,7 +92,12 @@ export function normalizeRentalCurrency(value: string) {
 }
 
 export function normalizeRentalMoneyMinor(value: string | number, field = 'Daily rate') {
-  const normalized = typeof value === 'number' ? value : Number(value.trim());
+  // Accept only bounded decimal whole minor units, not Number() exponent/hex/fraction syntax.
+  const normalized = typeof value === 'number'
+    ? value
+    : /^[0-9]{1,64}$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
   if (!Number.isSafeInteger(normalized) || normalized <= 0 || normalized > 100_000_000) {
     throw new RentalInventoryValidationError(`${field} must be a positive minor-unit amount.`);
   }

@@ -168,3 +168,7 @@ Dependency-free domain/source contracts cover deterministic pricing and authorit
 Guarded PostgreSQL scenarios remain registered under `npm run test:database` and must target an explicitly disposable database. Live Prisma validation, migration/drift checks, complete typecheck/lint/test/build, and PostgreSQL execution must not be claimed without the repository-supported Node 24 toolchain and required environment.
 
 GitHub Actions are intentionally not required or used.
+
+## Strict rental price input
+
+New unit-type daily rates and dated rental rate overrides accept bounded base-10 whole-number minor-unit strings only, subject to the existing positive and maximum amount limits. Exponent notation (`1e2`), hexadecimal (`0x64`), fractions, and trailing characters are rejected rather than silently converted by JavaScript `Number()`. Numeric service inputs retain safe-integer/range checks. This is an input-boundary correction, not repricing or a migration of existing rates.

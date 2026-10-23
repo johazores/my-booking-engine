@@ -29,3 +29,14 @@ test('requires explicit image removal confirmation', () => {
   assert.doesNotThrow(() => assertHospitalityImageRemoveConfirmation(' remove '));
   assert.throws(() => assertHospitalityImageRemoveConfirmation('yes'), /Type REMOVE/);
 });
+
+test('rejects truncated and non-decimal image sort-order input', () => {
+  const image = (sortOrder: string) => normalizeHospitalityImageInput({
+    url: 'https://cdn.example.test/room.jpg', altText: 'Room', sortOrder, isPrimary: '',
+  });
+  assert.equal(image(' 12 ').sortOrder, 12);
+  assert.equal(image('').sortOrder, 0);
+  for (const invalid of ['12junk', '1e2', '0x10', '3.5', '+5', '9'.repeat(64)]) {
+    assert.throws(() => image(invalid), /sort order/);
+  }
+});

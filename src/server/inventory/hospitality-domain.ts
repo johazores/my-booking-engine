@@ -100,7 +100,8 @@ export function normalizePropertyInput(input: PropertyInput) {
 }
 
 export function normalizeRoomTypeInput(input: RoomTypeInput) {
-  const maxOccupancy = Number.parseInt(input.maxOccupancy, 10);
+  const occupancyInput = input.maxOccupancy.trim();
+  const maxOccupancy = /^[0-9]{1,16}$/.test(occupancyInput) ? Number(occupancyInput) : Number.NaN;
   if (!Number.isSafeInteger(maxOccupancy) || maxOccupancy < 1 || maxOccupancy > 50) {
     throw new HospitalityInventoryValidationError('Maximum occupancy must be between 1 and 50.');
   }
@@ -136,12 +137,14 @@ export function assertInventoryArchiveConfirmation(value: string) {
 }
 
 export function parseInventoryPage(value: string | undefined) {
-  const page = Number.parseInt(value ?? '', 10);
+  const normalized = value?.trim() ?? '';
+  const page = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
 export function parseInventoryPageSize(value: string | undefined) {
-  const size = Number.parseInt(value ?? '', 10);
+  const normalized = value?.trim() ?? '';
+  const size = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   if (!Number.isSafeInteger(size) || size < 1) return INVENTORY_PAGE_SIZE_DEFAULT;
   return Math.min(size, INVENTORY_PAGE_SIZE_MAX);
 }

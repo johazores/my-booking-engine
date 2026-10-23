@@ -29,7 +29,8 @@ export function normalizeHospitalityImageInput(input: HospitalityImageInput) {
     throw new HospitalityInventoryValidationError('Image alt text must be between 1 and 200 characters.');
   }
 
-  const sortOrder = Number.parseInt(input.sortOrder || '0', 10);
+  const sortOrderInput = input.sortOrder.trim() || '0';
+  const sortOrder = /^[0-9]{1,16}$/.test(sortOrderInput) ? Number(sortOrderInput) : Number.NaN;
   if (!Number.isSafeInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) {
     throw new HospitalityInventoryValidationError('Image sort order must be between 0 and 9999.');
   }

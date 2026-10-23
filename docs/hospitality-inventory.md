@@ -132,3 +132,7 @@ All mutation routes are same-origin, authenticated handlers that call tenant-sco
 ## Validation
 
 The standard unit-test command includes restriction normalization tests. `npm run test:database` includes PostgreSQL coverage for restriction permissions, Tenant A/Tenant B denial, rate-plan assignment requirements, allowed cross-scope overlap, rejected same-scope overlap, dependency-safe assignment/rate-plan/property lifecycle, and audit records after migrations are deployed to an explicitly disposable database.
+
+## Strict inventory numeric input
+
+Room-type maximum occupancy and image sort order require bounded base-10 whole-number text before conversion. Suffixes, fractions, exponent notation, and hexadecimal are rejected instead of being partially accepted by `parseInt`. Inventory page/page-size parsing also ignores non-decimal or suffixed query values and uses the existing safe defaults. Existing valid ranges, page-size caps, tenant authorization, and database constraints remain unchanged; previously stored inventory has not been audited.

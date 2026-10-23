@@ -52,3 +52,18 @@ test('requires explicit archive confirmation and bounds pagination', () => {
   assert.equal(parseInventoryPageSize('500'), 50);
   assert.equal(parseInventoryPageSize('0'), 20);
 });
+
+test('rejects truncated and non-decimal hospitality inventory numbers', () => {
+  const roomType = (maxOccupancy: string) => normalizeRoomTypeInput({
+    propertyId: 'p', name: 'King', code: 'KING', maxOccupancy, bedsDescription: '',
+  });
+  assert.equal(roomType(' 3 ').maxOccupancy, 3);
+  for (const invalid of ['3rooms', '3.5', '3e0', '0x3', '+3', '3/4', '9'.repeat(64)]) {
+    assert.throws(() => roomType(invalid), /Maximum occupancy/);
+  }
+  assert.equal(parseInventoryPage(' 4 '), 4);
+  assert.equal(parseInventoryPage('004'), 4);
+  for (const invalid of ['12junk', '2e3', '2.5', '0x10', '9'.repeat(64)]) assert.equal(parseInventoryPage(invalid), 1);
+  assert.equal(parseInventoryPageSize(' 50 '), 50);
+  for (const invalid of ['50junk', '1e2', '2.5', '0x20', '9'.repeat(64)]) assert.equal(parseInventoryPageSize(invalid), 20);
+});
