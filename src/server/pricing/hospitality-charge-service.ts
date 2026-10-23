@@ -2,8 +2,8 @@ import { formatAvailabilityDate } from '../availability/availability-domain.ts';
 import { requireOrganizationPermission } from '../authorization/authorization-service.ts';
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
-import { normalizeHospitalityChargeRuleInput, percentageAmountMinor, type HospitalityChargeRuleInput } from './hospitality-charge-domain.ts';
-import { addMoneyMinor, multiplyMoneyMinor, PricingValidationError } from './money.ts';
+import { calculateHospitalityChargeAmountMinor, normalizeHospitalityChargeRuleInput, type HospitalityChargeRuleInput } from './hospitality-charge-domain.ts';
+import { addMoneyMinor, PricingValidationError } from './money.ts';
 import { normalizePricingPagination } from './pricing-boundary.ts';
 
 export class HospitalityChargeUnavailableError extends Error {
@@ -176,18 +176,17 @@ export async function quoteHospitalityCharges(input: {
     const end = formatAvailabilityDate(rule.endDate);
     const eligibleNights = input.nightly.filter((night) => night.date >= start && night.date <= end);
     if (eligibleNights.length === 0) return [];
-    const eligibleUnitSubtotal = addMoneyMinor(eligibleNights.map((night) => BigInt(night.amountMinor)));
-    const eligibleSubtotal = multiplyMoneyMinor(eligibleUnitSubtotal, input.quantity);
-    let amountMinor: bigint;
-    if (rule.calculation === 'PERCENTAGE') {
-      amountMinor = percentageAmountMinor(eligibleSubtotal, rule.percentageBps ?? 0);
-    } else if (rule.calculation === 'FIXED_PER_ROOM_NIGHT') {
-      if (rule.currency !== input.currency || rule.amountMinor === null) throw new HospitalityChargeUnavailableError(`Charge ${rule.code} does not match the quote currency.`);
-      amountMinor = multiplyMoneyMinor(rule.amountMinor, eligibleNights.length * input.quantity);
-    } else {
-      if (rule.currency !== input.currency || rule.amountMinor === null) throw new HospitalityChargeUnavailableError(`Charge ${rule.code} does not match the quote currency.`);
-      amountMinor = rule.amountMinor;
-    }
+    const amountMinor = calculateHospitalityChargeAmountMinor({
+      kind: rule.kind,
+      calculation: rule.calculation,
+      percentageBps: rule.percentageBps,
+      amountMinor: rule.amountMinor,
+      currency: rule.currency,
+      quoteCurrency: input.currency,
+      eligibleUnitSubtotalMinor: addMoneyMinor(eligibleNights.map((night) => BigInt(night.amountMinor))),
+      eligibleNights: eligibleNights.length,
+      roomQuantity: input.quantity,
+    });
     return [{ id: rule.id, code: rule.code, name: rule.name, kind: rule.kind, calculation: rule.calculation, amountMinor: amountMinor.toString(), currency: input.currency }];
   });
   const taxTotal = addMoneyMinor(charges.filter((charge) => charge.kind === 'TAX').map((charge) => BigInt(charge.amountMinor)));

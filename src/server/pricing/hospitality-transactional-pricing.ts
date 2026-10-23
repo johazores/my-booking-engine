@@ -4,7 +4,7 @@ import { formatAvailabilityDate, normalizeAvailabilityRequest, type Availability
 import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { hospitalityAddonAmountMinor, normalizeHospitalityAddonSelections, type HospitalityAddonSelectionInput } from './hospitality-addon-domain.ts';
-import { percentageAmountMinor } from './hospitality-charge-domain.ts';
+import { calculateHospitalityChargeAmountMinor } from './hospitality-charge-domain.ts';
 import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
 
 const DAY_MS = 86_400_000;
@@ -107,22 +107,17 @@ export async function quoteHospitalityPriceFromReader(input: {
     const eligibleNights = nightly.filter((night) => night.date >= start && night.date <= end);
     if (eligibleNights.length === 0) return [];
 
-    const eligibleUnitSubtotal = addMoneyMinor(eligibleNights.map((night) => BigInt(night.amountMinor)));
-    const eligibleSubtotal = multiplyMoneyMinor(eligibleUnitSubtotal, request.quantity);
-    let amountMinor: bigint;
-    if (rule.calculation === 'PERCENTAGE') {
-      amountMinor = percentageAmountMinor(eligibleSubtotal, rule.percentageBps ?? 0);
-    } else if (rule.calculation === 'FIXED_PER_ROOM_NIGHT') {
-      if (rule.currency !== organization.currency || rule.amountMinor === null) {
-        throw new HospitalityTransactionalPricingUnavailableError(`Charge ${rule.code} does not match the quote currency.`);
-      }
-      amountMinor = multiplyMoneyMinor(rule.amountMinor, eligibleNights.length * request.quantity);
-    } else {
-      if (rule.currency !== organization.currency || rule.amountMinor === null) {
-        throw new HospitalityTransactionalPricingUnavailableError(`Charge ${rule.code} does not match the quote currency.`);
-      }
-      amountMinor = rule.amountMinor;
-    }
+    const amountMinor = calculateHospitalityChargeAmountMinor({
+      kind: rule.kind,
+      calculation: rule.calculation,
+      percentageBps: rule.percentageBps,
+      amountMinor: rule.amountMinor,
+      currency: rule.currency,
+      quoteCurrency: organization.currency,
+      eligibleUnitSubtotalMinor: addMoneyMinor(eligibleNights.map((night) => BigInt(night.amountMinor))),
+      eligibleNights: eligibleNights.length,
+      roomQuantity: request.quantity,
+    });
 
     return [{
       id: rule.id,

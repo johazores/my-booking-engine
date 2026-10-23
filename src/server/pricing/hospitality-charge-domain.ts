@@ -1,5 +1,5 @@
 import { parseAvailabilityDate } from '../availability/availability-domain.ts';
-import { parseMoneyMajorToMinor, PricingValidationError } from './money.ts';
+import { multiplyMoneyMinor, parseMoneyMajorToMinor, PricingValidationError } from './money.ts';
 
 export type HospitalityChargeKind = 'TAX' | 'FEE';
 export type HospitalityChargeCalculation = 'PERCENTAGE' | 'FIXED_PER_BOOKING' | 'FIXED_PER_ROOM_NIGHT';
@@ -86,6 +86,52 @@ export function normalizeHospitalityChargeRuleInput(input: HospitalityChargeRule
 }
 
 export function percentageAmountMinor(amountMinor: bigint, basisPoints: number) {
-  if (amountMinor < 0n || !Number.isSafeInteger(basisPoints) || basisPoints < 0 || basisPoints > 10_000) throw new PricingValidationError('Percentage calculation inputs are invalid.');
-  return ((amountMinor * BigInt(basisPoints)) + 5_000n) / 10_000n;
+  if (!Number.isSafeInteger(basisPoints) || basisPoints < 0 || basisPoints > 10_000) throw new PricingValidationError('Percentage calculation inputs are invalid.');
+  const boundedAmount = multiplyMoneyMinor(amountMinor, 1);
+  return ((boundedAmount * BigInt(basisPoints)) + 5_000n) / 10_000n;
 }
+
+/**
+ * Derive a charge from persisted rule evidence. Unknown or inconsistent stored
+ * configurations must not silently become fixed booking charges or zero tax.
+ */
+export function calculateHospitalityChargeAmountMinor(input: {
+  kind: string;
+  calculation: string;
+  percentageBps: number | null;
+  amountMinor: bigint | null;
+  currency: string | null;
+  quoteCurrency: string;
+  eligibleUnitSubtotalMinor: bigint;
+  eligibleNights: number;
+  roomQuantity: number;
+}) {
+  if (input.kind !== 'TAX' && input.kind !== 'FEE') {
+    throw new PricingValidationError('Stored charge kind is not supported.');
+  }
+  if (!['PERCENTAGE', 'FIXED_PER_BOOKING', 'FIXED_PER_ROOM_NIGHT'].includes(input.calculation)) {
+    throw new PricingValidationError('Stored charge calculation is not supported.');
+  }
+  if (!Number.isSafeInteger(input.eligibleNights) || input.eligibleNights < 1 || input.eligibleNights > 366) {
+    throw new PricingValidationError('Charge stay length is outside the supported range.');
+  }
+  if (!Number.isSafeInteger(input.roomQuantity) || input.roomQuantity < 1 || input.roomQuantity > 50) {
+    throw new PricingValidationError('Charge room quantity is outside the supported range.');
+  }
+
+  const eligibleSubtotal = multiplyMoneyMinor(input.eligibleUnitSubtotalMinor, input.roomQuantity);
+  if (input.calculation === 'PERCENTAGE') {
+    if (!Number.isSafeInteger(input.percentageBps) || input.percentageBps === null || input.percentageBps < 1 || input.percentageBps > 10_000 || input.amountMinor !== null || input.currency !== null) {
+      throw new PricingValidationError('Stored percentage charge configuration is invalid.');
+    }
+    return percentageAmountMinor(eligibleSubtotal, input.percentageBps);
+  }
+
+  if (input.percentageBps !== null || typeof input.amountMinor !== 'bigint' || input.amountMinor <= 0n || input.currency !== input.quoteCurrency) {
+    throw new PricingValidationError('Stored fixed charge configuration is invalid.');
+  }
+  return multiplyMoneyMinor(input.amountMinor, input.calculation === 'FIXED_PER_ROOM_NIGHT'
+    ? input.eligibleNights * input.roomQuantity
+    : 1);
+}
+

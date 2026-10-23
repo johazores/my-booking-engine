@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeHospitalityChargeRuleInput, parsePercentageToBasisPoints, percentageAmountMinor } from './hospitality-charge-domain.ts';
+import { calculateHospitalityChargeAmountMinor, normalizeHospitalityChargeRuleInput, parsePercentageToBasisPoints, percentageAmountMinor } from './hospitality-charge-domain.ts';
 
 test('normalizes percentage tax rules and exact scopes', () => {
   const rule = normalizeHospitalityChargeRuleInput({ propertyId: ' property ', roomTypeId: '', ratePlanId: '', name: ' VAT ', code: ' vat ', kind: 'tax', calculation: 'percentage', value: '12.5', startDate: '2026-09-01', endDate: '2026-12-31' }, 'PHP');
@@ -23,4 +23,46 @@ test('validates fixed charge values and paired scoped identifiers', () => {
 test('percentage money calculation rounds half up to the nearest minor unit', () => {
   assert.equal(percentageAmountMinor(999n, 1250), 125n);
   assert.equal(percentageAmountMinor(1000n, 1250), 125n);
+});
+
+test('persisted percentage and fixed charge models produce exact bounded totals', () => {
+  const base = {
+    kind: 'TAX', calculation: 'PERCENTAGE', percentageBps: 1250,
+    amountMinor: null, currency: null, quoteCurrency: 'PHP',
+    eligibleUnitSubtotalMinor: 999n, eligibleNights: 2, roomQuantity: 2,
+  };
+  assert.equal(calculateHospitalityChargeAmountMinor(base), 250n);
+  assert.equal(calculateHospitalityChargeAmountMinor({
+    ...base, kind: 'FEE', calculation: 'FIXED_PER_BOOKING',
+    percentageBps: null, amountMinor: 100n, currency: 'PHP',
+  }), 100n);
+  assert.equal(calculateHospitalityChargeAmountMinor({
+    ...base, kind: 'FEE', calculation: 'FIXED_PER_ROOM_NIGHT',
+    percentageBps: null, amountMinor: 100n, currency: 'PHP',
+  }), 400n);
+});
+
+test('persisted charge corruption cannot silently change tax or fee meaning', () => {
+  const base = {
+    kind: 'TAX', calculation: 'PERCENTAGE', percentageBps: 1250,
+    amountMinor: null, currency: null, quoteCurrency: 'PHP',
+    eligibleUnitSubtotalMinor: 1000n, eligibleNights: 2, roomQuantity: 1,
+  };
+  for (const invalid of [
+    { kind: 'UNKNOWN' },
+    { calculation: 'UNKNOWN' },
+    { percentageBps: null },
+    { percentageBps: 0 },
+    { percentageBps: 10_001 },
+    { amountMinor: 100n },
+    { currency: 'PHP' },
+    { calculation: 'FIXED_PER_BOOKING', amountMinor: 100n, currency: 'PHP' },
+    { calculation: 'FIXED_PER_BOOKING', percentageBps: null, amountMinor: 100n, currency: 'USD' },
+    { calculation: 'FIXED_PER_BOOKING', percentageBps: null, amountMinor: 0n, currency: 'PHP' },
+    { eligibleNights: 0 },
+    { roomQuantity: 0 },
+  ]) {
+    assert.throws(() => calculateHospitalityChargeAmountMinor({ ...base, ...invalid }), /charge|money/i);
+  }
+  assert.throws(() => percentageAmountMinor(9_000_000_000_000_001n, 0), /money range/i);
 });
