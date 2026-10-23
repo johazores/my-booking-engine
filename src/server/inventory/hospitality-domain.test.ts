@@ -67,3 +67,8 @@ test('rejects truncated and non-decimal hospitality inventory numbers', () => {
   assert.equal(parseInventoryPageSize(' 50 '), 50);
   for (const invalid of ['50junk', '1e2', '2.5', '0x20', '9'.repeat(64)]) assert.equal(parseInventoryPageSize(invalid), 20);
 });
+
+test('ignores repeated inventory page and page-size query values', () => {
+  assert.equal(parseInventoryPage(['2', '3']), 1);
+  assert.equal(parseInventoryPageSize(['25', '50']), 20);
+});

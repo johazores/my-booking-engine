@@ -115,3 +115,7 @@ The disposable PostgreSQL suite includes customer integration coverage for:
 - archived-record immutability
 
 Live database execution must only be claimed after `npm run test:database` runs against an explicitly confirmed disposable PostgreSQL target. GitHub Actions are not used.
+
+## Strict customer collection query input
+
+Customer search and pagination treat repeated query parameters as invalid scalar input, falling back to empty search and safe page defaults. Page/page-size text must be a bounded base-10 whole number; suffixes, fractions, exponent notation, and hexadecimal are ignored instead of partially parsed by `parseInt`. Tenant-scoped reads, sorting, status filtering, and existing page-size limits are unchanged.

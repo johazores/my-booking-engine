@@ -136,14 +136,14 @@ export function assertInventoryArchiveConfirmation(value: string) {
   }
 }
 
-export function parseInventoryPage(value: string | undefined) {
-  const normalized = value?.trim() ?? '';
+export function parseInventoryPage(value: string | string[] | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
   const page = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
-export function parseInventoryPageSize(value: string | undefined) {
-  const normalized = value?.trim() ?? '';
+export function parseInventoryPageSize(value: string | string[] | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
   const size = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   if (!Number.isSafeInteger(size) || size < 1) return INVENTORY_PAGE_SIZE_DEFAULT;
   return Math.min(size, INVENTORY_PAGE_SIZE_MAX);

@@ -136,3 +136,5 @@ The standard unit-test command includes restriction normalization tests. `npm ru
 ## Strict inventory numeric input
 
 Room-type maximum occupancy and image sort order require bounded base-10 whole-number text before conversion. Suffixes, fractions, exponent notation, and hexadecimal are rejected instead of being partially accepted by `parseInt`. Inventory page/page-size parsing also ignores non-decimal or suffixed query values and uses the existing safe defaults. Existing valid ranges, page-size caps, tenant authorization, and database constraints remain unchanged; previously stored inventory has not been audited.
+
+Repeated inventory page or page-size query parameters are ignored instead of causing a rendering exception; only a single string value can select a page.

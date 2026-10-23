@@ -67,8 +67,8 @@ export function normalizeCustomerInput(input: CustomerInput) {
   };
 }
 
-export function normalizeCustomerSearch(value: string | undefined) {
-  const search = value?.trim().replace(/\s+/g, ' ') ?? '';
+export function normalizeCustomerSearch(value: string | string[] | undefined) {
+  const search = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
   return search.slice(0, 120);
 }
 
@@ -80,13 +80,15 @@ export function parseCustomerSort(value: string | undefined): CustomerSort {
   return value === 'oldest' || value === 'name-asc' || value === 'name-desc' ? value : 'newest';
 }
 
-export function parseCustomerPage(value: string | undefined) {
-  const page = Number.parseInt(value ?? '', 10);
+export function parseCustomerPage(value: string | string[] | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  const page = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
-export function parseCustomerPageSize(value: string | undefined) {
-  const size = Number.parseInt(value ?? '', 10);
+export function parseCustomerPageSize(value: string | string[] | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  const size = /^[0-9]{1,16}$/.test(normalized) ? Number(normalized) : Number.NaN;
   if (!Number.isSafeInteger(size) || size < 1) return CUSTOMER_PAGE_SIZE_DEFAULT;
   return Math.min(size, CUSTOMER_PAGE_SIZE_MAX);
 }

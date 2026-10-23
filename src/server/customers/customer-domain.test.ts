@@ -67,3 +67,16 @@ test('parses bounded list query values defensively', () => {
   assert.equal(parseCustomerPageSize('999'), 50);
   assert.equal(parseCustomerPageSize('0'), 20);
 });
+
+test('rejects non-decimal and repeated customer collection query values', () => {
+  assert.equal(normalizeCustomerSearch(['Ana', 'Santos']), '');
+  assert.equal(parseCustomerPage(['2', '3']), 1);
+  assert.equal(parseCustomerPageSize(['25', '50']), 20);
+  assert.equal(parseCustomerPage(' 4 '), 4);
+  assert.equal(parseCustomerPage('004'), 4);
+  assert.equal(parseCustomerPageSize(' 50 '), 50);
+  for (const invalid of ['12junk', '1e2', '3.5', '0x10', '9'.repeat(64)]) {
+    assert.equal(parseCustomerPage(invalid), 1);
+    assert.equal(parseCustomerPageSize(invalid), 20);
+  }
+});
