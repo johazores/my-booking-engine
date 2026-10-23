@@ -15,6 +15,9 @@ test('normalizes supported currencies and respects minor-unit digits', () => {
   assert.equal(currencyMinorUnitDigits('USD'), 2);
   assert.equal(currencyMinorUnitDigits('JPY'), 0);
   assert.equal(currencyMinorUnitDigits('BHD'), 3);
+  for (const invalid of ['ZZZ', 'FOO', 'XXX', 'XTS']) {
+    assert.throws(() => normalizeCurrency(invalid), /supported by the runtime currency data/);
+  }
 });
 
 test('parses decimal money to exact integer minor units', () => {

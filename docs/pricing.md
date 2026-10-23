@@ -8,6 +8,8 @@ SF implements the production hospitality pricing foundation for normalized money
 
 Money is never stored or calculated with JavaScript floating-point values. Persisted amounts use integer minor units (`BIGINT`) plus a canonical three-letter currency code. Form input is parsed according to the runtime currency minor-unit rules, so currencies such as JPY (0 decimals), PHP/USD (2), and BHD (3) are handled without rounding through binary floats.
 
+Pricing currency normalization requires an active currency code present in the deployment runtime's ISO 4217 currency data (`Intl.supportedValuesOf('currency')`), not merely any three ASCII letters. `Intl.NumberFormat` alone accepts fabricated three-letter identifiers such as `ZZZ`, so it is not sufficient currency validation. Currency-aware amount parsing fails closed for those identifiers. Existing persisted currency values have not been automatically rewritten; a database audit is required before claiming historical currency cleanup.
+
 Pricing arithmetic rejects negative components and values outside SF's bounded commercial range, including multiplication by zero of an invalid input component. Service/audit payloads serialize bigint values to decimal strings before JSON use. Decimal form amounts are limited to 64 input characters before exact integer conversion, including leading zeroes and whitespace; overlong values are rejected with a typed pricing validation error rather than processed as unbounded BigInt input.
 
 ## Hospitality base rates

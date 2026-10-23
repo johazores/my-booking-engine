@@ -36,6 +36,9 @@ test('normalizes exact payment money and tenant-owned operation identifiers', ()
 
 test('rejects malformed payment money and idempotency inputs', () => {
   assert.throws(() => normalizePaymentMoney('US', 100n), /three-letter ISO currency code/);
+  for (const invalid of ['ZZZ', 'FOO', 'XXX']) {
+    assert.throws(() => normalizePaymentMoney(invalid, 100n), PaymentInputValidationError);
+  }
   assert.throws(() => normalizePaymentMoney('USD', -1n), /non-negative integer minor-unit/);
   assert.throws(() => normalizePaymentMoney('USD', '1.00'), /non-negative integer minor-unit/);
   assert.throws(() => normalizePaymentMoney('USD', 100), /non-negative integer minor-unit/);

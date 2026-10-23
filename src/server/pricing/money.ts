@@ -9,13 +9,17 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const MONEY_PATTERN = /^\d+(?:\.\d+)?$/;
 const MAX_MONEY_MINOR = 9_000_000_000_000_000n;
 const MAX_MONEY_INPUT_LENGTH = 64;
+const SUPPORTED_CURRENCY_CODES = new Set(Intl.supportedValuesOf('currency'));
+
+/** Only currencies present in the runtime's active ISO 4217 data are sellable. */
+export function isSupportedCurrencyCode(value: string): boolean {
+  return CURRENCY_PATTERN.test(value) && SUPPORTED_CURRENCY_CODES.has(value);
+}
 
 export function normalizeCurrency(value: string) {
   const currency = value.trim().toUpperCase();
   if (!CURRENCY_PATTERN.test(currency)) throw new PricingValidationError('Currency must use a three-letter ISO code.');
-  try {
-    new Intl.NumberFormat('en', { style: 'currency', currency }).format(0);
-  } catch {
+  if (!isSupportedCurrencyCode(currency)) {
     throw new PricingValidationError('Currency must be supported by the runtime currency data.');
   }
   return currency;

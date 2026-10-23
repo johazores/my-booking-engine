@@ -41,6 +41,9 @@ test('validates organization onboarding and settings fields centrally', () => {
   assert.throws(() => createOrganizationKind('AIRLINE'), OrganizationValidationError);
   assert.throws(() => createOrganizationTimezone('Not/A_Timezone'), OrganizationValidationError);
   assert.throws(() => createOrganizationCurrency('US'), OrganizationValidationError);
+  for (const invalid of ['ZZZ', 'FOO', 'XXX']) {
+    assert.throws(() => createOrganizationCurrency(invalid), OrganizationValidationError);
+  }
 });
 
 test('enforces organization lifecycle transitions', () => {

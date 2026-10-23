@@ -4,7 +4,7 @@ SF rental inventory is a tenant-owned production foundation for rentable physica
 
 ## Implemented scope
 
-- Rental unit types with tenant-local codes, currency, and a required default daily price in minor units.
+- Rental unit types with tenant-local codes, an active ISO 4217 currency recognized by the runtime (not an arbitrary three-letter token), and a required default daily price in minor units.
 - Tenant-owned operating/home locations with tenant-local codes, postal address fields, two-letter country code, IANA timezone, and active/archive lifecycle.
 - Individually managed rental units linked to a unit type and active tenant location for newly created units.
 - Audited unit relocation between active locations, blocked while the unit has a non-cancelled booking allocation.

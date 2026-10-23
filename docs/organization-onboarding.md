@@ -4,7 +4,7 @@
 
 Authenticated SF users can create an organization from `/account`. Creation is a server-side workflow: input is normalized and validated in the organization domain, then the organization, creator's `ACTIVE` membership with `ADMIN` role, and creation audit event are persisted atomically. Authentication never grants membership in an existing tenant.
 
-Organization onboarding validates business name, canonical slug, supported business kind, IANA timezone, and three-letter currency code. A missing slug is derived from the business name. Unique slug conflicts are translated into safe user-facing feedback instead of exposing database details.
+Organization onboarding validates business name, canonical slug, supported business kind, IANA timezone, and an active ISO 4217 currency code from the runtime currency data. A syntactically three-letter but unsupported identifier (for example `ZZZ`) is rejected before tenant creation. Settings use the same validation. Existing tenant currencies are not migrated or silently corrected by this input guard. A missing slug is derived from the business name. Unique slug conflicts are translated into safe user-facing feedback instead of exposing database details.
 
 ## Active organization selection
 

@@ -1,6 +1,7 @@
+import { isSupportedCurrencyCode } from '../pricing/money.ts';
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9:_-]{8,120}$/;
-const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
 export const paymentProviderCapabilities = [
   'OFFLINE_RECORDING',
@@ -146,7 +147,7 @@ export function isBoundedMinorUnitString(value: unknown): value is string {
 export function normalizePaymentMoney(currency: unknown, amountMinor: unknown): PaymentMoney {
   if (typeof currency !== 'string') throw new PaymentInputValidationError('Payment currency is required.');
   const normalizedCurrency = currency.trim().toUpperCase();
-  if (!CURRENCY_PATTERN.test(normalizedCurrency)) throw new PaymentInputValidationError('Payment currency must be a three-letter ISO currency code.');
+  if (!isSupportedCurrencyCode(normalizedCurrency)) throw new PaymentInputValidationError('Payment currency must be a supported three-letter ISO currency code.');
 
   let normalizedAmount: bigint;
   try {

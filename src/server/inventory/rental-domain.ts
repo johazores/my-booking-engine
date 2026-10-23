@@ -1,3 +1,5 @@
+import { isSupportedCurrencyCode } from '../pricing/money.ts';
+
 export class RentalInventoryValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -83,8 +85,8 @@ export function normalizeRentalTimeZone(value: string) {
 
 export function normalizeRentalCurrency(value: string) {
   const normalized = value.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(normalized)) {
-    throw new RentalInventoryValidationError('Currency must be a three-letter ISO-style code.');
+  if (!isSupportedCurrencyCode(normalized)) {
+    throw new RentalInventoryValidationError('Currency must be a supported three-letter ISO currency code.');
   }
   return normalized;
 }

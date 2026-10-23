@@ -1,3 +1,5 @@
+import { isSupportedCurrencyCode } from '../pricing/money.ts';
+
 export const ORGANIZATION_SLUG_MAX_LENGTH = 63;
 export const ORGANIZATION_SLUG_MIN_LENGTH = 3;
 export const ORGANIZATION_NAME_MAX_LENGTH = 160;
@@ -83,7 +85,7 @@ export function createOrganizationTimezone(value: string) {
 
 export function createOrganizationCurrency(value: string) {
   const currency = value.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(currency)) throw new OrganizationValidationError('Currency must be a three-letter code.');
+  if (!isSupportedCurrencyCode(currency)) throw new OrganizationValidationError('Currency must be a supported three-letter ISO currency code.');
   return currency;
 }
 
