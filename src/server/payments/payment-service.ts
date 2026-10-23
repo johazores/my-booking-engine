@@ -12,6 +12,7 @@ import {
   PaymentInputValidationError,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
+  isBoundedMinorUnitString,
 } from './payment-provider.ts';
 import { deriveBookingRefundExecutionPlan } from './payment-refund-execution-domain.ts';
 
@@ -47,7 +48,7 @@ function normalizeOptionalPositiveMinorAmount(value: unknown): bigint | null {
     if (value <= 0n) throw new PaymentInputValidationError('Refund amount must be greater than zero.');
     return value;
   }
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
+  if (isBoundedMinorUnitString(value)) {
     const amount = BigInt(value);
     if (amount <= 0n) throw new PaymentInputValidationError('Refund amount must be greater than zero.');
     return amount;

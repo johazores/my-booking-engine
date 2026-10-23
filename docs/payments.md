@@ -4,7 +4,7 @@ SF keeps booking state and payment state separate. Provider-specific behavior st
 
 ## Provider contract and adapters
 
-`src/server/payments/payment-provider.ts` defines explicit capabilities for offline recording/refunds, authorization, capture, authorization release, refunds, and webhooks. Money is exact integer minor units plus a three-letter currency. Online flows accept only provider-issued references; SF never accepts raw card data.
+`src/server/payments/payment-provider.ts` defines explicit capabilities for offline recording/refunds, authorization, capture, authorization release, refunds, and webhooks. Money is exact integer minor units plus a three-letter currency. String-form minor-unit amounts are bounded to 64 ASCII digits before BigInt conversion in the shared provider contract and the manual/Stripe refund input paths. Existing positive-only refund rules remain unchanged, and trusted bigint inputs retain their prior semantics. Online flows accept only provider-issued references; SF never accepts raw card data.
 
 The manual provider records real money movements that already happened outside SF. Stripe is the first real online adapter. Tenant credentials are loaded only through the encrypted integration boundary. Stripe-specific Checkout, authorization/capture, refunds, polling reconciliation, and webhook verification remain behind Stripe adapter/services.
 

@@ -16,6 +16,7 @@ import {
   PaymentProviderError,
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
+  isBoundedMinorUnitString,
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import {
@@ -59,7 +60,10 @@ function lockKey(organizationId: string, scope: string, value: string) {
 export function normalizeStripeRefundAmount(value: unknown): bigint | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value === 'bigint' && value > 0n) return value;
-  if (typeof value === 'string' && /^\d+$/.test(value) && BigInt(value) > 0n) return BigInt(value);
+  if (isBoundedMinorUnitString(value)) {
+    const amount = BigInt(value);
+    if (amount > 0n) return amount;
+  }
   throw new PaymentInputValidationError('Refund amount must be a positive integer minor-unit value.');
 }
 

@@ -18,6 +18,7 @@ test('Stripe refund amount parsing is exact and rejects unsafe values', () => {
   assert.throws(() => normalizeStripeRefundAmount('0'), /positive integer/i);
   assert.throws(() => normalizeStripeRefundAmount('-1'), /positive integer/i);
   assert.throws(() => normalizeStripeRefundAmount(4100), /positive integer/i);
+  assert.throws(() => normalizeStripeRefundAmount('0'.repeat(65)), /positive integer/i);
 });
 
 test('Stripe refund persistence only marks provider-proven refunds as succeeded', () => {

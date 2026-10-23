@@ -139,6 +139,10 @@ export function normalizePaymentOperationContext(input: {
   });
 }
 
+export function isBoundedMinorUnitString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 && /^\d+$/.test(value);
+}
+
 export function normalizePaymentMoney(currency: unknown, amountMinor: unknown): PaymentMoney {
   if (typeof currency !== 'string') throw new PaymentInputValidationError('Payment currency is required.');
   const normalizedCurrency = currency.trim().toUpperCase();
@@ -147,7 +151,7 @@ export function normalizePaymentMoney(currency: unknown, amountMinor: unknown): 
   let normalizedAmount: bigint;
   try {
     if (typeof amountMinor === 'bigint') normalizedAmount = amountMinor;
-    else if (typeof amountMinor === 'string' && /^\d+$/.test(amountMinor)) normalizedAmount = BigInt(amountMinor);
+    else if (isBoundedMinorUnitString(amountMinor)) normalizedAmount = BigInt(amountMinor);
     else throw new Error();
   } catch {
     throw new PaymentInputValidationError('Payment amount must be a non-negative integer minor-unit value.');

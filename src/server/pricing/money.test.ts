@@ -22,6 +22,12 @@ test('parses decimal money to exact integer minor units', () => {
   assert.equal(moneyMinorToMajorString(125050n, 'PHP'), '1250.50');
 });
 
+test('bounds decimal money input before integer conversion', () => {
+  assert.deepEqual(parseMoneyMajorToMinor('0'.repeat(64), 'USD'), { amountMinor: 0n, currency: 'USD' });
+  assert.throws(() => parseMoneyMajorToMinor('0'.repeat(65), 'USD'), /supported input length/);
+  assert.throws(() => parseMoneyMajorToMinor(' '.repeat(65) + '1', 'USD'), /supported input length/);
+});
+
 test('rejects unsafe or ambiguous monetary input', () => {
   assert.throws(() => parseMoneyMajorToMinor('-1.00', 'USD'), /non-negative/);
   assert.throws(() => parseMoneyMajorToMinor('1,000.00', 'USD'), /without separators/);

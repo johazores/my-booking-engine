@@ -8,6 +8,7 @@ export class PricingValidationError extends Error {
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const MONEY_PATTERN = /^\d+(?:\.\d+)?$/;
 const MAX_MONEY_MINOR = 9_000_000_000_000_000n;
+const MAX_MONEY_INPUT_LENGTH = 64;
 
 export function normalizeCurrency(value: string) {
   const currency = value.trim().toUpperCase();
@@ -27,6 +28,7 @@ export function currencyMinorUnitDigits(currencyInput: string) {
 
 export function parseMoneyMajorToMinor(value: string, currencyInput: string) {
   const currency = normalizeCurrency(currencyInput);
+  if (value.length > MAX_MONEY_INPUT_LENGTH) throw new PricingValidationError('Amount exceeds the supported input length.');
   const normalized = value.trim();
   if (!MONEY_PATTERN.test(normalized)) throw new PricingValidationError('Amount must be a non-negative decimal number without separators.');
   const digits = currencyMinorUnitDigits(currency);

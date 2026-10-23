@@ -10,6 +10,7 @@ import {
   assertPaymentProviderCapability,
   normalizePaymentIdempotencyKey,
   normalizePaymentMoney,
+  isBoundedMinorUnitString,
   normalizePaymentOperationContext,
 } from './payment-provider.ts';
 
@@ -41,6 +42,15 @@ test('rejects malformed payment money and idempotency inputs', () => {
   assert.throws(() => normalizePaymentIdempotencyKey('short'), /8-120/);
   assert.throws(() => normalizePaymentIdempotencyKey('payment key'), /8-120/);
   assert.throws(() => normalizePaymentOperationContext({ organizationId: 'tenant', bookingId, idempotencyKey: 'payment:booking-1', currency: 'USD', amountMinor: '1' }), /Organization ID must be a valid UUID/);
+});
+
+test('bounds integer minor-unit strings before BigInt conversion', () => {
+  assert.equal(isBoundedMinorUnitString('0'.repeat(64)), true);
+  for (const value of ['0'.repeat(65), '', '1.0', '-1', ' 1', 1n, null]) {
+    assert.equal(isBoundedMinorUnitString(value), false);
+  }
+  assert.deepEqual(normalizePaymentMoney('USD', '0'.repeat(64)), { currency: 'USD', amountMinor: 0n });
+  assert.throws(() => normalizePaymentMoney('USD', '0'.repeat(65)), PaymentInputValidationError);
 });
 
 test('manual payment adapter advertises only real offline recording capabilities', async () => {
