@@ -137,3 +137,9 @@ Full repository validation still requires Node 24 and an explicitly disposable P
 Advanced tenant/provider pricing rules should only be introduced when a real business/provider requirement exists rather than speculatively.
 
 For invoice/tax work, the narrow Australian issuer/jurisdiction and legal-document lifecycle is already implemented over immutable accepted-state pricing evidence. The next coherent dependencies are the still-open Phase 12 boundaries: broader mixed/partial/non-standard-GST and correction/void/reissue semantics, durable customer re-authentication/email delivery/resend, universal Unicode-safe deterministic PDFs, production Node 24/PostgreSQL validation, and jurisdiction/legal review. The existing customer-safe payment receipt remains separate settlement evidence and never substitutes for legal-document authority.
+
+## Runtime scalar integrity for money helpers
+
+Shared currency and money helpers fail with typed `PricingValidationError` when runtime callers supply non-string currencies/major-unit amounts, non-bigint minor-unit amounts, non-array additions, or malformed addition entries. TypeScript declarations alone do not validate JSON, database-derived, or provider-derived values at runtime. The same guard applies when multiplying by zero, so an invalid money component cannot be silently accepted in a zero-quantity calculation. `currencyMinorUnitDigits` also validates the runtime's resolved precision before use rather than relying on an optional `Intl` result. Valid exact-integer arithmetic, ISO currency rules, limits, and persisted pricing fingerprints are unchanged.
+
+Focused regression tests live in `src/server/pricing/money.test.ts`. Full repository Node 24/TypeScript 6, Prisma, and PostgreSQL validation remains required; no GitHub Actions are used.

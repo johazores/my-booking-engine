@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  addMoneyMinor,
   currencyMinorUnitDigits,
+  isSupportedCurrencyCode,
   moneyMinorToMajorString,
   multiplyMoneyMinor,
   normalizeCurrency,
@@ -48,4 +50,39 @@ test('money multiplication rejects negative and out-of-range components before m
     assert.throws(() => multiplyMoneyMinor(amount, 1), PricingValidationError);
   }
   assert.throws(() => multiplyMoneyMinor(9_000_000_000_000_000n, 2), PricingValidationError);
+});
+
+
+test('malformed currency scalars produce typed pricing failures without coercion', () => {
+  for (const value of [null, undefined, 123, true, {}, [], Symbol('USD')]) {
+    assert.equal(isSupportedCurrencyCode(value as never), false);
+    assert.throws(() => normalizeCurrency(value as never), PricingValidationError);
+    assert.throws(() => currencyMinorUnitDigits(value as never), PricingValidationError);
+  }
+});
+
+test('malformed major-unit scalars fail before parsing or conversion', () => {
+  for (const value of [null, undefined, 10, 1.25, 10n, false, {}, [], Symbol('10')]) {
+    assert.throws(() => parseMoneyMajorToMinor(value as never, 'USD'), PricingValidationError);
+  }
+});
+
+test('minor-unit formatting and multiplication reject malformed scalars even for zero quantity', () => {
+  for (const value of [null, undefined, 125, '125', true, {}, [], Symbol('125')]) {
+    assert.throws(() => moneyMinorToMajorString(value as never, 'JPY'), PricingValidationError);
+    assert.throws(() => multiplyMoneyMinor(value as never, 0), PricingValidationError);
+  }
+  assert.equal(multiplyMoneyMinor(0n, 0), 0n);
+});
+
+test('money addition rejects non-arrays, non-bigint elements and overflowing sums', () => {
+  assert.equal(addMoneyMinor([125n, 0n, 5n]), 130n);
+  for (const values of [null, undefined, {}, '123', 123]) {
+    assert.throws(() => addMoneyMinor(values as never), PricingValidationError);
+  }
+  for (const value of [null, undefined, 1, '1', false, {}, [], Symbol('1')]) {
+    assert.throws(() => addMoneyMinor([value as never]), PricingValidationError);
+  }
+  assert.throws(() => addMoneyMinor([-1n]), PricingValidationError);
+  assert.throws(() => addMoneyMinor([9_000_000_000_000_000n, 1n]), PricingValidationError);
 });

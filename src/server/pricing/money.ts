@@ -13,10 +13,11 @@ const SUPPORTED_CURRENCY_CODES = new Set(Intl.supportedValuesOf('currency'));
 
 /** Only currencies present in the runtime's active ISO 4217 data are sellable. */
 export function isSupportedCurrencyCode(value: string): boolean {
-  return CURRENCY_PATTERN.test(value) && SUPPORTED_CURRENCY_CODES.has(value);
+  return typeof value === 'string' && CURRENCY_PATTERN.test(value) && SUPPORTED_CURRENCY_CODES.has(value);
 }
 
 export function normalizeCurrency(value: string) {
+  if (typeof value !== 'string') throw new PricingValidationError('Currency must be a string.');
   const currency = value.trim().toUpperCase();
   if (!CURRENCY_PATTERN.test(currency)) throw new PricingValidationError('Currency must use a three-letter ISO code.');
   if (!isSupportedCurrencyCode(currency)) {
@@ -27,11 +28,16 @@ export function normalizeCurrency(value: string) {
 
 export function currencyMinorUnitDigits(currencyInput: string) {
   const currency = normalizeCurrency(currencyInput);
-  return new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
+  const digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
+  if (typeof digits !== 'number' || !Number.isSafeInteger(digits) || digits < 0 || digits > 9) {
+    throw new PricingValidationError('Currency has an unsupported minor-unit precision.');
+  }
+  return digits;
 }
 
 export function parseMoneyMajorToMinor(value: string, currencyInput: string) {
   const currency = normalizeCurrency(currencyInput);
+  if (typeof value !== 'string') throw new PricingValidationError('Amount must be a decimal string.');
   if (value.length > MAX_MONEY_INPUT_LENGTH) throw new PricingValidationError('Amount exceeds the supported input length.');
   const normalized = value.trim();
   if (!MONEY_PATTERN.test(normalized)) throw new PricingValidationError('Amount must be a non-negative decimal number without separators.');
@@ -47,7 +53,7 @@ export function parseMoneyMajorToMinor(value: string, currencyInput: string) {
 
 export function moneyMinorToMajorString(amountMinor: bigint, currencyInput: string) {
   const currency = normalizeCurrency(currencyInput);
-  if (amountMinor < 0n || amountMinor > MAX_MONEY_MINOR) throw new PricingValidationError('Minor-unit amount is outside the supported money range.');
+  if (typeof amountMinor !== 'bigint' || amountMinor < 0n || amountMinor > MAX_MONEY_MINOR) throw new PricingValidationError('Minor-unit amount is outside the supported money range.');
   const digits = currencyMinorUnitDigits(currency);
   if (digits === 0) return amountMinor.toString();
   const scale = 10n ** BigInt(digits);
@@ -57,7 +63,7 @@ export function moneyMinorToMajorString(amountMinor: bigint, currencyInput: stri
 }
 
 export function multiplyMoneyMinor(amountMinor: bigint, quantity: number) {
-  if (amountMinor < 0n || amountMinor > MAX_MONEY_MINOR) throw new PricingValidationError('Money component is outside the supported money range.');
+  if (typeof amountMinor !== 'bigint' || amountMinor < 0n || amountMinor > MAX_MONEY_MINOR) throw new PricingValidationError('Money component is outside the supported money range.');
   if (!Number.isSafeInteger(quantity) || quantity < 0) throw new PricingValidationError('Money quantity must be a non-negative integer.');
   const result = amountMinor * BigInt(quantity);
   if (result > MAX_MONEY_MINOR) throw new PricingValidationError('Calculated amount exceeds the supported money range.');
@@ -65,9 +71,10 @@ export function multiplyMoneyMinor(amountMinor: bigint, quantity: number) {
 }
 
 export function addMoneyMinor(values: readonly bigint[]) {
+  if (!Array.isArray(values)) throw new PricingValidationError('Money components must be an array.');
   let total = 0n;
   for (const value of values) {
-    if (value < 0n) throw new PricingValidationError('Money components cannot be negative.');
+    if (typeof value !== 'bigint' || value < 0n) throw new PricingValidationError('Money components must be non-negative bigint values.');
     total += value;
     if (total > MAX_MONEY_MINOR) throw new PricingValidationError('Calculated amount exceeds the supported money range.');
   }
