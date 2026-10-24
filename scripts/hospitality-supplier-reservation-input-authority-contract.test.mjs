@@ -83,3 +83,18 @@ test('documentation records tenant TOCTOU, authorization, privacy, and activatio
   assert.match(docs, /PAN\/CVV/);
   assert.match(docs, /Travelport `reservation` remains deliberately disabled/);
 });
+
+test('supplier child-age authority is bounded and reused for submission fingerprint re-binding', async () => {
+  const [domain, submission] = await Promise.all([
+    source('src/server/suppliers/hospitality-supplier-reservation-domain.ts'),
+    source('src/server/suppliers/hospitality-supplier-reservation-submission-authority.ts'),
+  ]);
+  assert.match(domain, /export function normalizeHospitalitySupplierReservationChildAges/);
+  assert.match(domain, /length > MAX_CHILDREN/);
+  assert.match(domain, /snapshot\.push\(source\[index\]\)/);
+  assert.match(domain, /normalizeHospitalitySupplierReservationChildAges\(input\.childAges\)/);
+  assert.doesNotMatch(domain, /childAges\.map\(/);
+  assert.match(submission, /normalizeHospitalitySupplierReservationChildAges\(operation\.childAges\)/);
+  assert.match(submission, /childAges: authorityInput\.childAges/);
+  assert.doesNotMatch(submission, /\[\.\.\.operation\.childAges\]/);
+});

@@ -121,6 +121,25 @@ export function normalizeHospitalitySupplierReservationIdempotencyKey(value: unk
   return value;
 }
 
+export function normalizeHospitalitySupplierReservationChildAges(value: unknown): readonly number[] {
+  const source = value === undefined ? [] : value;
+  let snapshot: unknown[];
+  try {
+    if (!Array.isArray(source)) throw new Error('Invalid child-age collection.');
+    const length = source.length;
+    if (!Number.isSafeInteger(length) || length > MAX_CHILDREN) {
+      throw new Error('Invalid child-age collection length.');
+    }
+    snapshot = [];
+    for (let index = 0; index < length; index += 1) {
+      snapshot.push(source[index]);
+    }
+  } catch {
+    throw new HospitalitySupplierReservationValidationError('Child ages are invalid.');
+  }
+  return Object.freeze(snapshot.map((age) => normalizeCount(age, 'Child age', 0, 17)));
+}
+
 export function normalizeHospitalitySupplierReservationSelection(
   input: HospitalitySupplierReservationSelectionInput,
 ): NormalizedHospitalitySupplierReservationSelection {
@@ -157,11 +176,7 @@ export function normalizeHospitalitySupplierReservationSelection(
   }
   const rooms = normalizeCount(input.rooms, 'Room count', 1, MAX_ROOMS);
   const adults = normalizeCount(input.adults, 'Adult count', 1, MAX_GUESTS);
-  const childAges = input.childAges === undefined ? [] : input.childAges;
-  if (!Array.isArray(childAges) || childAges.length > MAX_CHILDREN) {
-    throw new HospitalitySupplierReservationValidationError('Child ages are invalid.');
-  }
-  const normalizedChildAges = childAges.map((age) => normalizeCount(age, 'Child age', 0, 17));
+  const normalizedChildAges = normalizeHospitalitySupplierReservationChildAges(input.childAges);
   if (adults + normalizedChildAges.length > MAX_GUESTS) {
     throw new HospitalitySupplierReservationValidationError('Guest count is invalid.');
   }
@@ -180,7 +195,7 @@ export function normalizeHospitalitySupplierReservationSelection(
     departureDateLocal,
     rooms,
     adults,
-    childAges: Object.freeze(normalizedChildAges),
+    childAges: normalizedChildAges,
   });
 }
 

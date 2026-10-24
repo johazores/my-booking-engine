@@ -167,3 +167,57 @@ test('selection rejects malformed authority, dates, money and occupancy before p
     );
   }
 });
+
+test('child-age authority rejects oversized, sparse, and hostile collections before fingerprinting', () => {
+  const oversized = new Array(33);
+  Object.defineProperty(oversized, 0, { get() { throw new Error('caller secret element'); } });
+  Object.defineProperty(oversized, Symbol.iterator, { value() { throw new Error('caller secret iterator'); } });
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, childAges: oversized }),
+    (error: unknown) => error instanceof HospitalitySupplierReservationValidationError
+      && error.message === 'Child ages are invalid.',
+  );
+
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, childAges: new Array(1) }),
+    HospitalitySupplierReservationValidationError,
+  );
+
+  const broken = [7];
+  Object.defineProperty(broken, 0, { get() { throw new Error('caller secret element'); } });
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, childAges: broken }),
+    (error: unknown) => error instanceof HospitalitySupplierReservationValidationError
+      && error.message === 'Child ages are invalid.',
+  );
+
+  const { proxy, revoke } = Proxy.revocable([7], {});
+  revoke();
+  assert.throws(
+    () => normalizeHospitalitySupplierReservationSelection({ ...selectionInput, childAges: proxy }),
+    (error: unknown) => error instanceof HospitalitySupplierReservationValidationError
+      && error.message === 'Child ages are invalid.',
+  );
+});
+
+test('child-age normalization uses bounded indexed reads, not caller-controlled iteration or map', () => {
+  let indexedReads = 0;
+  const ages = [7];
+  Object.defineProperty(ages, 0, {
+    get() {
+      indexedReads += 1;
+      return indexedReads === 1 ? 7 : 8;
+    },
+  });
+  Object.defineProperty(ages, Symbol.iterator, {
+    value() { throw new Error('caller secret iterator'); },
+  });
+  Object.defineProperty(ages, 'map', {
+    value() { throw new Error('caller secret map'); },
+  });
+  const normalized = normalizeHospitalitySupplierReservationSelection({ ...selectionInput, childAges: ages });
+  assert.deepEqual(normalized.childAges, [7]);
+  assert.equal(indexedReads, 1);
+  assert.ok(Object.isFrozen(normalized.childAges));
+  assert.match(hospitalitySupplierReservationRequestFingerprint(normalized), /^[0-9a-f]{64}$/);
+});

@@ -8,6 +8,7 @@ import {
   HospitalitySupplierReservationConflictError,
   hospitalitySupplierReservationRequestFingerprint,
   normalizeHospitalitySupplierReservationSelection,
+  normalizeHospitalitySupplierReservationChildAges,
 } from './hospitality-supplier-reservation-domain.ts';
 import { deriveHospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
 
@@ -88,6 +89,13 @@ export function hospitalitySupplierReservationAuthorityInputFromOperation(
     );
   }
 
+  let childAges: readonly number[];
+  try {
+    childAges = normalizeHospitalitySupplierReservationChildAges(operation.childAges);
+  } catch {
+    throw authorityConflict();
+  }
+
   return Object.freeze({
     supplierPropertyReference: operation.supplierPropertyReference,
     supplierOfferReference: operation.supplierOfferReference,
@@ -99,7 +107,7 @@ export function hospitalitySupplierReservationAuthorityInputFromOperation(
     checkOutDateLocal: operationDate(operation.departureDate, 'Supplier reservation departure date'),
     rooms: operation.rooms,
     adults: operation.adults,
-    childAges: Object.freeze([...operation.childAges]),
+    childAges,
   });
 }
 
@@ -165,7 +173,7 @@ export function assertHospitalitySupplierReservationSubmissionAuthority(
     departureDateLocal: authorityInput.checkOutDateLocal,
     rooms: operation.rooms,
     adults: operation.adults,
-    childAges: operation.childAges,
+    childAges: authorityInput.childAges,
   });
 
   if (hospitalitySupplierReservationRequestFingerprint(reboundSelection) !== operation.requestFingerprint) {

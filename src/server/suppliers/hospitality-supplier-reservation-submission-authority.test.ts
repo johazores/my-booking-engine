@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  HospitalitySupplierReservationConflictError,
   hospitalitySupplierReservationRequestFingerprint,
   normalizeHospitalitySupplierReservationSelection,
 } from './hospitality-supplier-reservation-domain.ts';
@@ -220,5 +221,45 @@ test('legacy fingerprint versions fail before a fresh provider review can be tru
   assert.throws(
     () => hospitalitySupplierReservationAuthorityInputFromOperation({ ...operation, requestFingerprintVersion: null }),
     /must be reviewed again/i,
+  );
+});
+
+test('submission reuses one bounded child-age snapshot for fresh review and fingerprint authority', () => {
+  let reads = 0;
+  const ages = [7];
+  Object.defineProperty(ages, 0, {
+    get() {
+      reads += 1;
+      return reads === 1 ? 7 : 8;
+    },
+  });
+  Object.defineProperty(ages, Symbol.iterator, {
+    value() { throw new Error('caller secret iterator'); },
+  });
+  const result = assertHospitalitySupplierReservationSubmissionAuthority(
+    { ...operation, childAges: ages },
+    readyReview(),
+  );
+  assert.equal(result.authorityFingerprint, authorityFingerprint);
+  assert.equal(reads, 1);
+
+  const oversized = new Array(33);
+  Object.defineProperty(oversized, 0, { get() { throw new Error('caller secret element'); } });
+  assert.throws(
+    () => hospitalitySupplierReservationAuthorityInputFromOperation({ ...operation, childAges: oversized }),
+    (error: unknown) => error instanceof HospitalitySupplierReservationConflictError
+      && error.message === 'Supplier reservation authority changed after the request was prepared. Review the supplier offer and terms again.',
+  );
+
+  const throwingOperation = {
+    ...operation,
+    get childAges(): readonly number[] {
+      throw new Error('caller secret getter');
+    },
+  };
+  assert.throws(
+    () => hospitalitySupplierReservationAuthorityInputFromOperation(throwingOperation),
+    (error: unknown) => error instanceof HospitalitySupplierReservationConflictError
+      && !error.message.includes('caller secret'),
   );
 });
