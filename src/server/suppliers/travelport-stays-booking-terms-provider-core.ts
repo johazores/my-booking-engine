@@ -1,3 +1,4 @@
+import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -114,8 +115,8 @@ async function loadRulesAccessToken(input: {
   timeoutMs: number;
   nowMs: number;
 }) {
-  const cached = rulesTokenCache.get(input.cacheKey);
-  if (cached && cached.expiresAtMs > input.nowMs) return cached.accessToken;
+  const cached = readTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, input.nowMs);
+  if (cached) return cached.accessToken;
   const pending = rulesTokenRequests.get(input.cacheKey);
   if (pending) return pending;
 
@@ -125,7 +126,7 @@ async function loadRulesAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    rulesTokenCache.set(input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }));
+    storeTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), input.nowMs);
     return token.accessToken;
   }).finally(() => rulesTokenRequests.delete(input.cacheKey));
 

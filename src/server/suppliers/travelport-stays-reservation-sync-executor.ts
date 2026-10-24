@@ -1,3 +1,4 @@
+import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { NormalizedHospitalitySupplierReservationTravelerPayload } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
@@ -93,8 +94,8 @@ export class TravelportStaysReservationSyncExecutor {
 
   async #accessToken() {
     const nowMs = this.#now().getTime();
-    const cached = tokenCache.get(this.#cacheKey);
-    if (cached && cached.expiresAtMs > nowMs) return cached.accessToken;
+    const cached = readTravelportStaysCachedToken(tokenCache, this.#cacheKey, nowMs);
+    if (cached) return cached.accessToken;
     const pending = tokenRequests.get(this.#cacheKey);
     if (pending) return pending;
     const request = requestTravelportStaysAccessToken({
@@ -103,7 +104,7 @@ export class TravelportStaysReservationSyncExecutor {
       timeoutMs: this.#timeoutMs,
       nowMs,
     }).then((token) => {
-      tokenCache.set(this.#cacheKey, token);
+      storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, token, nowMs);
       return token.accessToken;
     }).finally(() => tokenRequests.delete(this.#cacheKey));
     tokenRequests.set(this.#cacheKey, request);

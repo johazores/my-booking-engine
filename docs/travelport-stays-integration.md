@@ -113,3 +113,11 @@ Checked-in source/behavior contracts cover configuration/endpoints, token behavi
 Guarded PostgreSQL scenarios still require an explicitly disposable database. Live provider verification still requires provisioned Travelport non-production credentials.
 
 Travelport `reservation` remains disabled until the concrete reviewed PCI-safe source, live end-to-end provider validation, and authoritative `13034`/locator-less correlation semantics are complete.
+
+## Bounded in-process OAuth cache
+
+The SearchComplete/pricing, Rules, selected-offer Availability, Create, Sync, and known-locator Retrieve adapters each retain a credential-version-keyed in-process OAuth token cache. Completed bearer tokens now use the same bounded cache hygiene: expired entries are removed on lookup or the next insertion, live reads refresh least-recently-used order, and each adapter retains at most 256 completed tokens. When a cache reaches that limit, only its oldest completed entry is evicted; the next use obtains a fresh token through the existing OAuth path.
+
+In-flight refresh promises are deliberately separate and remain deduplicated until settled. This limit does not alter tenant credential lookup, provider capability authorization, the credential-version cache key, 401/403 invalidation, token expiry, or the disabled reservation capability. It prevents historical credential rotations and tenant churn from retaining unbounded expired bearer tokens in a long-lived Node.js process. It is not a distributed cache or a cross-process revocation mechanism.
+
+The pure cache helper has isolated behavior tests for expiry, rotation, capacity, LRU retention, and malformed expiry. A dependency-free source contract checks that all six adapter caches use the same boundary. Full Node 24 and live-provider verification remain required before commercial activation.

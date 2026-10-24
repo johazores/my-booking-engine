@@ -1,3 +1,4 @@
+import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -221,8 +222,8 @@ async function loadCachedAccessToken(input: {
   timeoutMs: number;
   nowMs: number;
 }): Promise<string> {
-  const cached = tokenCache.get(input.cacheKey);
-  if (cached && cached.expiresAtMs > input.nowMs) return cached.accessToken;
+  const cached = readTravelportStaysCachedToken(tokenCache, input.cacheKey, input.nowMs);
+  if (cached) return cached.accessToken;
 
   const pending = tokenRequests.get(input.cacheKey);
   if (pending) return pending;
@@ -233,7 +234,7 @@ async function loadCachedAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    tokenCache.set(input.cacheKey, token);
+    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, input.nowMs);
     return token.accessToken;
   }).finally(() => {
     tokenRequests.delete(input.cacheKey);

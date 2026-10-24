@@ -1,3 +1,4 @@
+import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -249,12 +250,12 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
 
   async #token() {
     const nowMs = this.#now().getTime();
-    const cached = tokenCache.get(this.#cacheKey);
-    if (cached && cached.expiresAtMs > nowMs) return cached.token;
+    const cached = readTravelportStaysCachedToken(tokenCache, this.#cacheKey, nowMs);
+    if (cached) return cached.token;
     const pending = tokenRequests.get(this.#cacheKey);
     if (pending) return pending;
     const request = requestTravelportStaysAccessToken({ credentials: this.#credentials, fetchImpl: this.#fetch, timeoutMs: this.#timeoutMs, nowMs })
-      .then((token) => { tokenCache.set(this.#cacheKey, Object.freeze({ token: token.accessToken, expiresAtMs: token.expiresAtMs })); return token.accessToken; })
+      .then((token) => { storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, Object.freeze({ token: token.accessToken, expiresAtMs: token.expiresAtMs }), nowMs); return token.accessToken; })
       .finally(() => tokenRequests.delete(this.#cacheKey));
     tokenRequests.set(this.#cacheKey, request);
     return request;
