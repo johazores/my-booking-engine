@@ -81,7 +81,7 @@ Travelport's documented Create request can require `FormOfPayment` with plaintex
 
 ## Capability gate
 
-Travelport `reservation` remains disabled. Enabling it still requires:
+Travelport `reservation` capability remains disabled. Enabling it still requires:
 
 - a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned Travelport account;
 - live non-production SearchComplete → Rules → Availability → initial Create → reviewed second Create → Sync/recovery validation;
