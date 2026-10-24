@@ -12,6 +12,20 @@ test('normalizes availability windows and enforces capacity bounds', () => {
   assert.throws(() => normalizeAvailabilityWindowInput({ propertyId: 'p', roomTypeId: 'r', startDate: '2026-09-10', endDate: '2026-09-12', capacityLimit: 51 }), /between 0 and 50/);
 });
 
+test('capacity input rejects numeric prefixes, coercion and malformed scalar types', () => {
+  const base = { propertyId: 'p', roomTypeId: 'r', startDate: '2026-09-10', endDate: '2026-09-12' };
+  for (const capacityLimit of ['2rooms', '2.5', '2e1', '0x10', '+2', '-1', '', '  ', '1_0', '1'.repeat(17)]) {
+    assert.throws(() => normalizeAvailabilityWindowInput({ ...base, capacityLimit }), /between 0 and 50/, capacityLimit);
+  }
+  assert.throws(() => normalizeAvailabilityWindowInput({ ...base, capacityLimit: ['2'] as unknown as string }), /between 0 and 50/);
+  for (const capacityLimit of [' 0 ', ' 50 ', '02', 0, 50]) {
+    assert.equal(normalizeAvailabilityWindowInput({ ...base, capacityLimit }).capacityLimit, Number(capacityLimit));
+  }
+  for (const capacityLimit of [Number.NaN, Number.POSITIVE_INFINITY, 1.5, -1]) {
+    assert.throws(() => normalizeAvailabilityWindowInput({ ...base, capacityLimit }), /between 0 and 50/);
+  }
+});
+
 test('availability windows can only reduce physical capacity', () => {
   const arrivalDate = new Date('2026-09-10T00:00:00Z');
   const departureDate = new Date('2026-09-13T00:00:00Z');

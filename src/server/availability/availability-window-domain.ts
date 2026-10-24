@@ -12,7 +12,10 @@ export function normalizeAvailabilityWindowInput(input: AvailabilityWindowInput)
   const startDate = parseAvailabilityDate(input.startDate, 'Start date');
   const endDate = parseAvailabilityDate(input.endDate, 'End date');
   if (endDate < startDate) throw new AvailabilityValidationError('End date must be on or after start date.');
-  const capacityLimit = typeof input.capacityLimit === 'number' ? input.capacityLimit : Number.parseInt(input.capacityLimit, 10);
+  const rawCapacity = typeof input.capacityLimit === 'string' ? input.capacityLimit.trim() : null;
+  const capacityLimit = typeof input.capacityLimit === 'number'
+    ? input.capacityLimit
+    : rawCapacity !== null && /^[0-9]{1,16}$/.test(rawCapacity) ? Number(rawCapacity) : Number.NaN;
   if (!Number.isSafeInteger(capacityLimit) || capacityLimit < 0 || capacityLimit > 50) {
     throw new AvailabilityValidationError('Capacity limit must be between 0 and 50.');
   }
