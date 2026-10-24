@@ -68,3 +68,7 @@ Payment success must be verified server-side from the provider. Browser redirect
 ## Audit and observability
 
 Important commercial operations should record actor, organization, action, resource, timestamp, and safe before/after information where appropriate. Structured logs may contain request/correlation ID, organization ID, provider, booking reference, and operation, but never passwords, API secrets, card data, access tokens, session tokens, or unnecessary encrypted credential payloads.
+
+## Browser form ingress
+
+All implemented production API browser form mutation routes use the shared bounded text-only form parser, including unauthenticated sign-in/sign-up and tenant management. The parser rejects oversized, malformed, ambiguous, and invalidly encoded bodies before business writes; see `docs/form-request-ingress.md`. Origin, media-type, authentication, membership, permission, and tenant/resource checks remain separate and mandatory.

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { FormBodyValidationError, readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
@@ -32,7 +33,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
   organizationId = activeContext.organization.id;
 
   try {
-    const formData = await request.formData();
+    const formData = await readBoundedFormDataOrThrow(request);
     const action = formData.get('action');
     const params = await context.params;
     if (action !== 'enable' && action !== 'disable' && action !== 'archive') {
@@ -53,7 +54,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
         ? 'unavailable'
         : error instanceof IntegrationLifecycleError
           ? 'lifecycle'
-          : error instanceof TenantIdentifierValidationError
+          : error instanceof TenantIdentifierValidationError || error instanceof FormBodyValidationError
             ? 'validation'
             : 'server';
     return finish(

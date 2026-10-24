@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { FormBodyValidationError, readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   organizationId = activeContext.organization.id;
 
   try {
-    const formData = await request.formData();
+    const formData = await readBoundedFormDataOrThrow(request);
     const configuration = normalizeTravelportStaysConfiguration({
       environment: field(formData, 'environment'),
       username: field(formData, 'username'),
@@ -52,8 +53,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
-      : error instanceof TravelportStaysConfigurationError
-        ? 'travelport-validation'
+      : error instanceof FormBodyValidationError
+        ? 'validation'
+        : error instanceof TravelportStaysConfigurationError
+          ? 'travelport-validation'
         : 'server';
     return finish(
       NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303),

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -35,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
   const routeParams = await params;
   const customerId = routeParams['customer-id'];
   let formData: FormData;
-  try { formData = await request.formData(); } catch {
+  try { formData = await readBoundedFormDataOrThrow(request); } catch {
     return finish(NextResponse.redirect(new URL(`/customers/${customerId}?error=deidentify-confirmation`, request.url), 303), 'rejected');
   }
   const confirmation = formData.get('confirmation');
