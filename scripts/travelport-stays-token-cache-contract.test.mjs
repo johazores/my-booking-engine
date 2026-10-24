@@ -21,6 +21,8 @@ test('all Travelport OAuth adapter caches bound completed tokens and retain in-f
     const code = readFileSync(join(process.cwd(), path), 'utf8');
     assert.match(code, /readTravelportStaysCachedToken\(/, path);
     assert.match(code, /storeTravelportStaysCachedToken\(/, path);
+    assert.match(code, /if\s*\(!storeTravelportStaysCachedToken\(/, `${path}: expired-on-completion token must not be returned`);
+    assert.match(code, /throw new HospitalitySupplierProviderError\('PROVIDER_UNAVAILABLE'\)/, `${path}: reject unusable OAuth responses safely`);
     assert.match(code, /storeTravelportStaysCachedToken\([^;]*?,\s*(?:this\.#now\(\)\.getTime\(\)|input\.now\(\))\)/, `${path}: completion clock must be fresh`);
     assert.doesNotMatch(code, /(?:tokenCache|rulesTokenCache)\.(?:get|set)\(/, path);
     assert.match(code, /(?:tokenRequests|rulesTokenRequests)\.get\(/, path);

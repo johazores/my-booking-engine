@@ -22,6 +22,8 @@ Provider endpoints are fixed constants selected from the validated environment. 
 
 Reusable OAuth tokens are cached in-process by integration ID plus credential version, concurrent refreshes are suppressed, and 401/403 responses evict the relevant cached token. Credentials and tokens are never returned, audited, logged, or persisted outside the encrypted credential boundary.
 
+A slow OAuth exchange may finish after the adapter's conservative token refresh deadline. All six Stays adapters now reject that response as `PROVIDER_UNAVAILABLE` before any Hotel API request rather than using an uncached, already-unusable bearer once. Completed refreshes always release the in-flight entry, allowing a later request to retry with a fresh token. This is an operational timing failure, not evidence that tenant credentials are invalid.
+
 ## SearchComplete, Rules, and Availability authority
 
 `HospitalitySupplierProvider` owns the provider-neutral search contract. Travelport v12 SearchComplete runs with `returnOnlyAvailableProperties: true`; continuation pages are consumed with bounded page/result limits, stable-total checks, and duplicate detection. Provider pagination tokens never escape into product callers.

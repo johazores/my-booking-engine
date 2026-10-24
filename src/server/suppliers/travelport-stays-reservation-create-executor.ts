@@ -515,7 +515,9 @@ export class TravelportStaysReservationCreateExecutor {
       timeoutMs: this.#timeoutMs,
       nowMs,
     }).then((token) => {
-      storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, token, this.#now().getTime());
+      if (!storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, token, this.#now().getTime())) {
+        throw new HospitalitySupplierProviderError('PROVIDER_UNAVAILABLE');
+      }
       return token.accessToken;
     }).finally(() => tokenRequests.delete(this.#cacheKey));
     tokenRequests.set(this.#cacheKey, request);

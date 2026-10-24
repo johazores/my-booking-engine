@@ -34,17 +34,18 @@ export function storeTravelportStaysCachedToken<T extends ExpiringToken>(
   key: string,
   token: T,
   nowMs: number,
-): void {
+): boolean {
   // Rotation and tenant churn must not retain expired bearer tokens forever.
   for (const [cachedKey, cached] of cache) {
     if (!(cached.expiresAtMs > nowMs)) cache.delete(cachedKey);
   }
   cache.delete(key);
-  if (!(token.expiresAtMs > nowMs)) return;
+  if (!(token.expiresAtMs > nowMs)) return false;
   cache.set(key, token);
   while (cache.size > MAX_TRAVELPORT_STAYS_CACHED_TOKENS) {
     const oldestKey = cache.keys().next().value;
     if (oldestKey === undefined) break;
     cache.delete(oldestKey);
   }
+  return true;
 }

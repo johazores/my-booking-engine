@@ -255,7 +255,12 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
     const pending = tokenRequests.get(this.#cacheKey);
     if (pending) return pending;
     const request = requestTravelportStaysAccessToken({ credentials: this.#credentials, fetchImpl: this.#fetch, timeoutMs: this.#timeoutMs, nowMs })
-      .then((token) => { storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, Object.freeze({ token: token.accessToken, expiresAtMs: token.expiresAtMs }), this.#now().getTime()); return token.accessToken; })
+      .then((token) => {
+        if (!storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, Object.freeze({ token: token.accessToken, expiresAtMs: token.expiresAtMs }), this.#now().getTime())) {
+          throw new HospitalitySupplierProviderError('PROVIDER_UNAVAILABLE');
+        }
+        return token.accessToken;
+      })
       .finally(() => tokenRequests.delete(this.#cacheKey));
     tokenRequests.set(this.#cacheKey, request);
     return request;

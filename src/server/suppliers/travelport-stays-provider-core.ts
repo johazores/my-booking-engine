@@ -235,7 +235,9 @@ async function loadCachedAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, input.now());
+    if (!storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, input.now())) {
+      throw new HospitalitySupplierProviderError('PROVIDER_UNAVAILABLE');
+    }
     return token.accessToken;
   }).finally(() => {
     tokenRequests.delete(input.cacheKey);

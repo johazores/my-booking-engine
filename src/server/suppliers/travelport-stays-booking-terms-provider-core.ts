@@ -127,7 +127,9 @@ async function loadRulesAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    storeTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), input.now());
+    if (!storeTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), input.now())) {
+      throw new HospitalitySupplierProviderError('PROVIDER_UNAVAILABLE');
+    }
     return token.accessToken;
   }).finally(() => rulesTokenRequests.delete(input.cacheKey));
 

@@ -65,3 +65,11 @@ test('a token that expires during a slow OAuth exchange is not retained after co
   storeTravelportStaysCachedToken(cache, 'healthy-tenant', token('fresh', 300), requestCompletedAt);
   assert.equal(readTravelportStaysCachedToken(cache, 'healthy-tenant', requestCompletedAt)?.accessToken, 'fresh');
 });
+
+test('cache retention reports whether the OAuth response is still usable at completion', () => {
+  const cache = new Map<string, Token>();
+  assert.equal(storeTravelportStaysCachedToken(cache, 'slow-tenant', token('expired', 150), 151), false);
+  assert.equal(readTravelportStaysCachedToken(cache, 'slow-tenant', 151), null);
+  assert.equal(storeTravelportStaysCachedToken(cache, 'slow-tenant', token('fresh', 500), 151), true);
+  assert.equal(readTravelportStaysCachedToken(cache, 'slow-tenant', 151)?.accessToken, 'fresh');
+});

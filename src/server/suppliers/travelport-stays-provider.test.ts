@@ -88,6 +88,42 @@ test('health probe classifies an aborted token request as provider timeout witho
   assert.deepEqual(result, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
 });
 
+test('slow OAuth completion never sends a bearer past its refresh deadline and permits a fresh retry', async () => {
+  let nowMs = Date.parse('2026-09-01T00:00:00.000Z');
+  let oauthCalls = 0;
+  let staysCalls = 0;
+  const provider = new TravelportStaysProvider({
+    credentials: configuration.credentials,
+    cacheKey: 'slow-oauth-completion-retry',
+    now: () => new Date(nowMs),
+    fetchImpl: (async (url) => {
+      if (String(url).includes('/oauth/token')) {
+        oauthCalls += 1;
+        if (oauthCalls === 1) {
+          nowMs += 2_000;
+          return jsonResponse({ access_token: 'unusable', expires_in: 1 });
+        }
+        return jsonResponse({ access_token: 'fresh', expires_in: 3_600 });
+      }
+      staysCalls += 1;
+      return jsonResponse(emptySearchResponse());
+    }) as typeof fetch,
+  });
+  const search = {
+    cityIataCode: 'SYD', checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, adults: 2,
+  };
+
+  await assert.rejects(
+    provider.searchProperties(search),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'PROVIDER_UNAVAILABLE',
+  );
+  assert.equal(staysCalls, 0, 'expired-on-completion OAuth token must never reach Stays');
+  const recovered = await provider.searchProperties(search);
+  assert.deepEqual(recovered.properties, []);
+  assert.equal(oauthCalls, 2, 'failed refresh must not poison the next attempt');
+  assert.equal(staysCalls, 1);
+});
+
 test('SearchComplete uses fixed endpoints/headers, bounded input and provider-neutral property references with pricing authority', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = (async (url, init) => {
