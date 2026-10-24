@@ -20,6 +20,24 @@ function isoDate(value: Date) {
   return value.toISOString();
 }
 
+function validateInvoiceMoney(row: HospitalityInvoiceAccountingExportRow) {
+  const components = [
+    ['accommodationSubtotalMinor', row.accommodationSubtotalMinor],
+    ['feeTotalMinor', row.feeTotalMinor],
+    ['addonTotalMinor', row.addonTotalMinor],
+    ['taxTotalMinor', row.taxTotalMinor],
+    ['totalMinor', row.totalMinor],
+  ] as const;
+  for (const [label, amount] of components) {
+    if (typeof amount !== 'bigint' || amount < 0n) {
+      throw new TypeError(`${label} must be a non-negative bigint.`);
+    }
+  }
+  if (row.accommodationSubtotalMinor + row.feeTotalMinor + row.addonTotalMinor + row.taxTotalMinor !== row.totalMinor) {
+    throw new TypeError('Invoice accounting total does not match its components.');
+  }
+}
+
 export function createHospitalityInvoiceAccountingCsv(rows: readonly HospitalityInvoiceAccountingExportRow[]) {
   if (rows.length > HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT) {
     throw new RangeError(`Accounting export cannot exceed ${HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT} tax invoices.`);
@@ -39,6 +57,7 @@ export function createHospitalityInvoiceAccountingCsv(rows: readonly Hospitality
   const lines = [header.map(accountingCsvCell).join(',')];
 
   for (const row of rows) {
+    validateInvoiceMoney(row);
     const values = [
       row.documentNumber,
       isoDate(row.issuedAt),

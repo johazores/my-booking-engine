@@ -78,3 +78,27 @@ test('neutralizes formula-like adjustment reasons while preserving accounting co
   assert.ok(csv.includes('"\'\t=HYPERLINK(""https://example.test"")"'));
   assert.match(csv, /"Decreasing adjustment","100\.00","10\.00","110\.00","0\.00","0\.00","0\.00"/);
 });
+
+test('rejects invalid adjustment directions and explicit null optional amounts', () => {
+  for (const adjustmentType of ['Other adjustment', null]) {
+    assert.throws(
+      () => createHospitalityAdjustmentNoteAccountingCsv([{ ...row, adjustmentType } as never]),
+      TypeError,
+    );
+  }
+  for (const field of ['increaseSubtotalMinor', 'increaseGstMinor', 'increaseTotalMinor']) {
+    assert.throws(
+      () => createHospitalityAdjustmentNoteAccountingCsv([{ ...row, [field]: null } as never]),
+      TypeError,
+    );
+  }
+  assert.match(
+    createHospitalityAdjustmentNoteAccountingCsv([{
+      ...row,
+      increaseSubtotalMinor: 0n,
+      increaseGstMinor: 0n,
+      increaseTotalMinor: 0n,
+    }]),
+    /"Decreasing adjustment"/,
+  );
+});

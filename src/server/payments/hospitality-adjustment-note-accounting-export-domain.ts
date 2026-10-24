@@ -48,13 +48,16 @@ function nonNegative(value: bigint, label: string) {
 }
 
 function normalizedEffect(row: HospitalityAdjustmentNoteAccountingExportRow) {
-  const adjustmentType = row.adjustmentType ?? 'Decreasing adjustment';
+  const adjustmentType = row.adjustmentType === undefined ? 'Decreasing adjustment' : row.adjustmentType;
+  if (adjustmentType !== 'Decreasing adjustment' && adjustmentType !== 'Increasing adjustment') {
+    throw new TypeError('Adjustment accounting type is invalid.');
+  }
   const decreaseSubtotalMinor = nonNegative(row.decreaseSubtotalMinor, 'decreaseSubtotalMinor');
   const decreaseGstMinor = nonNegative(row.decreaseGstMinor, 'decreaseGstMinor');
   const decreaseTotalMinor = nonNegative(row.decreaseTotalMinor, 'decreaseTotalMinor');
-  const increaseSubtotalMinor = nonNegative(row.increaseSubtotalMinor ?? 0n, 'increaseSubtotalMinor');
-  const increaseGstMinor = nonNegative(row.increaseGstMinor ?? 0n, 'increaseGstMinor');
-  const increaseTotalMinor = nonNegative(row.increaseTotalMinor ?? 0n, 'increaseTotalMinor');
+  const increaseSubtotalMinor = nonNegative(row.increaseSubtotalMinor === undefined ? 0n : row.increaseSubtotalMinor, 'increaseSubtotalMinor');
+  const increaseGstMinor = nonNegative(row.increaseGstMinor === undefined ? 0n : row.increaseGstMinor, 'increaseGstMinor');
+  const increaseTotalMinor = nonNegative(row.increaseTotalMinor === undefined ? 0n : row.increaseTotalMinor, 'increaseTotalMinor');
 
   if (adjustmentType === 'Decreasing adjustment') {
     if (
