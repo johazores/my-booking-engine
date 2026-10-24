@@ -69,3 +69,16 @@ test('rejects invalid UTF-8 instead of decoding replacement characters into auth
   const invalidUtf8 = new Uint8Array([123, 34, 98, 111, 111, 107, 105, 110, 103, 67, 97, 112, 97, 98, 105, 108, 105, 116, 121, 34, 58, 34, 255, 34, 125]);
   assert.equal(await readPublicTaxDocumentBookingCapability(request(invalidUtf8)), null);
 });
+
+test('public tax-document capability reader rejects mismatched declared lengths', async () => {
+  const body = JSON.stringify({ bookingCapability: 'capability-value' });
+  const length = new TextEncoder().encode(body).byteLength;
+  for (const declared of [length - 1, length + 1]) {
+    const input = new Request('https://sf.example.test/public-tax-document', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': String(declared) },
+      body,
+    });
+    assert.equal(await readPublicTaxDocumentBookingCapability(input), null);
+  }
+});

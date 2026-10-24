@@ -42,3 +42,5 @@ Unexpected reconciliation failures now redirect to an explicit `error=internal` 
 - TypeScript route/helper syntax is checked with the locally available Node TypeScript stripping parser where supported. TSX parsing and the full repository Node 24 typecheck/lint/test/build remain part of the normal repository validation gate.
 
 This work does not change the Prisma schema or migration chain and does not use GitHub Actions.
+
+The public tax-document JSON capability reader now shares the transport-only bounded JSON parser with the public booking, authenticated hospitality, and payment routes. Advertised `Content-Length` must match the actual streamed byte count, while the 8 KiB request limit, 4,096-character capability limit, capability ownership checks, and privacy-safe logging remain unchanged.

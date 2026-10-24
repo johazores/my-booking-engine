@@ -36,3 +36,9 @@ Full repository validation still requires the repository Node 24.20+ toolchain a
 ## Authenticated payment error classification
 
 Payment HTTP accepts explicitly typed `PaymentInputValidationError` and tenant UUID validation errors for customer-correctable money, idempotency, manual-reference, and refund-amount input. Arbitrary errors containing words such as “required” or “invalid” no longer reveal internal diagnostics or masquerade as HTTP 400; they receive generic HTTP 500 responses. Known conflicts, unavailable resources, and provider failures retain their explicit mappings. Transport errors remain bounded and generic. This does not alter provider settlement authority, refund source selection, or tenant permissions.
+
+## Shared JSON reader and exact-length integrity
+
+The four current JSON ingress policies (public booking, authenticated hospitality, authenticated payments, and public legal-document capabilities) delegate to `src/server/http/bounded-json-body.ts`. The shared transport helper rejects advertised lengths that differ from actual streamed bytes in either direction, including underreported lengths; it also rejects invalid media types, malformed UTF-8, non-object JSON, and byte-limit violations. Each domain wrapper retains its existing public `null` or typed error behavior and its own byte ceiling (64 KiB or 8 KiB). The parser grants no tenant, booking, or payment authority.
+
+`src/server/http/bounded-json-body.test.ts` covers exact lengths, false declarations, streamed limits, malformed JSON, UTF-8, and failing streams. A static route-family contract prevents these wrappers from silently reintroducing duplicated parsers. No GitHub Actions are used.

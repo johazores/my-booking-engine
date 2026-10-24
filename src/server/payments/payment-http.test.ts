@@ -228,3 +228,16 @@ test('authenticated payment HTTP does not expose arbitrary internal errors as va
   assert.equal(invalidId.status, 400);
   assert.deepEqual(await invalidId.json(), { error: 'validation', message: 'bookingId must be a valid UUID.' });
 });
+
+test('authenticated payment JSON rejects mismatched declared lengths', async () => {
+  const body = '{"amountMinor":1200}';
+  const length = new TextEncoder().encode(body).byteLength;
+  for (const declared of [length - 1, length + 1]) {
+    const input = new Request('https://sf.example.test/api/payments/manual', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': String(declared) },
+      body,
+    });
+    await assert.rejects(() => readPaymentJsonObject(input), { name: 'PaymentApiPayloadError' });
+  }
+});

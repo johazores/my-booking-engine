@@ -65,3 +65,11 @@ test('supports a smaller caller-specific byte ceiling', async () => {
   assert.deepEqual(await readPublicBookingJsonObject(jsonRequest('{"value":1}'), 32), { value: 1 });
   assert.equal(await readPublicBookingJsonObject(jsonRequest('{"value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}'), 32), null);
 });
+
+test('public booking JSON rejects mismatched declared lengths', async () => {
+  const body = '{"value":1}';
+  const length = new TextEncoder().encode(body).byteLength;
+  assert.deepEqual(await readPublicBookingJsonObject(jsonRequest(body, { 'content-length': String(length) })), { value: 1 });
+  assert.equal(await readPublicBookingJsonObject(jsonRequest(body, { 'content-length': String(length - 1) })), null);
+  assert.equal(await readPublicBookingJsonObject(jsonRequest(body, { 'content-length': String(length + 1) })), null);
+});

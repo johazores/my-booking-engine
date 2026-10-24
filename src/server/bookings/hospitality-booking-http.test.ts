@@ -109,3 +109,11 @@ test('authenticated booking HTTP only exposes explicitly classified customer val
   assert.equal(invalidId.status, 400);
   assert.deepEqual(await invalidId.json(), { error: 'validation', message: 'bookingId must be a valid UUID.' });
 });
+
+test('authenticated hospitality JSON rejects mismatched declared lengths', async () => {
+  const body = '{"value":1}';
+  const length = new TextEncoder().encode(body).byteLength;
+  await rejectsPayload(jsonRequest(body, { 'content-length': String(length - 1) }));
+  await rejectsPayload(jsonRequest(body, { 'content-length': String(length + 1) }));
+  assert.deepEqual(await readHospitalityBookingJsonObject(jsonRequest(body, { 'content-length': String(length) })), { value: 1 });
+});

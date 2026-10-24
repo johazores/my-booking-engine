@@ -1,3 +1,4 @@
+import { readBoundedJsonObject } from '../http/bounded-json-body.ts';
 import { isSameOriginAuthRequest, readAuthSession } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import { TenantIdentifierValidationError } from '../tenancy/tenant-scope.ts';
@@ -18,71 +19,13 @@ export class PaymentApiPayloadError extends Error {
   }
 }
 
-function hasJsonContentType(request: Request) {
-  const contentType = request.headers.get('content-type');
-  if (!contentType) return false;
-  return contentType.split(';', 1)[0]?.trim().toLowerCase() === 'application/json';
-}
-
-function hasAcceptableContentLength(request: Request, maxBytes: number) {
-  const header = request.headers.get('content-length');
-  if (header === null) return true;
-  if (!/^[0-9]+$/.test(header)) return false;
-  const contentLength = Number(header);
-  return Number.isSafeInteger(contentLength) && contentLength <= maxBytes;
-}
-
-async function readBoundedRequestText(request: Request, maxBytes: number) {
-  if (!request.body) throw new PaymentApiPayloadError();
-  const reader = request.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  let receivedBytes = 0;
-  let text = '';
-
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      receivedBytes += chunk.value.byteLength;
-      if (receivedBytes > maxBytes) {
-        await reader.cancel();
-        throw new PaymentApiPayloadError();
-      }
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    text += decoder.decode();
-    return text;
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch {
-      // The stream may already be errored or closed.
-    }
-    if (error instanceof PaymentApiPayloadError) throw error;
-    throw new PaymentApiPayloadError();
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 export async function readPaymentJsonObject(
   request: Request,
   maxBytes = PAYMENT_REQUEST_MAX_BYTES,
 ): Promise<Record<string, unknown>> {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new PaymentApiPayloadError();
-  if (!hasJsonContentType(request) || !hasAcceptableContentLength(request, maxBytes)) {
-    throw new PaymentApiPayloadError();
-  }
-
-  const rawBody = await readBoundedRequestText(request, maxBytes);
-  try {
-    const body: unknown = JSON.parse(rawBody);
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new PaymentApiPayloadError();
-    return body as Record<string, unknown>;
-  } catch (error) {
-    if (error instanceof PaymentApiPayloadError) throw error;
-    throw new PaymentApiPayloadError();
-  }
+  const body = await readBoundedJsonObject(request, maxBytes);
+  if (!body) throw new PaymentApiPayloadError();
+  return body;
 }
 
 export class PaymentApiRequestError extends Error {
