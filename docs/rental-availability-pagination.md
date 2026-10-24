@@ -17,3 +17,9 @@ Pagination is presentation state only. It does not become rental inventory, pric
 ## Validation
 
 `scripts/rental-availability-pagination-contract.test.mjs` protects server-side page clamping, the shared 50-row inventory ceiling, transaction isolation, tenant/effective-hold predicates, deterministic ordering, canonical returned pagination state, and the separation between paginated presentation reads and commercial authority.
+
+## Input and pricing integrity
+
+The availability search domain accepts only positive, bounded decimal whole-number page and page-size inputs. It rejects hexadecimal, exponent, fractional, boolean, array/repeated-key, null, and object coercion rather than interpreting them as a different page. Omitted page and page size retain their existing defaults; the service still clamps an otherwise valid out-of-range page after the tenant-scoped count.
+
+Search codes and dates must be scalar strings. The quote boundary also rejects persisted daily rates above the same 100,000,000-minor-unit ceiling used for rental rate configuration and currency codes not recognized by the runtime ISO 4217 currency data. These are fail-closed read/quote checks, not changes to tenant authorization, allocation, holds, or pricing fingerprints for valid evidence.

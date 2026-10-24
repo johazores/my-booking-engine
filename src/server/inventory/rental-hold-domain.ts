@@ -17,6 +17,13 @@ export type RentalAvailabilityHoldInput = Readonly<{
 }>;
 
 export function normalizeRentalAvailabilityHoldInput(input: RentalAvailabilityHoldInput) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || typeof input.unitId !== 'string'
+    || typeof input.startsOn !== 'string'
+    || typeof input.endsOn !== 'string'
+    || typeof input.idempotencyKey !== 'string') {
+    throw new RentalInventoryValidationError('Rental hold fields are invalid.');
+  }
   const idempotencyKey = input.idempotencyKey.trim();
   if (!HOLD_KEY_PATTERN.test(idempotencyKey)) {
     throw new RentalInventoryValidationError(
@@ -24,15 +31,16 @@ export function normalizeRentalAvailabilityHoldInput(input: RentalAvailabilityHo
     );
   }
 
-  const rawMinutes = input.expiresInMinutes ?? DEFAULT_RENTAL_HOLD_MINUTES;
-  if (typeof rawMinutes === 'string' && !/^\d+$/.test(rawMinutes.trim())) {
+  // Only an omitted duration receives the default; explicit null is invalid.
+  const rawMinutes = input.expiresInMinutes === undefined ? DEFAULT_RENTAL_HOLD_MINUTES : input.expiresInMinutes;
+  if (typeof rawMinutes === 'string' && !/^[0-9]{1,16}$/.test(rawMinutes.trim())) {
     throw new RentalInventoryValidationError(
       `Hold duration must be between 1 and ${MAX_RENTAL_HOLD_MINUTES} minutes.`,
     );
   }
   const expiresInMinutes = typeof rawMinutes === 'number'
     ? rawMinutes
-    : Number(rawMinutes.trim());
+    : typeof rawMinutes === 'string' ? Number(rawMinutes.trim()) : Number.NaN;
   if (
     !Number.isSafeInteger(expiresInMinutes)
     || expiresInMinutes < 1

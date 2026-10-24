@@ -37,3 +37,10 @@ test('rental rates reject exponent, hex, fractions, suffixes and unbounded minor
     unitTypeId: 'unit-type', startsOn: '2026-11-01', endsOn: '2026-11-03', dailyRateMinor: '0x64',
   }), RentalInventoryValidationError);
 });
+
+test('rental rate normalization rejects malformed runtime scalars and keeps the rate ceiling', () => {
+  assert.equal(normalizeRentalMoneyMinor('100000000'), 100_000_000);
+  for (const amount of [null, false, ['100'], {}, 100_000_001]) {
+    assert.throws(() => normalizeRentalMoneyMinor(amount as never), RentalInventoryValidationError);
+  }
+});

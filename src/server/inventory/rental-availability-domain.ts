@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 
+import { isSupportedCurrencyCode } from '../pricing/money.ts';
+
 import {
+  MAX_RENTAL_DAILY_RATE_MINOR,
   normalizeRentalCode,
   normalizeRentalDateRange,
   RentalInventoryValidationError,
@@ -37,7 +40,11 @@ export type RentalRatePeriodEvidence = Readonly<{
 
 function normalizePositiveInteger(value: string | number | undefined, fallback: number, field: string, maximum: number) {
   if (value === undefined || value === '') return fallback;
-  const normalized = typeof value === 'number' ? value : Number(value);
+  const normalized = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^[0-9]{1,16}$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
   if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > maximum) {
     throw new RentalInventoryValidationError(`${field} is invalid.`);
   }
@@ -49,12 +56,19 @@ function localDate(value: Date) {
 }
 
 function assertSafeDailyRate(value: number) {
-  if (!Number.isSafeInteger(value) || value <= 0) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_RENTAL_DAILY_RATE_MINOR) {
     throw new RentalAvailabilityIntegrityError('Rental daily pricing must use positive integer minor units.');
   }
 }
 
 export function normalizeRentalAvailabilitySearchInput(input: RentalAvailabilitySearchInput) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || typeof input.unitTypeCode !== 'string'
+    || typeof input.startsOn !== 'string'
+    || typeof input.endsOn !== 'string'
+    || (input.locationCode !== undefined && typeof input.locationCode !== 'string')) {
+    throw new RentalInventoryValidationError('Rental availability search fields are invalid.');
+  }
   const dateRange = normalizeRentalDateRange(input);
   const days = (dateRange.endsOn.getTime() - dateRange.startsOn.getTime()) / MILLISECONDS_PER_DAY;
   if (days > MAX_RENTAL_AVAILABILITY_DAYS) {
@@ -168,7 +182,7 @@ export function buildRentalPricingEvidence(input: Readonly<{
     throw new RentalAvailabilityIntegrityError('Rental pricing unit type identity is invalid.');
   }
   const currency = input.currency.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(currency)) {
+  if (!isSupportedCurrencyCode(currency)) {
     throw new RentalAvailabilityIntegrityError('Rental pricing currency is invalid.');
   }
 

@@ -57,3 +57,7 @@ This hardening does not change hold duration policy, pricing, customer booking c
 Full Prisma, TypeScript, lint, production build, and disposable-PostgreSQL validation remain part of the repository's normal local/manual validation path under the Node version declared by `package.json`.
 
 GitHub Actions are not required or used.
+
+## Hold input integrity
+
+Rental hold creation defaults to 15 minutes **only when the duration is omitted**. An explicitly null, non-scalar, fractional, exponent, hexadecimal, empty, or out-of-range duration is rejected as a rental validation error before any idempotency lock or database write. Unit, date, and idempotency-key inputs must be scalar strings; malformed runtime values are rejected with typed validation errors rather than accidental JavaScript property-access failures. Existing valid durations, tenant authorization, database-clock expiry, exact idempotent replay, and inventory locks are unchanged.

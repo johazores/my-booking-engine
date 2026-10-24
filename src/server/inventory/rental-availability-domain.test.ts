@@ -135,3 +135,62 @@ test('rental rate quote fails closed for overlapping or unsafe persisted pricing
     RentalAvailabilityIntegrityError,
   );
 });
+
+test('rental availability rejects coerced pagination and malformed query scalars', () => {
+  const valid = {
+    unitTypeCode: 'SEDAN',
+    startsOn: '2026-10-01',
+    endsOn: '2026-10-02',
+  };
+  for (const value of ['0x2', '2e1', '2.0', '+2', '  ', '1'.repeat(17), null, true, ['2'], {}, 0, 10_001]) {
+    assert.throws(
+      () => normalizeRentalAvailabilitySearchInput({ ...valid, page: value as never }),
+      RentalInventoryValidationError,
+    );
+  }
+  for (const value of ['0x2', '2e1', '2.0', null, ['20'], true, 51]) {
+    assert.throws(
+      () => normalizeRentalAvailabilitySearchInput({ ...valid, pageSize: value as never }),
+      RentalInventoryValidationError,
+    );
+  }
+  for (const field of ['unitTypeCode', 'locationCode', 'startsOn', 'endsOn']) {
+    assert.throws(
+      () => normalizeRentalAvailabilitySearchInput({ ...valid, [field]: ['invalid'] } as never),
+      RentalInventoryValidationError,
+    );
+  }
+  assert.throws(
+    () => normalizeRentalAvailabilitySearchInput({ ...valid, locationCode: null } as never),
+    RentalInventoryValidationError,
+  );
+  assert.throws(() => normalizeRentalAvailabilitySearchInput(null as never), RentalInventoryValidationError);
+  assert.equal(normalizeRentalAvailabilitySearchInput({ ...valid, page: '002' }).page, 2);
+});
+
+test('rental pricing rejects unsupported persisted currencies and rates above configured limits', () => {
+  const quoteInput = {
+    startsOn: new Date('2026-10-01T00:00:00.000Z'),
+    endsOn: new Date('2026-10-02T00:00:00.000Z'),
+    defaultDailyRateMinor: 100_000_001,
+    ratePeriods: [],
+  };
+  assert.throws(() => buildRentalRateQuote(quoteInput), RentalAvailabilityIntegrityError);
+  assert.throws(
+    () => buildRentalRateQuote({
+      ...quoteInput,
+      defaultDailyRateMinor: 100,
+      ratePeriods: [{ startsOn: quoteInput.startsOn, endsOn: quoteInput.endsOn, dailyRateMinor: 100_000_001 }],
+    }),
+    RentalAvailabilityIntegrityError,
+  );
+  assert.throws(
+    () => buildRentalPricingEvidence({
+      ...quoteInput,
+      defaultDailyRateMinor: 100,
+      unitTypeId: '4f45b570-b1c2-46f9-86d5-c2e26cf0b582',
+      currency: 'ZZZ',
+    }),
+    RentalAvailabilityIntegrityError,
+  );
+});

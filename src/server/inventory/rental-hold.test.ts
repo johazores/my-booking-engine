@@ -85,3 +85,27 @@ test('rental hold idempotency payload comparison binds unit, dates, and requeste
     requested: { ...requested, expiresInMinutes: 20 },
   }), false);
 });
+
+test('rental hold defaults only omitted duration and rejects malformed runtime inputs', () => {
+  const valid = {
+    unitId: '6bd59ab8-85aa-4472-8ac3-2c69d72cb77d',
+    startsOn: '2026-10-01',
+    endsOn: '2026-10-05',
+    idempotencyKey: 'rental-hold:test-123',
+  };
+  assert.equal(normalizeRentalAvailabilityHoldInput(valid).expiresInMinutes, 15);
+  assert.equal(normalizeRentalAvailabilityHoldInput({ ...valid, expiresInMinutes: '020' }).expiresInMinutes, 20);
+  for (const value of [null, false, ['15'], {}, '', '1e1', '0x10', '1.5', '  ', 0, 31, Number.NaN]) {
+    assert.throws(
+      () => normalizeRentalAvailabilityHoldInput({ ...valid, expiresInMinutes: value as never }),
+      RentalInventoryValidationError,
+    );
+  }
+  for (const field of ['unitId', 'startsOn', 'endsOn', 'idempotencyKey']) {
+    assert.throws(
+      () => normalizeRentalAvailabilityHoldInput({ ...valid, [field]: null } as never),
+      RentalInventoryValidationError,
+    );
+  }
+  assert.throws(() => normalizeRentalAvailabilityHoldInput(null as never), RentalInventoryValidationError);
+});

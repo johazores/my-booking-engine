@@ -1,5 +1,7 @@
 import { isSupportedCurrencyCode } from '../pricing/money.ts';
 
+export const MAX_RENTAL_DAILY_RATE_MINOR = 100_000_000;
+
 export class RentalInventoryValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -95,10 +97,10 @@ export function normalizeRentalMoneyMinor(value: string | number, field = 'Daily
   // Accept only bounded decimal whole minor units, not Number() exponent/hex/fraction syntax.
   const normalized = typeof value === 'number'
     ? value
-    : /^[0-9]{1,64}$/.test(value.trim())
+    : typeof value === 'string' && /^[0-9]{1,64}$/.test(value.trim())
       ? Number(value.trim())
       : Number.NaN;
-  if (!Number.isSafeInteger(normalized) || normalized <= 0 || normalized > 100_000_000) {
+  if (!Number.isSafeInteger(normalized) || normalized <= 0 || normalized > MAX_RENTAL_DAILY_RATE_MINOR) {
     throw new RentalInventoryValidationError(`${field} must be a positive minor-unit amount.`);
   }
   return normalized;
