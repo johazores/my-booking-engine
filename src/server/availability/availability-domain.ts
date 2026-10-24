@@ -46,7 +46,12 @@ export function normalizeAvailabilityRequest(input: AvailabilityRequestInput) {
   if (departureDate <= arrivalDate) throw new AvailabilityValidationError('Departure date must be after arrival date.');
   const stayNights = Math.round((departureDate.getTime() - arrivalDate.getTime()) / DAY_MS);
   if (stayNights > 365) throw new AvailabilityValidationError('Stay length cannot exceed 365 nights.');
-  if (typeof input.quantity === 'string' && !/^\d+$/.test(input.quantity.trim())) throw new AvailabilityValidationError('Quantity must be between 1 and 50.');
+  if (typeof input.quantity !== 'string' && typeof input.quantity !== 'number') {
+    throw new AvailabilityValidationError('Quantity must be between 1 and 50.');
+  }
+  if (typeof input.quantity === 'string' && !/^[0-9]{1,16}$/.test(input.quantity.trim())) {
+    throw new AvailabilityValidationError('Quantity must be between 1 and 50.');
+  }
   const quantity = typeof input.quantity === 'number' ? input.quantity : Number(input.quantity.trim());
   if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) {
     throw new AvailabilityValidationError('Quantity must be between 1 and 50.');

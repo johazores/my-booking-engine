@@ -24,6 +24,19 @@ test('normalizes a bounded date-only availability request', () => {
   assert.throws(() => parseAvailabilityDate('2026-02-30', 'Arrival date'), /valid calendar/);
 });
 
+test('quantity validation rejects malformed JSON scalars with a typed error', () => {
+  const base = { propertyId: 'p', roomTypeId: 'r', ratePlanId: 'x', arrivalDate: '2026-09-04', departureDate: '2026-09-05' };
+  for (const quantity of ['2rooms', '2.5', '2e1', '0x10', '1'.repeat(17), '', ['2'], null, true]) {
+    assert.throws(
+      () => normalizeAvailabilityRequest({ ...base, quantity: quantity as string }),
+      /Quantity must be between 1 and 50/,
+    );
+  }
+  for (const quantity of [' 2 ', '02', 1, 50]) {
+    assert.equal(normalizeAvailabilityRequest({ ...base, quantity }).quantity, Number(quantity));
+  }
+});
+
 test('combines overlapping restriction rules conservatively', () => {
   const arrivalDate = parseAvailabilityDate('2026-09-10', 'Arrival date');
   const departureDate = parseAvailabilityDate('2026-09-12', 'Departure date');

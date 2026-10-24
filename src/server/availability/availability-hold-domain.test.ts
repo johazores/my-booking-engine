@@ -20,6 +20,19 @@ test('normalizes bounded hold duration and idempotency key', () => {
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', expiresInMinutes: '10minutes', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /between 1 and 30/);
 });
 
+test('hold duration validation rejects malformed JSON scalars with a typed error', () => {
+  const request = { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
+  for (const expiresInMinutes of ['10minutes', '2.5', '1e1', '0x10', '1'.repeat(17), '', ['10'], null, true]) {
+    assert.throws(
+      () => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', request, expiresInMinutes: expiresInMinutes as string }),
+      /Hold duration must be between 1 and 30 minutes/,
+    );
+  }
+  for (const expiresInMinutes of [' 10 ', '010', 1, 30]) {
+    assert.equal(normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', request, expiresInMinutes }).expiresInMinutes, Number(expiresInMinutes));
+  }
+});
+
 test('calculates remaining capacity per occupied night instead of overcounting non-overlapping holds', () => {
   const result = calculateAvailabilityHoldCapacity({
     physicalCapacity: 2,
