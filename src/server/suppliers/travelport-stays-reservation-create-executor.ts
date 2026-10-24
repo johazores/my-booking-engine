@@ -15,6 +15,7 @@ import {
   type TravelportStaysCredentials,
 } from './travelport-stays-provider.ts';
 import { assertTravelportStaysTransportRequestReady } from './travelport-stays-transport-preflight.ts';
+import { snapshotTravelportStaysReservationPaymentCard } from './travelport-stays-reservation-payment-card-source.ts';
 
 const ENDPOINTS = Object.freeze({
   'pre-production': 'https://api.pp.travelport.net/11/hotel/',
@@ -420,8 +421,10 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
   now?: Date;
 }>): TravelportStaysReservationCreateRequest {
   const validatedPayment = assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
+  // Snapshot direct-builder card material before any validation or serialization.
+  const paymentCard = snapshotTravelportStaysReservationPaymentCard(input.paymentCard);
   const formOfPayment = normalizePaymentCard(
-    input.paymentCard,
+    paymentCard,
     validatedPayment.acceptedPaymentCardCodes,
     input.validThroughDateLocal,
     input.now ?? new Date(),

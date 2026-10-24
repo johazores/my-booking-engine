@@ -357,3 +357,79 @@ test('requires bounded non-expired card data and a security code before request 
     );
   }
 });
+
+test('direct Create builder reads every sensitive field and nested billing detail only once', () => {
+  const reads = new Map<string, number>();
+  const counted = (key: string, value: unknown) => ({
+    enumerable: true,
+    get() {
+      const count = (reads.get(key) ?? 0) + 1;
+      reads.set(key, count);
+      if (count > 1) throw new Error('sensitive-value-re-read');
+      return value;
+    },
+  });
+  const billingAddress = Object.defineProperties({}, {
+    addressLine: counted('addressLine', '1 Test Street'),
+    city: counted('city', 'Sydney'),
+    stateProvince: counted('stateProvince', 'NSW'),
+    countryCode: counted('countryCode', 'AU'),
+    postalCode: counted('postalCode', '2000'),
+    hiddenSecret: counted('hiddenSecret', 'not-authorized'),
+  });
+  const telephone = Object.defineProperties({}, {
+    countryAccessCode: counted('countryAccessCode', '61'),
+    areaCityCode: counted('areaCityCode', '2'),
+    phoneNumber: counted('phoneNumber', '98765432'),
+    cityCode: counted('cityCode', 'SYD'),
+  });
+  const directCard = Object.defineProperties({}, {
+    cardType: counted('cardType', 'Credit'),
+    cardCode: counted('cardCode', 'VI'),
+    cardHolderName: counted('cardHolderName', 'Ada Lovelace'),
+    expireDate: counted('expireDate', '1230'),
+    cardNumber: counted('cardNumber', '4'.repeat(16)),
+    securityCode: counted('securityCode', '111'),
+    billingAddress: counted('billingAddress', billingAddress),
+    telephone: counted('telephone', telephone),
+    hiddenSecret: counted('cardHiddenSecret', 'not-authorized'),
+  });
+  const built = buildTravelportStaysReservationCreateRequest({
+    requestMaterial, paymentAuthority, paymentCard: directCard as never,
+    now: new Date('2026-09-07T00:00:00.000Z'),
+  });
+  const card = built.ReservationQueryBuild.ReservationBuild.FormOfPayment[0].PaymentCard;
+  assert.equal(card.CardNumber.PlainText, '4'.repeat(16));
+  assert.equal(card.SeriesCode.PlainText, '111');
+  assert.equal(card.Address?.PostalCode, '2000');
+  assert.equal(card.Telephone?.[0].phoneNumber, '98765432');
+  for (const [key, count] of reads) assert.equal(count, 1, key);
+  assert.equal(reads.has('hiddenSecret'), false);
+  assert.equal(reads.has('cardHiddenSecret'), false);
+});
+
+test('direct Create builder sanitizes sensitive getter errors before request serialization', () => {
+  const secret = 'sensitive-source-exception';
+  const cases = [
+    Object.defineProperty({ ...paymentCard }, 'securityCode', {
+      get() { throw new Error(secret); },
+    }),
+    {
+      ...paymentCard,
+      billingAddress: Object.defineProperty({
+        addressLine: '1 Test Street', city: 'Sydney', countryCode: 'AU', postalCode: '2000',
+      }, 'city', { get() { throw new Error(secret); } }),
+    },
+  ];
+  for (const card of cases) {
+    assert.throws(() => buildTravelportStaysReservationCreateRequest({
+      requestMaterial, paymentAuthority, paymentCard: card as never,
+      now: new Date('2026-09-07T00:00:00.000Z'),
+    }), (error: unknown) => {
+      if (!(error instanceof HospitalitySupplierProviderError)) return false;
+      assert.equal(error.code, 'INVALID_REQUEST');
+      assert.doesNotMatch(error.message, /sensitive-source-exception/);
+      return true;
+    });
+  }
+});

@@ -51,3 +51,17 @@ test('payment-card boundary documentation keeps production activation closed', (
   assert.match(doc, /2,147,483,647/);
   assert.match(doc, /does not provide a concrete production/i);
 });
+
+test('direct Create builder uses sanitized one-read card snapshot before normalization', () => {
+  const boundary = source('src/server/suppliers/travelport-stays-reservation-payment-card-source.ts');
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
+  const start = executor.indexOf('export function buildTravelportStaysReservationCreateRequest(');
+  const end = executor.indexOf('function ambiguousTransportFailure()', start);
+  assert.ok(start >= 0 && end > start);
+  const builder = executor.slice(start, end);
+  assert.match(boundary, /export \{ snapshotPaymentCard as snapshotTravelportStaysReservationPaymentCard \}/);
+  assert.match(executor, /import \{ snapshotTravelportStaysReservationPaymentCard \} from '.\/travelport-stays-reservation-payment-card-source.ts'/);
+  assert.match(builder, /const paymentCard = snapshotTravelportStaysReservationPaymentCard\(input\.paymentCard\)/);
+  assert.match(builder, /normalizePaymentCard\(\s*paymentCard,/);
+  assert.doesNotMatch(builder, /normalizePaymentCard\(\s*input\.paymentCard,/);
+});

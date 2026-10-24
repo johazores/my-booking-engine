@@ -45,3 +45,9 @@ The low-level Travelport Create executor now validates accepted-card authority t
 The executor also reads payment-authority scalars and the one required Payment instruction once, verifies the exact amount/currency and guarantee/deposit flags, and rebuilds a frozen Payment instruction from those validated primitives. Later caller mutation or accessor changes cannot silently change the commercial payment instruction that is serialized into the provider request. Malformed accessors fail closed with fixed INVALID_REQUEST messages, without exposing caller-controlled exception text.
 
 This is defense in depth for direct adapter invocation; it does not replace the fresh Rules/Availability checks, tenant authorization, PCI-safe card source requirement, or live provider validation. The Travelport reservation capability remains disabled.
+
+## Direct Create builder card-material continuity
+
+The standalone Travelport Create builder now uses the same one-read, allowlisted, sanitized payment-card snapshot as the higher-level server-only source. Direct internal callers can no longer cause PAN, CVV, expiry, card type, or nested billing/telephone evidence to change between validation and serialization through volatile getters. Unrelated metadata is not copied, and hostile getter diagnostics do not escape the fixed failure boundary.
+
+Fresh card, amount, currency, guarantee, and stay-expiry validation still happens before the durable provider-request marker. This change does not provide a PCI-reviewed payment-card source or enable Travelport reservation writes.

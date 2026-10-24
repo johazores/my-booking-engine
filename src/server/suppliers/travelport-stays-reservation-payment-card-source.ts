@@ -226,3 +226,6 @@ export async function acquireTravelportStaysReservationPaymentCard(
   }
   return snapshotPaymentCard(paymentCard);
 }
+
+// Share the one-read, sanitized, allowlisted snapshot with direct Create callers.
+export { snapshotPaymentCard as snapshotTravelportStaysReservationPaymentCard };
