@@ -19,14 +19,14 @@ test('decodes canonical property and offer objects without changing their eviden
   for (const value of [
     { authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12' },
     { propertyAuthority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', rateAuthority: 'BKNG', rateValue: 'R-12' },
-    { authority: 'TVPT', description: 'Café 東京' },
+    { chainCode: 'HI', propertyCode: 'ABC12', propertyAuthority: 'TVPT', rateValue: 'Café 東京', rateAuthority: 'TVPT' },
   ]) {
     assert.deepEqual(decodeCanonicalTravelportStaysReference(encode(value), 4_096), value);
   }
 });
 
 test('rejects non-canonical base64url aliases, malformed alphabet and length overflow', () => {
-  const bytes = Buffer.from(JSON.stringify({ authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', x: '' }), 'utf8');
+  const bytes = Buffer.from(JSON.stringify({ authority: 'TVPT', chainCode: 'HII', propertyCode: 'ABC12' }), 'utf8');
   assert.equal(bytes.length % 3, 1);
   const canonical = bytes.toString('base64url');
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -59,4 +59,37 @@ test('rejects alternate JSON spellings and duplicate supplier identity fields', 
     '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC\\u0031"}',
     '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC12", "x":1e0}',
   ]) assertInvalid(encodeRaw(raw));
+});
+
+
+test('rejects extra, missing, conflicting, and prototype-shaped supplier reference fields', () => {
+  for (const value of [
+    { authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', metadata: 'untrusted' },
+    { authority: 'TVPT', chainCode: 'HI' },
+    { authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', propertyAuthority: 'TVPT' },
+    { chainCode: 'HI', propertyCode: 'ABC12', propertyAuthority: 'TVPT', rateValue: 'R-12', rateAuthority: 'BKNG', note: 'untrusted' },
+    { chainCode: 'HI', propertyCode: 'ABC12', propertyAuthority: 'TVPT', rateValue: 'R-12' },
+    JSON.parse('{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC12","__proto__":{"polluted":true}}'),
+  ]) assertInvalid(encode(value));
+});
+
+test('rejects identity values that only become valid after normalization', () => {
+  const property = { authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12' };
+  const offer = { propertyAuthority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', rateAuthority: 'TVPT', rateValue: 'R-12' };
+  for (const value of [
+    { ...property, authority: 'OTHER' },
+    { ...property, chainCode: ' HI' },
+    { ...property, chainCode: 'HI\t' },
+    { ...property, propertyCode: 'ABC 12' },
+    { ...property, propertyCode: 'ABC12 ' },
+    { ...offer, propertyAuthority: 'OTHER' },
+    { ...offer, rateAuthority: 'OTHER' },
+    { ...offer, rateValue: ' R-12' },
+    { ...offer, rateValue: 'R-12 ' },
+    { ...offer, rateValue: 'R\t12' },
+    { ...offer, rateValue: 'R\u007f12' },
+    { ...offer, rateValue: '\ud800' },
+    { ...offer, rateValue: '' },
+    { ...offer, rateValue: 123 },
+  ]) assertInvalid(encode(value));
 });

@@ -35,6 +35,7 @@ test('decodes only bounded canonical Travelport property identity evidence', () 
     encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI\t', propertyCode: 'ABC12' }),
     encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12 ' }),
     encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI', propertyCode: '\u0000ABC12' }),
+    encodedPropertyReference({ authority: 'TVPT', chainCode: 'HI', propertyCode: 'ABC12', note: 'untrusted' }),
   ]) {
     assert.throws(() => decodeTravelportStaysPropertyReference(value), HospitalitySupplierProviderError);
   }
@@ -43,9 +44,8 @@ test('decodes only bounded canonical Travelport property identity evidence', () 
 test('rejects non-canonical base64url aliases for the same supplier property bytes', () => {
   const bytes = Buffer.from(JSON.stringify({
     authority: 'TVPT',
-    chainCode: 'HI',
+    chainCode: 'HII',
     propertyCode: 'ABC12',
-    x: '',
   }), 'utf8');
   const canonical = bytes.toString('base64url');
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -53,6 +53,7 @@ test('rejects non-canonical base64url aliases for the same supplier property byt
   const alias = `${canonical.slice(0, -1)}${alphabet[lastIndex + 1]}`;
 
   assert.equal(bytes.length % 3, 1);
+  assert.deepEqual(decodeTravelportStaysPropertyReference(canonical), { chainCode: 'HII', propertyCode: 'ABC12' });
   assert.notEqual(alias, canonical);
   assert.equal(Buffer.from(alias, 'base64url').toString('utf8'), bytes.toString('utf8'));
   assert.throws(() => decodeTravelportStaysPropertyReference(alias), HospitalitySupplierProviderError);
