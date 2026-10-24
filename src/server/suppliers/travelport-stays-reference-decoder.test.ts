@@ -5,6 +5,7 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+const encodeRaw = (value: string) => Buffer.from(value, 'utf8').toString('base64url');
 
 function assertInvalid(value: unknown, maxLength = 4_096) {
   assert.throws(() => decodeCanonicalTravelportStaysReference(value, maxLength), (error: unknown) => {
@@ -47,4 +48,15 @@ test('rejects malformed UTF-8, malformed JSON, arrays and scalar JSON', () => {
     Buffer.from('null', 'utf8'),
     Buffer.from('"string"', 'utf8'),
   ]) assertInvalid(bytes.toString('base64url'));
+});
+
+
+test('rejects alternate JSON spellings and duplicate supplier identity fields', () => {
+  for (const raw of [
+    '{ "authority":"TVPT","chainCode":"HI","propertyCode":"ABC12"}',
+    '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC12"}\n',
+    '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC12","propertyCode":"OTHER"}',
+    '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC\\u0031"}',
+    '{"authority":"TVPT","chainCode":"HI","propertyCode":"ABC12", "x":1e0}',
+  ]) assertInvalid(encodeRaw(raw));
 });

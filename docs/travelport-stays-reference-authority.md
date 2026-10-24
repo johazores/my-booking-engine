@@ -27,6 +27,8 @@ A reference must:
 
 The round-trip check rejects alternate base64url spellings that decode to the same bytes.
 
+The decoded object must also serialize back to the identical UTF-8 JSON text using `JSON.stringify`. This rejects duplicate JSON member names, whitespace variations, alternate escaped-string spellings, and alternate number notation that could otherwise represent the same parsed supplier identity with different opaque reference bytes. SF generates references using this serialization; callers should pass them through unchanged. This canonicality check is not a signature or an authorization decision.
+
 Decoded Travelport property identity is exact. `chainCode` and `propertyCode` must already satisfy their alphanumeric provider identifier contracts. Decoded offer `rateValue` is also exact: leading/trailing whitespace and ASCII controls `U+0000` through `U+001F` plus `U+007F` fail closed.
 
 ## Provider response authority
