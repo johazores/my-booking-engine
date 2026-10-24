@@ -180,60 +180,117 @@ function validLocalDate(value: unknown) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+/**
+ * Snapshot the exact Travelport accepted-card set by bounded indexed reads.
+ * Never invoke an untrusted array iterator, .some(), .includes(), or a custom
+ * getter twice while deciding which ephemeral card may be submitted.
+ */
+function snapshotAcceptedPaymentCardCodes(value: unknown): readonly string[] {
+  try {
+    if (!Array.isArray(value)) invalidRequest('Travelport reservation accepted-card authority is invalid.');
+    const length = value.length;
+    if (!Number.isSafeInteger(length) || length < 1 || length > MAX_PAYMENT_CARD_CODES) {
+      invalidRequest('Travelport reservation accepted-card authority is invalid.');
+    }
+    const codes: string[] = [];
+    const seen = new Set<string>();
+    for (let index = 0; index < length; index += 1) {
+      if (!Object.hasOwn(value, index)) invalidRequest('Travelport reservation accepted-card authority is invalid.');
+      const code = value[index];
+      if (typeof code !== 'string' || !/^[A-Z0-9]{2}$/.test(code) || seen.has(code)) {
+        invalidRequest('Travelport reservation accepted-card authority is invalid.');
+      }
+      codes.push(code);
+      seen.add(code);
+    }
+    return Object.freeze(codes);
+  } catch {
+    // Do not leak caller-controlled getter/proxy errors from the pre-provider gate.
+    invalidRequest('Travelport reservation accepted-card authority is invalid.');
+  }
+}
+
 function assertPaymentAuthorityMatchesRequestMaterial(
   requestMaterial: TravelportStaysReservationCreateRequestMaterial,
   authority: HospitalitySupplierReservationPaymentAuthority,
-) {
+): Readonly<{
+  acceptedPaymentCardCodes: readonly string[];
+  payment: TravelportStaysReservationCreateRequestMaterial['Payment'];
+}> {
   if (!requestMaterial || typeof requestMaterial !== 'object' || Array.isArray(requestMaterial)) {
     invalidRequest('Travelport reservation request material is required.');
   }
   if (!authority || typeof authority !== 'object' || Array.isArray(authority)) {
     invalidRequest('Travelport reservation payment authority is required.');
   }
-  if (!/^[A-Z]{3}$/.test(authority.currency) || typeof authority.amountMinor !== 'bigint' || authority.amountMinor < 0n) {
-    invalidRequest('Travelport reservation payment authority is invalid.');
-  }
-  const acceptedPaymentCardCodes = authority.acceptedPaymentCardCodes;
-  if (
-    !Array.isArray(acceptedPaymentCardCodes)
-    || acceptedPaymentCardCodes.length < 1
-    || acceptedPaymentCardCodes.length > MAX_PAYMENT_CARD_CODES
-    || acceptedPaymentCardCodes.some((code) => (
-      typeof code !== 'string'
-      || code.length !== MAX_CARD_CODE_LENGTH
-      || !code.isWellFormed()
-      || code !== code.trim()
-      || ASCII_CONTROL_PATTERN.test(code)
-    ))
-    || new Set(acceptedPaymentCardCodes).size !== acceptedPaymentCardCodes.length
-  ) {
-    invalidRequest('Travelport reservation accepted-card authority is invalid.');
-  }
-  if (!Array.isArray(requestMaterial.Payment) || requestMaterial.Payment.length !== 1) {
-    invalidRequest('Travelport reservation payment request material is invalid.');
-  }
 
-  const payment = requestMaterial.Payment[0];
-  let expectedAmount: string;
+  let currency: unknown;
+  let amountMinor: unknown;
+  let kind: unknown;
+  let collectionTiming: unknown;
+  let cardEvidence: unknown;
   try {
-    expectedAmount = moneyMinorToMajorString(authority.amountMinor, authority.currency);
+    currency = authority.currency;
+    amountMinor = authority.amountMinor;
+    kind = authority.kind;
+    collectionTiming = authority.collectionTiming;
+    cardEvidence = authority.acceptedPaymentCardCodes;
   } catch {
     invalidRequest('Travelport reservation payment authority is invalid.');
   }
-  const expectedDeposit = authority.kind === 'PREPAY' || authority.kind === 'DEPOSIT';
-  const expectedGuarantee = authority.kind === 'GUARANTEE';
+  if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)
+    || typeof amountMinor !== 'bigint' || amountMinor < 0n) {
+    invalidRequest('Travelport reservation payment authority is invalid.');
+  }
+  const acceptedPaymentCardCodes = snapshotAcceptedPaymentCardCodes(cardEvidence);
+  let expectedAmount: string;
+  try {
+    expectedAmount = moneyMinorToMajorString(amountMinor, currency);
+  } catch {
+    invalidRequest('Travelport reservation payment authority is invalid.');
+  }
+  const expectedDeposit = kind === 'PREPAY' || kind === 'DEPOSIT';
+  const expectedGuarantee = kind === 'GUARANTEE';
   if (
     (!expectedDeposit && !expectedGuarantee)
-    || (expectedDeposit && authority.collectionTiming !== 'AT_BOOKING')
-    || (expectedGuarantee && authority.collectionTiming !== 'AT_PROPERTY')
-    || payment['@type'] !== 'Payment'
-    || payment.Amount.code !== authority.currency
-    || payment.Amount.value !== expectedAmount
-    || payment.depositInd !== expectedDeposit
-    || payment.guaranteeInd !== expectedGuarantee
+    || (expectedDeposit && collectionTiming !== 'AT_BOOKING')
+    || (expectedGuarantee && collectionTiming !== 'AT_PROPERTY')
   ) {
     invalidRequest('Travelport reservation payment request material no longer matches fresh supplier authority.');
   }
+
+  try {
+    const payments = requestMaterial.Payment;
+    if (!Array.isArray(payments) || payments.length !== 1 || !Object.hasOwn(payments, 0)) {
+      invalidRequest('Travelport reservation payment request material is invalid.');
+    }
+    const payment = payments[0];
+    const amount = payment.Amount;
+    if (
+      payment['@type'] !== 'Payment'
+      || amount.code !== currency
+      || amount.value !== expectedAmount
+      || payment.depositInd !== expectedDeposit
+      || payment.guaranteeInd !== expectedGuarantee
+    ) {
+      invalidRequest('Travelport reservation payment request material no longer matches fresh supplier authority.');
+    }
+  } catch {
+    // Payment objects can also carry hostile getters; never propagate their text.
+    invalidRequest('Travelport reservation payment request material no longer matches fresh supplier authority.');
+  }
+
+  // Rebuild the already-validated payment instruction from local primitives.
+  // The final provider payload must not re-read mutable caller-owned evidence.
+  return Object.freeze({
+    acceptedPaymentCardCodes,
+    payment: Object.freeze([Object.freeze({
+      '@type': 'Payment' as const,
+      Amount: Object.freeze({ code: currency, value: expectedAmount }),
+      depositInd: expectedDeposit,
+      guaranteeInd: expectedGuarantee,
+    })]) as TravelportStaysReservationCreateRequestMaterial['Payment'],
+  });
 }
 
 function normalizeBillingAddress(value: TravelportStaysSensitiveReservationPaymentCard['billingAddress']) {
@@ -283,19 +340,18 @@ function normalizePaymentTelephone(value: TravelportStaysSensitiveReservationPay
 
 function normalizePaymentCard(
   input: TravelportStaysSensitiveReservationPaymentCard,
-  authority: HospitalitySupplierReservationPaymentAuthority,
+  acceptedPaymentCardCodes: readonly string[],
   validThroughDateLocal: string | undefined,
   now: Date,
 ) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) invalidRequest('Travelport payment card is required.');
-  if (!authority || typeof authority !== 'object' || Array.isArray(authority)) invalidRequest('Travelport payment authority is required.');
   if (validThroughDateLocal !== undefined && !validLocalDate(validThroughDateLocal)) {
     invalidRequest('Travelport reservation card-valid-through date is invalid.');
   }
 
   const cardCode = boundedSingleLine(input.cardCode, 'Travelport payment card code', MAX_CARD_CODE_LENGTH);
   if (!/^[A-Z0-9]{2}$/.test(cardCode)) invalidRequest('Travelport payment card code is invalid.');
-  if (!Array.isArray(authority.acceptedPaymentCardCodes) || !authority.acceptedPaymentCardCodes.includes(cardCode)) {
+  if (!acceptedPaymentCardCodes.includes(cardCode)) {
     invalidRequest('Travelport payment card is not accepted by the freshly reviewed supplier terms.');
   }
   if (input.cardType !== 'Credit') {
@@ -363,10 +419,10 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
   validThroughDateLocal?: string;
   now?: Date;
 }>): TravelportStaysReservationCreateRequest {
-  assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
+  const validatedPayment = assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
   const formOfPayment = normalizePaymentCard(
     input.paymentCard,
-    input.paymentAuthority,
+    validatedPayment.acceptedPaymentCardCodes,
     input.validThroughDateLocal,
     input.now ?? new Date(),
   );
@@ -378,7 +434,7 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
         BuildFromCatalogOfferingHospitality: input.requestMaterial.BuildFromCatalogOfferingHospitality,
         Traveler: input.requestMaterial.Traveler,
         FormOfPayment: Object.freeze([formOfPayment]) as TravelportStaysReservationCreateRequest['ReservationQueryBuild']['ReservationBuild']['FormOfPayment'],
-        Payment: input.requestMaterial.Payment,
+        Payment: validatedPayment.payment,
       }),
     }),
   });

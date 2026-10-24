@@ -12,6 +12,11 @@ test('Travelport create executor keeps sensitive card material inside the server
   assert.match(executor, /FormOfPaymentPaymentCard/);
   assert.match(executor, /PaymentCardDetail/);
   assert.match(executor, /acceptedPaymentCardCodes\.includes\(cardCode\)/);
+  assert.match(executor, /function snapshotAcceptedPaymentCardCodes\(value: unknown\)/);
+  assert.match(executor, /Object\.hasOwn\(value, index\)/);
+  assert.match(executor, /\^\[A-Z0-9\]\{2\}\$/);
+  assert.match(executor, /Payment: validatedPayment\.payment/);
+  assert.doesNotMatch(executor, /acceptedPaymentCardCodes\.some\(/);
   assert.match(executor, /input\.cardType !== 'Credit'/);
   assert.match(executor, /assertPaymentAuthorityMatchesRequestMaterial/);
   assert.match(executor, /moneyMinorToMajorString/);
@@ -34,7 +39,7 @@ test('Travelport initial create cannot inherit accepted-review flags', () => {
   const reviewedStart = executor.indexOf('async createReservationAfterAcceptedReview', initialStart);
   assert.ok(initialStart >= 0 && reviewedStart > initialStart);
   const initial = executor.slice(initialStart, reviewedStart);
-  assert.match(initial, /#createReservation\(input, null\)/);
+  assert.match(initial, /#createReservation\(authority, null\)/);
   assert.doesNotMatch(initial, /acceptedReview|acceptPriceChangeInd|acceptGuaranteeChangeInd/);
 });
 
@@ -98,12 +103,12 @@ test('Travelport sensitive form-of-payment documentation stays server-only and f
 
 test('integration constructs the executor without advertising reservation capability', () => {
   const integration = source('src/server/integrations/travelport-stays-integration.ts');
-  const provider = source('src/server/suppliers/travelport-stays-provider.ts');
+  const provider = source('src/server/suppliers/travelport-stays-provider-core.ts');
   const docs = source('docs/supplier-reservation-create-readiness.md');
   assert.match(integration, /TravelportStaysReservationCreateExecutor/);
   assert.match(integration, /reservationCreateExecutor/);
   assert.match(integration, /fetchImpl/);
   assert.match(provider, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\]/);
   assert.doesNotMatch(provider, /capabilities: Object\.freeze\([^\n]*'reservation'/);
-  assert.match(docs, /capability remains disabled/i);
+  assert.match(docs, /reservation.*remains disabled/i);
 });

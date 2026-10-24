@@ -11,9 +11,9 @@ test('Travelport payment-card source bounds durable context and sanitizes extern
   assert.match(boundary, /MAX_INTEGRATION_CREDENTIAL_VERSION = 2_147_483_647/);
   assert.match(boundary, /Number\.isSafeInteger\(normalizedContext\.integrationCredentialVersion\)/);
   assert.match(boundary, /function sourceFailure\(error: unknown\): never/);
-  assert.match(boundary, /hospitalitySupplierFailureCodes\.includes\(error\.code\)/);
-  assert.match(boundary, /Source-controlled thrown values can themselves be hostile proxies/);
-  assert.match(boundary, /new HospitalitySupplierProviderError\(code, SOURCE_FAILURE_MESSAGE\)/);
+  assert.match(boundary, /inspectHospitalitySupplierProviderFailure\(error\)/);
+  assert.match(boundary, /const providerFailure = inspectHospitalitySupplierProviderFailure\(error\)/);
+  assert.match(boundary, /providerFailure\?\.code \?\? 'INVALID_REQUEST'/);
   assert.match(boundary, /acquirePaymentCard = source\.acquirePaymentCard/);
   assert.match(boundary, /acquirePaymentCard\.call\(source, normalizedContext\)/);
   assert.doesNotMatch(boundary, /throw error;/);

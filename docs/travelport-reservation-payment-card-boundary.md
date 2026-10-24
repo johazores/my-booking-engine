@@ -37,3 +37,11 @@ The payment-source regression coverage verifies both sides of the capability bou
 Travelport `reservation` remains deliberately disabled. This hardening does not provide a concrete production payment-card source and does not close the remaining activation gates. Production activation still requires a separately reviewed PCI-safe FormOfPayment/guarantee source for the provisioned Travelport account, live non-production SearchComplete → Rules → Availability → initial Create → reviewed Create → Sync/recovery verification, and authoritative live `13034` / locator-less recovery semantics.
 
 No payment-card plaintext, source diagnostics, provider credentials, access tokens, raw provider payloads, or source-only metadata belong in Prisma, audit metadata, logs, analytics, queues, or request fingerprints.
+
+## Direct Create payment-authority snapshot
+
+The low-level Travelport Create executor now validates accepted-card authority through a bounded indexed snapshot rather than caller-owned array methods or iterators. It rejects sparse/oversized arrays, duplicate codes, invalid two-character Travelport machine codes, hostile getters, and revoked proxies before card acquisition or provider I/O. The selected card is checked only against the validated frozen code snapshot.
+
+The executor also reads payment-authority scalars and the one required Payment instruction once, verifies the exact amount/currency and guarantee/deposit flags, and rebuilds a frozen Payment instruction from those validated primitives. Later caller mutation or accessor changes cannot silently change the commercial payment instruction that is serialized into the provider request. Malformed accessors fail closed with fixed INVALID_REQUEST messages, without exposing caller-controlled exception text.
+
+This is defense in depth for direct adapter invocation; it does not replace the fresh Rules/Availability checks, tenant authorization, PCI-safe card source requirement, or live provider validation. The Travelport reservation capability remains disabled.
