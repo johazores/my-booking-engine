@@ -1,0 +1,111 @@
+/** Bounded text-only browser form reader for same-origin mutation endpoints. */
+export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
+export const FORM_MAX_FIELDS = 64;
+
+const SUPPORTED_FORM_MEDIA_TYPES = new Set([
+  'application/x-www-form-urlencoded',
+  'multipart/form-data',
+]);
+
+function hasValidUrlEncodedComponents(body: string) {
+  // The built-in form parser silently replaces invalid percent-encoded UTF-8.
+  // Reject corrupted values rather than persisting replacement characters.
+  for (const pair of body.split('&')) {
+    const equals = pair.indexOf('=');
+    const name = equals < 0 ? pair : pair.slice(0, equals);
+    const value = equals < 0 ? '' : pair.slice(equals + 1);
+    try {
+      decodeURIComponent(name.replace(/\+/g, ' '));
+      decodeURIComponent(value.replace(/\+/g, ' '));
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function readBoundedFormData(
+  request: Request,
+  maxBytes = FORM_REQUEST_MAX_BYTES,
+): Promise<FormData | null> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return null;
+
+  const contentType = request.headers.get('content-type');
+  const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
+  if (!contentType || !mediaType || !SUPPORTED_FORM_MEDIA_TYPES.has(mediaType)) return null;
+
+  const lengthHeader = request.headers.get('content-length');
+  let declaredBytes: number | null = null;
+  if (lengthHeader !== null) {
+    if (!/^[0-9]+$/.test(lengthHeader)) return null;
+    declaredBytes = Number(lengthHeader);
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return null;
+  }
+
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    try { await reader.cancel(); } catch { /* Stream already failed. */ }
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    // Mutation endpoints accept text metadata, never uploaded binary files.
+    const decodedBody = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    if (mediaType === 'application/x-www-form-urlencoded' && !hasValidUrlEncodedComponents(decodedBody)) return null;
+    const form = await new Request(request.url, {
+      method: 'POST',
+      headers: { 'content-type': contentType },
+      body: bytes.buffer,
+    }).formData();
+    const fieldNames = new Set<string>();
+    for (const [name, value] of form.entries()) {
+      // Mutation forms use scalar fields. Duplicate keys are ambiguous
+      // because formField() reads only the first submitted value.
+      if (typeof value !== 'string' || !name || name.length > 100 || name.includes('\0') || value.includes('\0') || fieldNames.has(name)) return null;
+      fieldNames.add(name);
+      if (fieldNames.size > FORM_MAX_FIELDS) return null;
+    }
+    return form;
+  } catch {
+    return null;
+  }
+}
+
+/** Routes with an existing validation catch use this throwing adapter. */
+export class FormBodyValidationError extends Error {
+  constructor() {
+    super('Invalid form submission');
+    this.name = 'FormBodyValidationError';
+  }
+}
+
+export async function readBoundedFormDataOrThrow(request: Request, maxBytes = FORM_REQUEST_MAX_BYTES) {
+  const form = await readBoundedFormData(request, maxBytes);
+  if (!form) throw new FormBodyValidationError();
+  return form;
+}

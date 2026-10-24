@@ -7,6 +7,8 @@ import {
   readBoundedInventoryFormData,
 } from './inventory-form-body.ts';
 
+import { FormBodyValidationError, readBoundedFormDataOrThrow } from '../http/bounded-form-body.ts';
+
 const url = 'https://sf.example/api/inventory/rentals/units';
 
 function formRequest(body: BodyInit, headers?: Record<string, string>) {
@@ -63,4 +65,24 @@ test('inventory form ingress rejects ambiguous duplicate names and excessive fie
   assert.equal((await readBoundedInventoryFormData(formRequest(allowed)))?.get('field63'), 'ok');
   assert.equal(await readBoundedInventoryFormData(formRequest(`${allowed}&field64=ok`)), null);
   assert.equal(await readBoundedInventoryFormData(formRequest(`${'n'.repeat(101)}=ok`)), null);
+});
+
+test('bounded form ingress rejects corrupted encoded values and names', async () => {
+  for (const body of ['name=%', 'name=%GG', 'name=%FF', 'name=%C3%28', '%E0%A4%A=ok', 'name=%ED%A0%80', '=value', 'name=%00', 'na%00me=value']) {
+    assert.equal(await readBoundedInventoryFormData(formRequest(body)), null, body);
+  }
+  const form = await readBoundedInventoryFormData(formRequest('name=Caf%C3%A9+%26+tea&code=RENT%2525'));
+  assert.equal(form?.get('name'), 'Café & tea');
+  assert.equal(form?.get('code'), 'RENT%25');
+});
+
+test('bounded form ingress rejects inaccurate content-length declarations', async () => {
+  assert.equal(await readBoundedInventoryFormData(formRequest('name=Kayak', { 'content-length': '0' })), null);
+  assert.equal(await readBoundedInventoryFormData(formRequest('name=Kayak', { 'content-length': '20' })), null);
+  assert.equal((await readBoundedInventoryFormData(formRequest('name=Kayak', { 'content-length': '10' })))?.get('name'), 'Kayak');
+});
+
+test('throwing form adapter reports validation errors without exposing input', async () => {
+  await assert.rejects(readBoundedFormDataOrThrow(formRequest('password=%FF')), FormBodyValidationError);
+  assert.equal((await readBoundedFormDataOrThrow(formRequest('name=Kayak'))).get('name'), 'Kayak');
 });

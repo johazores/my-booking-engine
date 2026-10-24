@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { FormBodyValidationError, readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   organizationId = activeContext.organization.id;
 
   try {
-    const formData = await request.formData();
+    const formData = await readBoundedFormDataOrThrow(request);
     const configuration = normalizeStripeIntegrationConfiguration({
       secretKey: field(formData, 'secretKey'),
       webhookSecret: field(formData, 'webhookSecret'),
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
-      : error instanceof StripeIntegrationConfigurationError
+      : error instanceof StripeIntegrationConfigurationError || error instanceof FormBodyValidationError
         ? 'validation'
         : 'server';
     return finish(

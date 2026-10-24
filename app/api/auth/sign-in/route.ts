@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { AuthValidationError } from '@/server/auth/auth-domain.ts';
 import {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
 
   let formData: FormData;
   try {
-    formData = await request.formData();
+    formData = await readBoundedFormDataOrThrow(request);
   } catch {
     return finish(NextResponse.redirect(new URL('/sign-in?error=validation', request.url), 303), 'rejected');
   }

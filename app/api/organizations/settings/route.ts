@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
 
   let formData: FormData;
   try {
-    formData = await request.formData();
+    formData = await readBoundedFormDataOrThrow(request);
   } catch {
     return finish(NextResponse.redirect(new URL('/account?settingsError=validation', request.url), 303), 'rejected');
   }
