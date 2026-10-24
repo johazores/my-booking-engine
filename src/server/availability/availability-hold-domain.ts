@@ -35,7 +35,7 @@ export function normalizeAvailabilityHoldInput(input: AvailabilityHoldInput) {
   if (!HOLD_KEY_PATTERN.test(idempotencyKey)) {
     throw new AvailabilityHoldValidationError('Idempotency key must be 8-120 letters, numbers, dots, underscores, colons, or hyphens.');
   }
-  const rawMinutes = input.expiresInMinutes ?? DEFAULT_HOLD_MINUTES;
+  const rawMinutes = input.expiresInMinutes === undefined ? DEFAULT_HOLD_MINUTES : input.expiresInMinutes;
   if (typeof rawMinutes !== 'string' && typeof rawMinutes !== 'number') {
     throw new AvailabilityHoldValidationError(`Hold duration must be between 1 and ${MAX_HOLD_MINUTES} minutes.`);
   }

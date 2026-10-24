@@ -15,6 +15,7 @@ test('normalizes bounded hold duration and idempotency key', () => {
   });
   assert.equal(normalized.idempotencyKey, 'checkout:abc-123');
   assert.equal(normalized.expiresInMinutes, 10);
+  assert.equal(normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }).expiresInMinutes, 15);
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'short', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /Idempotency key/);
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', expiresInMinutes: 31, request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /between 1 and 30/);
   assert.throws(() => normalizeAvailabilityHoldInput({ idempotencyKey: 'checkout:abc-123', expiresInMinutes: '10minutes', request: { propertyId: 'p', roomTypeId: 'rt', ratePlanId: 'rp', arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 } }), /between 1 and 30/);
