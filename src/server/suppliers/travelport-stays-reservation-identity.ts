@@ -88,9 +88,18 @@ function materializeReservationExpectationInput(
   if (!safelyMaterialize(() => Array.isArray(values.childAgesValue))) {
     invalidRequest('Expected reservation child ages are invalid.');
   }
-  const childAges = safelyMaterialize(
-    () => Object.freeze([...(values.childAgesValue as unknown[])]),
-  ) as readonly unknown[];
+  // Never spread caller-owned arrays: their iterator can be unbounded or hostile.
+  const childAgesLength = safelyMaterialize(() => (values.childAgesValue as unknown[]).length);
+  if (!Number.isSafeInteger(childAgesLength) || childAgesLength < 0 || childAgesLength > 8) {
+    invalidRequest('Expected reservation child ages are invalid.');
+  }
+  const childAges = safelyMaterialize(() => {
+    const snapshot: unknown[] = [];
+    for (let index = 0; index < childAgesLength; index += 1) {
+      snapshot.push((values.childAgesValue as unknown[])[index]);
+    }
+    return Object.freeze(snapshot);
+  });
 
   return Object.freeze({
     supplierPropertyReference: values.supplierPropertyReference,

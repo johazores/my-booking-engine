@@ -101,7 +101,14 @@ function readString(record: UnknownRecord, key: string) {
 function materializeOptionalArray(value: unknown): readonly unknown[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) invalidAuthority();
-  return Object.freeze(Array.from(value));
+  // Validate before copying: Array.from can invoke an untrusted iterator without a bound.
+  const length = value.length;
+  if (!Number.isSafeInteger(length) || length < 0 || length > 32) invalidAuthority();
+  const childAges: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    childAges.push(value[index]);
+  }
+  return Object.freeze(childAges);
 }
 
 function materializeSelectionBase(record: UnknownRecord): MaterializedSelectionBase {

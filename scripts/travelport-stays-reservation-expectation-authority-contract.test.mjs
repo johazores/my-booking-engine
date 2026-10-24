@@ -21,7 +21,11 @@ test('shared reservation expectation establishes a one-read frozen authority sna
   ]) {
     assert.match(identity, new RegExp(`${localName}: input\\.${field},`));
   }
-  assert.match(identity, /Object\.freeze\(\[\.\.\.\(values\.childAgesValue as unknown\[\]\)\]\)/);
+  assert.match(identity, /childAgesLength > 8/);
+  assert.match(identity, /for \(let index = 0; index < childAgesLength; index \+= 1\)/);
+  assert.match(identity, /snapshot\.push\(\(values\.childAgesValue as unknown\[\]\)\[index\]\)/);
+  assert.match(identity, /Object\.freeze\(snapshot\)/);
+  assert.doesNotMatch(identity, /Object\.freeze\(\[\.\.\.\(values\.childAgesValue as unknown\[\]\)\]\)/);
   assert.match(identity, /return Object\.freeze\(\{[\s\S]*?supplierPropertyReference: values\.supplierPropertyReference,[\s\S]*?childAges,[\s\S]*?\}\);/);
   assert.match(identity, /const authority = materializeReservationExpectationInput\(input\);/);
   assert.doesNotMatch(identity, /const property = decodeTravelportStaysPropertyReference\(input\.supplierPropertyReference\)/);

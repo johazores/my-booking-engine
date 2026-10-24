@@ -60,7 +60,11 @@ test('materializer is frozen, sanitized, nested-aware, and branch-specific', asy
   const authority = await source('src/server/suppliers/hospitality-supplier-reservation-input-authority.ts');
   assert.match(authority, /Supplier reservation request authority is invalid\./);
   assert.match(authority, /catch \{\s*invalidAuthority\(\)/s);
-  assert.match(authority, /Object\.freeze\(Array\.from\(value\)\)/);
+  assert.match(authority, /length > 32/);
+  assert.match(authority, /for \(let index = 0; index < length; index \+= 1\)/);
+  assert.match(authority, /childAges\.push\(value\[index\]\)/);
+  assert.match(authority, /Object\.freeze\(childAges\)/);
+  assert.doesNotMatch(authority, /Array\.from\(value\)/);
   assert.match(authority, /telephone: Object\.freeze\(\{/);
   assert.match(authority, /if \(status === 'CONFIRMED'\)/);
   assert.match(authority, /else if \(status === 'FAILED'\)/);

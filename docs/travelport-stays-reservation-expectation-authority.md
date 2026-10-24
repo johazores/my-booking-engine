@@ -13,7 +13,7 @@ TypeScript `Readonly` does not make a caller-owned runtime object immutable. The
 The materializer:
 
 - reads `supplierPropertyReference`, arrival, departure, room count, adult count, and `childAges` exactly once from the caller-owned object;
-- copies child ages into a new frozen array before occupancy validation;
+- checks the eight-child limit before reading elements, then copies at most eight indexed child ages into a new frozen array without invoking a caller-controlled iterator;
 - stores those values in a frozen allowlisted snapshot;
 - validates property identity, dates, room count, adult count, child ages, and the one-to-nine guest ceiling only from that snapshot; and
 - converts throwing accessors, revoked proxies, and child-array materialization failures into a fixed `INVALID_REQUEST` supplier error without propagating caller-controlled exception text.
@@ -32,7 +32,7 @@ Focused behavior coverage verifies:
 
 - the existing canonical property/date/occupancy behavior;
 - exactly one top-level read for every expected-reservation field;
-- one-read child-age snapshotting before occupancy validation; and
+- one-read child-age snapshotting, pre-copy length rejection, and hostile-iterator containment before occupancy validation; and
 - sanitized `INVALID_REQUEST` failures for throwing accessors and revoked proxies.
 
 A dependency-free source contract pins the materialization order, frozen child-age snapshot, sanitized failure boundary, documentation scope, and activation boundary.

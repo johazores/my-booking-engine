@@ -32,7 +32,7 @@ The previously hardened provider-request marker, stale-attempt recovery, recover
 
 Each boundary copies its organization, actor, integration/reservation/attempt identifiers, and relevant commercial inputs before the first permission, provider, or database await. Later authorization, provider work, failure settlement, and persistence therefore operate on the same stable tenant authority.
 
-Selection child ages are copied into a frozen array. Primary-traveler identity is copied together with a frozen telephone object. Settlement outcomes are branch-specific so a failed outcome does not accidentally evaluate confirmation-only getters, and vice versa. Reconciliation `NOT_FOUND` keeps the optional supplier-confirmation evidence required by the existing confirmation-continuity rule.
+Selection child ages are copied into a frozen array after a strict 32-child length ceiling is checked. The snapshot reads at most 32 indexed elements and never invokes a caller-controlled array iterator; oversized arrays are rejected before any child element is read. This preserves the downstream provider-neutral reservation-domain limit without allowing unbounded materialization. Primary-traveler identity is copied together with a frozen telephone object. Settlement outcomes are branch-specific so a failed outcome does not accidentally evaluate confirmation-only getters, and vice versa. Reconciliation `NOT_FOUND` keeps the optional supplier-confirmation evidence required by the existing confirmation-continuity rule.
 
 Throwing accessors, revoked proxies, malformed structural objects, unsupported settlement states, and non-boolean failed-outcome retry flags fail through one fixed `HospitalitySupplierReservationConflictError`. Caller-controlled exception text is not rethrown.
 
@@ -63,7 +63,7 @@ Raw provider bodies, credentials, access tokens, PAN/CVV, cardholder secrets, pa
 
 ## Validation
 
-Focused behavior coverage verifies one-read tenant identity, child-age array freezing, nested traveler telephone freezing, branch-specific settlement access, `NOT_FOUND` supplier-confirmation continuity, strict retryable runtime typing, and sanitized failures for throwing getters and revoked proxies.
+Focused behavior coverage verifies one-read tenant identity, child-age array freezing, pre-copy length bounds, hostile iterators/indexed getters, nested traveler telephone freezing, branch-specific settlement access, `NOT_FOUND` supplier-confirmation continuity, strict retryable runtime typing, and sanitized failures for throwing getters and revoked proxies.
 
 A dependency-free source contract verifies that the durable ledger, review settlement/consumption, authority review, Travelport commercial acceptance, accepted-review revalidation, initial Create, reviewed Create, and Sync all materialize caller input before permission, commercial, or provider work.
 

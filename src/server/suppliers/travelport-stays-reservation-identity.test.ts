@@ -207,3 +207,41 @@ test('rejects unsupported occupancy and date evidence', () => {
     }), HospitalitySupplierProviderError);
   }
 });
+
+test('reservation expectation rejects oversized child-age arrays before reading elements or iterator', () => {
+  const ages = new Array(9);
+  Object.defineProperty(ages, 0, { get() { throw new Error('caller secret element'); } });
+  Object.defineProperty(ages, Symbol.iterator, { value() { throw new Error('caller secret iterator'); } });
+  assert.throws(() => normalizeTravelportStaysReservationExpectation({
+    supplierPropertyReference: propertyReference,
+    arrivalDateLocal: '2026-10-10', departureDateLocal: '2026-10-12',
+    rooms: 1, adults: 1, childAges: ages,
+  }), (error: unknown) => error instanceof HospitalitySupplierProviderError
+    && error.code === 'INVALID_REQUEST'
+    && error.message === 'Expected reservation child ages are invalid.');
+});
+
+test('reservation expectation copies indexed ages once without invoking caller iterator', () => {
+  let reads = 0;
+  const ages = [7, 8];
+  Object.defineProperty(ages, 0, { get() { reads += 1; return 7; } });
+  Object.defineProperty(ages, Symbol.iterator, { value() { throw new Error('caller secret iterator'); } });
+  const base = {
+    supplierPropertyReference: propertyReference,
+    arrivalDateLocal: '2026-10-10', departureDateLocal: '2026-10-12',
+    rooms: 1, adults: 1,
+  };
+  assert.deepEqual(normalizeTravelportStaysReservationExpectation({ ...base, childAges: ages }), {
+    chainCode: 'HI', propertyCode: 'ABC12',
+    arrivalDateLocal: '2026-10-10', departureDateLocal: '2026-10-12',
+    rooms: 1, guests: 3,
+  });
+  assert.equal(reads, 1);
+
+  const broken = [7];
+  Object.defineProperty(broken, 0, { get() { throw new Error('caller secret element'); } });
+  assert.throws(() => normalizeTravelportStaysReservationExpectation({ ...base, childAges: broken }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && error.message === 'Expected reservation evidence could not be materialized safely.');
+});

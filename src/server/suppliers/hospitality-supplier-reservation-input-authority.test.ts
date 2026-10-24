@@ -188,3 +188,30 @@ test('throwing accessors and revoked proxies fail through one sanitized boundary
   revoke();
   assertSanitized(() => materializeHospitalitySupplierReservationPreparationInput(proxy));
 });
+
+test('reservation preparation rejects oversized child-age arrays before reading elements or iterator', () => {
+  const ages = new Array(33);
+  Object.defineProperty(ages, 0, { get() { throw new Error('caller secret element'); } });
+  Object.defineProperty(ages, Symbol.iterator, { value() { throw new Error('caller secret iterator'); } });
+  assertSanitized(() => materializeHospitalitySupplierReservationPreparationInput({
+    ...ids, idempotencyKey: 'bounded-ages', selection: selection(ages),
+  }));
+});
+
+test('reservation preparation copies indexed child ages once and sanitizes hostile elements', () => {
+  let reads = 0;
+  const ages = [8, 11];
+  Object.defineProperty(ages, 0, { get() { reads += 1; return 8; } });
+  Object.defineProperty(ages, Symbol.iterator, { value() { throw new Error('caller secret iterator'); } });
+  const result = materializeHospitalitySupplierReservationPreparationInput({
+    ...ids, idempotencyKey: 'indexed-ages', selection: selection(ages),
+  });
+  assert.deepEqual(result.selection.childAges, [8, 11]);
+  assert.equal(reads, 1);
+
+  const broken = [8];
+  Object.defineProperty(broken, 0, { get() { throw new Error('caller secret element'); } });
+  assertSanitized(() => materializeHospitalitySupplierReservationPreparationInput({
+    ...ids, idempotencyKey: 'broken-ages', selection: selection(broken),
+  }));
+});
