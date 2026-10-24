@@ -16,7 +16,7 @@ export async function readBoundedJsonObject(
     if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return null;
   }
 
-  if (!request.body) return null;
+  if (!request.body || request.bodyUsed) return null;
   let reader;
   try {
     reader = request.body.getReader();

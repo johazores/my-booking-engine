@@ -13,3 +13,5 @@ These focused checks do not replace full Node 24, Prisma, PostgreSQL, lint, type
 ## Already-used request streams
 
 The shared reader treats a locked or previously consumed request body as an invalid submission rather than allowing `ReadableStream.getReader()` to escape as an unexpected server error. Failed streams are also rejected without returning submitted values. The inventory wrapper and throwing form adapter preserve their existing null/validation-error contracts. These checks do not weaken origin, session, tenant, or capability enforcement.
+
+A consumed stream can have its reader lock released while `Request.bodyUsed` stays true. In that case a second `getReader()` may succeed and return an empty stream. The shared form reader checks `bodyUsed` before acquiring the reader so previously consumed submissions cannot be mistaken for valid empty forms. Regression coverage includes this unlocked-consumed case.

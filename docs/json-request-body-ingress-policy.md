@@ -46,3 +46,5 @@ The four current JSON ingress policies (public booking, authenticated hospitalit
 ## Unavailable request streams
 
 The shared JSON reader also rejects an already locked or consumed request body as invalid transport input. A `ReadableStream.getReader()` failure returns `null` to the existing domain wrappers rather than leaking an unexpected exception. The transport layer still does not authenticate or authorize the caller.
+
+Both reader-lock failures and `Request.bodyUsed` are checked. The latter covers a previously consumed stream whose lock was released, rather than relying on `getReader()` to reject all disturbed streams. Focused tests exercise both cases.

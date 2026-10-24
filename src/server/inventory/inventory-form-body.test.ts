@@ -109,3 +109,14 @@ test('bounded form ingress rejects locked and failing request streams', async ()
   } as RequestInit & { duplex: 'half' });
   assert.equal(await readBoundedInventoryFormData(request), null);
 });
+
+
+test('bounded form ingress rejects consumed but unlocked request streams', async () => {
+  const request = formRequest('name=Kayak');
+  const reader = request.body!.getReader();
+  while (!(await reader.read()).done) { /* Consume the body without retaining the lock. */ }
+  reader.releaseLock();
+  assert.equal(request.bodyUsed, true);
+  assert.equal(await readBoundedInventoryFormData(request), null);
+  await assert.rejects(readBoundedFormDataOrThrow(request), FormBodyValidationError);
+});

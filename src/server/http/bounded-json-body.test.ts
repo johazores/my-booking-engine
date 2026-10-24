@@ -71,3 +71,13 @@ test('bounded JSON reader rejects already locked request streams', async () => {
     reader.releaseLock();
   }
 });
+
+
+test('bounded JSON reader rejects consumed but unlocked request streams', async () => {
+  const request = jsonRequest('{"ok":true}');
+  const reader = request.body!.getReader();
+  while (!(await reader.read()).done) { /* Consume the body without retaining the lock. */ }
+  reader.releaseLock();
+  assert.equal(request.bodyUsed, true);
+  assert.equal(await readBoundedJsonObject(request, 1024), null);
+});
