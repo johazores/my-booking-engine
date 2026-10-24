@@ -203,3 +203,5 @@ Coverage should continue only through individually reviewed production boundarie
 - `scripts/inventory-request-observability.test.mjs` covers all 16 current inventory management mutation routes, the shared tenant boundary, malformed-form validation, redirect classification, inventory/form-data exclusion, and strict unknown-action rejection.
 
 Full repository validation still requires the repository Node 24 toolchain and, for database-backed suites, an explicitly disposable PostgreSQL target. This observability work does not change the Prisma persistence contract. GitHub Actions are not used for validation.
+
+The pricing observability regression contract follows the bounded form reader, checking that all six pricing mutations parse only after active-tenant authority and map parser failures to observed validation redirects. It no longer asserts the removed unbounded `request.formData()` call.

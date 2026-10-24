@@ -42,3 +42,7 @@ Payment HTTP accepts explicitly typed `PaymentInputValidationError` and tenant U
 The four current JSON ingress policies (public booking, authenticated hospitality, authenticated payments, and public legal-document capabilities) delegate to `src/server/http/bounded-json-body.ts`. The shared transport helper rejects advertised lengths that differ from actual streamed bytes in either direction, including underreported lengths; it also rejects invalid media types, malformed UTF-8, non-object JSON, and byte-limit violations. Each domain wrapper retains its existing public `null` or typed error behavior and its own byte ceiling (64 KiB or 8 KiB). The parser grants no tenant, booking, or payment authority.
 
 `src/server/http/bounded-json-body.test.ts` covers exact lengths, false declarations, streamed limits, malformed JSON, UTF-8, and failing streams. A static route-family contract prevents these wrappers from silently reintroducing duplicated parsers. No GitHub Actions are used.
+
+## Unavailable request streams
+
+The shared JSON reader also rejects an already locked or consumed request body as invalid transport input. A `ReadableStream.getReader()` failure returns `null` to the existing domain wrappers rather than leaking an unexpected exception. The transport layer still does not authenticate or authorize the caller.

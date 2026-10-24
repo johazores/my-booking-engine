@@ -86,3 +86,26 @@ test('throwing form adapter reports validation errors without exposing input', a
   await assert.rejects(readBoundedFormDataOrThrow(formRequest('password=%FF')), FormBodyValidationError);
   assert.equal((await readBoundedFormDataOrThrow(formRequest('name=Kayak'))).get('name'), 'Kayak');
 });
+
+
+test('bounded form ingress rejects locked and failing request streams', async () => {
+  const locked = formRequest('name=Kayak');
+  const reader = locked.body!.getReader();
+  try {
+    assert.equal(await readBoundedInventoryFormData(locked), null);
+    await assert.rejects(readBoundedFormDataOrThrow(locked), FormBodyValidationError);
+  } finally {
+    reader.releaseLock();
+  }
+
+  const failed = new ReadableStream<Uint8Array>({
+    start(controller) { controller.error(new Error('internal stream failure')); },
+  });
+  const request = new Request(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: failed,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedInventoryFormData(request), null);
+});

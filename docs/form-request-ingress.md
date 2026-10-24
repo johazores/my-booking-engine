@@ -9,3 +9,7 @@ All migrated routes continue to check same-origin and supported form media types
 `scripts/form-request-ingress-contract.test.mjs` prevents production API routes from returning to unbounded `request.formData()` and checks origin/media-type guards on the migrated route group. `src/server/inventory/inventory-form-body.test.ts` tests the parser through the inventory wrapper and throwing adapter.
 
 These focused checks do not replace full Node 24, Prisma, PostgreSQL, lint, typecheck, and production-build validation. No GitHub Actions are used.
+
+## Already-used request streams
+
+The shared reader treats a locked or previously consumed request body as an invalid submission rather than allowing `ReadableStream.getReader()` to escape as an unexpected server error. Failed streams are also rejected without returning submitted values. The inventory wrapper and throwing form adapter preserve their existing null/validation-error contracts. These checks do not weaken origin, session, tenant, or capability enforcement.

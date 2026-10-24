@@ -43,7 +43,13 @@ export async function readBoundedFormData(
   }
 
   if (!request.body) return null;
-  const reader = request.body.getReader();
+  let reader;
+  try {
+    reader = request.body.getReader();
+  } catch {
+    // A locked or already consumed body is invalid request input.
+    return null;
+  }
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {

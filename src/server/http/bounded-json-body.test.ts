@@ -60,3 +60,14 @@ test('bounded JSON reader handles streams failing during reading', async () => {
   const request = new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit & { duplex: 'half' });
   assert.equal(await readBoundedJsonObject(request, 1024), null);
 });
+
+
+test('bounded JSON reader rejects already locked request streams', async () => {
+  const request = jsonRequest('{"ok":true}');
+  const reader = request.body!.getReader();
+  try {
+    assert.equal(await readBoundedJsonObject(request, 1024), null);
+  } finally {
+    reader.releaseLock();
+  }
+});

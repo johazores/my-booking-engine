@@ -57,9 +57,13 @@ test('pricing redirects classify expected failures separately from server failur
 test('malformed pricing forms are validation rejections rather than server failures', () => {
   for (const [path] of PRICING_ROUTES) {
     const routeSource = source(path);
-    const formIndex = routeSource.indexOf('formData = await request.formData();');
-    const validationIndex = routeSource.indexOf("'/pricing?error=validation'", formIndex);
-    assert.ok(formIndex >= 0 && validationIndex > formIndex, `${path} must reject malformed form data as validation`);
+    const authorityIndex = routeSource.indexOf('organizationId = activeContext.organization.id;');
+    const formIndex = routeSource.indexOf('formData = await readBoundedFormDataOrThrow(request);');
+    const catchIndex = routeSource.indexOf('} catch {', formIndex);
+    const validationIndex = routeSource.indexOf("new URL('/pricing?error=validation'", catchIndex);
+    assert.ok(authorityIndex >= 0 && formIndex > authorityIndex, `${path} must parse bounded forms only after tenant authority`);
+    assert.ok(catchIndex > formIndex && validationIndex > catchIndex && validationIndex - catchIndex < 250,
+      `${path} must classify bounded-form failures as validation rejections`);
   }
 });
 
