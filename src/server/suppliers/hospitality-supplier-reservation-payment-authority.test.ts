@@ -125,3 +125,122 @@ test('fails closed for missing, conflicting, or unsafe create-payment evidence',
     }), null);
   }
 });
+
+test('payment authority snapshots bounded card and guarantee evidence without caller-controlled methods', () => {
+  const guarantees = ['GUARANTEE_REQUIRED'];
+  Object.defineProperty(guarantees, Symbol.iterator, { value() { throw new Error('untrusted guarantee iterator'); } });
+  Object.defineProperty(guarantees, 'filter', { value() { throw new Error('untrusted guarantee filter'); } });
+  Object.defineProperty(guarantees, 'includes', { value() { throw new Error('untrusted guarantee includes'); } });
+  const cards = ['VI'];
+  let cardReads = 0;
+  Object.defineProperty(cards, 0, {
+    get() { cardReads += 1; return cardReads === 1 ? 'VI' : 'AX'; },
+  });
+  Object.defineProperty(cards, Symbol.iterator, { value() { throw new Error('untrusted card iterator'); } });
+
+  const result = deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: bookingTerms({
+      guaranteeTypes: guarantees,
+      paymentTiming: 'POSTPAY',
+      acceptedPaymentCardCodes: cards,
+    }),
+    currency: 'USD',
+    expectedTotalMinor: 125_500n,
+  });
+  assert.deepEqual(result?.acceptedPaymentCardCodes, ['VI']);
+  assert.equal(result?.kind, 'GUARANTEE');
+  assert.equal(cardReads, 1);
+  assert.ok(Object.isFrozen(result?.acceptedPaymentCardCodes));
+});
+
+test('payment authority rejects oversized or sparse supplier arrays before reading their elements', () => {
+  const oversizedGuarantees = new Array(17);
+  Object.defineProperty(oversizedGuarantees, 0, { get() { throw new Error('untrusted guarantee element'); } });
+  const oversizedCards = new Array(33);
+  Object.defineProperty(oversizedCards, 0, { get() { throw new Error('untrusted card element'); } });
+  const oversizedDeposits = new Array(2);
+  Object.defineProperty(oversizedDeposits, 0, { get() { throw new Error('untrusted deposit element'); } });
+
+  for (const terms of [
+    bookingTerms({ guaranteeTypes: oversizedGuarantees, paymentTiming: 'POSTPAY' }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], paymentTiming: 'POSTPAY', acceptedPaymentCardCodes: oversizedCards }),
+    bookingTerms({ guaranteeTypes: ['DEPOSIT_REQUIRED'], paymentTiming: 'PREPAY', deposits: oversizedDeposits }),
+    bookingTerms({ guaranteeTypes: new Array(1), paymentTiming: 'POSTPAY' }),
+    bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], paymentTiming: 'POSTPAY', acceptedPaymentCardCodes: new Array(1) }),
+    bookingTerms({ guaranteeTypes: ['DEPOSIT_REQUIRED'], paymentTiming: 'PREPAY', deposits: new Array(1) }),
+  ]) {
+    assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+      bookingTerms: terms, currency: 'USD', expectedTotalMinor: 125_500n,
+    }), null);
+  }
+});
+
+test('payment authority sanitizes hostile supplier getters and revoked proxies', () => {
+  const brokenCards = ['VI'];
+  Object.defineProperty(brokenCards, 0, { get() { throw new Error('private supplier card evidence'); } });
+  const { proxy, revoke } = Proxy.revocable(['VI'], {});
+  revoke();
+  for (const cards of [brokenCards, proxy]) {
+    assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+      bookingTerms: bookingTerms({
+        guaranteeTypes: ['GUARANTEE_REQUIRED'],
+        paymentTiming: 'POSTPAY',
+        acceptedPaymentCardCodes: cards,
+      }),
+      currency: 'USD',
+      expectedTotalMinor: 125_500n,
+    }), null);
+  }
+  const terms = bookingTerms({ guaranteeTypes: ['GUARANTEE_REQUIRED'], paymentTiming: 'POSTPAY' });
+  Object.defineProperty(terms, 'paymentTiming', { get() { throw new Error('private supplier payment timing'); } });
+  assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: terms, currency: 'USD', expectedTotalMinor: 125_500n,
+  }), null);
+});
+
+test('deposit authority requires bigint money and reads a bounded deposit snapshot once', () => {
+  const invalidMoney = { currency: 'USD', amountMinor: 50_000 };
+  assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: bookingTerms({
+      guaranteeTypes: ['DEPOSIT_REQUIRED'],
+      paymentTiming: 'PREPAY',
+      deposits: [{ money: invalidMoney }] as never,
+    }),
+    currency: 'USD',
+    expectedTotalMinor: 125_500n,
+  }), null);
+
+  let depositReads = 0;
+  const deposit = {
+    get money() {
+      depositReads += 1;
+      return depositReads === 1
+        ? { currency: 'USD', amountMinor: 50_000n }
+        : { currency: 'USD', amountMinor: 60_000n };
+    },
+  };
+  const deposits = [deposit];
+  Object.defineProperty(deposits, Symbol.iterator, { value() { throw new Error('untrusted deposit iterator'); } });
+  const result = deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: bookingTerms({
+      guaranteeTypes: ['DEPOSIT_REQUIRED'],
+      paymentTiming: 'PREPAY',
+      deposits: deposits as never,
+    }),
+    currency: 'USD',
+    expectedTotalMinor: 125_500n,
+  });
+  assert.equal(result?.amountMinor, 50_000n);
+  assert.equal(depositReads, 1);
+
+  const hostileDeposit = { get money(): never { throw new Error('private deposit material'); } };
+  assert.equal(deriveHospitalitySupplierReservationPaymentAuthority({
+    bookingTerms: bookingTerms({
+      guaranteeTypes: ['DEPOSIT_REQUIRED'],
+      paymentTiming: 'PREPAY',
+      deposits: [hostileDeposit] as never,
+    }),
+    currency: 'USD',
+    expectedTotalMinor: 125_500n,
+  }), null);
+});

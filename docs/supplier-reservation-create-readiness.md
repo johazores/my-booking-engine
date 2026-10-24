@@ -10,6 +10,8 @@ The decisive guarantee instruction and normalized payment timing must agree. `PR
 
 The existing payment-authority checks remain in force: exactly one decisive guarantee type, no contradictory guarantee flags, at least one bounded accepted-card code, and for deposits exactly one positive same-currency deposit amount not exceeding the accepted reservation total.
 
+Fresh guarantee, accepted-card, and deposit arrays are materialized with explicit length bounds and indexed copies. Supplier-controlled iterators, overridden array methods, sparse entries, malformed deposit money types, and throwing getters cannot create payment authority or initiate a provider write.
+
 ## Loyalty-required rates
 
 Travelport Rules documents `CustomerLoyaltyIDRequiredAtReservation=true` as meaning the rate is contingent on a membership number included in the reservation request.

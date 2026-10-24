@@ -60,20 +60,24 @@ test('submission gate derives bounded non-secret payment authority from decisive
   assert.match(binding, /paymentAuthority,/);
   assert.match(binding, /customerLoyaltyRequiredAtReservation !== false/);
   assert.match(payment, /'paymentTiming' \| 'guaranteeTypes' \| 'deposits' \| 'acceptedPaymentCardCodes'/);
-  assert.match(payment, /paymentTimingMatches\(decisive, input\.bookingTerms\.paymentTiming\)/);
+  assert.match(payment, /paymentTimingMatches\(decisive, paymentTiming\)/);
   assert.match(payment, /decisive === 'GUARANTEE_REQUIRED'\) return paymentTiming === 'POSTPAY'/);
   assert.match(payment, /return paymentTiming === 'PREPAY'/);
   assert.match(payment, /'PREPAY_REQUIRED', 'DEPOSIT_REQUIRED', 'GUARANTEE_REQUIRED'/);
   assert.match(payment, /MAX_PAYMENT_CARD_CODES = 32/);
+  assert.match(payment, /boundedArraySnapshot<HospitalitySupplierRuleGuaranteeType>/);
+  assert.match(payment, /boundedArraySnapshot<string>/);
+  assert.match(payment, /Object\.hasOwn\(value, index\)/);
+  assert.match(payment, /typeof depositAmountMinor !== 'bigint'/);
   assert.match(payment, /values\.length < 1 \|\| values\.length > MAX_PAYMENT_CARD_CODES/);
   assert.match(payment, /selected === 'PREPAY_REQUIRED'[\s\S]*?PREPAY_NOT_REQUIRED/);
   assert.match(payment, /selected === 'DEPOSIT_REQUIRED'[\s\S]*?NO_DEPOSITS_ACCEPTED/);
   assert.match(payment, /selected === 'GUARANTEE_REQUIRED'[\s\S]*?NO_GUARANTEES_ACCEPTED/);
-  assert.match(payment, /input\.bookingTerms\.deposits\.length !== 1/);
+  assert.match(payment, /boundedArraySnapshot<HospitalitySupplierBookingTerms\['deposits'\]\[number\]>/);
   assert.match(payment, /kind: 'PREPAY'/);
   assert.match(payment, /kind: 'DEPOSIT'/);
   assert.match(payment, /kind: 'GUARANTEE'/);
-  assert.match(payment, /deposit\.amountMinor > input\.expectedTotalMinor/);
+  assert.match(payment, /depositAmountMinor > expectedTotalMinor/);
   assert.doesNotMatch(payment, /cardNumber|seriesCode|cvv|pan|PlainText/i);
 });
 
