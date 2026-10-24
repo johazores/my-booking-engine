@@ -4,7 +4,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { createHospitalityAddon } from '@/server/pricing/hospitality-addon-service.ts';
-import { pricingErrorCode, pricingFormField } from '@/server/pricing/pricing-http.ts';
+import { pricingErrorCode, pricingErrorTarget, pricingFormField } from '@/server/pricing/pricing-http.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request) {
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     });
     return finish(NextResponse.redirect(new URL(`/pricing/${propertyId}/addons?status=addon-created`, request.url), 303));
   } catch (error) {
-    const target = propertyId ? `/pricing/${propertyId}/addons` : '/pricing';
+    const target = pricingErrorTarget(propertyId, 'addons');
     const code = pricingErrorCode(error);
     return finish(
       NextResponse.redirect(new URL(`${target}?error=${code}`, request.url), 303),

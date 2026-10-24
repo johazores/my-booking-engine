@@ -9,7 +9,7 @@ import { quoteHospitalityAddons } from './hospitality-addon-service.ts';
 import { normalizeHospitalityBaseRateInput, type HospitalityBaseRateInput } from './hospitality-base-rate-domain.ts';
 import { quoteHospitalityCharges } from './hospitality-charge-service.ts';
 import { addMoneyMinor, multiplyMoneyMinor } from './money.ts';
-import { normalizePricingFingerprint, normalizePricingPagination } from './pricing-boundary.ts';
+import { normalizePricingFingerprint, normalizePricingPagination, requirePricingObjectText } from './pricing-boundary.ts';
 import { hospitalityPricingScopeLockKey } from './pricing-lock.ts';
 
 export class HospitalityPricingUnavailableError extends Error {
@@ -75,9 +75,9 @@ export async function createHospitalityBaseRate(input: {
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:manage' });
 
-  const propertyId = input.baseRate.propertyId.trim();
-  const roomTypeId = input.baseRate.roomTypeId.trim();
-  const ratePlanId = input.baseRate.ratePlanId.trim();
+  const propertyId = requirePricingObjectText(input.baseRate, 'propertyId', 'Property ID');
+  const roomTypeId = requirePricingObjectText(input.baseRate, 'roomTypeId', 'Room type ID');
+  const ratePlanId = requirePricingObjectText(input.baseRate, 'ratePlanId', 'Rate plan ID');
   assertUuidIdentifier(propertyId, 'propertyId');
   assertUuidIdentifier(roomTypeId, 'roomTypeId');
   assertUuidIdentifier(ratePlanId, 'ratePlanId');

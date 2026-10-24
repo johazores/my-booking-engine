@@ -4,7 +4,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { archiveHospitalityBaseRate } from '@/server/pricing/hospitality-pricing-service.ts';
-import { pricingErrorCode, pricingFormField } from '@/server/pricing/pricing-http.ts';
+import { pricingErrorCode, pricingErrorTarget, pricingFormField } from '@/server/pricing/pricing-http.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request, { params }: { params: Promise<{ 'base-rate-id': string }> }) {
@@ -61,7 +61,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ba
     });
     return finish(NextResponse.redirect(new URL(`/pricing/${propertyId}?ratePlan=${ratePlanId}&roomType=${roomTypeId}&status=base-rate-archived`, request.url), 303));
   } catch (error) {
-    const target = propertyId ? `/pricing/${propertyId}` : '/pricing';
+    const target = pricingErrorTarget(propertyId);
     const code = pricingErrorCode(error);
     const query = new URLSearchParams({ error: code });
     if (ratePlanId) query.set('ratePlan', ratePlanId);

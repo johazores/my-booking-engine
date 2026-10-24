@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizePricingFingerprint, normalizePricingPagination, requirePricingText } from './pricing-boundary.ts';
+import { normalizePricingFingerprint, normalizePricingPagination, requirePricingObjectText, requirePricingText } from './pricing-boundary.ts';
 import { PricingValidationError } from './money.ts';
 
 test('bounds pricing pagination defensively inside the service layer', () => {
@@ -21,5 +21,14 @@ test('pricing text and fingerprint readers reject non-string runtime scalars', (
   for (const value of [null, undefined, 7, true, {}, [], Symbol('bad')]) {
     assert.throws(() => requirePricingText(value, 'Code'), PricingValidationError);
     assert.throws(() => normalizePricingFingerprint(value as never), PricingValidationError);
+  }
+});
+
+test('pricing service scope fields reject malformed nested payloads before persistence', () => {
+  const valid = { propertyId: ' 11111111-1111-4111-8111-111111111111 ', roomTypeId: ' room ', ratePlanId: ' plan ' };
+  assert.equal(requirePricingObjectText(valid, 'propertyId', 'Property ID'), '11111111-1111-4111-8111-111111111111');
+  assert.equal(requirePricingObjectText(valid, 'roomTypeId', 'Room type ID'), 'room');
+  for (const value of [null, undefined, 0, false, '', [], {}, { propertyId: null }, { propertyId: [] }, { propertyId: 7 }]) {
+    assert.throws(() => requirePricingObjectText(value, 'propertyId', 'Property ID'), PricingValidationError);
   }
 });

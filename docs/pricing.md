@@ -147,3 +147,9 @@ Focused regression tests live in `src/server/pricing/money.test.ts`. Full reposi
 ## Runtime scalar validation at commercial boundaries
 
 Base-rate, charge, and add-on input normalizers reject malformed objects and non-string fields with typed pricing validation errors. The percentage parser and fingerprint reader apply the same rule. Add-on calculations reject non-bigint amounts and invalid configured maximum quantities, including when input is derived from persisted or provider evidence. Valid money arithmetic, tenant authorization, and fingerprints are unchanged. Focused regression tests are checked in; Node 24/full-suite and disposable PostgreSQL validation remain outstanding.
+
+## Pricing management input and error boundaries
+
+Authenticated pricing create operations validate the nested base-rate, charge, or add-on scope fields **after** server-side `pricing:manage` authorization and **before** database access. Malformed runtime objects and non-string scope fields fail with typed pricing validation errors rather than unhandled property-access errors. Valid scope identifiers are still checked as UUIDs and all persisted records remain tenant-scoped.
+
+All six create/archive pricing routes classify malformed resource UUIDs as validation rejections, not server failures. Error redirects only include a property-scoped destination when the submitted property identifier is a valid UUID; malformed path/query fragments return to `/pricing`. This changes neither permissions nor commercial pricing calculations. The local shared-helper and route source-contract tests cover these boundaries; full Node 24/Prisma/PostgreSQL validation remains outstanding.

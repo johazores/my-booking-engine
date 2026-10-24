@@ -4,7 +4,7 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { calculateHospitalityChargeAmountMinor, normalizeHospitalityChargeRuleInput, type HospitalityChargeRuleInput } from './hospitality-charge-domain.ts';
 import { addMoneyMinor, PricingValidationError } from './money.ts';
-import { normalizePricingPagination } from './pricing-boundary.ts';
+import { normalizePricingPagination, requirePricingObjectText } from './pricing-boundary.ts';
 
 export class HospitalityChargeUnavailableError extends Error {
   constructor(message = 'Tax or fee configuration is not available for this pricing scope.') {
@@ -47,7 +47,7 @@ export async function createHospitalityChargeRule(input: { organizationId: strin
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:manage' });
-  const propertyId = input.rule.propertyId.trim();
+  const propertyId = requirePricingObjectText(input.rule, 'propertyId', 'Property ID');
   assertUuidIdentifier(propertyId, 'propertyId');
 
   return db.$transaction(async (transaction) => {

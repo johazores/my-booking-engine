@@ -16,6 +16,14 @@ export function requirePricingText(value: unknown, label: string): string {
   return value;
 }
 
+/** Validate a nested service payload before reading scope IDs or touching persistence. */
+export function requirePricingObjectText(input: unknown, field: string, label: string): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new PricingValidationError('Pricing configuration must be an object.');
+  }
+  return requirePricingText((input as Record<string, unknown>)[field], label).trim();
+}
+
 export function normalizePricingFingerprint(value: string) {
   const fingerprint = requirePricingText(value, 'Pricing fingerprint').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(fingerprint)) {

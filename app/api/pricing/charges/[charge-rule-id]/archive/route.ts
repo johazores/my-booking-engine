@@ -4,7 +4,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { archiveHospitalityChargeRule } from '@/server/pricing/hospitality-charge-service.ts';
-import { pricingErrorCode, pricingFormField } from '@/server/pricing/pricing-http.ts';
+import { pricingErrorCode, pricingErrorTarget, pricingFormField } from '@/server/pricing/pricing-http.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 export async function POST(request: Request, { params }: { params: Promise<{ 'charge-rule-id': string }> }) {
@@ -57,7 +57,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ch
     });
     return finish(NextResponse.redirect(new URL(`/pricing/${propertyId}/charges?status=charge-archived`, request.url), 303));
   } catch (error) {
-    const target = propertyId ? `/pricing/${propertyId}/charges` : '/pricing';
+    const target = pricingErrorTarget(propertyId, 'charges');
     const code = pricingErrorCode(error);
     return finish(
       NextResponse.redirect(new URL(`${target}?error=${code}`, request.url), 303),

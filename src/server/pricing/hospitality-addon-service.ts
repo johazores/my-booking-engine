@@ -10,7 +10,7 @@ import {
   type HospitalityAddonSelectionInput,
 } from './hospitality-addon-domain.ts';
 import { addMoneyMinor, PricingValidationError } from './money.ts';
-import { normalizePricingPagination } from './pricing-boundary.ts';
+import { normalizePricingPagination, requirePricingObjectText } from './pricing-boundary.ts';
 
 export class HospitalityAddonUnavailableError extends Error {
   constructor(message = 'Add-on configuration is not available for this pricing scope.') {
@@ -65,7 +65,7 @@ export async function createHospitalityAddon(input: {
   assertUuidIdentifier(input.organizationId, 'organizationId');
   assertUuidIdentifier(input.actorUserId, 'actorUserId');
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'pricing:manage' });
-  const propertyId = input.addon.propertyId.trim();
+  const propertyId = requirePricingObjectText(input.addon, 'propertyId', 'Property ID');
   assertUuidIdentifier(propertyId, 'propertyId');
 
   return db.$transaction(async (transaction) => {
