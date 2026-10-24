@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { calculateHospitalityChargeAmountMinor, normalizeHospitalityChargeRuleInput, parsePercentageToBasisPoints, percentageAmountMinor } from './hospitality-charge-domain.ts';
+import { PricingValidationError } from './money.ts';
 
 test('normalizes percentage tax rules and exact scopes', () => {
   const rule = normalizeHospitalityChargeRuleInput({ propertyId: ' property ', roomTypeId: '', ratePlanId: '', name: ' VAT ', code: ' vat ', kind: 'tax', calculation: 'percentage', value: '12.5', startDate: '2026-09-01', endDate: '2026-12-31' }, 'PHP');
@@ -65,4 +66,13 @@ test('persisted charge corruption cannot silently change tax or fee meaning', ()
     assert.throws(() => calculateHospitalityChargeAmountMinor({ ...base, ...invalid }), /charge|money/i);
   }
   assert.throws(() => percentageAmountMinor(9_000_000_000_000_001n, 0), /money range/i);
+});
+
+test('charge normalization rejects malformed runtime input and fields', () => {
+  const valid = { propertyId: 'p', roomTypeId: '', ratePlanId: '', name: 'Tax', code: 'TAX', kind: 'TAX', calculation: 'PERCENTAGE', value: '10', startDate: '2026-09-01', endDate: '2026-09-02' };
+  for (const value of [null, undefined, 7, true, {}, []]) {
+    assert.throws(() => normalizeHospitalityChargeRuleInput(value as never, 'USD'), PricingValidationError);
+    assert.throws(() => parsePercentageToBasisPoints(value as never), PricingValidationError);
+    for (const field of Object.keys(valid)) assert.throws(() => normalizeHospitalityChargeRuleInput({ ...valid, [field]: value } as never, 'USD'), PricingValidationError);
+  }
 });

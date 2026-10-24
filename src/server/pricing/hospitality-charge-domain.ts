@@ -1,4 +1,5 @@
 import { parseAvailabilityDate } from '../availability/availability-domain.ts';
+import { requirePricingText } from './pricing-boundary.ts';
 import { multiplyMoneyMinor, parseMoneyMajorToMinor, PricingValidationError } from './money.ts';
 
 export type HospitalityChargeKind = 'TAX' | 'FEE';
@@ -42,7 +43,7 @@ function chargeCalculation(value: string): HospitalityChargeCalculation {
 }
 
 export function parsePercentageToBasisPoints(value: string) {
-  const normalized = value.trim();
+  const normalized = requirePricingText(value, 'Percentage').trim();
   if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) throw new PricingValidationError('Percentage must use at most two decimal places.');
   const [whole, fraction = ''] = normalized.split('.');
   const basisPoints = (Number.parseInt(whole, 10) * 100) + Number.parseInt(fraction.padEnd(2, '0') || '0', 10);
@@ -51,31 +52,32 @@ export function parsePercentageToBasisPoints(value: string) {
 }
 
 export function normalizeHospitalityChargeRuleInput(input: HospitalityChargeRuleInput, currency: string) {
-  const roomTypeId = input.roomTypeId.trim() || null;
-  const ratePlanId = input.ratePlanId.trim() || null;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new PricingValidationError('Charge input must be an object.');
+  const roomTypeId = requirePricingText(input.roomTypeId, 'Room type ID').trim() || null;
+  const ratePlanId = requirePricingText(input.ratePlanId, 'Rate plan ID').trim() || null;
   if ((roomTypeId === null) !== (ratePlanId === null)) throw new PricingValidationError('Charge scope must be property-wide or use both a room type and rate plan.');
-  const startDate = parseAvailabilityDate(input.startDate, 'Start date');
-  const endDate = parseAvailabilityDate(input.endDate, 'End date');
+  const startDate = parseAvailabilityDate(requirePricingText(input.startDate, 'Start date'), 'Start date');
+  const endDate = parseAvailabilityDate(requirePricingText(input.endDate, 'End date'), 'End date');
   if (endDate < startDate) throw new PricingValidationError('End date must be on or after start date.');
-  const calculation = chargeCalculation(input.calculation);
+  const calculation = chargeCalculation(requirePricingText(input.calculation, 'Charge calculation'));
   let percentageBps: number | null = null;
   let amountMinor: bigint | null = null;
   let fixedCurrency: string | null = null;
   if (calculation === 'PERCENTAGE') {
-    percentageBps = parsePercentageToBasisPoints(input.value);
+    percentageBps = parsePercentageToBasisPoints(requirePricingText(input.value, 'Charge percentage'));
   } else {
-    const money = parseMoneyMajorToMinor(input.value, currency);
+    const money = parseMoneyMajorToMinor(requirePricingText(input.value, 'Charge amount'), currency);
     if (money.amountMinor <= 0n) throw new PricingValidationError('Fixed charge amount must be greater than zero.');
     amountMinor = money.amountMinor;
     fixedCurrency = money.currency;
   }
   return {
-    propertyId: input.propertyId.trim(),
+    propertyId: requirePricingText(input.propertyId, 'Property ID').trim(),
     roomTypeId,
     ratePlanId,
-    name: requiredText(input.name, 'Charge name', 120),
-    code: chargeCode(input.code),
-    kind: chargeKind(input.kind),
+    name: requiredText(requirePricingText(input.name, 'Charge name'), 'Charge name', 120),
+    code: chargeCode(requirePricingText(input.code, 'Charge code')),
+    kind: chargeKind(requirePricingText(input.kind, 'Charge kind')),
     calculation,
     percentageBps,
     amountMinor,

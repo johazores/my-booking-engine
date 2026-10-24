@@ -5,6 +5,7 @@ import {
   evaluateAvailabilityRestrictions,
   normalizeAvailabilityRequest,
   parseAvailabilityDate,
+  AvailabilityValidationError,
 } from './availability-domain.ts';
 
 test('normalizes a bounded date-only availability request', () => {
@@ -66,4 +67,13 @@ test('departure closures are evaluated on the requested departure date', () => {
   });
   assert.equal(result.closedToDeparture, true);
   assert.deepEqual(result.reasons, ['closed-to-departure']);
+});
+
+test('availability normalization rejects malformed runtime date and resource scalars', () => {
+  const valid = { propertyId: 'p', roomTypeId: 'r', ratePlanId: 'rp', arrivalDate: '2026-09-01', departureDate: '2026-09-02', quantity: 1 };
+  for (const value of [null, undefined, 7, true, {}, []]) {
+    assert.throws(() => parseAvailabilityDate(value as never, 'Arrival date'), AvailabilityValidationError);
+    assert.throws(() => normalizeAvailabilityRequest(value as never), AvailabilityValidationError);
+    for (const field of ['propertyId', 'roomTypeId', 'ratePlanId', 'arrivalDate', 'departureDate']) assert.throws(() => normalizeAvailabilityRequest({ ...valid, [field]: value } as never), AvailabilityValidationError);
+  }
 });

@@ -1,4 +1,5 @@
 import { parseAvailabilityDate } from '../availability/availability-domain.ts';
+import { requirePricingText } from './pricing-boundary.ts';
 import { multiplyMoneyMinor, parseMoneyMajorToMinor, PricingValidationError } from './money.ts';
 
 export type HospitalityAddonPricingModel = 'PER_BOOKING' | 'PER_ROOM' | 'PER_ROOM_NIGHT' | 'PER_UNIT';
@@ -50,6 +51,7 @@ function pricingModel(value: string): HospitalityAddonPricingModel {
 }
 
 function addonQuantity(value: string | number) {
+  if (typeof value !== 'string' && typeof value !== 'number') throw new PricingValidationError(`Add-on maximum quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
   if (typeof value === 'string' && !/^\d+$/.test(value.trim())) throw new PricingValidationError(`Add-on maximum quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
   const parsed = typeof value === 'number' ? value : Number(value.trim());
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_ADDON_QUANTITY) throw new PricingValidationError(`Add-on maximum quantity must be between 1 and ${MAX_ADDON_QUANTITY}.`);
@@ -57,25 +59,26 @@ function addonQuantity(value: string | number) {
 }
 
 export function normalizeHospitalityAddonInput(input: HospitalityAddonInput, currency: string) {
-  const roomTypeId = input.roomTypeId.trim() || null;
-  const ratePlanId = input.ratePlanId.trim() || null;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new PricingValidationError('Add-on input must be an object.');
+  const roomTypeId = requirePricingText(input.roomTypeId, 'Room type ID').trim() || null;
+  const ratePlanId = requirePricingText(input.ratePlanId, 'Rate plan ID').trim() || null;
   if ((roomTypeId === null) !== (ratePlanId === null)) throw new PricingValidationError('Add-on scope must be property-wide or use both a room type and rate plan.');
-  const startDate = parseAvailabilityDate(input.startDate, 'Start date');
-  const endDate = parseAvailabilityDate(input.endDate, 'End date');
+  const startDate = parseAvailabilityDate(requirePricingText(input.startDate, 'Start date'), 'Start date');
+  const endDate = parseAvailabilityDate(requirePricingText(input.endDate, 'End date'), 'End date');
   if (endDate < startDate) throw new PricingValidationError('End date must be on or after start date.');
-  const money = parseMoneyMajorToMinor(input.amount, currency);
+  const money = parseMoneyMajorToMinor(requirePricingText(input.amount, 'Add-on amount'), currency);
   if (money.amountMinor <= 0n) throw new PricingValidationError('Add-on amount must be greater than zero.');
-  const model = pricingModel(input.pricingModel);
+  const model = pricingModel(requirePricingText(input.pricingModel, 'Add-on pricing model'));
   const maxQuantity = addonQuantity(input.maxQuantity);
   if (model !== 'PER_UNIT' && maxQuantity !== 1) throw new PricingValidationError('Only per-unit add-ons may configure a maximum quantity greater than one.');
 
   return {
-    propertyId: input.propertyId.trim(),
+    propertyId: requirePricingText(input.propertyId, 'Property ID').trim(),
     roomTypeId,
     ratePlanId,
-    name: requiredText(input.name, 'Add-on name', 120),
-    code: addonCode(input.code),
-    description: optionalText(input.description, 300),
+    name: requiredText(requirePricingText(input.name, 'Add-on name'), 'Add-on name', 120),
+    code: addonCode(requirePricingText(input.code, 'Add-on code')),
+    description: optionalText(requirePricingText(input.description, 'Add-on description'), 300),
     pricingModel: model,
     amountMinor: money.amountMinor,
     currency: money.currency,
@@ -110,7 +113,9 @@ export function hospitalityAddonAmountMinor(input: {
   stayNights: number;
   maxQuantity: number;
 }) {
-  if (input.amountMinor <= 0n) throw new PricingValidationError('Add-on amount must be greater than zero.');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new PricingValidationError('Add-on calculation input must be an object.');
+  if (typeof input.amountMinor !== 'bigint' || input.amountMinor <= 0n) throw new PricingValidationError('Add-on amount must be a positive bigint.');
+  if (!Number.isSafeInteger(input.maxQuantity) || input.maxQuantity < 1 || input.maxQuantity > MAX_ADDON_QUANTITY) throw new PricingValidationError('Add-on maximum quantity is outside the supported range.');
   if (!['PER_BOOKING', 'PER_ROOM', 'PER_ROOM_NIGHT', 'PER_UNIT'].includes(input.pricingModel)) {
     throw new PricingValidationError('Add-on pricing model is not supported.');
   }

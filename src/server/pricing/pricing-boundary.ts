@@ -11,8 +11,13 @@ export function normalizePricingPagination(pageInput: number, pageSizeInput: num
   return { page, pageSize };
 }
 
+export function requirePricingText(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new PricingValidationError(`${label} must be a string.`);
+  return value;
+}
+
 export function normalizePricingFingerprint(value: string) {
-  const fingerprint = value.trim().toLowerCase();
+  const fingerprint = requirePricingText(value, 'Pricing fingerprint').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
     throw new PricingValidationError('Pricing fingerprint must be a 64-character SHA-256 hexadecimal value.');
   }

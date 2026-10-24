@@ -27,6 +27,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 
 export function parseAvailabilityDate(value: string, label: string) {
+  if (typeof value !== 'string') throw new AvailabilityValidationError(`${label} must use YYYY-MM-DD.`);
   const normalized = value.trim();
   if (!DATE_PATTERN.test(normalized)) throw new AvailabilityValidationError(`${label} must use YYYY-MM-DD.`);
   const parsed = new Date(`${normalized}T00:00:00.000Z`);
@@ -41,6 +42,10 @@ export function formatAvailabilityDate(value: Date) {
 }
 
 export function normalizeAvailabilityRequest(input: AvailabilityRequestInput) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AvailabilityValidationError('Availability request must be an object.');
+  for (const identifier of [input.propertyId, input.roomTypeId, input.ratePlanId]) {
+    if (typeof identifier !== 'string') throw new AvailabilityValidationError('Availability resource identifiers must be strings.');
+  }
   const arrivalDate = parseAvailabilityDate(input.arrivalDate, 'Arrival date');
   const departureDate = parseAvailabilityDate(input.departureDate, 'Departure date');
   if (departureDate <= arrivalDate) throw new AvailabilityValidationError('Departure date must be after arrival date.');

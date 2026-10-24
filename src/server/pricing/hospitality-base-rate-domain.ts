@@ -1,4 +1,5 @@
 import { parseAvailabilityDate } from '../availability/availability-domain.ts';
+import { requirePricingText } from './pricing-boundary.ts';
 import { parseMoneyMajorToMinor, PricingValidationError } from './money.ts';
 
 export type HospitalityBaseRateInput = {
@@ -11,15 +12,16 @@ export type HospitalityBaseRateInput = {
 };
 
 export function normalizeHospitalityBaseRateInput(input: HospitalityBaseRateInput, currency: string) {
-  const startDate = parseAvailabilityDate(input.startDate, 'Start date');
-  const endDate = parseAvailabilityDate(input.endDate, 'End date');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new PricingValidationError('Base rate input must be an object.');
+  const startDate = parseAvailabilityDate(requirePricingText(input.startDate, 'Start date'), 'Start date');
+  const endDate = parseAvailabilityDate(requirePricingText(input.endDate, 'End date'), 'End date');
   if (endDate < startDate) throw new PricingValidationError('End date must be on or after start date.');
-  const { amountMinor, currency: normalizedCurrency } = parseMoneyMajorToMinor(input.amount, currency);
+  const { amountMinor, currency: normalizedCurrency } = parseMoneyMajorToMinor(requirePricingText(input.amount, 'Base rate amount'), currency);
   if (amountMinor <= 0n) throw new PricingValidationError('Base rate must be greater than zero.');
   return {
-    propertyId: input.propertyId.trim(),
-    roomTypeId: input.roomTypeId.trim(),
-    ratePlanId: input.ratePlanId.trim(),
+    propertyId: requirePricingText(input.propertyId, 'Property ID').trim(),
+    roomTypeId: requirePricingText(input.roomTypeId, 'Room type ID').trim(),
+    ratePlanId: requirePricingText(input.ratePlanId, 'Rate plan ID').trim(),
     startDate,
     endDate,
     amountMinor,

@@ -77,3 +77,7 @@ These PostgreSQL scenarios are checked in but are only claimable when run throug
 ## Current boundary
 
 Hospitality availability, confirmation, same-price date rescheduling, supported commercial room/rate/quantity changes, and cancellation are implemented against retained internal inventory evidence. Future availability work should be driven by a concrete product/provider requirement rather than reopening the current normalized first-party contract speculatively.
+
+## Runtime scalar validation
+
+Date-only and normalized availability request parsers reject malformed objects, non-string dates, and non-string resource identifiers with typed availability validation errors. Existing calendar, quantity, tenant-scope, locking, and capacity semantics remain unchanged. Focused regression tests are checked in; Node 24/full-suite and disposable PostgreSQL validation remain outstanding.

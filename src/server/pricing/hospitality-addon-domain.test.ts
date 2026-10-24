@@ -114,3 +114,13 @@ test('rejects unknown add-on pricing models before calculating money', () => {
     maxQuantity: 1,
   }), /pricing model is not supported/i);
 });
+
+test('add-on normalization and calculation reject malformed runtime evidence', () => {
+  const valid = validAddon();
+  for (const value of [null, undefined, 7, true, {}, []]) {
+    assert.throws(() => normalizeHospitalityAddonInput(value as never, 'PHP'), PricingValidationError);
+    for (const field of Object.keys(valid)) assert.throws(() => normalizeHospitalityAddonInput({ ...valid, [field]: value } as never, 'PHP'), PricingValidationError);
+    assert.throws(() => hospitalityAddonAmountMinor({ amountMinor: value as never, pricingModel: 'PER_BOOKING', selectedQuantity: 1, roomQuantity: 1, stayNights: 1, maxQuantity: 1 }), PricingValidationError);
+  }
+  for (const maxQuantity of [null, undefined, 0, 101, NaN, Infinity, '5']) assert.throws(() => hospitalityAddonAmountMinor({ amountMinor: 100n, pricingModel: 'PER_UNIT', selectedQuantity: 1, roomQuantity: 1, stayNights: 1, maxQuantity: maxQuantity as never }), PricingValidationError);
+});
