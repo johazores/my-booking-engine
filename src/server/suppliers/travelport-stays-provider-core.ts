@@ -1,3 +1,4 @@
+import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { normalizeCurrency, parseMoneyMajorToMinor, PricingValidationError } from '../pricing/money.ts';
@@ -314,16 +315,10 @@ function encodeReference(payload: Readonly<Record<string, string>>): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function decodeReference(value: unknown): unknown {
-  if (typeof value !== 'string' || !value || value.length > MAX_PROVIDER_REFERENCE_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
-    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier reference is invalid.');
-  }
-  try {
-    return JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-  } catch {
-    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier reference is invalid.');
-  }
+function decodeReference(value: unknown): Readonly<Record<string, unknown>> {
+  return decodeCanonicalTravelportStaysReference(value, MAX_PROVIDER_REFERENCE_LENGTH);
 }
+
 
 function propertyReference(identity: TravelportPropertyIdentity): string {
   return encodeReference(identity);

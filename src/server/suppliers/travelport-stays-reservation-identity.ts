@@ -1,3 +1,4 @@
+import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 
 const MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH = 4_096;
@@ -111,23 +112,7 @@ export function decodeTravelportStaysPropertyReference(value: unknown) {
     invalidRequest('Supplier property reference is invalid.');
   }
 
-  let decodedBytes: Buffer;
-  let decoded: unknown;
-  try {
-    decodedBytes = Buffer.from(encoded, 'base64url');
-    if (decodedBytes.toString('base64url') !== encoded) {
-      invalidRequest('Supplier property reference is invalid.');
-    }
-    decoded = JSON.parse(decodedBytes.toString('utf8'));
-  } catch (error) {
-    if (error instanceof HospitalitySupplierProviderError) throw error;
-    invalidRequest('Supplier property reference is invalid.');
-  }
-  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
-    invalidRequest('Supplier property reference is invalid.');
-  }
-
-  const identity = decoded as Record<string, unknown>;
+  const identity = decodeCanonicalTravelportStaysReference(encoded, MAX_SUPPLIER_PROPERTY_REFERENCE_LENGTH);
   const chainCode = typeof identity.chainCode === 'string' ? identity.chainCode : '';
   const propertyCode = typeof identity.propertyCode === 'string' ? identity.propertyCode : '';
   if (

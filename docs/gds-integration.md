@@ -66,6 +66,10 @@ Travelport's public Retrieve reference does not establish generic HTTP 404 as au
 
 Provider-neutral `NOT_FOUND` remains available only for an adapter with independently verified authoritative exact-locator negative semantics.
 
+## Opaque supplier reference decoding
+
+Travelport property and offer references are decoded through one bounded, canonical base64url JSON-object boundary across discovery/pricing, Rules, selected-offer Availability authority, reservation identity, and the public adapter facade. Non-canonical base64url aliases, malformed alphabet, invalid UTF-8, invalid JSON, arrays, scalars, and oversized references fail closed as `INVALID_REQUEST` before they can influence supplier selection or provider calls. This does not make opaque references authorization tokens: tenant membership, permissions, resource ownership, and live provider evidence are still checked separately.
+
 ## Transport security, privacy, and validation
 
 Travelport OAuth/Stays endpoints are fixed constants selected from validated integration environment. Credential-bearing requests use `redirect: 'manual'`; unexpected redirects fail rather than replaying credentials to another origin.

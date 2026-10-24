@@ -1,3 +1,4 @@
+import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import {
   HospitalitySupplierProviderError,
   type HospitalitySupplierOfferRevalidationInput,
@@ -118,25 +119,9 @@ export function readTravelportStaysCredentials(
 }
 
 function canonicalReference(value: unknown): ReferenceRecord {
-  if (
-    typeof value !== 'string'
-    || !value
-    || value.length > MAX_REFERENCE_LENGTH
-    || !/^[A-Za-z0-9_-]+$/.test(value)
-  ) {
-    invalidRequest();
-  }
-  try {
-    const bytes = Buffer.from(value, 'base64url');
-    if (bytes.toString('base64url') !== value) invalidRequest();
-    const decoded = JSON.parse(bytes.toString('utf8'));
-    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) invalidRequest();
-    return decoded as ReferenceRecord;
-  } catch (error) {
-    if (error instanceof HospitalitySupplierProviderError) throw error;
-    invalidRequest();
-  }
+  return decodeCanonicalTravelportStaysReference(value, MAX_REFERENCE_LENGTH);
 }
+
 
 export function assertTravelportStaysPropertyReference(value: unknown): void {
   const property = canonicalReference(value);
