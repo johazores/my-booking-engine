@@ -24,6 +24,7 @@ import {
   HospitalityInventoryUnavailableError,
 } from './hospitality-service.ts';
 import { RentalInventoryValidationError } from './rental-domain.ts';
+import { readBoundedInventoryFormData } from './inventory-form-body.ts';
 import {
   RentalInventoryConflictError,
   RentalInventoryDependencyError,
@@ -42,11 +43,7 @@ export function formField(formData: FormData, name: string) {
 }
 
 export async function readInventoryFormData(request: Request) {
-  try {
-    return await request.formData();
-  } catch {
-    return null;
-  }
+  return readBoundedInventoryFormData(request);
 }
 
 export function inventoryErrorCode(error: unknown) {

@@ -45,6 +45,10 @@ Suspending or archiving a user must remove tenant access even if an organization
 
 Membership role and lifecycle mutations are implemented through authenticated, same-origin server operations. They require `membership-role:manage` or `membership:manage` as appropriate, bind the target membership to the active tenant, validate allowed transitions, protect the final active organization administrator inside serializable transactions, and audit successful changes without secrets. Client-supplied roles or statuses are requests, not authority.
 
+## Inventory browser form ingress
+
+Inventory mutation forms use a 64 KiB streamed body limit, strict UTF-8, supported text-only browser form media types, and rejection of duplicate keys, uploaded files, and excessive field counts. The bounded parser runs after the existing same-origin/session/active-tenant request guard and before inventory service writes. Server-side capability and resource ownership checks remain mandatory. See `docs/inventory-form-ingress.md`.
+
 ## Database test safety
 
 `npm run test:database` is allowed only against an explicitly disposable PostgreSQL database. The runner requires `TEST_DATABASE_URL`, rejects reuse of `DATABASE_URL`, requires a named database, and requires `SF_DATABASE_TEST_CONFIRM=sf-disposable-test-database` before it validates/applies migrations or runs integration tests.

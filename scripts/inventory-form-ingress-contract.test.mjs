@@ -26,3 +26,9 @@ function collectDirectFormDataRoutes(directory) {
 test('inventory mutation routes use the shared form-data reader', () => {
   assert.deepEqual(collectDirectFormDataRoutes(inventoryApiRoot), []);
 });
+
+test('inventory form reader delegates to the bounded parser', () => {
+  const source = readFileSync(join(repositoryRoot, 'src', 'server', 'inventory', 'inventory-http.ts'), 'utf8');
+  assert.match(source, /return readBoundedInventoryFormData\(request\)/);
+  assert.doesNotMatch(source, /request\.formData\(\)/);
+});
