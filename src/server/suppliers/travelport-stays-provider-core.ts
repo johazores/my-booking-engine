@@ -221,6 +221,7 @@ async function loadCachedAccessToken(input: {
   fetchImpl: typeof fetch;
   timeoutMs: number;
   nowMs: number;
+  now: () => number;
 }): Promise<string> {
   const cached = readTravelportStaysCachedToken(tokenCache, input.cacheKey, input.nowMs);
   if (cached) return cached.accessToken;
@@ -234,7 +235,7 @@ async function loadCachedAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, Date.now());
+    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, input.now());
     return token.accessToken;
   }).finally(() => {
     tokenRequests.delete(input.cacheKey);
@@ -838,6 +839,7 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
       fetchImpl: this.#fetchImpl,
       timeoutMs: this.#timeoutMs,
       nowMs: this.#now().getTime(),
+      now: () => this.#now().getTime(),
     });
   }
 
