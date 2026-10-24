@@ -21,8 +21,11 @@ test('all Travelport OAuth adapter caches bound completed tokens and retain in-f
     const code = readFileSync(join(process.cwd(), path), 'utf8');
     assert.match(code, /readTravelportStaysCachedToken\(/, path);
     assert.match(code, /storeTravelportStaysCachedToken\(/, path);
+    assert.match(code, /storeTravelportStaysCachedToken\([^;]*?,\s*(?:this\.#now\(\)\.getTime\(\)|input\.now\(\)|Date\.now\(\))\)/, `${path}: completion clock must be fresh`);
     assert.doesNotMatch(code, /(?:tokenCache|rulesTokenCache)\.(?:get|set)\(/, path);
     assert.match(code, /(?:tokenRequests|rulesTokenRequests)\.get\(/, path);
     assert.match(code, /(?:tokenRequests|rulesTokenRequests)\.delete\(/, path);
   }
+  const rules = readFileSync(join(process.cwd(), sources[1]), 'utf8');
+  assert.match(rules, /now:\s*\(\)\s*=>\s*this\.#now\(\)\.getTime\(\)/);
 });

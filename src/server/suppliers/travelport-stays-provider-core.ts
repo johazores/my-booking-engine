@@ -234,7 +234,7 @@ async function loadCachedAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, input.nowMs);
+    storeTravelportStaysCachedToken(tokenCache, input.cacheKey, token, Date.now());
     return token.accessToken;
   }).finally(() => {
     tokenRequests.delete(input.cacheKey);

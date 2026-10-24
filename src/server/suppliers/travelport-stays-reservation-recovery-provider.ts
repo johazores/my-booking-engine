@@ -131,7 +131,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
       timeoutMs: this.#timeoutMs,
       nowMs,
     }).then((token) => {
-      storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, token, nowMs);
+      storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, token, this.#now().getTime());
       return token.accessToken;
     }).finally(() => tokenRequests.delete(this.#cacheKey));
     tokenRequests.set(this.#cacheKey, request);

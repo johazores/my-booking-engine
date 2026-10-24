@@ -53,3 +53,15 @@ test('already expired and non-finite expiry values are never retained', () => {
   storeTravelportStaysCachedToken(cache, 'nan', token('bad', Number.NaN), 100);
   assert.equal(cache.size, 0);
 });
+
+test('a token that expires during a slow OAuth exchange is not retained after completion', () => {
+  const cache = new Map<string, Token>();
+  const requestStartedAt = 100;
+  const tokenExpiresAt = 150;
+  const requestCompletedAt = 151;
+  assert.ok(tokenExpiresAt > requestStartedAt);
+  storeTravelportStaysCachedToken(cache, 'slow-tenant', token('expired-before-response', tokenExpiresAt), requestCompletedAt);
+  assert.equal(cache.size, 0);
+  storeTravelportStaysCachedToken(cache, 'healthy-tenant', token('fresh', 300), requestCompletedAt);
+  assert.equal(readTravelportStaysCachedToken(cache, 'healthy-tenant', requestCompletedAt)?.accessToken, 'fresh');
+});

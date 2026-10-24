@@ -114,6 +114,7 @@ async function loadRulesAccessToken(input: {
   fetchImpl: typeof fetch;
   timeoutMs: number;
   nowMs: number;
+  now: () => number;
 }) {
   const cached = readTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, input.nowMs);
   if (cached) return cached.accessToken;
@@ -126,7 +127,7 @@ async function loadRulesAccessToken(input: {
     timeoutMs: input.timeoutMs,
     nowMs: input.nowMs,
   }).then((token) => {
-    storeTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), input.nowMs);
+    storeTravelportStaysCachedToken(rulesTokenCache, input.cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), input.now());
     return token.accessToken;
   }).finally(() => rulesTokenRequests.delete(input.cacheKey));
 
@@ -707,6 +708,7 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
       fetchImpl: this.#fetchImpl,
       timeoutMs: this.#timeoutMs,
       nowMs: this.#now().getTime(),
+      now: () => this.#now().getTime(),
     });
   }
 
