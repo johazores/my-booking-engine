@@ -69,3 +69,12 @@ test('fails closed above the bounded synchronous export limit', () => {
   const rows = Array.from({ length: HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT + 1 }, () => row);
   assert.throws(() => createHospitalityAdjustmentNoteAccountingCsv(rows), RangeError);
 });
+
+test('neutralizes formula-like adjustment reasons while preserving accounting columns', () => {
+  const csv = createHospitalityAdjustmentNoteAccountingCsv([{
+    ...row,
+    adjustmentReason: '\t=HYPERLINK("https://example.test")',
+  }]);
+  assert.ok(csv.includes('"\'\t=HYPERLINK(""https://example.test"")"'));
+  assert.match(csv, /"Decreasing adjustment","100\.00","10\.00","110\.00","0\.00","0\.00","0\.00"/);
+});

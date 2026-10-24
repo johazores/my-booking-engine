@@ -51,3 +51,19 @@ test('rejects unbounded exports and invalid dates', () => {
     TypeError,
   );
 });
+
+test('neutralizes spreadsheet formulas in accounting text without changing numeric money', () => {
+  const csv = createHospitalityInvoiceAccountingCsv([{
+    documentNumber: '=HYPERLINK("https://example.test")',
+    issuedAt: new Date('2026-09-04T03:00:00.000Z'),
+    bookingId: '11111111-1111-4111-8111-111111111111',
+    currency: 'AUD',
+    accommodationSubtotalMinor: 10_000n,
+    feeTotalMinor: 500n,
+    addonTotalMinor: 250n,
+    taxTotalMinor: 1_075n,
+    totalMinor: 11_825n,
+  }]);
+  assert.ok(csv.includes('"\'=HYPERLINK(""https://example.test"")"'));
+  assert.match(csv, /"100\.00","5\.00","2\.50","10\.75","118\.25"\r\n$/);
+});

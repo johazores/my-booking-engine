@@ -1,4 +1,5 @@
 import { moneyMinorToMajorString } from '../pricing/money.ts';
+import { accountingCsvCell } from './accounting-csv-cell.ts';
 
 export const HOSPITALITY_ADJUSTMENT_NOTE_ACCOUNTING_EXPORT_LIMIT = 5_000;
 
@@ -35,10 +36,6 @@ type HospitalityIncreasingAdjustmentNoteAccountingRow = HospitalityAdjustmentNot
 export type HospitalityAdjustmentNoteAccountingExportRow =
   | HospitalityDecreasingAdjustmentNoteAccountingRow
   | HospitalityIncreasingAdjustmentNoteAccountingRow;
-
-function csvCell(value: string) {
-  return `"${value.replaceAll('"', '""')}"`;
-}
 
 function isoDate(value: Date, label: string) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new TypeError(`${label} is invalid.`);
@@ -111,7 +108,7 @@ export function createHospitalityAdjustmentNoteAccountingCsv(rows: readonly Hosp
     'gst_increase',
     'total_increase_inc_gst',
   ];
-  const lines = [header.map(csvCell).join(',')];
+  const lines = [header.map(accountingCsvCell).join(',')];
 
   for (const row of rows) {
     const effect = normalizedEffect(row);
@@ -131,7 +128,7 @@ export function createHospitalityAdjustmentNoteAccountingCsv(rows: readonly Hosp
       moneyMinorToMajorString(effect.increaseGstMinor, row.currency),
       moneyMinorToMajorString(effect.increaseTotalMinor, row.currency),
     ];
-    lines.push(values.map(csvCell).join(','));
+    lines.push(values.map(accountingCsvCell).join(','));
   }
 
   return `${lines.join('\r\n')}\r\n`;

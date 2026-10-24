@@ -1,4 +1,5 @@
 import { moneyMinorToMajorString } from '../pricing/money.ts';
+import { accountingCsvCell } from './accounting-csv-cell.ts';
 
 export const HOSPITALITY_INVOICE_ACCOUNTING_EXPORT_LIMIT = 5_000;
 
@@ -13,10 +14,6 @@ export type HospitalityInvoiceAccountingExportRow = Readonly<{
   taxTotalMinor: bigint;
   totalMinor: bigint;
 }>;
-
-function csvCell(value: string) {
-  return `"${value.replaceAll('"', '""')}"`;
-}
 
 function isoDate(value: Date) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new TypeError('Invoice issue time is invalid.');
@@ -39,7 +36,7 @@ export function createHospitalityInvoiceAccountingCsv(rows: readonly Hospitality
     'gst_total',
     'invoice_total',
   ];
-  const lines = [header.map(csvCell).join(',')];
+  const lines = [header.map(accountingCsvCell).join(',')];
 
   for (const row of rows) {
     const values = [
@@ -53,7 +50,7 @@ export function createHospitalityInvoiceAccountingCsv(rows: readonly Hospitality
       moneyMinorToMajorString(row.taxTotalMinor, row.currency),
       moneyMinorToMajorString(row.totalMinor, row.currency),
     ];
-    lines.push(values.map(csvCell).join(','));
+    lines.push(values.map(accountingCsvCell).join(','));
   }
 
   return `${lines.join('\r\n')}\r\n`;
