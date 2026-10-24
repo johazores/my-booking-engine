@@ -57,6 +57,55 @@ test('token request uses the fixed pre-production endpoint and documented passwo
   assert.deepEqual(Object.keys(token).sort(), ['accessToken', 'expiresAtMs']);
 });
 
+test('short OAuth lifetimes reserve a proportional refresh margin without extending provider expiry', async () => {
+  for (const [expiresIn, expectedDeadline] of [
+    [1, 1_500],
+    [60, 31_000],
+    [300, 151_000],
+    [600, 301_000],
+    [86_400, 86_101_000],
+  ] as const) {
+    const token = await requestTravelportStaysAccessToken({
+      credentials: configuration.credentials,
+      nowMs: 1_000,
+      fetchImpl: (async () => jsonResponse({ access_token: 'short-lived', expires_in: expiresIn })) as typeof fetch,
+    });
+    assert.equal(token.expiresAtMs, expectedDeadline, `expires_in=${expiresIn}`);
+    assert.ok(token.expiresAtMs <= 1_000 + expiresIn * 1_000);
+  }
+  const fallback = await requestTravelportStaysAccessToken({
+    credentials: configuration.credentials,
+    nowMs: 1_000,
+    fetchImpl: (async () => jsonResponse({ access_token: 'fallback' })) as typeof fetch,
+  });
+  assert.equal(fallback.expiresAtMs, 86_101_000);
+});
+
+test('a short-lived OAuth token expiring during authentication cannot reach Stays', async () => {
+  let nowMs = Date.parse('2026-09-01T00:00:00.000Z');
+  let staysCalls = 0;
+  const provider = new TravelportStaysProvider({
+    credentials: configuration.credentials,
+    cacheKey: 'short-lived-oauth-completion',
+    now: () => new Date(nowMs),
+    fetchImpl: (async (url) => {
+      if (String(url).includes('/oauth/token')) {
+        nowMs += 600;
+        return jsonResponse({ access_token: 'expired-before-use', expires_in: 1 });
+      }
+      staysCalls += 1;
+      return jsonResponse(emptySearchResponse());
+    }) as typeof fetch,
+  });
+  await assert.rejects(
+    provider.searchProperties({
+      cityIataCode: 'SYD', checkInDateLocal: '2026-10-10', checkOutDateLocal: '2026-10-12', rooms: 1, adults: 2,
+    }),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError && error.code === 'PROVIDER_UNAVAILABLE',
+  );
+  assert.equal(staysCalls, 0, 'expired short-lived OAuth bearer must not reach Stays');
+});
+
 test('health probe safely classifies authentication, rate-limit, outage and malformed success responses', async () => {
   for (const [status, expectedStatus, expectedCode] of [
     [401, 'AUTHENTICATION_FAILED', 'AUTHENTICATION_FAILED'],

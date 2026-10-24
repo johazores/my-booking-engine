@@ -12,6 +12,13 @@ const sources = [
   "src/server/suppliers/travelport-stays-reservation-recovery-provider.ts"
 ];
 
+test('OAuth token deadlines preserve provider lifetime authority even for short tokens', () => {
+  const core = readFileSync(join(process.cwd(), 'src/server/suppliers/travelport-stays-provider-core.ts'), 'utf8');
+  assert.match(core, /const refreshSkewMs = Math\.min\(TOKEN_REFRESH_SKEW_MS, lifetimeMs \/ 2\)/);
+  assert.match(core, /expiresAtMs: nowMs \+ lifetimeMs - refreshSkewMs/);
+  assert.doesNotMatch(core, /Math\.max\(1_000, lifetimeMs - TOKEN_REFRESH_SKEW_MS\)/);
+});
+
 test('all Travelport OAuth adapter caches bound completed tokens and retain in-flight deduplication', () => {
   const helper = readFileSync(join(process.cwd(), 'src/server/suppliers/travelport-stays-access-token-cache.ts'), 'utf8');
   assert.match(helper, /MAX_TRAVELPORT_STAYS_CACHED_TOKENS = 256/);

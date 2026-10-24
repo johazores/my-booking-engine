@@ -172,9 +172,12 @@ function parseTokenPayload(value: unknown, nowMs: number): Readonly<{ accessToke
   }
 
   const lifetimeMs = lifetimeSeconds * 1000;
+  // Short-lived tokens need a proportional safety margin, not a one-second
+  // minimum that can extend the cache deadline past the provider's expiry.
+  const refreshSkewMs = Math.min(TOKEN_REFRESH_SKEW_MS, lifetimeMs / 2);
   return Object.freeze({
     accessToken: payload.access_token,
-    expiresAtMs: nowMs + Math.max(1_000, lifetimeMs - TOKEN_REFRESH_SKEW_MS),
+    expiresAtMs: nowMs + lifetimeMs - refreshSkewMs,
   });
 }
 
