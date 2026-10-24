@@ -280,3 +280,112 @@ export function buildTravelportStaysReservationCreateRequestMaterial(input: Read
     Payment: Object.freeze([payment]) as TravelportStaysReservationCreateRequestMaterial['Payment'],
   });
 }
+
+
+/**
+ * Direct adapter callers must not supply mutable or serializable arbitrary request objects.
+ * Copy only the validated provider request fields before OAuth or sensitive card acquisition.
+ * The payment instruction is checked against fresh authority separately by the executor.
+ */
+function directMaterialRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    materializationFailure();
+  }
+  return value as Record<string, unknown>;
+}
+
+function directMaterialSingleton(value: unknown): unknown {
+  if (!Array.isArray(value) || value.length !== 1 || !Object.hasOwn(value, 0)) {
+    materializationFailure();
+  }
+  return value[0];
+}
+
+export function snapshotTravelportStaysReservationCreateRequestMaterial(
+  value: unknown,
+): TravelportStaysReservationCreateRequestMaterial {
+  try {
+    const material = directMaterialRecord(value);
+    const offering = directMaterialRecord(material.BuildFromCatalogOfferingHospitality);
+    const offeringType = offering['@type'];
+    const identifier = directMaterialRecord(offering.CatalogOfferingIdentifier);
+    const reference = providerSubmissionReference(identifier.value);
+    if (offeringType !== 'BuildFromCatalogOfferingHospitality') materializationFailure();
+
+    const rawTraveler = directMaterialRecord(directMaterialSingleton(material.Traveler));
+    const travelerType = rawTraveler['@type'];
+    const name = directMaterialRecord(rawTraveler.PersonName);
+    const given = name.Given;
+    const surname = name.Surname;
+    const rawTelephone = directMaterialRecord(directMaterialSingleton(rawTraveler.Telephone));
+    const telephoneType = rawTelephone['@type'];
+    const countryCallingCode = rawTelephone.countryAccessCode;
+    const areaCode = rawTelephone.areaCityCode;
+    const subscriberNumber = rawTelephone.phoneNumber;
+    const rawEmail = directMaterialRecord(directMaterialSingleton(rawTraveler.Email));
+    const email = rawEmail.value;
+    if (travelerType !== 'Traveler' || telephoneType !== 'TelephoneDetail') {
+      materializationFailure();
+    }
+
+    const traveler = buildTravelportStaysReservationTravelerRequest({
+      firstName: given as string,
+      lastName: surname as string,
+      email: email as string,
+      telephone: {
+        countryCallingCode: countryCallingCode as string,
+        areaCode: areaCode as string,
+        subscriberNumber: subscriberNumber as string,
+      },
+    });
+    // The upstream request material must already be canonical; never silently
+    // change a submitted guest identity while rebuilding a direct adapter call.
+    if (
+      traveler.PersonName.Given !== given
+      || traveler.PersonName.Surname !== surname
+      || traveler.Email[0].value !== email
+      || traveler.Telephone[0].countryAccessCode !== countryCallingCode
+      || traveler.Telephone[0].areaCityCode !== areaCode
+      || traveler.Telephone[0].phoneNumber !== subscriberNumber
+    ) {
+      materializationFailure();
+    }
+
+    const rawPayment = directMaterialRecord(directMaterialSingleton(material.Payment));
+    const paymentType = rawPayment['@type'];
+    const amount = directMaterialRecord(rawPayment.Amount);
+    const code = amount.code;
+    const paymentValue = amount.value;
+    const guaranteeInd = rawPayment.guaranteeInd;
+    const depositInd = rawPayment.depositInd;
+    if (
+      paymentType !== 'Payment'
+      || typeof code !== 'string'
+      || typeof paymentValue !== 'string'
+      || typeof guaranteeInd !== 'boolean'
+      || typeof depositInd !== 'boolean'
+    ) {
+      materializationFailure();
+    }
+
+    return Object.freeze({
+      BuildFromCatalogOfferingHospitality: Object.freeze({
+        '@type': 'BuildFromCatalogOfferingHospitality' as const,
+        CatalogOfferingIdentifier: Object.freeze({ value: reference }),
+      }),
+      Traveler: Object.freeze([traveler]) as TravelportStaysReservationCreateRequestMaterial['Traveler'],
+      Payment: Object.freeze([Object.freeze({
+        '@type': 'Payment' as const,
+        Amount: Object.freeze({ code, value: paymentValue }),
+        guaranteeInd,
+        depositInd,
+      })]) as TravelportStaysReservationCreateRequestMaterial['Payment'],
+    });
+  } catch {
+    // Never surface caller-owned getters, toJSON hooks, or proxy diagnostics.
+    invalidRequest('Travelport reservation create request material is invalid.');
+  }
+}
+
+// Snapshot the same fresh commercial authority before any asynchronous OAuth work.
+export { snapshotPaymentAuthority as snapshotTravelportStaysReservationPaymentAuthority };

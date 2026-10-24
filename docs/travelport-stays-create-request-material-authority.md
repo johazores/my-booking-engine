@@ -40,3 +40,9 @@ This hardening does not provide or imply a PCI-safe collection/token-vault imple
 - `docs/travelport-reservation-create-coordinator.md`
 - `docs/travelport-reservation-payment-card-boundary.md`
 - `docs/travelport-stays-reservation-operation-input-authority.md`
+
+## Direct Create request-material continuity
+
+The low-level Create executor now materializes the complete non-secret request object and payment authority **before OAuth or sensitive card acquisition**, not just the Payment instruction. It reads the exact offer reference, single primary traveler and contact fields, and single Payment instruction once; verifies canonical traveler/provider field shapes; and rebuilds frozen allowlisted objects. Unknown properties and caller-defined `toJSON` hooks are never passed to provider serialization. A changing source getter or a mutation during OAuth cannot replace the selected offer, guest, amount, accepted-card set, or payment indicators after preflight. Invalid shapes and hostile accessors fail with a fixed `INVALID_REQUEST` message before provider I/O. The direct request builder applies the same defensive snapshot for internal callers that bypass the coordinator.
+
+This is defense in depth for the existing disabled Travelport reservation capability. It does not create an independent offer authorization token, replace the tenant-scoped fresh Rules/Availability checks, provide PCI-safe FormOfPayment, or establish live provider retry semantics.

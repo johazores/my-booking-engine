@@ -102,6 +102,142 @@ function confirmedResponse() {
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
+
+test('direct Create strips unknown JSON fields and reads non-secret request evidence only once', () => {
+  const reads = new Map<string, number>();
+  const once = (key: string, value: unknown) => ({
+    enumerable: true,
+    get() {
+      const count = (reads.get(key) ?? 0) + 1;
+      reads.set(key, count);
+      if (count > 1) throw new Error('untrusted-re-read');
+      return value;
+    },
+  });
+  const name = Object.defineProperties({}, {
+    Given: once('Given', 'Ada'),
+    Surname: once('Surname', 'Lovelace'),
+    toJSON: once('name.toJSON', () => ({ Given: 'Injected' })),
+  });
+  const rawTraveler = Object.defineProperties({}, {
+    '@type': once('traveler.type', 'Traveler'),
+    PersonName: once('traveler.name', name),
+    Telephone: once('traveler.phone', requestMaterial.Traveler[0].Telephone),
+    Email: once('traveler.email', requestMaterial.Traveler[0].Email),
+    toJSON: once('traveler.toJSON', () => ({ PersonName: { Given: 'Injected' } })),
+  });
+  const rawMaterial = {
+    ...requestMaterial,
+    Traveler: [rawTraveler],
+    hidden: { PAN: 'must-not-be-serialized' },
+  };
+  const result = buildTravelportStaysReservationCreateRequest({
+    requestMaterial: rawMaterial as never,
+    paymentAuthority,
+    paymentCard,
+    now: new Date('2026-09-07T00:00:00.000Z'),
+  });
+  const serialized = JSON.stringify(result);
+  assert.equal(result.ReservationQueryBuild.ReservationBuild.Traveler[0].PersonName.Given, 'Ada');
+  assert.doesNotMatch(serialized, /Injected|must-not-be-serialized/);
+  assert.equal(reads.get('Given'), 1);
+  assert.equal(reads.get('traveler.name'), 1);
+  assert.equal(reads.get('traveler.toJSON'), undefined);
+  assert.equal(reads.get('name.toJSON'), undefined);
+});
+
+test('direct Create rejects malformed offer, traveler, and payment material without reading card secrets', () => {
+  const cases: unknown[] = [
+    { ...requestMaterial, Traveler: [] },
+    { ...requestMaterial, Traveler: [requestMaterial.Traveler[0], requestMaterial.Traveler[0]] },
+    { ...requestMaterial, Traveler: [{ ...requestMaterial.Traveler[0], '@type': 'NotTraveler' }] },
+    { ...requestMaterial, Traveler: [{ ...requestMaterial.Traveler[0], Email: [{ value: 'ADA@example.com' }] }] },
+    { ...requestMaterial, BuildFromCatalogOfferingHospitality: {
+      ...requestMaterial.BuildFromCatalogOfferingHospitality,
+      CatalogOfferingIdentifier: { value: ' offer-123 ' },
+    } },
+    { ...requestMaterial, Payment: [{ ...requestMaterial.Payment[0], '@type': 'NotPayment' }] },
+  ];
+  for (const material of cases) {
+    assert.throws(
+      () => buildTravelportStaysReservationCreateRequest({
+        requestMaterial: material as never,
+        paymentAuthority,
+        paymentCard,
+        now: new Date('2026-09-07T00:00:00.000Z'),
+      }),
+      (error) => error instanceof HospitalitySupplierProviderError
+        && error.code === 'INVALID_REQUEST',
+    );
+  }
+
+  const hostile = {
+    ...requestMaterial,
+    Traveler: [Object.defineProperty({}, 'PersonName', {
+      get() { throw new Error('untrusted-secret-diagnostic'); },
+    })],
+  };
+  assert.throws(
+    () => buildTravelportStaysReservationCreateRequest({
+      requestMaterial: hostile as never,
+      paymentAuthority,
+      paymentCard,
+    }),
+    (error) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && !error.message.includes('untrusted-secret-diagnostic'),
+  );
+});
+
+test('Create freezes non-secret request and commercial authority before asynchronous OAuth', async () => {
+  const mutableMaterial = {
+    BuildFromCatalogOfferingHospitality: {
+      '@type': 'BuildFromCatalogOfferingHospitality' as const,
+      CatalogOfferingIdentifier: { value: 'offer-123' },
+    },
+    Traveler: [JSON.parse(JSON.stringify(requestMaterial.Traveler[0]))],
+    Payment: [JSON.parse(JSON.stringify(requestMaterial.Payment[0]))],
+  };
+  const mutableAuthority = {
+    ...paymentAuthority,
+    acceptedPaymentCardCodes: ['VI', 'MC'],
+  };
+  let createBody: string | undefined;
+  const executor = new TravelportStaysReservationCreateExecutor({
+    credentials,
+    cacheKey: 'stable-non-secret-create-authority',
+    fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).includes('/oauth/token')) {
+        mutableMaterial.BuildFromCatalogOfferingHospitality.CatalogOfferingIdentifier.value = 'forged-offer';
+        mutableMaterial.Traveler[0].PersonName.Given = 'Mallory';
+        mutableMaterial.Payment[0].Amount.value = '0.01';
+        mutableAuthority.amountMinor = 1n;
+        mutableAuthority.acceptedPaymentCardCodes[0] = 'AX';
+        return tokenResponse();
+      }
+      createBody = String(init?.body);
+      return confirmedResponse();
+    }) as typeof fetch,
+    now: () => new Date('2026-09-07T00:00:00.000Z'),
+  });
+  const outcome = await executor.createReservation({
+    requestCorrelationId: '98d83175-bfc0-4d87-8cde-a0bb82b874e5',
+    requestMaterial: mutableMaterial as never,
+    paymentAuthority: mutableAuthority,
+    acquirePaymentCard: async () => paymentCard,
+    expectedReservation,
+    beforeProviderRequest: async () => {},
+  });
+  assert.equal(outcome.status, 'CONFIRMED');
+  assert.ok(createBody);
+  const body = JSON.parse(createBody);
+  const build = body.ReservationQueryBuild.ReservationBuild;
+  assert.equal(build.BuildFromCatalogOfferingHospitality.CatalogOfferingIdentifier.value, 'offer-123');
+  assert.equal(build.Traveler[0].PersonName.Given, 'Ada');
+  assert.equal(build.Payment[0].Amount.value, '143.37');
+  assert.equal(build.FormOfPayment[0].PaymentCard.CardCode, 'VI');
+});
+
 test('builds the exact Travelport reference payload while keeping change-acceptance flags out of the initial sell', () => {
   const request = buildTravelportStaysReservationCreateRequest({
     requestMaterial,

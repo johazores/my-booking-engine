@@ -1,7 +1,11 @@
 import { moneyMinorToMajorString } from '../pricing/money.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { HospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
-import type { TravelportStaysReservationCreateRequestMaterial } from './travelport-stays-reservation-create-request-material.ts';
+import {
+  snapshotTravelportStaysReservationCreateRequestMaterial,
+  snapshotTravelportStaysReservationPaymentAuthority,
+  type TravelportStaysReservationCreateRequestMaterial,
+} from './travelport-stays-reservation-create-request-material.ts';
 import {
   classifyTravelportStaysReservationCreateOutcome,
   type TravelportStaysCreateExpectedReservation,
@@ -420,7 +424,9 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
   validThroughDateLocal?: string;
   now?: Date;
 }>): TravelportStaysReservationCreateRequest {
-  const validatedPayment = assertPaymentAuthorityMatchesRequestMaterial(input.requestMaterial, input.paymentAuthority);
+  const stableRequestMaterial = snapshotTravelportStaysReservationCreateRequestMaterial(input.requestMaterial);
+  const stablePaymentAuthority = snapshotTravelportStaysReservationPaymentAuthority(input.paymentAuthority);
+  const validatedPayment = assertPaymentAuthorityMatchesRequestMaterial(stableRequestMaterial, stablePaymentAuthority);
   // Snapshot direct-builder card material before any validation or serialization.
   const paymentCard = snapshotTravelportStaysReservationPaymentCard(input.paymentCard);
   const formOfPayment = normalizePaymentCard(
@@ -434,8 +440,8 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
       '@type': 'ReservationQueryBuild' as const,
       ReservationBuild: Object.freeze({
         '@type': 'ReservationBuildFromCatalogOffering' as const,
-        BuildFromCatalogOfferingHospitality: input.requestMaterial.BuildFromCatalogOfferingHospitality,
-        Traveler: input.requestMaterial.Traveler,
+        BuildFromCatalogOfferingHospitality: stableRequestMaterial.BuildFromCatalogOfferingHospitality,
+        Traveler: stableRequestMaterial.Traveler,
         FormOfPayment: Object.freeze([formOfPayment]) as TravelportStaysReservationCreateRequest['ReservationQueryBuild']['ReservationBuild']['FormOfPayment'],
         Payment: validatedPayment.payment,
       }),
@@ -543,7 +549,9 @@ export class TravelportStaysReservationCreateExecutor {
 
     const expectedReservation = materializeTravelportStaysCreateExpectedReservation(callerExpectedReservation);
     if (!expectedReservation) invalidRequest('Travelport expected reservation authority is invalid.');
-    assertPaymentAuthorityMatchesRequestMaterial(requestMaterial, paymentAuthority);
+    const stableRequestMaterial = snapshotTravelportStaysReservationCreateRequestMaterial(requestMaterial);
+    const stablePaymentAuthority = snapshotTravelportStaysReservationPaymentAuthority(paymentAuthority);
+    assertPaymentAuthorityMatchesRequestMaterial(stableRequestMaterial, stablePaymentAuthority);
     const reservationUrl = reviewedReservationBuildUrl(this.#credentials.environment, acceptedReview);
     const accessToken = await this.#accessToken();
     const requestHeaders = Object.freeze({
@@ -580,8 +588,8 @@ export class TravelportStaysReservationCreateExecutor {
     // composition window immediately before the durable provider-request marker and commercial POST.
     const paymentCard = await acquirePaymentCard();
     const requestBody = buildTravelportStaysReservationCreateRequest({
-      requestMaterial,
-      paymentAuthority,
+      requestMaterial: stableRequestMaterial,
+      paymentAuthority: stablePaymentAuthority,
       paymentCard,
       validThroughDateLocal: expectedReservation.departureDateLocal,
       now: this.#now(),

@@ -60,9 +60,11 @@ test('Travelport Create material and executor require exact two-character accept
 
   assert.match(executor, /MAX_CARD_CODE_LENGTH = 2/);
   assert.match(executor, /MAX_PAYMENT_CARD_CODES = 32/);
-  assert.match(executor, /acceptedPaymentCardCodes\.some\(\(code\) =>/);
-  assert.match(executor, /code\.length !== MAX_CARD_CODE_LENGTH/);
-  assert.match(executor, /new Set\(acceptedPaymentCardCodes\)\.size !== acceptedPaymentCardCodes\.length/);
+  assert.match(executor, /snapshotAcceptedPaymentCardCodes\(value: unknown\)/);
+  assert.match(executor, /Object\.hasOwn\(value, index\)/);
+  assert.match(executor, /const code = value\[index\]/);
+  assert.match(executor, /seen\.has\(code\)/);
+  assert.doesNotMatch(executor, /acceptedPaymentCardCodes\.some\(/);
   assert.ok(executor.includes('/^[A-Z0-9]{2}$/'));
   assert.ok(!executor.includes('/^[A-Z0-9]{1,2}$/'));
 
@@ -105,4 +107,20 @@ test('documentation keeps the material ephemeral and reservation capability disa
   assert.match(readiness, /request material/i);
   assert.match(readiness, /FormOfPayment/);
   assert.match(readiness, /not persisted|must not be persisted/i);
+});
+
+
+test('direct Create snapshots non-secret request and payment authority before OAuth and never serializes caller-owned objects', () => {
+  const material = source('src/server/suppliers/travelport-stays-reservation-create-request-material.ts');
+  const executor = source('src/server/suppliers/travelport-stays-reservation-create-executor.ts');
+  assert.match(material, /export function snapshotTravelportStaysReservationCreateRequestMaterial/);
+  assert.match(material, /directMaterialSingleton/);
+  assert.match(material, /buildTravelportStaysReservationTravelerRequest/);
+  assert.match(material, /snapshotPaymentAuthority as snapshotTravelportStaysReservationPaymentAuthority/);
+  const beforeOAuth = executor.slice(executor.indexOf('async #createReservation('), executor.indexOf('const accessToken = await this.#accessToken()'));
+  assert.match(beforeOAuth, /const stableRequestMaterial = snapshotTravelportStaysReservationCreateRequestMaterial\(requestMaterial\)/);
+  assert.match(beforeOAuth, /const stablePaymentAuthority = snapshotTravelportStaysReservationPaymentAuthority\(paymentAuthority\)/);
+  assert.match(executor, /requestMaterial: stableRequestMaterial,\s+paymentAuthority: stablePaymentAuthority,/);
+  assert.match(executor, /BuildFromCatalogOfferingHospitality: stableRequestMaterial\.BuildFromCatalogOfferingHospitality/);
+  assert.match(executor, /Traveler: stableRequestMaterial\.Traveler/);
 });

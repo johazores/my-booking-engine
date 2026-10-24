@@ -51,3 +51,7 @@ This is defense in depth for direct adapter invocation; it does not replace the 
 The standalone Travelport Create builder now uses the same one-read, allowlisted, sanitized payment-card snapshot as the higher-level server-only source. Direct internal callers can no longer cause PAN, CVV, expiry, card type, or nested billing/telephone evidence to change between validation and serialization through volatile getters. Unrelated metadata is not copied, and hostile getter diagnostics do not escape the fixed failure boundary.
 
 Fresh card, amount, currency, guarantee, and stay-expiry validation still happens before the durable provider-request marker. This change does not provide a PCI-reviewed payment-card source or enable Travelport reservation writes.
+
+## Non-secret Create authority at the same boundary
+
+Before the Create executor requests OAuth or acquires ephemeral card data, it now also copies the complete offer/traveler/Payment request material and fresh accepted-card/amount authority into frozen allowlisted snapshots. The direct builder repeats this guard for callers outside the normal coordinator. This prevents mutable non-secret source objects or custom JSON hooks from changing the commercial sell payload while the payment card is being acquired. No new card source or reservation capability is enabled.
