@@ -103,6 +103,49 @@ function confirmedResponse() {
 }
 
 
+
+test('direct Create materializes top-level builder inputs and clock exactly once', () => {
+  const reads = new Map<string, number>();
+  const once = (key: string, value: unknown) => ({
+    enumerable: true,
+    get() {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+      if (reads.get(key)! > 1) throw new Error('repeated builder getter');
+      return value;
+    },
+  });
+  let clockReads = 0;
+  const now = new Date('2026-09-07T00:00:00.000Z');
+  Object.defineProperty(now, 'getTime', {
+    value() {
+      clockReads += 1;
+      if (clockReads > 1) throw new Error('clock re-read');
+      return Date.prototype.getTime.call(this);
+    },
+  });
+  const input = Object.defineProperties({}, {
+    requestMaterial: once('requestMaterial', requestMaterial),
+    paymentAuthority: once('paymentAuthority', paymentAuthority),
+    paymentCard: once('paymentCard', paymentCard),
+    validThroughDateLocal: once('validThroughDateLocal', '2026-10-12'),
+    now: once('now', now),
+  });
+  const built = buildTravelportStaysReservationCreateRequest(input as never);
+  assert.equal(built.ReservationQueryBuild.ReservationBuild.Traveler[0].PersonName.Given, 'Ada');
+  for (const count of reads.values()) assert.equal(count, 1);
+  assert.equal(clockReads, 1);
+
+  const hostile = Object.defineProperty({ requestMaterial, paymentAuthority }, 'paymentCard', {
+    get() { throw new Error('untrusted-sensitive-builder-error'); },
+  });
+  assert.throws(
+    () => buildTravelportStaysReservationCreateRequest(hostile as never),
+    (error) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && !error.message.includes('untrusted-sensitive-builder-error'),
+  );
+});
+
 test('direct Create strips unknown JSON fields and reads non-secret request evidence only once', () => {
   const reads = new Map<string, number>();
   const once = (key: string, value: unknown) => ({

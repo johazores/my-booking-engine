@@ -58,6 +58,14 @@ const ACCEPTED_REVIEW_FIELDS = Object.freeze([
   'acceptPriceChange',
   'acceptGuaranteeChange',
 ] as const);
+const CREATE_BUILDER_FIELDS = Object.freeze([
+  'requestMaterial',
+  'paymentAuthority',
+  'paymentCard',
+  'validThroughDateLocal',
+  'now',
+] as const);
+const CREATE_BUILDER_MATERIALIZATION_FAILURE = 'Travelport reservation create builder input could not be materialized safely.';
 const CREATE_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reservation create operation authority could not be materialized safely.';
 const REVIEWED_CREATE_OPERATION_MATERIALIZATION_FAILURE = 'Travelport reviewed reservation create operation authority could not be materialized safely.';
 const ACCEPTED_REVIEW_MATERIALIZATION_FAILURE = 'Travelport reviewed reservation acceptance authority could not be materialized safely.';
@@ -424,16 +432,30 @@ export function buildTravelportStaysReservationCreateRequest(input: Readonly<{
   validThroughDateLocal?: string;
   now?: Date;
 }>): TravelportStaysReservationCreateRequest {
-  const stableRequestMaterial = snapshotTravelportStaysReservationCreateRequestMaterial(input.requestMaterial);
-  const stablePaymentAuthority = snapshotTravelportStaysReservationPaymentAuthority(input.paymentAuthority);
+  const builderInput = materializeTravelportStaysReservationOperationInput(
+    input,
+    CREATE_BUILDER_FIELDS,
+    CREATE_BUILDER_MATERIALIZATION_FAILURE,
+  );
+  const stableRequestMaterial = snapshotTravelportStaysReservationCreateRequestMaterial(builderInput.requestMaterial);
+  const stablePaymentAuthority = snapshotTravelportStaysReservationPaymentAuthority(builderInput.paymentAuthority);
   const validatedPayment = assertPaymentAuthorityMatchesRequestMaterial(stableRequestMaterial, stablePaymentAuthority);
   // Snapshot direct-builder card material before any validation or serialization.
-  const paymentCard = snapshotTravelportStaysReservationPaymentCard(input.paymentCard);
+  const paymentCard = snapshotTravelportStaysReservationPaymentCard(builderInput.paymentCard);
+  let nowMs: number;
+  try {
+    const now = builderInput.now ?? new Date();
+    if (!(now instanceof Date)) invalidRequest('Travelport reservation create clock is invalid.');
+    nowMs = now.getTime();
+  } catch {
+    invalidRequest('Travelport reservation create clock is invalid.');
+  }
+  if (!Number.isFinite(nowMs)) invalidRequest('Travelport reservation create clock is invalid.');
   const formOfPayment = normalizePaymentCard(
     paymentCard,
     validatedPayment.acceptedPaymentCardCodes,
-    input.validThroughDateLocal,
-    input.now ?? new Date(),
+    builderInput.validThroughDateLocal,
+    new Date(nowMs),
   );
   return Object.freeze({
     ReservationQueryBuild: Object.freeze({
