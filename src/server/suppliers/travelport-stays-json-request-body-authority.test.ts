@@ -46,10 +46,12 @@ const malformedBodies = [
   '{"valid":true} trailing',
   '{"items":[1,]}',
   '{"value":"unterminated}',
+  JSON.stringify({ text: '\ud800' }),
+  JSON.stringify({ ['\ud800']: 'value' }),
 ];
 
 test('Stays JSON body syntax guard accepts object JSON and rejects malformed or non-object roots', () => {
-  for (const body of ['{}', '  {"items":[{"rate":2}]}  ', '{"text":"valid 😀"}']) {
+  for (const body of ['{}', '  {"items":[{"rate":2}]}  ', '{"text":"valid 😀"}', '{"text":"\ud83d\ude00"}']) {
     assert.equal(isValidTravelportStaysJsonObjectBody(body), true);
   }
   for (const body of [...malformedBodies, '[]', 'null', '"string"', '{"text":"\ud800"}']) {
