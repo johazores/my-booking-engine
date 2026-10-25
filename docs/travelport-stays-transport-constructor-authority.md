@@ -13,3 +13,5 @@ OAuth form fields and Stays headers are checked against the captured constructor
 Regression tests cover one-read getters, credential mutation, original versus changed OAuth form authority in both transport layers, hostile inputs, and the preflight source read. Full Node 24/Prisma/PostgreSQL validation remains subject to the repository's external environment gates.
 
 This change does not enable Travelport reservation capability, add a payment-card source, or resolve live non-production provider and locator-less recovery requirements.
+
+The connected terminal operational logger also pins its tenant/integration/credential-version/environment attribution at construction. It retains its existing safe UUID/version fallbacks and fail-open log-sink behavior. This is diagnostic context only, never tenant authorization or supplier-write authority.

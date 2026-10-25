@@ -4,7 +4,7 @@
 
 SF emits structured operational request records for the implemented Travelport TripServices Stays transport. This is application logging for provider support and production diagnosis, not product analytics and not an authority for booking, payment, reservation, or retry decisions.
 
-The logger is composed below the Travelport credential-containment boundary. It therefore observes only the exact terminal request after environment, target, route, method, body, header, and credential-containment policy has passed. The logger does not replace those controls.
+The logger is composed below the Travelport credential-containment boundary. It therefore observes only the exact terminal request after environment, target, route, method, body, header, and credential-containment policy has passed. The logger does not replace those controls. It now captures tenant organization ID, integration ID, credential version, and provider environment at construction rather than rereading mutable caller options on later requests; operational records cannot drift to another tenant or credential version after the provider is built.
 
 This complements the existing reservation-create, reservation-sync, and provider-recovery observations. Those domain observations describe reservation outcomes; this transport observation describes the terminal provider request itself.
 

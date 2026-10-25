@@ -175,6 +175,13 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
   const now = input.now ?? (() => new Date());
   const nowMs = input.nowMs ?? Date.now;
   const randomUuidFactory = input.randomUuid ?? randomUUID;
+  // Log attribution is fixed to the tenant integration that constructed this
+  // transport, even if a caller later mutates its original options object.
+  const organizationId = safeUuid(input.organizationId, 'invalid-organization-id');
+  const integrationId = safeUuid(input.integrationId, 'invalid-integration-id');
+  const version = input.credentialVersion;
+  const credentialVersion = Number.isSafeInteger(version) && version >= 0 ? version : 0;
+  const environment = input.environment;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const startedAt = safeObservationClockMs(nowMs);
@@ -187,13 +194,11 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
       event: 'supplier.provider-request.completed' as const,
       requestCorrelationId: requestCorrelation,
       providerCorrelationId: providerCorrelation,
-      organizationId: safeUuid(input.organizationId, 'invalid-organization-id'),
-      integrationId: safeUuid(input.integrationId, 'invalid-integration-id'),
-      credentialVersion: Number.isSafeInteger(input.credentialVersion) && input.credentialVersion >= 0
-        ? input.credentialVersion
-        : 0,
+      organizationId,
+      integrationId,
+      credentialVersion,
       provider: 'travelport-stays' as const,
-      environment: input.environment,
+      environment,
       operation,
     };
 

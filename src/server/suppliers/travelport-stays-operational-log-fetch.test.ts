@@ -247,3 +247,56 @@ test('keeps observation metadata failures out of the supplier request authority 
   assert.equal(records[0]?.durationMs, 0);
   assert.equal(records[0]?.requestCorrelationId, 'invalid-request-correlation-id');
 });
+
+
+test('pins tenant integration attribution at construction despite later caller mutation', async () => {
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  const mutable = {
+    ...CONTEXT,
+    environment: 'production' as 'production' | 'pre-production',
+  };
+  const operationalFetch = createTravelportStaysOperationalLogFetch({
+    ...mutable,
+    fetchImpl: (async () => new Response('{}', { status: 200 })) as typeof fetch,
+    sink: (record) => records.push(record),
+    randomUuid: () => FALLBACK_REQUEST_ID,
+  });
+  mutable.organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  mutable.integrationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  mutable.credentialVersion = 99;
+  mutable.environment = 'pre-production';
+  await operationalFetch('https://api.travelport.net/12/hotel/search/searchcomplete', { method: 'POST' });
+  assert.equal(records[0]?.organizationId, ORGANIZATION_ID);
+  assert.equal(records[0]?.integrationId, INTEGRATION_ID);
+  assert.equal(records[0]?.credentialVersion, 7);
+  assert.equal(records[0]?.environment, 'production');
+});
+
+test('reads tenant attribution getters once before provider I/O', async () => {
+  const counts = new Map<string, number>();
+  const options = Object.fromEntries(Object.entries(CONTEXT).map(([key, value]) => [
+    key, value,
+  ])) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(CONTEXT)) {
+    Object.defineProperty(options, key, {
+      enumerable: true,
+      get() {
+        const count = (counts.get(key) ?? 0) + 1;
+        counts.set(key, count);
+        if (count > 1) throw new Error('tenant attribution reread');
+        return value;
+      },
+    });
+  }
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  Object.defineProperties(options, {
+    fetchImpl: { value: (async () => new Response('{}', { status: 200 })) as typeof fetch },
+    sink: { value: (record: StructuredTravelportStaysProviderRequestLogRecord) => records.push(record) },
+    randomUuid: { value: () => FALLBACK_REQUEST_ID },
+  });
+  const operationalFetch = createTravelportStaysOperationalLogFetch(options as never);
+  await operationalFetch('https://api.travelport.net/12/hotel/search/searchcomplete', { method: 'POST' });
+  await operationalFetch('https://api.travelport.net/12/hotel/search/searchcomplete', { method: 'POST' });
+  assert.equal(records.length, 2);
+  for (const count of counts.values()) assert.equal(count, 1);
+});
