@@ -393,6 +393,8 @@ test('signed PaymentIntent terminal events reject money that contradicts termina
 
 test('signed failed PaymentIntent events reject contradictory money', () => {
   for (const evidence of [
+    { status: 'requires_payment_method', amount_received: undefined, amount_capturable: 0 },
+    { status: 'requires_payment_method', amount_received: 0, amount_capturable: undefined },
     { status: 'requires_payment_method', amount_received: 1, amount_capturable: 0 },
     { status: 'requires_payment_method', amount_received: 0, amount_capturable: 1 },
   ]) {

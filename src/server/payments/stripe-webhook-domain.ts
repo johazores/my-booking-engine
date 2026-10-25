@@ -265,6 +265,11 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   if (status === 'requires_capture' && (intent.amount_received === undefined || intent.amount_capturable === undefined)) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent capturable authorization evidence is missing.');
   }
+  if (status === 'requires_payment_method' && (
+    intent.amount_received === undefined || intent.amount_capturable === undefined
+  )) {
+    throw new StripeWebhookValidationError('Stripe PaymentIntent failed-state money evidence is missing.');
+  }
   // Signed events also feed authorization release/settlement recovery. A missing
   // terminal money field must not be silently interpreted as zero.
   if ((status === 'canceled' || status === 'succeeded') && (

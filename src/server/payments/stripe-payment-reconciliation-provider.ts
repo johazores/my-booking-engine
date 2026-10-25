@@ -62,6 +62,11 @@ export class StripePaymentReconciliationProvider {
       )) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete capturable authorization evidence.', true);
       }
+      if (intent.status === 'requires_payment_method' && (
+        intent.amount_received === undefined || intent.amount_capturable === undefined
+      )) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete failed PaymentIntent money evidence.', true);
+      }
       // Terminal states are used by commercial-amendment recovery to prove
       // released or settled funds. Never turn missing provider fields into zero.
       if ((intent.status === 'canceled' || intent.status === 'succeeded') && (
