@@ -69,3 +69,16 @@ test('Stripe provider-truth lookup rejects canceled money and settled capturable
     );
   }
 });
+
+
+test('Stripe failed PaymentIntent lookup does not discard received or capturable money', async () => {
+  for (const evidence of [
+    { status: 'requires_payment_method', amount_received: 1, amount_capturable: 0 },
+    { status: 'requires_payment_method', amount_received: 0, amount_capturable: 1 },
+  ]) {
+    await assert.rejects(
+      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});

@@ -284,6 +284,9 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   if (status === 'canceled' && (Number(amountReceived) !== 0 || Number(amountCapturable) !== 0)) {
     throw new StripeWebhookValidationError('Stripe canceled PaymentIntent still reports received or capturable money.');
   }
+  if (status === 'requires_payment_method' && (Number(amountReceived) !== 0 || Number(amountCapturable) !== 0)) {
+    throw new StripeWebhookValidationError('Stripe failed PaymentIntent still reports received or capturable money.');
+  }
   if (status === 'succeeded' && Number(amountCapturable) !== 0) {
     throw new StripeWebhookValidationError('Stripe settled PaymentIntent still reports capturable money.');
   }

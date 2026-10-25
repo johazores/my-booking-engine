@@ -32,6 +32,11 @@ export function reconcileStripeTransactionState(input: {
   )) {
     throw new PaymentConflictError('Stripe canceled payment still reports received or capturable money.');
   }
+  if (input.snapshot.status === 'requires_payment_method' && (
+    input.snapshot.amountReceivedMinor !== 0n || input.snapshot.amountCapturableMinor !== 0n
+  )) {
+    throw new PaymentConflictError('Stripe failed payment still reports received or capturable money.');
+  }
   if (input.snapshot.status === 'succeeded' && input.snapshot.amountCapturableMinor !== 0n) {
     throw new PaymentConflictError('Stripe settled payment still reports capturable money.');
   }

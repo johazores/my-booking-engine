@@ -81,6 +81,9 @@ export class StripePaymentReconciliationProvider {
       if (intent.status === 'canceled' && (amountReceived !== 0 || amountCapturable !== 0)) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe canceled PaymentIntent still reports received or capturable money.', true);
       }
+      if (intent.status === 'requires_payment_method' && (amountReceived !== 0 || amountCapturable !== 0)) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe failed PaymentIntent still reports received or capturable money.', true);
+      }
       if (intent.status === 'succeeded' && amountCapturable !== 0) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe settled PaymentIntent still reports capturable money.', true);
       }

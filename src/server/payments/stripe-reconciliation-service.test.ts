@@ -128,3 +128,18 @@ test('reconciliation domain fails closed on contradictory terminal money for aut
     }
   }
 });
+
+
+test('reconciliation domain rejects failed PaymentIntents that still hold money', () => {
+  for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+    for (const evidence of [
+      { amountReceivedMinor: 1n, amountCapturableMinor: 0n },
+      { amountReceivedMinor: 0n, amountCapturableMinor: 1n },
+    ]) {
+      assert.throws(() => reconcileStripeTransactionState({
+        kind, currency: 'USD', amountMinor: 5000n,
+        snapshot: { providerReference: 'pi_failed', status: 'requires_payment_method', currency: 'USD', amountMinor: 5000n, ...evidence },
+      }), /failed payment still reports received or capturable money/);
+    }
+  }
+});
