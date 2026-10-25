@@ -254,13 +254,13 @@ test('pins tenant integration attribution at construction despite later caller m
   const mutable = {
     ...CONTEXT,
     environment: 'production' as 'production' | 'pre-production',
-  };
-  const operationalFetch = createTravelportStaysOperationalLogFetch({
-    ...mutable,
     fetchImpl: (async () => new Response('{}', { status: 200 })) as typeof fetch,
-    sink: (record) => records.push(record),
+    sink: (record: StructuredTravelportStaysProviderRequestLogRecord) => records.push(record),
     randomUuid: () => FALLBACK_REQUEST_ID,
-  });
+  };
+  // Pass the same mutable object, not a spread clone, to exercise the
+  // long-lived constructor authority rather than a test-only copy.
+  const operationalFetch = createTravelportStaysOperationalLogFetch(mutable);
   mutable.organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   mutable.integrationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   mutable.credentialVersion = 99;
