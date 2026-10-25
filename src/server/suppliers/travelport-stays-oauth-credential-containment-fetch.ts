@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { materializeTravelportStaysTransportConstructorAuthority, type TravelportStaysTransportCredentialAuthority } from './travelport-stays-transport-constructor-authority.ts';
 import type {
   TravelportStaysCredentials,
   TravelportStaysEnvironment,
@@ -121,7 +122,7 @@ function terminalTravelportRequestInit(
 }
 
 function expectedCredentialHeaderValues(
-  credentials: TravelportStaysCredentials,
+  credentials: TravelportStaysTransportCredentialAuthority,
 ): Readonly<Record<LongLivedOAuthCredentialHeader, string>> {
   return Object.freeze({
     username: credentials.username,
@@ -132,7 +133,7 @@ function expectedCredentialHeaderValues(
 }
 
 function expectedOAuthCredentialFieldValues(
-  credentials: TravelportStaysCredentials,
+  credentials: TravelportStaysTransportCredentialAuthority,
 ): Readonly<Record<OAuthCredentialField, string>> {
   return Object.freeze({
     username: credentials.username,
@@ -144,7 +145,7 @@ function expectedOAuthCredentialFieldValues(
 
 function containedStaysHeaders(
   headers: Headers,
-  credentials: TravelportStaysCredentials,
+  credentials: TravelportStaysTransportCredentialAuthority,
 ): Headers {
   if (headers.get('XAUTH_TRAVELPORT_ACCESSGROUP') !== credentials.accessGroup) {
     invalidCredentialContainment();
@@ -354,7 +355,7 @@ function isSecureTravelportOAuthTarget(url: URL, authenticationHost: string) {
 
 function assertTravelportOAuthCredentialBody(
   body: BodyInit | null,
-  credentials: TravelportStaysCredentials,
+  credentials: TravelportStaysTransportCredentialAuthority,
 ) {
   if (!(body instanceof URLSearchParams)) invalidCredentialContainment();
 
@@ -384,9 +385,11 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
   credentials: TravelportStaysCredentials;
   fetchImpl?: typeof fetch;
 }>): typeof fetch {
-  const targets = TRAVELPORT_TARGETS[input.environment];
-  if (!targets) invalidCredentialContainment();
-  const fetchImpl = input.fetchImpl ?? fetch;
+  const authority = materializeTravelportStaysTransportConstructorAuthority(input);
+  const targets = TRAVELPORT_TARGETS[authority.environment];
+  if (!targets || !authority.credentials) invalidCredentialContainment();
+  const credentials = authority.credentials;
+  const fetchImpl = authority.fetchImpl;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const sourceHeaders = init?.headers
@@ -419,14 +422,14 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
       }
       assertAllowedTerminalHeaders(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS);
       if (!hasExactContentType(headers, TRAVELPORT_OAUTH_CONTENT_TYPE)) invalidCredentialContainment();
-      assertTravelportOAuthCredentialBody(body, input.credentials);
+      assertTravelportOAuthCredentialBody(body, credentials);
       return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
     }
 
     if (url.hostname !== targets.staysHost) invalidCredentialContainment();
     if (!isSecureTravelportStaysTarget(url, targets.staysHost, method)) invalidCredentialContainment();
 
-    containedStaysHeaders(headers, input.credentials);
+    containedStaysHeaders(headers, credentials);
     assertTravelportStaysBearerAuthorization(headers);
     assertAllowedTerminalHeaders(headers, TRAVELPORT_STAYS_TERMINAL_ALLOWED_HEADERS);
     assertTravelportStaysTerminalBody(body, headers, method);

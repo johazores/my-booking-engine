@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
 
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
@@ -594,8 +595,9 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
   credentials?: TravelportStaysTransportCredentials;
   fetchImpl?: typeof fetch;
 }>): typeof fetch {
-  const targets = transportTargets(input.environment);
-  const fetchImpl = input.fetchImpl ?? fetch;
+  const authority = materializeTravelportStaysTransportConstructorAuthority(input);
+  const targets = transportTargets(authority.environment);
+  const fetchImpl = authority.fetchImpl;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const sourceHeaders = init?.headers ?? (typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined);
@@ -618,8 +620,8 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       ) {
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
-      assertTravelportOAuthRequestHeaders(headers, input.credentials !== undefined);
-      assertTravelportOAuthRequestBody(body, headers, input.credentials);
+      assertTravelportOAuthRequestHeaders(headers, authority.credentials !== undefined);
+      assertTravelportOAuthRequestBody(body, headers, authority.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
       const response = await fetchImpl(url.href, travelportRequestInit(method, body, signal, headers));
@@ -639,7 +641,7 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
     }
 
     assertSupportedTravelportStaysRequest(url, method);
-    assertTravelportStaysRequestHeaders(headers, url, method, input.credentials);
+    assertTravelportStaysRequestHeaders(headers, url, method, authority.credentials);
     assertTravelportStaysRequestBody(body, headers, method);
 
     if (url.pathname.startsWith('/11/hotel/')) {

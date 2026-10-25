@@ -12,6 +12,8 @@ Travelport Stays documents different caller-defined request-trace headers by API
 
 Production Travelport adapters are constructed through `loadTravelportStaysIntegration` with `createTravelportStaysTraceFetch`. The wrapper is bound to the validated integration environment and derives the version-specific trace header from the existing SF `E2ETrackingID`, so the support identifiers cannot silently disagree at the transport boundary.
 
+Both outbound transport wrappers capture frozen, allowlisted constructor credential authority rather than rereading caller-owned credentials on later requests. The reservation-write preflight likewise snapshots the credential/environment identity before checking the request. See `docs/travelport-stays-transport-constructor-authority.md`.
+
 The shared transport wrapper is also a fail-closed outbound target boundary. A pre-production integration can reach only the pre-production Travelport API/authentication hosts and a production integration can reach only the production hosts. Stays traffic is accepted only over HTTPS on the default HTTPS port, with no URL userinfo or fragment, an SF-owned `E2ETrackingID` containing a valid UUID, and one of the exact implemented Stays operation shapes below:
 
 - `POST /12/hotel/search/searchcomplete` with no query string;
