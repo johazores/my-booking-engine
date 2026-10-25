@@ -10,7 +10,8 @@ const original = Object.freeze({
   username: 'original-user', password: 'original-password', clientId: 'original-client',
   clientSecret: 'original-secret', accessGroup: 'original-access',
 });
-function oauthBody(values: typeof original) {
+type OAuthValues = Readonly<Record<keyof typeof original, string>>;
+function oauthBody(values: OAuthValues) {
   return new URLSearchParams({
     grant_type: 'password', username: values.username, password: values.password,
     client_id: values.clientId, client_secret: values.clientSecret,
@@ -68,14 +69,14 @@ test('constructor rejects poisoned getters, revoked proxies, and invalid transpo
 });
 
 test('trace transport keeps original OAuth credential identity after caller mutation', async () => {
-  const mutable = { ...original };
+  const mutable: Record<keyof typeof original, string> = { ...original };
   let calls = 0;
   const traced = createTravelportStaysTraceFetch({
     environment: 'production', credentials: mutable,
     fetchImpl: (async () => { calls += 1; return new Response('{}'); }) as typeof fetch,
   });
   mutable.password = 'changed-password';
-  const init = (values: typeof original): RequestInit => ({
+  const init = (values: OAuthValues): RequestInit => ({
     method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
     body: oauthBody(values),
   });
@@ -85,14 +86,14 @@ test('trace transport keeps original OAuth credential identity after caller muta
 });
 
 test('credential containment keeps original OAuth identity after caller mutation', async () => {
-  const mutable = { ...original, environment: 'production' as const };
+  const mutable: Record<keyof typeof original, string> & { environment: 'production' } = { ...original, environment: 'production' };
   let calls = 0;
   const contained = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: 'production', credentials: mutable,
     fetchImpl: (async () => { calls += 1; return new Response('{}'); }) as typeof fetch,
   });
   mutable.clientSecret = 'changed-secret';
-  const init = (values: typeof original): RequestInit => ({
+  const init = (values: OAuthValues): RequestInit => ({
     method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
     body: oauthBody(values),
   });
