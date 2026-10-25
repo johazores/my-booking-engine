@@ -57,6 +57,11 @@ export class StripePaymentReconciliationProvider {
       if (intent?.id !== reference) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent during reconciliation.', true);
       }
+      if (intent.status === 'requires_capture' && (
+        intent.amount_received === undefined || intent.amount_capturable === undefined
+      )) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete capturable authorization evidence.', true);
+      }
       const amountReceived = intent.amount_received ?? 0;
       const amountCapturable = intent.amount_capturable ?? 0;
       if (

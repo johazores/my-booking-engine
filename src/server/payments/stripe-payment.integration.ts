@@ -25,6 +25,7 @@ function paymentIntentEvent(input: {
   status: string;
   amountMinor?: number;
   amountReceivedMinor?: number;
+  amountCapturableMinor?: number;
 }) {
   return JSON.stringify({
     id: input.eventId,
@@ -36,6 +37,7 @@ function paymentIntentEvent(input: {
         status: input.status,
         amount: input.amountMinor ?? 12345,
         amount_received: input.amountReceivedMinor ?? 0,
+        amount_capturable: input.amountCapturableMinor ?? (input.status === 'requires_capture' ? input.amountMinor ?? 12345 : 0),
         currency: 'usd',
         metadata: {
           sf_organization_id: input.organizationId,
@@ -157,7 +159,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         authorizeFetchCalls += 1;
         providerEntered();
         await providerReleasePromise;
-        return new Response(JSON.stringify({ id: 'pi_sf_authorized_1', status: 'requires_capture', amount: 12345, amount_received: 0, currency: 'usd' }), { status: 200 });
+        return new Response(JSON.stringify({ id: 'pi_sf_authorized_1', status: 'requires_capture', amount: 12345, amount_received: 0, amount_capturable: 12345, currency: 'usd' }), { status: 200 });
       }
       if (url.endsWith('/payment_intents/pi_sf_authorized_1/capture')) {
         return new Response(JSON.stringify({ id: 'pi_sf_authorized_1', status: 'succeeded', amount: 12345, amount_received: 12345, currency: 'usd' }), { status: 200 });
@@ -270,7 +272,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       if (ambiguousAttempts === 1) {
         return new Response(JSON.stringify({ error: { message: 'temporary provider outage' } }), { status: 503 });
       }
-      return new Response(JSON.stringify({ id: 'pi_sf_ambiguous_retry_3', status: 'requires_capture', amount: 12345, amount_received: 0, currency: 'usd' }), { status: 200 });
+      return new Response(JSON.stringify({ id: 'pi_sf_ambiguous_retry_3', status: 'requires_capture', amount: 12345, amount_received: 0, amount_capturable: 12345, currency: 'usd' }), { status: 200 });
     }) as typeof fetch;
 
     await assert.rejects(
@@ -314,7 +316,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       if (definitiveAttempts === 1) {
         return new Response(JSON.stringify({ error: { type: 'card_error', code: 'card_declined', message: 'Card declined' } }), { status: 402 });
       }
-      return new Response(JSON.stringify({ id: 'pi_sf_decline_retry_4', status: 'requires_capture', amount: 12345, amount_received: 0, currency: 'usd' }), { status: 200 });
+      return new Response(JSON.stringify({ id: 'pi_sf_decline_retry_4', status: 'requires_capture', amount: 12345, amount_received: 0, amount_capturable: 12345, currency: 'usd' }), { status: 200 });
     }) as typeof fetch;
 
     await assert.rejects(
@@ -359,7 +361,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
     globalThis.fetch = (async (input) => {
       const url = String(input);
       if (!url.endsWith('/payment_intents')) throw new Error(`Unexpected Stripe provider-reference request: ${url}`);
-      return new Response(JSON.stringify({ id: 'pi_sf_owned_reference_5', status: 'requires_capture', amount: 12345, amount_received: 0, currency: 'usd' }), { status: 200 });
+      return new Response(JSON.stringify({ id: 'pi_sf_owned_reference_5', status: 'requires_capture', amount: 12345, amount_received: 0, amount_capturable: 12345, currency: 'usd' }), { status: 200 });
     }) as typeof fetch;
     await assert.rejects(
       stripePayments.authorizeStripeBookingPayment({

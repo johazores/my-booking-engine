@@ -41,6 +41,29 @@ test('authorization reconciliation maps requires_capture and succeeded states sa
   });
 });
 
+test('authorization reconciliation rejects missing, partial, or inconsistent capturable evidence', async () => {
+  const base = { providerReference: 'pi_auth', status: 'requires_capture', currency: 'USD', amountMinor: 5000n, amountReceivedMinor: 0n, amountCapturableMinor: 5000n };
+  for (const evidence of [
+    { amountCapturableMinor: 0n },
+    { amountCapturableMinor: 4999n },
+    { amountCapturableMinor: 5001n },
+    { amountReceivedMinor: 1n },
+  ]) {
+    assert.throws(
+      () => reconcileStripeTransactionState({ kind: 'AUTHORIZATION', currency: 'USD', amountMinor: 5000n, snapshot: { ...base, ...evidence } }),
+      /full authorization remains capturable/,
+    );
+  }
+  const provider = new StripePaymentReconciliationProvider({
+    secretKey: 'sk_test_reconciliation',
+    fetchImpl: async () => stripeResponse({ id: 'pi_auth', status: 'requires_capture', amount: 5000, currency: 'usd', amount_capturable: 5000 }),
+  });
+  await assert.rejects(
+    provider.retrievePaymentIntent('pi_auth'),
+    (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
+  );
+});
+
 test('capture reconciliation keeps unresolved states pending and rejects money mismatches', () => {
   const pending = { providerReference: 'pi_capture', status: 'processing', currency: 'USD', amountMinor: 7000n, amountReceivedMinor: 0n, amountCapturableMinor: 0n };
   assert.deepEqual(reconcileStripeTransactionState({ kind: 'CAPTURE', currency: 'USD', amountMinor: 7000n, snapshot: pending }), {

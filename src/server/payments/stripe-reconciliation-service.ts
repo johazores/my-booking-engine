@@ -26,7 +26,12 @@ export function reconcileStripeTransactionState(input: {
   }
 
   if (input.kind === 'AUTHORIZATION') {
-    if (input.snapshot.status === 'requires_capture') return { transactionStatus: 'SUCCEEDED', bookingPaymentStatus: 'AUTHORIZED' };
+    if (input.snapshot.status === 'requires_capture') {
+      if (input.snapshot.amountCapturableMinor !== input.amountMinor || input.snapshot.amountReceivedMinor !== 0n) {
+        throw new PaymentConflictError('Stripe did not prove the full authorization remains capturable.');
+      }
+      return { transactionStatus: 'SUCCEEDED', bookingPaymentStatus: 'AUTHORIZED' };
+    }
     if (input.snapshot.status === 'succeeded') {
       if (input.snapshot.amountReceivedMinor !== input.amountMinor) throw new PaymentConflictError('Stripe succeeded amount does not match the persisted payment amount.');
       return { transactionStatus: 'SUCCEEDED', bookingPaymentStatus: 'PAID' };

@@ -14,7 +14,7 @@ test('stripe adapter authorizes with manual capture and server-owned metadata', 
   let requestInit: RequestInit | undefined;
   const fetchImpl: StripeFetch = async (input, init) => {
     requestUrl = String(input); requestInit = init;
-    return new Response(JSON.stringify({ id: 'pi_authorized_1', status: 'requires_capture', amount: 24100, currency: 'usd' }), { status: 200 });
+    return new Response(JSON.stringify({ id: 'pi_authorized_1', status: 'requires_capture', amount: 24100, amount_received: 0, amount_capturable: 24100, currency: 'usd' }), { status: 200 });
   };
   const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl });
   const result = await provider.authorizePayment!({ ...context(), paymentMethodReference: 'pm_card_1' });
@@ -83,7 +83,7 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
       assert.equal(error instanceof PaymentProviderError, true); assert.equal((error as PaymentProviderError).code, item.code); assert.equal((error as PaymentProviderError).retryable, item.retryable); return true;
     });
   }
-  const mismatched = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_wrong_amount', status: 'requires_capture', amount: 1, currency: 'usd' }), { status: 200 }) });
+  const mismatched = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_wrong_amount', status: 'requires_capture', amount: 1, amount_received: 0, amount_capturable: 1, currency: 'usd' }), { status: 200 }) });
   await assert.rejects(mismatched.authorizePayment!({ ...context(), paymentMethodReference: 'pm_card_1' }), /does not match/);
 });
 
@@ -168,4 +168,28 @@ test('Stripe accepts provider-proven successful authorization and rejects padded
     release.releaseAuthorization!({ ...context('stripe:release:padded'), providerReference: 'pi_expected' }),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
+});
+
+test('Stripe authorization requires provider-proven full capturable funds', async () => {
+  for (const evidence of [
+    { amount_capturable: undefined, amount_received: 0 },
+    { amount_capturable: 0, amount_received: 0 },
+    { amount_capturable: 24099, amount_received: 0 },
+    { amount_capturable: 24101, amount_received: 0 },
+    { amount_capturable: -1, amount_received: 0 },
+    { amount_capturable: 24100.5, amount_received: 0 },
+    { amount_capturable: 24100, amount_received: undefined },
+    { amount_capturable: 24100, amount_received: 1 },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_authorization_evidence', status: 'requires_capture', amount: 24100, currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.authorizePayment!({ ...context('stripe:auth:capturable'), paymentMethodReference: 'pm_card_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
 });

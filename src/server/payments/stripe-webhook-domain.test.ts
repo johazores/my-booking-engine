@@ -26,6 +26,7 @@ function paymentIntentEvent(overrides: Record<string, unknown> = {}) {
         status: 'requires_capture',
         amount: 12500,
         amount_received: 0,
+        amount_capturable: 12500,
         currency: 'usd',
         metadata: {
           sf_organization_id: organizationId,
@@ -88,10 +89,25 @@ test('Stripe webhook parser normalizes signed-payment fields without trusting pr
   assert.equal(event.paymentIntent?.providerReference, 'pi_sf_payment_1');
   assert.equal(event.paymentIntent?.currency, 'USD');
   assert.equal(event.paymentIntent?.amountMinor, 12500n);
+  assert.equal(event.paymentIntent?.amountCapturableMinor, 12500n);
   assert.equal(event.paymentIntent?.organizationId, organizationId);
   assert.equal(event.paymentIntent?.bookingId, bookingId);
   assert.equal(event.checkoutSession, null);
   assert.equal(event.refund, null);
+});
+
+test('Stripe webhook parser refuses missing or malformed capturable evidence', () => {
+  for (const evidence of [
+    { amount_capturable: undefined },
+    { amount_capturable: -1 },
+    { amount_capturable: 12501 },
+    { amount_capturable: 1.5 },
+    { amount_received: undefined },
+  ]) {
+    assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent(evidence)), StripeWebhookValidationError);
+  }
+  const partial = parseStripeWebhookEventPayload(paymentIntentEvent({ amount_capturable: 12000 }));
+  assert.equal(partial.paymentIntent?.amountCapturableMinor, 12000n);
 });
 
 test('Stripe webhook parser normalizes Checkout Session abandonment with exact tenant, booking, and authority fields', () => {

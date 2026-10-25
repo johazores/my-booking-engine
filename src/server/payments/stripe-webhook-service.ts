@@ -718,9 +718,7 @@ export async function ingestStripePaymentWebhook(input: {
         currency: event.paymentIntent.currency,
         amountMinor: event.paymentIntent.amountMinor,
         amountReceivedMinor: event.paymentIntent.amountReceivedMinor,
-        amountCapturableMinor: event.paymentIntent.status === 'requires_capture'
-          ? event.paymentIntent.amountMinor - event.paymentIntent.amountReceivedMinor
-          : 0n,
+        amountCapturableMinor: event.paymentIntent.amountCapturableMinor,
       },
     });
 

@@ -174,6 +174,14 @@ export function normalizeStripePaymentMethodReference(value: unknown): string {
 function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
   const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
   assertMatchingMoney(money, expectedMoney, 'payment');
+  if (intent.status === 'requires_capture' && (
+    intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'capturable amount') !== expectedMoney.amountMinor
+    || intent.amount_received === undefined
+    || normalizeStripeMinorAmount(intent.amount_received, 'received amount') !== 0n
+  )) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the full authorization is capturable.', true);
+  }
   if (intent.status === 'succeeded' && (
     intent.amount_received === undefined
     || normalizeStripeMinorAmount(intent.amount_received, 'received amount') !== expectedMoney.amountMinor

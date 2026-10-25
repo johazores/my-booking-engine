@@ -12,6 +12,7 @@ export type StripeWebhookPaymentIntent = Readonly<{
   currency: string;
   amountMinor: bigint;
   amountReceivedMinor: bigint;
+  amountCapturableMinor: bigint;
   organizationId: string | null;
   bookingId: string | null;
 }>;
@@ -261,7 +262,14 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   if (!Number.isSafeInteger(intent.amount) || Number(intent.amount) < 0) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent amount is invalid.');
   }
+  if (status === 'requires_capture' && (intent.amount_received === undefined || intent.amount_capturable === undefined)) {
+    throw new StripeWebhookValidationError('Stripe PaymentIntent capturable authorization evidence is missing.');
+  }
   const amountReceived = intent.amount_received ?? 0;
+  const amountCapturable = intent.amount_capturable ?? 0;
+  if (!Number.isSafeInteger(amountCapturable) || Number(amountCapturable) < 0 || Number(amountCapturable) > Number(intent.amount)) {
+    throw new StripeWebhookValidationError('Stripe PaymentIntent capturable amount is invalid.');
+  }
   if (!Number.isSafeInteger(amountReceived) || Number(amountReceived) < 0 || Number(amountReceived) > Number(intent.amount)) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent received amount is invalid.');
   }
@@ -287,6 +295,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       currency,
       amountMinor: BigInt(Number(intent.amount)),
       amountReceivedMinor: BigInt(Number(amountReceived)),
+      amountCapturableMinor: BigInt(Number(amountCapturable)),
       organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
       bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
     }),
