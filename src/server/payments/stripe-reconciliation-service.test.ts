@@ -111,3 +111,20 @@ test('Stripe PaymentIntent reconciliation rejects substituted identity and impos
     );
   }
 });
+
+
+test('reconciliation domain fails closed on contradictory terminal money for authorization and capture', () => {
+  const base = { providerReference: 'pi_terminal', currency: 'USD', amountMinor: 5000n };
+  for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+    for (const snapshot of [
+      { ...base, status: 'canceled', amountReceivedMinor: 1n, amountCapturableMinor: 0n },
+      { ...base, status: 'canceled', amountReceivedMinor: 0n, amountCapturableMinor: 1n },
+      { ...base, status: 'succeeded', amountReceivedMinor: 5000n, amountCapturableMinor: 1n },
+    ]) {
+      assert.throws(
+        () => reconcileStripeTransactionState({ kind, currency: 'USD', amountMinor: 5000n, snapshot }),
+        /still reports (received or capturable|capturable) money/,
+      );
+    }
+  }
+});

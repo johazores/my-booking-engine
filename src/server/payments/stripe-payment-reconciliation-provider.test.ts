@@ -55,3 +55,17 @@ test('Stripe reconciliation keeps nonterminal pending states and exact provider 
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
+
+
+test('Stripe provider-truth lookup rejects canceled money and settled capturable balances', async () => {
+  for (const evidence of [
+    { status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { status: 'canceled', amount_received: 0, amount_capturable: 1 },
+    { status: 'succeeded', amount_received: 12500, amount_capturable: 1 },
+  ]) {
+    await assert.rejects(
+      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});

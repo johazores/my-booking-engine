@@ -375,3 +375,17 @@ test('Stripe terminal PaymentIntent webhooks require explicit received and captu
   assert.equal(succeeded.paymentIntent?.amountReceivedMinor, 12500n);
   assert.equal(succeeded.paymentIntent?.amountCapturableMinor, 0n);
 });
+
+
+test('signed PaymentIntent terminal events reject money that contradicts terminal status', () => {
+  for (const evidence of [
+    { status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { status: 'canceled', amount_received: 0, amount_capturable: 1 },
+    { status: 'succeeded', amount_received: 12500, amount_capturable: 1 },
+  ]) {
+    assert.throws(
+      () => parseStripeWebhookEventPayload(paymentIntentEvent(evidence)),
+      StripeWebhookValidationError,
+    );
+  }
+});

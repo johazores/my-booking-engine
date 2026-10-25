@@ -281,6 +281,13 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     throw new StripeWebhookValidationError('Stripe PaymentIntent received amount is invalid.');
   }
 
+  if (status === 'canceled' && (Number(amountReceived) !== 0 || Number(amountCapturable) !== 0)) {
+    throw new StripeWebhookValidationError('Stripe canceled PaymentIntent still reports received or capturable money.');
+  }
+  if (status === 'succeeded' && Number(amountCapturable) !== 0) {
+    throw new StripeWebhookValidationError('Stripe settled PaymentIntent still reports capturable money.');
+  }
+
   const currency = requiredString(intent.currency, 'Stripe PaymentIntent currency').toUpperCase();
   if (!CURRENCY_PATTERN.test(currency)) throw new StripeWebhookValidationError('Stripe PaymentIntent currency is invalid.');
 

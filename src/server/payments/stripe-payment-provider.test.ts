@@ -229,3 +229,31 @@ test('Stripe cancellation and unexpected settlement responses require explicit t
     'FAILED',
   );
 });
+
+
+test('Stripe direct payment writes reject contradictory terminal money evidence', async () => {
+  const cases = [
+    { operation: 'authorize', status: 'canceled', amount_received: undefined, amount_capturable: 0 },
+    { operation: 'authorize', status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { operation: 'authorize', status: 'canceled', amount_received: 0, amount_capturable: 1 },
+    { operation: 'authorize', status: 'succeeded', amount_received: 24100, amount_capturable: 1 },
+    { operation: 'capture', status: 'canceled', amount_received: 0, amount_capturable: undefined },
+    { operation: 'capture', status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { operation: 'capture', status: 'succeeded', amount_received: 24100, amount_capturable: 1 },
+  ] as const;
+  for (const item of cases) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_terminal_write', status: item.status, amount: 24100,
+        amount_received: item.amount_received, amount_capturable: item.amount_capturable, currency: 'usd',
+      })),
+    });
+    const request = item.operation === 'authorize'
+      ? provider.authorizePayment!({ ...context('stripe:terminal:auth'), paymentMethodReference: 'pm_card_1' })
+      : provider.capturePayment!({ ...context('stripe:terminal:capture'), providerReference: 'pi_terminal_write' });
+    await assert.rejects(request, (error: unknown) => (
+      error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable
+    ));
+  }
+});

@@ -200,6 +200,18 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
   )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the full authorization is capturable.', true);
   }
+  if (intent.status === 'canceled' && (
+    intent.amount_received === undefined
+    || intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_received, 'canceled authorization received amount') !== 0n
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'canceled authorization capturable amount') !== 0n
+  )) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the canceled authorization holds no money.', true);
+  }
+  if (intent.status === 'succeeded' && intent.amount_capturable !== undefined
+    && normalizeStripeMinorAmount(intent.amount_capturable, 'authorized payment capturable amount') !== 0n) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe reported settled authorization with money still capturable.', true);
+  }
   if (intent.status === 'succeeded' && (
     intent.amount_received === undefined
     || normalizeStripeMinorAmount(intent.amount_received, 'received amount') !== expectedMoney.amountMinor
@@ -210,6 +222,18 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
 }
 
 function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
+  if (intent.status === 'canceled' && (
+    intent.amount_received === undefined
+    || intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_received, 'canceled capture received amount') !== 0n
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'canceled capture capturable amount') !== 0n
+  )) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the canceled capture holds no money.', true);
+  }
+  if (intent.status === 'succeeded' && intent.amount_capturable !== undefined
+    && normalizeStripeMinorAmount(intent.amount_capturable, 'captured payment capturable amount') !== 0n) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe reported successful capture with money still capturable.', true);
+  }
   if (intent.status === 'succeeded' && intent.amount_received === undefined) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide a captured amount.', true);
   }

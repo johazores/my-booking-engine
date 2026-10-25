@@ -25,6 +25,17 @@ export function reconcileStripeTransactionState(input: {
     throw new PaymentConflictError('Stripe reconciliation result does not match the persisted payment amount.');
   }
 
+  // Keep this guard at the domain boundary too: provider reads, signed webhooks,
+  // and future callers must never turn contradictory terminal money into settlement.
+  if (input.snapshot.status === 'canceled' && (
+    input.snapshot.amountReceivedMinor !== 0n || input.snapshot.amountCapturableMinor !== 0n
+  )) {
+    throw new PaymentConflictError('Stripe canceled payment still reports received or capturable money.');
+  }
+  if (input.snapshot.status === 'succeeded' && input.snapshot.amountCapturableMinor !== 0n) {
+    throw new PaymentConflictError('Stripe settled payment still reports capturable money.');
+  }
+
   if (input.kind === 'AUTHORIZATION') {
     if (input.snapshot.status === 'requires_capture') {
       if (input.snapshot.amountCapturableMinor !== input.amountMinor || input.snapshot.amountReceivedMinor !== 0n) {

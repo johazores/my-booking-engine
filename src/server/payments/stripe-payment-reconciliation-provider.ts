@@ -78,6 +78,12 @@ export class StripePaymentReconciliationProvider {
       ) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid PaymentIntent money.', true);
       }
+      if (intent.status === 'canceled' && (amountReceived !== 0 || amountCapturable !== 0)) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe canceled PaymentIntent still reports received or capturable money.', true);
+      }
+      if (intent.status === 'succeeded' && amountCapturable !== 0) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe settled PaymentIntent still reports capturable money.', true);
+      }
       const currency = typeof intent.currency === 'string' ? intent.currency.trim().toUpperCase() : '';
       if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid PaymentIntent currency.', true);
       return Object.freeze({
