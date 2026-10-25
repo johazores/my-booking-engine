@@ -121,3 +121,13 @@ test('commercial amendment charge identities cannot exceed the persisted referen
     /PaymentIntent reference/,
   );
 });
+
+test('commercial amendment charge fingerprint refuses oversized capture provider identity', () => {
+  assert.throws(
+    () => stripeCommercialAmendmentChargeFingerprint({
+      bookingId: BOOKING_ID, amendmentId: AMENDMENT_ID, stage: 'CAPTURE',
+      currency: 'USD', amountMinor: 2500n, providerReference: `pi_${'x'.repeat(158)}`,
+    }),
+    /PaymentIntent reference/,
+  );
+});

@@ -827,7 +827,7 @@ export async function executeStripeHospitalityBookingCommercialAmendmentRecovery
     if (unresolvedClaim) {
       const claim = assertRecoveryClaim(unresolvedClaim, context.amendment.id);
       if (unresolvedClaim.kind === 'CAPTURE') {
-        if (!STRIPE_PAYMENT_INTENT_PATTERN.test(unresolvedClaim.providerReference)) {
+        if (!STRIPE_PAYMENT_INTENT_PATTERN.test(unresolvedClaim.providerReference) || unresolvedClaim.providerReference.length > 160) {
           throw new HospitalityBookingConflictError(
             'Stripe recovery capture is missing its PaymentIntent reference.',
           );
@@ -1262,7 +1262,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
   let status: 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS';
   let providerStatus: string;
   if (payment.kind === 'CAPTURE') {
-    if (!STRIPE_PAYMENT_INTENT_PATTERN.test(payment.providerReference)) {
+    if (!STRIPE_PAYMENT_INTENT_PATTERN.test(payment.providerReference) || payment.providerReference.length > 160) {
       throw new HospitalityBookingConflictError(
         'Stripe compensation capture has no provider reference for reconciliation.',
       );

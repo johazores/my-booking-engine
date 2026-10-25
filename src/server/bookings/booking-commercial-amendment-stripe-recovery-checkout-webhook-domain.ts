@@ -14,7 +14,7 @@ export function parseStripeCommercialAmendmentRecoveryCheckoutWebhook(payload: s
   if (!checkout.commercialContext || checkout.commercialContext.purpose !== CHECKOUT_PURPOSE) return null;
   if (!checkout.commercialContext.amendmentId) return null;
   if (!isStripeCheckoutSessionReference(checkout.providerReference)) return null;
-  if (checkout.paymentIntentReference && !PAYMENT_INTENT_PATTERN.test(checkout.paymentIntentReference)) return null;
+  if (checkout.paymentIntentReference && (!PAYMENT_INTENT_PATTERN.test(checkout.paymentIntentReference) || checkout.paymentIntentReference.length > 160)) return null;
 
   return Object.freeze({
     providerEventId: event.providerEventId,

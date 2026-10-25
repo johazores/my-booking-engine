@@ -47,6 +47,12 @@ export function stripeCommercialAmendmentChargeFingerprint(input: {
   paymentMethodReference?: string | null;
   providerReference?: string | null;
 }) {
+  if (
+    input.providerReference != null
+    && (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference) || input.providerReference.length > 160)
+  ) {
+    throw new Error('Commercial amendment Stripe PaymentIntent reference is invalid.');
+  }
   return createHash('sha256')
     .update([
       'stripe-commercial-amendment-charge',
