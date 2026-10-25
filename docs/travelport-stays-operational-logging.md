@@ -77,3 +77,10 @@ Repository-required Node 24 execution remains part of the normal local validatio
 ## Request metadata observation failures
 
 The terminal operational logger treats caller-supplied method, header, signal, URL, and abort-state inspection as non-authoritative diagnostics. Hostile getters or malformed diagnostic metadata cannot prevent an otherwise valid delegated Fetch from running or mask the original provider transport failure. Such observations fall back to fixed `unknown` operation, empty correlation, or non-aborted transport classification without serializing caller-controlled exception text. The outer Travelport transports still reject malformed request authority before reaching this logger; this fail-open rule applies only to observability, never credential or reservation validation.
+
+
+## Constructor and response diagnostic failures
+
+The terminal transport reads the actual Fetch implementation as transport authority. Optional logging hooks (sink, wall clock, elapsed-time clock, and UUID factory) are diagnostics only: malformed values or throwing constructor getters fall back to safe defaults instead of blocking a provider request. Tenant/integration/version/environment attribution is read once; invalid or throwing values become explicit safe placeholders, including `unknown` environment, rather than being guessed or reread.
+
+After a terminal Fetch resolves, its response status is read at most once for logging. A throwing or malformed status getter is recorded as an unavailable status (`null`, diagnostic `failed` outcome), but the original response is returned unchanged. Only a rejection from the delegated Fetch is propagated as a transport failure. These records are not supplier booking truth and cannot authorize retries, settlement, or reservation confirmation.

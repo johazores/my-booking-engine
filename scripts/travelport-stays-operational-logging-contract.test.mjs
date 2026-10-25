@@ -94,3 +94,14 @@ test('operational metadata failures are non-authoritative and cannot mask suppli
   assert.match(logger, /function safeSignalAborted\(/);
   assert.match(logger, /const aborted = safeSignalAborted\(signal\);/);
 });
+
+test('Travelport diagnostic constructor and response observations cannot change terminal Fetch outcomes', () => {
+  const logger = source('src/server/suppliers/travelport-stays-operational-log-fetch.ts');
+  assert.match(logger, /function safeObservationRead\(/);
+  assert.match(logger, /function safeObservationHook</);
+  assert.match(logger, /function safeResponseStatus\(/);
+  assert.match(logger, /const statusCode = safeResponseStatus\(response\)/);
+  assert.match(logger, /statusCode,\s*durationMs: safeObservationDurationMs/);
+  assert.doesNotMatch(logger, /statusCode: response\.status/);
+  assert.match(logger, /environment: TravelportStaysOperationalLogEnvironment \| 'unknown'/);
+});

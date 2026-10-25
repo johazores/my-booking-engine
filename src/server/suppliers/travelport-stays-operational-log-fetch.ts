@@ -40,7 +40,7 @@ export interface StructuredTravelportStaysProviderRequestLogRecord {
   integrationId: string;
   credentialVersion: number;
   provider: 'travelport-stays';
-  environment: TravelportStaysOperationalLogEnvironment;
+  environment: TravelportStaysOperationalLogEnvironment | 'unknown';
   operation: TravelportStaysOperationalOperation;
   outcome: 'succeeded' | 'rejected' | 'failed';
   statusCode: number | null;
@@ -135,8 +135,31 @@ function safeParsedUrl(input: RequestInfo | URL) {
   }
 }
 
-function safeUuid(value: string | null, fallback: string) {
-  return value !== null && UUID_PATTERN.test(value) ? value : fallback;
+function safeUuid(value: unknown, fallback: string) {
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value : fallback;
+}
+
+/** Diagnostics cannot become provider authority, including at transport construction. */
+function safeObservationRead(read: () => unknown): unknown {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
+function safeObservationHook<T>(read: () => T | undefined, fallback: T): T {
+  const value = safeObservationRead(read);
+  return typeof value === 'function' ? value as T : fallback;
+}
+
+function safeResponseStatus(response: Response): number | null {
+  try {
+    const status = response.status;
+    return Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
+  } catch {
+    return null;
+  }
 }
 
 function providerCorrelationId(headers: Headers) {
@@ -153,7 +176,8 @@ function requestCorrelationId(providerCorrelation: string | null, randomUuidFact
   }
 }
 
-function classifyHttpStatus(statusCode: number) {
+function classifyHttpStatus(statusCode: number | null) {
+  if (statusCode === null) return Object.freeze({ level: 'warn' as const, outcome: 'failed' as const });
   if (statusCode >= 500) return Object.freeze({ level: 'error' as const, outcome: 'failed' as const });
   if (statusCode >= 300) return Object.freeze({ level: 'warn' as const, outcome: 'rejected' as const });
   return Object.freeze({ level: 'info' as const, outcome: 'succeeded' as const });
@@ -184,17 +208,19 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
   randomUuid?: () => string;
 }>): typeof fetch {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const sink = input.sink ?? writeStructuredTravelportProviderRequestLog;
-  const now = input.now ?? (() => new Date());
-  const nowMs = input.nowMs ?? Date.now;
-  const randomUuidFactory = input.randomUuid ?? randomUUID;
-  // Log attribution is fixed to the tenant integration that constructed this
-  // transport, even if a caller later mutates its original options object.
-  const organizationId = safeUuid(input.organizationId, 'invalid-organization-id');
-  const integrationId = safeUuid(input.integrationId, 'invalid-integration-id');
-  const version = input.credentialVersion;
-  const credentialVersion = Number.isSafeInteger(version) && version >= 0 ? version : 0;
-  const environment = input.environment;
+  const sink = safeObservationHook(() => input.sink, writeStructuredTravelportProviderRequestLog);
+  const now = safeObservationHook(() => input.now, () => new Date());
+  const nowMs = safeObservationHook(() => input.nowMs, Date.now);
+  const randomUuidFactory = safeObservationHook(() => input.randomUuid, randomUUID);
+  // Pin attribution once, without allowing malformed or throwing diagnostic
+  // getters to block an otherwise valid credentialed provider request.
+  const organizationId = safeUuid(safeObservationRead(() => input.organizationId), 'invalid-organization-id');
+  const integrationId = safeUuid(safeObservationRead(() => input.integrationId), 'invalid-integration-id');
+  const version = safeObservationRead(() => input.credentialVersion);
+  const credentialVersion = typeof version === 'number' && Number.isSafeInteger(version) && version >= 0 ? version : 0;
+  const suppliedEnvironment = safeObservationRead(() => input.environment);
+  const environment = suppliedEnvironment === 'production' || suppliedEnvironment === 'pre-production'
+    ? suppliedEnvironment : 'unknown';
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
     const startedAt = safeObservationClockMs(nowMs);
@@ -215,19 +241,9 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
       operation,
     };
 
+    let response: Response;
     try {
-      const response = await fetchImpl(requestInput, init);
-      const classification = classifyHttpStatus(response.status);
-      emitStructuredObservationSafely(sink, Object.freeze({
-        ...base,
-        timestamp: safeObservationTimestamp(now),
-        level: classification.level,
-        outcome: classification.outcome,
-        statusCode: response.status,
-        durationMs: safeObservationDurationMs(startedAt, nowMs),
-        failureClass: null,
-      }));
-      return response;
+      response = await fetchImpl(requestInput, init);
     } catch (error) {
       const aborted = safeSignalAborted(signal);
       emitStructuredObservationSafely(sink, Object.freeze({
@@ -241,5 +257,19 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
       }));
       throw error;
     }
+    // Inspect status only after the provider call has completed. A broken
+    // diagnostic getter must never turn a completed Fetch into a rejection.
+    const statusCode = safeResponseStatus(response);
+    const classification = classifyHttpStatus(statusCode);
+    emitStructuredObservationSafely(sink, Object.freeze({
+      ...base,
+      timestamp: safeObservationTimestamp(now),
+      level: classification.level,
+      outcome: classification.outcome,
+      statusCode,
+      durationMs: safeObservationDurationMs(startedAt, nowMs),
+      failureClass: null,
+    }));
+    return response;
   }) as typeof fetch;
 }

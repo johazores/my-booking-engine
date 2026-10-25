@@ -343,3 +343,82 @@ test('diagnostic abort-state getter failure cannot mask the provider transport e
   assert.equal(records[0]?.failureClass, 'transport');
   assert.equal(JSON.stringify(records).includes('private secret'), false);
 });
+
+test('throwing constructor diagnostics fail open while tenant attribution stays bounded', async () => {
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  let calls = 0;
+  const wrapped = createTravelportStaysOperationalLogFetch({
+    get organizationId(): string { throw new Error('private organization'); },
+    get integrationId(): string { throw new Error('private integration'); },
+    get credentialVersion(): number { throw new Error('private version'); },
+    get environment(): 'production' { throw new Error('private environment'); },
+    get now(): () => Date { throw new Error('private clock'); },
+    get nowMs(): () => number { throw new Error('private timer'); },
+    get randomUuid(): () => string { throw new Error('private random source'); },
+    fetchImpl: (async () => { calls += 1; return new Response(null, { status: 204 }); }) as typeof fetch,
+    sink: (record) => records.push(record),
+  });
+  const response = await wrapped('https://auth.travelport.net/oauth/token', { method: 'POST' });
+  assert.equal(response.status, 204);
+  assert.equal(calls, 1);
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.organizationId, 'invalid-organization-id');
+  assert.equal(records[0]?.integrationId, 'invalid-integration-id');
+  assert.equal(records[0]?.credentialVersion, 0);
+  assert.equal(records[0]?.environment, 'unknown');
+  assert.equal(records[0]?.outcome, 'succeeded');
+  assert.equal(records[0]?.statusCode, 204);
+  assert.equal(JSON.stringify(records).includes('private'), false);
+});
+
+test('broken diagnostic sink cannot prevent a completed provider request', async () => {
+  let calls = 0;
+  const originalInfo = console.info;
+  let fallbackRecords = 0;
+  try {
+    console.info = () => { fallbackRecords += 1; };
+    const wrapped = createTravelportStaysOperationalLogFetch({
+      ...CONTEXT,
+      get sink(): (record: StructuredTravelportStaysProviderRequestLogRecord) => void {
+        throw new Error('private sink');
+      },
+      fetchImpl: (async () => { calls += 1; return new Response(null, { status: 204 }); }) as typeof fetch,
+    });
+    assert.equal((await wrapped('https://auth.travelport.net/oauth/token', { method: 'POST' })).status, 204);
+  } finally {
+    console.info = originalInfo;
+  }
+  assert.equal(calls, 1);
+  assert.equal(fallbackRecords, 1);
+});
+
+test('response status observation reads once and cannot mask successful Fetch', async () => {
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  let statusReads = 0;
+  const validResponse = {
+    get status() {
+      statusReads += 1;
+      if (statusReads > 1) throw new Error('private second status read');
+      return 204;
+    },
+  } as unknown as Response;
+  const invalidResponse = {
+    get status(): never { throw new Error('private status failure'); },
+  } as unknown as Response;
+  const malformedResponse = { status: 0 } as unknown as Response;
+  const responses = [validResponse, invalidResponse, malformedResponse];
+  const wrapped = createTravelportStaysOperationalLogFetch({
+    ...CONTEXT,
+    fetchImpl: (async () => responses.shift()!) as typeof fetch,
+    sink: (record) => records.push(record),
+    randomUuid: () => FALLBACK_REQUEST_ID,
+  });
+  for (const response of [validResponse, invalidResponse, malformedResponse]) {
+    assert.strictEqual(await wrapped('https://auth.travelport.net/oauth/token', { method: 'POST' }), response);
+  }
+  assert.equal(statusReads, 1);
+  assert.deepEqual(records.map((record) => record.statusCode), [204, null, null]);
+  assert.deepEqual(records.map((record) => record.outcome), ['succeeded', 'failed', 'failed']);
+  assert.ok(records.every((record) => record.failureClass === null));
+  assert.equal(JSON.stringify(records).includes('private'), false);
+});
