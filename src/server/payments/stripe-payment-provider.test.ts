@@ -541,3 +541,23 @@ test('Stripe direct writes retain HTTP error classification with malformed error
     }
   }
 });
+
+test('Stripe payment and refund writes preserve retryable HTTP status over misleading error bodies', async () => {
+  for (const item of [
+    { status: 408, type: 'idempotency_error', code: 'TIMEOUT' },
+    { status: 429, type: 'idempotency_error', code: 'RATE_LIMITED' },
+    { status: 503, type: 'card_error', code: 'PROVIDER_UNAVAILABLE' },
+  ] as const) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({ error: { type: item.type } }), { status: item.status }),
+    });
+    for (const operation of [
+      () => provider.authorizePayment!({ ...context('stripe:transport:authorize'), paymentMethodReference: 'pm_card_1' }),
+      () => provider.refundPayment!({ ...context('stripe:transport:refund'), providerReference: 'pi_payment_1' }),
+    ]) {
+      await assert.rejects(operation(), (error: unknown) =>
+        error instanceof PaymentProviderError && error.code === item.code && error.retryable);
+    }
+  }
+});

@@ -1,6 +1,6 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
-import { normalizeStripeProviderResponseCurrency, readStripeProviderError } from './stripe-provider-response-evidence.ts';
+import { classifyStripeLookupHttpError, normalizeStripeProviderResponseCurrency } from './stripe-provider-response-evidence.ts';
 import { requireStripeResponsePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 import { isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
@@ -53,7 +53,7 @@ export class StripeRefundReconciliationProvider {
         signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as StripeRefundResponse | StripeErrorResponse;
-      if (!response.ok) throw mapStripeLookupError(response.status, payload as StripeErrorResponse);
+      if (!response.ok) throw classifyStripeLookupHttpError(response.status, payload, 'Stripe rejected the refund reconciliation request.', 'Stripe refund was not found.');
       const refund = payload as StripeRefundResponse;
       if (refund?.id !== reference) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different refund during reconciliation.', true);
@@ -91,12 +91,3 @@ export function normalizeStripeRefundReference(value: unknown): string {
   return value.trim();
 }
 
-function mapStripeLookupError(status: number, payload: StripeErrorResponse): PaymentProviderError {
-  const message = readStripeProviderError(payload, 'Stripe rejected the refund reconciliation request.').message;
-  if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
-  if (status === 404) return new PaymentProviderError('INVALID_REQUEST', 'Stripe refund was not found.');
-  if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
-  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
-  if (status >= 400) return new PaymentProviderError('INVALID_REQUEST', message);
-  return new PaymentProviderError('UNKNOWN', message, true);
-}

@@ -106,3 +106,11 @@ test('Stripe health probe distinguishes network failure from timeout without exp
   assert.deepEqual(networkFailure, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
   assert.deepEqual(timeout, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
 });
+
+test('Stripe health probe reports an HTTP 408 as a timeout, not an invalid response', async () => {
+  const result = await probeStripeIntegrationHealth({
+    secretKey: 'sk_test_123456789',
+    fetchImpl: async () => new Response('{}', { status: 408 }),
+  });
+  assert.deepEqual(result, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
+});

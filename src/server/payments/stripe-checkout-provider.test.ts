@@ -354,3 +354,26 @@ test('Stripe Checkout preserves HTTP error classification for malformed error JS
     }
   }
 });
+
+test('Stripe Checkout creation and retrieval preserve retryable HTTP status over error body hints', async () => {
+  for (const item of [
+    { status: 408, type: 'idempotency_error', code: 'TIMEOUT' },
+    { status: 429, type: 'idempotency_error', code: 'RATE_LIMITED' },
+    { status: 503, type: 'card_error', code: 'PROVIDER_UNAVAILABLE' },
+  ] as const) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify({ error: { type: item.type } }), { status: item.status }),
+    });
+    await assert.rejects(provider.createPaymentSession({
+      organizationId, bookingId,
+      idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success',
+      cancelUrl: 'https://booking.example.test/cancel',
+      now,
+    }), (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable);
+    await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'), (error: unknown) =>
+      error instanceof PaymentProviderError && error.code === item.code && error.retryable);
+  }
+});

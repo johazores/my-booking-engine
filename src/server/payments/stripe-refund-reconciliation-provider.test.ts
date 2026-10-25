@@ -49,3 +49,12 @@ test('Stripe refund lookup preserves HTTP status when error JSON is malformed', 
       (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
   }
 });
+
+test('Stripe refund lookup treats HTTP 408 as retryable timeout rather than invalid request', async () => {
+  const provider = new StripeRefundReconciliationProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { type: 'card_error' } }), { status: 408 }),
+  });
+  await assert.rejects(provider.retrieveRefund('re_valid'),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'TIMEOUT' && error.retryable);
+});

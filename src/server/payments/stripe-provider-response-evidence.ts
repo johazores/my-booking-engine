@@ -53,3 +53,34 @@ export function readStripeProviderError(payload: unknown, fallback: string) {
     declineCode: typeof detail?.decline_code === 'string' ? detail.decline_code : null,
   });
 }
+
+/**
+ * HTTP status outranks untrusted Stripe error-body hints. A timeout, rate
+ * limit, or server failure is not proof of a card decline or duplicate write.
+ */
+export function classifyStripePaymentHttpError(status: number, payload: unknown, fallback: string): PaymentProviderError {
+  const error = readStripeProviderError(payload, fallback);
+  const message = error.message;
+  if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
+  if (status === 408) return new PaymentProviderError('TIMEOUT', message, true);
+  if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
+  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
+  if (status === 409 || error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+  if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
+  if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
+  return new PaymentProviderError('UNKNOWN', message, true);
+}
+
+/** Lookup failures cannot turn a missing resource or a timeout into payment truth. */
+export function classifyStripeLookupHttpError(
+  status: number, payload: unknown, fallback: string, notFoundMessage: string,
+): PaymentProviderError {
+  const message = readStripeProviderError(payload, fallback).message;
+  if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
+  if (status === 408) return new PaymentProviderError('TIMEOUT', message, true);
+  if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
+  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
+  if (status === 404) return new PaymentProviderError('INVALID_REQUEST', notFoundMessage);
+  if (status >= 400) return new PaymentProviderError('INVALID_REQUEST', message);
+  return new PaymentProviderError('UNKNOWN', message, true);
+}

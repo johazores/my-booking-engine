@@ -1,6 +1,6 @@
 import { PaymentProviderError, type PaymentMoney } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
-import { assertStripeProviderResponseObject, normalizeStripeProviderResponseMoney, readStripeProviderError } from './stripe-provider-response-evidence.ts';
+import { assertStripeProviderResponseObject, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_HOSTNAME = 'checkout.stripe.com';
@@ -213,7 +213,7 @@ export class StripeCheckoutProvider {
         signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as T | StripeErrorResponse;
-      if (!response.ok) throw mapStripeCheckoutError(response.status, payload as StripeErrorResponse);
+      if (!response.ok) throw classifyStripePaymentHttpError(response.status, payload, 'Stripe rejected the Checkout request.');
       return payload as T;
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;
@@ -360,14 +360,3 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
   return url.toString();
 }
 
-function mapStripeCheckoutError(status: number, payload: StripeErrorResponse) {
-  const error = readStripeProviderError(payload, 'Stripe rejected the Checkout request.');
-  const message = error.message;
-  if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
-  if (status === 409 || error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
-  if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
-  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
-  if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
-  if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
-  return new PaymentProviderError('UNKNOWN', message, true);
-}
