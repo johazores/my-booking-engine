@@ -14,6 +14,9 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /response\.headers\.get\('content-length'\)/);
   assert.match(contents, /totalBytes > MAX_STRIPE_API_RESPONSE_BYTES/);
   assert.match(contents, /chunks\.push\(value\.slice\(\)\)/);
+  assert.match(contents, /if \(!\(value instanceof Uint8Array\)\) invalidTransportResponse\(\)/);
+  assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
+  assert.match(contents, /reader\.releaseLock\(\)/);
 });
 
 test('Stripe response acquisition keeps abort authority and post-provider ambiguity fail closed', () => {
@@ -41,6 +44,8 @@ test('Stripe transport resource policy and regression coverage are documented', 
   const tests = source('src/server/payments/stripe-api-transport.test.ts');
   assert.match(docs, /256 KiB/);
   assert.match(docs, /4 MiB/);
+  assert.match(docs, /malformed chunks fail as retryable unknown provider evidence/);
+  assert.match(docs, /reader lock is released/);
   assert.match(docs, /complete response body/i);
   assert.match(docs, /retryable `UNKNOWN`/);
   assert.match(tests, /keeps caller abort authority active through response body acquisition/);
