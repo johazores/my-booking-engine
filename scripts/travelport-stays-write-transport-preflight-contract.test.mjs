@@ -11,10 +11,12 @@ test('Travelport write preflight reuses the exact credentialed transport with no
   assert.match(preflight, /createTravelportStaysTraceFetch/);
   assert.match(preflight, /noIoTravelportStaysPreflightFetch/);
   assert.match(preflight, /new Response\(null, \{ status: 204 \}\)/);
-  assert.match(preflight, /environment: input\.credentials\.environment/);
-  assert.match(preflight, /credentials: input\.credentials/);
-  assert.match(preflight, /fetchImpl: noIoTravelportStaysPreflightFetch/);
-  assert.match(preflight, /await preflightFetch\(input\.requestInput, input\.init\)/);
+  assert.match(preflight, /const sourceCredentials = input\.credentials/);
+  assert.match(preflight, /materializeTravelportStaysAccessTokenAuthority\(\{ credentials: sourceCredentials \}\)/);
+  assert.match(preflight, /environment: credentials\.environment/);
+  assert.match(preflight, /credentials,\s*fetchImpl: noIoTravelportStaysPreflightFetch/);
+  assert.match(preflight, /await preflightFetch\(requestInput, init\)/);
+  assert.doesNotMatch(preflight, /environment: input\.credentials\.environment|credentials: input\.credentials/);
   assert.doesNotMatch(preflight, /\bfetch\(input\.requestInput|globalThis\.fetch/);
 });
 
