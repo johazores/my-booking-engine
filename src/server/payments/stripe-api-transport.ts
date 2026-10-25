@@ -78,10 +78,10 @@ function hasUtf8ByteLengthAtMost(value: string, maxBytes: number): boolean {
   return true;
 }
 
-function reviewedHeaders(init: RequestInit, method: 'GET' | 'POST'): Headers {
+function reviewedHeaders(headersInput: RequestInit['headers'], method: 'GET' | 'POST', body: RequestInit['body']): Headers {
   let headers: Headers;
   try {
-    headers = new Headers(init.headers);
+    headers = new Headers(headersInput);
   } catch {
     invalidTransportRequest();
   }
@@ -96,7 +96,7 @@ function reviewedHeaders(init: RequestInit, method: 'GET' | 'POST'): Headers {
   }
 
   if (method === 'GET') {
-    if (init.body !== undefined && init.body !== null) invalidTransportRequest();
+    if (body !== undefined && body !== null) invalidTransportRequest();
     return headers;
   }
 
@@ -106,13 +106,30 @@ function reviewedHeaders(init: RequestInit, method: 'GET' | 'POST'): Headers {
     invalidTransportRequest();
   }
   if (
-    typeof init.body !== 'string'
-    || init.body.length === 0
-    || !hasUtf8ByteLengthAtMost(init.body, MAX_STRIPE_API_REQUEST_BYTES)
+    typeof body !== 'string'
+    || body.length === 0
+    || !hasUtf8ByteLengthAtMost(body, MAX_STRIPE_API_REQUEST_BYTES)
   ) {
     invalidTransportRequest();
   }
   return headers;
+}
+
+/**
+ * Reject forged signals without trusting a caller-overridden `aborted` getter.
+ * An already-aborted native signal preserves caller-owned timeout authority.
+ */
+function reviewedStripeSignal(signal: RequestInit['signal']): AbortSignal | undefined {
+  if (signal == null) return undefined;
+  let aborted: unknown;
+  try {
+    aborted = Reflect.get(AbortSignal.prototype, 'aborted', signal);
+  } catch {
+    invalidTransportRequest();
+  }
+  if (typeof aborted !== 'boolean') invalidTransportRequest();
+  if (aborted) throw abortResponseRead();
+  return signal;
 }
 
 function abortResponseRead(): Error {
@@ -245,17 +262,31 @@ export function requestStripeApi(
   init: RequestInit,
 ): Promise<Response> {
   const url = canonicalStripeUrl(input);
-  const method = init.method;
+  // Materialize caller-owned metadata once. A getter must not validate one
+  // payment body or signal and supply a different value to Fetch later.
+  let method: RequestInit['method'];
+  let body: RequestInit['body'];
+  let signal: RequestInit['signal'];
+  let headersInput: RequestInit['headers'];
+  try {
+    method = init.method;
+    body = init.body;
+    signal = init.signal;
+    headersInput = init.headers;
+  } catch {
+    invalidTransportRequest();
+  }
   if ((method !== 'GET' && method !== 'POST') || !reviewedStripeOperation(method, url.pathname)) {
     invalidTransportRequest();
   }
-  const headers = reviewedHeaders(init, method);
+  const readySignal = reviewedStripeSignal(signal);
+  const headers = reviewedHeaders(headersInput, method, body);
 
   return fetchStripeApiResponse(fetchImpl, url.toString(), {
     method,
     headers,
-    ...(method === 'POST' ? { body: init.body as string } : {}),
-    signal: init.signal ?? undefined,
+    ...(method === 'POST' ? { body: body as string } : {}),
+    signal: readySignal,
     cache: 'no-store',
     credentials: 'omit',
     redirect: 'manual',

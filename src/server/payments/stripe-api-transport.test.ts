@@ -305,3 +305,102 @@ test('Stripe transport rejects non-Response values from injected transports as r
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
   );
 });
+
+test('Stripe transport snapshots request body, signal, method, and headers once before provider I/O', async () => {
+  const capture: { input?: RequestInfo | URL; init?: RequestInit } = {};
+  const controller = new AbortController();
+  const init = stripePostInit();
+  const reads = { method: 0, body: 0, signal: 0, headers: 0 };
+  Object.defineProperties(init, {
+    method: {
+      get() {
+        reads.method += 1;
+        return reads.method === 1 ? 'POST' : 'DELETE';
+      },
+    },
+    body: {
+      get() {
+        reads.body += 1;
+        return reads.body === 1 ? 'amount=100&currency=usd' : new Uint8Array([1, 2, 3]);
+      },
+    },
+    signal: {
+      get() {
+        reads.signal += 1;
+        return reads.signal === 1 ? controller.signal : { aborted: false };
+      },
+    },
+    headers: {
+      get() {
+        reads.headers += 1;
+        return reads.headers === 1
+          ? { Authorization: 'Bearer sk_test_not-a-real-secret', 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': 'sf:test:12345678' }
+          : { Authorization: 'Bearer sk_test_different-secret' };
+      },
+    },
+  });
+
+  await requestStripeApi(capturingFetch(capture), 'https://api.stripe.com/v1/payment_intents', init);
+  assert.deepEqual(reads, { method: 1, body: 1, signal: 1, headers: 1 });
+  assert.equal(capture.init?.method, 'POST');
+  assert.equal(capture.init?.body, 'amount=100&currency=usd');
+  assert.equal(capture.init?.signal, controller.signal);
+  assert.equal(new Headers(capture.init?.headers).get('authorization'), 'Bearer sk_test_not-a-real-secret');
+});
+
+test('Stripe transport rejects forged signals before network I/O and preserves pre-aborted timeout evidence', () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    return new Response('{}');
+  }) as typeof fetch;
+  const getInit = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  for (const signal of [{ aborted: false }, { aborted: true }, Object.create(AbortSignal.prototype)]) {
+    assert.throws(
+      () => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {
+        ...getInit,
+        signal: signal as AbortSignal,
+      }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+  }
+
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', { get: () => false });
+  controller.abort();
+  assert.throws(
+    () => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {
+      ...getInit,
+      signal: controller.signal,
+    }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+  assert.equal(calls, 0);
+});
+
+test('Stripe transport normalizes throwing RequestInit getters without reaching the provider', () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    return new Response('{}');
+  }) as typeof fetch;
+  for (const key of ['method', 'body', 'signal', 'headers'] as const) {
+    const init: RequestInit = {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer sk_test_not-a-real-secret',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Idempotency-Key': 'sf:test:12345678',
+      },
+      body: 'amount=100&currency=usd',
+    };
+    Object.defineProperty(init, key, {
+      get() { throw new Error('untrusted caller getter'); },
+    });
+    assert.throws(
+      () => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/payment_intents', init),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+  }
+  assert.equal(calls, 0);
+});

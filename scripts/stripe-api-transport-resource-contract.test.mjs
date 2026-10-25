@@ -10,7 +10,7 @@ test('Stripe credentialed transport owns bounded request and response resources'
   const contents = source('src/server/payments/stripe-api-transport.ts');
   assert.match(contents, /const MAX_STRIPE_API_REQUEST_BYTES = 256 \* 1024;/);
   assert.match(contents, /const MAX_STRIPE_API_RESPONSE_BYTES = 4 \* 1024 \* 1024;/);
-  assert.match(contents, /hasUtf8ByteLengthAtMost\(init\.body, MAX_STRIPE_API_REQUEST_BYTES\)/);
+  assert.match(contents, /hasUtf8ByteLengthAtMost\(body, MAX_STRIPE_API_REQUEST_BYTES\)/);
   assert.match(contents, /response\.headers\.get\('content-length'\)/);
   assert.match(contents, /totalBytes > MAX_STRIPE_API_RESPONSE_BYTES/);
   assert.match(contents, /chunks\.push\(value\.slice\(\)\)/);
@@ -50,4 +50,20 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(docs, /retryable `UNKNOWN`/);
   assert.match(tests, /keeps caller abort authority active through response body acquisition/);
   assert.match(tests, /enforces the response ceiling on streamed bytes/);
+});
+
+test('Stripe transport materializes caller metadata once and checks native abort authority', () => {
+  const contents = source('src/server/payments/stripe-api-transport.ts');
+  assert.match(contents, /method = init\.method;/);
+  assert.match(contents, /body = init\.body;/);
+  assert.match(contents, /signal = init\.signal;/);
+  assert.match(contents, /headersInput = init\.headers;/);
+  assert.match(contents, /Reflect\.get\(AbortSignal\.prototype, 'aborted', signal\)/);
+  assert.match(contents, /reviewedHeaders\(headersInput, method, body\)/);
+  assert.match(contents, /signal: readySignal/);
+  assert.doesNotMatch(contents, /body: init\.body/);
+  const tests = source('src/server/payments/stripe-api-transport.test.ts');
+  assert.match(tests, /snapshots request body, signal, method, and headers once/);
+  assert.match(tests, /rejects forged signals before network I\/O/);
+  assert.match(tests, /normalizes throwing RequestInit getters/);
 });
