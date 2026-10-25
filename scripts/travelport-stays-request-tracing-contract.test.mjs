@@ -88,9 +88,11 @@ test('trace transport owns sensitive Fetch request metadata and header channels'
   assert.match(trace, /TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS/);
   assert.match(trace, /MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH/);
   assert.match(trace, /assertAllowedTravelportRequestHeaders/);
-  assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers, input\.credentials !== undefined\)/);
-  assert.match(trace, /assertTravelportStaysRequestHeaders\(headers, url, method, input\.credentials\)/);
-  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, input\.credentials\)/);
+  assert.match(trace, /materializeTravelportStaysTransportConstructorAuthority\(input\)/);
+  assert.doesNotMatch(trace.slice(trace.indexOf('export function createTravelportStaysTraceFetch')), /input\.credentials/);
+  assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers, authority\.credentials !== undefined\)/);
+  assert.match(trace, /assertTravelportStaysRequestHeaders\(headers, url, method, authority\.credentials\)/);
+  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, authority\.credentials\)/);
   assert.match(trace, /body\.get\('client_id'\) !== credentials\.clientId/);
   assert.match(trace, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
   assert.match(trace, /!headers\.has\('Accept-Encoding'\)/);
@@ -120,7 +122,7 @@ test('trace transport bounds adapter-owned request body representations without 
   assert.match(trace, /hasJsonObjectEnvelope\(body\)/);
   assert.match(trace, /hasUtf8ByteLengthAtMost\(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES\)/);
   assert.match(trace, /if \(method === 'GET'\)/);
-  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, input\.credentials\)/);
+  assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, authority\.credentials\)/);
   assert.match(trace, /assertTravelportStaysRequestBody\(body, headers, method\)/);
   assert.doesNotMatch(trace, /JSON\.parse\(body\)/);
   assert.doesNotMatch(trace, /JSON\.stringify\(body\)/);
