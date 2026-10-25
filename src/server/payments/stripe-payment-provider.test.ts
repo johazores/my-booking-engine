@@ -422,3 +422,35 @@ test('Stripe direct PaymentIntent writes reject unknown provider statuses', asyn
     }
   }
 });
+
+test('Stripe pending release requires complete provider money and never claims authorization success', async () => {
+  for (const evidence of [
+    { amount_received: undefined, amount_capturable: 24100 },
+    { amount_received: 0, amount_capturable: undefined },
+    { amount_received: 1, amount_capturable: 24099 },
+    { amount_received: 0, amount_capturable: 24101 },
+    { amount_received: 0, amount_capturable: 0 },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_release_pending', status: 'requires_capture', amount: 24100,
+        currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.releaseAuthorization!({ ...context('stripe:release:pending-evidence'), providerReference: 'pi_release_pending' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_release_pending', status: 'requires_capture', amount: 24100,
+      amount_received: 0, amount_capturable: 24100, currency: 'usd',
+    })),
+  });
+  assert.equal((await provider.releaseAuthorization!({
+    ...context('stripe:release:still-authorized'), providerReference: 'pi_release_pending',
+  })).status, 'PENDING');
+});

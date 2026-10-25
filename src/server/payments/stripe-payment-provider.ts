@@ -122,6 +122,24 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     )) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the authorization was settled.', true);
     }
+    // A release request returning a nonterminal intent has not released the
+    // authorization. Never claim a new AUTHORIZED result from this operation,
+    // and never infer zero received/capturable money from missing fields.
+    if (intent.status !== 'canceled' && intent.status !== 'succeeded') {
+      if (intent.amount_received === undefined || intent.amount_capturable === undefined) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete pending release evidence.', true);
+      }
+      const received = normalizeStripeMinorAmount(intent.amount_received, 'pending release received amount');
+      const capturable = normalizeStripeMinorAmount(intent.amount_capturable, 'pending release capturable amount');
+      if (
+        received !== 0n
+        || capturable > input.money.amountMinor
+        || (intent.status === 'requires_capture' && capturable === 0n)
+      ) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe returned contradictory pending release evidence.', true);
+      }
+      return Object.freeze({ providerCode: this.code, providerReference, status: 'PENDING', money });
+    }
     return normalizedIntentResult(intent, money);
   }
 
