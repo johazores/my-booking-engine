@@ -21,7 +21,7 @@ test('Stripe credentialed transport owns bounded request and response resources'
 
 test('Stripe response acquisition keeps abort authority and post-provider ambiguity fail closed', () => {
   const contents = source('src/server/payments/stripe-api-transport.ts');
-  assert.match(contents, /signal\.addEventListener\('abort', onAbort, \{ once: true \}\)/);
+  assert.match(contents, /AbortSignal\.prototype\.addEventListener\.call\(signal, 'abort', onAbort, \{ once: true \}\)/);
   assert.match(contents, /void reader\.cancel\(\)\.catch\(\(\) => undefined\)/);
   assert.match(contents, /new PaymentProviderError\('UNKNOWN', 'Stripe API response is outside the reviewed SF provider boundary\.', true\)/);
   assert.match(contents, /return bufferStripeApiResponse\(response, init\.signal \?\? undefined\)/);
@@ -59,6 +59,10 @@ test('Stripe transport materializes caller metadata once and checks native abort
   assert.match(contents, /signal = init\.signal;/);
   assert.match(contents, /headersInput = init\.headers;/);
   assert.match(contents, /Reflect\.get\(AbortSignal\.prototype, 'aborted', signal\)/);
+  assert.doesNotMatch(contents, /signal(?:\?\.)?\.aborted/);
+  assert.match(contents, /if \(nativeStripeSignalAborted\(signal\)\) \{\s*onAbort\(\);\s*return;/);
+  assert.match(tests, /ignores shadowed native signal fields/);
+  assert.match(tests, /honors real abort despite shadowed signal fields/);
   assert.match(contents, /reviewedHeaders\(headersInput, method, body\)/);
   assert.match(contents, /signal: readySignal/);
   assert.doesNotMatch(contents, /body: init\.body/);

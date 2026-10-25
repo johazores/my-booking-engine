@@ -119,15 +119,19 @@ function reviewedHeaders(headersInput: RequestInit['headers'], method: 'GET' | '
  * Reject forged signals without trusting a caller-overridden `aborted` getter.
  * An already-aborted native signal preserves caller-owned timeout authority.
  */
+function nativeStripeSignalAborted(signal: AbortSignal): boolean {
+  // Native state, not a caller-shadowed `aborted` property.
+  return Reflect.get(AbortSignal.prototype, 'aborted', signal) as boolean;
+}
+
 function reviewedStripeSignal(signal: RequestInit['signal']): AbortSignal | undefined {
   if (signal == null) return undefined;
-  let aborted: unknown;
+  let aborted: boolean;
   try {
-    aborted = Reflect.get(AbortSignal.prototype, 'aborted', signal);
+    aborted = nativeStripeSignalAborted(signal);
   } catch {
     invalidTransportRequest();
   }
-  if (typeof aborted !== 'boolean') invalidTransportRequest();
   if (aborted) throw abortResponseRead();
   return signal;
 }
@@ -143,29 +147,42 @@ async function readStripeResponseChunk(
   signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
   if (!signal) return reader.read();
-  if (signal.aborted) throw abortResponseRead();
+  if (nativeStripeSignalAborted(signal)) throw abortResponseRead();
 
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = <T>(callback: (value: T) => void, value: T) => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
+      AbortSignal.prototype.removeEventListener.call(signal, 'abort', onAbort);
       callback(value);
     };
     const onAbort = () => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
-      void reader.cancel().catch(() => undefined);
+      AbortSignal.prototype.removeEventListener.call(signal, 'abort', onAbort);
+      try {
+        void reader.cancel().catch(() => undefined);
+      } catch {
+        // Stream cancellation is best-effort and cannot override abort authority.
+      }
       reject(abortResponseRead());
     };
 
-    signal.addEventListener('abort', onAbort, { once: true });
-    reader.read().then(
-      (result) => finish(resolve, result),
-      (error: unknown) => finish(reject, error),
-    );
+    AbortSignal.prototype.addEventListener.call(signal, 'abort', onAbort, { once: true });
+    // Close the gap between the first native-state check and listener registration.
+    if (nativeStripeSignalAborted(signal)) {
+      onAbort();
+      return;
+    }
+    try {
+      reader.read().then(
+        (result) => finish(resolve, result),
+        (error: unknown) => finish(reject, error),
+      );
+    } catch (error) {
+      finish(reject, error);
+    }
   });
 }
 
@@ -190,7 +207,7 @@ function assertStripeDeclaredResponseLength(response: Response): void {
 async function bufferStripeApiResponse(response: Response, signal?: AbortSignal): Promise<Response> {
   if (!(response instanceof Response)) invalidTransportResponse();
   assertStripeDeclaredResponseLength(response);
-  if (signal?.aborted) {
+  if (signal && nativeStripeSignalAborted(signal)) {
     cancelStripeResponseBody(response);
     throw abortResponseRead();
   }
@@ -219,7 +236,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     } catch {
       // Cancellation is best-effort after a response acquisition failure.
     }
-    if (signal?.aborted) throw abortResponseRead();
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
     throw error;
   } finally {
     reader.releaseLock();
@@ -232,6 +249,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     offset += chunk.byteLength;
   }
 
+  if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.delete('content-encoding');

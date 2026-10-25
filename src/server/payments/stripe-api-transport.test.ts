@@ -404,3 +404,45 @@ test('Stripe transport normalizes throwing RequestInit getters without reaching 
   }
   assert.equal(calls, 0);
 });
+
+test('Stripe body acquisition ignores shadowed native signal fields', async () => {
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', { get: () => true });
+  Object.defineProperty(controller.signal, 'addEventListener', { value: () => { throw new Error('shadowed listener'); } });
+  Object.defineProperty(controller.signal, 'removeEventListener', { value: () => { throw new Error('shadowed listener'); } });
+  const response = await requestStripeApi(
+    (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+      signal: controller.signal,
+    },
+  );
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
+test('Stripe body acquisition honors real abort despite shadowed signal fields', async () => {
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', { get: () => false });
+  Object.defineProperty(controller.signal, 'addEventListener', { value: () => undefined });
+  Object.defineProperty(controller.signal, 'removeEventListener', { value: () => undefined });
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; },
+  });
+  const request = requestStripeApi(
+    (async () => new Response(body, { status: 200 })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+      signal: controller.signal,
+    },
+  );
+  setTimeout(() => controller.abort(), 5);
+  await assert.rejects(request, (error: unknown) => error instanceof Error && error.name === 'AbortError');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+});
