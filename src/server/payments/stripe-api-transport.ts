@@ -189,17 +189,23 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       if (!(value instanceof Uint8Array)) invalidTransportResponse();
       totalBytes += value.byteLength;
       if (!Number.isSafeInteger(totalBytes) || totalBytes > MAX_STRIPE_API_RESPONSE_BYTES) {
-        void reader.cancel().catch(() => undefined);
         invalidTransportResponse();
       }
       chunks.push(value.slice());
     }
   } catch (error) {
-    if (signal?.aborted) {
+    // Malformed provider chunks, exceeded limits, and rejected reads must not
+    // leave a provider stream active. Preserve caller-owned abort precedence
+    // and never let best-effort cancellation replace the original failure.
+    try {
       void reader.cancel().catch(() => undefined);
-      throw abortResponseRead();
+    } catch {
+      // Cancellation is best-effort after a response acquisition failure.
     }
+    if (signal?.aborted) throw abortResponseRead();
     throw error;
+  } finally {
+    reader.releaseLock();
   }
 
   const body = new Uint8Array(totalBytes);

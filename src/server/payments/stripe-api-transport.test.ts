@@ -215,6 +215,62 @@ test('Stripe transport enforces the response ceiling on streamed bytes even with
   assert.equal(cancelled, true);
 });
 
+test('Stripe transport cancels non-byte response chunks as retryable unknown provider evidence', async () => {
+  const getInit = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } } as const;
+  const malformedChunks: unknown[] = ['{"ok":true}', undefined, new DataView(new ArrayBuffer(2))];
+  for (const chunk of malformedChunks) {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk as Uint8Array);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = (async () => new Response(body, { status: 200 })) as typeof fetch;
+    await assert.rejects(
+      requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', getInit),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+    );
+    assert.equal(cancelled, true);
+  }
+});
+
+test('Stripe transport releases the response reader and preserves unexpected read failures', async () => {
+  const failure = new Error('provider stream read failed');
+  let cancelled = 0;
+  let released = 0;
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, 'body', {
+    value: {
+      getReader() {
+        return {
+          async read() {
+            throw failure;
+          },
+          async cancel() {
+            cancelled += 1;
+          },
+          releaseLock() {
+            released += 1;
+          },
+        };
+      },
+    },
+  });
+  const fetchImpl = (async () => response) as typeof fetch;
+  await assert.rejects(
+    requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    }),
+    (error: unknown) => error === failure,
+  );
+  assert.equal(cancelled, 1);
+  assert.equal(released, 1);
+});
+
 test('Stripe transport keeps caller abort authority active through response body acquisition', async () => {
   let cancelled = false;
   const body = new ReadableStream<Uint8Array>({
