@@ -264,28 +264,21 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   if (!Number.isSafeInteger(intent.amount) || Number(intent.amount) < 0) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent amount is invalid.');
   }
-  if (status === 'requires_capture' && (intent.amount_received === undefined || intent.amount_capturable === undefined)) {
-    throw new StripeWebhookValidationError('Stripe PaymentIntent capturable authorization evidence is missing.');
+  // Signed nonterminal snapshots can later influence commercial recovery.
+  // Never replace missing provider money with zero.
+  if (intent.amount_received === undefined || intent.amount_capturable === undefined) {
+    throw new StripeWebhookValidationError('Stripe PaymentIntent money evidence is missing.');
   }
-  if (status === 'requires_payment_method' && (
-    intent.amount_received === undefined || intent.amount_capturable === undefined
-  )) {
-    throw new StripeWebhookValidationError('Stripe PaymentIntent failed-state money evidence is missing.');
-  }
-  // Signed events also feed authorization release/settlement recovery. A missing
-  // terminal money field must not be silently interpreted as zero.
-  if ((status === 'canceled' || status === 'succeeded') && (
-    intent.amount_received === undefined || intent.amount_capturable === undefined
-  )) {
-    throw new StripeWebhookValidationError('Stripe PaymentIntent terminal money evidence is missing.');
-  }
-  const amountReceived = intent.amount_received ?? 0;
-  const amountCapturable = intent.amount_capturable ?? 0;
+  const amountReceived = intent.amount_received;
+  const amountCapturable = intent.amount_capturable;
   if (!Number.isSafeInteger(amountCapturable) || Number(amountCapturable) < 0 || Number(amountCapturable) > Number(intent.amount)) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent capturable amount is invalid.');
   }
   if (!Number.isSafeInteger(amountReceived) || Number(amountReceived) < 0 || Number(amountReceived) > Number(intent.amount)) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent received amount is invalid.');
+  }
+  if (Number(amountReceived) + Number(amountCapturable) > Number(intent.amount)) {
+    throw new StripeWebhookValidationError('Stripe PaymentIntent received and capturable money exceed the nominal amount.');
   }
 
   if (status === 'canceled' && (Number(amountReceived) !== 0 || Number(amountCapturable) !== 0)) {

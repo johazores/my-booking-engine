@@ -57,3 +57,24 @@ An authorization-release response that remains nonterminal is also not a success
 Direct authorization, capture, and authorization-release writes also reject missing, malformed, or unrecognized PaymentIntent statuses. Only Stripe's documented status vocabulary can influence payment operation state; an unknown provider status is retryable `UNKNOWN`, not an ordinary pending payment.
 
 These are adapter evidence rules, not a new provider capability or payment-state transition. Existing tenant-scoped durable claims and provider-truth reconciliation remain authoritative. Regression tests are checked in; live Stripe and full repository Node 24/PostgreSQL execution remain outstanding.
+
+## Complete nonterminal PaymentIntent money evidence
+
+Stripe GET reconciliation and signed PaymentIntent webhooks require explicit
+`amount_received` and `amount_capturable` for every recognized status,
+including `processing`, `requires_action`, and `requires_confirmation`.
+A nonterminal snapshot may later influence authorization or commercial recovery,
+so missing fields are unknown provider truth, never evidence of zero money.
+Complete pending evidence still remains pending.
+
+Both fields must be safe, nonnegative integer minor units no greater than the
+nominal PaymentIntent amount; their combined value must not exceed that amount.
+The shared reconciliation domain independently rejects contradictory snapshot
+money, including signed-event snapshots. Commercial-amendment and expired
+recovery webhook paths also reject missing capturable fields when rereading
+verified payloads instead of defaulting them to zero.
+
+Focused regression tests and a dependency-free source contract are checked in.
+Full repository Node 24/TypeScript 6/Prisma/PostgreSQL validation and live Stripe
+verification remain separate environment gates; no new provider capability or
+supplier reservation has been enabled.

@@ -61,29 +61,18 @@ export class StripePaymentReconciliationProvider {
       if (!isKnownStripePaymentIntentStatus(intent.status)) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized PaymentIntent status.', true);
       }
-      if (intent.status === 'requires_capture' && (
-        intent.amount_received === undefined || intent.amount_capturable === undefined
-      )) {
-        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete capturable authorization evidence.', true);
+      // Nonterminal snapshots may later become authorization or recovery truth.
+      // Missing provider fields are never evidence of zero money.
+      if (intent.amount_received === undefined || intent.amount_capturable === undefined) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete PaymentIntent money evidence.', true);
       }
-      if (intent.status === 'requires_payment_method' && (
-        intent.amount_received === undefined || intent.amount_capturable === undefined
-      )) {
-        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete failed PaymentIntent money evidence.', true);
-      }
-      // Terminal states are used by commercial-amendment recovery to prove
-      // released or settled funds. Never turn missing provider fields into zero.
-      if ((intent.status === 'canceled' || intent.status === 'succeeded') && (
-        intent.amount_received === undefined || intent.amount_capturable === undefined
-      )) {
-        throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete terminal PaymentIntent money evidence.', true);
-      }
-      const amountReceived = intent.amount_received ?? 0;
-      const amountCapturable = intent.amount_capturable ?? 0;
+      const amountReceived = intent.amount_received;
+      const amountCapturable = intent.amount_capturable;
       if (
         !Number.isSafeInteger(intent.amount) || intent.amount < 0
         || !Number.isSafeInteger(amountReceived) || amountReceived < 0 || amountReceived > intent.amount
         || !Number.isSafeInteger(amountCapturable) || amountCapturable < 0 || amountCapturable > intent.amount
+        || amountReceived + amountCapturable > intent.amount
       ) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid PaymentIntent money.', true);
       }

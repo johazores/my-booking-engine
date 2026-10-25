@@ -46,7 +46,7 @@ test('Stripe reconciliation preserves complete canceled and settled evidence', a
 });
 
 test('Stripe reconciliation keeps nonterminal pending states and exact provider identity', async () => {
-  const pending = await providerWithResponse({ status: 'processing' }).retrievePaymentIntent('pi_terminal_evidence');
+  const pending = await providerWithResponse({ status: 'processing', amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence');
   assert.equal(pending.status, 'processing');
   assert.equal(pending.amountReceivedMinor, 0n);
   const mismatched = providerWithResponse({ id: 'pi_other', amount_received: 0, amount_capturable: 0 });
@@ -92,4 +92,30 @@ test('PaymentIntent retrieval rejects unknown statuses instead of returning pend
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
     );
   }
+});
+
+test('nonterminal Stripe lookups require explicit and consistent money', async () => {
+  for (const status of ['requires_confirmation', 'requires_action', 'processing']) {
+    for (const evidence of [
+      { amount_received: undefined, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: undefined },
+      { amount_received: null, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: null },
+    ]) {
+      await assert.rejects(
+        providerWithResponse({ status, ...evidence }).retrievePaymentIntent('pi_terminal_evidence'),
+        (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+      );
+    }
+  }
+  await assert.rejects(
+    providerWithResponse({ status: 'processing', amount_received: 7000, amount_capturable: 7000 })
+      .retrievePaymentIntent('pi_terminal_evidence'),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+  const pending = await providerWithResponse({ status: 'requires_action', amount_received: 0, amount_capturable: 0 })
+    .retrievePaymentIntent('pi_terminal_evidence');
+  assert.equal(pending.status, 'requires_action');
+  assert.equal(pending.amountReceivedMinor, 0n);
+  assert.equal(pending.amountCapturableMinor, 0n);
 });

@@ -58,7 +58,8 @@ function parseCapturableMinor(input: {
   if (record.id !== input.providerReference) {
     throw new PaymentConflictError('Verified Stripe recovery PaymentIntent identity changed during webhook finalization.');
   }
-  const value = record.amount_capturable ?? 0;
+  // Missing provider money is never zero-money evidence.
+  const value = record.amount_capturable;
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
     throw new PaymentConflictError('Verified Stripe recovery PaymentIntent capturable amount is invalid.');
   }

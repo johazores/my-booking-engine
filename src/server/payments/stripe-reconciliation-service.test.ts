@@ -155,3 +155,22 @@ test('payment reconciliation rejects substituted unknown provider statuses', () 
     }
   }
 });
+
+test('reconciliation rejects contradictory nonterminal snapshot balances', () => {
+  const base = { providerReference: 'pi_pending', status: 'processing', currency: 'USD',
+    amountMinor: 12500n, amountReceivedMinor: 0n, amountCapturableMinor: 0n };
+  for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+    for (const evidence of [
+      { amountReceivedMinor: -1n }, { amountCapturableMinor: -1n },
+      { amountReceivedMinor: 12501n }, { amountCapturableMinor: 12501n },
+      { amountReceivedMinor: 7000n, amountCapturableMinor: 7000n },
+    ]) {
+      assert.throws(() => reconcileStripeTransactionState({
+        kind, currency: 'USD', amountMinor: 12500n, snapshot: { ...base, ...evidence },
+      }), /money evidence is inconsistent/);
+    }
+  }
+  assert.deepEqual(reconcileStripeTransactionState({
+    kind: 'CAPTURE', currency: 'USD', amountMinor: 12500n, snapshot: base,
+  }), { transactionStatus: 'PENDING', bookingPaymentStatus: 'AUTHORIZED' });
+});

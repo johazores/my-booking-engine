@@ -29,6 +29,17 @@ export function reconcileStripeTransactionState(input: {
   if (!isKnownStripePaymentIntentStatus(input.snapshot.status)) {
     throw new PaymentConflictError('Stripe reconciliation status is not recognized.');
   }
+  // Defend the domain against contradictory GET and signed-event snapshots.
+  const { amountMinor, amountReceivedMinor, amountCapturableMinor } = input.snapshot;
+  if (
+    typeof amountMinor !== 'bigint' || typeof amountReceivedMinor !== 'bigint'
+    || typeof amountCapturableMinor !== 'bigint'
+    || amountMinor < 0n || amountReceivedMinor < 0n || amountCapturableMinor < 0n
+    || amountReceivedMinor > amountMinor || amountCapturableMinor > amountMinor
+    || amountReceivedMinor + amountCapturableMinor > amountMinor
+  ) {
+    throw new PaymentConflictError('Stripe reconciliation money evidence is inconsistent.');
+  }
 
   // Keep this guard at the domain boundary too: provider reads, signed webhooks,
   // and future callers must never turn contradictory terminal money into settlement.

@@ -411,3 +411,24 @@ test('signed refund and PaymentIntent webhooks reject unreviewed provider states
     assert.equal(parseStripeWebhookEventPayload(refundEvent({ status })).refund?.status, status);
   }
 });
+
+test('signed nonterminal Stripe events require complete and possible money', () => {
+  for (const status of ['requires_confirmation', 'requires_action', 'processing']) {
+    for (const evidence of [
+      { amount_received: undefined, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: undefined },
+      { amount_received: null, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: null },
+    ]) {
+      assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent({ status, ...evidence })), StripeWebhookValidationError);
+    }
+  }
+  assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent({
+    status: 'processing', amount_received: 7000, amount_capturable: 7000,
+  })), StripeWebhookValidationError);
+  const pending = parseStripeWebhookEventPayload(paymentIntentEvent({
+    status: 'requires_action', amount_received: 0, amount_capturable: 0,
+  }));
+  assert.equal(pending.paymentIntent?.status, 'requires_action');
+  assert.equal(pending.paymentIntent?.amountReceivedMinor, 0n);
+});
