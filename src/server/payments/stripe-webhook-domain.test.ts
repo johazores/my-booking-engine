@@ -349,3 +349,29 @@ test('refund webhook candidate selection rejects money mismatch on an exact prov
     isInternalReference: (reference) => reference.startsWith('sf_claim_'),
   }), /money does not match/i);
 });
+
+test('Stripe terminal PaymentIntent webhooks require explicit received and capturable money', () => {
+  for (const status of ['canceled', 'succeeded']) {
+    for (const evidence of [
+      { amount_received: undefined, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: undefined },
+      { amount_received: null, amount_capturable: 0 },
+      { amount_received: 0, amount_capturable: null },
+    ]) {
+      assert.throws(
+        () => parseStripeWebhookEventPayload(paymentIntentEvent({ status, ...evidence })),
+        StripeWebhookValidationError,
+      );
+    }
+  }
+  const canceled = parseStripeWebhookEventPayload(paymentIntentEvent({
+    status: 'canceled', amount_received: 0, amount_capturable: 0,
+  }));
+  assert.equal(canceled.paymentIntent?.amountReceivedMinor, 0n);
+  assert.equal(canceled.paymentIntent?.amountCapturableMinor, 0n);
+  const succeeded = parseStripeWebhookEventPayload(paymentIntentEvent({
+    status: 'succeeded', amount_received: 12500, amount_capturable: 0,
+  }));
+  assert.equal(succeeded.paymentIntent?.amountReceivedMinor, 12500n);
+  assert.equal(succeeded.paymentIntent?.amountCapturableMinor, 0n);
+});

@@ -94,6 +94,24 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     }
     const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
     assertMatchingMoney(money, input.money, 'authorization release');
+    // A canceled intent must prove that neither received nor capturable money remains.
+    // Otherwise a cancellation response is not authoritative release evidence.
+    if (intent.status === 'canceled' && (
+      intent.amount_received === undefined
+      || intent.amount_capturable === undefined
+      || normalizeStripeMinorAmount(intent.amount_received, 'authorization release received amount') !== 0n
+      || normalizeStripeMinorAmount(intent.amount_capturable, 'authorization release capturable amount') !== 0n
+    )) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the authorization was fully released.', true);
+    }
+    if (intent.status === 'succeeded' && (
+      intent.amount_received === undefined
+      || intent.amount_capturable === undefined
+      || normalizeStripeMinorAmount(intent.amount_received, 'authorization release received amount') !== input.money.amountMinor
+      || normalizeStripeMinorAmount(intent.amount_capturable, 'authorization release capturable amount') !== 0n
+    )) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the authorization was settled.', true);
+    }
     return normalizedIntentResult(intent, money);
   }
 

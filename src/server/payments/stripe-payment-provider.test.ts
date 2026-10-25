@@ -193,3 +193,39 @@ test('Stripe authorization requires provider-proven full capturable funds', asyn
     );
   }
 });
+
+test('Stripe cancellation and unexpected settlement responses require explicit terminal money evidence', async () => {
+  const cases = [
+    { status: 'canceled', amount_received: undefined, amount_capturable: 0 },
+    { status: 'canceled', amount_received: 0, amount_capturable: undefined },
+    { status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { status: 'canceled', amount_received: 0, amount_capturable: 1 },
+    { status: 'succeeded', amount_received: undefined, amount_capturable: 0 },
+    { status: 'succeeded', amount_received: 24100, amount_capturable: undefined },
+    { status: 'succeeded', amount_received: 24099, amount_capturable: 0 },
+    { status: 'succeeded', amount_received: 24100, amount_capturable: 1 },
+  ] as const;
+  for (const evidence of cases) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_release_evidence', amount: 24100, currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.releaseAuthorization!({ ...context('stripe:release:evidence'), providerReference: 'pi_release_evidence' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+  const released = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_release_evidence', status: 'canceled', amount: 24100,
+      amount_received: 0, amount_capturable: 0, currency: 'usd',
+    })),
+  });
+  assert.equal(
+    (await released.releaseAuthorization!({ ...context('stripe:release:valid'), providerReference: 'pi_release_evidence' })).status,
+    'FAILED',
+  );
+});

@@ -23,3 +23,9 @@ A mismatch is a retryable `UNKNOWN` provider-evidence failure. It must not be mi
 ## Validation
 
 Focused tests cover full/partial/missing capturable evidence across the adapter, reconciliation, signed webhook parsing, and the integration fixtures; substituted capture/refund IDs, refund source substitution, invalid refund IDs, missing or mismatched received-money evidence, substituted reconciliation IDs, and impossible received/capturable amounts. The full repository Node 24 / TypeScript 6 / Prisma / PostgreSQL / build validation and live Stripe integration remain separate environment gates. No GitHub Actions are used.
+
+## Terminal authorization recovery evidence
+
+Stripe cancellation/release is only definitive when the exact requested PaymentIntent reports `canceled`, zero `amount_received`, and zero `amount_capturable`, with both fields explicitly present. A nominal amount and HTTP success alone cannot prove release. If a cancellation request unexpectedly reports `succeeded`, both terminal fields must also be present, the received amount must equal the requested amount, and capturable money must be zero; downstream recovery still decides whether that settled state is permitted.
+
+PaymentIntent GET reconciliation and signed PaymentIntent webhook parsing now require both explicit money fields for `canceled` and `succeeded` states, just as `requires_capture` already requires them. This closes the missing-field-to-zero conversion that could otherwise make an incomplete canceled receipt look like released funds in commercial-amendment recovery. Invalid or incomplete terminal provider evidence fails closed without mutating settlement. Provider response tests cover canceled/settled omissions, inconsistent release money, and valid terminal evidence. Full repository Node 24, PostgreSQL, and live Stripe verification remain separate gates.
