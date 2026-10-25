@@ -19,6 +19,8 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_METHOD_PATTERN = /^pm_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
+// PaymentTransaction provider references are VARCHAR(160).
+const MAX_STRIPE_PERSISTED_REFERENCE_LENGTH = 160;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
@@ -147,7 +149,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     if (refund?.payment_intent !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a refund for a different PaymentIntent.', true);
     }
-    if (typeof refund.id !== 'string' || !STRIPE_REFUND_PATTERN.test(refund.id)) {
+    if (typeof refund.id !== 'string' || !STRIPE_REFUND_PATTERN.test(refund.id) || refund.id.length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund reference.', true);
     }
     const money = normalizePaymentMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
@@ -203,8 +205,16 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 }
 
 export function normalizeStripePaymentIntentReference(value: unknown): string {
-  if (typeof value !== 'string' || !STRIPE_REFERENCE_PATTERN.test(value.trim())) throw new PaymentProviderError('INVALID_REQUEST', 'Stripe PaymentIntent reference is invalid.');
+  if (typeof value !== 'string' || !STRIPE_REFERENCE_PATTERN.test(value.trim()) || value.trim().length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) throw new PaymentProviderError('INVALID_REQUEST', 'Stripe PaymentIntent reference is invalid.');
   return value.trim();
+}
+
+/** Invalid IDs returned after provider I/O are retryable unknown truth, not caller errors. */
+export function requireStripeResponsePaymentIntentReference(value: unknown): string {
+  if (typeof value !== 'string' || !STRIPE_REFERENCE_PATTERN.test(value) || value.length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid PaymentIntent reference.', true);
+  }
+  return value;
 }
 
 export function normalizeStripePaymentMethodReference(value: unknown): string {
@@ -264,7 +274,7 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
     }
     return Object.freeze({
       providerCode: 'stripe',
-      providerReference: normalizeStripePaymentIntentReference(intent.id),
+      providerReference: requireStripeResponsePaymentIntentReference(intent.id),
       status: 'FAILED',
       money,
     });
@@ -325,7 +335,7 @@ function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMon
   // reconciled without persisting an unsupported AUTHORIZED capture status.
   return Object.freeze({
     providerCode: 'stripe',
-    providerReference: normalizeStripePaymentIntentReference(intent.id),
+    providerReference: requireStripeResponsePaymentIntentReference(intent.id),
     status: 'PENDING',
     money: expectedMoney,
   });
@@ -344,7 +354,7 @@ function normalizedIntentResult(intent: StripePaymentIntent, money: PaymentOpera
   else if (intent.status === 'succeeded') status = 'PAID';
   else if (intent.status === 'canceled') status = 'FAILED';
   else status = 'PENDING';
-  return Object.freeze({ providerCode: 'stripe', providerReference: normalizeStripePaymentIntentReference(intent.id), status, money });
+  return Object.freeze({ providerCode: 'stripe', providerReference: requireStripeResponsePaymentIntentReference(intent.id), status, money });
 }
 
 function assertMatchingMoney(actual: PaymentOperationContext['money'], expected: PaymentOperationContext['money'], operation: string): void {

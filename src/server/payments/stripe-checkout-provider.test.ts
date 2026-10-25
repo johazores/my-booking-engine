@@ -298,3 +298,15 @@ test('maps Stripe rate limits to retryable provider errors', async () => {
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'RATE_LIMITED' && error.retryable,
   );
 });
+
+test('created Checkout IDs must fit the persisted provider reference limit', async () => {
+  await assert.rejects(
+    createBookingCheckout({ id: `cs_${'x'.repeat(158)}` }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+  const provider = new StripeCheckoutProvider({ secretKey: 'sk_test_checkout_secret' });
+  await assert.rejects(
+    provider.retrievePaymentSession(`cs_${'x'.repeat(158)}`),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
+  );
+});

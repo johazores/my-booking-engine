@@ -119,3 +119,11 @@ test('nonterminal Stripe lookups require explicit and consistent money', async (
   assert.equal(pending.amountReceivedMinor, 0n);
   assert.equal(pending.amountCapturableMinor, 0n);
 });
+
+test('Stripe PaymentIntent lookups reject references beyond the ledger column limit before provider I/O', async () => {
+  await assert.rejects(
+    providerWithResponse({ amount_received: 0, amount_capturable: 0 })
+      .retrievePaymentIntent(`pi_${'x'.repeat(158)}`),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
+  );
+});

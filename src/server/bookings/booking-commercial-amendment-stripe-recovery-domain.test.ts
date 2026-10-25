@@ -160,3 +160,17 @@ test('provider identity, money, and refund reference validation fail closed', ()
   assert.equal(assertStripeCommercialAmendmentRecoveryRefundReference('re_recovery_1'), 're_recovery_1');
   assert.throws(() => assertStripeCommercialAmendmentRecoveryRefundReference('pi_wrong'), /refund reference/);
 });
+
+test('commercial amendment recovery rejects provider references beyond the ledger limit', () => {
+  assert.throws(
+    () => stripeCommercialAmendmentRecoveryOperationKey({
+      bookingId, amendmentId, operation: 'RELEASE_AUTHORIZATION',
+      providerReference: `pi_${'x'.repeat(158)}`,
+    }),
+    /PaymentIntent reference/,
+  );
+  assert.throws(
+    () => assertStripeCommercialAmendmentRecoveryRefundReference(`re_${'x'.repeat(158)}`),
+    /refund reference/,
+  );
+});

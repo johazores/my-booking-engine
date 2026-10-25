@@ -99,6 +99,8 @@ test('stripe webhook verification checks raw payload and timestamp tolerance', (
 test('stripe references and constructor configuration validate before requests', () => {
   assert.equal(normalizeStripePaymentIntentReference(' pi_valid_1 '), 'pi_valid_1'); assert.equal(normalizeStripePaymentMethodReference(' pm_valid_1 '), 'pm_valid_1');
   assert.throws(() => normalizeStripePaymentIntentReference('ch_wrong'), /PaymentIntent reference/); assert.throws(() => normalizeStripePaymentMethodReference('card_wrong'), /payment method reference/);
+  assert.equal(normalizeStripePaymentIntentReference(`pi_${'x'.repeat(157)}`).length, 160);
+  assert.throws(() => normalizeStripePaymentIntentReference(`pi_${'x'.repeat(158)}`), /PaymentIntent reference/);
   assert.throws(() => new StripePaymentProvider({ secretKey: 'not-a-key' }), /secret key/); assert.throws(() => new StripePaymentProvider({ secretKey: 'sk_test_valid-enough', timeoutMs: 99 }), /timeout/);
 });
 
@@ -478,4 +480,32 @@ test('refund write refuses unknown Stripe states and preserves known refund life
     const result = await provider.refundPayment!({ ...context('stripe:refund:known'), providerReference: 'pi_source_1' });
     assert.equal(result.status, status === 'succeeded' ? 'REFUNDED' : ['failed', 'canceled'].includes(status) ? 'FAILED' : 'PENDING');
   }
+});
+
+test('Stripe cannot persist an oversized provider-created PaymentIntent or refund reference', async () => {
+  const oversizedIntent = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: `pi_${'x'.repeat(158)}`, status: 'requires_capture', amount: 24100,
+      amount_received: 0, amount_capturable: 24100, currency: 'usd',
+    })),
+  });
+  await assert.rejects(
+    oversizedIntent.authorizePayment!({ ...context('stripe:oversized-intent'), paymentMethodReference: 'pm_card_1' }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+  const oversizedRefund = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: `re_${'x'.repeat(158)}`, payment_intent: 'pi_source_1',
+      status: 'succeeded', amount: 4100, currency: 'usd',
+    })),
+  });
+  await assert.rejects(
+    oversizedRefund.refundPayment!({
+      ...context('stripe:oversized-refund'), providerReference: 'pi_source_1',
+      money: { currency: 'USD', amountMinor: 4100n },
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
 });

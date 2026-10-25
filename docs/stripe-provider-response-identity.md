@@ -78,3 +78,11 @@ Focused regression tests and a dependency-free source contract are checked in.
 Full repository Node 24/TypeScript 6/Prisma/PostgreSQL validation and live Stripe
 verification remain separate environment gates; no new provider capability or
 supplier reservation has been enabled.
+
+## Persisted provider reference and commercial charge evidence
+
+`PaymentTransaction.providerReference` and `sourceProviderReference` are PostgreSQL `VARCHAR(160)`. Stripe PaymentIntent, Refund, and Checkout Session references must fit that limit **before** SF accepts a provider result, returns a hosted Checkout URL, persists a payment/refund claim, or performs a provider-truth lookup. A newly created oversized provider ID is retryable `UNKNOWN` provider evidence because the external payment operation may already have happened; an oversized caller-supplied lookup ID is `INVALID_REQUEST` before network I/O. Refund reconciliation likewise treats an invalid PaymentIntent ID **returned by Stripe** as retryable unknown evidence, not as an invalid customer request.
+
+The same limit is checked again in commercial-amendment charge/refund/recovery domain and persistence boundaries. Commercial-amendment charge reconciliation also rejects contradictory received/capturable money, unrecognized PaymentIntent statuses, nonzero capturable funds on settlement, and nonzero money on definitive failure. This is defense in depth behind the Stripe adapter and does not authorize new retries, new money movements, or a provider reservation capability.
+
+Focused adapter and domain tests cover the 160-character boundary, provider-versus-caller failure classification, and commercial-amendment charge state consistency. Full Node 24 / TypeScript 6 / Prisma / PostgreSQL and live-provider validation remain separate requirements.

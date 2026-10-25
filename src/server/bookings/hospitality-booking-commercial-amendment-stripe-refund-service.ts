@@ -316,7 +316,7 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
         return { payment: existing, callProvider: false as const, needsReconciliation: false as const };
       }
       if (!isInternalPaymentClaimReference(existing.providerReference)) {
-        if (!STRIPE_REFUND_REFERENCE.test(existing.providerReference)) {
+        if (!STRIPE_REFUND_REFERENCE.test(existing.providerReference) || existing.providerReference.length > 160) {
           throw new HospitalityBookingConflictError('Pending commercial amendment Stripe refund has an invalid provider reference.');
         }
         return { payment: existing, callProvider: false as const, needsReconciliation: true as const };
@@ -457,6 +457,7 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
     || providerResult.money.currency !== claim.claim.currency
     || providerResult.money.amountMinor !== claim.claim.amountMinor
     || !STRIPE_REFUND_REFERENCE.test(providerResult.refundReference)
+    || providerResult.refundReference.length > 160
   ) {
     throw new HospitalityBookingConflictError('Stripe returned a refund result that does not match the commercial amendment claim.');
   }
@@ -583,7 +584,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
       'Commercial amendment Stripe refund has no provider reference yet. Retry the exact idempotent operation to recover provider truth.',
     );
   }
-  if (!STRIPE_REFUND_REFERENCE.test(payment.providerReference) || !payment.sourceProviderReference) {
+  if (!STRIPE_REFUND_REFERENCE.test(payment.providerReference) || payment.providerReference.length > 160 || !payment.sourceProviderReference) {
     throw new HospitalityBookingConflictError('Commercial amendment Stripe refund provider evidence is invalid.');
   }
 

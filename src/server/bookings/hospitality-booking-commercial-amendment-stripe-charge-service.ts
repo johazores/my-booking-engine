@@ -132,6 +132,7 @@ function linkedSuccessfulAuthorization(input: {
   if (authorization && (
     authorization.providerCode !== STRIPE_PROVIDER_CODE
     || !STRIPE_PAYMENT_INTENT_PATTERN.test(authorization.providerReference)
+    || authorization.providerReference.length > 160
     || authorization.currency !== input.amendment.currency
     || authorization.amountMinor <= 0n
     || authorization.amountMinor > input.amendment.deltaMinor
@@ -609,6 +610,7 @@ export async function chargeStripeHospitalityBookingCommercialAmendment(input: {
     || providerResult.money.currency !== claim.currency
     || providerResult.money.amountMinor !== claim.amountMinor
     || !STRIPE_PAYMENT_INTENT_PATTERN.test(providerResult.providerReference)
+    || providerResult.providerReference.length > 160
     || (claim.stage === 'CAPTURE' && providerResult.providerReference !== claim.providerReference)
   ) {
     throw new HospitalityBookingConflictError('Stripe returned a charge result that does not match the commercial amendment claim.');
@@ -757,7 +759,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentCharge
   if (isInternalPaymentClaimReference(payment.providerReference)) {
     throw new HospitalityBookingConflictError('Commercial amendment Stripe charge has no provider reference yet. Retry the exact idempotent operation to recover provider truth.');
   }
-  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(payment.providerReference)) {
+  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(payment.providerReference) || payment.providerReference.length > 160) {
     throw new HospitalityBookingConflictError('Commercial amendment Stripe charge provider reference is invalid.');
   }
 

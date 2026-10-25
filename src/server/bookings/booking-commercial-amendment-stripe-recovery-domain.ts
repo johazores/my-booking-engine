@@ -27,7 +27,7 @@ function assertRecoveryMoney(input: { currency: string; amountMinor: bigint }) {
 }
 
 function assertPaymentIntentReference(reference: string) {
-  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(reference)) {
+  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(reference) || reference.length > 160) {
     throw new Error('Stripe commercial amendment recovery PaymentIntent reference is invalid.');
   }
 }
@@ -125,7 +125,7 @@ export function reconcileStripeCommercialAmendmentRecoveryAuthorization(input: {
 }
 
 export function assertStripeCommercialAmendmentRecoveryRefundReference(reference: string) {
-  if (!STRIPE_REFUND_PATTERN.test(reference)) {
+  if (!STRIPE_REFUND_PATTERN.test(reference) || reference.length > 160) {
     throw new Error('Stripe commercial amendment recovery refund reference is invalid.');
   }
   return reference;

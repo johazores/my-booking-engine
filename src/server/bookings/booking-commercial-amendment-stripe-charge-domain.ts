@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { isKnownStripePaymentIntentStatus } from '../payments/stripe-provider-status.ts';
+
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 
 export type StripeCommercialAmendmentChargeStage = 'AUTHORIZATION' | 'CAPTURE';
@@ -98,7 +100,7 @@ export function reconcileStripeCommercialAmendmentChargeSnapshot(input: {
   providerReference: string;
   snapshot: StripeCommercialAmendmentChargeSnapshot;
 }): StripeCommercialAmendmentChargePersistence {
-  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference)) {
+  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference) || input.providerReference.length > 160) {
     throw new Error('Commercial amendment Stripe PaymentIntent reference is invalid.');
   }
   if (input.snapshot.providerReference !== input.providerReference) {
@@ -107,10 +109,29 @@ export function reconcileStripeCommercialAmendmentChargeSnapshot(input: {
   if (input.snapshot.currency !== input.currency || input.snapshot.amountMinor !== input.amountMinor) {
     throw new Error('Stripe reconciliation money does not match the commercial amendment charge.');
   }
+  if (!isKnownStripePaymentIntentStatus(input.snapshot.status)) {
+    throw new Error('Stripe reconciliation returned an unrecognized PaymentIntent status.');
+  }
+  if (
+    input.snapshot.amountReceivedMinor < 0n
+    || input.snapshot.amountCapturableMinor < 0n
+    || input.snapshot.amountReceivedMinor + input.snapshot.amountCapturableMinor > input.amountMinor
+  ) {
+    throw new Error('Stripe reconciliation returned contradictory charge money.');
+  }
+  if (input.snapshot.status === 'succeeded' && input.snapshot.amountCapturableMinor !== 0n) {
+    throw new Error('Stripe settled commercial amendment charge still has capturable money.');
+  }
+  if (
+    (input.snapshot.status === 'canceled' || input.snapshot.status === 'requires_payment_method')
+    && (input.snapshot.amountReceivedMinor !== 0n || input.snapshot.amountCapturableMinor !== 0n)
+  ) {
+    throw new Error('Stripe failed commercial amendment charge still has received or capturable money.');
+  }
 
   if (input.stage === 'AUTHORIZATION') {
     if (input.snapshot.status === 'requires_capture') {
-      if (input.snapshot.amountCapturableMinor !== input.amountMinor) {
+      if (input.snapshot.amountReceivedMinor !== 0n || input.snapshot.amountCapturableMinor !== input.amountMinor) {
         throw new Error('Stripe capturable amount does not match the commercial amendment charge.');
       }
       return Object.freeze({ transactionStatus: 'SUCCEEDED', directlySettled: false });
@@ -144,6 +165,9 @@ export function stripeCommercialAmendmentDirectCaptureIdempotencyKey(input: {
   amendmentId: string;
   providerReference: string;
 }) {
+  if (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference) || input.providerReference.length > 160) {
+    throw new Error('Commercial amendment Stripe PaymentIntent reference is invalid.');
+  }
   const digest = createHash('sha256')
     .update(['stripe-commercial-amendment-direct-capture', input.bookingId, input.amendmentId, input.providerReference].join('\u001f'), 'utf8')
     .digest('hex');

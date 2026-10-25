@@ -87,3 +87,37 @@ test('direct settlement capture identity is deterministic', () => {
   assert.equal(first, second);
   assert.match(first, /^ca-stripe-direct-capture-[0-9a-f]{64}$/);
 });
+
+test('charge reconciliation rejects contradictory provider money and unknown statuses', () => {
+  const reconcile = (stage: 'AUTHORIZATION' | 'CAPTURE', overrides: Parameters<typeof snapshot>[0]) =>
+    reconcileStripeCommercialAmendmentChargeSnapshot({
+      stage, currency: 'USD', amountMinor: 2500n, providerReference: 'pi_adjustment123',
+      snapshot: snapshot(overrides),
+    });
+  assert.throws(() => reconcile('AUTHORIZATION', { amountReceivedMinor: 1n }), /contradictory charge money/);
+  assert.throws(() => reconcile('AUTHORIZATION', { amountReceivedMinor: 1n, amountCapturableMinor: 2499n }), /capturable amount/);
+  assert.throws(() => reconcile('CAPTURE', { status: 'succeeded', amountReceivedMinor: 2500n, amountCapturableMinor: 1n }), /contradictory charge money/);
+  assert.throws(() => reconcile('AUTHORIZATION', { status: 'canceled' }), /received or capturable money/);
+  assert.throws(() => reconcile('CAPTURE', { status: 'requires_payment_method' }), /received or capturable money/);
+  assert.throws(() => reconcile('AUTHORIZATION', { status: 'unexpected' }), /unrecognized PaymentIntent status/);
+  assert.deepEqual(reconcile('AUTHORIZATION', { status: 'canceled', amountCapturableMinor: 0n }), {
+    transactionStatus: 'FAILED', directlySettled: false,
+  });
+});
+
+test('commercial amendment charge identities cannot exceed the persisted reference limit', () => {
+  const providerReference = `pi_${'x'.repeat(158)}`;
+  assert.throws(
+    () => reconcileStripeCommercialAmendmentChargeSnapshot({
+      stage: 'CAPTURE', currency: 'USD', amountMinor: 2500n,
+      providerReference, snapshot: snapshot({ providerReference }),
+    }),
+    /PaymentIntent reference/,
+  );
+  assert.throws(
+    () => stripeCommercialAmendmentDirectCaptureIdempotencyKey({
+      bookingId: BOOKING_ID, amendmentId: AMENDMENT_ID, providerReference,
+    }),
+    /PaymentIntent reference/,
+  );
+});

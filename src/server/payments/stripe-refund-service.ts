@@ -438,7 +438,7 @@ export async function refundStripeBookingPayment(input: {
     || result.money.currency !== booking.currency
     || result.money.amountMinor !== claim.amountMinor
   ) throw new PaymentConflictError('Stripe returned a refund result that does not match the requested refund.');
-  if (!REFUND_REFERENCE.test(result.refundReference)) throw new PaymentConflictError('Stripe returned an invalid refund reference.');
+  if (!REFUND_REFERENCE.test(result.refundReference) || result.refundReference.length > 160) throw new PaymentConflictError('Stripe returned an invalid refund reference.');
   const transactionStatus = stripeRefundPersistenceStatus(result.status);
 
   return db.$transaction(async (tx) => {

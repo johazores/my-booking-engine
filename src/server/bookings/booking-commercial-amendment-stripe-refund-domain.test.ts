@@ -143,3 +143,13 @@ test('commercial amendment refund rejects unreviewed states instead of treating 
     }), /status is not recognized/);
   }
 });
+
+test('commercial amendment refund source identity cannot exceed the persisted ledger limit', () => {
+  assert.throws(
+    () => stripeCommercialAmendmentRefundFingerprint({
+      bookingId: 'booking-1', amendmentId: 'amendment-1', currency: 'USD',
+      amountMinor: 2500n, sourceProviderReference: `pi_${'x'.repeat(158)}`,
+    }),
+    /refund source/,
+  );
+});

@@ -48,7 +48,7 @@ export function stripeCommercialAmendmentRefundFingerprint(input: {
   amountMinor: bigint;
   sourceProviderReference: string;
 }): string {
-  if (!/^pi_[A-Za-z0-9_]+$/.test(input.sourceProviderReference)) {
+  if (!/^pi_[A-Za-z0-9_]+$/.test(input.sourceProviderReference) || input.sourceProviderReference.length > 160) {
     throw new Error('Stripe commercial amendment refund source is invalid.');
   }
   if (!/^[A-Z]{3}$/.test(input.currency) || input.amountMinor <= 0n) {
