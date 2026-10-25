@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -23,7 +23,7 @@ const MAX_PAGE_SIZE = 100;
 const MAX_TOTAL_OFFERS = MAX_PAGE_COUNT * MAX_PAGE_SIZE;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const FINGERPRINT = /^[0-9a-f]{64}$/;
-const tokenCache = new Map<string, Readonly<{ token: string; expiresAtMs: number }>>();
+const tokenCache = new Map<string, Readonly<{ accessToken: string; expiresAtMs: number }>>();
 const tokenRequests = new Map<string, Promise<string>>();
 
 type RecordValue = Record<string, unknown>;
@@ -251,12 +251,12 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
   async #token() {
     const nowMs = this.#now().getTime();
     const cached = readTravelportStaysCachedToken(tokenCache, this.#cacheKey, nowMs);
-    if (cached) return cached.token;
+    if (cached) return cached.accessToken;
     const pending = tokenRequests.get(this.#cacheKey);
     if (pending) return pending;
     const request = requestTravelportStaysAccessToken({ credentials: this.#credentials, fetchImpl: this.#fetch, timeoutMs: this.#timeoutMs, nowMs })
       .then((token) => {
-        if (!storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, Object.freeze({ token: token.accessToken, expiresAtMs: token.expiresAtMs }), this.#now().getTime())) {
+        if (!storeTravelportStaysCachedToken(tokenCache, this.#cacheKey, Object.freeze({ accessToken: token.accessToken, expiresAtMs: token.expiresAtMs }), this.#now().getTime())) {
           throw new HospitalitySupplierProviderError('PROVIDER_UNAVAILABLE');
         }
         return token.accessToken;
@@ -267,6 +267,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
   }
 
   async #request(input: { url: string; method: 'GET' | 'POST'; body?: unknown; freshPricing?: boolean }) {
+    const accessToken = await this.#token();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
     let response: Response;
@@ -278,7 +279,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
         signal: controller.signal,
         headers: {
           'Accept-Encoding': 'gzip, deflate', 'Cache-Control': 'no-cache', Accept: 'application/json', 'Content-Type': 'application/json',
-          Authorization: `Bearer ${await this.#token()}`, XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup, E2ETrackingID: `sf-${randomUUID()}`,
+          Authorization: `Bearer ${accessToken}`, XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup, E2ETrackingID: `sf-${randomUUID()}`,
           username: this.#credentials.username, password: this.#credentials.password, client_id: this.#credentials.clientId, client_secret: this.#credentials.clientSecret,
           ...(input.freshPricing ? { 'TVP-Cache-Control': 'no-cache' } : {}),
         },
@@ -290,7 +291,7 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
       clearTimeout(timer);
     }
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+      if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(tokenCache, this.#cacheKey, accessToken);
       throw failure(response.status);
     }
     return response.json().catch(() => null);

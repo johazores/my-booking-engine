@@ -40,3 +40,15 @@ test('all Travelport OAuth adapter caches bound completed tokens and retain in-f
     assert.match(code, /now:\s*\(\)\s*=>\s*this\.#now\(\)\.getTime\(\)/, `${path}: injected clock must be preserved`);
   }
 });
+
+test('all six adapters evict only the bearer rejected by their own request', () => {
+  const helper = readFileSync(join(process.cwd(), 'src/server/suppliers/travelport-stays-access-token-cache.ts'), 'utf8');
+  assert.match(helper, /cached\.accessToken !== rejectedAccessToken/);
+  for (const path of sources) {
+    const code = readFileSync(join(process.cwd(), path), 'utf8');
+    assert.match(code, /const accessToken = await this\.#(?:accessToken|token)\(\)/, path);
+    assert.match(code, /response\.status === 401 \|\| response\.status === 403/, path);
+    assert.match(code, /invalidateTravelportStaysCachedToken\((?:rulesTokenCache|tokenCache), this\.#cacheKey, accessToken\)/, path);
+    assert.doesNotMatch(code, /(?:rulesTokenCache|tokenCache)\.delete\(this\.#cacheKey\)/, path);
+  }
+});

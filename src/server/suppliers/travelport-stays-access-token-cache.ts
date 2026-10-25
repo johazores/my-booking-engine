@@ -29,6 +29,19 @@ export function readTravelportStaysCachedToken<T extends ExpiringToken>(
   return cached;
 }
 
+/** Evict only the bearer actually rejected by a provider request. A late
+ * 401/403 must not remove a newer OAuth refresh for the same tenant key. */
+export function invalidateTravelportStaysCachedToken<T extends Readonly<{ accessToken: string }>>(
+  cache: Map<string, T>,
+  key: string,
+  rejectedAccessToken: string,
+): boolean {
+  const cached = cache.get(key);
+  if (!cached || cached.accessToken !== rejectedAccessToken) return false;
+  cache.delete(key);
+  return true;
+}
+
 export function storeTravelportStaysCachedToken<T extends ExpiringToken>(
   cache: Map<string, T>,
   key: string,

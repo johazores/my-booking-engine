@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { moneyMinorToMajorString } from '../pricing/money.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { HospitalitySupplierReservationPaymentAuthority } from './hospitality-supplier-reservation-payment-authority.ts';
@@ -658,7 +658,7 @@ export class TravelportStaysReservationCreateExecutor {
       clearTimeout(timeout);
     }
 
-    if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+    if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(tokenCache, this.#cacheKey, accessToken);
     const body = await response.json().catch(() => null);
     return classifyTravelportStaysReservationCreateOutcome({
       httpStatus: response.status,

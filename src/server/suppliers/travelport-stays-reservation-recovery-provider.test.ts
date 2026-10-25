@@ -359,3 +359,35 @@ test('Travelport recovery rejects unsafe request authority and reservation expec
   }));
   assert.equal(calls, 0);
 });
+
+test('late Retrieve 403 does not discard a newer tenant bearer', async () => {
+  let releaseStale!: (response: Response) => void;
+  let notifyStale!: () => void;
+  const staleResponse = new Promise<Response>((resolve) => { releaseStale = resolve; });
+  const staleStarted = new Promise<void>((resolve) => { notifyStale = resolve; });
+  let oauthCalls = 0;
+  const sent: string[] = [];
+  const provider = new TravelportStaysReservationRecoveryProvider({
+    credentials,
+    cacheKey: 'late-retrieve-403-concurrency',
+    fetchImpl: (async (url, init) => {
+      if (String(url).includes('/oauth/token')) {
+        oauthCalls += 1;
+        return jsonResponse({ access_token: `recovery-${oauthCalls}`, expires_in: 86400 });
+      }
+      sent.push(new Headers(init?.headers).get('Authorization') ?? '');
+      if (sent.length === 1) { notifyStale(); return staleResponse; }
+      if (sent.length === 2) return jsonResponse({}, 403);
+      return jsonResponse(reservationResponse());
+    }) as typeof fetch,
+  });
+  const first = provider.retrieveReservation(recoveryRequest());
+  await staleStarted;
+  await assert.rejects(provider.retrieveReservation(recoveryRequest()), (e: unknown) => e instanceof HospitalitySupplierProviderError && e.code === 'AUTHENTICATION_FAILED');
+  await provider.retrieveReservation(recoveryRequest());
+  releaseStale(jsonResponse({}, 403));
+  await assert.rejects(first, (e: unknown) => e instanceof HospitalitySupplierProviderError && e.code === 'AUTHENTICATION_FAILED');
+  await provider.retrieveReservation(recoveryRequest());
+  assert.equal(oauthCalls, 2);
+  assert.deepEqual(sent, ['Bearer recovery-1', 'Bearer recovery-1', 'Bearer recovery-2', 'Bearer recovery-2']);
+});

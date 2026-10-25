@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { HospitalitySupplierProviderError, type HospitalitySupplierFailureCode } from './hospitality-supplier-provider.ts';
 import { throwHospitalitySupplierTransportFailure } from './hospitality-supplier-transport-failure.ts';
 import type {
@@ -209,7 +209,7 @@ export class TravelportStaysReservationRecoveryProvider implements HospitalitySu
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+      if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(tokenCache, this.#cacheKey, accessToken);
       const negativeEvidence = inspectTravelportStaysReservationNegativeEvidence(payload, response.status);
       if (negativeEvidence) {
         return Object.freeze({

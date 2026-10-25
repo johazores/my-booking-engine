@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -715,6 +715,7 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
   }
 
   async #request(input: { url: string; body: unknown; freshPricing?: boolean }) {
+    const accessToken = await this.#accessToken();
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
       url: input.url,
@@ -727,7 +728,7 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
           'Cache-Control': 'no-cache',
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await this.#accessToken()}`,
+          Authorization: `Bearer ${accessToken}`,
           XAUTH_TRAVELPORT_ACCESSGROUP: this.#credentials.accessGroup,
           E2ETrackingID: `sf-${randomUUID()}`,
           username: this.#credentials.username,
@@ -740,7 +741,7 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
       },
     });
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) rulesTokenCache.delete(this.#cacheKey);
+      if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(rulesTokenCache, this.#cacheKey, accessToken);
       throw providerFailureForStatus(response.status);
     }
     return response.json().catch(() => null);

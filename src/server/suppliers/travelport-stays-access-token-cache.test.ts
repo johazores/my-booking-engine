@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MAX_TRAVELPORT_STAYS_CACHED_TOKENS,
+  invalidateTravelportStaysCachedToken,
   readTravelportStaysCachedToken,
   storeTravelportStaysCachedToken,
 } from './travelport-stays-access-token-cache.ts';
@@ -72,4 +73,24 @@ test('cache retention reports whether the OAuth response is still usable at comp
   assert.equal(readTravelportStaysCachedToken(cache, 'slow-tenant', 151), null);
   assert.equal(storeTravelportStaysCachedToken(cache, 'slow-tenant', token('fresh', 500), 151), true);
   assert.equal(readTravelportStaysCachedToken(cache, 'slow-tenant', 151)?.accessToken, 'fresh');
+});
+
+test('stale 401 cannot evict a newer bearer for the same tenant key', () => {
+  const cache = new Map<string, Token>();
+  storeTravelportStaysCachedToken(cache, 'tenant:v1', token('old'), 100);
+  const sent = readTravelportStaysCachedToken(cache, 'tenant:v1', 100)?.accessToken;
+  storeTravelportStaysCachedToken(cache, 'tenant:v1', token('new'), 101);
+  assert.equal(invalidateTravelportStaysCachedToken(cache, 'tenant:v1', sent!), false);
+  assert.equal(readTravelportStaysCachedToken(cache, 'tenant:v1', 102)?.accessToken, 'new');
+});
+
+test('current bearer rejection evicts only its tenant credential version', () => {
+  const cache = new Map<string, Token>();
+  storeTravelportStaysCachedToken(cache, 'a:v1', token('rejected'), 100);
+  storeTravelportStaysCachedToken(cache, 'b:v1', token('other'), 100);
+  assert.equal(invalidateTravelportStaysCachedToken(cache, 'a:v1', 'unrelated'), false);
+  assert.equal(invalidateTravelportStaysCachedToken(cache, 'missing', 'rejected'), false);
+  assert.equal(invalidateTravelportStaysCachedToken(cache, 'a:v1', 'rejected'), true);
+  assert.equal(readTravelportStaysCachedToken(cache, 'a:v1', 100), null);
+  assert.equal(readTravelportStaysCachedToken(cache, 'b:v1', 100)?.accessToken, 'other');
 });

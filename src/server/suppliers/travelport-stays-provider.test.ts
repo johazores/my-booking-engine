@@ -248,3 +248,36 @@ test('SearchComplete evicts an access token after provider authentication reject
   await provider.searchProperties(search);
   assert.equal(tokenCalls, 2);
 });
+
+test('late SearchComplete 401 does not discard a newer token', async () => {
+  let releaseStale!: (response: Response) => void;
+  let notifyStale!: () => void;
+  const staleResponse = new Promise<Response>((resolve) => { releaseStale = resolve; });
+  const staleStarted = new Promise<void>((resolve) => { notifyStale = resolve; });
+  let oauthCalls = 0;
+  const sent: string[] = [];
+  const provider = new TravelportStaysProvider({
+    credentials: configuration.credentials,
+    cacheKey: 'late-search-401-concurrency',
+    fetchImpl: (async (url, init) => {
+      if (String(url).includes('/oauth/token')) {
+        oauthCalls += 1;
+        return jsonResponse({ access_token: `token-${oauthCalls}`, expires_in: 86400 });
+      }
+      sent.push(new Headers(init?.headers).get('Authorization') ?? '');
+      if (sent.length === 1) { notifyStale(); return staleResponse; }
+      if (sent.length === 2) return new Response('', { status: 401 });
+      return jsonResponse(emptySearchResponse());
+    }) as typeof fetch,
+  });
+  const search = { cityIataCode: 'SYD', checkInDateLocal: '2026-12-10', checkOutDateLocal: '2026-12-11', rooms: 1, adults: 1 } as const;
+  const first = provider.searchProperties(search);
+  await staleStarted;
+  await assert.rejects(provider.searchProperties(search), (e: unknown) => e instanceof HospitalitySupplierProviderError && e.code === 'AUTHENTICATION_FAILED');
+  await provider.searchProperties(search);
+  releaseStale(new Response('', { status: 401 }));
+  await assert.rejects(first, (e: unknown) => e instanceof HospitalitySupplierProviderError && e.code === 'AUTHENTICATION_FAILED');
+  await provider.searchProperties(search);
+  assert.equal(oauthCalls, 2);
+  assert.deepEqual(sent, ['Bearer token-1', 'Bearer token-1', 'Bearer token-2', 'Bearer token-2']);
+});

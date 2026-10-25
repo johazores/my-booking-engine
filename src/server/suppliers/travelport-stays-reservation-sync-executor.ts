@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { NormalizedHospitalitySupplierReservationTravelerPayload } from './hospitality-supplier-reservation-traveler-authority.ts';
 import {
@@ -215,7 +215,7 @@ export class TravelportStaysReservationSyncExecutor {
       clearTimeout(timeout);
     }
 
-    if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+    if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(tokenCache, this.#cacheKey, accessToken);
     const body = await response.json().catch(() => null);
     return classifyTravelportStaysReservationSyncOutcome({
       httpStatus: response.status,

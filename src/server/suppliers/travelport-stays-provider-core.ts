@@ -1,4 +1,4 @@
-import { readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -871,18 +871,19 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
     freshPricing?: boolean;
     normalize: (value: unknown) => T;
   }): Promise<T> {
+    const accessToken = await this.#accessToken();
     const response = await fetchWithTimeout({
       fetchImpl: this.#fetchImpl,
       url: input.url,
       timeoutMs: this.#timeoutMs,
       init: {
         ...input.init,
-        headers: this.#requestHeaders(await this.#accessToken(), input.freshPricing === true),
+        headers: this.#requestHeaders(accessToken, input.freshPricing === true),
         cache: 'no-store',
       },
     });
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) tokenCache.delete(this.#cacheKey);
+      if (response.status === 401 || response.status === 403) invalidateTravelportStaysCachedToken(tokenCache, this.#cacheKey, accessToken);
       throw providerFailureForStatus(response.status);
     }
     const payload = await response.json().catch(() => null);
