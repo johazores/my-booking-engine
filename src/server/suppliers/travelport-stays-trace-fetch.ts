@@ -2,6 +2,7 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
 import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
+import { isValidTravelportStaysJsonObjectBody } from './travelport-stays-json-request-body-authority.ts';
 
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
@@ -202,6 +203,7 @@ function assertTravelportStaysRequestBody(body: BodyInit | null, headers: Header
     || !hasExactContentType(headers, 'application/json')
     || !hasJsonObjectEnvelope(body)
     || !hasUtf8ByteLengthAtMost(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES)
+    || !isValidTravelportStaysJsonObjectBody(body)
   ) {
     invalidTravelportRequestBody();
   }

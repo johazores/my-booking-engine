@@ -2,6 +2,7 @@ import { HospitalitySupplierProviderError } from './hospitality-supplier-provide
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority, type TravelportStaysTransportCredentialAuthority } from './travelport-stays-transport-constructor-authority.ts';
 import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
+import { isValidTravelportStaysJsonObjectBody } from './travelport-stays-json-request-body-authority.ts';
 import type {
   TravelportStaysCredentials,
   TravelportStaysEnvironment,
@@ -245,6 +246,7 @@ function assertTravelportStaysTerminalBody(
     || !hasExactContentType(headers, TRAVELPORT_JSON_CONTENT_TYPE)
     || !hasJsonObjectEnvelope(body)
     || !hasUtf8ByteLengthAtMost(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES)
+    || !isValidTravelportStaysJsonObjectBody(body)
   ) {
     invalidCredentialContainment();
   }

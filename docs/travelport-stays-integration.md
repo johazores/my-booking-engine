@@ -34,6 +34,8 @@ Pricing requests use no-cache authority and exact integer-minor money. Malformed
 
 `HospitalitySupplierReservationAuthorityProvider` bridges the exact selected SearchComplete/Rules rate into v11 Availability, consumes bounded continuation pages, and requires exactly one matching property/rate/stay/occupancy result. The resulting authority fingerprint covers provider, property, selected rate identity, Availability booking identity, stay/occupancy, money, and accepted offer/terms evidence. Expiring provider submission references remain ephemeral and are re-established before a write.
 
+The shared and terminal Stays transports also reject syntactically malformed JSON object request bodies before network I/O. The composed no-network write preflight applies the same guard before a durable provider-request marker; see `docs/travelport-stays-json-request-body-authority.md`.
+
 ## Durable supplier reservation ledger
 
 `HospitalitySupplierReservationOperation` and `HospitalitySupplierReservationAttempt` are provider-neutral durable write/recovery records. Operations are tenant-owned, integration/credential-version bound, authority-fingerprinted, exact-money/stay/occupancy bound, and protected by organization-scoped advisory locks.
