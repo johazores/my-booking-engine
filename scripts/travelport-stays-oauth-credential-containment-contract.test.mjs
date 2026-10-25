@@ -63,11 +63,13 @@ test('terminal containment independently pins OAuth credentials to the configure
   assert.match(containment, /url\.search === ''/);
   assert.match(containment, /method !== 'POST'/);
   assert.match(containment, /carriesTravelportStaysAuthority\(headers\)/);
-  assert.match(containment, /body instanceof URLSearchParams/);
-  assert.match(containment, /entries\.length !== 5/);
-  assert.match(containment, /values\.get\('grant_type'\) !== 'password'/);
-  assert.match(containment, /values\.get\(name\) !== expected\[name\]/);
-  assert.match(containment, /values\.size !== TRAVELPORT_OAUTH_CREDENTIAL_FIELDS\.length \+ 1/);
+  assert.match(containment, /materializeTravelportStaysOAuthRequestBody\(body\)/);
+  assert.match(containment, /terminalTravelportRequestInit\(method, oauthBody, signal, headers\)/);
+  assert.match(containment, /snapshot\.credentials\.client_secret !== credentials\.clientSecret/);
+  const oauthSnapshot = source('src/server/suppliers/travelport-stays-oauth-request-body.ts');
+  assert.match(oauthSnapshot, /URLSearchParams\.prototype\.entries\.call\(body\)/);
+  assert.match(oauthSnapshot, /index < 6/);
+  assert.match(oauthSnapshot, /values\.size !== 5/);
 });
 
 test('terminal containment projects network-safe Fetch metadata without spreading caller init', () => {

@@ -93,7 +93,7 @@ test('trace transport owns sensitive Fetch request metadata and header channels'
   assert.match(trace, /assertTravelportOAuthRequestHeaders\(headers, authority\.credentials !== undefined\)/);
   assert.match(trace, /assertTravelportStaysRequestHeaders\(headers, url, method, authority\.credentials\)/);
   assert.match(trace, /assertTravelportOAuthRequestBody\(body, headers, authority\.credentials\)/);
-  assert.match(trace, /body\.get\('client_id'\) !== credentials\.clientId/);
+  assert.match(trace, /snapshot\.credentials\.client_id !== credentials\.clientId/);
   assert.match(trace, /headers\.get\('XAUTH_TRAVELPORT_ACCESSGROUP'\) !== credentials\.accessGroup/);
   assert.match(trace, /!headers\.has\('Accept-Encoding'\)/);
   assert.match(trace, /authorization === null/);
@@ -111,11 +111,14 @@ test('trace transport bounds adapter-owned request body representations without 
   assert.match(trace, /MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 \* 1024 \* 1024/);
   assert.match(trace, /function effectiveRequestBody/);
   assert.match(trace, /function assertTravelportOAuthRequestBody/);
-  assert.match(trace, /if \(body === null\) invalidTravelportRequestBody\(\)/);
-  assert.match(trace, /body instanceof URLSearchParams/);
+  assert.match(trace, /materializeTravelportStaysOAuthRequestBody\(body\)/);
+  assert.match(trace, /travelportRequestInit\(method, oauthBody, signal, headers\)/);
   assert.match(trace, /application\/x-www-form-urlencoded/);
-  assert.match(trace, /value !== 'password'/);
-  assert.match(trace, /TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS/);
+  const oauthSnapshot = source('src/server/suppliers/travelport-stays-oauth-request-body.ts');
+  assert.match(oauthSnapshot, /URLSearchParams\.prototype\.entries\.call\(body\)/);
+  assert.match(oauthSnapshot, /index < 6/);
+  assert.match(oauthSnapshot, /value !== 'password'/);
+  assert.match(oauthSnapshot, /FIELD_LIMITS/);
   assert.match(trace, /function assertTravelportStaysRequestBody/);
   assert.match(trace, /typeof body !== 'string'/);
   assert.match(trace, /application\/json/);

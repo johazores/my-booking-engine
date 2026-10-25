@@ -27,6 +27,8 @@ The shared transport wrapper is also a fail-closed outbound target boundary. A p
 
 Unsupported methods, extra query parameters, duplicate review flags, false review flags, non-canonical path/query encodings that cannot be produced by the adapters, unrelated Stays paths, missing/foreign/malformed correlation, and cross-environment targets all fail before transport. Path identifiers and query strings must use the same canonical adapter encoding before they are accepted. This keeps an adapter defect or injected transport caller from turning Travelport credentials into authority for an API operation SF has not implemented and reviewed.
 
+Both outbound wrappers now materialize the OAuth form using bounded native URLSearchParams iteration and forward independent snapshots, rather than validating one mutable body and sending another. The terminal containment wrapper independently rechecks the captured credentials after the trace wrapper.
+
 OAuth is the only uncorrelated exception. It is accepted only as `POST` to the configured environment's fixed `/oauth/token` target, on the default HTTPS port, with no URL userinfo, query, fragment, or `E2ETrackingID`. Stays trace headers are removed from that request. Any other host, alternate port, credentialed URL, method, unsupported path, or unexpected OAuth shape fails closed before credentials can leave the process.
 
 The authenticated integration connection test uses the same environment-bound wrapper around its injectable transport, so validation traffic cannot bypass the production target policy.

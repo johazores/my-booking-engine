@@ -1,5 +1,6 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { materializeTravelportStaysTransportConstructorAuthority, type TravelportStaysTransportCredentialAuthority } from './travelport-stays-transport-constructor-authority.ts';
+import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
 import type {
   TravelportStaysCredentials,
   TravelportStaysEnvironment,
@@ -29,12 +30,6 @@ const TRAVELPORT_STAYS_AUTHORITY_HEADERS = Object.freeze([
   'authorization',
   'xauth_travelport_accessgroup',
   ...LONG_LIVED_OAUTH_CREDENTIAL_HEADERS,
-] as const);
-const TRAVELPORT_OAUTH_CREDENTIAL_FIELDS = Object.freeze([
-  'username',
-  'password',
-  'client_id',
-  'client_secret',
 ] as const);
 const TRAVELPORT_STAYS_ENDPOINTS = Object.freeze({
   searchComplete: '/12/hotel/search/searchcomplete',
@@ -66,7 +61,6 @@ const TRAVELPORT_OAUTH_CONTENT_TYPE = 'application/x-www-form-urlencoded';
 const BEARER_PREFIX = 'Bearer ';
 
 type LongLivedOAuthCredentialHeader = (typeof LONG_LIVED_OAUTH_CREDENTIAL_HEADERS)[number];
-type OAuthCredentialField = (typeof TRAVELPORT_OAUTH_CREDENTIAL_FIELDS)[number];
 
 function invalidCredentialContainment(): never {
   throw new HospitalitySupplierProviderError(
@@ -124,17 +118,6 @@ function terminalTravelportRequestInit(
 function expectedCredentialHeaderValues(
   credentials: TravelportStaysTransportCredentialAuthority,
 ): Readonly<Record<LongLivedOAuthCredentialHeader, string>> {
-  return Object.freeze({
-    username: credentials.username,
-    password: credentials.password,
-    client_id: credentials.clientId,
-    client_secret: credentials.clientSecret,
-  });
-}
-
-function expectedOAuthCredentialFieldValues(
-  credentials: TravelportStaysTransportCredentialAuthority,
-): Readonly<Record<OAuthCredentialField, string>> {
   return Object.freeze({
     username: credentials.username,
     password: credentials.password,
@@ -356,28 +339,15 @@ function isSecureTravelportOAuthTarget(url: URL, authenticationHost: string) {
 function assertTravelportOAuthCredentialBody(
   body: BodyInit | null,
   credentials: TravelportStaysTransportCredentialAuthority,
-) {
-  if (!(body instanceof URLSearchParams)) invalidCredentialContainment();
-
-  const entries = [...body.entries()];
-  if (entries.length !== 5) invalidCredentialContainment();
-
-  const values = new Map<string, string>();
-  for (const [key, value] of entries) {
-    if (values.has(key)) invalidCredentialContainment();
-    values.set(key, value);
-  }
-
-  if (values.get('grant_type') !== 'password') invalidCredentialContainment();
-
-  const expected = expectedOAuthCredentialFieldValues(credentials);
-  for (const name of TRAVELPORT_OAUTH_CREDENTIAL_FIELDS) {
-    if (values.get(name) !== expected[name]) invalidCredentialContainment();
-  }
-
-  if (values.size !== TRAVELPORT_OAUTH_CREDENTIAL_FIELDS.length + 1) {
-    invalidCredentialContainment();
-  }
+): URLSearchParams {
+  const snapshot = materializeTravelportStaysOAuthRequestBody(body);
+  if (
+    !snapshot || snapshot.credentials.username !== credentials.username
+    || snapshot.credentials.password !== credentials.password
+    || snapshot.credentials.client_id !== credentials.clientId
+    || snapshot.credentials.client_secret !== credentials.clientSecret
+  ) invalidCredentialContainment();
+  return snapshot.body;
 }
 
 export function createTravelportStaysOAuthCredentialContainmentFetch(input: Readonly<{
@@ -422,8 +392,8 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
       }
       assertAllowedTerminalHeaders(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS);
       if (!hasExactContentType(headers, TRAVELPORT_OAUTH_CONTENT_TYPE)) invalidCredentialContainment();
-      assertTravelportOAuthCredentialBody(body, credentials);
-      return fetchImpl(url.href, terminalTravelportRequestInit(method, body, signal, headers));
+      const oauthBody = assertTravelportOAuthCredentialBody(body, credentials);
+      return fetchImpl(url.href, terminalTravelportRequestInit(method, oauthBody, signal, headers));
     }
 
     if (url.hostname !== targets.staysHost) invalidCredentialContainment();

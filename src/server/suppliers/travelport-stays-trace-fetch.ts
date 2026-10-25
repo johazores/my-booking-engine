@@ -1,5 +1,6 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
+import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
 
 const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
@@ -7,12 +8,6 @@ const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 * 1024;
 const MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH = 'Bearer '.length + 16_384;
-const TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS: Readonly<Record<string, number>> = Object.freeze({
-  username: 512,
-  password: 4096,
-  client_id: 512,
-  client_secret: 4096,
-});
 const TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   username: 512,
   password: 4096,
@@ -181,57 +176,16 @@ function assertTravelportOAuthRequestBody(
   body: BodyInit | null,
   headers: Headers,
   credentials?: TravelportStaysTransportCredentials,
-) {
-  if (body === null) invalidTravelportRequestBody();
-  if (!(body instanceof URLSearchParams) || !hasExactContentType(headers, 'application/x-www-form-urlencoded')) {
-    invalidTravelportRequestBody();
-  }
-
-  const entries = [...body.entries()];
-  if (entries.length !== 5) invalidTravelportRequestBody();
-
-  const seen = new Set<string>();
-  for (const [key, value] of entries) {
-    if (seen.has(key)) invalidTravelportRequestBody();
-    seen.add(key);
-    if (key === 'grant_type') {
-      if (value !== 'password') invalidTravelportRequestBody();
-      continue;
-    }
-
-    const maxLength = TRAVELPORT_OAUTH_CREDENTIAL_FIELD_LIMITS[key];
-    if (
-      maxLength === undefined
-      || value.length === 0
-      || value.length > maxLength
-      || value.trim() !== value
-      || /[\r\n]/.test(value)
-    ) {
-      invalidTravelportRequestBody();
-    }
-  }
-
-  if (
-    !seen.has('grant_type')
-    || !seen.has('username')
-    || !seen.has('password')
-    || !seen.has('client_id')
-    || !seen.has('client_secret')
-  ) {
-    invalidTravelportRequestBody();
-  }
-
-  if (
-    credentials
-    && (
-      body.get('username') !== credentials.username
-      || body.get('password') !== credentials.password
-      || body.get('client_id') !== credentials.clientId
-      || body.get('client_secret') !== credentials.clientSecret
-    )
-  ) {
-    invalidTravelportRequestBody();
-  }
+): URLSearchParams {
+  if (!hasExactContentType(headers, 'application/x-www-form-urlencoded')) invalidTravelportRequestBody();
+  const snapshot = materializeTravelportStaysOAuthRequestBody(body);
+  if (!snapshot || (credentials && (
+    snapshot.credentials.username !== credentials.username
+    || snapshot.credentials.password !== credentials.password
+    || snapshot.credentials.client_id !== credentials.clientId
+    || snapshot.credentials.client_secret !== credentials.clientSecret
+  ))) invalidTravelportRequestBody();
+  return snapshot.body;
 }
 
 function assertTravelportStaysRequestBody(body: BodyInit | null, headers: Headers, method: string) {
@@ -621,10 +575,10 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
         throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport OAuth request target is invalid.');
       }
       assertTravelportOAuthRequestHeaders(headers, authority.credentials !== undefined);
-      assertTravelportOAuthRequestBody(body, headers, authority.credentials);
+      const oauthBody = assertTravelportOAuthRequestBody(body, headers, authority.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(url.href, travelportRequestInit(method, body, signal, headers));
+      const response = await fetchImpl(url.href, travelportRequestInit(method, oauthBody, signal, headers));
       return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
     }
 
