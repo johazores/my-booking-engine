@@ -11,7 +11,9 @@ async function source(path) {
 test('Travelport public pricing adapter materializes caller-owned authority before validation/core use', async () => {
   const provider = await source('src/server/suppliers/travelport-stays-provider.ts');
 
+  assert.match(provider, /materializeTravelportStaysSearchInput\(input\)/);
   assert.match(provider, /materializeTravelportStaysSearchPageInput\(input\)/);
+  assert.match(provider, /super\.searchProperties\(authority\)/);
   assert.match(provider, /materializeTravelportStaysOfferSearchInput\(input\)/);
   assert.match(provider, /materializeTravelportStaysOfferRevalidationInput\(input\)/);
   assert.match(provider, /super\.searchPropertiesPage\(authority\)/);
@@ -38,6 +40,9 @@ test('shared materialization contract is one-read, bounded, frozen, and fail-clo
   const docs = await source('docs/travelport-stays-input-materialization-authority.md');
 
   assert.match(authority, /const MAX_CHILDREN = 8/);
+  assert.match(authority, /export function materializeTravelportStaysSearchInput/);
+  assert.match(authority, /cityIataCode: input\.cityIataCode/);
+  assert.match(authority, /radiusKm: input\.radiusKm/);
   assert.match(authority, /Object\.freeze\(childAges\)/);
   assert.match(authority, /Object\.freeze\(readOfferSearchInput\(input\)\)/);
   assert.match(authority, /supplierOfferReference: input\.supplierOfferReference/);
@@ -46,4 +51,23 @@ test('shared materialization contract is one-read, bounded, frozen, and fail-clo
   assert.match(docs, /read exactly once/i);
   assert.match(docs, /before adapter validation/i);
   assert.match(docs, /reservation.*remains deliberately disabled/i);
+});
+
+test('direct SearchComplete, Rules, and Availability cores re-snapshot authority before asynchronous work', async () => {
+  const search = await source('src/server/suppliers/travelport-stays-provider-core.ts');
+  const rules = await source('src/server/suppliers/travelport-stays-booking-terms-provider-core.ts');
+  const availability = await source('src/server/suppliers/travelport-stays-reservation-authority-provider-core.ts');
+
+  for (const method of [
+    'materializeTravelportStaysSearchInput',
+    'materializeTravelportStaysSearchPageInput',
+    'materializeTravelportStaysOfferSearchInput',
+    'materializeTravelportStaysOfferRevalidationInput',
+  ]) {
+    assert.match(search, new RegExp(`${method}\\(input\\)`));
+  }
+  assert.match(search, /this\.searchPropertyOffers\(authority\)/);
+  assert.match(rules, /this\.#pricingProvider\.revalidatePropertyOffer\(authority\)/);
+  assert.match(availability, /this\.#bookingTermsProvider\.retrieveBookingTerms\(authority\)/);
+  assert.match(availability, /reviewed\.bookingTerms\.supplierPropertyReference !== authority\.supplierPropertyReference/);
 });

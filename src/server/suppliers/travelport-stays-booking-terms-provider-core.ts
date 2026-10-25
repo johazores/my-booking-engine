@@ -1,5 +1,8 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
-import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
+import {
+  materializeTravelportStaysChildAges,
+  materializeTravelportStaysOfferRevalidationInput,
+} from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -749,7 +752,8 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
   }
 
   async retrieveBookingTerms(input: HospitalitySupplierOfferRevalidationInput): Promise<HospitalitySupplierBookingTermsResult> {
-    const normalized = normalizeInput(input);
+    const authority = materializeTravelportStaysOfferRevalidationInput(input);
+    const normalized = normalizeInput(authority);
     const endpoints = ENDPOINTS[this.#credentials.environment];
     const children = normalized.childAges.map((age) => ({ age }));
     const bridgePayload = await this.#request({
@@ -824,8 +828,8 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
 
     const terms = normalizeRulesResponse({
       value: rulesPayload,
-      supplierPropertyReference: input.supplierPropertyReference,
-      supplierOfferReference: input.supplierOfferReference,
+      supplierPropertyReference: authority.supplierPropertyReference,
+      supplierOfferReference: authority.supplierOfferReference,
       expectedProperty: normalized.property,
       expectedBookingCode: bridge.bookingCode,
       expectedCheckInDateLocal: normalized.checkInDateLocal,
@@ -835,7 +839,7 @@ export class TravelportStaysBookingTermsProvider implements HospitalitySupplierB
       observedAt: rulesObservedAt,
     });
 
-    const finalRevalidation = await this.#pricingProvider.revalidatePropertyOffer(input);
+    const finalRevalidation = await this.#pricingProvider.revalidatePropertyOffer(authority);
     if (finalRevalidation.status !== 'UNCHANGED') {
       return Object.freeze({
         status: finalRevalidation.status,

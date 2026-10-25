@@ -7,6 +7,7 @@ import {
   materializeTravelportStaysOfferRevalidationInput,
   materializeTravelportStaysOfferSearchInput,
   materializeTravelportStaysReservationAuthorityInput,
+  materializeTravelportStaysSearchInput,
   materializeTravelportStaysSearchPageInput,
 } from './travelport-stays-input-materialization.ts';
 
@@ -213,4 +214,49 @@ test('direct compatibility-core child ages snapshot fails closed before unbounde
         && !error.message.includes('iterator'),
     );
   }
+});
+
+test('city SearchComplete input materializes scalar authority and child ages exactly once', () => {
+  const reads = new Map<string, number>();
+  const ages = [5, 10];
+  Object.defineProperty(ages, Symbol.iterator, {
+    get() { throw new Error('caller iterator must not be used'); },
+  });
+  const fields = {
+    cityIataCode: 'SYD',
+    checkInDateLocal: '2026-10-01',
+    checkOutDateLocal: '2026-10-03',
+    rooms: 1,
+    adults: 2,
+    childAges: ages,
+    radiusKm: 30,
+  };
+  const input = {} as Record<string, unknown>;
+  for (const [key, value] of Object.entries(fields)) {
+    Object.defineProperty(input, key, {
+      get() {
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        return value;
+      },
+    });
+  }
+
+  const snapshot = materializeTravelportStaysSearchInput(input as never);
+  assertOneRead(reads, Object.keys(fields));
+  assert.ok(Object.isFrozen(snapshot));
+  assert.ok(Object.isFrozen(snapshot.childAges));
+  assert.deepEqual(snapshot.childAges, [5, 10]);
+  assert.equal(snapshot.cityIataCode, 'SYD');
+  assert.equal(snapshot.radiusKm, 30);
+  ages[0] = 17;
+  assert.deepEqual(snapshot.childAges, [5, 10]);
+
+  assert.throws(
+    () => materializeTravelportStaysSearchInput({
+      get cityIataCode(): string { throw new Error('caller secret'); },
+    } as never),
+    (error: unknown) => error instanceof HospitalitySupplierProviderError
+      && error.code === 'INVALID_REQUEST'
+      && !error.message.includes('caller secret'),
+  );
 });

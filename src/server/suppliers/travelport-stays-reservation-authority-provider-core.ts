@@ -1,5 +1,8 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
-import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
+import {
+  materializeTravelportStaysChildAges,
+  materializeTravelportStaysReservationAuthorityInput,
+} from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -299,15 +302,16 @@ export class TravelportStaysReservationAuthorityProvider implements HospitalityS
   }
 
   async verifyReservationAuthority(input: HospitalitySupplierReservationAuthorityInput): Promise<TravelportStaysReservationAuthorityResult> {
-    const normalized = normalizeInput(input);
-    const reviewed = await this.#bookingTermsProvider.retrieveBookingTerms(input);
+    const authority = materializeTravelportStaysReservationAuthorityInput(input);
+    const normalized = normalizeInput(authority);
+    const reviewed = await this.#bookingTermsProvider.retrieveBookingTerms(authority);
     if (reviewed.status !== 'READY') {
       return Object.freeze({ status: reviewed.status, offer: reviewed.offer, bookingTerms: null, authorityFingerprint: null, providerSubmissionReference: null, observedAt: reviewed.observedAt, revalidationRequired: true });
     }
     if (!reviewed.offer || !reviewed.bookingTerms) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned incomplete reservation authority evidence.');
     }
-    if (reviewed.offer.offerFingerprint !== normalized.expectedOfferFingerprint || reviewed.bookingTerms.supplierPropertyReference !== input.supplierPropertyReference || reviewed.bookingTerms.supplierOfferReference !== input.supplierOfferReference || reviewed.bookingTerms.price.currency !== normalized.currency || reviewed.bookingTerms.price.totalMinor !== normalized.expectedTotalMinor) {
+    if (reviewed.offer.offerFingerprint !== normalized.expectedOfferFingerprint || reviewed.bookingTerms.supplierPropertyReference !== authority.supplierPropertyReference || reviewed.bookingTerms.supplierOfferReference !== authority.supplierOfferReference || reviewed.bookingTerms.price.currency !== normalized.currency || reviewed.bookingTerms.price.totalMinor !== normalized.expectedTotalMinor) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Supplier booking review returned inconsistent reservation authority evidence.');
     }
     if (reviewed.bookingTerms.termsFingerprint !== normalized.expectedTermsFingerprint) {

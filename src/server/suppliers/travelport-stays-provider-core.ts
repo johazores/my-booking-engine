@@ -1,5 +1,11 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
-import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
+import {
+  materializeTravelportStaysChildAges,
+  materializeTravelportStaysOfferRevalidationInput,
+  materializeTravelportStaysOfferSearchInput,
+  materializeTravelportStaysSearchInput,
+  materializeTravelportStaysSearchPageInput,
+} from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -892,7 +898,7 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
   }
 
   async searchProperties(input: HospitalitySupplierSearchInput): Promise<HospitalitySupplierSearchResult> {
-    const search = normalizeSearchInput(input);
+    const search = normalizeSearchInput(materializeTravelportStaysSearchInput(input));
     const endpoints = ENDPOINTS[this.#credentials.environment];
     const children = search.childAges.map((age) => ({ age }));
     const body = {
@@ -923,7 +929,7 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
   }
 
   async searchPropertiesPage(input: HospitalitySupplierSearchPageInput): Promise<HospitalitySupplierSearchResult> {
-    const page = normalizeSearchPageInput(input);
+    const page = normalizeSearchPageInput(materializeTravelportStaysSearchPageInput(input));
     const endpoints = ENDPOINTS[this.#credentials.environment];
     const result = await this.#hotelRequest({
       url: `${endpoints.staysV12}search/searchcomplete/${encodeURIComponent(page.pageToken)}?pageNumber=${page.pageNumber}`,
@@ -935,7 +941,7 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
   }
 
   async searchPropertyOffers(input: HospitalitySupplierOfferSearchInput): Promise<HospitalitySupplierOfferSearchResult> {
-    const search = normalizeOfferSearchInput(input);
+    const search = normalizeOfferSearchInput(materializeTravelportStaysOfferSearchInput(input));
     const endpoints = ENDPOINTS[this.#credentials.environment];
     const children = search.childAges.map((age) => ({ age }));
     const body = {
@@ -974,14 +980,15 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
   }
 
   async revalidatePropertyOffer(input: HospitalitySupplierOfferRevalidationInput): Promise<HospitalitySupplierOfferRevalidationResult> {
-    if (typeof input.expectedTotalMinor !== 'bigint' || input.expectedTotalMinor < 0n) {
+    const authority = materializeTravelportStaysOfferRevalidationInput(input);
+    if (typeof authority.expectedTotalMinor !== 'bigint' || authority.expectedTotalMinor < 0n) {
       throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Expected offer total is invalid.');
     }
-    if (typeof input.expectedOfferFingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(input.expectedOfferFingerprint)) {
+    if (typeof authority.expectedOfferFingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(authority.expectedOfferFingerprint)) {
       throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Expected offer fingerprint is invalid.');
     }
-    const offerIdentity = decodeOfferReference(input.supplierOfferReference);
-    const property = decodePropertyReference(input.supplierPropertyReference);
+    const offerIdentity = decodeOfferReference(authority.supplierOfferReference);
+    const property = decodePropertyReference(authority.supplierPropertyReference);
     if (
       offerIdentity.property.chainCode !== property.chainCode
       || offerIdentity.property.propertyCode !== property.propertyCode
@@ -989,12 +996,12 @@ export class TravelportStaysProvider implements HospitalitySupplierPricingProvid
     ) {
       throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Supplier offer does not belong to the selected property.');
     }
-    const fresh = await this.searchPropertyOffers(input);
-    const offer = fresh.offers.find((candidate) => candidate.supplierOfferReference === input.supplierOfferReference) ?? null;
+    const fresh = await this.searchPropertyOffers(authority);
+    const offer = fresh.offers.find((candidate) => candidate.supplierOfferReference === authority.supplierOfferReference) ?? null;
     if (!offer) return Object.freeze({ status: 'UNAVAILABLE', offer: null, observedAt: fresh.observedAt, validUntil: null });
-    const status = offer.price.totalMinor !== input.expectedTotalMinor
+    const status = offer.price.totalMinor !== authority.expectedTotalMinor
       ? 'PRICE_CHANGED'
-      : offer.offerFingerprint !== input.expectedOfferFingerprint
+      : offer.offerFingerprint !== authority.expectedOfferFingerprint
         ? 'OFFER_CHANGED'
         : 'UNCHANGED';
     return Object.freeze({

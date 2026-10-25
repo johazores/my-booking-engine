@@ -16,8 +16,10 @@ const docs = readFileSync(
 );
 
 test('Rules member authority runs after the existing public reference/commercial guard and before the compatibility core', () => {
-  assert.match(wrapper, /const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch\(authority\.fetchImpl \?\? fetch\)/);
-  assert.match(wrapper, /fetchImpl: createTravelportStaysRulesMemberAuthorityFetch\(referenceAuthorityFetch\)/);
+  assert.match(wrapper, /const unicodeAuthorityFetch = createTravelportStaysPreWriteUnicodeAuthorityFetch\([\s\S]*authority\.fetchImpl \?\? fetch/);
+  assert.match(wrapper, /const referenceAuthorityFetch = createTravelportStaysReferenceAuthorityFetch\(unicodeAuthorityFetch\)/);
+  assert.match(wrapper, /const memberAuthorityFetch = createTravelportStaysRulesMemberAuthorityFetch\(referenceAuthorityFetch\)/);
+  assert.match(wrapper, /fetchImpl: createTravelportStaysRulesSelectionAuthorityFetch\(memberAuthorityFetch\)/);
   assert.match(wrapper, /extends CoreTravelportStaysBookingTermsProvider/);
 });
 

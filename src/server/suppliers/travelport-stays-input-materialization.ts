@@ -2,6 +2,7 @@ import type {
   HospitalitySupplierOfferRevalidationInput,
   HospitalitySupplierOfferSearchInput,
   HospitalitySupplierSearchPageInput,
+  HospitalitySupplierSearchInput,
 } from './hospitality-supplier-provider.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import type { HospitalitySupplierReservationAuthorityInput } from './hospitality-supplier-reservation-authority.ts';
@@ -63,6 +64,23 @@ function readOfferSearchInput(input: HospitalitySupplierOfferSearchInput) {
     ...(childAges === undefined ? {} : { childAges }),
     currency,
   };
+}
+
+export function materializeTravelportStaysSearchInput(
+  input: HospitalitySupplierSearchInput,
+): HospitalitySupplierSearchInput {
+  return materialize(() => {
+    const childAges = childAgesSnapshot(input.childAges);
+    return Object.freeze({
+      cityIataCode: input.cityIataCode,
+      checkInDateLocal: input.checkInDateLocal,
+      checkOutDateLocal: input.checkOutDateLocal,
+      rooms: input.rooms,
+      adults: input.adults,
+      ...(childAges === undefined ? {} : { childAges }),
+      radiusKm: input.radiusKm,
+    });
+  });
 }
 
 export function materializeTravelportStaysSearchPageInput(

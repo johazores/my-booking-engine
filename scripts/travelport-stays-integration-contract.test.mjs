@@ -31,10 +31,12 @@ test('Travelport configuration derives capability server-side and the browser ca
   assert.doesNotMatch(route, /field\(formData, 'organizationId'\)|field\(formData, 'capabilities'\)/);
 });
 
-test('integration UI exposes only real Travelport management actions and labels hotel search as the sole current supplier capability', () => {
+test('integration UI accurately describes live read capabilities and disabled reservation writes', () => {
   const page = source('app/integrations/page.tsx');
   assert.match(page, /Travelport Stays/);
-  assert.match(page, /currently exposes only normalized hotel search/);
+  assert.match(page, /SF supports normalized hotel search, exact offer pricing and revalidation/);
+  assert.match(page, /server-side booking-rule and selected-offer authority review/);
+  assert.match(page, /Reservation, modification and cancellation remain unavailable/);
   assert.match(page, /action="\/api\/integrations\/travelport-stays"/);
   assert.match(page, /testAction="\/api\/integrations\/travelport-stays\/test"/);
   assert.doesNotMatch(page, /Book with Travelport|Reserve with Travelport|fake|mock success/i);
@@ -43,10 +45,12 @@ test('integration UI exposes only real Travelport management actions and labels 
 test('provider research documents the current closed product boundary and official source references', () => {
   const gds = source('docs/gds-integration.md');
   const provider = source('docs/travelport-stays-integration.md');
-  assert.match(gds, /selected first external hospitality supplier/);
-  assert.match(gds, /No customer-facing external-supplier booking workflow is exposed yet/);
+  assert.match(gds, /first external hospitality supplier boundary/);
+  assert.match(gds, /no customer\/staff reserve action is exposed/);
   assert.match(gds, /support\.travelport\.com\/webhelp\/JSONAPIs\/Hotelv11/);
-  assert.match(provider, /capability list as `hotel-search`/);
-  assert.match(provider, /reservation lifecycle remain closed/i);
-  assert.match(provider, /24-hour TripServices access-token lifetime/);
+  assert.match(provider, /configured capability list remains read-only: `availability`, `hotel-search`, and `pricing`/);
+  assert.match(provider, /`reservation` remains disabled until/);
+  assert.match(provider, /OAuth responses use the request-start clock/);
+  const core = source('src/server/suppliers/travelport-stays-provider-core.ts');
+  assert.match(core, /capabilities: Object\.freeze\(\['availability', 'hotel-search', 'pricing'\] as const\)/);
 });

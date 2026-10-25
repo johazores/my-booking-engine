@@ -5,6 +5,7 @@ import {
   type HospitalitySupplierOfferRevalidationResult,
   type HospitalitySupplierOfferSearchInput,
   type HospitalitySupplierOfferSearchResult,
+  type HospitalitySupplierSearchInput,
   type HospitalitySupplierSearchPageInput,
   type HospitalitySupplierSearchResult,
 } from './hospitality-supplier-provider.ts';
@@ -23,6 +24,7 @@ import {
 import {
   materializeTravelportStaysOfferRevalidationInput,
   materializeTravelportStaysOfferSearchInput,
+  materializeTravelportStaysSearchInput,
   materializeTravelportStaysSearchPageInput,
 } from './travelport-stays-input-materialization.ts';
 import {
@@ -576,6 +578,13 @@ export class TravelportStaysProvider extends CoreTravelportStaysProvider {
       timeoutMs: authority.timeoutMs,
       now: authority.now,
     });
+  }
+
+  override async searchProperties(
+    input: HospitalitySupplierSearchInput,
+  ): Promise<HospitalitySupplierSearchResult> {
+    const authority = materializeTravelportStaysSearchInput(input);
+    return super.searchProperties(authority);
   }
 
   override async searchPropertiesPage(
