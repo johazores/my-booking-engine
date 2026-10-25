@@ -252,7 +252,9 @@ test('keeps observation metadata failures out of the supplier request authority 
 test('pins tenant integration attribution at construction despite later caller mutation', async () => {
   const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
   const mutable = {
-    ...CONTEXT,
+    organizationId: CONTEXT.organizationId as string,
+    integrationId: CONTEXT.integrationId as string,
+    credentialVersion: CONTEXT.credentialVersion as number,
     environment: 'production' as 'production' | 'pre-production',
     fetchImpl: (async () => new Response('{}', { status: 200 })) as typeof fetch,
     sink: (record: StructuredTravelportStaysProviderRequestLogRecord) => records.push(record),
