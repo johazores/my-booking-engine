@@ -220,6 +220,25 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
   )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the full authorized payment was received.', true);
   }
+  // A confirmed card decline is definitive only when Stripe explicitly proves
+  // no money was received and no authorization remains capturable. Do not
+  // mistake a reusable failed PaymentIntent for a released authorization.
+  if (intent.status === 'requires_payment_method') {
+    if (
+      intent.amount_received === undefined
+      || intent.amount_capturable === undefined
+      || normalizeStripeMinorAmount(intent.amount_received, 'failed authorization received amount') !== 0n
+      || normalizeStripeMinorAmount(intent.amount_capturable, 'failed authorization capturable amount') !== 0n
+    ) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the failed authorization holds no money.', true);
+    }
+    return Object.freeze({
+      providerCode: 'stripe',
+      providerReference: normalizeStripePaymentIntentReference(intent.id),
+      status: 'FAILED',
+      money,
+    });
+  }
   return normalizedIntentResult(intent, money);
 }
 

@@ -259,3 +259,61 @@ test('Stripe direct payment writes reject contradictory terminal money evidence'
     ));
   }
 });
+
+test('Stripe direct authorization records an evidenced card decline as failed', async () => {
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_declined_1', status: 'requires_payment_method', amount: 24100,
+      amount_received: 0, amount_capturable: 0, currency: 'usd',
+    })),
+  });
+  const result = await provider.authorizePayment!({ ...context('stripe:auth:declined'), paymentMethodReference: 'pm_card_1' });
+  assert.deepEqual(result, {
+    providerCode: 'stripe', providerReference: 'pi_declined_1',
+    status: 'FAILED', money: { currency: 'USD', amountMinor: 24100n },
+  });
+});
+
+test('Stripe direct authorization cannot fail a payment without complete zero-money evidence', async () => {
+  for (const evidence of [
+    { amount_received: undefined, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: undefined },
+    { amount_received: null, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: null },
+    { amount_received: 1, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: 1 },
+    { amount_received: -1, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: 0.5 },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_declined_evidence', status: 'requires_payment_method', amount: 24100,
+        currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.authorizePayment!({ ...context('stripe:auth:declined-evidence'), paymentMethodReference: 'pm_card_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
+test('Stripe cancellation and capture do not treat a reusable failed intent as proven release or capture', async () => {
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_reusable_failed', status: 'requires_payment_method', amount: 24100,
+      amount_received: 0, amount_capturable: 0, currency: 'usd',
+    })),
+  });
+  const release = await provider.releaseAuthorization!({
+    ...context('stripe:release:reusable-failed'), providerReference: 'pi_reusable_failed',
+  });
+  assert.equal(release.status, 'PENDING');
+  await assert.rejects(
+    provider.capturePayment!({ ...context('stripe:capture:reusable-failed'), providerReference: 'pi_reusable_failed' }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+});
