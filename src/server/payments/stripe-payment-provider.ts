@@ -17,6 +17,7 @@ import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-sign
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_METHOD_PATTERN = /^pm_[A-Za-z0-9_]+$/;
+const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
@@ -73,6 +74,9 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     const form = new URLSearchParams();
     form.set('amount_to_capture', input.money.amountMinor.toString());
     const intent = await this.request<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(providerReference)}/capture`, form, input.idempotencyKey);
+    if (intent?.id !== providerReference) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while capturing.', true);
+    }
     return normalizeCapturedPaymentIntent(intent, input.money);
   }
 
@@ -85,7 +89,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       form,
       input.idempotencyKey,
     );
-    if (normalizeStripePaymentIntentReference(intent.id) !== providerReference) {
+    if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
     }
     const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
@@ -102,6 +106,12 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     form.set('metadata[sf_booking_id]', input.bookingId);
 
     const refund = await this.request<StripeRefund>('/refunds', form, input.idempotencyKey);
+    if (refund?.payment_intent !== providerReference) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned a refund for a different PaymentIntent.', true);
+    }
+    if (typeof refund.id !== 'string' || !STRIPE_REFUND_PATTERN.test(refund.id)) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund reference.', true);
+    }
     const money = normalizePaymentMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
     assertMatchingMoney(money, input.money, 'refund');
 
@@ -164,15 +174,22 @@ export function normalizeStripePaymentMethodReference(value: unknown): string {
 function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
   const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
   assertMatchingMoney(money, expectedMoney, 'payment');
+  if (intent.status === 'succeeded' && (
+    intent.amount_received === undefined
+    || normalizeStripeMinorAmount(intent.amount_received, 'received amount') !== expectedMoney.amountMinor
+  )) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the full authorized payment was received.', true);
+  }
   return normalizedIntentResult(intent, money);
 }
 
 function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
+  if (intent.status === 'succeeded' && intent.amount_received === undefined) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide a captured amount.', true);
+  }
   const capturedAmount = intent.amount_received !== undefined
     ? normalizeStripeMinorAmount(intent.amount_received, 'captured amount')
-    : intent.status === 'succeeded'
-      ? expectedMoney.amountMinor
-      : normalizeStripeMinorAmount(intent.amount, 'capture amount');
+    : normalizeStripeMinorAmount(intent.amount, 'capture amount');
   const money = normalizePaymentMoney(intent.currency, capturedAmount);
   assertMatchingMoney(money, expectedMoney, 'capture');
   return normalizedIntentResult(intent, money);

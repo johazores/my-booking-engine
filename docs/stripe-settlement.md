@@ -14,6 +14,10 @@ Refund creation, refund reconciliation, verified refund webhooks, and payment re
 
 The fallback exists for provider-truth recovery, not to weaken the authorization/capture model. A normal manual-capture Stripe flow still prefers its persisted capture row.
 
+## Provider response identity
+
+Stripe capture, authorization release, and refund writes must not accept a different PaymentIntent or Refund object from the one being operated on. A refund write also requires the exact requested source PaymentIntent and a real `re_*` reference. PaymentIntent and Refund GET reconciliation independently reject response IDs that differ from the requested reference. A successful authorization or capture requires an explicit matching `amount_received`; SF never substitutes the requested amount as evidence of provider settlement. Invalid provider identity or missing settlement evidence remains retryable unknown provider truth and does not authorize a settled ledger write.
+
 ## Refund and receipt behavior
 
 A directly settled authorization can now remain refundable through the same server-authorized Stripe refund path, provider-truth reconciliation, and verified refund-webhook finalization used for captured payments. Money, tenant ownership, booking state, provider reference, and refundable balance are still revalidated before mutation.

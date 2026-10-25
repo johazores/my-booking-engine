@@ -78,3 +78,17 @@ test('refund reconciliation provider fails closed on invalid Stripe refund paylo
   });
   await assert.rejects(() => provider.retrieveRefund('re_refund_1'));
 });
+
+
+test('Stripe refund reconciliation rejects a different refund identity even when its money and source match', async () => {
+  const provider = new StripeRefundReconciliationProvider({
+    secretKey: 'sk_test_reconciliation',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 're_other', payment_intent: 'pi_capture_1', status: 'succeeded', currency: 'usd', amount: 2500,
+    })),
+  });
+  await assert.rejects(
+    provider.retrieveRefund('re_refund_1'),
+    (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
+  );
+});

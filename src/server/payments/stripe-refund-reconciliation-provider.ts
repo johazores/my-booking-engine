@@ -53,6 +53,9 @@ export class StripeRefundReconciliationProvider {
       const payload = (await response.json().catch(() => ({}))) as StripeRefundResponse | StripeErrorResponse;
       if (!response.ok) throw mapStripeLookupError(response.status, payload as StripeErrorResponse);
       const refund = payload as StripeRefundResponse;
+      if (refund?.id !== reference) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different refund during reconciliation.', true);
+      }
       if (!Number.isSafeInteger(refund.amount) || refund.amount <= 0) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid refund money.', true);
       }
@@ -64,7 +67,7 @@ export class StripeRefundReconciliationProvider {
       const status = typeof refund.status === 'string' ? refund.status.trim().toLowerCase() : '';
       if (!/^[a-z_]{3,80}$/.test(status)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund status.', true);
       return Object.freeze({
-        refundReference: normalizeStripeRefundReference(refund.id),
+        refundReference: reference,
         paymentIntentReference: normalizeStripePaymentIntentReference(refund.payment_intent),
         status,
         currency,

@@ -101,3 +101,71 @@ test('stripe references and constructor configuration validate before requests',
   assert.throws(() => normalizeStripePaymentIntentReference('ch_wrong'), /PaymentIntent reference/); assert.throws(() => normalizeStripePaymentMethodReference('card_wrong'), /payment method reference/);
   assert.throws(() => new StripePaymentProvider({ secretKey: 'not-a-key' }), /secret key/); assert.throws(() => new StripePaymentProvider({ secretKey: 'sk_test_valid-enough', timeoutMs: 99 }), /timeout/);
 });
+
+
+test('Stripe write responses cannot substitute a different PaymentIntent or refund source', async () => {
+  const capture = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_other', status: 'succeeded', amount: 24100, amount_received: 24100, currency: 'usd' })),
+  });
+  await assert.rejects(
+    capture.capturePayment!({ ...context('stripe:capture:identity'), providerReference: 'pi_expected' }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+
+  for (const refund of [
+    { id: 're_valid_1', payment_intent: 'pi_other', status: 'succeeded', amount: 4100, currency: 'usd' },
+    { id: 'ch_not_a_refund', payment_intent: 'pi_expected', status: 'succeeded', amount: 4100, currency: 'usd' },
+    { id: 're_valid_1', status: 'succeeded', amount: 4100, currency: 'usd' },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify(refund)),
+    });
+    await assert.rejects(
+      provider.refundPayment!({ ...context('stripe:refund:identity'), money: { currency: 'USD', amountMinor: 4100n }, providerReference: 'pi_expected' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
+test('Stripe successful payment responses must prove received money instead of assuming it', async () => {
+  for (const received of [undefined, 1]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_authorized_1', status: 'succeeded', amount: 24100, amount_received: received, currency: 'usd' })),
+    });
+    await assert.rejects(
+      provider.authorizePayment!({ ...context('stripe:auth:received'), paymentMethodReference: 'pm_card_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+    await assert.rejects(
+      provider.capturePayment!({ ...context('stripe:capture:received'), providerReference: 'pi_authorized_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
+
+test('Stripe accepts provider-proven successful authorization and rejects padded release identity', async () => {
+  const authorized = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_received_1', status: 'succeeded', amount: 24100, amount_received: 24100, currency: 'usd',
+    })),
+  });
+  const result = await authorized.authorizePayment!({ ...context('stripe:auth:proven'), paymentMethodReference: 'pm_card_1' });
+  assert.equal(result.status, 'PAID');
+  assert.equal(result.providerReference, 'pi_received_1');
+
+  const release = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: ' pi_expected ', status: 'canceled', amount: 24100, currency: 'usd',
+    })),
+  });
+  await assert.rejects(
+    release.releaseAuthorization!({ ...context('stripe:release:padded'), providerReference: 'pi_expected' }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+  );
+});

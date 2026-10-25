@@ -54,18 +54,27 @@ export class StripePaymentReconciliationProvider {
       const payload = (await response.json().catch(() => ({}))) as StripePaymentIntentResponse | StripeErrorResponse;
       if (!response.ok) throw mapStripeLookupError(response.status, payload as StripeErrorResponse);
       const intent = payload as StripePaymentIntentResponse;
-      if (!Number.isSafeInteger(intent.amount) || intent.amount < 0 || !Number.isSafeInteger(intent.amount_received ?? 0) || !Number.isSafeInteger(intent.amount_capturable ?? 0)) {
+      if (intent?.id !== reference) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent during reconciliation.', true);
+      }
+      const amountReceived = intent.amount_received ?? 0;
+      const amountCapturable = intent.amount_capturable ?? 0;
+      if (
+        !Number.isSafeInteger(intent.amount) || intent.amount < 0
+        || !Number.isSafeInteger(amountReceived) || amountReceived < 0 || amountReceived > intent.amount
+        || !Number.isSafeInteger(amountCapturable) || amountCapturable < 0 || amountCapturable > intent.amount
+      ) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid PaymentIntent money.', true);
       }
       const currency = typeof intent.currency === 'string' ? intent.currency.trim().toUpperCase() : '';
       if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid PaymentIntent currency.', true);
       return Object.freeze({
-        providerReference: normalizeStripePaymentIntentReference(intent.id),
+        providerReference: reference,
         status: typeof intent.status === 'string' ? intent.status : 'unknown',
         currency,
         amountMinor: BigInt(intent.amount),
-        amountReceivedMinor: BigInt(intent.amount_received ?? 0),
-        amountCapturableMinor: BigInt(intent.amount_capturable ?? 0),
+        amountReceivedMinor: BigInt(amountReceived),
+        amountCapturableMinor: BigInt(amountCapturable),
       });
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;

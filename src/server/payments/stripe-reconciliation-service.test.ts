@@ -69,3 +69,22 @@ test('Stripe reconciliation classifies provider lookup failures without treating
     return true;
   });
 });
+
+
+test('Stripe PaymentIntent reconciliation rejects substituted identity and impossible money evidence', async () => {
+  for (const body of [
+    { id: 'pi_other', status: 'succeeded', amount: 12500, amount_received: 12500, currency: 'usd' },
+    { id: 'pi_reconcile_1', status: 'succeeded', amount: 12500, amount_received: -1, currency: 'usd' },
+    { id: 'pi_reconcile_1', status: 'requires_capture', amount: 12500, amount_capturable: -1, currency: 'usd' },
+    { id: 'pi_reconcile_1', status: 'succeeded', amount: 12500, amount_received: 12501, currency: 'usd' },
+  ]) {
+    const provider = new StripePaymentReconciliationProvider({
+      secretKey: 'sk_test_reconciliation',
+      fetchImpl: async () => stripeResponse(body),
+    });
+    await assert.rejects(
+      provider.retrievePaymentIntent('pi_reconcile_1'),
+      (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
+    );
+  }
+});
