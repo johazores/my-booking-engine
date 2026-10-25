@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { assertTravelportStaysReservationResponseMachineAuthority } from './travelport-stays-reservation-response-authority.ts';
 import {
   isCanonicalTravelportStaysReservationReferencePathSegment,
@@ -50,9 +51,7 @@ function snapshotReservationRequestInit(init?: RequestInit): RequestInit | undef
     if (method !== undefined && typeof method !== 'string') {
       throw new TypeError('Invalid request method');
     }
-    if (signal !== undefined && signal !== null && !(signal instanceof AbortSignal)) {
-      throw new TypeError('Invalid request signal');
-    }
+    assertTravelportStaysAbortSignalReady(signal);
     const snapshot: RequestInit = {};
     if (method !== undefined) snapshot.method = method;
     if (headers !== undefined) snapshot.headers = new Headers(headers);

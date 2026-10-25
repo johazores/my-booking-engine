@@ -61,7 +61,8 @@ test('trace transport binds OAuth and exact implemented Stays request shapes to 
   assert.match(trace, /assertSupportedTravelportStaysRequest\(url, method\)/);
   assert.match(trace, /headers\.set\('TraceId', traceId\)/);
   assert.match(trace, /headers\.set\('TVP-Trace-Id', traceId\)/);
-  assert.match(trace, /const signal = effectiveRequestSignal\(requestInput, init\)/);
+  assert.match(trace, /const signal = effectiveRequestSignal\(input, init\)/);
+  assert.match(trace, /materializeTravelportStaysRequestMetadata\(requestInput, init\)/);
   assert.match(trace, /fetchImpl\(url\.href, travelportRequestInit\(method, body, signal, headers\)\)/);
 });
 

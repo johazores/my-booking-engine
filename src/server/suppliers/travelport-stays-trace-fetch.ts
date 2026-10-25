@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
 import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
 
@@ -226,6 +227,7 @@ function materializeTravelportStaysRequestMetadata(input: RequestInfo | URL, ini
     const method = requestMethod(input, init);
     const body = effectiveRequestBody(input, init);
     const signal = effectiveRequestSignal(input, init);
+    assertTravelportStaysAbortSignalReady(signal);
     return { headers, e2eTrackingId, url, method, body, signal };
   } catch (error) {
     if (error instanceof HospitalitySupplierProviderError) throw error;

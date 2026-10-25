@@ -55,3 +55,7 @@ This hardening does not advertise or enable Travelport `reservation`. The existi
 The reservation-only trace wrapper now projects the caller's method, headers, body, and signal exactly once before route/correlation checks or delegated I/O. Only these reviewed Fetch fields are passed to the next transport; caller-owned runtime extensions are not spread into the provider boundary. The header source is cloned, and the v11 correlation pair is derived from that same stable clone. Malformed methods, invalid abort signals, throwing accessors, and revoked request-init proxies fail with a fixed `INVALID_REQUEST` rather than exposing caller-controlled exception text. The shared outer/terminal Travelport transports still repeat their independent destination, header, body, and network-policy validation.
 
 Tests cover one-read metadata getters, unreviewed extension getters, malformed inputs, no-network failure behavior, and preservation of the exact reservation correlation identity. No new reservation capability is advertised.
+
+## Request cancellation authority
+
+The reservation trace wrapper validates the effective native `AbortSignal` before delegating. The shared and terminal Travelport transports repeat this check, including during no-I/O reservation-write preflight. This prevents an invalid or already-aborted caller signal from becoming a late native Fetch rejection, without changing post-marker ambiguity or timeout reconciliation. See `docs/travelport-stays-abort-signal-authority.md`.

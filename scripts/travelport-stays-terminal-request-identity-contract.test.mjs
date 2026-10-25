@@ -17,17 +17,18 @@ test('terminal Stays boundary independently constrains bearer authority', () => 
   assert.match(containment, /!\/\^Bearer \\S\+\$\/\.test\(authorization\)/);
   assert.match(
     containment,
-    /containedStaysHeaders\(headers, input\.credentials\);\s*assertTravelportStaysBearerAuthorization\(headers\);\s*assertAllowedTerminalHeaders/,
+    /containedStaysHeaders\(headers, credentials\);\s*assertTravelportStaysBearerAuthorization\(headers\);\s*assertAllowedTerminalHeaders/,
   );
 });
 
 test('terminal Travelport network target is the validated URL string, not caller request identity', () => {
   assert.equal(
     (containment.match(/fetchImpl\(url\.href, terminalTravelportRequestInit\(method, body, signal, headers\)\)/g) ?? []).length,
-    2,
+    1,
   );
+  assert.match(containment, /fetchImpl\(url\.href, terminalTravelportRequestInit\(method, oauthBody, signal, headers\)\)/);
   assert.doesNotMatch(containment, /fetchImpl\(requestInput,/);
-  assert.match(containment, /url = new URL\(requestUrl\(requestInput\)\)/);
+  assert.match(containment, /const url = new URL\(requestUrl\(input\)\)/);
 });
 
 test('terminal Travelport payload authority is independently constrained before network I/O', () => {
