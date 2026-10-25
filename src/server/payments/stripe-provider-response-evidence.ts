@@ -1,3 +1,5 @@
+import { isSupportedCurrencyCode } from '../pricing/money.ts';
+
 import {
   PaymentInputValidationError,
   PaymentProviderError,
@@ -5,9 +7,13 @@ import {
   type PaymentMoney,
 } from './payment-provider.ts';
 
+export function isCanonicalStripeProviderCurrency(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z]{3}$/.test(value) && isSupportedCurrencyCode(value.toUpperCase());
+}
+
 /** Stripe API currencies are exact lowercase ISO codes, not caller inputs. */
 export function normalizeStripeProviderResponseMoney(currency: unknown, amountMinor: bigint): PaymentMoney {
-  if (typeof currency !== 'string' || !/^[a-z]{3}$/.test(currency)) {
+  if (!isCanonicalStripeProviderCurrency(currency)) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid currency evidence.', true);
   }
   try {

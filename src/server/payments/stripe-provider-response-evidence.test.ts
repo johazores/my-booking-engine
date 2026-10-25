@@ -4,6 +4,7 @@ import test from 'node:test';
 import { PaymentProviderError } from './payment-provider.ts';
 import {
   assertStripeProviderResponseObject,
+  isCanonicalStripeProviderCurrency,
   normalizeStripeProviderResponseCurrency,
   normalizeStripeProviderResponseMoney,
   readStripeProviderError,
@@ -14,10 +15,12 @@ const unknownProviderEvidence = (error: unknown) => error instanceof PaymentProv
 test('Stripe provider response money accepts exact supported lowercase currency', () => {
   assert.deepEqual(normalizeStripeProviderResponseMoney('usd', 4100n), { currency: 'USD', amountMinor: 4100n });
   assert.equal(normalizeStripeProviderResponseCurrency('aud'), 'AUD');
+  assert.equal(isCanonicalStripeProviderCurrency('php'), true);
 });
 
 test('Stripe provider response money rejects malformed, fabricated, and caller-style currencies as retryable unknown truth', () => {
   for (const currency of [undefined, null, 123, '', 'zzz', 'USD', ' usd ', 'usd\n', 'u$d']) {
+    assert.equal(isCanonicalStripeProviderCurrency(currency), false);
     assert.throws(() => normalizeStripeProviderResponseMoney(currency, 4100n), unknownProviderEvidence);
     assert.throws(() => normalizeStripeProviderResponseCurrency(currency), unknownProviderEvidence);
   }

@@ -1,4 +1,5 @@
 import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
+import { isCanonicalStripeProviderCurrency } from './stripe-provider-response-evidence.ts';
 
 const STRIPE_EVENT_ID_PATTERN = /^evt_[A-Za-z0-9_]+$/;
 const STRIPE_EVENT_TYPE_PATTERN = /^[a-z0-9_.]{3,120}$/;
@@ -6,7 +7,6 @@ const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 
 export type StripeWebhookPaymentIntent = Readonly<{
   providerReference: string;
@@ -156,8 +156,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     if (!Number.isSafeInteger(refund.amount) || Number(refund.amount) <= 0) {
       throw new StripeWebhookValidationError('Stripe refund amount is invalid.');
     }
-    const currency = requiredString(refund.currency, 'Stripe refund currency').toUpperCase();
-    if (!CURRENCY_PATTERN.test(currency)) throw new StripeWebhookValidationError('Stripe refund currency is invalid.');
+    const currency = requiredStripeWebhookCurrency(refund.currency, 'Stripe refund currency');
     return Object.freeze({
       providerEventId,
       eventType,
@@ -192,8 +191,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     if (!Number.isSafeInteger(session.amount_total) || Number(session.amount_total) < 0) {
       throw new StripeWebhookValidationError('Stripe Checkout Session total is invalid.');
     }
-    const currency = requiredString(session.currency, 'Stripe Checkout Session currency').toUpperCase();
-    if (!CURRENCY_PATTERN.test(currency)) throw new StripeWebhookValidationError('Stripe Checkout Session currency is invalid.');
+    const currency = requiredStripeWebhookCurrency(session.currency, 'Stripe Checkout Session currency');
 
     const paymentIntentReference = optionalString(session.payment_intent);
     if (paymentIntentReference && (!STRIPE_PAYMENT_INTENT_PATTERN.test(paymentIntentReference) || paymentIntentReference.length > 160)) {
@@ -291,8 +289,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     throw new StripeWebhookValidationError('Stripe settled PaymentIntent still reports capturable money.');
   }
 
-  const currency = requiredString(intent.currency, 'Stripe PaymentIntent currency').toUpperCase();
-  if (!CURRENCY_PATTERN.test(currency)) throw new StripeWebhookValidationError('Stripe PaymentIntent currency is invalid.');
+  const currency = requiredStripeWebhookCurrency(intent.currency, 'Stripe PaymentIntent currency');
 
   const metadata = intent.metadata === undefined || intent.metadata === null
     ? null
@@ -405,6 +402,11 @@ export function selectStripeWebhookRefundCandidate(input: {
 function objectRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new StripeWebhookValidationError(`${label} is invalid.`);
   return value as Record<string, unknown>;
+}
+
+function requiredStripeWebhookCurrency(value: unknown, label: string): string {
+  if (!isCanonicalStripeProviderCurrency(value)) throw new StripeWebhookValidationError(`${label} is invalid.`);
+  return value.toUpperCase();
 }
 
 function requiredString(value: unknown, label: string): string {

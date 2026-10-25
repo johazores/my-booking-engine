@@ -432,3 +432,14 @@ test('signed nonterminal Stripe events require complete and possible money', () 
   assert.equal(pending.paymentIntent?.status, 'requires_action');
   assert.equal(pending.paymentIntent?.amountReceivedMinor, 0n);
 });
+
+test('signed Stripe PaymentIntent, Checkout, and Refund events require canonical supported provider currency', () => {
+  for (const currency of [undefined, null, 123, '', 'zzz', 'USD', ' usd ', 'usd\n', 'u$d']) {
+    for (const event of [paymentIntentEvent({ currency }), checkoutSessionEvent({ currency }), refundEvent({ currency })]) {
+      assert.throws(() => parseStripeWebhookEventPayload(event), StripeWebhookValidationError);
+    }
+  }
+  assert.equal(parseStripeWebhookEventPayload(paymentIntentEvent({ currency: 'aud' })).paymentIntent?.currency, 'AUD');
+  assert.equal(parseStripeWebhookEventPayload(checkoutSessionEvent({ currency: 'php' })).checkoutSession?.currency, 'PHP');
+  assert.equal(parseStripeWebhookEventPayload(refundEvent({ currency: 'usd' })).refund?.currency, 'USD');
+});
