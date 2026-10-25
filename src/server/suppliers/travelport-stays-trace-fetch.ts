@@ -510,16 +510,15 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (!(value instanceof Uint8Array)) {
+        throw new HospitalitySupplierProviderError(
+          'INVALID_RESPONSE',
+          'Travelport response stream chunk is invalid.',
+        );
+      }
       if (value.byteLength === 0) continue;
       receivedBytes += value.byteLength;
-      if (receivedBytes > maxBytes) {
-        try {
-          void reader.cancel().catch(() => undefined);
-        } catch {
-          // Cancellation is best-effort after the response has already failed closed.
-        }
-        throw oversizedTravelportResponseError();
-      }
+      if (receivedBytes > maxBytes) throw oversizedTravelportResponseError();
 
       let sourceOffset = 0;
       while (sourceOffset < value.byteLength) {
@@ -537,6 +536,16 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
         sourceOffset += copyLength;
       }
     }
+  } catch (error) {
+    // A rejected read, malformed chunk, or exceeded byte ceiling must not
+    // leave an unread provider stream active. Never replace the original error
+    // (including caller-owned abort/timeout evidence) with a cancel failure.
+    try {
+      void reader.cancel().catch(() => undefined);
+    } catch {
+      // Best-effort cancellation; the original response failure is authoritative.
+    }
+    throw error;
   } finally {
     reader.releaseLock();
   }

@@ -96,6 +96,68 @@ test('rejects chunked Stays responses when received bytes exceed the transport c
   assert.equal(cancelled, true);
 });
 
+test('rejects non-byte provider response chunks as invalid evidence and cancels the upstream stream', async () => {
+  const malformedChunks: unknown[] = [
+    '{"ok":true}',
+    undefined,
+    new DataView(new ArrayBuffer(2)),
+    new Uint16Array([123]),
+  ];
+  for (const chunk of malformedChunks) {
+    let cancelled = false;
+    const fetchImpl = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk as Uint8Array);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }), { status: 200 })) as typeof fetch;
+    const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+
+    await assert.rejects(
+      tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+    );
+    assert.equal(cancelled, true);
+  }
+});
+
+test('preserves the original provider stream read failure while cancelling and releasing its reader', async () => {
+  const failure = new Error('provider response stream failed');
+  let cancelled = 0;
+  let released = 0;
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, 'body', {
+    value: {
+      getReader() {
+        return {
+          async read() {
+            throw failure;
+          },
+          async cancel() {
+            cancelled += 1;
+          },
+          releaseLock() {
+            released += 1;
+          },
+        };
+      },
+    },
+  });
+  const tracedFetch = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => response) as typeof fetch,
+  });
+
+  await assert.rejects(
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    (error: unknown) => error === failure,
+  );
+  assert.equal(cancelled, 1);
+  assert.equal(released, 1);
+});
+
 test('coalesces tiny provider chunks into bounded replay blocks', async () => {
   const tinyChunkCount = 10_000;
   const fetchImpl = (async () => new Response(new ReadableStream<Uint8Array>({
