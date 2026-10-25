@@ -5,6 +5,7 @@ import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { PaymentConflictError, PaymentUnavailableError } from './payment-service.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import type { StripePaymentIntentSnapshot } from './stripe-payment-reconciliation-provider.ts';
+import { isKnownStripePaymentIntentStatus } from './stripe-provider-status.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
 
@@ -23,6 +24,10 @@ export function reconcileStripeTransactionState(input: {
 } {
   if (input.snapshot.currency !== input.currency || input.snapshot.amountMinor !== input.amountMinor) {
     throw new PaymentConflictError('Stripe reconciliation result does not match the persisted payment amount.');
+  }
+
+  if (!isKnownStripePaymentIntentStatus(input.snapshot.status)) {
+    throw new PaymentConflictError('Stripe reconciliation status is not recognized.');
   }
 
   // Keep this guard at the domain boundary too: provider reads, signed webhooks,

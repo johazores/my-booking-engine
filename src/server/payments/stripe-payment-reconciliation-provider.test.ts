@@ -84,3 +84,12 @@ test('Stripe failed PaymentIntent lookup does not discard received or capturable
     );
   }
 });
+
+test('PaymentIntent retrieval rejects unknown statuses instead of returning pending evidence', async () => {
+  for (const status of [undefined, null, 'unknown', 'paid', 'SUCCEEDED', 123]) {
+    await assert.rejects(
+      providerWithResponse({ status, amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});

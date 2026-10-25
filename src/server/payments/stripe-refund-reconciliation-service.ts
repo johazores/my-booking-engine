@@ -13,6 +13,7 @@ import {
 } from './stripe-refund-lifecycle-domain.ts';
 import { isInternalPaymentClaimReference } from './stripe-payment-service.ts';
 import type { StripeRefundSnapshot } from './stripe-refund-reconciliation-provider.ts';
+import { isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
 
@@ -74,6 +75,9 @@ export function reconcileStripeRefundState(input: {
     || input.snapshot.paymentIntentReference !== input.sourceProviderReference
   ) {
     throw new PaymentConflictError('Stripe refund reconciliation result does not match the persisted refund.');
+  }
+  if (!isKnownStripeRefundStatus(input.snapshot.status)) {
+    throw new PaymentConflictError('Stripe refund status is not recognized.');
   }
   if (input.snapshot.status === 'succeeded') return 'SUCCEEDED';
   if (input.snapshot.status === 'failed' || input.snapshot.status === 'canceled') return 'FAILED';

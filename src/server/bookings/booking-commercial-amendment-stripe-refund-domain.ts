@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { isKnownStripeRefundStatus } from '../payments/stripe-provider-status.ts';
+
 const STRIPE_PROVIDER_CODE = 'stripe';
 const INTERNAL_CLAIM_PREFIX = 'sf_claim_';
 
@@ -119,6 +121,9 @@ export function reconcileStripeCommercialAmendmentRefundSnapshot(input: {
     || input.snapshot.paymentIntentReference !== input.sourceProviderReference
   ) {
     throw new Error('Stripe commercial amendment refund provider truth does not match the persisted claim.');
+  }
+  if (!isKnownStripeRefundStatus(input.snapshot.status)) {
+    throw new Error('Stripe commercial amendment refund status is not recognized.');
   }
   if (input.snapshot.status === 'succeeded') return 'SUCCEEDED';
   if (input.snapshot.status === 'failed' || input.snapshot.status === 'canceled') return 'FAILED';

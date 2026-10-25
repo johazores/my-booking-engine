@@ -13,20 +13,12 @@ import {
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
 import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
+import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_METHOD_PATTERN = /^pm_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
-const STRIPE_PAYMENT_INTENT_STATUSES = new Set([
-  'requires_payment_method',
-  'requires_confirmation',
-  'requires_action',
-  'processing',
-  'requires_capture',
-  'canceled',
-  'succeeded',
-]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
@@ -161,6 +153,9 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     const money = normalizePaymentMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
     assertMatchingMoney(money, input.money, 'refund');
 
+    if (!isKnownStripeRefundStatus(refund.status)) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized refund status.', true);
+    }
     let status: ProviderRefundResult['status'];
     if (refund.status === 'succeeded') status = 'REFUNDED';
     else if (refund.status === 'failed' || refund.status === 'canceled') status = 'FAILED';
@@ -218,7 +213,7 @@ export function normalizeStripePaymentMethodReference(value: unknown): string {
 }
 
 function assertKnownStripePaymentIntentStatus(status: unknown): asserts status is string {
-  if (typeof status !== 'string' || !STRIPE_PAYMENT_INTENT_STATUSES.has(status)) {
+  if (typeof status !== 'string' || !isKnownStripePaymentIntentStatus(status)) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized PaymentIntent status.', true);
   }
 }

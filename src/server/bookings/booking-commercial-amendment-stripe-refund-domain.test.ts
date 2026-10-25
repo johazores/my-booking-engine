@@ -133,3 +133,13 @@ test('commercial amendment refund lifecycle follows current provider truth inste
     providerStatus: 'AMBIGUOUS',
   }).action, 'KEEP');
 });
+
+test('commercial amendment refund rejects unreviewed states instead of treating them as ambiguous', () => {
+  const input = { currency: 'USD', amountMinor: 2500n, sourceProviderReference: 'pi_settlement_1' };
+  for (const status of ['unknown', 'paid', 'PENDING', '']) {
+    assert.throws(() => reconcileStripeCommercialAmendmentRefundSnapshot({
+      ...input, snapshot: { paymentIntentReference: 'pi_settlement_1', currency: 'USD',
+        amountMinor: 2500n, status },
+    }), /status is not recognized/);
+  }
+});

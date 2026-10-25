@@ -1,6 +1,7 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
 import { normalizeStripePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
+import { isKnownStripePaymentIntentStatus } from './stripe-provider-status.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -57,6 +58,9 @@ export class StripePaymentReconciliationProvider {
       if (intent?.id !== reference) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent during reconciliation.', true);
       }
+      if (!isKnownStripePaymentIntentStatus(intent.status)) {
+        throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized PaymentIntent status.', true);
+      }
       if (intent.status === 'requires_capture' && (
         intent.amount_received === undefined || intent.amount_capturable === undefined
       )) {
@@ -96,7 +100,7 @@ export class StripePaymentReconciliationProvider {
       if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid PaymentIntent currency.', true);
       return Object.freeze({
         providerReference: reference,
-        status: typeof intent.status === 'string' ? intent.status : 'unknown',
+        status: intent.status,
         currency,
         amountMinor: BigInt(intent.amount),
         amountReceivedMinor: BigInt(amountReceived),

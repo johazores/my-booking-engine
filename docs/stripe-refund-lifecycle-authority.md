@@ -81,3 +81,9 @@ Generic explicit reconciliation rejects commercial-amendment-owned refunds. Amen
 `src/server/payments/stripe-refund-lifecycle-domain.test.ts` protects normal refund lifecycle and booking-state decisions. `src/server/bookings/booking-commercial-amendment-stripe-refund-domain.test.ts` protects amendment provider-state mapping and non-terminal lifecycle transitions. `scripts/stripe-commercial-amendment-refund-lifecycle-authority-contract.test.mjs` protects route ordering, exact amendment ownership, current provider retrieval, final write predicates, verified-event processing, and the no-booking-mutation boundary.
 
 Full Node 24 / TypeScript 6 validation, Prisma migration execution, disposable PostgreSQL integration tests, and live Stripe refund-transition testing still require their provisioned environments. GitHub Actions are intentionally not used.
+
+## Recognized Stripe provider-state boundary
+
+Stripe Refund and PaymentIntent status strings use separate reviewed status sets in `src/server/payments/stripe-provider-status.ts`. Refund states are `pending`, `requires_action`, `succeeded`, `failed`, and `canceled`. PaymentIntent states are separately enumerated. Missing, invented, incorrectly cased, or unrecognized statuses are **unknown provider evidence**, not permission to record a pending refund or mutate commercial settlement. Direct provider writes and provider-truth reads report retryable `UNKNOWN`; signed webhook parsing rejects the event; normal and commercial-amendment reconciliation domains reject substituted unreviewed snapshots. Exact-reference idempotency and recovery remain unchanged. New Stripe states require deliberate adapter review and regression tests. This does not treat successful refunds as permanently terminal.
+
+Focused regression tests cover these boundaries. Full Node 24/TypeScript 6, Prisma, PostgreSQL, build, and live Stripe checks remain unverified environment gates. GitHub Actions are not used.

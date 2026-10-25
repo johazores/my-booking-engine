@@ -401,3 +401,13 @@ test('signed failed PaymentIntent events reject contradictory money', () => {
     assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent(evidence)), StripeWebhookValidationError);
   }
 });
+
+test('signed refund and PaymentIntent webhooks reject unreviewed provider states', () => {
+  for (const status of [undefined, null, 'unknown', 'paid', 'PENDING', 123]) {
+    assert.throws(() => parseStripeWebhookEventPayload(refundEvent({ status })), StripeWebhookValidationError);
+    assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent({ status })), StripeWebhookValidationError);
+  }
+  for (const status of ['pending', 'requires_action', 'succeeded', 'failed', 'canceled']) {
+    assert.equal(parseStripeWebhookEventPayload(refundEvent({ status })).refund?.status, status);
+  }
+});

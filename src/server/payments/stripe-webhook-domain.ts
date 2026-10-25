@@ -1,3 +1,5 @@
+import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
+
 const STRIPE_EVENT_ID_PATTERN = /^evt_[A-Za-z0-9_]+$/;
 const STRIPE_EVENT_TYPE_PATTERN = /^[a-z0-9_.]{3,120}$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
@@ -150,7 +152,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       throw new StripeWebhookValidationError('Stripe refund PaymentIntent reference is invalid.');
     }
     const status = requiredString(refund.status, 'Stripe refund status');
-    if (!/^[a-z_]{3,80}$/.test(status)) throw new StripeWebhookValidationError('Stripe refund status is invalid.');
+    if (!isKnownStripeRefundStatus(status)) throw new StripeWebhookValidationError('Stripe refund status is not recognized.');
     if (!Number.isSafeInteger(refund.amount) || Number(refund.amount) <= 0) {
       throw new StripeWebhookValidationError('Stripe refund amount is invalid.');
     }
@@ -257,7 +259,7 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   }
 
   const status = requiredString(intent.status, 'Stripe PaymentIntent status');
-  if (!/^[a-z_]{3,80}$/.test(status)) throw new StripeWebhookValidationError('Stripe PaymentIntent status is invalid.');
+  if (!isKnownStripePaymentIntentStatus(status)) throw new StripeWebhookValidationError('Stripe PaymentIntent status is not recognized.');
 
   if (!Number.isSafeInteger(intent.amount) || Number(intent.amount) < 0) {
     throw new StripeWebhookValidationError('Stripe PaymentIntent amount is invalid.');

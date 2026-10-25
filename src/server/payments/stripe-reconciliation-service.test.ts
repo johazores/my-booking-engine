@@ -143,3 +143,15 @@ test('reconciliation domain rejects failed PaymentIntents that still hold money'
     }
   }
 });
+
+test('payment reconciliation rejects substituted unknown provider statuses', () => {
+  for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+    for (const status of ['unknown', 'paid', 'SUCCEEDED', '']) {
+      assert.throws(() => reconcileStripeTransactionState({
+        kind, currency: 'USD', amountMinor: 5000n,
+        snapshot: { providerReference: 'pi_unknown', status, currency: 'USD',
+          amountMinor: 5000n, amountReceivedMinor: 0n, amountCapturableMinor: 0n },
+      }), /status is not recognized/);
+    }
+  }
+});

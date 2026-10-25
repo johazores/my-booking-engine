@@ -92,3 +92,26 @@ test('Stripe refund reconciliation rejects a different refund identity even when
     (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
   );
 });
+
+test('refund lookup and reconciliation reject unknown states rather than silently treating them as pending', async () => {
+  const input = { currency: 'USD', amountMinor: 2500n, sourceProviderReference: 'pi_capture_1' };
+  for (const status of [undefined, null, 'unknown', 'paid', 'PENDING', ' pending ', 123]) {
+    const provider = new StripeRefundReconciliationProvider({
+      secretKey: 'sk_test_reconciliation',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 're_refund_1', payment_intent: 'pi_capture_1', status, amount: 2500, currency: 'usd',
+      })),
+    });
+    await assert.rejects(
+      provider.retrieveRefund('re_refund_1'),
+      (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN'
+        && (error as { retryable?: boolean }).retryable === true,
+    );
+    assert.throws(() => reconcileStripeRefundState({
+      ...input, snapshot: snapshot({ status: String(status) }),
+    }), PaymentConflictError);
+  }
+  assert.equal(reconcileStripeRefundState({
+    ...input, snapshot: snapshot({ status: 'requires_action' }),
+  }), 'PENDING');
+});

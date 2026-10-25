@@ -454,3 +454,28 @@ test('Stripe pending release requires complete provider money and never claims a
     ...context('stripe:release:still-authorized'), providerReference: 'pi_release_pending',
   })).status, 'PENDING');
 });
+
+test('refund write refuses unknown Stripe states and preserves known refund lifecycle', async () => {
+  for (const status of [undefined, null, 'unknown', 'paid', 'PENDING', ' pending ', 123]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 're_status_1', payment_intent: 'pi_source_1', status, amount: 24100, currency: 'usd',
+      })),
+    });
+    await assert.rejects(
+      provider.refundPayment!({ ...context('stripe:refund:status'), providerReference: 'pi_source_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+  for (const status of ['pending', 'requires_action', 'succeeded', 'failed', 'canceled']) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 're_status_1', payment_intent: 'pi_source_1', status, amount: 24100, currency: 'usd',
+      })),
+    });
+    const result = await provider.refundPayment!({ ...context('stripe:refund:known'), providerReference: 'pi_source_1' });
+    assert.equal(result.status, status === 'succeeded' ? 'REFUNDED' : ['failed', 'canceled'].includes(status) ? 'FAILED' : 'PENDING');
+  }
+});

@@ -1,6 +1,7 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
 import { normalizeStripePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
+import { isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
@@ -64,8 +65,8 @@ export class StripeRefundReconciliationProvider {
       if (typeof refund.payment_intent !== 'string') {
         throw new PaymentProviderError('UNKNOWN', 'Stripe refund is missing its PaymentIntent reference.', true);
       }
-      const status = typeof refund.status === 'string' ? refund.status.trim().toLowerCase() : '';
-      if (!/^[a-z_]{3,80}$/.test(status)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund status.', true);
+      const status = refund.status;
+      if (!isKnownStripeRefundStatus(status)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized refund status.', true);
       return Object.freeze({
         refundReference: reference,
         paymentIntentReference: normalizeStripePaymentIntentReference(refund.payment_intent),
