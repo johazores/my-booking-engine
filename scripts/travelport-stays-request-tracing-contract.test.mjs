@@ -180,11 +180,11 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`keepalive: false`/);
   assert.match(doc, /does not spread arbitrary caller `RequestInit` metadata/);
   assert.match(doc, /Node\/Undici `dispatcher`/);
-  assert.match(doc, /route-specific header allowlist/);
+  assert.match(doc, /route-specific internal header allowlist/);
   assert.match(doc, /Any other caller header/);
-  assert.match(doc, /same length ceilings as server-side credential normalization/);
-  assert.match(doc, /adapter-owned common authentication\/content headers must be present/);
-  assert.match(doc, /must exactly match the configured integration before provider I\/O/);
+  assert.match(doc, /same field-length and whitespace bounds as Travelport credential normalization/);
+  assert.match(doc, /network-visible Stays header set is therefore limited/);
+  assert.match(doc, /requires exact equality with the active integration/);
   assert.match(doc, /`TVP-Cache-Control` is accepted only as `no-cache`/);
   assert.match(doc, /OAuth request body must remain the adapter-owned `URLSearchParams` password-grant form/);
   assert.match(doc, /at most 4 MiB of UTF-8 payload/);
