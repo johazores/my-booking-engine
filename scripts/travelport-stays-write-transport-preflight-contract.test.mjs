@@ -9,12 +9,15 @@ const source = (path) => readFileSync(join(root, path), 'utf8');
 test('Travelport write preflight reuses the exact credentialed transport with no network terminal', () => {
   const preflight = source('src/server/suppliers/travelport-stays-transport-preflight.ts');
   assert.match(preflight, /createTravelportStaysTraceFetch/);
+  assert.match(preflight, /createTravelportStaysOAuthCredentialContainmentFetch/);
   assert.match(preflight, /noIoTravelportStaysPreflightFetch/);
   assert.match(preflight, /new Response\(null, \{ status: 204 \}\)/);
   assert.match(preflight, /const sourceCredentials = input\.credentials/);
   assert.match(preflight, /materializeTravelportStaysAccessTokenAuthority\(\{ credentials: sourceCredentials \}\)/);
   assert.match(preflight, /environment: credentials\.environment/);
-  assert.match(preflight, /credentials,\s*fetchImpl: noIoTravelportStaysPreflightFetch/);
+  assert.match(preflight, /const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch\(\{[\s\S]*?credentials,\s*fetchImpl: noIoTravelportStaysPreflightFetch,[\s\S]*?\}\);/);
+  assert.match(preflight, /const preflightFetch = createTravelportStaysTraceFetch\(\{[\s\S]*?credentials,\s*fetchImpl: credentialContainedFetch,[\s\S]*?\}\);/);
+  assert.doesNotMatch(preflight, /createTravelportStaysTraceFetch\(\{[\s\S]*?fetchImpl: noIoTravelportStaysPreflightFetch/);
   assert.match(preflight, /await preflightFetch\(requestInput, init\)/);
   assert.doesNotMatch(preflight, /environment: input\.credentials\.environment|credentials: input\.credentials/);
   assert.doesNotMatch(preflight, /\bfetch\(input\.requestInput|globalThis\.fetch/);
@@ -69,6 +72,15 @@ test('Booking.com Sync preflights the exact serialized write before durable prov
   assert.match(executor.slice(preflightIndex, markerIndex), /body: serializedBody/);
   assert.match(executor.slice(fetchIndex, fetchIndex + 700), /headers: requestHeaders/);
   assert.match(executor.slice(fetchIndex, fetchIndex + 700), /body: serializedBody/);
+});
+
+test('known-locator recovery also preflights before marking provider I/O', () => {
+  const recovery = source('src/server/suppliers/travelport-stays-reservation-recovery-provider.ts');
+  const preflightIndex = recovery.indexOf('await assertTravelportStaysTransportRequestReady');
+  const markerIndex = recovery.indexOf('await beforeProviderRequest()', preflightIndex);
+  const fetchIndex = recovery.indexOf('const response = await fetchWithTimeout', markerIndex);
+  assert.ok(preflightIndex >= 0 && markerIndex > preflightIndex && fetchIndex > markerIndex);
+  assert.match(recovery.slice(preflightIndex, markerIndex), /method: 'GET'/);
 });
 
 test('Travelport integration documentation keeps preflight separate from provider-I/O authority', () => {

@@ -106,7 +106,7 @@ Provider failures normalize into bounded SF failure codes. Provider timeouts, au
 
 Create, reviewed Create, and Sync use durable attempt UUIDs as E2E correlation authority. Structured provider observations are strict allowlists and exclude traveler/card data, supplier confirmations, recovery references, provider locators, credentials, tokens, request bodies, and response bodies.
 
-The write preflight is validation only: its terminal transport performs no network I/O and therefore cannot prove that Travelport received a request. The durable provider marker remains the crash-safety boundary for possible external writes, and the real shared transport revalidates after that marker before any provider network call.
+The Create, Sync, and known-locator Retrieve preflight is validation only: it composes the same environment-bound trace policy **and** terminal OAuth credential-containment policy as production, but substitutes a no-network terminal Fetch. This catches deterministic failures in either outbound policy before the durable provider-write marker; the terminal must never receive long-lived OAuth credential headers on Stays calls. The preflight cannot prove that Travelport received a request. The durable provider marker remains the crash-safety boundary for possible external writes, and the real shared transport revalidates after that marker before any provider network call.
 
 ## Validation boundary
 

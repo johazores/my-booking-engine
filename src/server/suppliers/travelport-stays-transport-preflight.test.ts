@@ -59,6 +59,35 @@ test('preflights every implemented Travelport reservation write shape without pr
   }
 });
 
+test('known-locator Retrieve preflight applies both credentialed transports without provider I/O', async () => {
+  await assert.doesNotReject(assertTravelportStaysTransportRequestReady({
+    credentials,
+    requestInput: 'https://api.travelport.net/11/hotel/book/reservations/ABC123',
+    init: { method: 'GET', headers: writeHeaders() },
+  }));
+
+  await assert.rejects(assertTravelportStaysTransportRequestReady({
+    credentials,
+    requestInput: 'https://api.travelport.net/11/hotel/book/reservations/ABC123',
+    init: { method: 'GET', headers: writeHeaders(), body: '{}' },
+  }), assertInvalidRequest);
+});
+
+test('write preflight rejects unsafe terminal headers and never treats them as provider ambiguity', async () => {
+  for (const invalidHeaders of [
+    writeHeaders({ 'X-Unreviewed-Authority': 'unexpected' }),
+    writeHeaders({ Authorization: 'Bearer ' }),
+    writeHeaders({ client_secret: 'other-secret' }),
+    writeHeaders({ Cookie: 'sensitive=unexpected' }),
+  ]) {
+    await assert.rejects(assertTravelportStaysTransportRequestReady({
+      credentials,
+      requestInput: 'https://api.travelport.net/11/hotel/book/reservations/build',
+      init: { method: 'POST', headers: invalidHeaders, body: '{}' },
+    }), assertInvalidRequest);
+  }
+});
+
 test('preflight fails closed on write target, credential, query, and body-policy defects', async () => {
   const invalidRequests = [
     {

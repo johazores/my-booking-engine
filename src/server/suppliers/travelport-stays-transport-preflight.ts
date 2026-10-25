@@ -1,4 +1,5 @@
 import type { TravelportStaysCredentials } from './travelport-stays-provider.ts';
+import { createTravelportStaysOAuthCredentialContainmentFetch } from './travelport-stays-oauth-credential-containment-fetch.ts';
 import { createTravelportStaysTraceFetch } from './travelport-stays-trace-fetch.ts';
 import { materializeTravelportStaysAccessTokenAuthority } from './travelport-stays-entry-authority.ts';
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
@@ -27,10 +28,18 @@ export async function assertTravelportStaysTransportRequestReady(input: Readonly
   } catch {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport preflight authority is invalid.');
   }
-  const preflightFetch = createTravelportStaysTraceFetch({
+  // Mirror both credentialed production transport layers before a durable
+  // provider-write marker. A trace-only check can miss terminal containment
+  // policy changes and strand a safe, unsubmitted write as ambiguous.
+  const credentialContainedFetch = createTravelportStaysOAuthCredentialContainmentFetch({
     environment: credentials.environment,
     credentials,
     fetchImpl: noIoTravelportStaysPreflightFetch,
+  });
+  const preflightFetch = createTravelportStaysTraceFetch({
+    environment: credentials.environment,
+    credentials,
+    fetchImpl: credentialContainedFetch,
   });
   await preflightFetch(requestInput, init);
 }
