@@ -1,5 +1,6 @@
-import { PaymentProviderError, normalizePaymentMoney, type PaymentMoney } from './payment-provider.ts';
+import { PaymentProviderError, type PaymentMoney } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { assertStripeProviderResponseObject, normalizeStripeProviderResponseMoney, readStripeProviderError } from './stripe-provider-response-evidence.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_HOSTNAME = 'checkout.stripe.com';
@@ -126,6 +127,7 @@ export class StripeCheckoutProvider {
     if (input.customerEmail) form.set('customer_email', input.customerEmail);
 
     const response = await this.requestPost<StripeCheckoutSessionResponse>('/checkout/sessions', form, input.idempotencyKey);
+    assertStripeProviderResponseObject(response);
     if (response.object !== 'checkout.session') throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session.', true);
     if (typeof response.id !== 'string' || !STRIPE_CHECKOUT_SESSION_PATTERN.test(response.id) || response.id.length > 160) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session reference.', true);
@@ -158,6 +160,7 @@ export class StripeCheckoutProvider {
       throw new PaymentProviderError('INVALID_REQUEST', 'Stripe Checkout Session reference is invalid.');
     }
     const response = await this.requestGet<StripeCheckoutSessionResponse>(`/checkout/sessions/${encodeURIComponent(sessionReference)}`);
+    assertStripeProviderResponseObject(response);
     if (response.object !== 'checkout.session' || response.id !== sessionReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different Checkout Session.', true);
     }
@@ -280,7 +283,7 @@ function normalizeCheckoutMoney(response: StripeCheckoutSessionResponse) {
   if (!Number.isSafeInteger(response.amount_total) || Number(response.amount_total) < 0) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout amount.', true);
   }
-  return normalizePaymentMoney(response.currency, BigInt(Number(response.amount_total)));
+  return normalizeStripeProviderResponseMoney(response.currency, BigInt(Number(response.amount_total)));
 }
 
 function normalizeCheckoutStatus(value: unknown): StripeCheckoutSessionSnapshot['status'] {
@@ -358,13 +361,13 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
 }
 
 function mapStripeCheckoutError(status: number, payload: StripeErrorResponse) {
-  const error = payload.error;
-  const message = error?.message?.trim() || 'Stripe rejected the Checkout request.';
+  const error = readStripeProviderError(payload, 'Stripe rejected the Checkout request.');
+  const message = error.message;
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
-  if (status === 409 || error?.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+  if (status === 409 || error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
   if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
-  if (error?.type === 'card_error' || error?.code === 'card_declined' || error?.decline_code) return new PaymentProviderError('DECLINED', message);
+  if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
 }

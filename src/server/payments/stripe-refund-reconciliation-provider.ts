@@ -1,5 +1,6 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { normalizeStripeProviderResponseCurrency, readStripeProviderError } from './stripe-provider-response-evidence.ts';
 import { requireStripeResponsePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 import { isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
@@ -60,8 +61,7 @@ export class StripeRefundReconciliationProvider {
       if (!Number.isSafeInteger(refund.amount) || refund.amount <= 0) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid refund money.', true);
       }
-      const currency = typeof refund.currency === 'string' ? refund.currency.trim().toUpperCase() : '';
-      if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund currency.', true);
+      const currency = normalizeStripeProviderResponseCurrency(refund.currency);
       if (typeof refund.payment_intent !== 'string') {
         throw new PaymentProviderError('UNKNOWN', 'Stripe refund is missing its PaymentIntent reference.', true);
       }
@@ -92,7 +92,7 @@ export function normalizeStripeRefundReference(value: unknown): string {
 }
 
 function mapStripeLookupError(status: number, payload: StripeErrorResponse): PaymentProviderError {
-  const message = payload.error?.message?.trim() || 'Stripe rejected the refund reconciliation request.';
+  const message = readStripeProviderError(payload, 'Stripe rejected the refund reconciliation request.').message;
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', 'Stripe refund was not found.');
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);

@@ -1,5 +1,6 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { normalizeStripeProviderResponseCurrency, readStripeProviderError } from './stripe-provider-response-evidence.ts';
 import { normalizeStripePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 import { isKnownStripePaymentIntentStatus } from './stripe-provider-status.ts';
 
@@ -85,8 +86,7 @@ export class StripePaymentReconciliationProvider {
       if (intent.status === 'succeeded' && amountCapturable !== 0) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe settled PaymentIntent still reports capturable money.', true);
       }
-      const currency = typeof intent.currency === 'string' ? intent.currency.trim().toUpperCase() : '';
-      if (!/^[A-Z]{3}$/.test(currency)) throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid PaymentIntent currency.', true);
+      const currency = normalizeStripeProviderResponseCurrency(intent.currency);
       return Object.freeze({
         providerReference: reference,
         status: intent.status,
@@ -106,7 +106,7 @@ export class StripePaymentReconciliationProvider {
 }
 
 function mapStripeLookupError(status: number, payload: StripeErrorResponse): PaymentProviderError {
-  const message = payload.error?.message?.trim() || 'Stripe rejected the reconciliation request.';
+  const message = readStripeProviderError(payload, 'Stripe rejected the reconciliation request.').message;
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', 'Stripe PaymentIntent was not found.');
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);

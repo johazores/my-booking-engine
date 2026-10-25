@@ -127,3 +127,22 @@ test('Stripe PaymentIntent lookups reject references beyond the ledger column li
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
   );
 });
+
+test('Stripe PaymentIntent retrieval rejects unsupported or noncanonical provider currencies', async () => {
+  for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
+    await assert.rejects(providerWithResponse({ amount_received: 0, amount_capturable: 0, currency })
+      .retrievePaymentIntent('pi_terminal_evidence'),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+});
+
+test('Stripe PaymentIntent lookup preserves HTTP status when error JSON is malformed', async () => {
+  for (const [status, code, retryable] of [[429, 'RATE_LIMITED', true], [401, 'AUTHENTICATION_FAILED', false]] as const) {
+    const provider = new StripePaymentReconciliationProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response('null', { status }),
+    });
+    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
+  }
+});

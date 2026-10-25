@@ -509,3 +509,35 @@ test('Stripe cannot persist an oversized provider-created PaymentIntent or refun
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
+
+test('Stripe direct writes classify invalid provider currencies as retryable unknown evidence', async () => {
+  for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async (url) => new Response(JSON.stringify(String(url).endsWith('/refunds')
+        ? { id: 're_currency_1', payment_intent: 'pi_currency_1', status: 'succeeded', amount: 24100, currency }
+        : { id: 'pi_currency_1', status: 'requires_capture', amount: 24100, amount_received: 0, amount_capturable: 24100, currency })),
+    });
+    for (const operation of [
+      () => provider.authorizePayment!({ ...context('stripe:currency:auth'), paymentMethodReference: 'pm_card_1' }),
+      () => provider.capturePayment!({ ...context('stripe:currency:capture'), providerReference: 'pi_currency_1' }),
+      () => provider.releaseAuthorization!({ ...context('stripe:currency:release'), providerReference: 'pi_currency_1' }),
+      () => provider.refundPayment!({ ...context('stripe:currency:refund'), providerReference: 'pi_currency_1' }),
+    ]) {
+      await assert.rejects(operation(), (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+    }
+  }
+});
+
+test('Stripe direct writes retain HTTP error classification with malformed error JSON', async () => {
+  for (const [status, code, retryable] of [[429, 'RATE_LIMITED', true], [401, 'AUTHENTICATION_FAILED', false]] as const) {
+    for (const payload of [null, [], { error: { message: 7 } }]) {
+      const provider = new StripePaymentProvider({
+        secretKey: 'sk_test_not-a-real-secret',
+        fetchImpl: async () => new Response(JSON.stringify(payload), { status }),
+      });
+      await assert.rejects(provider.authorizePayment!({ ...context('stripe:bad-error'), paymentMethodReference: 'pm_card_1' }),
+        (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
+    }
+  }
+});

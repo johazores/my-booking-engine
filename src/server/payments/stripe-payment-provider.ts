@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import {
   PaymentProviderError,
-  normalizePaymentMoney,
   type PaymentAuthorizationInput,
   type PaymentOperationContext,
   type PaymentProviderAdapter,
@@ -12,6 +11,7 @@ import {
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { normalizeStripeProviderResponseMoney, readStripeProviderError } from './stripe-provider-response-evidence.ts';
 import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
 import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
@@ -96,7 +96,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
     }
     assertKnownStripePaymentIntentStatus(intent?.status);
-    const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
+    const money = normalizeStripeProviderResponseMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
     assertMatchingMoney(money, input.money, 'authorization release');
     // A canceled intent must prove that neither received nor capturable money remains.
     // Otherwise a cancellation response is not authoritative release evidence.
@@ -152,7 +152,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     if (typeof refund.id !== 'string' || !STRIPE_REFUND_PATTERN.test(refund.id) || refund.id.length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund reference.', true);
     }
-    const money = normalizePaymentMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
+    const money = normalizeStripeProviderResponseMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
     assertMatchingMoney(money, input.money, 'refund');
 
     if (!isKnownStripeRefundStatus(refund.status)) {
@@ -230,7 +230,7 @@ function assertKnownStripePaymentIntentStatus(status: unknown): asserts status i
 
 function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
   assertKnownStripePaymentIntentStatus(intent?.status);
-  const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
+  const money = normalizeStripeProviderResponseMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
   assertMatchingMoney(money, expectedMoney, 'payment');
   if (intent.status === 'requires_capture' && (
     intent.amount_capturable === undefined
@@ -296,7 +296,7 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
 function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
   assertKnownStripePaymentIntentStatus(intent?.status);
   const nominalAmount = normalizeStripeMinorAmount(intent.amount, 'PaymentIntent amount');
-  const nominalMoney = normalizePaymentMoney(intent.currency, nominalAmount);
+  const nominalMoney = normalizeStripeProviderResponseMoney(intent.currency, nominalAmount);
   if (nominalMoney.currency !== expectedMoney.currency) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe capture currency does not match the requested capture.', true);
   }
@@ -318,7 +318,7 @@ function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMon
     if (capturable !== 0n) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe reported successful capture with money still capturable.', true);
     }
-    const money = normalizePaymentMoney(intent.currency, received);
+    const money = normalizeStripeProviderResponseMoney(intent.currency, received);
     assertMatchingMoney(money, expectedMoney, 'capture');
     return normalizedIntentResult(intent, money);
   }
@@ -364,13 +364,13 @@ function assertMatchingMoney(actual: PaymentOperationContext['money'], expected:
 }
 
 function mapStripeError(status: number, payload: StripeErrorResponse): PaymentProviderError {
-  const error = payload.error;
-  const message = error?.message?.trim() || 'Stripe rejected the payment request.';
+  const error = readStripeProviderError(payload, 'Stripe rejected the payment request.');
+  const message = error.message;
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
-  if (status === 409 || error?.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+  if (status === 409 || error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
   if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
-  if (error?.type === 'card_error' || error?.code === 'card_declined' || error?.decline_code) return new PaymentProviderError('DECLINED', message);
+  if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
 }

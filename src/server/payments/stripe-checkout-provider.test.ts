@@ -310,3 +310,47 @@ test('created Checkout IDs must fit the persisted provider reference limit', asy
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
   );
 });
+
+test('Stripe Checkout creation and retrieval reject invalid provider currencies', async () => {
+  for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
+    await assert.rejects(createBookingCheckout({ currency }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+        currency, status: 'complete', payment_status: 'paid', payment_intent: 'pi_checkout_currency_1',
+      }))),
+    });
+    await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+});
+
+test('Stripe Checkout requires a JSON object for successful creation and retrieval', async () => {
+  for (const payload of [null, [], 'not-a-session', 123]) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(payload)),
+    });
+    await assert.rejects(provider.createPaymentSession({
+      organizationId, bookingId, idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success', cancelUrl: 'https://booking.example.test/cancel', now,
+    }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+    await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+});
+
+test('Stripe Checkout preserves HTTP error classification for malformed error JSON', async () => {
+  for (const [status, code, retryable] of [[429, 'RATE_LIMITED', true], [401, 'AUTHENTICATION_FAILED', false]] as const) {
+    for (const payload of [null, [], { error: { message: 7 } }]) {
+      const provider = new StripeCheckoutProvider({
+        secretKey: 'sk_test_checkout_secret',
+        fetchImpl: async () => new Response(JSON.stringify(payload), { status }),
+      });
+      await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+        (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
+    }
+  }
+});

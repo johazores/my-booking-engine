@@ -25,3 +25,27 @@ test('Stripe refund reconciliation treats malformed provider source identity as 
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
+
+test('Stripe refund retrieval rejects unsupported or noncanonical provider currencies', async () => {
+  for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
+    const provider = new StripeRefundReconciliationProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 're_currency_1', payment_intent: 'pi_currency_1', status: 'succeeded', amount: 4100, currency,
+      })),
+    });
+    await assert.rejects(provider.retrieveRefund('re_currency_1'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+});
+
+test('Stripe refund lookup preserves HTTP status when error JSON is malformed', async () => {
+  for (const [status, code, retryable] of [[429, 'RATE_LIMITED', true], [401, 'AUTHENTICATION_FAILED', false]] as const) {
+    const provider = new StripeRefundReconciliationProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response('null', { status }),
+    });
+    await assert.rejects(provider.retrieveRefund('re_currency_1'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
+  }
+});
