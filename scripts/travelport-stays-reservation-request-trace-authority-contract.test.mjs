@@ -17,7 +17,7 @@ test('reservation request trace authority materializes the exact v11 pair before
   assert.match(wrapper, /headers\.delete\('TVP-Trace-Id'\);/);
   assert.match(
     wrapper,
-    /const response = await fetchImpl\(\s*input,\s*reservation \? \{ \.\.\.init, headers: reservation\.headers \} : init,\s*\);/,
+    /const response = await fetchImpl\(\s*input,\s*reservation \? \{ \.\.\.requestInit, headers: reservation\.headers \} : requestInit,\s*\);/,
     'canonical request trace headers must be materialized before the delegated fetch executes',
   );
 });
@@ -30,4 +30,15 @@ test('reservation request trace documentation records v11 authority and the acti
   assert.match(doc, /`TVP-Trace-Id` is deleted/);
   assert.match(doc, /before delegated provider I\/O/);
   assert.match(doc, /does not advertise or enable Travelport `reservation`/);
+});
+
+test('reservation trace projects caller metadata once before delegation', () => {
+  const wrapper = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
+  assert.match(wrapper, /function snapshotReservationRequestInit\(/);
+  assert.match(wrapper, /const method = init\.method;/);
+  assert.match(wrapper, /const headers = init\.headers;/);
+  assert.match(wrapper, /const body = init\.body;/);
+  assert.match(wrapper, /const signal = init\.signal;/);
+  assert.match(wrapper, /const requestInit = snapshotReservationRequestInit\(init\);/);
+  assert.doesNotMatch(wrapper, /\.\.\.init, headers: reservation\.headers/);
 });

@@ -39,6 +39,31 @@ function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
   return new Headers(source);
 }
 
+/** Project only supported Fetch fields once; never spread caller-owned request metadata. */
+function snapshotReservationRequestInit(init?: RequestInit): RequestInit | undefined {
+  if (init === undefined) return undefined;
+  try {
+    const method = init.method;
+    const headers = init.headers;
+    const body = init.body;
+    const signal = init.signal;
+    if (method !== undefined && typeof method !== 'string') {
+      throw new TypeError('Invalid request method');
+    }
+    if (signal !== undefined && signal !== null && !(signal instanceof AbortSignal)) {
+      throw new TypeError('Invalid request signal');
+    }
+    const snapshot: RequestInit = {};
+    if (method !== undefined) snapshot.method = method;
+    if (headers !== undefined) snapshot.headers = new Headers(headers);
+    if (body !== undefined) snapshot.body = body;
+    if (signal !== undefined) snapshot.signal = signal;
+    return snapshot;
+  } catch {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request metadata is invalid.');
+  }
+}
+
 function isReservationNamespace(pathname: string) {
   return pathname === RESERVATION_PATH_PREFIX || pathname.startsWith(`${RESERVATION_PATH_PREFIX}/`);
 }
@@ -100,12 +125,18 @@ function reservationRequest(input: RequestInfo | URL, init?: RequestInit): Reser
   }
   if (!isReservationNamespace(url.pathname)) return null;
 
-  const method = requestMethod(input, init);
+  let method: string;
+  let headers: Headers;
+  try {
+    method = requestMethod(input, init);
+    headers = requestHeaders(input, init);
+  } catch {
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request metadata is invalid.');
+  }
   if (!isSupportedReservationRequest(url, method)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request target is invalid.');
   }
 
-  const headers = requestHeaders(input, init);
   const e2eTrackingId = headers.get('E2ETrackingID');
   if (!e2eTrackingId?.startsWith(SF_E2E_PREFIX)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation request correlation ID is required.');
@@ -200,10 +231,11 @@ export function createTravelportStaysReservationTraceAuthorityFetch(fetchImpl: t
   }
 
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const reservation = reservationRequest(input, init);
+    const requestInit = snapshotReservationRequestInit(init);
+    const reservation = reservationRequest(input, requestInit);
     const response = await fetchImpl(
       input,
-      reservation ? { ...init, headers: reservation.headers } : init,
+      reservation ? { ...requestInit, headers: reservation.headers } : requestInit,
     );
     if (!reservation) return response;
 
