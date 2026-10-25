@@ -91,7 +91,8 @@ test('terminal containment projects network-safe Fetch metadata without spreadin
   assert.match(containment, /if \(body !== null\) requestInit\.body = body/);
   assert.match(containment, /if \(signal !== undefined\) requestInit\.signal = signal/);
   assert.equal((containment.match(/assertAllowedTerminalHeaders\(headers, TRAVELPORT_[A-Z_]+_TERMINAL_ALLOWED_HEADERS\)/g) ?? []).length, 2);
-  assert.equal((containment.match(/terminalTravelportRequestInit\(method, body, signal, headers\)/g) ?? []).length, 2);
+  assert.equal((containment.match(/terminalTravelportRequestInit\(method, body, signal, headers\)/g) ?? []).length, 1);
+  assert.equal((containment.match(/terminalTravelportRequestInit\(method, oauthBody, signal, headers\)/g) ?? []).length, 1);
   assert.doesNotMatch(containment, /fetchImpl\(requestInput, \{ \.\.\.init/);
 });
 
