@@ -86,3 +86,11 @@ test('Travelport operational logging documentation records the non-authoritative
   assert.match(documentation, /reservation\.sync/);
   assert.match(documentation, /GitHub Actions are not used/i);
 });
+
+test('operational metadata failures are non-authoritative and cannot mask supplier transport failures', () => {
+  const logger = source('src/server/suppliers/travelport-stays-operational-log-fetch.ts');
+  assert.match(logger, /function requestMethod\([\s\S]*?catch \{\s*return 'UNKNOWN';/);
+  assert.match(logger, /const suppliedSignal = init\?\.signal;/);
+  assert.match(logger, /function safeSignalAborted\(/);
+  assert.match(logger, /const aborted = safeSignalAborted\(signal\);/);
+});

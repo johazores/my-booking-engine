@@ -73,3 +73,7 @@ This ordering keeps operational logging downstream of secret containment. Connec
 `scripts/travelport-stays-operational-logging-contract.test.mjs` locks the production composition, Create-versus-Sync operation semantics, and secret-free record/documentation contract without external dependencies.
 
 Repository-required Node 24 execution remains part of the normal local validation gate. GitHub Actions are not used.
+
+## Request metadata observation failures
+
+The terminal operational logger treats caller-supplied method, header, signal, URL, and abort-state inspection as non-authoritative diagnostics. Hostile getters or malformed diagnostic metadata cannot prevent an otherwise valid delegated Fetch from running or mask the original provider transport failure. Such observations fall back to fixed `unknown` operation, empty correlation, or non-aborted transport classification without serializing caller-controlled exception text. The outer Travelport transports still reject malformed request authority before reaching this logger; this fail-open rule applies only to observability, never credential or reservation validation.

@@ -302,3 +302,44 @@ test('reads tenant attribution getters once before provider I/O', async () => {
   assert.equal(records.length, 2);
   for (const count of counts.values()) assert.equal(count, 1);
 });
+
+test('diagnostic request metadata getters fail open without leaking details or blocking provider I/O', async () => {
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  let calls = 0;
+  const wrapped = createTravelportStaysOperationalLogFetch({
+    ...CONTEXT,
+    fetchImpl: (async () => {
+      calls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch,
+    sink: (record) => records.push(record),
+    randomUuid: () => FALLBACK_REQUEST_ID,
+  });
+  for (const key of ['method', 'headers', 'signal'] as const) {
+    const init: RequestInit = {};
+    Object.defineProperty(init, key, { get() { throw new Error('private secret'); } });
+    await wrapped('https://api.travelport.net/12/hotel/search/searchcomplete', init);
+  }
+  assert.equal(calls, 3);
+  assert.equal(records.length, 3);
+  assert.ok(records.every((record) => record.outcome === 'succeeded'));
+  assert.equal(records[0]?.operation, 'unknown');
+  assert.equal(JSON.stringify(records).includes('private secret'), false);
+});
+
+test('diagnostic abort-state getter failure cannot mask the provider transport error', async () => {
+  const records: StructuredTravelportStaysProviderRequestLogRecord[] = [];
+  const wrapped = createTravelportStaysOperationalLogFetch({
+    ...CONTEXT,
+    fetchImpl: (async () => { throw new Error('original provider failure'); }) as typeof fetch,
+    sink: (record) => records.push(record),
+    randomUuid: () => FALLBACK_REQUEST_ID,
+  });
+  const signal = { get aborted() { throw new Error('private secret'); } } as AbortSignal;
+  await assert.rejects(
+    wrapped('https://api.travelport.net/12/hotel/search/searchcomplete', { method: 'POST', signal }),
+    /original provider failure/,
+  );
+  assert.equal(records[0]?.failureClass, 'transport');
+  assert.equal(JSON.stringify(records).includes('private secret'), false);
+});

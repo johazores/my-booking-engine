@@ -59,8 +59,12 @@ function requestUrl(input: RequestInfo | URL) {
 }
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
-  const value = init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET');
-  return typeof value === 'string' ? value.toUpperCase() : 'UNKNOWN';
+  try {
+    const value = init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET');
+    return typeof value === 'string' ? value.toUpperCase() : 'UNKNOWN';
+  } catch {
+    return 'UNKNOWN';
+  }
 }
 
 function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
@@ -74,11 +78,20 @@ function requestHeaders(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 function requestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null {
-  if (init?.signal) return init.signal;
   try {
+    const suppliedSignal = init?.signal;
+    if (suppliedSignal) return suppliedSignal;
     return typeof Request !== 'undefined' && input instanceof Request ? input.signal : null;
   } catch {
     return null;
+  }
+}
+
+function safeSignalAborted(signal: AbortSignal | null) {
+  try {
+    return signal?.aborted === true;
+  } catch {
+    return false;
   }
 }
 
@@ -216,7 +229,7 @@ export function createTravelportStaysOperationalLogFetch(input: Readonly<{
       }));
       return response;
     } catch (error) {
-      const aborted = signal?.aborted === true;
+      const aborted = safeSignalAborted(signal);
       emitStructuredObservationSafely(sink, Object.freeze({
         ...base,
         timestamp: safeObservationTimestamp(now),
