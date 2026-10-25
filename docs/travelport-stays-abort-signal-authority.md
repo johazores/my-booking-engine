@@ -17,3 +17,5 @@ The operational logging wrapper remains observational and fail-open. Its diagnos
 ## Validation
 
 Focused TypeScript tests cover native active and aborted signals, forged/hostile signal objects, the shared and terminal Stays transports, the reservation-only wrapper, and the no-I/O preflight. A dependency-free source contract pins the three fail-closed boundaries and the deliberately unchanged fail-open logger. Full Node 24, Prisma/PostgreSQL, and live Travelport validation remain separate gates. This change does not advertise the `reservation` capability or modify payment-card handling.
+
+OAuth token exchanges and inherited `Request.signal` values use the same native-signal check. The tests also verify these cases reject before an injected terminal Fetch is invoked.

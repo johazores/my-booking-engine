@@ -138,3 +138,56 @@ test('no-network write preflight rejects malformed or already-aborted signals', 
     init: { method: 'POST', headers: headers(), body: '{}', signal: new AbortController().signal },
   }));
 });
+
+test('OAuth token exchange rejects invalid signals in both transport layers before network I/O', async () => {
+  const form = () => new URLSearchParams({
+    grant_type: 'password',
+    username: credentials.username,
+    password: credentials.password,
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+  });
+  const url = 'https://auth.travelport.net/oauth/token';
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' };
+  let calls = 0;
+  const terminal = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
+    calls += 1;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  const traced = createTravelportStaysTraceFetch({ environment: 'production', credentials, fetchImpl: terminal });
+  const contained = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production', credentials, fetchImpl: terminal,
+  });
+  for (const signal of invalidSignals()) {
+    for (const transport of [traced, contained]) {
+      await assert.rejects(transport(url, {
+        method: 'POST', headers, body: form(), signal,
+      }), invalidRequest);
+    }
+  }
+  assert.equal(calls, 0);
+  const active = new AbortController().signal;
+  await traced(url, { method: 'POST', headers, body: form(), signal: active });
+  await contained(url, { method: 'POST', headers, body: form(), signal: active });
+  assert.equal(calls, 2);
+});
+
+test('inherited aborted Request signal is rejected before shared or terminal transport I/O', async () => {
+  let calls = 0;
+  const terminal = (async () => {
+    calls += 1;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  const traced = createTravelportStaysTraceFetch({ environment: 'production', credentials, fetchImpl: terminal });
+  const contained = createTravelportStaysOAuthCredentialContainmentFetch({
+    environment: 'production', credentials, fetchImpl: terminal,
+  });
+  const request = new Request('https://api.travelport.net/11/hotel/book/reservations/ABC123', {
+    method: 'GET',
+    headers: headers(),
+    signal: AbortSignal.abort('already cancelled'),
+  });
+  await assert.rejects(traced(request), invalidRequest);
+  await assert.rejects(contained(request), invalidRequest);
+  assert.equal(calls, 0);
+});

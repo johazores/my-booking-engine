@@ -44,7 +44,7 @@ test('terminal Travelport payload authority is independently constrained before 
   assert.match(containment, /!hasUtf8ByteLengthAtMost\(body, MAX_TRAVELPORT_STAYS_REQUEST_BYTES\)/);
   assert.match(
     containment,
-    /assertAllowedTerminalHeaders\(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS\);\s*if \(!hasExactContentType\(headers, TRAVELPORT_OAUTH_CONTENT_TYPE\)\) invalidCredentialContainment\(\);\s*assertTravelportOAuthCredentialBody/,
+    /assertAllowedTerminalHeaders\(headers, TRAVELPORT_OAUTH_TERMINAL_ALLOWED_HEADERS\);\s*if \(!hasExactContentType\(headers, TRAVELPORT_OAUTH_CONTENT_TYPE\)\) invalidCredentialContainment\(\);\s*const oauthBody = assertTravelportOAuthCredentialBody/,
   );
   assert.match(
     containment,
