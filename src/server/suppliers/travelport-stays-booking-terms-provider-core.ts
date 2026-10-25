@@ -1,4 +1,5 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -211,7 +212,7 @@ function normalizeInput(input: HospitalitySupplierOfferRevalidationInput) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport Rules review currently supports one room per selected offer.');
   }
   if (!Number.isInteger(input.adults) || input.adults < 1) throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Adult count is invalid.');
-  const childAges = input.childAges ? [...input.childAges] : [];
+  const childAges = materializeTravelportStaysChildAges(() => input.childAges) ?? [];
   if (childAges.length > 8 || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Child ages are invalid.');
   }

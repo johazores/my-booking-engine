@@ -1,4 +1,5 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -277,7 +278,7 @@ function normalizeStayInput(input: {
   if (!Number.isInteger(input.adults) || (input.adults as number) < 1 || (input.adults as number) > 16) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Adult count is invalid.');
   }
-  const childAges = input.childAges ? [...input.childAges] : [];
+  const childAges = materializeTravelportStaysChildAges(() => input.childAges) ?? [];
   if (childAges.length > 8 || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Child ages are invalid.');
   }

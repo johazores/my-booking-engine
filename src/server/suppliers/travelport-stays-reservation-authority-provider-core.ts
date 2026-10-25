@@ -1,4 +1,5 @@
 import { invalidateTravelportStaysCachedToken, readTravelportStaysCachedToken, storeTravelportStaysCachedToken } from './travelport-stays-access-token-cache.ts';
+import { materializeTravelportStaysChildAges } from './travelport-stays-input-materialization.ts';
 import { decodeCanonicalTravelportStaysReference } from './travelport-stays-reference-decoder.ts';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -110,7 +111,7 @@ function normalizeInput(input: HospitalitySupplierReservationAuthorityInput) {
   const checkInDateLocal = localDate(input.checkInDateLocal, 'Check-in date');
   const checkOutDateLocal = localDate(input.checkOutDateLocal, 'Check-out date');
   if (checkOutDateLocal <= checkInDateLocal || input.rooms !== 1) throw new HospitalitySupplierProviderError('INVALID_REQUEST');
-  const childAges = input.childAges ? [...input.childAges] : [];
+  const childAges = materializeTravelportStaysChildAges(() => input.childAges) ?? [];
   if (!Number.isInteger(input.adults) || input.adults < 1 || childAges.length > 8 || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17) || input.adults + childAges.length > 9) {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport reservation authority supports one room and one to nine guests.');
   }

@@ -39,6 +39,12 @@ function materialize<T>(read: () => T): T {
   }
 }
 
+/** Safely snapshot optional occupancy at compatibility-core entry points too.
+ * Core classes can be used directly, without their public adapter wrappers. */
+export function materializeTravelportStaysChildAges(read: () => unknown): readonly number[] | undefined {
+  return materialize(() => childAgesSnapshot(read()));
+}
+
 function readOfferSearchInput(input: HospitalitySupplierOfferSearchInput) {
   const supplierPropertyReference = input.supplierPropertyReference;
   const checkInDateLocal = input.checkInDateLocal;

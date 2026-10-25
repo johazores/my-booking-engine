@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
 import {
+  materializeTravelportStaysChildAges,
   materializeTravelportStaysOfferRevalidationInput,
   materializeTravelportStaysOfferSearchInput,
   materializeTravelportStaysReservationAuthorityInput,
@@ -171,6 +172,45 @@ test('child-age authority rejects non-arrays and oversized arrays before copying
       () => materializeTravelportStaysOfferSearchInput({ ...base, childAges } as never),
       (error: unknown) => error instanceof HospitalitySupplierProviderError
         && error.code === 'INVALID_REQUEST',
+    );
+  }
+});
+
+test('direct compatibility-core child ages snapshot ignores iterators and freezes its copy', () => {
+  const source = [3, 11];
+  Object.defineProperty(source, Symbol.iterator, {
+    get() { throw new Error('untrusted iterator should never run'); },
+  });
+  const snapshot = materializeTravelportStaysChildAges(() => source);
+  assert.deepEqual(snapshot, [3, 11]);
+  assert.ok(Object.isFrozen(snapshot));
+  source[0] = 16;
+  assert.deepEqual(snapshot, [3, 11]);
+  assert.equal(materializeTravelportStaysChildAges(() => undefined), undefined);
+});
+
+test('direct compatibility-core child ages snapshot fails closed before unbounded or hostile iteration', () => {
+  const oversized = new Array(9);
+  Object.defineProperty(oversized, Symbol.iterator, {
+    get() { throw new Error('untrusted iterator should never run'); },
+  });
+  const hostileIndex = [7];
+  Object.defineProperty(hostileIndex, '0', {
+    get() { throw new Error('sensitive caller exception'); },
+  });
+  const inputs = [
+    () => oversized,
+    () => ({ 0: 7, length: 1 }),
+    () => hostileIndex,
+    () => { throw new Error('sensitive caller exception'); },
+  ];
+  for (const input of inputs) {
+    assert.throws(
+      () => materializeTravelportStaysChildAges(input),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError
+        && error.code === 'INVALID_REQUEST'
+        && !error.message.includes('sensitive')
+        && !error.message.includes('iterator'),
     );
   }
 });

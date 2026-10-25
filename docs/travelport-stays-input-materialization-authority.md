@@ -37,6 +37,12 @@ The same caller-reread pattern existed at the connected public request boundarie
 
 All of these connected read/authentication paths now operate on frozen allowlisted snapshots before semantic validation or provider work. The separate commercial write/recovery executors keep their existing reviewed pre-write materialization and ambiguity contracts.
 
+## Compatibility-core child-age guard
+
+The three Travelport compatibility cores (SearchComplete, Rules, and Availability) can also be invoked directly by internal code. Their occupancy normalizers now reuse the same bounded, iterator-independent, fail-closed child-age snapshot as the public adapters. This prevents direct-core calls from spreading arbitrary caller-owned iterables, reading oversized arrays before checking the eight-child limit, or leaking exceptions from hostile element getters. Omitted child ages still mean zero children; valid ages retain existing semantic checks.
+
+Focused regression tests cover frozen snapshots, poisoned iterators, oversized/non-array inputs, throwing element getters, and rejection by all three cores before provider I/O. This is defense in depth and does not expand any Travelport advertised capability.
+
 ## Activation boundary
 
 Travelport `reservation` remains deliberately disabled. This hardening does not provide the missing PCI-safe FormOfPayment/guarantee source, live non-production end-to-end verification, or authoritative live `13034` / locator-less recovery semantics required by Phase 15.
