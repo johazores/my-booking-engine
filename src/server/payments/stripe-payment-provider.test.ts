@@ -317,3 +317,108 @@ test('Stripe cancellation and capture do not treat a reusable failed intent as p
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
+
+test('Stripe capture never promotes an uncompleted capture to an authorization', async () => {
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_capture_still_authorized', status: 'requires_capture', amount: 24100,
+      amount_received: 0, amount_capturable: 24100, currency: 'usd',
+    })),
+  });
+  const result = await provider.capturePayment!({
+    ...context('stripe:capture:still-authorized'), providerReference: 'pi_capture_still_authorized',
+  });
+  assert.equal(result.status, 'PENDING');
+  assert.equal(result.money.amountMinor, 24100n);
+});
+
+test('Stripe capture rejects missing and contradictory pending money evidence', async () => {
+  for (const evidence of [
+    { status: 'requires_capture', amount_received: undefined, amount_capturable: 24100 },
+    { status: 'requires_capture', amount_received: 0, amount_capturable: undefined },
+    { status: 'requires_capture', amount_received: 1, amount_capturable: 24099 },
+    { status: 'requires_capture', amount_received: 0, amount_capturable: 0 },
+    { status: 'processing', amount_received: undefined, amount_capturable: 0 },
+    { status: 'processing', amount_received: 1, amount_capturable: 0 },
+    { status: 'processing', amount_received: 0, amount_capturable: 24101 },
+    { status: 'processing', amount_received: 0, amount_capturable: 0, currency: 'eur' },
+    { status: 'processing', amount_received: 0, amount_capturable: 0, amount: 24099 },
+    { status: 'requires_payment_method', amount_received: 0, amount_capturable: 0 },
+    { status: 'canceled', amount_received: 0, amount_capturable: 0 },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_capture_ambiguous', amount: 24100, currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.capturePayment!({ ...context('stripe:capture:ambiguous'), providerReference: 'pi_capture_ambiguous' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+  const pending = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_capture_processing', status: 'processing', amount: 24100,
+      amount_received: 0, amount_capturable: 0, currency: 'usd',
+    })),
+  });
+  assert.equal((await pending.capturePayment!({
+    ...context('stripe:capture:processing'), providerReference: 'pi_capture_processing',
+  })).status, 'PENDING');
+});
+
+test('Stripe nonterminal authorization requires explicit zero-money evidence', async () => {
+  for (const evidence of [
+    { amount_received: undefined, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: undefined },
+    { amount_received: 1, amount_capturable: 0 },
+    { amount_received: 0, amount_capturable: 1 },
+  ]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_authorization_processing', status: 'processing', amount: 24100,
+        currency: 'usd', ...evidence,
+      })),
+    });
+    await assert.rejects(
+      provider.authorizePayment!({ ...context('stripe:auth:processing-evidence'), paymentMethodReference: 'pm_card_1' }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: 'pi_authorization_processing', status: 'processing', amount: 24100,
+      amount_received: 0, amount_capturable: 0, currency: 'usd',
+    })),
+  });
+  assert.equal((await provider.authorizePayment!({
+    ...context('stripe:auth:processing-valid'), paymentMethodReference: 'pm_card_1',
+  })).status, 'PENDING');
+});
+
+test('Stripe direct PaymentIntent writes reject unknown provider statuses', async () => {
+  for (const status of [undefined, null, '', 'not_a_stripe_state', 123]) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({
+        id: 'pi_unknown_state', status, amount: 24100,
+        amount_received: 0, amount_capturable: 0, currency: 'usd',
+      })),
+    });
+    for (const operation of [
+      () => provider.authorizePayment!({ ...context('stripe:auth:unknown-status'), paymentMethodReference: 'pm_card_1' }),
+      () => provider.capturePayment!({ ...context('stripe:capture:unknown-status'), providerReference: 'pi_unknown_state' }),
+      () => provider.releaseAuthorization!({ ...context('stripe:release:unknown-status'), providerReference: 'pi_unknown_state' }),
+    ]) {
+      await assert.rejects(
+        operation(),
+        (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+      );
+    }
+  }
+});

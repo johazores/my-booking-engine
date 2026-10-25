@@ -18,6 +18,15 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_REFERENCE_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_METHOD_PATTERN = /^pm_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
+const STRIPE_PAYMENT_INTENT_STATUSES = new Set([
+  'requires_payment_method',
+  'requires_confirmation',
+  'requires_action',
+  'processing',
+  'requires_capture',
+  'canceled',
+  'succeeded',
+]);
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 300;
 
@@ -92,6 +101,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
     }
+    assertKnownStripePaymentIntentStatus(intent?.status);
     const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
     assertMatchingMoney(money, input.money, 'authorization release');
     // A canceled intent must prove that neither received nor capturable money remains.
@@ -189,7 +199,14 @@ export function normalizeStripePaymentMethodReference(value: unknown): string {
   return value.trim();
 }
 
+function assertKnownStripePaymentIntentStatus(status: unknown): asserts status is string {
+  if (typeof status !== 'string' || !STRIPE_PAYMENT_INTENT_STATUSES.has(status)) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized PaymentIntent status.', true);
+  }
+}
+
 function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
+  assertKnownStripePaymentIntentStatus(intent?.status);
   const money = normalizePaymentMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'payment amount'));
   assertMatchingMoney(money, expectedMoney, 'payment');
   if (intent.status === 'requires_capture' && (
@@ -239,33 +256,66 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
       money,
     });
   }
+  // A nonterminal authorization is not proof of money movement. Require
+  // explicit zero-money evidence rather than accepting an incomplete or
+  // contradictory provider response as an ordinary pending attempt.
+  if (!['requires_capture', 'succeeded', 'canceled', 'requires_payment_method'].includes(intent.status) && (
+    intent.amount_received === undefined
+    || intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_received, 'pending authorization received amount') !== 0n
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'pending authorization capturable amount') !== 0n
+  )) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the pending authorization holds no money.', true);
+  }
   return normalizedIntentResult(intent, money);
 }
 
 function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMoney: PaymentOperationContext['money']): ProviderPaymentResult {
-  if (intent.status === 'canceled' && (
-    intent.amount_received === undefined
-    || intent.amount_capturable === undefined
-    || normalizeStripeMinorAmount(intent.amount_received, 'canceled capture received amount') !== 0n
-    || normalizeStripeMinorAmount(intent.amount_capturable, 'canceled capture capturable amount') !== 0n
-  )) {
-    throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the canceled capture holds no money.', true);
+  assertKnownStripePaymentIntentStatus(intent?.status);
+  const nominalAmount = normalizeStripeMinorAmount(intent.amount, 'PaymentIntent amount');
+  const nominalMoney = normalizePaymentMoney(intent.currency, nominalAmount);
+  if (nominalMoney.currency !== expectedMoney.currency) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe capture currency does not match the requested capture.', true);
   }
-  if (intent.status === 'succeeded' && (
-    intent.amount_capturable === undefined
-    || normalizeStripeMinorAmount(intent.amount_capturable, 'captured payment capturable amount') !== 0n
-  )) {
-    throw new PaymentProviderError('UNKNOWN', 'Stripe reported successful capture with money still capturable.', true);
+  if (nominalAmount < expectedMoney.amountMinor) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe capture PaymentIntent amount is smaller than the requested capture.', true);
   }
-  if (intent.status === 'succeeded' && intent.amount_received === undefined) {
-    throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide a captured amount.', true);
+  // A capture is settled only when Stripe explicitly proves the received
+  // amount. Never substitute the nominal PaymentIntent amount for missing
+  // received-money evidence, including on pending responses.
+  if (intent.amount_received === undefined || intent.amount_capturable === undefined) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not provide complete capture money evidence.', true);
   }
-  const capturedAmount = intent.amount_received !== undefined
-    ? normalizeStripeMinorAmount(intent.amount_received, 'captured amount')
-    : normalizeStripeMinorAmount(intent.amount, 'capture amount');
-  const money = normalizePaymentMoney(intent.currency, capturedAmount);
-  assertMatchingMoney(money, expectedMoney, 'capture');
-  return normalizedIntentResult(intent, money);
+  const received = normalizeStripeMinorAmount(intent.amount_received, 'capture received amount');
+  const capturable = normalizeStripeMinorAmount(intent.amount_capturable, 'capture capturable amount');
+  if (received > nominalAmount || capturable > nominalAmount || received + capturable > nominalAmount) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned contradictory capture money evidence.', true);
+  }
+  if (intent.status === 'succeeded') {
+    if (capturable !== 0n) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe reported successful capture with money still capturable.', true);
+    }
+    const money = normalizePaymentMoney(intent.currency, received);
+    assertMatchingMoney(money, expectedMoney, 'capture');
+    return normalizedIntentResult(intent, money);
+  }
+  // A canceled or reusable failed intent does not prove the capture amount
+  // was received. Leave the durable claim for exact-reference recovery.
+  if (intent.status === 'canceled' || intent.status === 'requires_payment_method') {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe did not complete the requested capture.', true);
+  }
+  if (received !== 0n || (intent.status === 'requires_capture' && capturable === 0n)) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned unresolved money movement during capture.', true);
+  }
+  // A still-capturable PaymentIntent is not a *new* successful authorization
+  // from this capture operation. Report pending so the capture claim can be
+  // reconciled without persisting an unsupported AUTHORIZED capture status.
+  return Object.freeze({
+    providerCode: 'stripe',
+    providerReference: normalizeStripePaymentIntentReference(intent.id),
+    status: 'PENDING',
+    money: expectedMoney,
+  });
 }
 
 function normalizeStripeMinorAmount(value: number, label: string): bigint {
