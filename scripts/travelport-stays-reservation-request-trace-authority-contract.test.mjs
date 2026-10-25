@@ -9,7 +9,7 @@ function source(relativePath) {
 test('reservation request trace authority materializes the exact v11 pair before delegated I/O', () => {
   const wrapper = source('src/server/suppliers/travelport-stays-reservation-trace-fetch.ts');
 
-  assert.match(wrapper, /const headers = requestHeaders\(input, init\);/);
+  assert.match(wrapper, /headers = requestHeaders\(input, init\);/);
   assert.match(wrapper, /const e2eTrackingId = headers\.get\('E2ETrackingID'\);/);
   assert.match(wrapper, /const expectedTraceId = e2eTrackingId\.slice\(SF_E2E_PREFIX\.length\);/);
   assert.match(wrapper, /SF_TRACE_ID_PATTERN\.test\(expectedTraceId\)/);
