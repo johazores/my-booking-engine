@@ -82,15 +82,34 @@ function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): BodyInit | null {
-  if (init?.body != null) return init.body;
+  const initBody = init?.body;
+  if (initBody != null) return initBody;
   if (typeof Request !== 'undefined' && input instanceof Request) return input.body;
   return null;
 }
 
 function effectiveRequestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null | undefined {
-  if (init?.signal !== undefined) return init.signal;
+  const initSignal = init?.signal;
+  if (initSignal !== undefined) return initSignal;
   if (typeof Request !== 'undefined' && input instanceof Request) return input.signal;
   return undefined;
+}
+
+
+/** Fail closed on malformed or hostile caller metadata before any supplier I/O. */
+function materializeTravelportStaysRequestMetadata(input: RequestInfo | URL, init?: RequestInit) {
+  try {
+    const sourceHeaders = init?.headers
+      ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined);
+    const headers = new Headers(sourceHeaders);
+    const url = new URL(requestUrl(input));
+    const method = requestMethod(input, init);
+    const body = effectiveRequestBody(input, init);
+    const signal = effectiveRequestSignal(input, init);
+    return { headers, url, method, body, signal };
+  } catch {
+    invalidCredentialContainment();
+  }
 }
 
 function terminalTravelportRequestInit(
@@ -362,25 +381,8 @@ export function createTravelportStaysOAuthCredentialContainmentFetch(input: Read
   const fetchImpl = authority.fetchImpl;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
-    const sourceHeaders = init?.headers
-      ?? (typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined);
-    let headers: Headers;
-    try {
-      headers = new Headers(sourceHeaders);
-    } catch {
-      invalidCredentialContainment();
-    }
-
-    let url: URL;
-    try {
-      url = new URL(requestUrl(requestInput));
-    } catch {
-      invalidCredentialContainment();
-    }
-
-    const method = requestMethod(requestInput, init);
-    const body = effectiveRequestBody(requestInput, init);
-    const signal = effectiveRequestSignal(requestInput, init);
+    const { headers, url, method, body, signal } =
+      materializeTravelportStaysRequestMetadata(requestInput, init);
 
     if (url.hostname === targets.authenticationHost) {
       if (

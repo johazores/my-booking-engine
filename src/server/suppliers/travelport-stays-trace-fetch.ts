@@ -114,13 +114,15 @@ function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 function effectiveRequestBody(input: RequestInfo | URL, init?: RequestInit): BodyInit | null {
-  if (init?.body != null) return init.body;
+  const initBody = init?.body;
+  if (initBody != null) return initBody;
   if (typeof Request !== 'undefined' && input instanceof Request) return input.body;
   return null;
 }
 
 function effectiveRequestSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null | undefined {
-  if (init?.signal !== undefined) return init.signal;
+  const initSignal = init?.signal;
+  if (initSignal !== undefined) return initSignal;
   if (typeof Request !== 'undefined' && input instanceof Request) return input.signal;
   return undefined;
 }
@@ -209,6 +211,25 @@ function parsedRequestUrl(input: RequestInfo | URL) {
     return new URL(requestUrl(input));
   } catch {
     throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request URL is invalid.');
+  }
+}
+
+
+/** Capture untrusted Fetch metadata once before validating or sending credentials. */
+function materializeTravelportStaysRequestMetadata(input: RequestInfo | URL, init?: RequestInit) {
+  try {
+    const sourceHeaders = init?.headers
+      ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined);
+    const headers = new Headers(sourceHeaders);
+    const e2eTrackingId = headers.get('E2ETrackingID');
+    const url = parsedRequestUrl(input);
+    const method = requestMethod(input, init);
+    const body = effectiveRequestBody(input, init);
+    const signal = effectiveRequestSignal(input, init);
+    return { headers, e2eTrackingId, url, method, body, signal };
+  } catch (error) {
+    if (error instanceof HospitalitySupplierProviderError) throw error;
+    throw new HospitalitySupplierProviderError('INVALID_REQUEST', 'Travelport request metadata is invalid.');
   }
 }
 
@@ -554,14 +575,9 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
   const fetchImpl = authority.fetchImpl;
 
   return (async (requestInput: RequestInfo | URL, init?: RequestInit) => {
-    const sourceHeaders = init?.headers ?? (typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined);
-    const headers = new Headers(sourceHeaders);
+    const { headers, e2eTrackingId, url, method, body, signal } =
+      materializeTravelportStaysRequestMetadata(requestInput, init);
     assertSafeTravelportRequestHeaders(headers);
-    const e2eTrackingId = headers.get('E2ETrackingID');
-    const url = parsedRequestUrl(requestInput);
-    const method = requestMethod(requestInput, init);
-    const body = effectiveRequestBody(requestInput, init);
-    const signal = effectiveRequestSignal(requestInput, init);
     assertSecureTravelportTarget(url);
 
     if (url.hostname === targets.authenticationHost) {

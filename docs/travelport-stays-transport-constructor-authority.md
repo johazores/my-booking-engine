@@ -15,3 +15,9 @@ Regression tests cover one-read getters, credential mutation, original versus ch
 This change does not enable Travelport reservation capability, add a payment-card source, or resolve live non-production provider and locator-less recovery requirements.
 
 The connected terminal operational logger also pins its tenant/integration/credential-version/environment attribution at construction. It retains its existing safe UUID/version fallbacks and fail-open log-sink behavior. This is diagnostic context only, never tenant authorization or supplier-write authority.
+
+## Per-request metadata containment
+
+Both outbound transports now capture the effective URL, method, headers, body, and abort signal before provider target/body validation and network I/O. The trace transport also captures its SF correlation header from the cloned headers. A throwing getter, revoked request-init proxy, malformed method, or invalid header container fails as a fixed non-retryable `INVALID_REQUEST` supplier error rather than leaking caller-controlled exception text. The body and signal getters are read once, preventing accessor-driven authority changes between inspection and forwarding. OAuth forms continue to receive a separate native five-field copy before transmission.
+
+The corresponding regression tests exercise both composed-capable transport layers, one-read getters, malicious accessors, malformed methods, and no-network failure behavior. An earlier terminal test that assumed the original mutable OAuth form would be forwarded has been corrected to assert the independently owned form. This change does not modify provider capability advertisement, tenant authorization, or supplier-write recovery.

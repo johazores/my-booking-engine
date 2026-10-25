@@ -101,3 +101,57 @@ test('composed outbound transports preserve the original OAuth authority', async
   source.set('client_secret', 'changed');
   assert.equal((sent as URLSearchParams).get('client_secret'), credentials.clientSecret);
 });
+
+test('both outbound Travelport transports reject hostile request metadata without leaking errors', async () => {
+  for (const build of [
+    (fetchImpl: typeof fetch) => createTravelportStaysTraceFetch({ environment: 'production', credentials, fetchImpl }),
+    (fetchImpl: typeof fetch) => createTravelportStaysOAuthCredentialContainmentFetch({ environment: 'production', credentials, fetchImpl }),
+  ]) {
+    let calls = 0;
+    const wrapper = build((async () => {
+      calls += 1;
+      return new Response('{}');
+    }) as typeof fetch);
+    const poisonedHeaders: RequestInit = { method: 'POST', body: validBody() };
+    Object.defineProperty(poisonedHeaders, 'headers', { get() { throw new Error('private secret'); } });
+    const poisonedBody: RequestInit = { method: 'POST', headers };
+    Object.defineProperty(poisonedBody, 'body', { get() { throw new Error('private secret'); } });
+    const poisonedSignal: RequestInit = { method: 'POST', headers, body: validBody() };
+    Object.defineProperty(poisonedSignal, 'signal', { get() { throw new Error('private secret'); } });
+    const invalidMethod: RequestInit = { method: 42 as unknown as string, headers, body: validBody() };
+    const revoked = Proxy.revocable({ method: 'POST', headers, body: validBody() }, {});
+    revoked.revoke();
+    for (const init of [poisonedHeaders, poisonedBody, poisonedSignal, invalidMethod, revoked.proxy]) {
+      await assert.rejects(wrapper(target, init), invalidRequest);
+    }
+    assert.equal(calls, 0);
+  }
+});
+
+test('both outbound Travelport transports read each caller request field only once', async () => {
+  for (const build of [
+    (fetchImpl: typeof fetch) => createTravelportStaysTraceFetch({ environment: 'production', credentials, fetchImpl }),
+    (fetchImpl: typeof fetch) => createTravelportStaysOAuthCredentialContainmentFetch({ environment: 'production', credentials, fetchImpl }),
+  ]) {
+    let calls = 0;
+    const wrapper = build((async () => {
+      calls += 1;
+      return new Response('{}');
+    }) as typeof fetch);
+    const values = { method: 'POST', headers, body: validBody(), signal: new AbortController().signal };
+    const reads: Record<string, number> = {};
+    const init: RequestInit = {};
+    for (const key of ['method', 'headers', 'body', 'signal'] as const) {
+      Object.defineProperty(init, key, {
+        get() {
+          reads[key] = (reads[key] ?? 0) + 1;
+          if (reads[key] !== 1) throw new Error('private secret');
+          return values[key];
+        },
+      });
+    }
+    await wrapper(target, init);
+    assert.deepEqual(reads, { method: 1, headers: 1, body: 1, signal: 1 });
+    assert.equal(calls, 1);
+  }
+});

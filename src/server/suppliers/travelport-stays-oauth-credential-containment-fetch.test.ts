@@ -308,7 +308,10 @@ test('keeps the OAuth credential exchange on the exact configured authentication
     headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
-  assert.equal(observedBody, body);
+  assert.ok(observedBody instanceof URLSearchParams);
+  assert.notEqual(observedBody, body);
+  body.set('client_secret', 'changed-after-validation');
+  assert.equal(observedBody.get('client_secret'), credentials.clientSecret);
   assert.equal(calls, 1);
 
   const invalidTargets = [

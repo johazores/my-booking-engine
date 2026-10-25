@@ -113,3 +113,17 @@ test('documentation keeps OAuth exchange and exact Stays operation authority nar
   assert.doesNotMatch(tracingDocs, /shared environment-bound transport is the final redirect-suppression authority/);
   assert.doesNotMatch(tracingDocs, /Stays may carry only the documented common Travelport credential\/content headers used by SF/);
 });
+
+test('both Travelport transports snapshot caller request metadata and normalize hostile accessors', () => {
+  for (const path of [
+    'src/server/suppliers/travelport-stays-trace-fetch.ts',
+    'src/server/suppliers/travelport-stays-oauth-credential-containment-fetch.ts',
+  ]) {
+    const content = source(path);
+    assert.match(content, /function materializeTravelportStaysRequestMetadata\(/);
+    assert.match(content, /const initBody = init\?\.body;/);
+    assert.match(content, /const initSignal = init\?\.signal;/);
+    assert.match(content, /materializeTravelportStaysRequestMetadata\(requestInput, init\)/);
+    assert.match(content, /'INVALID_REQUEST'/);
+  }
+});
