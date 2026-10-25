@@ -43,7 +43,7 @@ function headers() {
 
 function invalidSignals(): AbortSignal[] {
   const forged = Object.create(AbortSignal.prototype) as AbortSignal;
-  const throwing = { get aborted() { throw new Error('private caller data'); } } as AbortSignal;
+  const throwing = { get aborted() { throw new Error('private caller data'); } } as unknown as AbortSignal;
   return [AbortSignal.abort('already cancelled'), forged, throwing, {} as AbortSignal];
 }
 
