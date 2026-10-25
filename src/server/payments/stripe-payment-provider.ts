@@ -208,8 +208,10 @@ function normalizeAuthorizedPaymentIntent(intent: StripePaymentIntent, expectedM
   )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the canceled authorization holds no money.', true);
   }
-  if (intent.status === 'succeeded' && intent.amount_capturable !== undefined
-    && normalizeStripeMinorAmount(intent.amount_capturable, 'authorized payment capturable amount') !== 0n) {
+  if (intent.status === 'succeeded' && (
+    intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'authorized payment capturable amount') !== 0n
+  )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe reported settled authorization with money still capturable.', true);
   }
   if (intent.status === 'succeeded' && (
@@ -230,8 +232,10 @@ function normalizeCapturedPaymentIntent(intent: StripePaymentIntent, expectedMon
   )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove that the canceled capture holds no money.', true);
   }
-  if (intent.status === 'succeeded' && intent.amount_capturable !== undefined
-    && normalizeStripeMinorAmount(intent.amount_capturable, 'captured payment capturable amount') !== 0n) {
+  if (intent.status === 'succeeded' && (
+    intent.amount_capturable === undefined
+    || normalizeStripeMinorAmount(intent.amount_capturable, 'captured payment capturable amount') !== 0n
+  )) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe reported successful capture with money still capturable.', true);
   }
   if (intent.status === 'succeeded' && intent.amount_received === undefined) {

@@ -32,7 +32,7 @@ test('stripe adapter supports exact partial capture, authorization release, and 
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: StripeFetch = async (input, init) => {
     const url = String(input); requests.push({ url, init });
-    if (url.endsWith('/capture')) return new Response(JSON.stringify({ id: 'pi_capture_1', status: 'succeeded', amount: 24100, amount_received: 12000, currency: 'usd' }), { status: 200 });
+    if (url.endsWith('/capture')) return new Response(JSON.stringify({ id: 'pi_capture_1', status: 'succeeded', amount: 24100, amount_received: 12000, amount_capturable: 0, currency: 'usd' }), { status: 200 });
     if (url.endsWith('/cancel')) return new Response(JSON.stringify({ id: 'pi_capture_1', status: 'canceled', amount: 24100, amount_received: 0, amount_capturable: 0, currency: 'usd' }), { status: 200 });
     return new Response(JSON.stringify({ id: 're_refund_1', payment_intent: 'pi_capture_1', status: 'pending', amount: 4100, currency: 'usd' }), { status: 200 });
   };
@@ -133,7 +133,7 @@ test('Stripe successful payment responses must prove received money instead of a
   for (const received of [undefined, 1]) {
     const provider = new StripePaymentProvider({
       secretKey: 'sk_test_not-a-real-secret',
-      fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_authorized_1', status: 'succeeded', amount: 24100, amount_received: received, currency: 'usd' })),
+      fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_authorized_1', status: 'succeeded', amount: 24100, amount_received: received, amount_capturable: 0, currency: 'usd' })),
     });
     await assert.rejects(
       provider.authorizePayment!({ ...context('stripe:auth:received'), paymentMethodReference: 'pm_card_1' }),
@@ -151,7 +151,7 @@ test('Stripe accepts provider-proven successful authorization and rejects padded
   const authorized = new StripePaymentProvider({
     secretKey: 'sk_test_not-a-real-secret',
     fetchImpl: async () => new Response(JSON.stringify({
-      id: 'pi_received_1', status: 'succeeded', amount: 24100, amount_received: 24100, currency: 'usd',
+      id: 'pi_received_1', status: 'succeeded', amount: 24100, amount_received: 24100, amount_capturable: 0, currency: 'usd',
     })),
   });
   const result = await authorized.authorizePayment!({ ...context('stripe:auth:proven'), paymentMethodReference: 'pm_card_1' });
@@ -236,9 +236,11 @@ test('Stripe direct payment writes reject contradictory terminal money evidence'
     { operation: 'authorize', status: 'canceled', amount_received: undefined, amount_capturable: 0 },
     { operation: 'authorize', status: 'canceled', amount_received: 1, amount_capturable: 0 },
     { operation: 'authorize', status: 'canceled', amount_received: 0, amount_capturable: 1 },
+    { operation: 'authorize', status: 'succeeded', amount_received: 24100, amount_capturable: undefined },
     { operation: 'authorize', status: 'succeeded', amount_received: 24100, amount_capturable: 1 },
     { operation: 'capture', status: 'canceled', amount_received: 0, amount_capturable: undefined },
     { operation: 'capture', status: 'canceled', amount_received: 1, amount_capturable: 0 },
+    { operation: 'capture', status: 'succeeded', amount_received: 24100, amount_capturable: undefined },
     { operation: 'capture', status: 'succeeded', amount_received: 24100, amount_capturable: 1 },
   ] as const;
   for (const item of cases) {
