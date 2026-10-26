@@ -844,7 +844,7 @@ test('Travelport treats explicit identity coding as unencoded response-length ev
 
 test('Travelport rejects malformed content codings and cancels OAuth and Stays response streams', async () => {
   for (const oauth of [true, false]) {
-    for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
+    for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'gzip\u00a0', 'gzip\v', 'gzip\f', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
       let cancellations = 0;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
@@ -889,4 +889,43 @@ test('Travelport caller abort outranks malformed content coding during response 
     }),
     assertTravelportAborted,
   );
+});
+
+test('Travelport rejects partial success, success Content-Range, and conflicting framing for OAuth and Stays', async () => {
+  const cases: Array<readonly [number, Record<string, string>]> = [
+    [206, {}],
+    [206, { 'Content-Range': 'bytes 0-1/8' }],
+    [200, { 'Content-Range': 'bytes 0-1/8' }],
+    [200, { 'Content-Length': '2', 'Transfer-Encoding': 'chunked' }],
+  ];
+  for (const oauth of [true, false]) {
+    for (const [status, headers] of cases) {
+      let cancellations = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
+        cancel() { cancellations += 1; },
+      });
+      const traced = createTravelportStaysTraceFetch({
+        environment: 'production',
+        fetchImpl: (async () => new Response(stream, { status, headers })) as typeof fetch,
+      });
+      await assert.rejects(
+        traced(
+          oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+          oauth ? oauthPostInit() : staysPostInit(),
+        ),
+        assertInvalidResponse,
+      );
+      assert.equal(cancellations, 1);
+    }
+  }
+
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => new Response('{}', {
+      headers: { 'Transfer-Encoding': 'chunked' },
+    })) as typeof fetch,
+  });
+  const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{}');
 });

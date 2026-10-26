@@ -150,8 +150,8 @@ test('does not resolve until the Travelport response body is fully buffered', as
 
 test('buffers provider responses without cloning a second unread branch and preserves adapter metadata', async () => {
   const providerResponse = new Response('{"ok":true}', {
-    status: 206,
-    statusText: 'Partial Content',
+    status: 200,
+    statusText: 'Provider OK',
     headers: { 'Content-Type': 'application/json', 'X-Provider-Test': 'present' },
   });
   Object.defineProperty(providerResponse, 'clone', {
@@ -167,8 +167,8 @@ test('buffers provider responses without cloning a second unread branch and pres
     staysPostInit({ E2ETrackingID: `sf-${TRACE_ID}` }),
   );
 
-  assert.equal(response.status, 206);
-  assert.equal(response.statusText, 'Partial Content');
+  assert.equal(response.status, 200);
+  assert.equal(response.statusText, 'Provider OK');
   assert.equal(response.headers.get('X-Provider-Test'), 'present');
   assert.deepEqual(await response.json(), { ok: true });
 });

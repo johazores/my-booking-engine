@@ -1,5 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
-import { classifyHttpResponseContentEncoding } from '../http/response-content-encoding.ts';
+import { classifyHttpResponseContentEncoding, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
 import { awaitTravelportStaysOperation, isTravelportStaysSignalAborted, travelportStaysResponseAbortError } from './travelport-stays-response-deadline.ts';
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
@@ -533,6 +533,9 @@ async function bufferTravelportResponse(
   let declaredBytes: number | null;
   let contentEncoding: 'identity' | 'encoded';
   try {
+    if (hasUnsafeProviderResponseFraming(metadata.headers, metadata.status)) {
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response framing is invalid.');
+    }
     declaredBytes = declaredTravelportResponseBytes(metadata.headers);
     const classification = classifyHttpResponseContentEncoding(metadata.headers);
     if (classification === 'invalid') {

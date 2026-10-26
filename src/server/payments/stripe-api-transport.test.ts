@@ -1075,7 +1075,7 @@ test('Stripe treats explicit identity coding as unencoded response-length eviden
 
 test('Stripe rejects malformed content codings before reading and cancels the captured body', async () => {
   const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
-  for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
+  for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'gzip\u00a0', 'gzip\v', 'gzip\f', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
     let cancellations = 0;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
@@ -1116,4 +1116,40 @@ test('Stripe caller abort outranks malformed content coding during response meta
     ),
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
+});
+
+test('Stripe rejects partial success, success Content-Range, and conflicting response framing before parsing', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  const cases: Array<readonly [number, Record<string, string>]> = [
+    [206, {}],
+    [206, { 'content-range': 'bytes 0-1/8' }],
+    [200, { 'content-range': 'bytes 0-1/8' }],
+    [200, { 'content-length': '2', 'transfer-encoding': 'chunked' }],
+  ];
+  for (const [status, headers] of cases) {
+    let cancellations = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
+      cancel() { cancellations += 1; },
+    });
+    await assert.rejects(
+      requestStripeApi(
+        (async () => new Response(stream, { status, headers })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        init,
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN' && error.retryable === true,
+    );
+    assert.equal(cancellations, 1);
+  }
+
+  const valid = await requestStripeApi(
+    (async () => new Response('{}', {
+      headers: { 'transfer-encoding': 'chunked' },
+    })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    init,
+  );
+  assert.equal(await valid.text(), '{}');
 });

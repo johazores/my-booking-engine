@@ -1,5 +1,5 @@
 import { PaymentProviderError } from './payment-provider.ts';
-import { classifyHttpResponseContentEncoding } from '../http/response-content-encoding.ts';
+import { classifyHttpResponseContentEncoding, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
 
 const STRIPE_API_ORIGIN = 'https://api.stripe.com';
 const STRIPE_PAYMENT_INTENT_PATH = /^\/v1\/payment_intents\/pi_[A-Za-z0-9_]+$/;
@@ -294,6 +294,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       status: response.status,
       statusText: response.statusText,
     };
+    if (hasUnsafeProviderResponseFraming(metadata.headers, metadata.status)) invalidTransportResponse();
     declaredLength = declaredStripeResponseLength(metadata.headers);
     const classification = classifyHttpResponseContentEncoding(metadata.headers);
     if (classification === 'invalid') invalidTransportResponse();

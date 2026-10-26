@@ -19,9 +19,20 @@ export function classifyHttpResponseContentEncoding(headers: Headers): HttpRespo
 
   let encoded = false;
   for (const coding of codings) {
-    const token = coding.trim();
+    // HTTP OWS permits only SP and HTAB, not Unicode whitespace or controls.
+    const token = coding.replace(/^[ \t]+|[ \t]+$/g, '');
     if (!CONTENT_CODING_TOKEN.test(token)) return 'invalid';
     if (token.toLowerCase() !== 'identity') encoded = true;
   }
   return encoded ? 'encoded' : 'identity';
+}
+
+/**
+ * SF never requests byte ranges from payment or supplier providers. Reject
+ * partial success and ambiguous wire framing before parsing commercial data.
+ * Error responses may legitimately include Content-Range (for example 416).
+ */
+export function hasUnsafeProviderResponseFraming(headers: Headers, status: number): boolean {
+  return (headers.has('content-length') && headers.has('transfer-encoding'))
+    || (status >= 200 && status < 300 && (status === 206 || headers.has('content-range')));
 }
