@@ -210,6 +210,28 @@ function assertStripeDeclaredResponseLength(response: Response): void {
   }
 }
 
+function replayStripeApiResponse(response: Response, body: Uint8Array | null, signal?: AbortSignal): Response {
+  // A null body is still untrusted provider metadata. Never return the original
+  // Response without validating status/headers or rechecking the local deadline.
+  if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+  try {
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    const replay = new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    return replay;
+  } catch (error) {
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    if (error instanceof PaymentProviderError) throw error;
+    invalidTransportResponse();
+  }
+}
+
 async function bufferStripeApiResponse(response: Response, signal?: AbortSignal): Promise<Response> {
   if (!(response instanceof Response)) invalidTransportResponse();
   // The caller's actual timeout takes precedence over malformed provider
@@ -228,7 +250,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     if (error instanceof PaymentProviderError) throw error;
     invalidTransportResponse();
   }
-  if (responseBody === null) return response;
+  if (responseBody === null) return replayStripeApiResponse(response, null, signal);
 
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
@@ -279,23 +301,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     offset += chunk.byteLength;
   }
 
-  if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-  try {
-    const headers = new Headers(response.headers);
-    headers.delete('content-length');
-    headers.delete('content-encoding');
-    const replay = new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-    return replay;
-  } catch (error) {
-    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-    if (error instanceof PaymentProviderError) throw error;
-    invalidTransportResponse();
-  }
+  return replayStripeApiResponse(response, body, signal);
 }
 
 async function fetchStripeApiResponse(

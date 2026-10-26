@@ -18,6 +18,8 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
   assert.match(contents, /responseBody = response\.body/);
+  assert.match(contents, /if \(responseBody === null\) return replayStripeApiResponse\(response, null, signal\)/);
+  assert.doesNotMatch(contents, /if \(responseBody === null\) return response/);
   assert.match(contents, /reader = responseBody\.getReader\(\)/);
   assert.match(contents, /if \(error instanceof PaymentProviderError\) throw error;\s*invalidTransportResponse\(\)/);
 });
@@ -66,6 +68,7 @@ test('Stripe transport resource policy and regression coverage are documented', 
 
 test('Stripe transport materializes caller metadata once and checks native abort authority', () => {
   const contents = source('src/server/payments/stripe-api-transport.ts');
+  const tests = source('src/server/payments/stripe-api-transport.test.ts');
   assert.match(contents, /method = init\.method;/);
   assert.match(contents, /body = init\.body;/);
   assert.match(contents, /signal = init\.signal;/);
@@ -78,7 +81,6 @@ test('Stripe transport materializes caller metadata once and checks native abort
   assert.match(contents, /reviewedHeaders\(headersInput, method, body\)/);
   assert.match(contents, /signal: readySignal/);
   assert.doesNotMatch(contents, /body: init\.body/);
-  const tests = source('src/server/payments/stripe-api-transport.test.ts');
   assert.match(tests, /snapshots request body, signal, method, and headers once/);
   assert.match(tests, /rejects forged signals before network I\/O/);
   assert.match(tests, /normalizes throwing RequestInit getters/);

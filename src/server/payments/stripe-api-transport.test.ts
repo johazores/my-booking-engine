@@ -552,3 +552,60 @@ test('Stripe body acquisition honors real abort despite shadowed signal fields',
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(cancelled, true);
 });
+
+test('Stripe transport replays null-body responses through reviewed metadata', async () => {
+  const original = new Response(null, {
+    status: 204,
+    headers: {
+      'content-length': '0',
+      'content-encoding': 'gzip',
+      'stripe-version': '2026-08-27.basil',
+    },
+  });
+  const response = await requestStripeApi(
+    (async () => original) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.notEqual(response, original);
+  assert.equal(response.status, 204);
+  assert.equal(response.body, null);
+  assert.equal(response.headers.get('content-length'), null);
+  assert.equal(response.headers.get('content-encoding'), null);
+  assert.equal(response.headers.get('stripe-version'), '2026-08-27.basil');
+});
+
+test('Stripe transport rejects malformed null-body response status without leaking provider errors', async () => {
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, 'status', { get() { throw new Error('upstream null-body status'); } });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
+    (error: unknown) => error instanceof PaymentProviderError
+      && error.code === 'UNKNOWN'
+      && error.retryable === true
+      && !error.message.includes('upstream null-body status'),
+  );
+});
+
+test('Stripe transport honors a deadline expiring during null-body acquisition', async () => {
+  const controller = new AbortController();
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, 'body', {
+    get() {
+      controller.abort();
+      return null;
+    },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+        signal: controller.signal,
+      }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});
