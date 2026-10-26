@@ -155,7 +155,7 @@ export async function readStripeWebhookRequestBody(
   if (request.bodyUsed) invalidBody();
   if (request.body === null) {
     if (expectedBytes !== null && expectedBytes !== 0) throw contentLengthMismatch();
-    return '';
+    invalidBody();
   }
 
   let reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -216,6 +216,8 @@ export async function readStripeWebhookRequestBody(
     if (request.signal.aborted) throw requestAborted();
     if (timeoutController.signal.aborted) throw bodyTimedOut();
     if (expectedBytes !== null && totalBytes !== expectedBytes) throw contentLengthMismatch();
+    // Stripe events are JSON objects; an empty body cannot be signed event evidence.
+    if (totalBytes === 0) invalidBody();
   } finally {
     clearTimeout(timeoutHandle);
     try {

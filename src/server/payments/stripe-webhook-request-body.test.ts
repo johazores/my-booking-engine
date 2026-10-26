@@ -107,6 +107,16 @@ test('fails closed when the request is already aborted', async () => {
   await expectBodyError(post('{}', undefined, controller.signal), 'BODY_ABORTED');
 });
 
+test('rejects missing and empty webhook bodies before provider verification', async () => {
+  const url = 'https://sf.example.test/api/webhooks/stripe/tenant';
+  await expectBodyError(new Request(url, { method: 'POST' }), 'INVALID_BODY');
+  await expectBodyError(new Request(url, {
+    method: 'POST', headers: { 'content-length': '1' },
+  }), 'CONTENT_LENGTH_MISMATCH');
+  await expectBodyError(post(''), 'INVALID_BODY');
+  await expectBodyError(post('', { 'content-length': '0' }), 'INVALID_BODY');
+});
+
 test('rejects consumed but unlocked webhook request bodies', async () => {
   const request = post('{"id":"evt_used"}');
   const reader = request.body!.getReader();
