@@ -309,13 +309,78 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
   return replayStripeApiResponse(response, body, signal);
 }
 
+/**
+ * A caller-owned deadline must also cover the initial Fetch promise. Native
+ * Fetch honors AbortSignal, but an injected transport or a stalled Fetch
+ * implementation may ignore it. A late response is never trusted after abort
+ * and its body is cancelled best-effort without masking the timeout.
+ */
+function fetchStripeResponseBeforeDeadline(
+  fetchImpl: StripeApiFetch,
+  url: string,
+  init: RequestInit,
+  signal: AbortSignal,
+): Promise<Response> {
+  if (nativeStripeSignalAborted(signal)) return Promise.reject(abortResponseRead());
+
+  return new Promise<Response>((resolve, reject) => {
+    let settled = false;
+    const detach = () => AbortSignal.prototype.removeEventListener.call(signal, 'abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      detach();
+      reject(abortResponseRead());
+    };
+
+    AbortSignal.prototype.addEventListener.call(signal, 'abort', onAbort, { once: true });
+    if (nativeStripeSignalAborted(signal)) {
+      onAbort();
+      return;
+    }
+
+    try {
+      Promise.resolve(fetchImpl(url, init)).then(
+        (response) => {
+          if (settled) {
+            if (response instanceof Response) cancelStripeResponseBody(response);
+            return;
+          }
+          settled = true;
+          detach();
+          if (nativeStripeSignalAborted(signal)) {
+            if (response instanceof Response) cancelStripeResponseBody(response);
+            reject(abortResponseRead());
+            return;
+          }
+          resolve(response);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          detach();
+          reject(nativeStripeSignalAborted(signal) ? abortResponseRead() : error);
+        },
+      );
+    } catch (error) {
+      if (settled) return;
+      settled = true;
+      detach();
+      reject(nativeStripeSignalAborted(signal) ? abortResponseRead() : error);
+    }
+  });
+}
+
 async function fetchStripeApiResponse(
   fetchImpl: StripeApiFetch,
   url: string,
   init: RequestInit,
 ): Promise<Response> {
-  const response = await fetchImpl(url, init);
-  return bufferStripeApiResponse(response, init.signal ?? undefined);
+  const signal = init.signal ?? undefined;
+  const response = signal
+    ? await fetchStripeResponseBeforeDeadline(fetchImpl, url, init, signal)
+    : await fetchImpl(url, init);
+  return bufferStripeApiResponse(response, signal);
 }
 
 /**

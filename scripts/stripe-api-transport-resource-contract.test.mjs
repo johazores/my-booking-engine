@@ -33,7 +33,9 @@ test('Stripe response acquisition keeps abort authority and post-provider ambigu
   assert.match(contents, /function cancelStripeResponseBody\(response: Response\): void \{\s*try \{/);
   assert.match(contents, /if \(signal && nativeStripeSignalAborted\(signal\)\) \{\s*cancelStripeResponseBody\(response\);\s*throw abortResponseRead\(\);\s*\}/);
   assert.match(contents, /new PaymentProviderError\('UNKNOWN', 'Stripe API response is outside the reviewed SF provider boundary\.', true\)/);
-  assert.match(contents, /return bufferStripeApiResponse\(response, init\.signal \?\? undefined\)/);
+  assert.match(contents, /fetchStripeResponseBeforeDeadline\(fetchImpl, url, init, signal\)/);
+  assert.match(contents, /return bufferStripeApiResponse\(response, signal\)/);
+  assert.match(contents, /if \(response instanceof Response\) cancelStripeResponseBody\(response\)/);
 });
 
 test('Stripe replay strips wire representation metadata and fixes sensitive Fetch policy', () => {
@@ -57,6 +59,9 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(docs, /reader lock is released/);
   assert.match(docs, /complete response body/i);
   assert.match(docs, /retryable `UNKNOWN`/);
+  assert.match(tests, /times out while Fetch itself is stalled/);
+  assert.match(tests, /consumes late Fetch rejections/);
+  assert.match(tests, /Fetch acquisition uses native signal authority/);
   assert.match(tests, /keeps caller abort authority active through response body acquisition/);
   assert.match(tests, /enforces the response ceiling on streamed bytes/);
   assert.match(tests, /classifies failed reads as unknown provider evidence/);

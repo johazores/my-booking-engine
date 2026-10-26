@@ -377,6 +377,59 @@ test('Stripe transport normalizes reader lock-release failures without exposing 
   );
 });
 
+test('Stripe transport times out while Fetch itself is stalled and ignores the native signal', async () => {
+  const controller = new AbortController();
+  let resolveFetch: ((response: Response) => void) | undefined;
+  const fetchImpl = (() => new Promise<Response>((resolve) => { resolveFetch = resolve; })) as typeof fetch;
+  const request = requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    signal: controller.signal,
+  });
+  controller.abort();
+  await assert.rejects(request, (error: unknown) => error instanceof Error && error.name === 'AbortError');
+
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() { cancelled = true; },
+  });
+  resolveFetch!(new Response(body, { status: 200 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(cancelled, true, 'late Fetch responses must not leave a body stream active');
+});
+
+test('Stripe transport consumes late Fetch rejections after a caller-owned timeout', async () => {
+  const controller = new AbortController();
+  let rejectFetch: ((error: Error) => void) | undefined;
+  const fetchImpl = (() => new Promise<Response>((_resolve, reject) => { rejectFetch = reject; })) as typeof fetch;
+  const request = requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    signal: controller.signal,
+  });
+  controller.abort();
+  await assert.rejects(request, (error: unknown) => error instanceof Error && error.name === 'AbortError');
+  rejectFetch!(new Error('late injected Fetch rejection'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
+test('Stripe Fetch acquisition uses native signal authority despite shadowed instance fields', async () => {
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', { get: () => true });
+  Object.defineProperty(controller.signal, 'addEventListener', { value: () => { throw new Error('shadowed listener'); } });
+  Object.defineProperty(controller.signal, 'removeEventListener', { value: () => { throw new Error('shadowed listener'); } });
+  const response = await requestStripeApi(
+    (async () => new Response('{"ok":true}')) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+      signal: controller.signal,
+    },
+  );
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
 test('Stripe transport keeps caller abort authority active through response body acquisition', async () => {
   let cancelled = false;
   const body = new ReadableStream<Uint8Array>({
