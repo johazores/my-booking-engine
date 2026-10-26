@@ -820,3 +820,164 @@ test('Stripe response transport classifies malformed read results as retryable u
     }
   }
 });
+
+
+test('Stripe response metadata is read once for streamed and bodyless provider responses', async () => {
+  for (const bodyless of [false, true]) {
+    const upstream = new Response(bodyless ? null : '{}', {
+      status: 200,
+      headers: { 'content-type': 'application/json', 'x-provider-snapshot': 'original' },
+    });
+    const snapshot = {
+      body: upstream.body,
+      headers: upstream.headers,
+      status: upstream.status,
+      statusText: upstream.statusText,
+    };
+    const reads = new Map<string, number>();
+    for (const [key, value] of Object.entries(snapshot)) {
+      Object.defineProperty(upstream, key, {
+        configurable: true,
+        get() {
+          const count = (reads.get(key) ?? 0) + 1;
+          reads.set(key, count);
+          if (count > 1) throw new Error('Provider response metadata was read twice.');
+          return value;
+        },
+      });
+    }
+    const response = await requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+    );
+    assert.notEqual(response, upstream);
+    assert.equal(response.headers.get('x-provider-snapshot'), 'original');
+    assert.equal(await response.text(), bodyless ? '' : '{}');
+    for (const key of Object.keys(snapshot)) assert.equal(reads.get(key), 1, key);
+  }
+});
+
+test('Stripe replay keeps the validated header snapshot when upstream metadata changes during reads', async () => {
+  const upstream = new Response('{}', {
+    status: 200,
+    headers: { 'content-type': 'application/json', 'content-length': '2', 'x-provider-snapshot': 'original' },
+  });
+  const mutableHeaders = upstream.headers;
+  let readCount = 0;
+  Object.defineProperty(upstream, 'body', {
+    value: {
+      getReader() {
+        return {
+          read() {
+            readCount += 1;
+            if (readCount === 1) {
+              mutableHeaders.set('x-provider-snapshot', 'tampered');
+              mutableHeaders.set('content-length', '999999999');
+              return Promise.resolve({ done: false, value: new TextEncoder().encode('{}') });
+            }
+            return Promise.resolve({ done: true, value: undefined });
+          },
+          releaseLock() {},
+        };
+      },
+    },
+  });
+  const response = await requestStripeApi(
+    (async () => upstream) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.equal(response.headers.get('x-provider-snapshot'), 'original');
+  assert.equal(response.headers.get('content-length'), null);
+  assert.equal(await response.text(), '{}');
+});
+
+test('Stripe response metadata failures cancel the captured stream without reading the body twice', async () => {
+  for (const field of ['headers', 'status', 'statusText', 'declared-length'] as const) {
+    let bodyReads = 0;
+    let cancellations = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() { cancellations += 1; },
+    });
+    const upstream = new Response(stream, {
+      status: 200,
+      headers: field === 'declared-length' ? { 'content-length': 'invalid' } : undefined,
+    });
+    Object.defineProperty(upstream, 'body', {
+      get() {
+        bodyReads += 1;
+        if (bodyReads > 1) throw new Error('Private second body access.');
+        return stream;
+      },
+    });
+    if (field !== 'declared-length') {
+      Object.defineProperty(upstream, field, {
+        get() { throw new Error('Private provider metadata error.'); },
+      });
+    }
+    await assert.rejects(
+      requestStripeApi(
+        (async () => upstream) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN'
+        && error.retryable === true
+        && !error.message.includes('Private'),
+    );
+    assert.equal(bodyReads, 1, field);
+    assert.equal(cancellations, 1, field);
+  }
+});
+
+test('Stripe bodyless responses reject positive declared lengths except legal HTTP 304 metadata', async () => {
+  for (const status of [200, 204]) {
+    await assert.rejects(
+      requestStripeApi(
+        (async () => new Response(null, { status, headers: { 'content-length': '2' } })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN'
+        && error.retryable === true,
+    );
+  }
+  const response = await requestStripeApi(
+    (async () => new Response(null, {
+      status: 304,
+      headers: { 'content-length': '2', 'content-encoding': 'gzip' },
+    })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.equal(response.status, 304);
+  assert.equal(response.body, null);
+  assert.equal(response.headers.get('content-length'), null);
+  assert.equal(response.headers.get('content-encoding'), null);
+});
+
+test('Stripe native abort authority outranks metadata errors during response snapshot', async () => {
+  const controller = new AbortController();
+  const upstream = new Response(null, { status: 200 });
+  Object.defineProperty(upstream, 'status', {
+    get() {
+      controller.abort();
+      throw new Error('Private provider status failure.');
+    },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+        signal: controller.signal,
+      },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});

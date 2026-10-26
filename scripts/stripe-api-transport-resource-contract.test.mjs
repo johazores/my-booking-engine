@@ -13,7 +13,7 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /const MAX_STRIPE_API_RESPONSE_CHUNKS = 16 \* 1024;/);
   assert.match(contents, /chunkCount > MAX_STRIPE_API_RESPONSE_CHUNKS/);
   assert.match(contents, /hasUtf8ByteLengthAtMost\(body, MAX_STRIPE_API_REQUEST_BYTES\)/);
-  assert.match(contents, /response\.headers\.get\('content-length'\)/);
+  assert.match(contents, /headers\.get\('content-length'\)/);
   assert.match(contents, /byteLength > MAX_STRIPE_API_RESPONSE_BYTES - totalBytes/);
   assert.match(contents, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
   assert.match(contents, /Uint8Array\.prototype\.set\.call\(buffered, value, totalBytes\)/);
@@ -23,7 +23,16 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
   assert.match(contents, /responseBody = response\.body/);
-  assert.match(contents, /if \(responseBody === null\) return replayStripeApiResponse\(response, null, signal\)/);
+  assert.match(contents, /if \(responseBody === null\) \{/);
+  assert.match(contents, /return replayStripeApiResponse\(metadata, null, signal\)/);
+  assert.match(contents, /declaredLength > 0 && metadata\.status !== 304/);
+  assert.match(contents, /cancelStripeResponseStream\(responseBody\)/);
+  assert.match(contents, /headers: new Headers\(response\.headers\)/);
+  assert.match(contents, /status: response\.status/);
+  assert.match(contents, /statusText: response\.statusText/);
+  assert.match(contents, /declaredStripeResponseLength\(metadata\.headers\)/);
+  assert.match(contents, /return replayStripeApiResponse\(metadata, body, signal\)/);
+  assert.doesNotMatch(contents, /replayStripeApiResponse\(response,/);
   assert.doesNotMatch(contents, /if \(responseBody === null\) return response/);
   assert.match(contents, /reader = responseBody\.getReader\(\)/);
   assert.match(contents, /if \(error instanceof PaymentProviderError\) throw error;\s*invalidTransportResponse\(\)/);
@@ -77,6 +86,11 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(tests, /ignores synchronous cancellation failures/);
   assert.match(tests, /normalizes malformed replay metadata/);
   assert.match(tests, /normalizes reader lock-release failures/);
+  assert.match(tests, /metadata is read once for streamed and bodyless/);
+  assert.match(tests, /keeps the validated header snapshot/);
+  assert.match(tests, /cancel the captured stream without reading the body twice/);
+  assert.match(tests, /bodyless responses reject positive declared lengths/);
+  assert.match(tests, /abort authority outranks metadata errors/);
 });
 
 test('Stripe transport materializes caller metadata once and checks native abort authority', () => {

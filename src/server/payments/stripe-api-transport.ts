@@ -215,41 +215,52 @@ async function readStripeResponseChunk(
   });
 }
 
-function cancelStripeResponseBody(response: Response): void {
+function cancelStripeResponseStream(body: ReadableStream<Uint8Array> | null): void {
+  if (body === null) return;
   try {
-    const body = response.body;
-    if (body !== null) void body.cancel().catch(() => undefined);
+    void body.cancel().catch(() => undefined);
   } catch {
     // A malformed response or failed cancellation must not replace provider
     // evidence or an already-expired caller-owned deadline.
   }
 }
 
-function assertStripeDeclaredResponseLength(response: Response): void {
-  const value = response.headers.get('content-length');
-  if (value === null) return;
-  if (!/^(?:0|[1-9]\d*)$/.test(value) || value.length > 16) {
-    cancelStripeResponseBody(response);
-    invalidTransportResponse();
-  }
-  const declaredLength = Number(value);
-  if (!Number.isSafeInteger(declaredLength) || declaredLength > MAX_STRIPE_API_RESPONSE_BYTES) {
-    cancelStripeResponseBody(response);
-    invalidTransportResponse();
+function cancelStripeResponseBody(response: Response): void {
+  try {
+    cancelStripeResponseStream(response.body);
+  } catch {
+    // Late response metadata is untrusted; cancellation remains best-effort.
   }
 }
 
-function replayStripeApiResponse(response: Response, body: Uint8Array | null, signal?: AbortSignal): Response {
+type StripeApiResponseMetadata = Readonly<{
+  headers: Headers;
+  status: number;
+  statusText: string;
+}>;
+
+function declaredStripeResponseLength(headers: Headers): number | null {
+  const value = headers.get('content-length');
+  if (value === null) return null;
+  if (!/^(?:0|[1-9]\d*)$/.test(value) || value.length > 16) invalidTransportResponse();
+  const declaredLength = Number(value);
+  if (!Number.isSafeInteger(declaredLength) || declaredLength > MAX_STRIPE_API_RESPONSE_BYTES) {
+    invalidTransportResponse();
+  }
+  return declaredLength;
+}
+
+function replayStripeApiResponse(metadata: StripeApiResponseMetadata, body: Uint8Array | null, signal?: AbortSignal): Response {
   // A null body is still untrusted provider metadata. Never return the original
   // Response without validating status/headers or rechecking the local deadline.
   if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
   try {
-    const headers = new Headers(response.headers);
+    const headers = new Headers(metadata.headers);
     headers.delete('content-length');
     headers.delete('content-encoding');
     const replay = new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
+      status: metadata.status,
+      statusText: metadata.statusText,
       headers,
     });
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
@@ -269,23 +280,39 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     cancelStripeResponseBody(response);
     throw abortResponseRead();
   }
-  let responseBody: ReadableStream<Uint8Array> | null;
+  // Snapshot the body and all metadata once before trusting the provider.
+  // The same headers must govern length validation and adapter-visible replay.
+  let responseBody: ReadableStream<Uint8Array> | null = null;
+  let metadata: StripeApiResponseMetadata;
+  let declaredLength: number | null;
   try {
-    assertStripeDeclaredResponseLength(response);
     responseBody = response.body;
+    metadata = {
+      headers: new Headers(response.headers),
+      status: response.status,
+      statusText: response.statusText,
+    };
+    declaredLength = declaredStripeResponseLength(metadata.headers);
   } catch (error) {
-    cancelStripeResponseBody(response);
+    cancelStripeResponseStream(responseBody);
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
     if (error instanceof PaymentProviderError) throw error;
     invalidTransportResponse();
   }
-  if (responseBody === null) return replayStripeApiResponse(response, null, signal);
+  if (responseBody === null) {
+    // An HTTP 304 may describe the selected representation without a body.
+    // Other bodyless responses cannot claim positive transmitted bytes.
+    if (declaredLength !== null && declaredLength > 0 && metadata.status !== 304) {
+      invalidTransportResponse();
+    }
+    return replayStripeApiResponse(metadata, null, signal);
+  }
 
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = responseBody.getReader();
   } catch {
-    cancelStripeResponseBody(response);
+    cancelStripeResponseStream(responseBody);
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
     invalidTransportResponse();
   }
@@ -345,7 +372,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
   }
 
   const body = Uint8Array.prototype.slice.call(buffered, 0, totalBytes) as Uint8Array;
-  return replayStripeApiResponse(response, body, signal);
+  return replayStripeApiResponse(metadata, body, signal);
 }
 
 /**
