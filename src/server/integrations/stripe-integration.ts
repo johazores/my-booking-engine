@@ -76,7 +76,9 @@ export async function probeStripeIntegrationHealth(input: {
     }
     if (response.status === 408) return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'TIMEOUT' });
     if (response.status === 429) return Object.freeze({ status: 'RATE_LIMITED', failureCode: 'RATE_LIMITED' });
-    if (response.status >= 500) return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+    if (response.status === 424 || response.status >= 500) {
+      return Object.freeze({ status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+    }
     if (!response.ok) return Object.freeze({ status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
 
     const payload = await response.json().catch(() => null) as { object?: unknown } | null;

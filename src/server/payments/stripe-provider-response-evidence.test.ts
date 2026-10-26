@@ -54,9 +54,12 @@ test('Stripe HTTP payment error classification prioritizes transport status over
     { status: 429, type: 'idempotency_error', code: 'RATE_LIMITED', retryable: true },
     { status: 503, type: 'card_error', code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 500, type: 'idempotency_error', code: 'PROVIDER_UNAVAILABLE', retryable: true },
-    { status: 409, type: 'card_error', code: 'DUPLICATE', retryable: false },
+    { status: 409, type: 'card_error', code: 'UNKNOWN', retryable: true },
+    { status: 409, type: 'idempotency_error', code: 'DUPLICATE', retryable: false },
     { status: 400, type: 'idempotency_error', code: 'DUPLICATE', retryable: false },
+    { status: 424, type: 'card_error', code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 402, type: 'card_error', code: 'DECLINED', retryable: false },
+    { status: 402, type: null, code: 'UNKNOWN', retryable: true },
     { status: 400, type: null, code: 'INVALID_REQUEST', retryable: false },
   ] as const;
   for (const item of cases) {
@@ -67,11 +70,32 @@ test('Stripe HTTP payment error classification prioritizes transport status over
   }
 });
 
+test('Stripe distinguishes an in-flight idempotency conflict from parameter mismatch', () => {
+  for (const status of [400, 409]) {
+    const inUse = classifyStripePaymentHttpError(status, {
+      error: { type: 'idempotency_error', code: 'idempotency_key_in_use' },
+    }, 'Fallback');
+    assert.equal(inUse.code, 'UNKNOWN');
+    assert.equal(inUse.retryable, true);
+  }
+  const conflict = classifyStripePaymentHttpError(409, { error: { type: 'invalid_request_error' } }, 'Fallback');
+  assert.equal(conflict.code, 'UNKNOWN');
+  assert.equal(conflict.retryable, true);
+  const mismatch = classifyStripePaymentHttpError(400, {
+    error: { type: 'idempotency_error', code: 'idempotency_key_reused' },
+  }, 'Fallback');
+  assert.equal(mismatch.code, 'DUPLICATE');
+  assert.equal(mismatch.retryable, false);
+});
+
 test('Stripe HTTP lookup classification keeps 404 and timeout semantics separate', () => {
   for (const item of [
     { status: 401, code: 'AUTHENTICATION_FAILED', retryable: false },
     { status: 404, code: 'INVALID_REQUEST', retryable: false },
     { status: 408, code: 'TIMEOUT', retryable: true },
+    { status: 409, code: 'UNKNOWN', retryable: true },
+    { status: 402, code: 'UNKNOWN', retryable: true },
+    { status: 424, code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 429, code: 'RATE_LIMITED', retryable: true },
     { status: 503, code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 400, code: 'INVALID_REQUEST', retryable: false },

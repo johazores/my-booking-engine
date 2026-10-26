@@ -29,3 +29,5 @@ A passing health probe proves only that the stored credential authenticated for 
 Payment adapters retain their payment-specific normalized failure contract because payment operations also need commercial semantics such as `DECLINED`, `DUPLICATE`, and `UNSUPPORTED_OPERATION`. Those provider-specific details remain behind the payment adapter and are not promoted into the generic integration-health vocabulary unless a real cross-provider need is demonstrated.
 
 This separation avoids a speculative universal provider error model while still making authentication, rate limiting, timeout, provider availability, and invalid-response behavior consistent and explicit at the integration boundary.
+
+Stripe HTTP 424 represents a failed external dependency, not a malformed balance response. The read-only integration health probe reports `PROVIDER_UNAVAILABLE` with normalized `failureCode: PROVIDER_UNAVAILABLE` for 424, matching Stripe 5xx availability classification. No upstream diagnostic payload is returned or audited. This is separate from payment/refund write recovery, where 424 must preserve an ambiguous durable claim rather than prove a failed money movement.

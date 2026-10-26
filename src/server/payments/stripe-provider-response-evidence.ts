@@ -64,8 +64,21 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
   if (status === 408) return new PaymentProviderError('TIMEOUT', message, true);
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
-  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
-  if (status === 409 || error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+  // A failed external Stripe dependency does not prove that money did not move.
+  if (status === 424 || status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
+  // Concurrent same-key requests can return 409 before Stripe stores an
+  // idempotent result. Only explicit parameter-mismatch evidence is definitive.
+  if (status === 409 || (status === 400 && error.code === 'idempotency_key_in_use')) {
+    if (error.type === 'idempotency_error' && error.code !== 'idempotency_key_in_use') {
+      return new PaymentProviderError('DUPLICATE', message);
+    }
+    return new PaymentProviderError('UNKNOWN', message, true);
+  }
+  // An unclassified 402 is not proof of a card decline or a safe failed write.
+  if (status === 402 && error.type !== 'card_error' && error.code !== 'card_declined' && !error.declineCode) {
+    return new PaymentProviderError('UNKNOWN', message, true);
+  }
+  if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
   if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
@@ -79,7 +92,8 @@ export function classifyStripeLookupHttpError(
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
   if (status === 408) return new PaymentProviderError('TIMEOUT', message, true);
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
-  if (status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
+  if (status === 424 || status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
+  if (status === 409 || status === 402) return new PaymentProviderError('UNKNOWN', message, true);
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', notFoundMessage);
   if (status >= 400) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);

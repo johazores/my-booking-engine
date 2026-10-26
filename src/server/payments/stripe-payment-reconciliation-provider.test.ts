@@ -137,7 +137,13 @@ test('Stripe PaymentIntent retrieval rejects unsupported or noncanonical provide
 });
 
 test('Stripe PaymentIntent lookup preserves HTTP status when error JSON is malformed', async () => {
-  for (const [status, code, retryable] of [[429, 'RATE_LIMITED', true], [401, 'AUTHENTICATION_FAILED', false]] as const) {
+  for (const [status, code, retryable] of [
+    [429, 'RATE_LIMITED', true],
+    [409, 'UNKNOWN', true],
+    [424, 'PROVIDER_UNAVAILABLE', true],
+    [402, 'UNKNOWN', true],
+    [401, 'AUTHENTICATION_FAILED', false],
+  ] as const) {
     const provider = new StripePaymentReconciliationProvider({
       secretKey: 'sk_test_not-a-real-secret',
       fetchImpl: async () => new Response('null', { status }),

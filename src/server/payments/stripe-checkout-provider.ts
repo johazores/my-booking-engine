@@ -1,6 +1,6 @@
 import { PaymentProviderError, type PaymentMoney } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
-import { assertStripeProviderResponseObject, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
+import { assertStripeProviderResponseObject, classifyStripeLookupHttpError, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_HOSTNAME = 'checkout.stripe.com';
@@ -213,7 +213,11 @@ export class StripeCheckoutProvider {
         signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as T | StripeErrorResponse;
-      if (!response.ok) throw classifyStripePaymentHttpError(response.status, payload, 'Stripe rejected the Checkout request.');
+      if (!response.ok) {
+        throw init.method === 'GET'
+          ? classifyStripeLookupHttpError(response.status, payload, 'Stripe rejected the Checkout lookup.', 'Stripe Checkout Session was not found.')
+          : classifyStripePaymentHttpError(response.status, payload, 'Stripe rejected the Checkout request.');
+      }
       return payload as T;
     } catch (error) {
       if (error instanceof PaymentProviderError) throw error;

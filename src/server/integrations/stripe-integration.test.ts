@@ -74,6 +74,10 @@ test('Stripe health probe classifies provider failures without returning raw pro
     secretKey: 'sk_test_123456789',
     fetchImpl: async () => new Response('{}', { status: 503 }),
   });
+  const dependencyFailed = await probeStripeIntegrationHealth({
+    secretKey: 'sk_test_123456789',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: 'private Stripe dependency detail' } }), { status: 424 }),
+  });
   const invalid = await probeStripeIntegrationHealth({
     secretKey: 'sk_test_123456789',
     fetchImpl: async () => new Response(JSON.stringify({ object: 'unexpected' }), { status: 200 }),
@@ -82,6 +86,7 @@ test('Stripe health probe classifies provider failures without returning raw pro
   assert.deepEqual(authentication, { status: 'AUTHENTICATION_FAILED', failureCode: 'AUTHENTICATION_FAILED' });
   assert.deepEqual(rateLimited, { status: 'RATE_LIMITED', failureCode: 'RATE_LIMITED' });
   assert.deepEqual(unavailable, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
+  assert.deepEqual(dependencyFailed, { status: 'PROVIDER_UNAVAILABLE', failureCode: 'PROVIDER_UNAVAILABLE' });
   assert.deepEqual(invalid, { status: 'INVALID_RESPONSE', failureCode: 'INVALID_RESPONSE' });
 });
 

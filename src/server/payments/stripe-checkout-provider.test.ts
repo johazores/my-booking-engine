@@ -299,6 +299,43 @@ test('maps Stripe rate limits to retryable provider errors', async () => {
   );
 });
 
+test('Checkout creation preserves ambiguous Stripe conflicts and external-dependency failures', async () => {
+  for (const item of [
+    { status: 409, body: { error: { code: 'idempotency_key_in_use' } }, code: 'UNKNOWN' },
+    { status: 424, body: { error: { type: 'card_error' } }, code: 'PROVIDER_UNAVAILABLE' },
+    { status: 402, body: { error: { message: 'Unclassified failure' } }, code: 'UNKNOWN' },
+  ] as const) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(item.body), { status: item.status }),
+    });
+    await assert.rejects(provider.createPaymentSession({
+      organizationId, bookingId,
+      idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success',
+      cancelUrl: 'https://booking.example.test/cancel',
+      now,
+    }), (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable);
+  }
+});
+
+test('Checkout retrieval uses read-only Stripe failure authority, not payment-write idempotency classification', async () => {
+  for (const item of [
+    { status: 409, body: { error: { type: 'idempotency_error' } }, code: 'UNKNOWN', retryable: true },
+    { status: 424, body: { error: { type: 'card_error' } }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
+    { status: 402, body: { error: { type: 'card_error' } }, code: 'UNKNOWN', retryable: true },
+    { status: 404, body: { error: { type: 'card_error' } }, code: 'INVALID_REQUEST', retryable: false },
+  ] as const) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(item.body), { status: item.status }),
+    });
+    await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable === item.retryable);
+  }
+});
+
 test('created Checkout IDs must fit the persisted provider reference limit', async () => {
   await assert.rejects(
     createBookingCheckout({ id: `cs_${'x'.repeat(158)}` }),

@@ -75,6 +75,10 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
   const cases = [
     { status: 402, body: { error: { type: 'card_error', code: 'card_declined', message: 'Card declined' } }, code: 'DECLINED', retryable: false },
     { status: 429, body: { error: { message: 'Slow down' } }, code: 'RATE_LIMITED', retryable: true },
+    { status: 409, body: { error: { type: 'invalid_request_error', code: 'idempotency_key_in_use' } }, code: 'UNKNOWN', retryable: true },
+    { status: 409, body: { error: { type: 'idempotency_error', code: 'idempotency_key_in_use' } }, code: 'UNKNOWN', retryable: true },
+    { status: 424, body: { error: { type: 'card_error', message: 'Upstream dependency unavailable' } }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
+    { status: 402, body: { error: { message: 'Unclassified payment failure' } }, code: 'UNKNOWN', retryable: true },
     { status: 400, body: { error: { type: 'idempotency_error', message: 'Key reused' } }, code: 'DUPLICATE', retryable: false },
   ] as const;
   for (const item of cases) {
@@ -85,6 +89,27 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
   }
   const mismatched = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl: async () => new Response(JSON.stringify({ id: 'pi_wrong_amount', status: 'requires_capture', amount: 1, amount_received: 0, amount_capturable: 1, currency: 'usd' }), { status: 200 }) });
   await assert.rejects(mismatched.authorizePayment!({ ...context(), paymentMethodReference: 'pm_card_1' }), /does not match/);
+});
+
+test('Stripe capture, release, and refund writes preserve ambiguous provider conflicts and dependency failures', async () => {
+  for (const item of [
+    { status: 409, code: 'UNKNOWN', body: { error: { code: 'idempotency_key_in_use' } } },
+    { status: 424, code: 'PROVIDER_UNAVAILABLE', body: { error: { type: 'card_error' } } },
+  ] as const) {
+    const provider = new StripePaymentProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify(item.body), { status: item.status }),
+    });
+    const operations = [
+      () => provider.capturePayment!({ ...context('stripe:capture:conflict'), providerReference: 'pi_expected' }),
+      () => provider.releaseAuthorization!({ ...context('stripe:release:conflict'), providerReference: 'pi_expected' }),
+      () => provider.refundPayment!({ ...context('stripe:refund:conflict'), money: { currency: 'USD', amountMinor: 4100n }, providerReference: 'pi_expected' }),
+    ];
+    for (const operation of operations) {
+      await assert.rejects(operation(),
+        (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable);
+    }
+  }
 });
 
 test('stripe webhook verification checks raw payload and timestamp tolerance', () => {
