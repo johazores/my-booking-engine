@@ -1,3 +1,23 @@
+/** Shared fail-closed framing for JSON, forms, and raw signed webhooks. */
+export type RequestBodyFraming =
+  | Readonly<{ kind: 'absent' }>
+  | Readonly<{ kind: 'valid'; length: number }>
+  | Readonly<{ kind: 'invalid' }>
+  | Readonly<{ kind: 'too-large' }>;
+
+export function inspectRequestBodyFraming(request: Request, maxBytes: number): RequestBodyFraming {
+  const rawLength = request.headers.get('content-length');
+  if (rawLength === null) return { kind: 'absent' };
+  // Proxy and application readers must not disagree about request boundaries.
+  if (request.headers.has('transfer-encoding')) return { kind: 'invalid' };
+  // Reject noncanonical and very long decimal strings before Number conversion.
+  if (rawLength.length > 16 || !/^(?:0|[1-9][0-9]*)$/.test(rawLength)) return { kind: 'invalid' };
+  const length = Number(rawLength);
+  if (!Number.isSafeInteger(length) || length < 0) return { kind: 'invalid' };
+  if (length > maxBytes) return { kind: 'too-large' };
+  return { kind: 'valid', length };
+}
+
 /** One deadline for the entire request-body acquisition, independent of chunk count. */
 export const REQUEST_BODY_READ_TIMEOUT_MS = 10_000;
 

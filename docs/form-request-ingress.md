@@ -31,3 +31,7 @@ Form transport preflight now discards unread request streams best-effort on unsu
 ## Failed-read cleanup
 
 The shared request-body deadline helper also cancels the acquired form stream reader after a rejected or synchronously throwing `read()`. Failure resolution removes abort listeners before best-effort cancellation, avoiding duplicate cancellation if a late rejection follows an abort or cancellation itself triggers an abort. Cancellation never blocks the invalid-form response and cannot replace its validation classification. The existing form, origin, authentication, tenant, and permission boundaries remain unchanged.
+
+## Ambiguous HTTP request framing
+
+The shared request-body framing policy rejects noncanonical `Content-Length` (including leading zeros and oversized decimal strings) and requests carrying both `Content-Length` and `Transfer-Encoding`. Absent lengths remain valid for bounded streaming. The same policy protects JSON, browser forms, and raw Stripe webhook bodies, preserving each caller's invalid-input/oversize classification, nonblocking rejected-body cleanup, streamed byte limits, tenant authorization, and provider signature authority. This is defense in depth against proxy/application framing disagreement, not a replacement for edge/proxy request-smuggling protections. Focused tests cover all three ingress families.

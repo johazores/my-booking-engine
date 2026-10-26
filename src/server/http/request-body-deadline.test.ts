@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, inspectRequestBodyFraming, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 test('shared request-body deadline cannot be extended', () => {
   assert.equal(resolveRequestBodyTimeoutMs(), 10_000);
@@ -169,4 +169,21 @@ test('read failure cleanup precedes cancellation that itself aborts the client s
   } as unknown as ReadableStreamDefaultReader<Uint8Array>;
   assert.equal(await readRequestBodyChunkBeforeDeadline(reader, controller.signal, new AbortController().signal), null);
   assert.equal(cancelled, 1);
+});
+
+test('shared framing rejects ambiguous and noncanonical Content-Length', () => {
+  const make = (headers: Record<string, string>) => new Request('https://sf.example.test/framing', {
+    method: 'POST', headers, body: 'ok',
+  });
+  assert.deepEqual(inspectRequestBodyFraming(make({}), 64), { kind: 'absent' });
+  assert.deepEqual(inspectRequestBodyFraming(make({ 'transfer-encoding': 'chunked' }), 64), { kind: 'absent' });
+  assert.deepEqual(inspectRequestBodyFraming(make({ 'content-length': '0' }), 64), { kind: 'valid', length: 0 });
+  assert.deepEqual(inspectRequestBodyFraming(make({ 'content-length': '2' }), 64), { kind: 'valid', length: 2 });
+  assert.deepEqual(inspectRequestBodyFraming(make({ 'content-length': '65' }), 64), { kind: 'too-large' });
+  for (const value of ['00', '02', '01', '1.0', '+2', '2, 2', '9'.repeat(100), '9999999999999999']) {
+    assert.deepEqual(inspectRequestBodyFraming(make({ 'content-length': value }), 64), { kind: 'invalid' }, value);
+  }
+  assert.deepEqual(inspectRequestBodyFraming(make({
+    'content-length': '2', 'transfer-encoding': 'chunked',
+  }), 64), { kind: 'invalid' });
 });

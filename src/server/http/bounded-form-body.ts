@@ -1,4 +1,4 @@
-import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, inspectRequestBodyFraming, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 /** Bounded text-only browser form reader for same-origin mutation endpoints. */
 export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
@@ -44,13 +44,9 @@ export async function readBoundedFormData(
   const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
   if (!contentType || !mediaType || !SUPPORTED_FORM_MEDIA_TYPES.has(mediaType)) return rejectPreflight();
 
-  const lengthHeader = request.headers.get('content-length');
-  let declaredBytes: number | null = null;
-  if (lengthHeader !== null) {
-    if (!/^[0-9]+$/.test(lengthHeader)) return rejectPreflight();
-    declaredBytes = Number(lengthHeader);
-    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return rejectPreflight();
-  }
+  const framing = inspectRequestBodyFraming(request, maxBytes);
+  if (framing.kind === 'invalid' || framing.kind === 'too-large') return rejectPreflight();
+  const declaredBytes = framing.kind === 'valid' ? framing.length : null;
 
   if (!request.body || request.bodyUsed || request.signal.aborted) return rejectPreflight();
   let reader;

@@ -1,4 +1,4 @@
-import { cancelRequestBodyReader, discardUnreadRequestBody } from '../http/request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, inspectRequestBodyFraming } from '../http/request-body-deadline.ts';
 
 export const STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144;
 export const STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000;
@@ -61,19 +61,13 @@ function resolveBodyReadTimeoutMs(request: Request, timeoutMs?: number): number 
 }
 
 function declaredContentLength(request: Request): number | null {
-  const value = request.headers.get('content-length');
-  if (value === null) return null;
-  if (!/^(?:0|[1-9]\d*)$/.test(value) || value.length > 16) {
+  const framing = inspectRequestBodyFraming(request, STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES);
+  if (framing.kind === 'invalid') {
     discardStripeWebhookRequestBody(request);
     throw new StripeWebhookRequestBodyError('INVALID_CONTENT_LENGTH', 'Stripe webhook Content-Length is invalid.');
   }
-  const declaredLength = Number(value);
-  if (!Number.isSafeInteger(declaredLength)) {
-    discardStripeWebhookRequestBody(request);
-    throw new StripeWebhookRequestBodyError('INVALID_CONTENT_LENGTH', 'Stripe webhook Content-Length is invalid.');
-  }
-  if (declaredLength > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES) payloadTooLarge(request);
-  return declaredLength;
+  if (framing.kind === 'too-large') payloadTooLarge(request);
+  return framing.kind === 'valid' ? framing.length : null;
 }
 
 function growBodyBuffer(buffer: Uint8Array, requiredBytes: number): Uint8Array {

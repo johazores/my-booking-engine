@@ -1,4 +1,4 @@
-import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, inspectRequestBodyFraming, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 /** Transport-only JSON object reader; caller owns authentication and validation. */
 const JSON_REQUEST_MAX_CHUNKS = 16 * 1024;
@@ -18,13 +18,9 @@ export async function readBoundedJsonObject(
   const contentType = request.headers.get('content-type');
   if (contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') return rejectPreflight();
 
-  const contentLength = request.headers.get('content-length');
-  let declaredBytes: number | null = null;
-  if (contentLength !== null) {
-    if (!/^[0-9]+$/.test(contentLength)) return rejectPreflight();
-    declaredBytes = Number(contentLength);
-    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return rejectPreflight();
-  }
+  const framing = inspectRequestBodyFraming(request, maxBytes);
+  if (framing.kind === 'invalid' || framing.kind === 'too-large') return rejectPreflight();
+  const declaredBytes = framing.kind === 'valid' ? framing.length : null;
 
   if (!request.body || request.bodyUsed || request.signal.aborted) return rejectPreflight();
   let reader;

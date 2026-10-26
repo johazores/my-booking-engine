@@ -320,3 +320,14 @@ test('webhook reader rejects native over-limit bytes hidden by a shadowed length
   } as RequestInit & { duplex: 'half' });
   await expectBodyError(request, 'PAYLOAD_TOO_LARGE');
 });
+
+test('webhook ingress rejects ambiguous framing before accepting signature evidence', async () => {
+  for (const headers of [
+    { 'content-length': '02' },
+    { 'content-length': '000000000000000000000' },
+    { 'content-length': '2', 'transfer-encoding': 'chunked' },
+  ]) {
+    await expectBodyError(post('{}', headers), 'INVALID_CONTENT_LENGTH');
+  }
+  assert.equal(await readStripeWebhookRequestBody(post('{}', { 'transfer-encoding': 'chunked' })), '{}');
+});

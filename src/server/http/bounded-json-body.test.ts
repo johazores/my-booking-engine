@@ -214,3 +214,14 @@ test('bounded JSON preflight discards unsupported media types before reading', a
   assert.equal(await readBoundedJsonObject(request, 1024), null);
   assert.equal(cancelled, true);
 });
+
+test('bounded JSON ingress rejects ambiguous or noncanonical request framing', async () => {
+  for (const headers of [
+    { 'content-length': '02' },
+    { 'content-length': '000000000000000000000' },
+    { 'content-length': '2', 'transfer-encoding': 'chunked' },
+  ]) {
+    assert.equal(await readBoundedJsonObject(jsonRequest('{}', headers), 1024), null);
+  }
+  assert.deepEqual(await readBoundedJsonObject(jsonRequest('{}', { 'transfer-encoding': 'chunked' }), 1024), {});
+});

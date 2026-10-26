@@ -60,3 +60,7 @@ The shared JSON reader now discards unread request streams best-effort when tran
 ## Failed-read cleanup
 
 The shared deadline reader now best-effort cancels its acquired stream reader when `read()` rejects or throws synchronously, not only when a timeout, client abort, or byte/chunk validation failure occurs. It settles the invalid-input result and removes abort listeners before cancellation, preventing a late read rejection or cancellation-triggered abort from causing repeated cancellation. A stalled, throwing, or rejected cancellation cannot delay the response or expose upstream errors. The JSON reader retains its existing `null` error contract; this change does not grant any booking or tenant authority.
+
+## Ambiguous HTTP request framing
+
+The shared request-body framing policy rejects noncanonical `Content-Length` (including leading zeros and oversized decimal strings) and requests carrying both `Content-Length` and `Transfer-Encoding`. Absent lengths remain valid for bounded streaming. The same policy protects JSON, browser forms, and raw Stripe webhook bodies, preserving each caller's invalid-input/oversize classification, nonblocking rejected-body cleanup, streamed byte limits, tenant authorization, and provider signature authority. This is defense in depth against proxy/application framing disagreement, not a replacement for edge/proxy request-smuggling protections. Focused tests cover all three ingress families.

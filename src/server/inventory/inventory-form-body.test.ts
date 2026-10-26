@@ -296,3 +296,14 @@ test('bounded form preflight discards unsupported media types before reading', a
   assert.equal(await readBoundedInventoryFormData(request), null);
   assert.equal(cancelled, true);
 });
+
+test('bounded form ingress rejects ambiguous or noncanonical request framing', async () => {
+  for (const headers of [
+    { 'content-length': '010' },
+    { 'content-length': '000000000000000000000' },
+    { 'content-length': '10', 'transfer-encoding': 'chunked' },
+  ]) {
+    assert.equal(await readBoundedInventoryFormData(formRequest('name=Kayak', headers)), null);
+  }
+  assert.equal((await readBoundedInventoryFormData(formRequest('name=Kayak', { 'transfer-encoding': 'chunked' })))?.get('name'), 'Kayak');
+});
