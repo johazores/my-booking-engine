@@ -78,7 +78,7 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(tests, /rejects missing and empty webhook bodies before provider verification/);
   assert.match(tests, /rejects consumed but unlocked webhook request bodies/);
   assert.match(tests, /rejects locked webhook request bodies/);
-  assert.match(tests, /rejects an abort signalled as the last webhook chunk arrives/);
+  assert.match(tests, /rejects an aborted webhook stream even with queued body bytes/);
 });
 
 test('service retains independent metadata and payload limits for direct callers', () => {

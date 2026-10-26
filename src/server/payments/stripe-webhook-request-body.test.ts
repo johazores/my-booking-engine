@@ -136,7 +136,7 @@ test('rejects locked webhook request bodies', async () => {
   }
 });
 
-test('rejects an abort signalled as the last webhook chunk arrives', async () => {
+test('rejects an aborted webhook stream even with queued body bytes', async () => {
   const controller = new AbortController();
   const stream = new ReadableStream<Uint8Array>({
     start(source) {
