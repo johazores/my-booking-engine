@@ -161,3 +161,19 @@ test('Stripe PaymentIntent lookup treats HTTP 408 as retryable timeout rather th
   await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'TIMEOUT' && error.retryable);
 });
+
+test('Stripe PaymentIntent lookup preserves provider api_error ambiguity across atypical 4xx', async () => {
+  for (const item of [
+    { status: 400, type: 'api_error', code: 'UNKNOWN', retryable: true },
+    { status: 422, type: 'api_error', code: 'UNKNOWN', retryable: true },
+    { status: 404, type: 'api_error', code: 'INVALID_REQUEST', retryable: false },
+    { status: 400, type: 'card_error', code: 'INVALID_REQUEST', retryable: false },
+  ] as const) {
+    const provider = new StripePaymentReconciliationProvider({
+      secretKey: 'sk_test_not-a-real-secret',
+      fetchImpl: async () => new Response(JSON.stringify({ error: { type: item.type } }), { status: item.status }),
+    });
+    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable === item.retryable);
+  }
+});
