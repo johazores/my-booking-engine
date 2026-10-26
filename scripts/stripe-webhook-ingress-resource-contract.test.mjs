@@ -65,6 +65,8 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.doesNotMatch(reader, /chunks\.push/);
   assert.match(reader, /reader\.cancel\(\)/);
   assert.match(reader, /request\.signal\.aborted/);
+  assert.match(reader, /if \(request\.bodyUsed\) invalidBody\(\)/);
+  assert.match(reader, /if \(timeoutController\.signal\.aborted\) throw bodyTimedOut\(\)/);
   assert.match(reader, /setTimeout\(\(\) => timeoutController\.abort\(\), timeoutMs\)/);
   assert.match(reader, /timeoutSignal\.addEventListener\('abort', onTimeout/);
   assert.match(reader, /new TextDecoder\('utf-8', \{ fatal: true \}\)/);
@@ -72,6 +74,9 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(tests, /rejects endless zero-byte webhook chunks/);
   assert.match(tests, /rejects excessive tiny webhook chunks/);
   assert.match(tests, /rejects oversized webhook bodies without awaiting stalled cancellation/);
+  assert.match(tests, /rejects consumed but unlocked webhook request bodies/);
+  assert.match(tests, /rejects locked webhook request bodies/);
+  assert.match(tests, /rejects an abort signalled as the last webhook chunk arrives/);
 });
 
 test('service retains independent metadata and payload limits for direct callers', () => {

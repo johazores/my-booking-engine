@@ -107,6 +107,40 @@ test('fails closed when the request is already aborted', async () => {
   await expectBodyError(post('{}', undefined, controller.signal), 'BODY_ABORTED');
 });
 
+test('rejects consumed but unlocked webhook request bodies', async () => {
+  const request = post('{"id":"evt_used"}');
+  const reader = request.body!.getReader();
+  while (!(await reader.read()).done) { /* Consume and release the lock. */ }
+  reader.releaseLock();
+  assert.equal(request.bodyUsed, true);
+  await expectBodyError(request, 'INVALID_BODY');
+});
+
+test('rejects locked webhook request bodies', async () => {
+  const request = post('{"id":"evt_locked"}');
+  const reader = request.body!.getReader();
+  try {
+    await expectBodyError(request, 'INVALID_BODY');
+  } finally {
+    reader.releaseLock();
+  }
+});
+
+test('rejects an abort signalled as the last webhook chunk arrives', async () => {
+  const controller = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    start(source) {
+      source.enqueue(new TextEncoder().encode('{"id":"evt_aborted"}'));
+      source.close();
+      controller.abort();
+    },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, signal: controller.signal, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await expectBodyError(request, 'BODY_ABORTED');
+});
+
 test('aborts a pending body read without waiting for stream cancellation', async () => {
   const controller = new AbortController();
   let cancelCalled = false;

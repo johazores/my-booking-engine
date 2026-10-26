@@ -150,6 +150,9 @@ export async function readStripeWebhookRequestBody(
     discardStripeWebhookRequestBody(request);
     throw requestAborted();
   }
+  // A consumed stream can be unlocked and still return an empty final read.
+  // Never treat an already-used webhook body as a fresh signed payload.
+  if (request.bodyUsed) invalidBody();
   if (request.body === null) {
     if (expectedBytes !== null && expectedBytes !== 0) throw contentLengthMismatch();
     return '';
@@ -208,6 +211,10 @@ export async function readStripeWebhookRequestBody(
       Uint8Array.prototype.set.call(bytes, result.value, totalBytes);
       totalBytes = nextTotal;
     }
+    // A last-chunk completion must not turn a concurrent disconnect or
+    // whole-body deadline into a successfully acquired signed payload.
+    if (request.signal.aborted) throw requestAborted();
+    if (timeoutController.signal.aborted) throw bodyTimedOut();
     if (expectedBytes !== null && totalBytes !== expectedBytes) throw contentLengthMismatch();
   } finally {
     clearTimeout(timeoutHandle);
