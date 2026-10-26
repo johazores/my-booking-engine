@@ -83,8 +83,24 @@ export function readRequestBodyChunkBeforeDeadline(
       onAbort();
       return;
     }
+    // A malformed custom/injected reader result must not throw inside a
+    // detached Promise callback and leave the mutation waiting for its deadline.
+    const accept = (result: ReadableStreamReadResult<Uint8Array>) => {
+      if (settled) return;
+      try {
+        if (!result || typeof result.done !== 'boolean' ||
+            (!result.done && !(result.value instanceof Uint8Array))) {
+          fail();
+          return;
+        }
+      } catch {
+        fail();
+        return;
+      }
+      finish(result);
+    };
     try {
-      reader.read().then(finish, fail);
+      reader.read().then(accept, fail);
     } catch {
       fail();
     }

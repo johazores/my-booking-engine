@@ -35,3 +35,7 @@ The shared request-body deadline helper also cancels the acquired form stream re
 ## Ambiguous HTTP request framing
 
 The shared request-body framing policy rejects noncanonical `Content-Length` (including leading zeros and oversized decimal strings) and requests carrying both `Content-Length` and `Transfer-Encoding`. Absent lengths remain valid for bounded streaming. The same policy protects JSON, browser forms, and raw Stripe webhook bodies, preserving each caller's invalid-input/oversize classification, nonblocking rejected-body cleanup, streamed byte limits, tenant authorization, and provider signature authority. This is defense in depth against proxy/application framing disagreement, not a replacement for edge/proxy request-smuggling protections. Focused tests cover all three ingress families.
+
+## Malformed stream-read results
+
+The shared JSON/form deadline reader now rejects nonconforming read results (including throwing result properties) before they reach form parsing. It settles invalid input promptly and cancels the reader without awaiting cancellation. Existing text-only form validation, same-origin checks, tenant permissions, and byte limits remain unchanged. The focused shared-reader regression does not substitute for full repository validation.

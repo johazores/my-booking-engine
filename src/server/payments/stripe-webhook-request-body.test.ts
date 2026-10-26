@@ -399,3 +399,28 @@ test('webhook ingress rejects ambiguous framing before accepting signature evide
   }
   assert.equal(await readStripeWebhookRequestBody(post('{}', { 'transfer-encoding': 'chunked' })), '{}');
 });
+
+
+test('malformed webhook reader results and detached bytes are invalid input, not internal errors', async () => {
+  const detached = new Uint8Array([0x7b, 0x7d]);
+  structuredClone(detached.buffer, { transfer: [detached.buffer] });
+  const malformed: unknown[] = [
+    undefined,
+    { done: false },
+    { get done() { throw new Error('private done getter failure'); } },
+    { done: false, get value() { throw new Error('private value getter failure'); } },
+    { done: false, value: detached },
+  ];
+  for (const result of malformed) {
+    const request = post('{}');
+    let cancellations = 0;
+    const reader = {
+      read() { return Promise.resolve(result); },
+      cancel() { cancellations++; return Promise.resolve(); },
+      releaseLock() {},
+    } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+    Object.defineProperty(request, 'body', { value: { getReader: () => reader } });
+    await settlesPromptly(expectBodyError(request, 'INVALID_BODY'));
+    assert.equal(cancellations, 1);
+  }
+});

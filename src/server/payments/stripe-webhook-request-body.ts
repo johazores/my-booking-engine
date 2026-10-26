@@ -228,6 +228,12 @@ export async function readStripeWebhookRequestBody(
     if (expectedBytes !== null && totalBytes !== expectedBytes) throw contentLengthMismatch();
     // Stripe events are JSON objects; an empty body cannot be signed event evidence.
     if (totalBytes === 0) invalidBody();
+  } catch (error) {
+    if (error instanceof StripeWebhookRequestBodyError) throw error;
+    // Malformed read results, detached chunks, or throwing byte-copy operations
+    // are invalid transport input, never internal errors or signature evidence.
+    cancelRequestBodyReader(reader);
+    invalidBody();
   } finally {
     clearTimeout(timeoutHandle);
     try {

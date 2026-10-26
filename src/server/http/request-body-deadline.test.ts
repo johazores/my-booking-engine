@@ -187,3 +187,25 @@ test('shared framing rejects ambiguous and noncanonical Content-Length', () => {
     'content-length': '2', 'transfer-encoding': 'chunked',
   }), 64), { kind: 'invalid' });
 });
+
+
+test('malformed shared reader results fail closed without leaking async rejections', async () => {
+  const malformed: unknown[] = [
+    undefined,
+    { done: false },
+    { done: 'false', value: new Uint8Array([1]) },
+    { get done() { throw new Error('private done getter failure'); } },
+    { done: false, get value() { throw new Error('private value getter failure'); } },
+  ];
+  for (const result of malformed) {
+    let cancellations = 0;
+    const reader = {
+      read() { return Promise.resolve(result); },
+      cancel() { cancellations++; return Promise.resolve(); },
+      releaseLock() {},
+    } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+    const signal = new AbortController().signal;
+    assert.equal(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), null);
+    assert.equal(cancellations, 1);
+  }
+});

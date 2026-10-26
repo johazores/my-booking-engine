@@ -98,3 +98,7 @@ Full Prisma validation/generation, repository TypeScript checking, lint, tests, 
 ## Ambiguous HTTP request framing
 
 The shared request-body framing policy rejects noncanonical `Content-Length` (including leading zeros and oversized decimal strings) and requests carrying both `Content-Length` and `Transfer-Encoding`. Absent lengths remain valid for bounded streaming. The same policy protects JSON, browser forms, and raw Stripe webhook bodies, preserving each caller's invalid-input/oversize classification, nonblocking rejected-body cleanup, streamed byte limits, tenant authorization, and provider signature authority. This is defense in depth against proxy/application framing disagreement, not a replacement for edge/proxy request-smuggling protections. Focused tests cover all three ingress families.
+
+## Malformed raw-body stream results
+
+The Stripe raw-body reader now normalizes unexpected read-result shapes, throwing read-result properties, and detached byte-copy failures to its existing `INVALID_BODY` transport classification. It best-effort cancels the reader and never forwards those bytes to signature verification or exposes a raw internal exception. The shared JSON/form reader has the corresponding malformed-result guard. Focused injected-reader regressions are checked in; live provider and full Node 24 validation remain separate gates.
