@@ -609,3 +609,32 @@ test('Stripe transport honors a deadline expiring during null-body acquisition',
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
 });
+
+test('Stripe transport copies native byte chunks despite shadowed length and slice accessors', async () => {
+  const chunk = new Uint8Array([1, 2, 3]);
+  Object.defineProperty(chunk, 'byteLength', { get() { return 0; } });
+  Object.defineProperty(chunk, 'slice', { value() { throw new Error('shadowed slice'); } });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(chunk); controller.close(); },
+  });
+  const response = await requestStripeApi(
+    (async () => new Response(body, { status: 200 })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
+});
+
+test('Stripe transport enforces the native byte length when a chunk shadows its size', async () => {
+  const oversized = new Uint8Array(4 * 1024 * 1024 + 1);
+  Object.defineProperty(oversized, 'byteLength', { get() { return 0; } });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(oversized); },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => new Response(body, { status: 200 })) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+  );
+});

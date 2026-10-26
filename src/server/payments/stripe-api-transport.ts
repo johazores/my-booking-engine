@@ -267,11 +267,16 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       const { done, value } = await readStripeResponseChunk(reader, signal);
       if (done) break;
       if (!(value instanceof Uint8Array)) invalidTransportResponse();
-      totalBytes += value.byteLength;
-      if (!Number.isSafeInteger(totalBytes) || totalBytes > MAX_STRIPE_API_RESPONSE_BYTES) {
+      // A stream can supply a Uint8Array with shadowed byteLength/slice
+      // properties. Read native typed-array length and copy with native set.
+      const byteLength = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
+      if (!Number.isSafeInteger(byteLength) || byteLength > MAX_STRIPE_API_RESPONSE_BYTES - totalBytes) {
         invalidTransportResponse();
       }
-      chunks.push(value.slice());
+      const chunk = new Uint8Array(byteLength);
+      Uint8Array.prototype.set.call(chunk, value);
+      totalBytes += chunk.byteLength;
+      chunks.push(chunk);
     }
   } catch (error) {
     // Malformed provider chunks, exceeded limits, and rejected reads must not

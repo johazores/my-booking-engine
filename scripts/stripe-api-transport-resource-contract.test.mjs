@@ -12,8 +12,10 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /const MAX_STRIPE_API_RESPONSE_BYTES = 4 \* 1024 \* 1024;/);
   assert.match(contents, /hasUtf8ByteLengthAtMost\(body, MAX_STRIPE_API_REQUEST_BYTES\)/);
   assert.match(contents, /response\.headers\.get\('content-length'\)/);
-  assert.match(contents, /totalBytes > MAX_STRIPE_API_RESPONSE_BYTES/);
-  assert.match(contents, /chunks\.push\(value\.slice\(\)\)/);
+  assert.match(contents, /byteLength > MAX_STRIPE_API_RESPONSE_BYTES - totalBytes/);
+  assert.match(contents, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
+  assert.match(contents, /Uint8Array\.prototype\.set\.call\(chunk, value\)/);
+  assert.match(contents, /chunks\.push\(chunk\)/);
   assert.match(contents, /if \(!\(value instanceof Uint8Array\)\) invalidTransportResponse\(\)/);
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
