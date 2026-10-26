@@ -43,6 +43,8 @@ test('bounded browser form ingress caps streamed chunk count independently of by
   const body = readFileSync(join(root, 'src', 'server', 'http', 'bounded-form-body.ts'), 'utf8');
   const tests = readFileSync(join(root, 'src', 'server', 'inventory', 'inventory-form-body.test.ts'), 'utf8');
   assert.match(body, /const FORM_REQUEST_MAX_CHUNKS = 16 \* 1024/);
+  assert.match(body, /readRequestBodyChunkBeforeDeadline\(reader, request\.signal, deadline\.signal\)/);
+  assert.match(body, /clearTimeout\(timeoutHandle\)/);
   assert.match(body, /chunkCount > FORM_REQUEST_MAX_CHUNKS/);
   assert.match(body, /Uint8Array\.prototype\.set\.call\(buffered, value, totalBytes\)/);
   assert.match(body, /Uint8Array\.prototype\.slice\.call\(buffered, 0, totalBytes\)/);

@@ -20,6 +20,8 @@ test('all JSON request policies delegate to one bounded, length-checked transpor
   assert.match(shared, /totalBytes > declaredBytes/);
   assert.match(shared, /totalBytes !== declaredBytes/);
   assert.match(shared, /const JSON_REQUEST_MAX_CHUNKS = 16 \* 1024/);
+  assert.match(shared, /readRequestBodyChunkBeforeDeadline\(reader, request\.signal, deadline\.signal\)/);
+  assert.match(shared, /clearTimeout\(timeoutHandle\)/);
   assert.match(shared, /chunkCount > JSON_REQUEST_MAX_CHUNKS/);
   assert.match(shared, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
   assert.doesNotMatch(shared, /await reader\.cancel\(/);

@@ -1,3 +1,5 @@
+import { readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+
 /** Bounded text-only browser form reader for same-origin mutation endpoints. */
 export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
 export const FORM_MAX_FIELDS = 64;
@@ -28,8 +30,11 @@ function hasValidUrlEncodedComponents(body: string) {
 export async function readBoundedFormData(
   request: Request,
   maxBytes = FORM_REQUEST_MAX_BYTES,
+  options?: Readonly<{ timeoutMs?: number }>,
 ): Promise<FormData | null> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return null;
+  const timeoutMs = resolveRequestBodyTimeoutMs(options?.timeoutMs);
+  if (timeoutMs === null) return null;
 
   const contentType = request.headers.get('content-type');
   const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
@@ -51,13 +56,17 @@ export async function readBoundedFormData(
     // A locked or already consumed body is invalid request input.
     return null;
   }
+  const deadline = new AbortController();
+  const timeoutHandle = setTimeout(() => deadline.abort(), timeoutMs);
   // Retain immutable bytes, not references to caller-owned mutable stream chunks.
   let buffered = new Uint8Array(0);
   let totalBytes = 0;
   let chunkCount = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await readRequestBodyChunkBeforeDeadline(reader, request.signal, deadline.signal);
+      if (!result) return null;
+      const { done, value } = result;
       if (done) break;
       chunkCount += 1;
       if (chunkCount > FORM_REQUEST_MAX_CHUNKS) {
@@ -89,9 +98,11 @@ export async function readBoundedFormData(
     try { void reader.cancel().catch(() => undefined); } catch { /* Stream already failed. */ }
     return null;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeoutHandle);
+    try { reader.releaseLock(); } catch { /* Aborted readers may retain pending reads. */ }
   }
 
+  if (request.signal.aborted || deadline.signal.aborted) return null;
   if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
 
   const bytes = Uint8Array.prototype.slice.call(buffered, 0, totalBytes) as Uint8Array;

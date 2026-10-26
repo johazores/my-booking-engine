@@ -151,3 +151,37 @@ test('bounded JSON reader counts native bytes despite shadowed chunk length', as
   } as RequestInit & { duplex: 'half' });
   assert.equal(await readBoundedJsonObject(request, 4), null);
 });
+
+test('bounded JSON reader times out stalled acquisition without awaiting cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedJsonObject(request, 1024, { timeoutMs: 20 })), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded JSON reader rejects client abort during a pending read', async () => {
+  const controller = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, signal: controller.signal, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  const read = readBoundedJsonObject(request, 1024);
+  controller.abort();
+  assert.equal(await settlesPromptly(read), null);
+});
+
+test('bounded JSON reader rejects deadline extensions', async () => {
+  assert.equal(await readBoundedJsonObject(jsonRequest('{}'), 1024, { timeoutMs: 10_001 }), null);
+  assert.equal(await readBoundedJsonObject(jsonRequest('{}'), 1024, { timeoutMs: 0 }), null);
+});

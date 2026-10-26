@@ -1,10 +1,15 @@
+import { readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+
 /** Transport-only JSON object reader; caller owns authentication and validation. */
 const JSON_REQUEST_MAX_CHUNKS = 16 * 1024;
 export async function readBoundedJsonObject(
   request: Request,
   maxBytes: number,
+  options?: Readonly<{ timeoutMs?: number }>,
 ): Promise<Record<string, unknown> | null> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return null;
+  const timeoutMs = resolveRequestBodyTimeoutMs(options?.timeoutMs);
+  if (timeoutMs === null) return null;
 
   const contentType = request.headers.get('content-type');
   if (contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') return null;
@@ -25,6 +30,8 @@ export async function readBoundedJsonObject(
     // A locked or already consumed body is invalid request input.
     return null;
   }
+  const deadline = new AbortController();
+  const timeoutHandle = setTimeout(() => deadline.abort(), timeoutMs);
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let totalBytes = 0;
   let chunkCount = 0;
@@ -32,7 +39,9 @@ export async function readBoundedJsonObject(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await readRequestBodyChunkBeforeDeadline(reader, request.signal, deadline.signal);
+      if (!result) return null;
+      const { done, value } = result;
       if (done) break;
       chunkCount += 1;
       if (chunkCount > JSON_REQUEST_MAX_CHUNKS) {
@@ -44,20 +53,26 @@ export async function readBoundedJsonObject(
         return null;
       }
       const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
-      if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes || (declaredBytes !== null && chunkBytes > declaredBytes - totalBytes)) {
+      if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes) {
         void reader.cancel().catch(() => undefined);
         return null;
       }
       totalBytes += chunkBytes;
+      if (declaredBytes !== null && totalBytes > declaredBytes) {
+        void reader.cancel().catch(() => undefined);
+        return null;
+      }
       rawBody += decoder.decode(value, { stream: true });
     }
+    if (request.signal.aborted || deadline.signal.aborted) return null;
     if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
     rawBody += decoder.decode();
   } catch {
     try { void reader.cancel().catch(() => undefined); } catch { /* Stream may already be closed. */ }
     return null;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeoutHandle);
+    try { reader.releaseLock(); } catch { /* Aborted readers may retain pending reads. */ }
   }
 
   try {

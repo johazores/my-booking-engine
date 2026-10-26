@@ -7,7 +7,7 @@ import {
   readBoundedInventoryFormData,
 } from './inventory-form-body.ts';
 
-import { FormBodyValidationError, readBoundedFormDataOrThrow } from '../http/bounded-form-body.ts';
+import { FormBodyValidationError, readBoundedFormData, readBoundedFormDataOrThrow } from '../http/bounded-form-body.ts';
 
 const url = 'https://sf.example/api/inventory/rentals/units';
 async function settlesPromptly<T>(operation: Promise<T>): Promise<T> {
@@ -232,4 +232,38 @@ test('bounded form ingress preserves bytes from a reused upstream chunk buffer',
     body: stream, duplex: 'half',
   } as RequestInit & { duplex: 'half' });
   assert.equal((await readBoundedInventoryFormData(request))?.get('name'), 'Kayak');
+});
+
+test('bounded form ingress times out stalled acquisition without awaiting cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedFormData(request, 1024, { timeoutMs: 20 })), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded form ingress rejects client abort during a pending read', async () => {
+  const controller = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, signal: controller.signal, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  const read = readBoundedFormData(request, 1024);
+  controller.abort();
+  assert.equal(await settlesPromptly(read), null);
+});
+
+test('bounded form ingress rejects deadline extensions', async () => {
+  assert.equal(await readBoundedFormData(formRequest('name=ok'), 1024, { timeoutMs: 10_001 }), null);
+  assert.equal(await readBoundedFormData(formRequest('name=ok'), 1024, { timeoutMs: 0 }), null);
 });

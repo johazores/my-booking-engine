@@ -19,3 +19,7 @@ A consumed stream can have its reader lock released while `Request.bodyUsed` sta
 ## Stream chunk resource ceiling
 
 The shared form reader also caps the number of stream chunks independently of byte length, so a request supplying endless zero-byte chunks or excessive tiny chunks cannot monopolize parsing while staying below 64 KiB. Empty chunks count toward the ceiling but are not retained. Exceeding the ceiling cancels the request reader and returns the existing invalid-form result; authorization and tenant checks remain unchanged.
+
+## Whole-body deadline and caller abort
+
+Browser form ingress now enforces the same 10-second total stream-acquisition deadline as the shared JSON reader. It also rejects client-aborted reads promptly even when an upstream stream ignores cancellation. Cancellation remains best-effort/nonblocking. A test-only override may shorten but cannot extend the production ceiling. Existing same-origin, authentication, tenant, text-only, byte/chunk, and validation contracts remain unchanged. Regression tests cover stalled reads, client aborts, and invalid deadline overrides.

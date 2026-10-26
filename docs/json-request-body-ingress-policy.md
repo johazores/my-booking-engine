@@ -48,3 +48,7 @@ The four current JSON ingress policies (public booking, authenticated hospitalit
 The shared JSON reader also rejects an already locked or consumed request body as invalid transport input. A `ReadableStream.getReader()` failure returns `null` to the existing domain wrappers rather than leaking an unexpected exception. The transport layer still does not authenticate or authorize the caller.
 
 Both reader-lock failures and `Request.bodyUsed` are checked. The latter covers a previously consumed stream whose lock was released, rather than relying on `getReader()` to reject all disturbed streams. Focused tests exercise both cases.
+
+## Whole-body deadline and caller abort
+
+The shared JSON ingress reader now uses a 10-second wall-clock deadline for the entire stream acquisition, not a fresh timeout per chunk. A client disconnect/abort or stalled upstream read fails closed as invalid transport input. Cancellation is best-effort and is never awaited, so a hung stream cancellation cannot retain the mutation request. An internal test override may shorten, but cannot extend, the production deadline. This complements the existing byte and chunk limits and does not change authorization or domain error contracts. Regression tests cover stalled reads and caller aborts.
