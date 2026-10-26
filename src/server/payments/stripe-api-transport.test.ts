@@ -1196,3 +1196,39 @@ test('Stripe native abort authority outranks unsafe response framing', async () 
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
 });
+
+test('Stripe rejects nonempty decoded responses declaring zero encoded bytes', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  for (const coding of ['gzip', 'br', 'identity, gzip']) {
+    await assert.rejects(
+      requestStripeApi(
+        (async () => new Response('{"ok":true}', {
+          headers: { 'content-length': '0', 'content-encoding': coding },
+        })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        init,
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN' && error.retryable === true,
+      coding,
+    );
+  }
+});
+
+test('Stripe local abort outranks impossible encoded zero-byte evidence', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}', {
+    headers: { 'content-length': '0', 'content-encoding': 'gzip' },
+  });
+  Object.defineProperty(upstream, 'body', {
+    get() { controller.abort(); return new Response('{}').body; },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' }, signal: controller.signal },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});

@@ -1,5 +1,5 @@
 import { PaymentProviderError } from './payment-provider.ts';
-import { classifyHttpResponseContentEncoding, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
+import { classifyHttpResponseContentEncoding, hasInconsistentProviderResponseLength, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
 
 const STRIPE_API_ORIGIN = 'https://api.stripe.com';
 const STRIPE_PAYMENT_INTENT_PATH = /^\/v1\/payment_intents\/pi_[A-Za-z0-9_]+$/;
@@ -359,10 +359,10 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       Uint8Array.prototype.set.call(buffered, value, totalBytes);
       totalBytes = requiredBytes;
     }
-    // For identity responses, declared payload bytes must equal buffered bytes.
-    // Fetch may decode compressed bodies but preserve encoded wire length.
+    // Fetch may decode compressed responses, but no nonempty decoded body can
+    // originate from a declared zero-byte encoded representation.
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-    if (declaredLength !== null && contentEncoding === 'identity' && totalBytes !== declaredLength) {
+    if (hasInconsistentProviderResponseLength(declaredLength, totalBytes, contentEncoding)) {
       invalidTransportResponse();
     }
   } catch (error) {

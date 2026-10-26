@@ -36,3 +36,19 @@ export function hasUnsafeProviderResponseFraming(headers: Headers, status: numbe
   return (headers.has('content-length') && headers.has('transfer-encoding'))
     || (status >= 200 && status < 300 && (status === 206 || headers.has('content-range')));
 }
+
+/**
+ * Fetch may expose decoded bytes while retaining the encoded wire length.
+ * Exact equality is therefore required only for identity representations.
+ * Even for compressed/unknown codings, a declared zero-byte representation
+ * cannot produce a nonempty decoded body; reject that impossible evidence.
+ */
+export function hasInconsistentProviderResponseLength(
+  declaredLength: number | null,
+  receivedLength: number,
+  contentEncoding: Exclude<HttpResponseContentEncoding, 'invalid'>,
+): boolean {
+  if (declaredLength === null) return false;
+  if (contentEncoding === 'identity') return receivedLength !== declaredLength;
+  return declaredLength === 0 && receivedLength !== 0;
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { classifyHttpResponseContentEncoding, hasUnsafeProviderResponseFraming } from './response-content-encoding.ts';
+import { classifyHttpResponseContentEncoding, hasInconsistentProviderResponseLength, hasUnsafeProviderResponseFraming } from './response-content-encoding.ts';
 
 test('HTTP content coding classification distinguishes identity from real codings', () => {
   const cases: Array<readonly [string | null, 'identity' | 'encoded' | 'invalid']> = [
@@ -50,5 +50,23 @@ test('provider framing rejects partial success and contradictory wire boundaries
   ];
   for (const [status, headers, expected] of cases) {
     assert.equal(hasUnsafeProviderResponseFraming(new Headers(headers), status), expected);
+  }
+});
+
+test('provider response lengths reject impossible encoded zero-byte evidence', () => {
+  const cases: Array<readonly [number | null, number, 'identity' | 'encoded', boolean]> = [
+    [null, 100, 'identity', false],
+    [null, 100, 'encoded', false],
+    [0, 0, 'identity', false],
+    [0, 2, 'identity', true],
+    [2, 2, 'identity', false],
+    [2, 3, 'identity', true],
+    [0, 0, 'encoded', false],
+    [0, 2, 'encoded', true],
+    [1, 2, 'encoded', false],
+    [20, 2, 'encoded', false],
+  ];
+  for (const [declared, received, encoding, expected] of cases) {
+    assert.equal(hasInconsistentProviderResponseLength(declared, received, encoding), expected);
   }
 });

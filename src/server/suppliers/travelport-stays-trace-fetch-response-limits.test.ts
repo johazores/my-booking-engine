@@ -976,3 +976,40 @@ test('Travelport native abort authority outranks unsafe response framing', async
     assertTravelportAborted,
   );
 });
+
+test('Travelport OAuth and Stays reject nonempty decoded responses declaring zero encoded bytes', async () => {
+  for (const oauth of [true, false]) {
+    for (const coding of ['gzip', 'br', 'identity, gzip']) {
+      const traced = createTravelportStaysTraceFetch({
+        environment: 'production',
+        fetchImpl: (async () => new Response('{"ok":true}', {
+          headers: { 'Content-Length': '0', 'Content-Encoding': coding },
+        })) as typeof fetch,
+      });
+      const target = oauth
+        ? 'https://auth.travelport.net/oauth/token'
+        : 'https://api.travelport.net/12/hotel/search/searchcomplete';
+      await assert.rejects(traced(target, oauth ? oauthPostInit() : staysPostInit()), assertInvalidResponse, coding);
+    }
+  }
+});
+
+test('Travelport local abort outranks impossible encoded zero-byte evidence', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}', {
+    headers: { 'Content-Length': '0', 'Content-Encoding': 'gzip' },
+  });
+  Object.defineProperty(upstream, 'body', {
+    get() { controller.abort(); return new Response('{}').body; },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(), signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+});

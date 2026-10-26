@@ -1,5 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
-import { classifyHttpResponseContentEncoding, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
+import { classifyHttpResponseContentEncoding, hasInconsistentProviderResponseLength, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
 import { awaitTravelportStaysOperation, isTravelportStaysSignalAborted, travelportStaysResponseAbortError } from './travelport-stays-response-deadline.ts';
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
@@ -642,9 +642,9 @@ async function bufferTravelportResponse(
       }
     }
     if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
-    // Only identity response bytes can be compared to wire Content-Length:
-    // Fetch may have transparently decoded compressed response bodies.
-    if (declaredBytes !== null && contentEncoding === 'identity' && receivedBytes !== declaredBytes) {
+    // Fetch may decode compressed bodies, but declared zero encoded bytes
+    // cannot yield a nonempty decoded response.
+    if (hasInconsistentProviderResponseLength(declaredBytes, receivedBytes, contentEncoding)) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response body length is inconsistent.');
     }
   } catch (error) {
