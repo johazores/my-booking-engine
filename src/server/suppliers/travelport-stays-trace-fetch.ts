@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { classifyHttpResponseContentEncoding } from '../http/response-content-encoding.ts';
 import { awaitTravelportStaysOperation, isTravelportStaysSignalAborted, travelportStaysResponseAbortError } from './travelport-stays-response-deadline.ts';
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
@@ -530,8 +531,14 @@ async function bufferTravelportResponse(
     throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response metadata is invalid.');
   }
   let declaredBytes: number | null;
+  let contentEncoding: 'identity' | 'encoded';
   try {
     declaredBytes = declaredTravelportResponseBytes(metadata.headers);
+    const classification = classifyHttpResponseContentEncoding(metadata.headers);
+    if (classification === 'invalid') {
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response content encoding is invalid.');
+    }
+    contentEncoding = classification;
   } catch (error) {
     cancelResponseBody(body);
     if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
@@ -634,7 +641,7 @@ async function bufferTravelportResponse(
     if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
     // Only identity response bytes can be compared to wire Content-Length:
     // Fetch may have transparently decoded compressed response bodies.
-    if (declaredBytes !== null && !metadata.headers.has('content-encoding') && receivedBytes !== declaredBytes) {
+    if (declaredBytes !== null && contentEncoding === 'identity' && receivedBytes !== declaredBytes) {
       throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response body length is inconsistent.');
     }
   } catch (error) {

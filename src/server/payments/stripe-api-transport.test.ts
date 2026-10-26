@@ -1054,3 +1054,43 @@ test('Stripe local abort takes precedence over a response-length mismatch', asyn
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
 });
+
+test('Stripe treats explicit identity coding as unencoded response-length evidence', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  for (const coding of ['identity', 'IDENTITY', 'identity, identity']) {
+    await assert.rejects(
+      requestStripeApi(
+        (async () => new Response('{}', {
+          headers: { 'content-length': '3', 'content-encoding': coding },
+        })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        init,
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN' && error.retryable === true,
+      coding,
+    );
+  }
+});
+
+test('Stripe rejects malformed content codings before reading and cancels the captured body', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
+    let cancellations = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
+      cancel() { cancellations += 1; },
+    });
+    await assert.rejects(
+      requestStripeApi(
+        (async () => new Response(stream, { headers: { 'content-encoding': coding } })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        init,
+      ),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN' && error.retryable === true,
+      coding,
+    );
+    assert.equal(cancellations, 1, coding);
+  }
+});

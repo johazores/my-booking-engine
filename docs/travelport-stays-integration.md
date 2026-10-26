@@ -141,3 +141,7 @@ A malformed replay is classified as a non-retryable `INVALID_RESPONSE`; caller c
 ## Unencoded response-length integrity
 
 The shared OAuth/Stays response transport rejects completed streamed responses whose buffered bytes disagree with a declared `Content-Length` when no `Content-Encoding` exists. Such contradictory identity-response evidence fails with `INVALID_RESPONSE` before adapter parsing, under the existing cancellation and deadline authority. Encoded responses are exempt because Fetch may have decoded their bodies while retaining compressed wire length; actual-byte and chunk ceilings still apply. Tests cover mismatch directions, encoded compatibility, and abort precedence. Live non-production verification remains required before enabling reservations.
+
+## Content-Encoding classification and identity-length integrity
+
+OAuth and Stays responses share a pure HTTP content-coding classifier. Absent and explicit `identity` encoding must satisfy exact declared `Content-Length` equality; a valid non-identity coding retains the existing decoded-Fetch exemption. Empty, malformed, overlong, and excessively enumerated coding lists fail before stream reads as `INVALID_RESPONSE`, with best-effort cancellation and native abort precedence. This closes the same metadata loophole in both supplier and Stripe transports without changing supplier reservation capability, retry policy, or commercial authority. Focused tests are checked in; live Travelport verification remains outstanding.

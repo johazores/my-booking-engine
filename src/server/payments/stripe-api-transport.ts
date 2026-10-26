@@ -1,4 +1,5 @@
 import { PaymentProviderError } from './payment-provider.ts';
+import { classifyHttpResponseContentEncoding } from '../http/response-content-encoding.ts';
 
 const STRIPE_API_ORIGIN = 'https://api.stripe.com';
 const STRIPE_PAYMENT_INTENT_PATH = /^\/v1\/payment_intents\/pi_[A-Za-z0-9_]+$/;
@@ -285,6 +286,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
   let responseBody: ReadableStream<Uint8Array> | null = null;
   let metadata: StripeApiResponseMetadata;
   let declaredLength: number | null;
+  let contentEncoding: 'identity' | 'encoded';
   try {
     responseBody = response.body;
     metadata = {
@@ -293,6 +295,9 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       statusText: response.statusText,
     };
     declaredLength = declaredStripeResponseLength(metadata.headers);
+    const classification = classifyHttpResponseContentEncoding(metadata.headers);
+    if (classification === 'invalid') invalidTransportResponse();
+    contentEncoding = classification;
   } catch (error) {
     cancelStripeResponseStream(responseBody);
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
@@ -356,7 +361,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     // For identity responses, declared payload bytes must equal buffered bytes.
     // Fetch may decode compressed bodies but preserve encoded wire length.
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-    if (declaredLength !== null && !metadata.headers.has('content-encoding') && totalBytes !== declaredLength) {
+    if (declaredLength !== null && contentEncoding === 'identity' && totalBytes !== declaredLength) {
       invalidTransportResponse();
     }
   } catch (error) {

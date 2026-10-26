@@ -820,3 +820,51 @@ test('Travelport local abort takes precedence over a response-length mismatch', 
     assertTravelportAborted,
   );
 });
+
+test('Travelport treats explicit identity coding as unencoded response-length evidence for OAuth and Stays', async () => {
+  for (const oauth of [true, false]) {
+    for (const coding of ['identity', 'IDENTITY', 'identity, identity']) {
+      const traced = createTravelportStaysTraceFetch({
+        environment: 'production',
+        fetchImpl: (async () => new Response('{}', {
+          headers: { 'Content-Length': '3', 'Content-Encoding': coding },
+        })) as typeof fetch,
+      });
+      await assert.rejects(
+        traced(
+          oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+          oauth ? oauthPostInit() : staysPostInit(),
+        ),
+        assertInvalidResponse,
+        coding,
+      );
+    }
+  }
+});
+
+test('Travelport rejects malformed content codings and cancels OAuth and Stays response streams', async () => {
+  for (const oauth of [true, false]) {
+    for (const coding of ['', 'gzip,', 'gzip,,br', 'gzip;level=1', 'x'.repeat(513), Array(17).fill('gzip').join(',')]) {
+      let cancellations = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new TextEncoder().encode('{}')); },
+        cancel() { cancellations += 1; },
+      });
+      const traced = createTravelportStaysTraceFetch({
+        environment: 'production',
+        fetchImpl: (async () => new Response(stream, {
+          headers: { 'Content-Encoding': coding },
+        })) as typeof fetch,
+      });
+      await assert.rejects(
+        traced(
+          oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+          oauth ? oauthPostInit() : staysPostInit(),
+        ),
+        assertInvalidResponse,
+        coding,
+      );
+      assert.equal(cancellations, 1, coding);
+    }
+  }
+});
