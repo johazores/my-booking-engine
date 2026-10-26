@@ -264,7 +264,12 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     if (error instanceof PaymentProviderError) throw error;
     invalidTransportResponse();
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+      invalidTransportResponse();
+    }
   }
 
   const body = new Uint8Array(totalBytes);

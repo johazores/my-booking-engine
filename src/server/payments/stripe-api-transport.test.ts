@@ -274,10 +274,11 @@ test('Stripe transport releases the response reader and classifies failed reads 
 
 test('Stripe transport treats locked response bodies as retryable unknown provider evidence', async () => {
   const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([1])); } });
-  const heldReader = body.getReader();
+  const response = new Response(body, { status: 200 });
+  const heldReader = response.body!.getReader();
   try {
     await assert.rejects(
-      requestStripeApi((async () => new Response(body, { status: 200 })) as typeof fetch,
+      requestStripeApi((async () => response) as typeof fetch,
         'https://api.stripe.com/v1/balance',
         { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
@@ -352,6 +353,27 @@ test('Stripe transport normalizes malformed replay metadata after buffering', as
       headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
     }),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true && !error.message.includes('untrusted status'),
+  );
+});
+
+test('Stripe transport normalizes reader lock-release failures without exposing raw provider errors', async () => {
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, 'body', {
+    value: {
+      getReader() {
+        return {
+          async read() { return { done: true, value: undefined }; },
+          releaseLock() { throw new Error('untrusted release error'); },
+        };
+      },
+    },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true && !error.message.includes('untrusted release error'),
   );
 });
 

@@ -61,6 +61,7 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(tests, /normalizes throwing provider response headers/);
   assert.match(tests, /ignores synchronous cancellation failures/);
   assert.match(tests, /normalizes malformed replay metadata/);
+  assert.match(tests, /normalizes reader lock-release failures/);
 });
 
 test('Stripe transport materializes caller metadata once and checks native abort authority', () => {
