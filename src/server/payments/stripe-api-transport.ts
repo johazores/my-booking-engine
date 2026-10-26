@@ -187,7 +187,13 @@ async function readStripeResponseChunk(
 }
 
 function cancelStripeResponseBody(response: Response): void {
-  if (response.body !== null) void response.body.cancel().catch(() => undefined);
+  try {
+    const body = response.body;
+    if (body !== null) void body.cancel().catch(() => undefined);
+  } catch {
+    // A malformed response or failed cancellation must not replace provider
+    // evidence or an already-expired caller-owned deadline.
+  }
 }
 
 function assertStripeDeclaredResponseLength(response: Response): void {
@@ -206,14 +212,32 @@ function assertStripeDeclaredResponseLength(response: Response): void {
 
 async function bufferStripeApiResponse(response: Response, signal?: AbortSignal): Promise<Response> {
   if (!(response instanceof Response)) invalidTransportResponse();
-  assertStripeDeclaredResponseLength(response);
+  // The caller's actual timeout takes precedence over malformed provider
+  // metadata, including when Fetch resolves after the deadline.
   if (signal && nativeStripeSignalAborted(signal)) {
     cancelStripeResponseBody(response);
     throw abortResponseRead();
   }
-  if (response.body === null) return response;
+  let responseBody: ReadableStream<Uint8Array> | null;
+  try {
+    assertStripeDeclaredResponseLength(response);
+    responseBody = response.body;
+  } catch (error) {
+    cancelStripeResponseBody(response);
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    if (error instanceof PaymentProviderError) throw error;
+    invalidTransportResponse();
+  }
+  if (responseBody === null) return response;
 
-  const reader = response.body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = responseBody.getReader();
+  } catch {
+    cancelStripeResponseBody(response);
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    invalidTransportResponse();
+  }
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {
@@ -237,7 +261,8 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       // Cancellation is best-effort after a response acquisition failure.
     }
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-    throw error;
+    if (error instanceof PaymentProviderError) throw error;
+    invalidTransportResponse();
   } finally {
     reader.releaseLock();
   }
@@ -250,14 +275,22 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
   }
 
   if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
-  const headers = new Headers(response.headers);
-  headers.delete('content-length');
-  headers.delete('content-encoding');
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  try {
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    const replay = new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    return replay;
+  } catch (error) {
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    if (error instanceof PaymentProviderError) throw error;
+    invalidTransportResponse();
+  }
 }
 
 async function fetchStripeApiResponse(

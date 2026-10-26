@@ -17,12 +17,17 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /if \(!\(value instanceof Uint8Array\)\) invalidTransportResponse\(\)/);
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
+  assert.match(contents, /responseBody = response\.body/);
+  assert.match(contents, /reader = responseBody\.getReader\(\)/);
+  assert.match(contents, /if \(error instanceof PaymentProviderError\) throw error;\s*invalidTransportResponse\(\)/);
 });
 
 test('Stripe response acquisition keeps abort authority and post-provider ambiguity fail closed', () => {
   const contents = source('src/server/payments/stripe-api-transport.ts');
   assert.match(contents, /AbortSignal\.prototype\.addEventListener\.call\(signal, 'abort', onAbort, \{ once: true \}\)/);
   assert.match(contents, /void reader\.cancel\(\)\.catch\(\(\) => undefined\)/);
+  assert.match(contents, /function cancelStripeResponseBody\(response: Response\): void \{\s*try \{/);
+  assert.match(contents, /if \(signal && nativeStripeSignalAborted\(signal\)\) \{\s*cancelStripeResponseBody\(response\);\s*throw abortResponseRead\(\);\s*\}/);
   assert.match(contents, /new PaymentProviderError\('UNKNOWN', 'Stripe API response is outside the reviewed SF provider boundary\.', true\)/);
   assert.match(contents, /return bufferStripeApiResponse\(response, init\.signal \?\? undefined\)/);
 });
@@ -50,6 +55,12 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(docs, /retryable `UNKNOWN`/);
   assert.match(tests, /keeps caller abort authority active through response body acquisition/);
   assert.match(tests, /enforces the response ceiling on streamed bytes/);
+  assert.match(tests, /classifies failed reads as unknown provider evidence/);
+  assert.match(tests, /locked response bodies as retryable unknown provider evidence/);
+  assert.match(tests, /preserves a real timeout over malformed provider response headers/);
+  assert.match(tests, /normalizes throwing provider response headers/);
+  assert.match(tests, /ignores synchronous cancellation failures/);
+  assert.match(tests, /normalizes malformed replay metadata/);
 });
 
 test('Stripe transport materializes caller metadata once and checks native abort authority', () => {

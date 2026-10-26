@@ -237,7 +237,7 @@ test('Stripe transport cancels non-byte response chunks as retryable unknown pro
   }
 });
 
-test('Stripe transport releases the response reader and preserves unexpected read failures', async () => {
+test('Stripe transport releases the response reader and classifies failed reads as unknown provider evidence', async () => {
   const failure = new Error('provider stream read failed');
   let cancelled = 0;
   let released = 0;
@@ -265,10 +265,94 @@ test('Stripe transport releases the response reader and preserves unexpected rea
       method: 'GET',
       headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
     }),
-    (error: unknown) => error === failure,
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true && !error.message.includes(failure.message),
   );
   assert.equal(cancelled, 1);
   assert.equal(released, 1);
+});
+
+
+test('Stripe transport treats locked response bodies as retryable unknown provider evidence', async () => {
+  const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([1])); } });
+  const heldReader = body.getReader();
+  try {
+    await assert.rejects(
+      requestStripeApi((async () => new Response(body, { status: 200 })) as typeof fetch,
+        'https://api.stripe.com/v1/balance',
+        { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+    );
+  } finally {
+    heldReader.releaseLock();
+    await body.cancel();
+  }
+});
+
+test('Stripe transport preserves a real timeout over malformed provider response headers', async () => {
+  const controller = new AbortController();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) { stream.enqueue(new Uint8Array([1])); },
+    cancel() { cancelled = true; },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => {
+      controller.abort();
+      return new Response(body, { status: 200, headers: { 'content-length': 'invalid' } });
+    }) as typeof fetch, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+      signal: controller.signal,
+    }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+});
+
+test('Stripe transport normalizes throwing provider response headers without leaking their error', async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) { stream.enqueue(new Uint8Array([1])); },
+    cancel() { cancelled = true; },
+  });
+  const response = new Response(body, { status: 200 });
+  Object.defineProperty(response, 'headers', { get() { throw new Error('raw provider metadata'); } });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true && !error.message.includes('raw provider metadata'),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+});
+
+test('Stripe transport ignores synchronous cancellation failures when declared length is invalid', async () => {
+  const response = new Response(null, { status: 200, headers: { 'content-length': 'bad' } });
+  Object.defineProperty(response, 'body', {
+    value: { cancel() { throw new Error('cancellation failed'); } },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+  );
+});
+
+test('Stripe transport normalizes malformed replay metadata after buffering', async () => {
+  const response = new Response('body', { status: 200 });
+  Object.defineProperty(response, 'status', { get() { throw new Error('untrusted status'); } });
+  await assert.rejects(
+    requestStripeApi((async () => response) as typeof fetch, 'https://api.stripe.com/v1/balance', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+    }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true && !error.message.includes('untrusted status'),
+  );
 });
 
 test('Stripe transport keeps caller abort authority active through response body acquisition', async () => {
