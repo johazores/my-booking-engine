@@ -18,6 +18,20 @@ function post(body: BodyInit, headers?: HeadersInit, signal?: AbortSignal) {
   });
 }
 
+async function settlesPromptly<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Request cancellation stalled.')), 3_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function expectBodyError(
   request: Request,
   code: StripeWebhookRequestBodyError['code'],
@@ -172,4 +186,43 @@ test('test/read overrides may only tighten the production body deadline', async 
     'INVALID_BODY',
     { timeoutMs: STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS + 1 },
   );
+});
+
+test('rejects endless zero-byte webhook chunks without awaiting stalled cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(0)); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await settlesPromptly(expectBodyError(request, 'INVALID_BODY'));
+  assert.equal(cancelled, true);
+});
+
+test('rejects excessive tiny webhook chunks below its byte ceiling', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array([0x7b])); },
+    cancel() { cancelled = true; return Promise.reject(new Error('Cancellation failed.')); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await settlesPromptly(expectBodyError(request, 'INVALID_BODY'));
+  assert.equal(cancelled, true);
+});
+
+test('rejects oversized webhook bodies without awaiting stalled cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new Uint8Array(STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES + 1)); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await settlesPromptly(expectBodyError(request, 'PAYLOAD_TOO_LARGE'));
+  assert.equal(cancelled, true);
 });

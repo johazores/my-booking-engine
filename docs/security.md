@@ -49,6 +49,10 @@ Membership role and lifecycle mutations are implemented through authenticated, s
 
 Inventory mutation forms use a 64 KiB streamed body limit, strict UTF-8, supported text-only browser form media types, and rejection of duplicate keys, uploaded files, and excessive field counts. The bounded parser runs after the existing same-origin/session/active-tenant request guard and before inventory service writes. Server-side capability and resource ownership checks remain mandatory. See `docs/inventory-form-ingress.md`.
 
+## Bounded JSON ingress
+
+Shared authenticated/public JSON mutation readers enforce the caller's byte ceiling and exact declared Content-Length, and now reject more than 16,384 streamed chunks even when each chunk is empty or tiny. Form readers apply the same independent chunk ceiling in addition to their 64 KiB and text-field limits. Rejected streams are cancelled best-effort without awaiting an upstream cancellation promise that might never settle. These transport guards do not replace same-origin checks, tenant authorization, signature verification, or service-level validation.
+
 ## Database test safety
 
 `npm run test:database` is allowed only against an explicitly disposable PostgreSQL database. The runner requires `TEST_DATABASE_URL`, rejects reuse of `DATABASE_URL`, requires a named database, and requires `SF_DATABASE_TEST_CONFIRM=sf-disposable-test-database` before it validates/applies migrations or runs integration tests.

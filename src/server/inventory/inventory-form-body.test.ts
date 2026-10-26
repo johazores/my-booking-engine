@@ -10,6 +10,20 @@ import {
 import { FormBodyValidationError, readBoundedFormDataOrThrow } from '../http/bounded-form-body.ts';
 
 const url = 'https://sf.example/api/inventory/rentals/units';
+async function settlesPromptly<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Request cancellation stalled.')), 3_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 
 function formRequest(body: BodyInit, headers?: Record<string, string>) {
   return new Request(url, {
@@ -152,5 +166,21 @@ test('bounded form ingress rejects excessive tiny chunks below the byte ceiling'
     duplex: 'half',
   } as RequestInit & { duplex: 'half' });
   assert.equal(await readBoundedInventoryFormData(request), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded form ingress never awaits stalled cancellation after exceeding its byte ceiling', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('name=' + 'x'.repeat(INVENTORY_FORM_REQUEST_MAX_BYTES)));
+    },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedInventoryFormData(request)), null);
   assert.equal(cancelled, true);
 });

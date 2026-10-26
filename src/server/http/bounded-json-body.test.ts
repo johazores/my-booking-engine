@@ -4,6 +4,20 @@ import test from 'node:test';
 import { readBoundedJsonObject } from './bounded-json-body.ts';
 
 const url = 'https://sf.example.test/api/booking';
+async function settlesPromptly<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Request cancellation stalled.')), 3_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function jsonRequest(body: BodyInit, headers: Record<string, string> = {}) {
   return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body });
 }
@@ -80,4 +94,47 @@ test('bounded JSON reader rejects consumed but unlocked request streams', async 
   reader.releaseLock();
   assert.equal(request.bodyUsed, true);
   assert.equal(await readBoundedJsonObject(request, 1024), null);
+});
+
+test('bounded JSON reader rejects endless zero-byte chunks without waiting for cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(0)); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedJsonObject(request, 64 * 1024)), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded JSON reader rejects excessive tiny chunks below its byte ceiling', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array([0x20])); },
+    cancel() { cancelled = true; return Promise.reject(new Error('Cancellation failed.')); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedJsonObject(request, 64 * 1024)), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded JSON reader preserves valid objects split across stream chunks', async () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"guest":"Ca'));
+      controller.enqueue(new TextEncoder().encode('fé","count":2}'));
+      controller.close();
+    },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.deepEqual(await readBoundedJsonObject(request, 1024), { guest: 'Café', count: 2 });
 });

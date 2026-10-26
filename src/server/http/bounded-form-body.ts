@@ -60,18 +60,18 @@ export async function readBoundedFormData(
       if (done) break;
       chunkCount += 1;
       if (chunkCount > FORM_REQUEST_MAX_CHUNKS) {
-        await reader.cancel();
+        void reader.cancel().catch(() => undefined);
         return null;
       }
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
-        await reader.cancel();
+        void reader.cancel().catch(() => undefined);
         return null;
       }
       if (value.byteLength > 0) chunks.push(value);
     }
   } catch {
-    try { await reader.cancel(); } catch { /* Stream already failed. */ }
+    try { void reader.cancel().catch(() => undefined); } catch { /* Stream already failed. */ }
     return null;
   } finally {
     reader.releaseLock();

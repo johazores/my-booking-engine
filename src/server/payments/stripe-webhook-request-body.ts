@@ -1,5 +1,6 @@
 export const STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144;
 export const STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000;
+const STRIPE_WEBHOOK_MAX_CHUNKS = 16 * 1024;
 
 type StripeWebhookRequestBodyErrorCode =
   | 'INVALID_CONTENT_LENGTH'
@@ -168,6 +169,7 @@ export async function readStripeWebhookRequestBody(
   // allocation per incoming stream chunk or eagerly reserving the full ceiling.
   let bytes = new Uint8Array(expectedBytes ?? 8_192);
   let totalBytes = 0;
+  let chunkCount = 0;
   try {
     while (true) {
       let result: ReadableStreamReadResult<Uint8Array>;
@@ -178,17 +180,22 @@ export async function readStripeWebhookRequestBody(
         invalidBody();
       }
       if (result.done) break;
+      chunkCount += 1;
+      if (chunkCount > STRIPE_WEBHOOK_MAX_CHUNKS) {
+        void reader.cancel().catch(() => undefined);
+        invalidBody();
+      }
       if (!(result.value instanceof Uint8Array)) {
-        await reader.cancel().catch(() => undefined);
+        void reader.cancel().catch(() => undefined);
         invalidBody();
       }
       const nextTotal = totalBytes + result.value.byteLength;
       if (!Number.isSafeInteger(nextTotal) || nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES) {
-        await reader.cancel().catch(() => undefined);
+        void reader.cancel().catch(() => undefined);
         payloadTooLarge();
       }
       if (expectedBytes !== null && nextTotal > expectedBytes) {
-        await reader.cancel().catch(() => undefined);
+        void reader.cancel().catch(() => undefined);
         throw contentLengthMismatch();
       }
       bytes = growBodyBuffer(bytes, nextTotal);

@@ -1,4 +1,5 @@
 /** Transport-only JSON object reader; caller owns authentication and validation. */
+const JSON_REQUEST_MAX_CHUNKS = 16 * 1024;
 export async function readBoundedJsonObject(
   request: Request,
   maxBytes: number,
@@ -26,15 +27,21 @@ export async function readBoundedJsonObject(
   }
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let totalBytes = 0;
+  let chunkCount = 0;
   let rawBody = '';
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      chunkCount += 1;
+      if (chunkCount > JSON_REQUEST_MAX_CHUNKS) {
+        void reader.cancel().catch(() => undefined);
+        return null;
+      }
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
-        await reader.cancel();
+        void reader.cancel().catch(() => undefined);
         return null;
       }
       rawBody += decoder.decode(value, { stream: true });
@@ -42,7 +49,7 @@ export async function readBoundedJsonObject(
     if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
     rawBody += decoder.decode();
   } catch {
-    try { await reader.cancel(); } catch { /* Stream may already be closed. */ }
+    try { void reader.cancel().catch(() => undefined); } catch { /* Stream may already be closed. */ }
     return null;
   } finally {
     reader.releaseLock();

@@ -49,6 +49,9 @@ test('Stripe webhook route bounds raw ingress before cryptographic verification'
 test('Stripe webhook reader bounds framing, actual bytes, and retained application memory', () => {
   assert.match(reader, /STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144/);
   assert.match(reader, /STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000/);
+  assert.match(reader, /const STRIPE_WEBHOOK_MAX_CHUNKS = 16 \* 1024/);
+  assert.match(reader, /chunkCount > STRIPE_WEBHOOK_MAX_CHUNKS/);
+  assert.doesNotMatch(reader, /await reader\.cancel\(/);
   assert.match(reader, /request\.headers\.get\('content-length'\)/);
   assert.match(reader, /declaredLength > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
   assert.match(reader, /nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
@@ -64,6 +67,10 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(reader, /setTimeout\(\(\) => timeoutController\.abort\(\), timeoutMs\)/);
   assert.match(reader, /timeoutSignal\.addEventListener\('abort', onTimeout/);
   assert.match(reader, /new TextDecoder\('utf-8', \{ fatal: true \}\)/);
+  const tests = source('src/server/payments/stripe-webhook-request-body.test.ts');
+  assert.match(tests, /rejects endless zero-byte webhook chunks/);
+  assert.match(tests, /rejects excessive tiny webhook chunks/);
+  assert.match(tests, /rejects oversized webhook bodies without awaiting stalled cancellation/);
 });
 
 test('service retains independent metadata and payload limits for direct callers', () => {
