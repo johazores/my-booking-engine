@@ -1,4 +1,4 @@
-import { discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 /** Transport-only JSON object reader; caller owns authentication and validation. */
 const JSON_REQUEST_MAX_CHUNKS = 16 * 1024;
@@ -49,21 +49,21 @@ export async function readBoundedJsonObject(
       if (done) break;
       chunkCount += 1;
       if (chunkCount > JSON_REQUEST_MAX_CHUNKS) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       if (!(value instanceof Uint8Array)) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
       if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       totalBytes += chunkBytes;
       if (declaredBytes !== null && totalBytes > declaredBytes) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       rawBody += decoder.decode(value, { stream: true });
@@ -72,7 +72,7 @@ export async function readBoundedJsonObject(
     if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
     rawBody += decoder.decode();
   } catch {
-    try { void reader.cancel().catch(() => undefined); } catch { /* Stream may already be closed. */ }
+    cancelRequestBodyReader(reader);
     return null;
   } finally {
     clearTimeout(timeoutHandle);

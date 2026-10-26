@@ -63,7 +63,9 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(reader, /Uint8Array\.prototype\.set\.call\(bytes, result\.value, totalBytes\)/);
   assert.match(reader, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', result\.value\)/);
   assert.doesNotMatch(reader, /chunks\.push/);
-  assert.match(reader, /reader\.cancel\(\)/);
+  assert.match(reader, /cancelRequestBodyReader\(reader\)/);
+  assert.match(reader, /discardUnreadRequestBody\(request\)/);
+  assert.match(reader, /discardStripeWebhookRequestBody\(request\)/);
   assert.match(reader, /request\.signal\.aborted/);
   assert.match(reader, /if \(request\.bodyUsed\) invalidBody\(\)/);
   assert.match(reader, /if \(totalBytes === 0\) invalidBody\(\)/);
@@ -79,6 +81,8 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(tests, /rejects consumed but unlocked webhook request bodies/);
   assert.match(tests, /rejects locked webhook request bodies/);
   assert.match(tests, /rejects an aborted webhook stream even with queued body bytes/);
+  assert.match(tests, /invalid webhook deadline preflight discards an unread stream/);
+  assert.match(tests, /webhook preflight discard leaves locked and consumed bodies untouched/);
 });
 
 test('service retains independent metadata and payload limits for direct callers', () => {

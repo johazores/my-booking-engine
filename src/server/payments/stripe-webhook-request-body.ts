@@ -1,3 +1,5 @@
+import { cancelRequestBodyReader, discardUnreadRequestBody } from '../http/request-body-deadline.ts';
+
 export const STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES = 262_144;
 export const STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS = 10_000;
 const STRIPE_WEBHOOK_MAX_CHUNKS = 16 * 1024;
@@ -22,7 +24,7 @@ export class StripeWebhookRequestBodyError extends Error {
 }
 
 export function discardStripeWebhookRequestBody(request: Request): void {
-  if (request.body !== null) void request.body.cancel().catch(() => undefined);
+  discardUnreadRequestBody(request);
 }
 
 function payloadTooLarge(request?: Request): never {
@@ -49,9 +51,10 @@ function bodyTimedOut(): StripeWebhookRequestBodyError {
   return new StripeWebhookRequestBodyError('BODY_TIMEOUT', 'Stripe webhook request body timed out.');
 }
 
-function resolveBodyReadTimeoutMs(timeoutMs?: number): number {
+function resolveBodyReadTimeoutMs(request: Request, timeoutMs?: number): number {
   if (timeoutMs === undefined) return STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS) {
+    discardStripeWebhookRequestBody(request);
     throw new StripeWebhookRequestBodyError('INVALID_BODY', 'Stripe webhook body timeout is invalid.');
   }
   return timeoutMs;
@@ -89,8 +92,14 @@ async function readRequestChunk(
   requestSignal: AbortSignal,
   timeoutSignal: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
-  if (requestSignal.aborted) throw requestAborted();
-  if (timeoutSignal.aborted) throw bodyTimedOut();
+  if (requestSignal.aborted) {
+    cancelRequestBodyReader(reader);
+    throw requestAborted();
+  }
+  if (timeoutSignal.aborted) {
+    cancelRequestBodyReader(reader);
+    throw bodyTimedOut();
+  }
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -108,14 +117,14 @@ async function readRequestChunk(
       if (settled) return;
       settled = true;
       cleanup();
-      void reader.cancel().catch(() => undefined);
+      cancelRequestBodyReader(reader);
       reject(requestAborted());
     };
     const onTimeout = () => {
       if (settled) return;
       settled = true;
       cleanup();
-      void reader.cancel().catch(() => undefined);
+      cancelRequestBodyReader(reader);
       reject(bodyTimedOut());
     };
 
@@ -144,7 +153,7 @@ export async function readStripeWebhookRequestBody(
   request: Request,
   options?: Readonly<{ timeoutMs?: number }>,
 ): Promise<string> {
-  const timeoutMs = resolveBodyReadTimeoutMs(options?.timeoutMs);
+  const timeoutMs = resolveBodyReadTimeoutMs(request, options?.timeoutMs);
   const expectedBytes = declaredContentLength(request);
   if (request.signal.aborted) {
     discardStripeWebhookRequestBody(request);
@@ -180,31 +189,32 @@ export async function readStripeWebhookRequestBody(
         result = await readRequestChunk(reader, request.signal, timeoutController.signal);
       } catch (error) {
         if (error instanceof StripeWebhookRequestBodyError) throw error;
+        cancelRequestBodyReader(reader);
         invalidBody();
       }
       if (result.done) break;
       chunkCount += 1;
       if (chunkCount > STRIPE_WEBHOOK_MAX_CHUNKS) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         invalidBody();
       }
       if (!(result.value instanceof Uint8Array)) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         invalidBody();
       }
       // Request stream chunks are untrusted, including shadowed instance length.
       const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', result.value) as number;
       if (!Number.isSafeInteger(chunkBytes)) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         invalidBody();
       }
       const nextTotal = totalBytes + chunkBytes;
       if (!Number.isSafeInteger(nextTotal) || nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         payloadTooLarge();
       }
       if (expectedBytes !== null && nextTotal > expectedBytes) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         throw contentLengthMismatch();
       }
       bytes = growBodyBuffer(bytes, nextTotal);

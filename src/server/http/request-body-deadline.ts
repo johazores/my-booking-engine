@@ -17,15 +17,22 @@ export function discardUnreadRequestBody(request: Request): void {
   }
 }
 
+/** Best-effort cancellation; a throwing or unsettled cancel cannot block the rejection. */
+export function cancelRequestBodyReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    void reader.cancel().catch(() => undefined);
+  } catch {
+    // An already closed or invalid reader must not mask the original failure.
+  }
+}
+
 /** A stalled read or cancellation must never keep a public mutation open. */
 export function readRequestBodyChunkBeforeDeadline(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   requestSignal: AbortSignal,
   deadlineSignal: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array> | null> {
-  const cancel = () => {
-    try { void reader.cancel().catch(() => undefined); } catch { /* Already closed. */ }
-  };
+  const cancel = () => cancelRequestBodyReader(reader);
   if (requestSignal.aborted || deadlineSignal.aborted) {
     cancel();
     return Promise.resolve(null);

@@ -223,6 +223,32 @@ test('preflight callers can discard an unread webhook stream without awaiting ca
   assert.equal(cancelCalled, true);
 });
 
+test('invalid webhook deadline preflight discards an unread stream without awaiting cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await settlesPromptly(expectBodyError(request, 'INVALID_BODY', { timeoutMs: STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS + 1 }));
+  assert.equal(cancelled, true);
+});
+
+test('webhook preflight discard leaves locked and consumed bodies untouched', async () => {
+  const locked = post('{"id":"locked"}');
+  const reader = locked.body!.getReader();
+  discardStripeWebhookRequestBody(locked);
+  assert.equal(locked.body!.locked, true);
+  reader.releaseLock();
+
+  const used = post('{"id":"used"}');
+  await used.text();
+  discardStripeWebhookRequestBody(used);
+  assert.equal(used.bodyUsed, true);
+});
+
 test('test/read overrides may only tighten the production body deadline', async () => {
   assert.equal(STRIPE_WEBHOOK_BODY_READ_TIMEOUT_MS, 10_000);
   await expectBodyError(

@@ -1,4 +1,4 @@
-import { discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 /** Bounded text-only browser form reader for same-origin mutation endpoints. */
 export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
@@ -74,16 +74,16 @@ export async function readBoundedFormData(
       if (done) break;
       chunkCount += 1;
       if (chunkCount > FORM_REQUEST_MAX_CHUNKS) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       if (!(value instanceof Uint8Array)) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
       if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes || (declaredBytes !== null && chunkBytes > declaredBytes - totalBytes)) {
-        void reader.cancel().catch(() => undefined);
+        cancelRequestBodyReader(reader);
         return null;
       }
       const nextTotal = totalBytes + chunkBytes;
@@ -99,7 +99,7 @@ export async function readBoundedFormData(
       totalBytes = nextTotal;
     }
   } catch {
-    try { void reader.cancel().catch(() => undefined); } catch { /* Stream already failed. */ }
+    cancelRequestBodyReader(reader);
     return null;
   } finally {
     clearTimeout(timeoutHandle);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { cancelRequestBodyReader, discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 test('shared request-body deadline cannot be extended', () => {
   assert.equal(resolveRequestBodyTimeoutMs(), 10_000);
@@ -72,6 +72,14 @@ test('shared request-body reader fails closed on stream errors', async () => {
   reader.releaseLock();
 });
 
+
+test('reader cancellation does not throw or await failed cancellation', async () => {
+  const throwing = { cancel() { throw new Error('reader closed'); } } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  assert.doesNotThrow(() => cancelRequestBodyReader(throwing));
+  const rejecting = { cancel() { return Promise.reject(new Error('cancel rejected')); } } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  assert.doesNotThrow(() => cancelRequestBodyReader(rejecting));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 test('discarding unread request bodies is nonblocking even when cancellation never settles', async () => {
   let cancelled = false;
