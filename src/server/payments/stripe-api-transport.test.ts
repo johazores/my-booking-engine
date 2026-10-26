@@ -740,3 +740,83 @@ test('Stripe transport preserves exact bytes across bounded buffer growth', asyn
   );
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), expected);
 });
+
+test('Stripe response transport snapshots one-shot read-result accessors with and without abort signals', async () => {
+  for (const withSignal of [false, true]) {
+    const bytes = new TextEncoder().encode('{"ok":true}');
+    let doneReads = 0;
+    let valueReads = 0;
+    let reads = 0;
+    const reader = {
+      read() {
+        reads += 1;
+        if (reads > 1) {
+          return Promise.resolve({
+            done: true,
+            get value() { throw new Error('completed result value must not be read'); },
+          });
+        }
+        return Promise.resolve({
+          get done() {
+            doneReads += 1;
+            if (doneReads > 1) throw new Error('repeated done getter');
+            return false;
+          },
+          get value() {
+            valueReads += 1;
+            if (valueReads > 1) throw new Error('repeated value getter');
+            return bytes;
+          },
+        });
+      },
+      cancel() { throw new Error('unexpected cancellation'); },
+      releaseLock() {},
+    } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+    const upstream = new Response('{}');
+    Object.defineProperty(upstream, 'body', { value: { getReader: () => reader } });
+    const response = await requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+        ...(withSignal ? { signal: new AbortController().signal } : {}),
+      },
+    );
+    assert.equal(await response.text(), '{"ok":true}');
+    assert.equal(doneReads, 1);
+    assert.equal(valueReads, 1);
+    assert.equal(reads, 2);
+  }
+});
+
+test('Stripe response transport classifies malformed read results as retryable unknown evidence', async () => {
+  for (const withSignal of [false, true]) {
+    for (const result of [undefined, { done: false }, { get done() { throw new Error('private provider error'); } }]) {
+      let cancellations = 0;
+      const reader = {
+        read() { return Promise.resolve(result); },
+        cancel() { cancellations += 1; return Promise.resolve(); },
+        releaseLock() {},
+      } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+      const upstream = new Response('{}');
+      Object.defineProperty(upstream, 'body', { value: { getReader: () => reader } });
+      await assert.rejects(
+        requestStripeApi(
+          (async () => upstream) as typeof fetch,
+          'https://api.stripe.com/v1/balance',
+          {
+            method: 'GET',
+            headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+            ...(withSignal ? { signal: new AbortController().signal } : {}),
+          },
+        ),
+        (error: unknown) => error instanceof PaymentProviderError
+          && error.code === 'UNKNOWN'
+          && error.retryable === true
+          && !error.message.includes('private provider error'),
+      );
+      assert.equal(cancellations, 1);
+    }
+  }
+});

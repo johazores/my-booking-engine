@@ -143,11 +143,30 @@ function abortResponseRead(): Error {
   return error;
 }
 
+function snapshotStripeResponseReadResult(
+  result: ReadableStreamReadResult<Uint8Array>,
+): ReadableStreamReadResult<Uint8Array> {
+  // Do not return untrusted accessor objects after validating their shape.
+  // Snapshot once, including for calls without a caller-owned abort signal.
+  let done: unknown;
+  let value: unknown;
+  try {
+    done = result?.done;
+    if (done === false) value = result.value;
+  } catch {
+    invalidTransportResponse();
+  }
+  if (typeof done !== 'boolean' || (done === false && !(value instanceof Uint8Array))) {
+    invalidTransportResponse();
+  }
+  return done ? { done: true, value: undefined } : { done: false, value: value as Uint8Array };
+}
+
 async function readStripeResponseChunk(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
-  if (!signal) return reader.read();
+  if (!signal) return snapshotStripeResponseReadResult(await reader.read());
   if (nativeStripeSignalAborted(signal)) throw abortResponseRead();
 
   return new Promise((resolve, reject) => {
@@ -178,7 +197,16 @@ async function readStripeResponseChunk(
     }
     try {
       reader.read().then(
-        (result) => finish(resolve, result),
+        (result) => {
+          if (settled) return;
+          try {
+            finish(resolve, snapshotStripeResponseReadResult(result));
+          } catch (error) {
+            // Normalize malformed provider results before resolving, not in
+            // a detached callback where an exception could go unobserved.
+            finish(reject, error);
+          }
+        },
         (error: unknown) => finish(reject, error),
       );
     } catch (error) {
