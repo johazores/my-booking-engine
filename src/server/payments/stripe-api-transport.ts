@@ -353,6 +353,12 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       Uint8Array.prototype.set.call(buffered, value, totalBytes);
       totalBytes = requiredBytes;
     }
+    // For identity responses, declared payload bytes must equal buffered bytes.
+    // Fetch may decode compressed bodies but preserve encoded wire length.
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
+    if (declaredLength !== null && !metadata.headers.has('content-encoding') && totalBytes !== declaredLength) {
+      invalidTransportResponse();
+    }
   } catch (error) {
     // Malformed provider chunks, exceeded limits, and rejected reads must not
     // leave a provider stream active. Preserve caller-owned abort precedence

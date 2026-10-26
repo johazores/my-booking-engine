@@ -1007,3 +1007,50 @@ test('Stripe bodyless declared-length validation preserves an abort triggered du
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
 });
+
+test('Stripe rejects incomplete or contradictory unencoded provider response lengths', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  for (const declaredLength of ['0', '1', '3']) {
+    const fetchImpl = (async () => new Response('{}', {
+      headers: { 'content-length': declaredLength },
+    })) as typeof fetch;
+    await assert.rejects(
+      requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', init),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'UNKNOWN' && error.retryable === true,
+      `declared ${declaredLength} bytes for a 2-byte identity response`,
+    );
+  }
+});
+
+test('Stripe permits encoded wire lengths different from decoded Fetch response bytes', async () => {
+  const response = await requestStripeApi(
+    (async () => new Response('{"ok":true}', {
+      headers: { 'content-length': '3', 'content-encoding': 'gzip' },
+    })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.equal(await response.text(), '{"ok":true}');
+  assert.equal(response.headers.get('content-length'), null);
+  assert.equal(response.headers.get('content-encoding'), null);
+});
+
+test('Stripe local abort takes precedence over a response-length mismatch', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}', { headers: { 'content-length': '3' } });
+  Object.defineProperty(upstream, 'body', {
+    get() {
+      controller.abort();
+      return new Response('{}').body;
+    },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' }, signal: controller.signal },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});

@@ -770,3 +770,53 @@ test('Travelport normalizes invalid bodyless response metadata and preserves cal
     assertTravelportAborted,
   );
 });
+
+test('Travelport rejects incomplete or contradictory unencoded provider response lengths', async () => {
+  for (const declaredLength of ['0', '1', '3']) {
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => new Response('{}', {
+        headers: { 'Content-Length': declaredLength },
+      })) as typeof fetch,
+    });
+    await assert.rejects(
+      traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+      `declared ${declaredLength} bytes for a 2-byte identity response`,
+    );
+  }
+});
+
+test('Travelport permits encoded wire lengths different from decoded Fetch response bytes', async () => {
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => new Response('{"ok":true}', {
+      headers: { 'Content-Length': '3', 'Content-Encoding': 'gzip' },
+    })) as typeof fetch,
+  });
+  const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{"ok":true}');
+  assert.equal(response.headers.get('content-length'), null);
+  assert.equal(response.headers.get('content-encoding'), null);
+});
+
+test('Travelport local abort takes precedence over a response-length mismatch', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}', { headers: { 'Content-Length': '3' } });
+  Object.defineProperty(upstream, 'body', {
+    get() {
+      controller.abort();
+      return new Response('{}').body;
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(), signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+});

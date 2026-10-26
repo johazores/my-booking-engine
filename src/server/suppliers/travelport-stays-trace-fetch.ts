@@ -632,6 +632,11 @@ async function bufferTravelportResponse(
       }
     }
     if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
+    // Only identity response bytes can be compared to wire Content-Length:
+    // Fetch may have transparently decoded compressed response bodies.
+    if (declaredBytes !== null && !metadata.headers.has('content-encoding') && receivedBytes !== declaredBytes) {
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response body length is inconsistent.');
+    }
   } catch (error) {
     failed = true;
     // Cancellation is best-effort. Neither a rejected cancel nor a failed
