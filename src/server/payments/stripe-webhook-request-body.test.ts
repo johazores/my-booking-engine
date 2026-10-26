@@ -321,6 +321,74 @@ test('webhook reader rejects native over-limit bytes hidden by a shadowed length
   await expectBodyError(request, 'PAYLOAD_TOO_LARGE');
 });
 
+test('synchronous raw reader failures clean up abort listeners and cancel only once', async () => {
+  const controller = new AbortController();
+  const request = post('{}', undefined, controller.signal);
+  let cancellations = 0;
+  const reader = {
+    read(): Promise<ReadableStreamReadResult<Uint8Array>> {
+      throw new Error('private synchronous read failure');
+    },
+    cancel() {
+      cancellations += 1;
+      return new Promise<void>(() => undefined);
+    },
+    releaseLock() {},
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  Object.defineProperty(request, 'body', { value: { getReader: () => reader } });
+
+  await settlesPromptly(expectBodyError(request, 'INVALID_BODY'));
+  assert.equal(cancellations, 1);
+  controller.abort();
+  assert.equal(cancellations, 1, 'read failure must remove abort listeners before cancellation');
+});
+
+test('rejected raw reader cancellation cannot trigger a second abort cancellation', async () => {
+  const controller = new AbortController();
+  const request = post('{}', undefined, controller.signal);
+  let cancellations = 0;
+  const reader = {
+    read() { return Promise.reject(new Error('private upstream read failure')); },
+    cancel() {
+      cancellations += 1;
+      controller.abort();
+      return Promise.reject(new Error('private cancellation failure'));
+    },
+    releaseLock() {},
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  Object.defineProperty(request, 'body', { value: { getReader: () => reader } });
+
+  await settlesPromptly(expectBodyError(request, 'INVALID_BODY'));
+  assert.equal(cancellations, 1);
+});
+
+test('late raw reader rejection after abort does not cancel the reader twice', async () => {
+  const controller = new AbortController();
+  const request = post('{}', undefined, controller.signal);
+  let rejectRead: ((reason?: unknown) => void) | undefined;
+  let cancellations = 0;
+  const reader = {
+    read() {
+      return new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        rejectRead = reject;
+      });
+    },
+    cancel() {
+      cancellations += 1;
+      return Promise.resolve();
+    },
+    releaseLock() {},
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  Object.defineProperty(request, 'body', { value: { getReader: () => reader } });
+
+  const pending = expectBodyError(request, 'BODY_ABORTED');
+  controller.abort();
+  await settlesPromptly(pending);
+  rejectRead?.(new Error('private late read failure'));
+  await Promise.resolve();
+  assert.equal(cancellations, 1);
+});
+
 test('webhook ingress rejects ambiguous framing before accepting signature evidence', async () => {
   for (const headers of [
     { 'content-length': '02' },

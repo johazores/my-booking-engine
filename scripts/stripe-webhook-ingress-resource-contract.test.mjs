@@ -30,7 +30,7 @@ test('Stripe webhook signature preflight rejects obvious non-Stripe framing with
   assert.match(signatureDomain, /key === 't'/);
   assert.match(signatureDomain, /key === 'v1'/);
   assert.match(signatureDomain, /\^\[0-9a-f\]\{64\}\$\/i/);
-  assert.match(signatureDomain, /Number\.isSafeInteger\(timestamp\)/);
+  assert.match(signatureDomain, /Number\.isSafeInteger\(parsedTimestamp\)/);
   assert.doesNotMatch(signatureDomain, /createHmac|timingSafeEqual|webhookTolerance/i);
 });
 
@@ -52,8 +52,8 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(reader, /const STRIPE_WEBHOOK_MAX_CHUNKS = 16 \* 1024/);
   assert.match(reader, /chunkCount > STRIPE_WEBHOOK_MAX_CHUNKS/);
   assert.doesNotMatch(reader, /await reader\.cancel\(/);
-  assert.match(reader, /request\.headers\.get\('content-length'\)/);
-  assert.match(reader, /declaredLength > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
+  assert.match(reader, /inspectRequestBodyFraming\(request, STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES\)/);
+  assert.match(reader, /if \(framing\.kind === 'too-large'\) payloadTooLarge\(request\)/);
   assert.match(reader, /nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES/);
   assert.match(reader, /nextTotal > expectedBytes/);
   assert.match(reader, /totalBytes !== expectedBytes/);
@@ -83,6 +83,10 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(tests, /rejects an aborted webhook stream even with queued body bytes/);
   assert.match(tests, /invalid webhook deadline preflight discards an unread stream/);
   assert.match(tests, /webhook preflight discard leaves locked and consumed bodies untouched/);
+  assert.match(tests, /synchronous raw reader failures clean up abort listeners and cancel only once/);
+  assert.match(tests, /rejected raw reader cancellation cannot trigger a second abort cancellation/);
+  assert.match(tests, /late raw reader rejection after abort does not cancel the reader twice/);
+  assert.match(reader, /catch \(error\) \{\s*\/\/ A synchronous reader failure[\s\S]*?settle\(reject, error\)/);
 });
 
 test('service retains independent metadata and payload limits for direct callers', () => {
@@ -98,7 +102,7 @@ test('webhook ingress resource policy is documented as fail closed', () => {
   assert.match(document, /grows one retained body buffer geometrically/i);
   assert.match(document, /discard/i);
   assert.match(document, /4,096-character/);
-  assert.match(document, /timestamp and v1 framing/i);
+  assert.match(document, /timestamp\/v1 framing/i);
   assert.match(document, /10-second/);
   assert.match(document, /before body acquisition/);
   assert.match(document, /Request\.text\(\)/);

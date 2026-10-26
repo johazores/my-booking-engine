@@ -132,10 +132,16 @@ async function readRequestChunk(
       onTimeout();
       return;
     }
-    reader.read().then(
-      (result) => settle(resolve, result),
-      (error: unknown) => settle(reject, error),
-    );
+    try {
+      reader.read().then(
+        (result) => settle(resolve, result),
+        (error: unknown) => settle(reject, error),
+      );
+    } catch (error) {
+      // A synchronous reader failure must release abort listeners before
+      // the caller cancels the reader, just like an asynchronous rejection.
+      settle(reject, error);
+    }
   });
 }
 
