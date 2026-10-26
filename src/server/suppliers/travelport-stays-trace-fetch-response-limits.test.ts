@@ -529,3 +529,133 @@ test('a provider reader that cannot release after success is rejected as invalid
     assertInvalidResponse,
   );
 });
+
+test('Travelport snapshots response body, headers and status metadata once before replay', async () => {
+  const upstream = new Response('{}', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+  });
+  const snapshot = {
+    body: upstream.body,
+    headers: upstream.headers,
+    status: upstream.status,
+    statusText: upstream.statusText,
+  };
+  const reads = new Map<string, number>();
+  for (const [key, value] of Object.entries(snapshot)) {
+    Object.defineProperty(upstream, key, {
+      configurable: true,
+      get() {
+        const count = (reads.get(key) ?? 0) + 1;
+        reads.set(key, count);
+        if (count > 1) throw new Error('response metadata read more than once');
+        return value;
+      },
+    });
+  }
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{}');
+  assert.equal(response.headers.get('Content-Type'), 'application/json');
+  assert.equal(response.headers.get('Content-Length'), null);
+  for (const key of Object.keys(snapshot)) assert.equal(reads.get(key), 1, key);
+});
+
+test('Travelport replays the validated header snapshot when upstream headers mutate during reading', async () => {
+  const upstream = new Response('{}', {
+    headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+  });
+  const mutableHeaders = upstream.headers;
+  Object.defineProperty(upstream, 'body', {
+    value: {
+      getReader() {
+        let reads = 0;
+        return {
+          read() {
+            reads += 1;
+            if (reads === 1) {
+              mutableHeaders.set('Content-Type', 'text/plain');
+              mutableHeaders.set('Content-Length', '99999999');
+              return Promise.resolve({ done: false, value: new TextEncoder().encode('{}') });
+            }
+            return Promise.resolve({ done: true, value: undefined });
+          },
+          cancel() { return Promise.resolve(); },
+          releaseLock() {},
+        };
+      },
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{}');
+  assert.equal(response.headers.get('Content-Type'), 'application/json');
+  assert.equal(response.headers.get('Content-Length'), null);
+});
+
+test('Travelport rejects throwing response metadata and cancels available bodies', async () => {
+  for (const field of ['body', 'headers', 'status', 'statusText'] as const) {
+    let cancelled = 0;
+    const upstream = new Response(new ReadableStream<Uint8Array>({
+      cancel() { cancelled += 1; },
+    }));
+    Object.defineProperty(upstream, field, {
+      get() { throw new Error('private response metadata failure'); },
+    });
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => upstream) as typeof fetch,
+    });
+    await assert.rejects(
+      traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+    );
+    assert.equal(cancelled, field === 'body' ? 0 : 1, field);
+  }
+});
+
+test('Travelport preserves caller abort when reader release itself aborts and fails', async () => {
+  const controller = new AbortController();
+  let cancelled = 0;
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'body', {
+    value: {
+      getReader() {
+        return {
+          read() { return Promise.resolve({ done: true, value: undefined }); },
+          cancel() { cancelled += 1; return Promise.resolve(); },
+          releaseLock() { controller.abort(); throw new Error('private release failure'); },
+        };
+      },
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(), signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+  assert.equal(cancelled, 1);
+});
+
+test('Travelport normalizes response replay construction failures', async () => {
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'status', { value: 0 });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    assertInvalidResponse,
+  );
+});
