@@ -1,4 +1,5 @@
 import { HospitalitySupplierProviderError } from './hospitality-supplier-provider.ts';
+import { awaitTravelportStaysOperation, isTravelportStaysSignalAborted, travelportStaysResponseAbortError } from './travelport-stays-response-deadline.ts';
 import { assertTravelportStaysAbortSignalReady } from './travelport-stays-abort-signal-authority.ts';
 import { materializeTravelportStaysTransportConstructorAuthority } from './travelport-stays-transport-constructor-authority.ts';
 import { materializeTravelportStaysOAuthRequestBody } from './travelport-stays-oauth-request-body.ts';
@@ -448,7 +449,7 @@ function assertSupportedTravelportStaysRequest(url: URL, method: string) {
 function declaredTravelportResponseBytes(response: Response): number | null {
   const contentLength = response.headers.get('Content-Length');
   if (contentLength === null) return null;
-  if (!/^\d+$/.test(contentLength)) {
+  if (!/^(?:0|[1-9]\d*)$/.test(contentLength) || contentLength.length > 16) {
     throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response content length is invalid.');
   }
   const value = Number(contentLength);
@@ -488,30 +489,54 @@ function replayTravelportResponse(response: Response, blocks: readonly Uint8Arra
   });
 }
 
-async function bufferTravelportResponse(response: Response, maxBytes: number): Promise<Response> {
+async function bufferTravelportResponse(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal | null | undefined,
+): Promise<Response> {
+  // A caller deadline also applies after Fetch resolves, including bodyless
+  // responses and responses with malformed framing metadata.
+  if (signal && isTravelportStaysSignalAborted(signal)) {
+    cancelResponseBody(response.body);
+    throw travelportStaysResponseAbortError();
+  }
   let declaredBytes: number | null;
   try {
     declaredBytes = declaredTravelportResponseBytes(response);
   } catch (error) {
     cancelResponseBody(response.body);
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
     throw error;
   }
   if (declaredBytes !== null && declaredBytes > maxBytes) {
     cancelResponseBody(response.body);
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
     throw oversizedTravelportResponseError();
   }
-  if (response.body === null) return response;
+  if (response.body === null) {
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
+    return response;
+  }
 
-  const reader = response.body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = response.body.getReader();
+  } catch {
+    cancelResponseBody(response.body);
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
+    throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream cannot be read.');
+  }
   const blocks: Uint8Array[] = [];
   let currentBlock: Uint8Array | null = null;
   let currentBlockLength = 0;
   let receivedBytes = 0;
   let receivedChunks = 0;
+  let failed = false;
   try {
     while (true) {
-      const result = await reader.read();
-      // Snapshot untrusted read-result accessors once before processing.
+      // Do not rely on a custom Fetch/stream honoring AbortSignal. The
+      // outer provider timer must also stop a permanently pending read.
+      const result = await awaitTravelportStaysOperation(() => reader.read(), signal);
       let done: unknown;
       let value: unknown;
       try {
@@ -529,13 +554,8 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
         throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream exceeded the supported chunk count.');
       }
       if (!(value instanceof Uint8Array)) {
-        throw new HospitalitySupplierProviderError(
-          'INVALID_RESPONSE',
-          'Travelport response stream chunk is invalid.',
-        );
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream chunk is invalid.');
       }
-      // Never trust shadowed typed-array properties or methods for provider
-      // size accounting or replay copying.
       let chunkBytes: number;
       try {
         chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
@@ -570,23 +590,32 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
         sourceOffset += copyLength;
       }
     }
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
   } catch (error) {
-    // A rejected read, malformed chunk, or exceeded byte ceiling must not
-    // leave an unread provider stream active. Never replace the original error
-    // (including caller-owned abort/timeout evidence) with a cancel failure.
+    failed = true;
+    // Cancellation is best-effort. Neither a rejected cancel nor a failed
+    // release may replace the original provider failure or local timeout.
     try {
       void reader.cancel().catch(() => undefined);
     } catch {
-      // Best-effort cancellation; the original response failure is authoritative.
+      // Preserve the original error.
     }
+    if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
     throw error;
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      if (!failed) {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream release failed.');
+      }
+    }
   }
 
   if (currentBlock !== null && currentBlockLength > 0) {
     blocks.push(currentBlockLength === currentBlock.byteLength ? currentBlock : currentBlock.subarray(0, currentBlockLength));
   }
+  if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
   return replayTravelportResponse(response, blocks);
 }
 
@@ -641,8 +670,12 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       const oauthBody = assertTravelportOAuthRequestBody(body, headers, authority.credentials);
       headers.delete('TraceId');
       headers.delete('TVP-Trace-Id');
-      const response = await fetchImpl(url.href, travelportRequestInit(method, oauthBody, signal, headers));
-      return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES);
+      const response = await awaitTravelportStaysOperation(
+        () => fetchImpl(url.href, travelportRequestInit(method, oauthBody, signal, headers)),
+        signal,
+        (lateResponse) => { if (lateResponse instanceof Response) cancelResponseBody(lateResponse.body); },
+      );
+      return bufferTravelportResponse(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES, signal);
     }
 
     if (url.hostname !== targets.staysHost) {
@@ -669,7 +702,11 @@ export function createTravelportStaysTraceFetch(input: Readonly<{
       headers.delete('TraceId');
     }
 
-    const response = await fetchImpl(url.href, travelportRequestInit(method, body, signal, headers));
-    return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES);
+    const response = await awaitTravelportStaysOperation(
+      () => fetchImpl(url.href, travelportRequestInit(method, body, signal, headers)),
+      signal,
+      (lateResponse) => { if (lateResponse instanceof Response) cancelResponseBody(lateResponse.body); },
+    );
+    return bufferTravelportResponse(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES, signal);
   }) as typeof fetch;
 }

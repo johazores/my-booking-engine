@@ -369,3 +369,163 @@ test('Travelport reads one-shot provider result properties once and ignores comp
   assert.equal(valueReads, 1);
   assert.equal(readCount, 2);
 });
+
+
+function assertTravelportAborted(error: unknown) {
+  assert.ok(error instanceof Error);
+  assert.equal(error.name, 'AbortError');
+  return true;
+}
+
+test('OAuth and Stays abort stalled injected Fetch without accepting late responses', { timeout: 2_000 }, async () => {
+  for (const oauth of [true, false]) {
+    const controller = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    let resolveFetch!: (response: Response) => void;
+    const fetchImpl = (async () => {
+      started();
+      return new Promise<Response>((resolve) => { resolveFetch = resolve; });
+    }) as typeof fetch;
+    const traced = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+    const pending = traced(
+      oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+      { ...(oauth ? oauthPostInit() : staysPostInit()), signal: controller.signal },
+    );
+    await startedPromise;
+    controller.abort();
+    await assert.rejects(pending, assertTravelportAborted);
+
+    let cancelled = 0;
+    resolveFetch(new Response(new ReadableStream<Uint8Array>({
+      cancel() { cancelled += 1; },
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(cancelled, 1, 'late response body must be cancelled without blocking abort');
+  }
+});
+
+test('OAuth and Stays abort stalled provider body reads and release readers', { timeout: 2_000 }, async () => {
+  for (const oauth of [true, false]) {
+    const controller = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    let cancelled = 0;
+    let released = 0;
+    const response = new Response('{}');
+    Object.defineProperty(response, 'body', {
+      value: {
+        getReader() {
+          return {
+            read() { started(); return new Promise(() => undefined); },
+            cancel() { cancelled += 1; return Promise.resolve(); },
+            releaseLock() { released += 1; },
+          };
+        },
+      },
+    });
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => response) as typeof fetch,
+    });
+    const pending = traced(
+      oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+      { ...(oauth ? oauthPostInit() : staysPostInit()), signal: controller.signal },
+    );
+    await startedPromise;
+    controller.abort();
+    await assert.rejects(pending, assertTravelportAborted);
+    assert.equal(cancelled, 1);
+    assert.equal(released, 1);
+  }
+});
+
+test('abort wins over completed stream result and a failing reader release', async () => {
+  const controller = new AbortController();
+  let cancelled = 0;
+  const response = new Response('{}');
+  Object.defineProperty(response, 'body', {
+    value: {
+      getReader() {
+        return {
+          read() {
+            controller.abort();
+            return Promise.resolve({ done: true, value: undefined });
+          },
+          cancel() { cancelled += 1; return Promise.resolve(); },
+          releaseLock() { throw new Error('private reader release failure'); },
+        };
+      },
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => response) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(), signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+  assert.equal(cancelled, 1);
+});
+
+test('noncanonical and excessive declared Travelport response lengths are rejected and cancelled', async () => {
+  for (const contentLength of ['0002', '999999999999999999999999999']) {
+    let cancelled = 0;
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({
+        cancel() { cancelled += 1; },
+      }), { headers: { 'Content-Length': contentLength } })) as typeof fetch,
+    });
+    await assert.rejects(
+      traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+    );
+    assert.equal(cancelled, 1);
+  }
+});
+
+test('locked Travelport provider body cannot bypass reader acquisition failure classification', async () => {
+  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([123, 125])); } });
+  const response = new Response(stream);
+  const heldReader = stream.getReader();
+  try {
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => response) as typeof fetch,
+    });
+    await assert.rejects(
+      traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+    );
+  } finally {
+    heldReader.releaseLock();
+    await stream.cancel().catch(() => undefined);
+  }
+});
+
+test('a provider reader that cannot release after success is rejected as invalid evidence', async () => {
+  const response = new Response('{}');
+  Object.defineProperty(response, 'body', {
+    value: {
+      getReader() {
+        return {
+          read() { return Promise.resolve({ done: true, value: undefined }); },
+          cancel() { return Promise.resolve(); },
+          releaseLock() { throw new Error('private release failure'); },
+        };
+      },
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => response) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    assertInvalidResponse,
+  );
+});

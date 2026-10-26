@@ -140,12 +140,12 @@ test('trace transport keeps provider request deadlines active while bounding rep
   assert.match(trace, /MAX_TRAVELPORT_RESPONSE_CHUNKS = 32 \* 1024/);
   assert.match(trace, /receivedChunks > MAX_TRAVELPORT_RESPONSE_CHUNKS/);
   assert.match(trace, /TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 \* 1024/);
-  assert.match(trace, /async function bufferTravelportResponse\(response: Response, maxBytes: number\)/);
+  assert.match(trace, /async function bufferTravelportResponse\(/);
   assert.match(trace, /declaredTravelportResponseBytes\(response\)/);
   assert.match(trace, /response\.headers\.get\('Content-Length'\)/);
   assert.match(trace, /Number\.isSafeInteger\(value\)/);
-  assert.match(trace, /if \(response\.body === null\) return response/);
-  assert.match(trace, /const reader = response\.body\.getReader\(\)/);
+  assert.match(trace, /if \(response\.body === null\) \{/);
+  assert.match(trace, /reader = response\.body\.getReader\(\)/);
   assert.match(trace, /const blocks: Uint8Array\[\] = \[\]/);
   assert.match(trace, /currentBlock = new Uint8Array\(Math\.min\(TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES, maxBytes\)\)/);
   assert.match(trace, /Uint8Array\.prototype\.subarray\.call\(value, sourceOffset, sourceOffset \+ copyLength\)/);
@@ -160,6 +160,9 @@ test('trace transport keeps provider request deadlines active while bounding rep
   assert.match(trace, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(trace, /reader\.cancel\(\)\.catch/);
   assert.match(trace, /reader\.releaseLock\(\)/);
+  assert.match(trace, /awaitTravelportStaysOperation\(\(\) => reader\.read\(\), signal\)/);
+  assert.match(trace, /isTravelportStaysSignalAborted\(signal\)/);
+  assert.match(trace, /travelportStaysResponseAbortError\(\)/);
   assert.match(trace, /function replayTravelportResponse\(response: Response, blocks: readonly Uint8Array\[\]\)/);
   assert.match(trace, /headers\.delete\('Content-Length'\)/);
   assert.match(trace, /headers\.delete\('Content-Encoding'\)/);
@@ -167,8 +170,8 @@ test('trace transport keeps provider request deadlines active while bounding rep
   assert.match(trace, /return new Response\(body/);
   assert.match(trace, /status: response\.status/);
   assert.match(trace, /statusText: response\.statusText/);
-  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES\)/);
-  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES\)/);
+  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES, signal\)/);
+  assert.match(trace, /bufferTravelportResponse\(response, MAX_TRAVELPORT_STAYS_RESPONSE_BYTES, signal\)/);
   assert.doesNotMatch(trace, /chunks\.push\(value\)/);
   assert.doesNotMatch(trace, /response\.clone\(\)/);
   assert.doesNotMatch(trace, /response\.arrayBuffer\(\)/);
