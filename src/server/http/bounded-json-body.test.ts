@@ -185,3 +185,32 @@ test('bounded JSON reader rejects deadline extensions', async () => {
   assert.equal(await readBoundedJsonObject(jsonRequest('{}'), 1024, { timeoutMs: 10_001 }), null);
   assert.equal(await readBoundedJsonObject(jsonRequest('{}'), 1024, { timeoutMs: 0 }), null);
 });
+
+
+test('bounded JSON preflight discards rejected unread framing without waiting for cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'content-length': '999999' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedJsonObject(request, 1024)), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded JSON preflight discards unsupported media types before reading', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'text/plain' }, body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedJsonObject(request, 1024), null);
+  assert.equal(cancelled, true);
+});

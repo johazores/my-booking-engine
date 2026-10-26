@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 test('shared request-body deadline cannot be extended', () => {
   assert.equal(resolveRequestBodyTimeoutMs(), 10_000);
@@ -70,4 +70,31 @@ test('shared request-body reader fails closed on stream errors', async () => {
   const signal = new AbortController().signal;
   assert.equal(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), null);
   reader.releaseLock();
+});
+
+
+test('discarding unread request bodies is nonblocking even when cancellation never settles', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request('https://sf.example.test/rejected', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  discardUnreadRequestBody(request);
+  assert.equal(cancelled, true);
+});
+
+test('discarding an already locked or consumed request does not steal another reader', async () => {
+  const locked = new Request('https://sf.example.test/rejected', { method: 'POST', body: 'locked' });
+  const reader = locked.body!.getReader();
+  discardUnreadRequestBody(locked);
+  assert.equal(locked.body!.locked, true);
+  reader.releaseLock();
+
+  const consumed = new Request('https://sf.example.test/rejected', { method: 'POST', body: 'used' });
+  await consumed.text();
+  discardUnreadRequestBody(consumed);
+  assert.equal(consumed.bodyUsed, true);
 });

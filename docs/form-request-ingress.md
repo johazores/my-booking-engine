@@ -23,3 +23,7 @@ The shared form reader also caps the number of stream chunks independently of by
 ## Whole-body deadline and caller abort
 
 Browser form ingress now enforces the same 10-second total stream-acquisition deadline as the shared JSON reader. It also rejects client-aborted reads promptly even when an upstream stream ignores cancellation. Cancellation remains best-effort/nonblocking. A test-only override may shorten but cannot extend the production ceiling. Existing same-origin, authentication, tenant, text-only, byte/chunk, and validation contracts remain unchanged. Regression tests cover stalled reads, client aborts, and invalid deadline overrides.
+
+## Rejected unread request cleanup
+
+Form transport preflight now discards unread request streams best-effort on unsupported media types, invalid size/deadline policies, malformed or oversized declared lengths, and already-aborted submissions. The rejection does not wait for upstream cancellation, and locked or previously consumed bodies are not stolen from another reader. The existing origin, tenant, permission, streamed-size, text-only, and form-field validation requirements remain unchanged.

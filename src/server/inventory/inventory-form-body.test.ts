@@ -267,3 +267,32 @@ test('bounded form ingress rejects deadline extensions', async () => {
   assert.equal(await readBoundedFormData(formRequest('name=ok'), 1024, { timeoutMs: 10_001 }), null);
   assert.equal(await readBoundedFormData(formRequest('name=ok'), 1024, { timeoutMs: 0 }), null);
 });
+
+
+test('bounded form preflight discards invalid framing without waiting for cancellation', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; return new Promise<void>(() => undefined); },
+  });
+  const request = new Request(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': '999999' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await settlesPromptly(readBoundedInventoryFormData(request)), null);
+  assert.equal(cancelled, true);
+});
+
+test('bounded form preflight discards unsupported media types before reading', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { return new Promise<void>(() => undefined); },
+    cancel() { cancelled = true; },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedInventoryFormData(request), null);
+  assert.equal(cancelled, true);
+});

@@ -6,6 +6,17 @@ export function resolveRequestBodyTimeoutMs(timeoutMs?: number): number | null {
   return Number.isInteger(value) && value > 0 && value <= REQUEST_BODY_READ_TIMEOUT_MS ? value : null;
 }
 
+/** Drop rejected unread bodies without waiting for a potentially stalled cancellation. */
+export function discardUnreadRequestBody(request: Request): void {
+  const body = request.body;
+  if (!body || body.locked || request.bodyUsed) return;
+  try {
+    void body.cancel().catch(() => undefined);
+  } catch {
+    // Concurrently closed or locked streams cannot delay preflight rejection.
+  }
+}
+
 /** A stalled read or cancellation must never keep a public mutation open. */
 export function readRequestBodyChunkBeforeDeadline(
   reader: ReadableStreamDefaultReader<Uint8Array>,

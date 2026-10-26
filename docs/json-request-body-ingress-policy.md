@@ -52,3 +52,7 @@ Both reader-lock failures and `Request.bodyUsed` are checked. The latter covers 
 ## Whole-body deadline and caller abort
 
 The shared JSON ingress reader now uses a 10-second wall-clock deadline for the entire stream acquisition, not a fresh timeout per chunk. A client disconnect/abort or stalled upstream read fails closed as invalid transport input. Cancellation is best-effort and is never awaited, so a hung stream cancellation cannot retain the mutation request. An internal test override may shorten, but cannot extend, the production deadline. This complements the existing byte and chunk limits and does not change authorization or domain error contracts. Regression tests cover stalled reads and caller aborts.
+
+## Rejected unread request cleanup
+
+The shared JSON reader now discards unread request streams best-effort when transport preflight rejects an invalid size policy, timeout override, media type, declared length, or aborted request. The cancellation is never awaited, including when an upstream cancellation promise never settles. Locked or already consumed bodies are not taken away from another reader. This closes the early-rejection resource gap without changing validation, authentication, tenant authorization, or successful JSON parsing. Stripe webhook preflight already has a separate raw-body discard boundary.

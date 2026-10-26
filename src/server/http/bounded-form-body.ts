@@ -1,4 +1,4 @@
-import { readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
+import { discardUnreadRequestBody, readRequestBodyChunkBeforeDeadline, resolveRequestBodyTimeoutMs } from './request-body-deadline.ts';
 
 /** Bounded text-only browser form reader for same-origin mutation endpoints. */
 export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
@@ -32,29 +32,33 @@ export async function readBoundedFormData(
   maxBytes = FORM_REQUEST_MAX_BYTES,
   options?: Readonly<{ timeoutMs?: number }>,
 ): Promise<FormData | null> {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return null;
+  const rejectPreflight = () => {
+    discardUnreadRequestBody(request);
+    return null;
+  };
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) return rejectPreflight();
   const timeoutMs = resolveRequestBodyTimeoutMs(options?.timeoutMs);
-  if (timeoutMs === null) return null;
+  if (timeoutMs === null) return rejectPreflight();
 
   const contentType = request.headers.get('content-type');
   const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
-  if (!contentType || !mediaType || !SUPPORTED_FORM_MEDIA_TYPES.has(mediaType)) return null;
+  if (!contentType || !mediaType || !SUPPORTED_FORM_MEDIA_TYPES.has(mediaType)) return rejectPreflight();
 
   const lengthHeader = request.headers.get('content-length');
   let declaredBytes: number | null = null;
   if (lengthHeader !== null) {
-    if (!/^[0-9]+$/.test(lengthHeader)) return null;
+    if (!/^[0-9]+$/.test(lengthHeader)) return rejectPreflight();
     declaredBytes = Number(lengthHeader);
-    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return null;
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) return rejectPreflight();
   }
 
-  if (!request.body || request.bodyUsed) return null;
+  if (!request.body || request.bodyUsed || request.signal.aborted) return rejectPreflight();
   let reader;
   try {
     reader = request.body.getReader();
   } catch {
     // A locked or already consumed body is invalid request input.
-    return null;
+    return rejectPreflight();
   }
   const deadline = new AbortController();
   const timeoutHandle = setTimeout(() => deadline.abort(), timeoutMs);
