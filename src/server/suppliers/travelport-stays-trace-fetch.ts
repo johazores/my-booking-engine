@@ -478,11 +478,15 @@ type TravelportResponseMetadata = Readonly<{
   statusText: string;
 }>;
 
-function replayTravelportResponse(metadata: TravelportResponseMetadata, blocks: readonly Uint8Array[]) {
+function replayTravelportResponse(
+  metadata: TravelportResponseMetadata,
+  blocks: readonly Uint8Array[],
+  bodyless = false,
+) {
   const headers = new Headers(metadata.headers);
   headers.delete('Content-Length');
   headers.delete('Content-Encoding');
-  const body = new ReadableStream<Uint8Array>({
+  const body = bodyless ? null : new ReadableStream<Uint8Array>({
     start(controller) {
       for (const block of blocks) controller.enqueue(block);
       controller.close();
@@ -539,8 +543,20 @@ async function bufferTravelportResponse(
     throw oversizedTravelportResponseError();
   }
   if (body === null) {
+    // A no-body response is still untrusted provider evidence. Returning the
+    // original Response would bypass the snapshotted metadata and wire-header
+    // cleanup used for streamed responses. HTTP 304 alone may advertise the
+    // length of a selected representation without carrying that body.
     if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
-    return response;
+    if (declaredBytes !== null && declaredBytes > 0 && metadata.status !== 304) {
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response declares a missing body.');
+    }
+    try {
+      return replayTravelportResponse(metadata, [], true);
+    } catch {
+      if (signal && isTravelportStaysSignalAborted(signal)) throw travelportStaysResponseAbortError();
+      throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response replay failed.');
+    }
   }
 
   let reader: ReadableStreamDefaultReader<Uint8Array>;

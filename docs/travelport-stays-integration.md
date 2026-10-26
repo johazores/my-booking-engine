@@ -131,3 +131,9 @@ OAuth responses use the request-start clock to conservatively calculate provider
 ### Out-of-order provider authentication rejection
 
 A late 401/403 from a Stays request using an older bearer must not evict a newer OAuth token that another concurrent request has already refreshed under the same tenant integration/credential-version key. All six adapters now conditionally invalidate only the exact bearer sent by the rejected request. Rejection of the current bearer still evicts it, allowing a later deduplicated refresh. The behavior is covered by shared-cache tests and overlapping SearchComplete/Retrieve regression cases. It does not retry supplier writes, weaken tenant authorization, or activate reservation capability; live provider verification is still required.
+
+## Bodyless provider-response integrity
+
+The shared Travelport transport applies the same metadata snapshot and replay boundary to OAuth and Stays responses that have no readable body. It never returns an upstream bodyless `Response` object directly: response status, status text, and headers are captured once, and the replay drops stale wire `Content-Length` and `Content-Encoding` headers. A bodyless response claiming a positive `Content-Length` is invalid provider evidence, except HTTP 304 where that header can describe the selected representation rather than a transmitted body. HTTP 304 still has no replayed body and is not treated as a successful supplier result.
+
+A malformed replay is classified as a non-retryable `INVALID_RESPONSE`; caller cancellation remains authoritative. Regression tests cover OAuth and Stays, one-read metadata, mutation after snapshot, absent payloads, HTTP 304, malformed status, and abort during snapshot. These are transport integrity checks, not live-provider certification or a change to the disabled reservation capability.

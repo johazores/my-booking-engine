@@ -659,3 +659,114 @@ test('Travelport normalizes response replay construction failures', async () => 
     assertInvalidResponse,
   );
 });
+
+test('Travelport snapshots and sanitizes bodyless OAuth and Stays responses', async () => {
+  for (const oauth of [true, false]) {
+    const upstream = new Response(null, {
+      status: 204,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Encoding': 'gzip',
+        'Content-Length': '0',
+        'X-Provider-Test': 'original',
+      },
+    });
+    const snapshot = {
+      body: upstream.body,
+      headers: upstream.headers,
+      status: upstream.status,
+      statusText: upstream.statusText,
+    };
+    const reads = new Map<string, number>();
+    for (const [field, value] of Object.entries(snapshot)) {
+      Object.defineProperty(upstream, field, {
+        configurable: true,
+        get() {
+          const count = (reads.get(field) ?? 0) + 1;
+          reads.set(field, count);
+          if (count > 1) throw new Error('bodyless provider metadata read twice');
+          if (field === 'statusText') snapshot.headers.set('X-Provider-Test', 'mutated');
+          return value;
+        },
+      });
+    }
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => upstream) as typeof fetch,
+    });
+    const response = await traced(
+      oauth ? 'https://auth.travelport.net/oauth/token' : 'https://api.travelport.net/12/hotel/search/searchcomplete',
+      oauth ? oauthPostInit() : staysPostInit(),
+    );
+    assert.notEqual(response, upstream);
+    assert.equal(response.status, 204);
+    assert.equal(response.body, null);
+    assert.equal(await response.text(), '');
+    assert.equal(response.headers.get('Content-Encoding'), null);
+    assert.equal(response.headers.get('Content-Length'), null);
+    assert.equal(response.headers.get('Content-Type'), 'application/json');
+    assert.equal(response.headers.get('X-Provider-Test'), 'original');
+    for (const field of Object.keys(snapshot)) assert.equal(reads.get(field), 1, field);
+  }
+});
+
+test('Travelport rejects bodyless responses declaring missing payload bytes', async () => {
+  for (const status of [200, 204, 429]) {
+    const traced = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => new Response(null, {
+        status,
+        headers: { 'Content-Length': '2' },
+      })) as typeof fetch,
+    });
+    await assert.rejects(
+      traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      assertInvalidResponse,
+    );
+  }
+});
+
+test('Travelport preserves valid HTTP 304 representation length without inventing a body', async () => {
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => new Response(null, {
+      status: 304,
+      headers: { 'Content-Length': '12', 'Content-Encoding': 'gzip', 'X-Provider-Test': 'present' },
+    })) as typeof fetch,
+  });
+  const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(response.status, 304);
+  assert.equal(response.body, null);
+  assert.equal(response.headers.get('Content-Length'), null);
+  assert.equal(response.headers.get('Content-Encoding'), null);
+  assert.equal(response.headers.get('X-Provider-Test'), 'present');
+});
+
+test('Travelport normalizes invalid bodyless response metadata and preserves caller abort', async () => {
+  const malformed = new Response(null, { status: 200 });
+  Object.defineProperty(malformed, 'status', { value: 0 });
+  const invalid = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => malformed) as typeof fetch,
+  });
+  await assert.rejects(
+    invalid('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    assertInvalidResponse,
+  );
+
+  const controller = new AbortController();
+  const upstream = new Response(null, { status: 204 });
+  Object.defineProperty(upstream, 'statusText', {
+    get() { controller.abort(); return ''; },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(), signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+});
