@@ -210,3 +210,26 @@ test('bounded form ingress rejects native over-limit bytes hidden by a shadowed 
   } as RequestInit & { duplex: 'half' });
   assert.equal(await readBoundedInventoryFormData(request, 4), null);
 });
+
+test('bounded form ingress preserves bytes from a reused upstream chunk buffer', async () => {
+  let step = 0;
+  const reused = new Uint8Array(5);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (step === 0) {
+        reused.set(encoder.encode('name='));
+        controller.enqueue(reused);
+      } else if (step === 1) {
+        reused.set(encoder.encode('Kayak'));
+        controller.enqueue(reused);
+      } else controller.close();
+      step += 1;
+    },
+  }, { highWaterMark: 0 });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal((await readBoundedInventoryFormData(request))?.get('name'), 'Kayak');
+});

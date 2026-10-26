@@ -50,5 +50,6 @@ test('bounded browser form ingress caps streamed chunk count independently of by
   assert.match(tests, /rejects endless zero-byte chunks/);
   assert.match(tests, /rejects excessive tiny chunks/);
   assert.match(tests, /never awaits stalled cancellation/);
+  assert.match(tests, /preserves bytes from a reused upstream chunk buffer/);
   assert.doesNotMatch(body, /await reader\.cancel\(/);
 });
