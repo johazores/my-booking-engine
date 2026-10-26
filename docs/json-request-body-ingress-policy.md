@@ -56,3 +56,7 @@ The shared JSON ingress reader now uses a 10-second wall-clock deadline for the 
 ## Rejected unread request cleanup
 
 The shared JSON reader now discards unread request streams best-effort when transport preflight rejects an invalid size policy, timeout override, media type, declared length, or aborted request. The cancellation is never awaited, including when an upstream cancellation promise never settles. Locked or already consumed bodies are not taken away from another reader. This closes the early-rejection resource gap without changing validation, authentication, tenant authorization, or successful JSON parsing. Stripe webhook preflight already has a separate raw-body discard boundary.
+
+## Failed-read cleanup
+
+The shared deadline reader now best-effort cancels its acquired stream reader when `read()` rejects or throws synchronously, not only when a timeout, client abort, or byte/chunk validation failure occurs. It settles the invalid-input result and removes abort listeners before cancellation, preventing a late read rejection or cancellation-triggered abort from causing repeated cancellation. A stalled, throwing, or rejected cancellation cannot delay the response or expose upstream errors. The JSON reader retains its existing `null` error contract; this change does not grant any booking or tenant authority.

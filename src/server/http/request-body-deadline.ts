@@ -50,10 +50,13 @@ export function readRequestBodyChunkBeforeDeadline(
       cleanup();
       resolve(result);
     };
-    const onAbort = () => {
-      cancel();
+    const fail = () => {
+      if (settled) return;
+      // Settle and remove listeners before cancellation, which may itself abort.
       finish(null);
+      cancel();
     };
+    const onAbort = fail;
     requestSignal.addEventListener('abort', onAbort, { once: true });
     deadlineSignal.addEventListener('abort', onAbort, { once: true });
     if (requestSignal.aborted || deadlineSignal.aborted) {
@@ -61,9 +64,9 @@ export function readRequestBodyChunkBeforeDeadline(
       return;
     }
     try {
-      reader.read().then(finish, () => finish(null));
+      reader.read().then(finish, fail);
     } catch {
-      finish(null);
+      fail();
     }
   });
 }

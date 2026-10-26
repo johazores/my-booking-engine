@@ -106,3 +106,67 @@ test('discarding an already locked or consumed request does not steal another re
   discardUnreadRequestBody(consumed);
   assert.equal(consumed.bodyUsed, true);
 });
+
+test('shared request-body reader cancels rejected reads without waiting for stalled cancellation', async () => {
+  let cancelled = 0;
+  const reader = {
+    read() { return Promise.reject(new Error('private upstream read failure')); },
+    cancel() { cancelled++; return new Promise<void>(() => undefined); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const client = new AbortController();
+  const deadline = new AbortController();
+  assert.equal(await readRequestBodyChunkBeforeDeadline(reader, client.signal, deadline.signal), null);
+  assert.equal(cancelled, 1);
+  client.abort();
+  deadline.abort();
+  assert.equal(cancelled, 1, 'abort listeners must be removed after read failure');
+});
+
+test('shared request-body reader cancels synchronous read failures despite throwing cancellation', async () => {
+  let cancelled = 0;
+  const reader = {
+    read(): Promise<ReadableStreamReadResult<Uint8Array>> { throw new Error('private synchronous read failure'); },
+    cancel() { cancelled++; throw new Error('private cancellation failure'); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const signal = new AbortController().signal;
+  assert.equal(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), null);
+  assert.equal(cancelled, 1);
+});
+
+test('shared request-body reader ignores rejected cancellation after a rejected read', async () => {
+  let cancelled = 0;
+  const reader = {
+    read() { return Promise.reject(new Error('private read failure')); },
+    cancel() { cancelled++; return Promise.reject(new Error('private cancellation failure')); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const signal = new AbortController().signal;
+  assert.equal(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), null);
+  assert.equal(cancelled, 1);
+});
+
+test('late read rejection after client abort does not cancel a shared reader twice', async () => {
+  const pending: { reject?: (reason?: unknown) => void } = {};
+  let cancelled = 0;
+  const reader = {
+    read() { return new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => { pending.reject = reject; }); },
+    cancel() { cancelled++; return Promise.resolve(); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const controller = new AbortController();
+  const operation = readRequestBodyChunkBeforeDeadline(reader, controller.signal, new AbortController().signal);
+  controller.abort();
+  assert.equal(await operation, null);
+  pending.reject?.(new Error('late upstream read failure'));
+  await Promise.resolve();
+  assert.equal(cancelled, 1);
+});
+
+test('read failure cleanup precedes cancellation that itself aborts the client signal', async () => {
+  const controller = new AbortController();
+  let cancelled = 0;
+  const reader = {
+    read() { return Promise.reject(new Error('private read failure')); },
+    cancel() { cancelled++; controller.abort(); return Promise.resolve(); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  assert.equal(await readRequestBodyChunkBeforeDeadline(reader, controller.signal, new AbortController().signal), null);
+  assert.equal(cancelled, 1);
+});
