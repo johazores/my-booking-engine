@@ -106,3 +106,42 @@ test('Stripe HTTP lookup classification keeps 404 and timeout semantics separate
     if (item.status === 404) assert.equal(error.message, 'Not found');
   }
 });
+
+test('Stripe write status outranks contradictory decline hints and preserves actionable failures', () => {
+  const cases = [
+    { status: 400, error: { type: 'card_error', code: 'card_declined' }, code: 'INVALID_REQUEST', retryable: false },
+    { status: 404, error: { type: 'card_error', decline_code: 'generic_decline' }, code: 'INVALID_REQUEST', retryable: false },
+    { status: 400, error: { type: 'api_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 422, error: { type: 'api_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'api_error', code: 'card_declined' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'invalid_request_error', decline_code: 'generic_decline' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { code: 'card_declined' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { decline_code: 'generic_decline' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { type: 'card_error', code: 'card_declined' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { type: 'card_error', code: 'authentication_required' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'card_error', code: 'payment_intent_action_required' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'card_error', code: 'processing_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 400, error: { type: 'idempotency_error' }, code: 'DUPLICATE', retryable: false },
+    { status: 409, error: { type: 'idempotency_error' }, code: 'DUPLICATE', retryable: false },
+    { status: 409, error: { type: 'card_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 424, error: { type: 'card_error' }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
+  ] as const;
+  for (const item of cases) {
+    const result = classifyStripePaymentHttpError(item.status, { error: item.error }, 'Fallback');
+    assert.equal(result.code, item.code, `HTTP ${item.status}: ${JSON.stringify(item.error)}`);
+    assert.equal(result.retryable, item.retryable, `HTTP ${item.status}: ${JSON.stringify(item.error)}`);
+  }
+});
+
+test('Stripe read-only lookup preserves provider-side api_error without changing missing-resource authority', () => {
+  for (const item of [
+    { status: 400, type: 'api_error', code: 'UNKNOWN', retryable: true },
+    { status: 422, type: 'api_error', code: 'UNKNOWN', retryable: true },
+    { status: 404, type: 'api_error', code: 'INVALID_REQUEST', retryable: false },
+    { status: 400, type: 'invalid_request_error', code: 'INVALID_REQUEST', retryable: false },
+  ] as const) {
+    const result = classifyStripeLookupHttpError(item.status, { error: { type: item.type } }, 'Fallback', 'Not found');
+    assert.equal(result.code, item.code);
+    assert.equal(result.retryable, item.retryable);
+  }
+});

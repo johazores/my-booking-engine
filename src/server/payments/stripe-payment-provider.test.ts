@@ -80,6 +80,10 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
     { status: 424, body: { error: { type: 'card_error', message: 'Upstream dependency unavailable' } }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 402, body: { error: { message: 'Unclassified payment failure' } }, code: 'UNKNOWN', retryable: true },
     { status: 400, body: { error: { type: 'idempotency_error', message: 'Key reused' } }, code: 'DUPLICATE', retryable: false },
+    { status: 400, body: { error: { type: 'card_error', code: 'card_declined' } }, code: 'INVALID_REQUEST', retryable: false },
+    { status: 404, body: { error: { type: 'card_error' } }, code: 'INVALID_REQUEST', retryable: false },
+    { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN', retryable: true },
+    { status: 402, body: { error: { type: 'card_error', code: 'authentication_required' } }, code: 'UNKNOWN', retryable: true },
   ] as const;
   for (const item of cases) {
     const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl: async () => new Response(JSON.stringify(item.body), { status: item.status }) });
@@ -95,6 +99,7 @@ test('Stripe capture, release, and refund writes preserve ambiguous provider con
   for (const item of [
     { status: 409, code: 'UNKNOWN', body: { error: { code: 'idempotency_key_in_use' } } },
     { status: 424, code: 'PROVIDER_UNAVAILABLE', body: { error: { type: 'card_error' } } },
+    { status: 400, code: 'UNKNOWN', body: { error: { type: 'api_error' } } },
   ] as const) {
     const provider = new StripePaymentProvider({
       secretKey: 'sk_test_not-a-real-secret',

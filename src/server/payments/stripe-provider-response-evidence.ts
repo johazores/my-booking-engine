@@ -74,12 +74,33 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
     }
     return new PaymentProviderError('UNKNOWN', message, true);
   }
-  // An unclassified 402 is not proof of a card decline or a safe failed write.
-  if (status === 402 && error.type !== 'card_error' && error.code !== 'card_declined' && !error.declineCode) {
+  // A 404 or invalid 400 request cannot become a card decline solely from
+  // contradictory error-body hints. Only explicit key reuse is definitive.
+  if (status === 404) return new PaymentProviderError('INVALID_REQUEST', message);
+  if (status === 400) {
+    if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+    if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);
+    return new PaymentProviderError('INVALID_REQUEST', message);
+  }
+  // Stripe can return card errors that require customer action rather than
+  // prove a terminal decline. Preserve the durable claim for reconciliation.
+  if (status === 402) {
+    if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+    if (error.type === 'card_error') {
+      if (error.code === 'authentication_required' || error.code === 'payment_intent_action_required' || error.code === 'processing_error') {
+        return new PaymentProviderError('UNKNOWN', message, true);
+      }
+      return new PaymentProviderError('DECLINED', message);
+    }
+    if (error.type === null && (error.code === 'card_declined' || Boolean(error.declineCode))) {
+      return new PaymentProviderError('DECLINED', message);
+    }
     return new PaymentProviderError('UNKNOWN', message, true);
   }
+  // Stripe api_error is a provider-side failure, including atypical 4xx
+  // responses. It cannot establish a definitive failed money movement.
+  if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);
   if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
-  if (error.type === 'card_error' || error.code === 'card_declined' || error.declineCode) return new PaymentProviderError('DECLINED', message);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
 }
@@ -88,13 +109,15 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
 export function classifyStripeLookupHttpError(
   status: number, payload: unknown, fallback: string, notFoundMessage: string,
 ): PaymentProviderError {
-  const message = readStripeProviderError(payload, fallback).message;
+  const error = readStripeProviderError(payload, fallback);
+  const message = error.message;
   if (status === 401 || status === 403) return new PaymentProviderError('AUTHENTICATION_FAILED', message);
   if (status === 408) return new PaymentProviderError('TIMEOUT', message, true);
   if (status === 429) return new PaymentProviderError('RATE_LIMITED', message, true);
   if (status === 424 || status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
   if (status === 409 || status === 402) return new PaymentProviderError('UNKNOWN', message, true);
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', notFoundMessage);
+  if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);
   if (status >= 400) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
 }

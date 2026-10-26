@@ -83,3 +83,16 @@ test('hospitality booking shared responses disable caching before and after tena
   assert.match(source, /headers:\s*\{ 'content-type': 'application\/json; charset=utf-8', \.\.\.HOSPITALITY_BOOKING_NO_STORE_HEADERS \}/);
   assert.match(source, /Response\.json\(body, \{ status, headers: HOSPITALITY_BOOKING_NO_STORE_HEADERS \}\)/);
 });
+
+test('Stripe payment error status and actionable-failure contract remains explicit', async () => {
+  const [source, documentation] = await Promise.all([
+    read('src/server/payments/stripe-provider-response-evidence.ts'),
+    read(DOCUMENTATION),
+  ]);
+  for (const status of [400, 402, 404]) assert.ok(source.includes(`if (status === ${status})`));
+  assert.match(source, /error\.type === 'api_error'/);
+  assert.match(source, /error\.code === 'authentication_required'/);
+  assert.match(source, /error\.code === 'payment_intent_action_required'/);
+  assert.match(source, /error\.code === 'processing_error'/);
+  assert.match(documentation, /Stripe HTTP error authority and actionable card failures/);
+});

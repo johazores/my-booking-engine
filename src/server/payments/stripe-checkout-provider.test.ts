@@ -304,6 +304,8 @@ test('Checkout creation preserves ambiguous Stripe conflicts and external-depend
     { status: 409, body: { error: { code: 'idempotency_key_in_use' } }, code: 'UNKNOWN' },
     { status: 424, body: { error: { type: 'card_error' } }, code: 'PROVIDER_UNAVAILABLE' },
     { status: 402, body: { error: { message: 'Unclassified failure' } }, code: 'UNKNOWN' },
+    { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { type: 'card_error', code: 'authentication_required' } }, code: 'UNKNOWN' },
   ] as const) {
     const provider = new StripeCheckoutProvider({
       secretKey: 'sk_test_checkout_secret',
@@ -326,6 +328,7 @@ test('Checkout retrieval uses read-only Stripe failure authority, not payment-wr
     { status: 424, body: { error: { type: 'card_error' } }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 402, body: { error: { type: 'card_error' } }, code: 'UNKNOWN', retryable: true },
     { status: 404, body: { error: { type: 'card_error' } }, code: 'INVALID_REQUEST', retryable: false },
+    { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN', retryable: true },
   ] as const) {
     const provider = new StripeCheckoutProvider({
       secretKey: 'sk_test_checkout_secret',
