@@ -929,3 +929,50 @@ test('Travelport rejects partial success, success Content-Range, and conflicting
   const response = await traced('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
   assert.equal(await response.text(), '{}');
 });
+
+test('Travelport rejects bodyless partial success while preserving legal error Content-Range', async () => {
+  for (const oauth of [true, false]) {
+    const target = oauth
+      ? 'https://auth.travelport.net/oauth/token'
+      : 'https://api.travelport.net/12/hotel/search/searchcomplete';
+    const init = oauth ? oauthPostInit() : staysPostInit();
+    const partial = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => new Response(null, { status: 206 })) as typeof fetch,
+    });
+    await assert.rejects(partial(target, init), assertInvalidResponse);
+
+    const errorFetch = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': 'bytes */10' },
+      })) as typeof fetch,
+    });
+    const response = await errorFetch(target, init);
+    assert.equal(response.status, 416);
+    assert.equal(response.headers.get('content-range'), 'bytes */10');
+  }
+});
+
+test('Travelport native abort authority outranks unsafe response framing', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'headers', {
+    get() {
+      controller.abort();
+      return new Headers({ 'Content-Range': 'bytes 0-1/10' });
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(),
+      signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+});

@@ -1153,3 +1153,46 @@ test('Stripe rejects partial success, success Content-Range, and conflicting res
   );
   assert.equal(await valid.text(), '{}');
 });
+
+test('Stripe rejects bodyless partial success while preserving legal error Content-Range', async () => {
+  const init = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } };
+  await assert.rejects(
+    requestStripeApi(
+      (async () => new Response(null, { status: 206 })) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      init,
+    ),
+    (error: unknown) => error instanceof PaymentProviderError
+      && error.code === 'UNKNOWN' && error.retryable === true,
+  );
+
+  const errorResponse = await requestStripeApi(
+    (async () => new Response(null, {
+      status: 416,
+      headers: { 'content-range': 'bytes */10' },
+    })) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    init,
+  );
+  assert.equal(errorResponse.status, 416);
+  assert.equal(errorResponse.headers.get('content-range'), 'bytes */10');
+});
+
+test('Stripe native abort authority outranks unsafe response framing', async () => {
+  const controller = new AbortController();
+  const response = new Response('{}');
+  Object.defineProperty(response, 'headers', {
+    get() {
+      controller.abort();
+      return new Headers({ 'content-range': 'bytes 0-1/10' });
+    },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => response) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' }, signal: controller.signal },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});
