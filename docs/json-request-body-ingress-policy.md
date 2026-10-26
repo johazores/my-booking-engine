@@ -68,3 +68,7 @@ The shared request-body framing policy rejects noncanonical `Content-Length` (in
 ## Malformed stream-read results
 
 The shared deadline reader now treats malformed or throwing read-result properties as invalid transport input, cancels the acquired reader best-effort, and settles before the deadline rather than leaving a detached Promise callback rejection. This protects the JSON and form callers without changing their null/validation contracts. The regression test uses injected nonconforming readers; native Fetch streams and full Node 24 validation remain separate gates.
+
+## Stable stream-result snapshots
+
+The shared deadline reader now snapshots each accepted read result into a plain `{ done, value }` record, reading custom stream-result accessors once before returning control to the JSON parser. Completed reads do not inspect `value`. This closes a validation-to-consumption gap for nonconforming/injected readers without changing native stream behavior, size/deadline limits, tenant authorization, or the existing invalid-input contract. One-shot getter regressions are checked in; Node 24/full repository execution remains a separate validation gate.

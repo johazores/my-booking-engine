@@ -39,3 +39,7 @@ The shared request-body framing policy rejects noncanonical `Content-Length` (in
 ## Malformed stream-read results
 
 The shared JSON/form deadline reader now rejects nonconforming read results (including throwing result properties) before they reach form parsing. It settles invalid input promptly and cancels the reader without awaiting cancellation. Existing text-only form validation, same-origin checks, tenant permissions, and byte limits remain unchanged. The focused shared-reader regression does not substitute for full repository validation.
+
+## Stable stream-result snapshots
+
+Form ingress shares the JSON deadline reader, which now materializes each accepted read result before the form parser consumes it. A nonconforming reader cannot supply different `done` or `value` properties on a second access after validation. Completed results never access `value`. Existing same-origin, tenant, form-field, streamed-size, and timeout policies are unchanged. Focused accessor regressions are checked in; full Node 24 validation remains outstanding.

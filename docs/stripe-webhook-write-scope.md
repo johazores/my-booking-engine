@@ -102,3 +102,7 @@ The shared request-body framing policy rejects noncanonical `Content-Length` (in
 ## Malformed raw-body stream results
 
 The Stripe raw-body reader now normalizes unexpected read-result shapes, throwing read-result properties, and detached byte-copy failures to its existing `INVALID_BODY` transport classification. It best-effort cancels the reader and never forwards those bytes to signature verification or exposes a raw internal exception. The shared JSON/form reader has the corresponding malformed-result guard. Focused injected-reader regressions are checked in; live provider and full Node 24 validation remain separate gates.
+
+## Stable signed-body stream-result snapshots
+
+The Stripe raw-body reader now normalizes each stream-read result before resolving the pending read. One-shot or changing `done`/`value` accessors cannot bypass its validated result shape, and completed reads never inspect `value`. Malformed results retain the existing `INVALID_BODY` mapping and nonblocking reader cancellation; no bytes reach HMAC verification without bounded acquisition. The same snapshot policy protects JSON and form ingress. Focused regression tests are checked in, while full Node 24 and live Stripe validation remain separate gates.

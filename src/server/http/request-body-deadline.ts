@@ -88,16 +88,26 @@ export function readRequestBodyChunkBeforeDeadline(
     const accept = (result: ReadableStreamReadResult<Uint8Array>) => {
       if (settled) return;
       try {
-        if (!result || typeof result.done !== 'boolean' ||
-            (!result.done && !(result.value instanceof Uint8Array))) {
+        // Snapshot untrusted result accessors exactly once. A custom reader
+        // must not change the validated result before the caller consumes it.
+        const done = result?.done;
+        if (typeof done !== 'boolean') {
           fail();
           return;
         }
+        if (done) {
+          finish({ done: true, value: undefined });
+          return;
+        }
+        const value = result.value;
+        if (!(value instanceof Uint8Array)) {
+          fail();
+          return;
+        }
+        finish({ done: false, value });
       } catch {
         fail();
-        return;
       }
-      finish(result);
     };
     try {
       reader.read().then(accept, fail);

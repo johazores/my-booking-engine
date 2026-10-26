@@ -209,3 +209,45 @@ test('malformed shared reader results fail closed without leaking async rejectio
     assert.equal(cancellations, 1);
   }
 });
+
+test('shared reader snapshots mutable read-result accessors exactly once', async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  let doneReads = 0;
+  let valueReads = 0;
+  const reader = {
+    read() {
+      return Promise.resolve({
+        get done() {
+          doneReads += 1;
+          if (doneReads > 1) throw new Error('read-result done getter reused');
+          return false;
+        },
+        get value() {
+          valueReads += 1;
+          if (valueReads > 1) throw new Error('read-result value getter reused');
+          return bytes;
+        },
+      });
+    },
+    cancel() { throw new Error('unexpected cancellation'); },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const signal = new AbortController().signal;
+  assert.deepEqual(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), { done: false, value: bytes });
+  assert.equal(doneReads, 1);
+  assert.equal(valueReads, 1);
+});
+
+test('shared reader does not access the value of a completed read result', async () => {
+  let doneReads = 0;
+  const reader = {
+    read() {
+      return Promise.resolve({
+        get done() { doneReads += 1; return true; },
+        get value() { throw new Error('completed result value must not be read'); },
+      });
+    },
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const signal = new AbortController().signal;
+  assert.deepEqual(await readRequestBodyChunkBeforeDeadline(reader, signal, signal), { done: true, value: undefined });
+  assert.equal(doneReads, 1);
+});

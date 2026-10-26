@@ -424,3 +424,42 @@ test('malformed webhook reader results and detached bytes are invalid input, not
     assert.equal(cancellations, 1);
   }
 });
+
+test('webhook reader snapshots one-shot read-result accessors before processing signed bytes', async () => {
+  const payload = '{"id":"evt_snapshot"}';
+  const bytes = new TextEncoder().encode(payload);
+  let doneReads = 0;
+  let valueReads = 0;
+  let readCount = 0;
+  const reader = {
+    read() {
+      readCount += 1;
+      if (readCount > 1) {
+        return Promise.resolve({
+          done: true,
+          get value() { throw new Error('completed result value must not be read'); },
+        });
+      }
+      return Promise.resolve({
+        get done() {
+          doneReads += 1;
+          if (doneReads > 1) throw new Error('read-result done getter reused');
+          return false;
+        },
+        get value() {
+          valueReads += 1;
+          if (valueReads > 1) throw new Error('read-result value getter reused');
+          return bytes;
+        },
+      });
+    },
+    cancel() { throw new Error('unexpected cancellation'); },
+    releaseLock() {},
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const request = post(payload);
+  Object.defineProperty(request, 'body', { value: { getReader: () => reader } });
+  assert.equal(await readStripeWebhookRequestBody(request), payload);
+  assert.equal(doneReads, 1);
+  assert.equal(valueReads, 1);
+  assert.equal(readCount, 2);
+});

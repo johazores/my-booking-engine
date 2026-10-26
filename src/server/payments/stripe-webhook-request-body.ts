@@ -132,11 +132,32 @@ async function readRequestChunk(
       onTimeout();
       return;
     }
+    const accept = (result: ReadableStreamReadResult<Uint8Array>) => {
+      if (settled) return;
+      try {
+        // Normalize read results before resolving: getters from an injected
+        // reader must not change after validation or throw in the caller.
+        const done = result?.done;
+        if (typeof done !== 'boolean') {
+          settle(reject, null);
+          return;
+        }
+        if (done) {
+          settle(resolve, { done: true, value: undefined });
+          return;
+        }
+        const value = result.value;
+        if (!(value instanceof Uint8Array)) {
+          settle(reject, null);
+          return;
+        }
+        settle(resolve, { done: false, value });
+      } catch {
+        settle(reject, null);
+      }
+    };
     try {
-      reader.read().then(
-        (result) => settle(resolve, result),
-        (error: unknown) => settle(reject, error),
-      );
+      reader.read().then(accept, (error: unknown) => settle(reject, error));
     } catch (error) {
       // A synchronous reader failure must release abort listeners before
       // the caller cancels the reader, just like an asynchronous rejection.
