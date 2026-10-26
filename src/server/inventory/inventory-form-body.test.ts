@@ -137,3 +137,20 @@ test('bounded form ingress rejects endless zero-byte chunks and cancels the requ
   assert.equal(await readBoundedInventoryFormData(request), null);
   assert.equal(cancelled, true);
 });
+
+
+test('bounded form ingress rejects excessive tiny chunks below the byte ceiling', async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array([65])); },
+    cancel() { cancelled = true; },
+  });
+  const request = new Request(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedInventoryFormData(request), null);
+  assert.equal(cancelled, true);
+});

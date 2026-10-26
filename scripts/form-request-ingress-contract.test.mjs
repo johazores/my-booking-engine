@@ -37,3 +37,14 @@ test('bounded browser form routes keep origin and media-type guards', () => {
     assert.match(source, /isSupportedAuthFormRequest\(request\)/, path);
   }
 });
+
+
+test('bounded browser form ingress caps streamed chunk count independently of bytes', () => {
+  const body = readFileSync(join(root, 'src', 'server', 'http', 'bounded-form-body.ts'), 'utf8');
+  const tests = readFileSync(join(root, 'src', 'server', 'inventory', 'inventory-form-body.test.ts'), 'utf8');
+  assert.match(body, /const FORM_REQUEST_MAX_CHUNKS = 16 \* 1024/);
+  assert.match(body, /chunkCount > FORM_REQUEST_MAX_CHUNKS/);
+  assert.match(body, /if \(value\.byteLength > 0\) chunks\.push\(value\)/);
+  assert.match(tests, /rejects endless zero-byte chunks/);
+  assert.match(tests, /rejects excessive tiny chunks/);
+});

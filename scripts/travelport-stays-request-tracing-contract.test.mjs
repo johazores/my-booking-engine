@@ -137,6 +137,8 @@ test('trace transport keeps provider request deadlines active while bounding rep
   const trace = source('src/server/suppliers/travelport-stays-trace-fetch.ts');
   assert.match(trace, /MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 \* 1024/);
   assert.match(trace, /MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 \* 1024 \* 1024/);
+  assert.match(trace, /MAX_TRAVELPORT_RESPONSE_CHUNKS = 32 \* 1024/);
+  assert.match(trace, /receivedChunks > MAX_TRAVELPORT_RESPONSE_CHUNKS/);
   assert.match(trace, /TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 \* 1024/);
   assert.match(trace, /async function bufferTravelportResponse\(response: Response, maxBytes: number\)/);
   assert.match(trace, /declaredTravelportResponseBytes\(response\)/);
@@ -207,6 +209,7 @@ test('request tracing documentation preserves reservation, environment, endpoint
   assert.match(doc, /`Content-Encoding` and `Content-Length`/);
   assert.match(doc, /256 KiB for OAuth token responses/);
   assert.match(doc, /32 MiB for Stays responses/);
+  assert.match(doc, /32,768 stream chunks/);
   assert.match(doc, /actual bytes delivered by the Fetch response stream/);
   assert.match(doc, /cancels the provider body/);
   assert.match(doc, /non-retryable `INVALID_RESPONSE`/);
