@@ -510,7 +510,19 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
   let receivedChunks = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await reader.read();
+      // Snapshot untrusted read-result accessors once before processing.
+      let done: unknown;
+      let value: unknown;
+      try {
+        done = result?.done;
+        if (done === false) value = result.value;
+      } catch {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream result is invalid.');
+      }
+      if (typeof done !== 'boolean') {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream result is invalid.');
+      }
       if (done) break;
       receivedChunks += 1;
       if (receivedChunks > MAX_TRAVELPORT_RESPONSE_CHUNKS) {
@@ -522,22 +534,38 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
           'Travelport response stream chunk is invalid.',
         );
       }
-      if (value.byteLength === 0) continue;
-      receivedBytes += value.byteLength;
+      // Never trust shadowed typed-array properties or methods for provider
+      // size accounting or replay copying.
+      let chunkBytes: number;
+      try {
+        chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
+      } catch {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream chunk is invalid.');
+      }
+      if (!Number.isSafeInteger(chunkBytes)) {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream chunk is invalid.');
+      }
+      if (chunkBytes === 0) continue;
+      receivedBytes += chunkBytes;
       if (receivedBytes > maxBytes) throw oversizedTravelportResponseError();
 
       let sourceOffset = 0;
-      while (sourceOffset < value.byteLength) {
+      while (sourceOffset < chunkBytes) {
         if (currentBlock === null || currentBlockLength === currentBlock.byteLength) {
           if (currentBlock !== null) blocks.push(currentBlock);
           currentBlock = new Uint8Array(Math.min(TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES, maxBytes));
           currentBlockLength = 0;
         }
         const copyLength = Math.min(
-          value.byteLength - sourceOffset,
+          chunkBytes - sourceOffset,
           currentBlock.byteLength - currentBlockLength,
         );
-        currentBlock.set(value.subarray(sourceOffset, sourceOffset + copyLength), currentBlockLength);
+        try {
+          const view = Uint8Array.prototype.subarray.call(value, sourceOffset, sourceOffset + copyLength);
+          Uint8Array.prototype.set.call(currentBlock, view, currentBlockLength);
+        } catch {
+          throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream chunk is invalid.');
+        }
         currentBlockLength += copyLength;
         sourceOffset += copyLength;
       }

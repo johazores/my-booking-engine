@@ -268,3 +268,104 @@ test('rejects excessive tiny provider chunks below the byte ceiling', async () =
   );
   assert.equal(cancelled, true);
 });
+
+test('Travelport replay uses native typed-array byte lengths and copying despite shadowed accessors', async () => {
+  const bytes = new TextEncoder().encode('{"ok":true}');
+  Object.defineProperty(bytes, 'byteLength', { get() { return 0; } });
+  Object.defineProperty(bytes, 'subarray', { value() { throw new Error('shadowed provider subarray'); } });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const tracedFetch = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => new Response(body)) as typeof fetch,
+  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{"ok":true}');
+});
+
+test('Travelport OAuth response ceiling uses native bytes even when chunk size is shadowed', async () => {
+  let cancelled = false;
+  const bytes = new Uint8Array(256 * 1024 + 1);
+  Object.defineProperty(bytes, 'byteLength', { value: 0 });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); },
+    cancel() { cancelled = true; },
+  });
+  const tracedFetch = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => new Response(body)) as typeof fetch,
+  });
+  await assert.rejects(tracedFetch('https://auth.travelport.net/oauth/token', oauthPostInit()), assertInvalidResponse);
+  assert.equal(cancelled, true);
+});
+
+test('Travelport rejects malformed provider read-result accessors before replay', async () => {
+  for (const result of [
+    undefined,
+    { done: false },
+    { get done() { throw new Error('private provider done getter'); } },
+    { done: false, get value() { throw new Error('private provider value getter'); } },
+  ]) {
+    let cancellations = 0;
+    const reader = {
+      read() { return Promise.resolve(result); },
+      cancel() { cancellations += 1; return Promise.resolve(); },
+      releaseLock() {},
+    } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+    const upstream = new Response('{}');
+    Object.defineProperty(upstream, 'body', { value: { getReader: () => reader } });
+    const tracedFetch = createTravelportStaysTraceFetch({
+      environment: 'production',
+      fetchImpl: (async () => upstream) as typeof fetch,
+    });
+    await assert.rejects(
+      tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+      (error: unknown) => error instanceof HospitalitySupplierProviderError
+        && error.code === 'INVALID_RESPONSE'
+        && !error.message.includes('private provider'),
+    );
+    assert.equal(cancellations, 1);
+  }
+});
+
+test('Travelport reads one-shot provider result properties once and ignores completed values', async () => {
+  const bytes = new TextEncoder().encode('{}');
+  let doneReads = 0;
+  let valueReads = 0;
+  let readCount = 0;
+  const reader = {
+    read() {
+      readCount += 1;
+      if (readCount > 1) return Promise.resolve({
+        done: true,
+        get value() { throw new Error('completed result value must not be read'); },
+      });
+      return Promise.resolve({
+        get done() {
+          doneReads += 1;
+          if (doneReads > 1) throw new Error('done getter read twice');
+          return false;
+        },
+        get value() {
+          valueReads += 1;
+          if (valueReads > 1) throw new Error('value getter read twice');
+          return bytes;
+        },
+      });
+    },
+    cancel() { throw new Error('unexpected cancellation'); },
+    releaseLock() {},
+  } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'body', { value: { getReader: () => reader } });
+  const tracedFetch = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  const response = await tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit());
+  assert.equal(await response.text(), '{}');
+  assert.equal(doneReads, 1);
+  assert.equal(valueReads, 1);
+  assert.equal(readCount, 2);
+});

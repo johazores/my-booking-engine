@@ -148,8 +148,12 @@ test('trace transport keeps provider request deadlines active while bounding rep
   assert.match(trace, /const reader = response\.body\.getReader\(\)/);
   assert.match(trace, /const blocks: Uint8Array\[\] = \[\]/);
   assert.match(trace, /currentBlock = new Uint8Array\(Math\.min\(TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES, maxBytes\)\)/);
-  assert.match(trace, /currentBlock\.set\(value\.subarray\(sourceOffset, sourceOffset \+ copyLength\), currentBlockLength\)/);
-  assert.match(trace, /receivedBytes \+= value\.byteLength/);
+  assert.match(trace, /Uint8Array\.prototype\.subarray\.call\(value, sourceOffset, sourceOffset \+ copyLength\)/);
+  assert.match(trace, /Uint8Array\.prototype\.set\.call\(currentBlock, view, currentBlockLength\)/);
+  assert.match(trace, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
+  assert.match(trace, /receivedBytes \+= chunkBytes/);
+  assert.doesNotMatch(trace, /value\.byteLength/);
+  assert.doesNotMatch(trace, /value\.subarray\(/);
   assert.match(trace, /receivedBytes > maxBytes/);
   assert.match(trace, /if \(!\(value instanceof Uint8Array\)\)/);
   assert.match(trace, /Travelport response stream chunk is invalid/);
