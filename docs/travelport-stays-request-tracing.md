@@ -76,3 +76,7 @@ Read/auth adapter timeout wrappers preserve normalized `HospitalitySupplierProvi
 This tracing and durable-correlation infrastructure does not enable Travelport `reservation`, `modification`, or `cancellation` capabilities and does not expose a supplier booking action.
 
 The server-only initial Create, explicit price/guarantee review acceptance, one-time reviewed second Create, Booking.com Sync recovery, and known-locator Retrieve boundaries are implemented. Travelport `reservation` remains disabled until SF has a concrete reviewed PCI-safe FormOfPayment/guarantee source for the provisioned account, live non-production end-to-end validation, and authoritative live `13034`/locator-less correlation and retry semantics.
+
+## Stream chunk resource ceiling
+
+The shared Travelport response buffer now rejects responses containing more than 32,768 stream chunks, including empty chunks, even when their total bytes remain below the existing OAuth/Stays byte limits. The existing bounded 64 KiB replay-block coalescing remains unchanged; the new count ceiling prevents an upstream stream of endless empty or tiny chunks from monopolizing the request. Rejection is invalid provider response evidence and best-effort cancels the reader. Existing 10,000-tiny-chunk replay coverage remains valid. This is a transport safety limit, not supplier booking or payment authority.

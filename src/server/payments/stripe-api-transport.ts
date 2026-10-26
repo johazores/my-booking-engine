@@ -9,6 +9,7 @@ const STRIPE_GET_HEADERS = new Set(['authorization']);
 const STRIPE_POST_HEADERS = new Set(['authorization', 'content-type', 'idempotency-key']);
 const MAX_STRIPE_API_REQUEST_BYTES = 256 * 1024;
 const MAX_STRIPE_API_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_STRIPE_API_RESPONSE_CHUNKS = 16 * 1024;
 
 export type StripeApiFetch = typeof fetch;
 
@@ -260,12 +261,17 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
     invalidTransportResponse();
   }
-  const chunks: Uint8Array[] = [];
+  // A byte limit alone does not bound empty or tiny streamed chunks.
+  // Grow one bounded buffer instead of retaining a separate allocation per read.
+  let buffered = new Uint8Array(0);
   let totalBytes = 0;
+  let chunkCount = 0;
   try {
     while (true) {
       const { done, value } = await readStripeResponseChunk(reader, signal);
       if (done) break;
+      chunkCount += 1;
+      if (chunkCount > MAX_STRIPE_API_RESPONSE_CHUNKS) invalidTransportResponse();
       if (!(value instanceof Uint8Array)) invalidTransportResponse();
       // A stream can supply a Uint8Array with shadowed byteLength/slice
       // properties. Read native typed-array length and copy with native set.
@@ -273,10 +279,21 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
       if (!Number.isSafeInteger(byteLength) || byteLength > MAX_STRIPE_API_RESPONSE_BYTES - totalBytes) {
         invalidTransportResponse();
       }
-      const chunk = new Uint8Array(byteLength);
-      Uint8Array.prototype.set.call(chunk, value);
-      totalBytes += chunk.byteLength;
-      chunks.push(chunk);
+      if (byteLength === 0) continue;
+      const requiredBytes = totalBytes + byteLength;
+      if (requiredBytes > buffered.byteLength) {
+        const capacity = Math.min(
+          MAX_STRIPE_API_RESPONSE_BYTES,
+          Math.max(requiredBytes, buffered.byteLength === 0 ? 1024 : buffered.byteLength * 2),
+        );
+        const grown = new Uint8Array(capacity);
+        Uint8Array.prototype.set.call(grown, buffered);
+        buffered = grown;
+      }
+      // Copy immediately: the upstream stream retains no authority over
+      // already-acquired bytes or over the next read's backing storage.
+      Uint8Array.prototype.set.call(buffered, value, totalBytes);
+      totalBytes = requiredBytes;
     }
   } catch (error) {
     // Malformed provider chunks, exceeded limits, and rejected reads must not
@@ -299,13 +316,7 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     }
   }
 
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
+  const body = Uint8Array.prototype.slice.call(buffered, 0, totalBytes) as Uint8Array;
   return replayStripeApiResponse(response, body, signal);
 }
 

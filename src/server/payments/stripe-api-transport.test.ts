@@ -691,3 +691,52 @@ test('Stripe transport enforces the native byte length when a chunk shadows its 
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
   );
 });
+
+
+test('Stripe transport rejects endless zero-byte chunks without unbounded allocations', async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(0)); },
+    cancel() { cancelled = true; },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => new Response(body)) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+  );
+  assert.equal(cancelled, true);
+});
+
+test('Stripe transport rejects excessive tiny chunks below the byte ceiling', async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array([123])); },
+    cancel() { cancelled = true; },
+  });
+  await assert.rejects(
+    requestStripeApi((async () => new Response(body)) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } }),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable === true,
+  );
+  assert.equal(cancelled, true);
+});
+
+test('Stripe transport preserves exact bytes across bounded buffer growth', async () => {
+  const expected = new Uint8Array(5_000);
+  for (let index = 0; index < expected.length; index += 1) expected[index] = index % 251;
+  let offset = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset === expected.length) { controller.close(); return; }
+      controller.enqueue(expected.subarray(offset, ++offset));
+    },
+  });
+  const response = await requestStripeApi(
+    (async () => new Response(body)) as typeof fetch,
+    'https://api.stripe.com/v1/balance',
+    { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } },
+  );
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), expected);
+});

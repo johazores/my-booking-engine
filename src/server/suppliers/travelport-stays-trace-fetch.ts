@@ -8,6 +8,7 @@ const SF_TRACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-
 const MAX_TRAVELPORT_STAYS_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_TRAVELPORT_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MAX_TRAVELPORT_STAYS_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_TRAVELPORT_RESPONSE_CHUNKS = 32 * 1024;
 const TRAVELPORT_RESPONSE_REPLAY_BLOCK_BYTES = 64 * 1024;
 const MAX_TRAVELPORT_AUTHORIZATION_HEADER_LENGTH = 'Bearer '.length + 16_384;
 const TRAVELPORT_STAYS_CREDENTIAL_HEADER_LIMITS: Readonly<Record<string, number>> = Object.freeze({
@@ -506,10 +507,15 @@ async function bufferTravelportResponse(response: Response, maxBytes: number): P
   let currentBlock: Uint8Array | null = null;
   let currentBlockLength = 0;
   let receivedBytes = 0;
+  let receivedChunks = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      receivedChunks += 1;
+      if (receivedChunks > MAX_TRAVELPORT_RESPONSE_CHUNKS) {
+        throw new HospitalitySupplierProviderError('INVALID_RESPONSE', 'Travelport response stream exceeded the supported chunk count.');
+      }
       if (!(value instanceof Uint8Array)) {
         throw new HospitalitySupplierProviderError(
           'INVALID_RESPONSE',

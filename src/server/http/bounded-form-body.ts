@@ -1,6 +1,7 @@
 /** Bounded text-only browser form reader for same-origin mutation endpoints. */
 export const FORM_REQUEST_MAX_BYTES = 64 * 1024;
 export const FORM_MAX_FIELDS = 64;
+const FORM_REQUEST_MAX_CHUNKS = 16 * 1024;
 
 const SUPPORTED_FORM_MEDIA_TYPES = new Set([
   'application/x-www-form-urlencoded',
@@ -52,16 +53,22 @@ export async function readBoundedFormData(
   }
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  let chunkCount = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      chunkCount += 1;
+      if (chunkCount > FORM_REQUEST_MAX_CHUNKS) {
+        await reader.cancel();
+        return null;
+      }
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
         await reader.cancel();
         return null;
       }
-      chunks.push(value);
+      if (value.byteLength > 0) chunks.push(value);
     }
   } catch {
     try { await reader.cancel(); } catch { /* Stream already failed. */ }

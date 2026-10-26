@@ -2,7 +2,7 @@
 
 Production browser form mutation routes use a shared text-only bounded parser in `src/server/http/bounded-form-body.ts`. This applies to sign-in/sign-up, organization and membership management, customers, pricing, branding, tenant integration management, and inventory. Inventory retains its compatibility wrapper `src/server/inventory/inventory-form-body.ts`.
 
-The parser accepts `application/x-www-form-urlencoded` and `multipart/form-data` with text fields only. It enforces a 64 KiB streamed limit, a 64-field maximum, field names no longer than 100 characters, no duplicate/empty/NUL-containing names, no NUL-containing values, strict UTF-8 including percent-encoded URL form components, and consistent declared body lengths when supplied. It rejects file uploads and malformed multipart bodies. Form parsing errors are customer-correctable validation failures and must never expose submitted credentials.
+The parser accepts `application/x-www-form-urlencoded` and `multipart/form-data` with text fields only. It enforces a 64 KiB streamed limit, a 16,384-chunk limit (including empty chunks), a 64-field maximum, field names no longer than 100 characters, no duplicate/empty/NUL-containing names, no NUL-containing values, strict UTF-8 including percent-encoded URL form components, and consistent declared body lengths when supplied. It rejects file uploads and malformed multipart bodies. Form parsing errors are customer-correctable validation failures and must never expose submitted credentials.
 
 All migrated routes continue to check same-origin and supported form media types before reading the body. Existing authenticated routes also resolve the session and active tenant before parsing. The shared transport parser does not grant permissions; all business writes remain server-authorized and tenant-scoped. Auth sign-in/sign-up intentionally have no existing session requirement.
 
@@ -15,3 +15,7 @@ These focused checks do not replace full Node 24, Prisma, PostgreSQL, lint, type
 The shared reader treats a locked or previously consumed request body as an invalid submission rather than allowing `ReadableStream.getReader()` to escape as an unexpected server error. Failed streams are also rejected without returning submitted values. The inventory wrapper and throwing form adapter preserve their existing null/validation-error contracts. These checks do not weaken origin, session, tenant, or capability enforcement.
 
 A consumed stream can have its reader lock released while `Request.bodyUsed` stays true. In that case a second `getReader()` may succeed and return an empty stream. The shared form reader checks `bodyUsed` before acquiring the reader so previously consumed submissions cannot be mistaken for valid empty forms. Regression coverage includes this unlocked-consumed case.
+
+## Stream chunk resource ceiling
+
+The shared form reader also caps the number of stream chunks independently of byte length, so a request supplying endless zero-byte chunks or excessive tiny chunks cannot monopolize parsing while staying below 64 KiB. Empty chunks count toward the ceiling but are not retained. Exceeding the ceiling cancels the request reader and returns the existing invalid-form result; authorization and tenant checks remain unchanged.

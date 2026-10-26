@@ -239,3 +239,32 @@ test('drops stale wire representation headers after replaying decoded bytes', as
   assert.equal(response.headers.get('X-Provider-Test'), 'present');
   assert.deepEqual(await response.json(), { ok: true });
 });
+
+
+test('rejects endless zero-byte provider chunks and cancels the stream', async () => {
+  let cancelled = false;
+  const fetchImpl = (async () => new Response(new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(0)); },
+    cancel() { cancelled = true; },
+  }))) as typeof fetch;
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+  await assert.rejects(
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    assertInvalidResponse,
+  );
+  assert.equal(cancelled, true);
+});
+
+test('rejects excessive tiny provider chunks below the byte ceiling', async () => {
+  let cancelled = false;
+  const fetchImpl = (async () => new Response(new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array([123])); },
+    cancel() { cancelled = true; },
+  }))) as typeof fetch;
+  const tracedFetch = createTravelportStaysTraceFetch({ environment: 'production', fetchImpl });
+  await assert.rejects(
+    tracedFetch('https://api.travelport.net/12/hotel/search/searchcomplete', staysPostInit()),
+    assertInvalidResponse,
+  );
+  assert.equal(cancelled, true);
+});

@@ -10,12 +10,15 @@ test('Stripe credentialed transport owns bounded request and response resources'
   const contents = source('src/server/payments/stripe-api-transport.ts');
   assert.match(contents, /const MAX_STRIPE_API_REQUEST_BYTES = 256 \* 1024;/);
   assert.match(contents, /const MAX_STRIPE_API_RESPONSE_BYTES = 4 \* 1024 \* 1024;/);
+  assert.match(contents, /const MAX_STRIPE_API_RESPONSE_CHUNKS = 16 \* 1024;/);
+  assert.match(contents, /chunkCount > MAX_STRIPE_API_RESPONSE_CHUNKS/);
   assert.match(contents, /hasUtf8ByteLengthAtMost\(body, MAX_STRIPE_API_REQUEST_BYTES\)/);
   assert.match(contents, /response\.headers\.get\('content-length'\)/);
   assert.match(contents, /byteLength > MAX_STRIPE_API_RESPONSE_BYTES - totalBytes/);
   assert.match(contents, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
-  assert.match(contents, /Uint8Array\.prototype\.set\.call\(chunk, value\)/);
-  assert.match(contents, /chunks\.push\(chunk\)/);
+  assert.match(contents, /Uint8Array\.prototype\.set\.call\(buffered, value, totalBytes\)/);
+  assert.match(contents, /Uint8Array\.prototype\.slice\.call\(buffered, 0, totalBytes\)/);
+  assert.doesNotMatch(contents, /chunks\.push\(chunk\)/);
   assert.match(contents, /if \(!\(value instanceof Uint8Array\)\) invalidTransportResponse\(\)/);
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
@@ -64,6 +67,9 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(tests, /Fetch acquisition uses native signal authority/);
   assert.match(tests, /keeps caller abort authority active through response body acquisition/);
   assert.match(tests, /enforces the response ceiling on streamed bytes/);
+  assert.match(tests, /rejects endless zero-byte chunks/);
+  assert.match(tests, /rejects excessive tiny chunks/);
+  assert.match(tests, /preserves exact bytes across bounded buffer growth/);
   assert.match(tests, /classifies failed reads as unknown provider evidence/);
   assert.match(tests, /locked response bodies as retryable unknown provider evidence/);
   assert.match(tests, /preserves a real timeout over malformed provider response headers/);
