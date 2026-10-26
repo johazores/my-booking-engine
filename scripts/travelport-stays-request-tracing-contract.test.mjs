@@ -169,9 +169,9 @@ test('trace transport keeps provider request deadlines active while bounding rep
   assert.match(trace, /awaitTravelportStaysOperation\(\(\) => reader\.read\(\), signal\)/);
   assert.match(trace, /isTravelportStaysSignalAborted\(signal\)/);
   assert.match(trace, /travelportStaysResponseAbortError\(\)/);
-  assert.match(trace, /function replayTravelportResponse\\(\\s*metadata: TravelportResponseMetadata,\\s*blocks: readonly Uint8Array\\[\\],\\s*bodyless = false,\\s*\\)/);
-  assert.match(trace, /return replayTravelportResponse\\(metadata, \\[\\], true\\)/);
-  assert.match(trace, /declaredBytes !== null && declaredBytes > 0 && metadata\\.status !== 304/);
+  assert.match(trace, /function replayTravelportResponse\(\s*metadata: TravelportResponseMetadata,\s*blocks: readonly Uint8Array\[\],\s*bodyless = false,\s*\)/);
+  assert.match(trace, /return replayTravelportResponse\(metadata, \[\], true\)/);
+  assert.match(trace, /declaredBytes !== null && declaredBytes > 0 && metadata\.status !== 304/);
   assert.match(trace, /headers\.delete\('Content-Length'\)/);
   assert.match(trace, /headers\.delete\('Content-Encoding'\)/);
   assert.match(trace, /new ReadableStream<Uint8Array>/);
