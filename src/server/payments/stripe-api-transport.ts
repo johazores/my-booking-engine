@@ -300,6 +300,9 @@ async function bufferStripeApiResponse(response: Response, signal?: AbortSignal)
     invalidTransportResponse();
   }
   if (responseBody === null) {
+    // A metadata getter can abort after the initial check; timeout must still
+    // outrank the missing-payload check below.
+    if (signal && nativeStripeSignalAborted(signal)) throw abortResponseRead();
     // An HTTP 304 may describe the selected representation without a body.
     // Other bodyless responses cannot claim positive transmitted bytes.
     if (declaredLength !== null && declaredLength > 0 && metadata.status !== 304) {

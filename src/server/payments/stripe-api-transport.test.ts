@@ -981,3 +981,29 @@ test('Stripe native abort authority outranks metadata errors during response sna
     (error: unknown) => error instanceof Error && error.name === 'AbortError',
   );
 });
+
+test('Stripe bodyless declared-length validation preserves an abort triggered during metadata snapshot', async () => {
+  const controller = new AbortController();
+  const upstream = new Response(null, {
+    status: 200,
+    headers: { 'content-length': '2' },
+  });
+  Object.defineProperty(upstream, 'body', {
+    get() {
+      controller.abort();
+      return null;
+    },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+        signal: controller.signal,
+      },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});

@@ -23,7 +23,7 @@ test('Stripe credentialed transport owns bounded request and response resources'
   assert.match(contents, /catch \(error\) \{[\s\S]*reader\.cancel\(\)\.catch/);
   assert.match(contents, /reader\.releaseLock\(\)/);
   assert.match(contents, /responseBody = response\.body/);
-  assert.match(contents, /if \(responseBody === null\) \{/);
+  assert.match(contents, /if \(responseBody === null\) \{\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*if \(signal && nativeStripeSignalAborted\(signal\)\) throw abortResponseRead\(\);/);
   assert.match(contents, /return replayStripeApiResponse\(metadata, null, signal\)/);
   assert.match(contents, /declaredLength > 0 && metadata\.status !== 304/);
   assert.match(contents, /cancelStripeResponseStream\(responseBody\)/);
@@ -91,6 +91,7 @@ test('Stripe transport resource policy and regression coverage are documented', 
   assert.match(tests, /cancel the captured stream without reading the body twice/);
   assert.match(tests, /bodyless responses reject positive declared lengths/);
   assert.match(tests, /abort authority outranks metadata errors/);
+  assert.match(tests, /declared-length validation preserves an abort triggered during metadata snapshot/);
 });
 
 test('Stripe transport materializes caller metadata once and checks native abort authority', () => {
