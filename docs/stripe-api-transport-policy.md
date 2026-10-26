@@ -64,7 +64,7 @@ The focused TypeScript tests cover one-read streamed/bodyless metadata, header m
 
 ## Unencoded response-length integrity
 
-For streamed responses with declared `Content-Length` and no `Content-Encoding`, the transport requires the buffered payload byte count to match the declaration. Truncated and excess identity responses fail as retryable `UNKNOWN` provider evidence before adapter parsing. This runs within the existing reader-cancellation and native-abort boundary. Encoded responses are exempt from equality because Fetch can expose decompressed bytes while retaining the compressed wire length; both types remain bounded by actual bytes and chunk count. Replay continues stripping wire representation headers. Regression tests cover mismatch directions, encoded compatibility, and abort precedence. Full Node 24 validation remains outstanding.
+For streamed responses with declared `Content-Length` and no non-identity content coding, the transport requires the buffered payload byte count to match the declaration. Truncated and excess identity responses fail as retryable `UNKNOWN` provider evidence before adapter parsing. This runs within the existing reader-cancellation and native-abort boundary. Encoded responses are exempt from equality because Fetch can expose decompressed bytes while retaining the compressed wire length; both types remain bounded by actual bytes and chunk count. Replay continues stripping wire representation headers. Regression tests cover mismatch directions, encoded compatibility, and abort precedence. Full Node 24 validation remains outstanding.
 
 ## Content-Encoding classification and identity-length integrity
 

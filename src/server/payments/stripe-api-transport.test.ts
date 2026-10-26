@@ -1094,3 +1094,26 @@ test('Stripe rejects malformed content codings before reading and cancels the ca
     assert.equal(cancellations, 1, coding);
   }
 });
+
+test('Stripe caller abort outranks malformed content coding during response metadata inspection', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'headers', {
+    get() {
+      controller.abort();
+      return new Headers({ 'content-encoding': 'gzip,' });
+    },
+  });
+  await assert.rejects(
+    requestStripeApi(
+      (async () => upstream) as typeof fetch,
+      'https://api.stripe.com/v1/balance',
+      {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sk_test_not-a-real-secret' },
+        signal: controller.signal,
+      },
+    ),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+});

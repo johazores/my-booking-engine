@@ -868,3 +868,25 @@ test('Travelport rejects malformed content codings and cancels OAuth and Stays r
     }
   }
 });
+
+test('Travelport caller abort outranks malformed content coding during response metadata inspection', async () => {
+  const controller = new AbortController();
+  const upstream = new Response('{}');
+  Object.defineProperty(upstream, 'headers', {
+    get() {
+      controller.abort();
+      return new Headers({ 'Content-Encoding': 'gzip,' });
+    },
+  });
+  const traced = createTravelportStaysTraceFetch({
+    environment: 'production',
+    fetchImpl: (async () => upstream) as typeof fetch,
+  });
+  await assert.rejects(
+    traced('https://api.travelport.net/12/hotel/search/searchcomplete', {
+      ...staysPostInit(),
+      signal: controller.signal,
+    }),
+    assertTravelportAborted,
+  );
+});
