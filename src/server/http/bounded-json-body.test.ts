@@ -138,3 +138,16 @@ test('bounded JSON reader preserves valid objects split across stream chunks', a
   } as RequestInit & { duplex: 'half' });
   assert.deepEqual(await readBoundedJsonObject(request, 1024), { guest: 'Café', count: 2 });
 });
+
+test('bounded JSON reader counts native bytes despite shadowed chunk length', async () => {
+  const bytes = new TextEncoder().encode('{"guest":"Kayak"}');
+  Object.defineProperty(bytes, 'byteLength', { value: 0 });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedJsonObject(request, 4), null);
+});

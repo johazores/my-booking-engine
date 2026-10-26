@@ -184,3 +184,29 @@ test('bounded form ingress never awaits stalled cancellation after exceeding its
   assert.equal(await settlesPromptly(readBoundedInventoryFormData(request)), null);
   assert.equal(cancelled, true);
 });
+
+test('bounded form ingress copies native bytes despite shadowed length', async () => {
+  const bytes = new TextEncoder().encode('name=Kayak');
+  Object.defineProperty(bytes, 'byteLength', { value: 0 });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal((await readBoundedInventoryFormData(request))?.get('name'), 'Kayak');
+});
+
+test('bounded form ingress rejects native over-limit bytes hidden by a shadowed length', async () => {
+  const bytes = new TextEncoder().encode('name=Kayak');
+  Object.defineProperty(bytes, 'byteLength', { value: 1 });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const request = new Request(url, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readBoundedInventoryFormData(request, 4), null);
+});

@@ -51,7 +51,8 @@ export async function readBoundedFormData(
     // A locked or already consumed body is invalid request input.
     return null;
   }
-  const chunks: Uint8Array[] = [];
+  // Retain immutable bytes, not references to caller-owned mutable stream chunks.
+  let buffered = new Uint8Array(0);
   let totalBytes = 0;
   let chunkCount = 0;
   try {
@@ -63,12 +64,26 @@ export async function readBoundedFormData(
         void reader.cancel().catch(() => undefined);
         return null;
       }
-      totalBytes += value.byteLength;
-      if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
+      if (!(value instanceof Uint8Array)) {
         void reader.cancel().catch(() => undefined);
         return null;
       }
-      if (value.byteLength > 0) chunks.push(value);
+      const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
+      if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes || (declaredBytes !== null && chunkBytes > declaredBytes - totalBytes)) {
+        void reader.cancel().catch(() => undefined);
+        return null;
+      }
+      const nextTotal = totalBytes + chunkBytes;
+      if (chunkBytes > 0) {
+        if (nextTotal > buffered.byteLength) {
+          const capacity = Math.min(maxBytes, Math.max(nextTotal, buffered.byteLength === 0 ? 1024 : buffered.byteLength * 2));
+          const grown = new Uint8Array(capacity);
+          Uint8Array.prototype.set.call(grown, buffered);
+          buffered = grown;
+        }
+        Uint8Array.prototype.set.call(buffered, value, totalBytes);
+      }
+      totalBytes = nextTotal;
     }
   } catch {
     try { void reader.cancel().catch(() => undefined); } catch { /* Stream already failed. */ }
@@ -79,12 +94,7 @@ export async function readBoundedFormData(
 
   if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
 
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+  const bytes = Uint8Array.prototype.slice.call(buffered, 0, totalBytes) as Uint8Array;
 
   try {
     // Mutation endpoints accept text metadata, never uploaded binary files.

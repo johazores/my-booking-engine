@@ -226,3 +226,27 @@ test('rejects oversized webhook bodies without awaiting stalled cancellation', a
   await settlesPromptly(expectBodyError(request, 'PAYLOAD_TOO_LARGE'));
   assert.equal(cancelled, true);
 });
+
+test('webhook reader counts native bytes despite shadowed stream chunk length', async () => {
+  const bytes = new TextEncoder().encode('{"id":"evt_1"}');
+  Object.defineProperty(bytes, 'byteLength', { value: 0 });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  assert.equal(await readStripeWebhookRequestBody(request), '{"id":"evt_1"}');
+});
+
+test('webhook reader rejects native over-limit bytes hidden by a shadowed length', async () => {
+  const bytes = new Uint8Array(STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES + 1);
+  Object.defineProperty(bytes, 'byteLength', { value: 0 });
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes); controller.close(); },
+  });
+  const request = new Request('https://sf.example.test/api/webhooks/stripe/tenant', {
+    method: 'POST', body: stream, duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+  await expectBodyError(request, 'PAYLOAD_TOO_LARGE');
+});

@@ -21,6 +21,7 @@ test('all JSON request policies delegate to one bounded, length-checked transpor
   assert.match(shared, /totalBytes !== declaredBytes/);
   assert.match(shared, /const JSON_REQUEST_MAX_CHUNKS = 16 \* 1024/);
   assert.match(shared, /chunkCount > JSON_REQUEST_MAX_CHUNKS/);
+  assert.match(shared, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', value\)/);
   assert.doesNotMatch(shared, /await reader\.cancel\(/);
   const tests = readFileSync(new URL('../src/server/http/bounded-json-body.test.ts', import.meta.url), 'utf8');
   assert.match(tests, /rejects endless zero-byte chunks/);

@@ -51,7 +51,7 @@ Inventory mutation forms use a 64 KiB streamed body limit, strict UTF-8, support
 
 ## Bounded JSON ingress
 
-Shared authenticated/public JSON mutation readers enforce the caller's byte ceiling and exact declared Content-Length, and now reject more than 16,384 streamed chunks even when each chunk is empty or tiny. Form readers apply the same independent chunk ceiling in addition to their 64 KiB and text-field limits. Rejected streams are cancelled best-effort without awaiting an upstream cancellation promise that might never settle. These transport guards do not replace same-origin checks, tenant authorization, signature verification, or service-level validation.
+Shared authenticated/public JSON mutation readers enforce the caller's byte ceiling and exact declared Content-Length, and now reject more than 16,384 streamed chunks even when each chunk is empty or tiny. Form readers apply the same independent chunk ceiling in addition to their 64 KiB and text-field limits. Actual byte ceilings use native typed-array lengths rather than caller-shadowable chunk properties; form bytes are copied before another read can mutate a previous chunk. Rejected streams are cancelled best-effort without awaiting an upstream cancellation promise that might never settle. These transport guards do not replace same-origin checks, tenant authorization, signature verification, or service-level validation.
 
 ## Database test safety
 

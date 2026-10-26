@@ -60,7 +60,8 @@ test('Stripe webhook reader bounds framing, actual bytes, and retained applicati
   assert.match(reader, /new Uint8Array\(expectedBytes \?\? 8_192\)/);
   assert.match(reader, /growBodyBuffer\(bytes, nextTotal\)/);
   assert.match(reader, /capacity = Math\.min\(STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES, capacity \* 2\)/);
-  assert.match(reader, /bytes\.set\(result\.value, totalBytes\)/);
+  assert.match(reader, /Uint8Array\.prototype\.set\.call\(bytes, result\.value, totalBytes\)/);
+  assert.match(reader, /Reflect\.get\(Object\.getPrototypeOf\(Uint8Array\.prototype\), 'byteLength', result\.value\)/);
   assert.doesNotMatch(reader, /chunks\.push/);
   assert.match(reader, /reader\.cancel\(\)/);
   assert.match(reader, /request\.signal\.aborted/);

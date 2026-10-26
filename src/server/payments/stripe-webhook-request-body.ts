@@ -189,7 +189,13 @@ export async function readStripeWebhookRequestBody(
         void reader.cancel().catch(() => undefined);
         invalidBody();
       }
-      const nextTotal = totalBytes + result.value.byteLength;
+      // Request stream chunks are untrusted, including shadowed instance length.
+      const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', result.value) as number;
+      if (!Number.isSafeInteger(chunkBytes)) {
+        void reader.cancel().catch(() => undefined);
+        invalidBody();
+      }
+      const nextTotal = totalBytes + chunkBytes;
       if (!Number.isSafeInteger(nextTotal) || nextTotal > STRIPE_WEBHOOK_MAX_PAYLOAD_BYTES) {
         void reader.cancel().catch(() => undefined);
         payloadTooLarge();
@@ -199,7 +205,7 @@ export async function readStripeWebhookRequestBody(
         throw contentLengthMismatch();
       }
       bytes = growBodyBuffer(bytes, nextTotal);
-      bytes.set(result.value, totalBytes);
+      Uint8Array.prototype.set.call(bytes, result.value, totalBytes);
       totalBytes = nextTotal;
     }
     if (expectedBytes !== null && totalBytes !== expectedBytes) throw contentLengthMismatch();

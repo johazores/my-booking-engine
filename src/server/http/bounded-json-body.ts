@@ -39,11 +39,16 @@ export async function readBoundedJsonObject(
         void reader.cancel().catch(() => undefined);
         return null;
       }
-      totalBytes += value.byteLength;
-      if (totalBytes > maxBytes || (declaredBytes !== null && totalBytes > declaredBytes)) {
+      if (!(value instanceof Uint8Array)) {
         void reader.cancel().catch(() => undefined);
         return null;
       }
+      const chunkBytes = Reflect.get(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength', value) as number;
+      if (!Number.isSafeInteger(chunkBytes) || chunkBytes > maxBytes - totalBytes || (declaredBytes !== null && chunkBytes > declaredBytes - totalBytes)) {
+        void reader.cancel().catch(() => undefined);
+        return null;
+      }
+      totalBytes += chunkBytes;
       rawBody += decoder.decode(value, { stream: true });
     }
     if (declaredBytes !== null && totalBytes !== declaredBytes) return null;
