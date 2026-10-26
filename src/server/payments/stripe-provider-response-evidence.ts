@@ -86,12 +86,15 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // prove a terminal decline. Preserve the durable claim for reconciliation.
   if (status === 402) {
     if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
-    if (error.type === 'card_error') {
-      if (error.code === 'authentication_required' || error.code === 'payment_intent_action_required' || error.code === 'processing_error') {
-        return new PaymentProviderError('UNKNOWN', message, true);
-      }
-      return new PaymentProviderError('DECLINED', message);
-    }
+    // Authentication-required issuer declines are actionable, not proof
+    // that the underlying payment attempt is irrecoverably rejected.
+    if (
+      error.code === 'authentication_required'
+      || error.code === 'payment_intent_action_required'
+      || error.code === 'processing_error'
+      || error.declineCode === 'authentication_required'
+    ) return new PaymentProviderError('UNKNOWN', message, true);
+    if (error.type === 'card_error') return new PaymentProviderError('DECLINED', message);
     if (error.type === null && (error.code === 'card_declined' || Boolean(error.declineCode))) {
       return new PaymentProviderError('DECLINED', message);
     }

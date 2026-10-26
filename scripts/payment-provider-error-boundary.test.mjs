@@ -94,5 +94,6 @@ test('Stripe payment error status and actionable-failure contract remains explic
   assert.match(source, /error\.code === 'authentication_required'/);
   assert.match(source, /error\.code === 'payment_intent_action_required'/);
   assert.match(source, /error\.code === 'processing_error'/);
+  assert.match(source, /error\.declineCode === 'authentication_required'/);
   assert.match(documentation, /Stripe HTTP error authority and actionable card failures/);
 });

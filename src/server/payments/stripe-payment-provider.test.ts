@@ -84,6 +84,7 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
     { status: 404, body: { error: { type: 'card_error' } }, code: 'INVALID_REQUEST', retryable: false },
     { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN', retryable: true },
     { status: 402, body: { error: { type: 'card_error', code: 'authentication_required' } }, code: 'UNKNOWN', retryable: true },
+    { status: 402, body: { error: { type: 'card_error', decline_code: 'authentication_required' } }, code: 'UNKNOWN', retryable: true },
   ] as const;
   for (const item of cases) {
     const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl: async () => new Response(JSON.stringify(item.body), { status: item.status }) });
