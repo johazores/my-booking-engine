@@ -426,7 +426,9 @@ function requiredStripeWebhookCurrency(value: unknown, label: string): string {
 
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new StripeWebhookValidationError(`${label} is required.`);
-  return value.trim();
+  // Provider event IDs, resource IDs, event types, and statuses are exact
+  // signed machine tokens. Do not repair malformed values by trimming them.
+  return value;
 }
 
 /** Signed Stripe ownership and operation identity must be canonical exact provider text. */
@@ -439,9 +441,9 @@ function optionalExactMetadataString(value: unknown): string | null {
 }
 
 function optionalString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  // Checkout mode and optional PaymentIntent references must remain exact.
+  return value;
 }
 
 function optionalUnixSecondsDate(value: unknown): Date | null {

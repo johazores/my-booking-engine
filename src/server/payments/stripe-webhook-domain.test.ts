@@ -533,3 +533,36 @@ test('signed Stripe Checkout, PaymentIntent, and Refund evidence never case-fold
   assert.equal(checkout.clientReferenceId, null);
   assert.equal(checkout.commercialContext?.amendmentId, null);
 });
+
+test('signed Stripe webhook machine tokens cannot gain authority by trimming', () => {
+  const event = JSON.parse(paymentIntentEvent()) as Record<string, unknown>;
+  for (const changed of [
+    { ...event, id: ' evt_sf_payment_1' },
+    { ...event, type: 'payment_intent.amount_capturable_updated ' },
+  ]) {
+    assert.throws(() => parseStripeWebhookEventPayload(JSON.stringify(changed)), StripeWebhookValidationError);
+  }
+  for (const overrides of [
+    { id: ' pi_sf_payment_1' },
+    { status: 'requires_capture ' },
+  ]) {
+    assert.throws(() => parseStripeWebhookEventPayload(paymentIntentEvent(overrides)), StripeWebhookValidationError);
+  }
+  for (const overrides of [
+    { id: ' re_sf_refund_1' },
+    { payment_intent: 'pi_sf_payment_1 ' },
+    { status: ' succeeded' },
+  ]) {
+    assert.throws(() => parseStripeWebhookEventPayload(refundEvent(overrides)), StripeWebhookValidationError);
+  }
+  for (const overrides of [
+    { id: ' cs_test_sf_checkout_1' },
+    { status: 'expired ' },
+    { payment_status: ' unpaid' },
+    { payment_intent: ' pi_sf_payment_1' },
+  ]) {
+    assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent(overrides)), StripeWebhookValidationError);
+  }
+  const checkout = parseStripeWebhookEventPayload(checkoutSessionEvent({ mode: ' payment ' })).checkoutSession!;
+  assert.equal(checkout.mode, ' payment ');
+});
