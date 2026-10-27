@@ -123,4 +123,19 @@ The same-scope Checkout ownership review found that the signed Stripe webhook pa
 
 ### Exact signed machine-token evidence (October 27, 2026)
 
-The final same-scope sweep also found that signed webhook event IDs/types, PaymentIntent/Refund/Checkout resource IDs, statuses, and Checkout's optional PaymentIntent reference were being whitespace-trimmed before machine-token validation. The parser now preserves these values exactly: padded required fields fail their existing ID/status/type checks, padded optional PaymentIntent references fail validation, and a padded Checkout mode cannot be treated as `payment` by downstream authority checks. Whitespace-only optional values still mean absent, never a valid reference. No event is allowed to settle money merely because its signed machine text can be repaired by normalization. Negative parser regressions are checked in; full Node 24 and database execution remains pending.
+The final same-scope sweep also found that signed webhook event IDs/types, PaymentIntent/Refund/Checkout resource IDs, statuses, and Checkout's optional PaymentIntent reference were being whitespace-trimmed before machine-token validation. The parser now preserves these values exactly: padded required fields fail their existing ID/status/type checks, padded optional PaymentIntent references fail validation, and a padded Checkout mode cannot be treated as `payment` by downstream authority checks. Whitespace-only Checkout mode values mean absent mode authority; malformed present PaymentIntent references must fail validation. No event is allowed to settle money merely because its signed machine text can be repaired by normalization. Negative parser regressions are checked in; full Node 24 and database execution remains pending.
+
+### Malformed present Checkout PaymentIntent evidence (October 27, 2026)
+
+An expired signed Checkout Session can release a pending booking only when no
+PaymentIntent exists. The webhook parser previously mapped whitespace-only
+`payment_intent` strings and non-string expanded/invalid values to `null`.
+That could incorrectly supply the no-PaymentIntent prerequisite to the
+inventory-release decision. The parser now accepts `null` or an omitted field
+as absent, and requires every present non-null reference to be an exact,
+bounded `pi_*` machine token. Invalid present evidence is rejected before
+webhook persistence or booking mutation, retaining the booking for investigation
+rather than converting uncertain payment evidence into cancellation authority.
+The read-only Checkout provider already enforced this strict distinction.
+Focused regression cases are checked in; full Node 24/PostgreSQL and live
+Stripe verification remain outstanding.

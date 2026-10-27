@@ -213,8 +213,17 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     }
     const currency = requiredStripeWebhookCurrency(session.currency, 'Stripe Checkout Session currency');
 
-    const paymentIntentReference = optionalString(session.payment_intent);
-    if (paymentIntentReference && (!STRIPE_PAYMENT_INTENT_PATTERN.test(paymentIntentReference) || paymentIntentReference.length > 160)) {
+    // A malformed present reference cannot prove that no payment was started.
+    // Reject it before an expired Session can release booking inventory.
+    const paymentIntentReference = session.payment_intent === null || session.payment_intent === undefined
+      ? null
+      : session.payment_intent;
+    if (
+      paymentIntentReference !== null
+      && (typeof paymentIntentReference !== 'string'
+        || !STRIPE_PAYMENT_INTENT_PATTERN.test(paymentIntentReference)
+        || paymentIntentReference.length > 160)
+    ) {
       throw new StripeWebhookValidationError('Stripe Checkout Session PaymentIntent reference is invalid.');
     }
     const metadata = session.metadata === undefined || session.metadata === null
@@ -442,7 +451,7 @@ function optionalExactMetadataString(value: unknown): string | null {
 
 function optionalString(value: unknown): string | null {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
-  // Checkout mode and optional PaymentIntent references must remain exact.
+  // Checkout mode must remain exact; the optional PaymentIntent is checked separately.
   return value;
 }
 

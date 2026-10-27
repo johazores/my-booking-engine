@@ -178,6 +178,39 @@ test('Stripe webhook parser preserves a Checkout PaymentIntent reference so expi
   );
 });
 
+test('malformed present Checkout PaymentIntent evidence cannot authorize expiry cancellation', () => {
+  // Only omitted/null references are valid no-payment evidence. Malformed
+  // present references must fail parsing before the expiry decision is reached.
+  for (const paymentIntent of [
+    '',
+    ' ',
+    String.fromCharCode(9),
+    String.fromCharCode(10),
+    ' pi_sf_checkout_1',
+    'pi_sf_checkout_1 ',
+    'not-a-payment-intent',
+    0,
+    1,
+    false,
+    {},
+    { id: 'pi_sf_checkout_1' },
+    ['pi_sf_checkout_1'],
+  ]) {
+    assert.throws(
+      () => parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_intent: paymentIntent })),
+      StripeWebhookValidationError,
+    );
+  }
+
+  for (const paymentIntent of [null, undefined]) {
+    const checkout = parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_intent: paymentIntent })).checkoutSession;
+    assert.equal(checkout?.paymentIntentReference, null);
+  }
+
+  const valid = parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_intent: 'pi_sf_checkout_1' })).checkoutSession;
+  assert.equal(valid?.paymentIntentReference, 'pi_sf_checkout_1');
+});
+
 test('Stripe webhook parser rejects malformed Checkout Session state, money, and tenant metadata safely', () => {
   assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent({ status: 'mystery' })), StripeWebhookValidationError);
   assert.throws(() => parseStripeWebhookEventPayload(checkoutSessionEvent({ payment_status: 'mystery' })), StripeWebhookValidationError);
