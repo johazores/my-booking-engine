@@ -1,5 +1,6 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { materializeStripePaymentReadScope } from './stripe-payment-write-input.ts';
 import { assertStripeProviderResponseOwnership, classifyStripeLookupHttpError, normalizeStripeProviderResponseCurrency } from './stripe-provider-response-evidence.ts';
 import { requireStripeResponsePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 import { isKnownStripeRefundStatus } from './stripe-provider-status.ts';
@@ -45,6 +46,7 @@ export class StripeRefundReconciliationProvider {
 
   async retrieveRefund(refundReference: unknown, expected: Readonly<{ organizationId: string; bookingId: string }>): Promise<StripeRefundSnapshot> {
     const reference = normalizeStripeRefundReference(refundReference);
+    const owner = materializeStripePaymentReadScope(expected);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -59,7 +61,7 @@ export class StripeRefundReconciliationProvider {
       if (refund?.id !== reference) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different refund during reconciliation.', true);
       }
-      assertStripeProviderResponseOwnership(refund, expected.organizationId, expected.bookingId);
+      assertStripeProviderResponseOwnership(refund, owner.organizationId, owner.bookingId);
       if (!Number.isSafeInteger(refund.amount) || refund.amount <= 0) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid refund money.', true);
       }

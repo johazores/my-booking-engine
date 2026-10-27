@@ -158,3 +158,9 @@ The Stripe PaymentIntent authorization, capture, authorization-release, and refu
 Stripe webhook signature verification now similarly reads the raw payload, signature header, signing secret, and optional clock once. A changing or throwing runtime accessor cannot change the signed bytes or replay-window clock after validation. This does not replace Stripe HMAC verification or the existing durable webhook ownership/idempotency checks.
 
 Focused adapter regression cases are checked in. The isolated snapshot algorithm has been exercised under local Node 22; the complete repository Node 24/TypeScript 6/Prisma/PostgreSQL tests, build, and live Stripe validation remain unverified until the required environment is available. No GitHub Actions are used.
+
+## Provider-truth read ownership snapshots (October 28, 2026)
+
+PaymentIntent and Refund GET reconciliation now snapshot and validate canonical tenant and booking UUIDs before the Stripe request. Both adapters use the same frozen identity for response-metadata ownership verification after the asynchronous network call. Changing or throwing caller-owned getters cannot switch the expected tenant/booking during reconciliation, and malformed scope is rejected as non-retryable `INVALID_REQUEST` without contacting Stripe. Valid but mismatched provider metadata still fails as retryable `UNKNOWN` evidence.
+
+This closes the analogous read-side gap after the direct payment-write snapshot work. It does not grant caller authority, bypass upstream membership checks, settle an ambiguous claim, or activate any supplier reservation capability. Regression tests for both GET adapters are checked in. The isolated snapshot logic passed Node 22 behavioral checks and a TypeScript 5.8 strict compilation; full repository Node 24/TypeScript 6, lint, Prisma, PostgreSQL, build, and live Stripe validation remain unverified. No GitHub Actions are used.

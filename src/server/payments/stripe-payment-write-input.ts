@@ -68,3 +68,27 @@ export function materializeStripePaymentWriteInput(input: PaymentOperationContex
   assertStripePaymentWriteInput(submitted);
   return submitted;
 }
+
+/**
+ * Capture tenant and booking identity once before a provider-truth GET.
+ * A caller-owned object must not change ownership while Stripe is responding.
+ */
+export type StripePaymentReadScope = Readonly<{ organizationId: string; bookingId: string }>;
+
+export function materializeStripePaymentReadScope(input: StripePaymentReadScope): StripePaymentReadScope {
+  let organizationId: unknown;
+  let bookingId: unknown;
+  try {
+    organizationId = input.organizationId;
+    bookingId = input.bookingId;
+  } catch {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment reconciliation ownership is invalid.');
+  }
+  if (
+    typeof organizationId !== 'string' || !CANONICAL_UUID_PATTERN.test(organizationId)
+    || typeof bookingId !== 'string' || !CANONICAL_UUID_PATTERN.test(bookingId)
+  ) {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment reconciliation ownership is invalid.');
+  }
+  return Object.freeze({ organizationId, bookingId });
+}

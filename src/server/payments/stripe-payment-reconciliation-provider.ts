@@ -1,5 +1,6 @@
 import { PaymentProviderError } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { materializeStripePaymentReadScope } from './stripe-payment-write-input.ts';
 import { assertStripeProviderResponseOwnership, classifyStripeLookupHttpError, normalizeStripeProviderResponseCurrency } from './stripe-provider-response-evidence.ts';
 import { normalizeStripePaymentIntentReference, type StripeFetch } from './stripe-payment-provider.ts';
 import { isKnownStripePaymentIntentStatus } from './stripe-provider-status.ts';
@@ -46,6 +47,7 @@ export class StripePaymentReconciliationProvider {
 
   async retrievePaymentIntent(providerReference: unknown, expected: Readonly<{ organizationId: string; bookingId: string }>): Promise<StripePaymentIntentSnapshot> {
     const reference = normalizeStripePaymentIntentReference(providerReference);
+    const owner = materializeStripePaymentReadScope(expected);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -60,7 +62,7 @@ export class StripePaymentReconciliationProvider {
       if (intent?.id !== reference) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent during reconciliation.', true);
       }
-      assertStripeProviderResponseOwnership(intent, expected.organizationId, expected.bookingId);
+      assertStripeProviderResponseOwnership(intent, owner.organizationId, owner.bookingId);
       if (!isKnownStripePaymentIntentStatus(intent.status)) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized PaymentIntent status.', true);
       }

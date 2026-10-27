@@ -127,3 +127,50 @@ test('Stripe Refund reconciliation requires exact tenant and booking metadata', 
   assert.equal(snapshot.refundReference, 're_owned');
   assert.equal(snapshot.amountMinor, 4100n);
 });
+
+test('Stripe Refund provider-truth lookup snapshots validated tenant and booking scope before I/O', async () => {
+  let calls = 0;
+  let organizationReads = 0;
+  let bookingReads = 0;
+  const provider = new StripeRefundReconciliationProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ id: 're_owned', payment_intent: 'pi_owned', status: 'succeeded', amount: 4100, currency: 'usd', metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId } }));
+    },
+  });
+  const changingScope = {
+    get organizationId() {
+      organizationReads += 1;
+      return organizationReads === 1 ? STRIPE_OWNER.organizationId : STRIPE_OWNER.bookingId;
+    },
+    get bookingId() {
+      bookingReads += 1;
+      return bookingReads === 1 ? STRIPE_OWNER.bookingId : STRIPE_OWNER.organizationId;
+    },
+  };
+  await provider.retrieveRefund('re_owned', changingScope);
+  assert.equal(calls, 1);
+  assert.equal(organizationReads, 1);
+  assert.equal(bookingReads, 1);
+});
+
+test('Stripe Refund lookup rejects invalid or throwing ownership before provider I/O', async () => {
+  let calls = 0;
+  const provider = new StripeRefundReconciliationProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Unexpected provider request.'); },
+  });
+  const invalidScopes = [
+    { organizationId: 'not-a-uuid', bookingId: STRIPE_OWNER.bookingId },
+    { organizationId: STRIPE_OWNER.organizationId, bookingId: ` ${STRIPE_OWNER.bookingId}` },
+    { get organizationId(): string { throw new Error('private tenant'); }, bookingId: STRIPE_OWNER.bookingId },
+    { organizationId: STRIPE_OWNER.organizationId, get bookingId(): string { throw new Error('private booking'); } },
+  ];
+  for (const scope of invalidScopes) {
+    await assert.rejects(provider.retrieveRefund('re_owned', scope),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'INVALID_REQUEST' && !error.retryable && !error.message.includes('private'));
+  }
+  assert.equal(calls, 0);
+});
