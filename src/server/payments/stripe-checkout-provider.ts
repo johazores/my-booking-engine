@@ -117,7 +117,15 @@ export class StripeCheckoutProvider {
       throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
-    const requestedAt = input.now === undefined ? new Date() : input.now;
+    // Materialize optional clock authority once. A getter must not make
+    // omission/validation see a different value than the expiry calculation.
+    let requestedAt: Date;
+    try {
+      const suppliedNow = input.now;
+      requestedAt = suppliedNow === undefined ? new Date() : suppliedNow;
+    } catch {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
+    }
     // A Date-shaped object or shadowed getTime method cannot choose the
     // commercial Checkout expiry. Read the native Date internal timestamp.
     let requestedAtMilliseconds: number;

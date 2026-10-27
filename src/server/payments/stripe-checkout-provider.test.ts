@@ -694,6 +694,16 @@ test('Checkout expiry uses native Date authority and rejects forged clocks befor
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
     );
   }
+  const throwingClockInput = {
+    ...input,
+    get now(): Date {
+      throw new Error('Clock getter failed.');
+    },
+  };
+  await assert.rejects(
+    rejectProvider.createPaymentSession(throwingClockInput),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+  );
   assert.equal(calls, 0);
 
   // A real Date remains valid even if its instance getTime is replaced.
@@ -716,6 +726,18 @@ test('Checkout expiry uses native Date authority and rejects forged clocks befor
     assert.equal(requestedExpiry, String(Math.floor(now.getTime() / 1000) + 33 * 60));
     assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
   }
+  let clockReads = 0;
+  const singleReadClockInput = {
+    ...input,
+    get now(): Date {
+      clockReads += 1;
+      if (clockReads > 1) throw new Error('Checkout read the clock twice.');
+      return now;
+    },
+  };
+  const session = await acceptProvider.createPaymentSession(singleReadClockInput);
+  assert.equal(clockReads, 1);
+  assert.equal(session.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
 });
 
 test('Stripe Checkout rejects malformed commercial write context and clock before provider I/O', async () => {
