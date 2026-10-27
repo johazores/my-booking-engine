@@ -20,7 +20,7 @@ test('refund lifecycle authority is exact, tenant scoped, provider current, and 
   assert.match(lifecycle, /paymentWebhookEvent\.findFirst\([\s\S]*organizationId: input\.organizationId[\s\S]*providerEventId: event\.providerEventId/);
   assert.match(lifecycle, /verifiedEvent\.payloadHash !== payloadHash/);
   assert.match(lifecycle, /commercialAmendmentId: null,[\s\S]*providerReference: event\.refund\.refundReference/);
-  assert.match(lifecycle, /refundReconciliationProvider\.retrieveRefund\(refund\.providerReference\)/);
+  assert.match(lifecycle, /refundReconciliationProvider\.retrieveRefund\(refund\.providerReference,\s*\{\s*organizationId: input\.organizationId,\s*bookingId: refund\.bookingId\s*\}\)/);
   assert.match(lifecycle, /baselineTransactions = ledger\.filter\(\(entry\) => entry\.id !== current\.id\)/);
   assert.match(lifecycle, /bookingPaymentStatusForRefundLifecycle\(/);
   assert.match(lifecycle, /status: current\.status,[\s\S]*providerReference: current\.providerReference,[\s\S]*sourceProviderReference: current\.sourceProviderReference/);

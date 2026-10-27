@@ -1082,7 +1082,8 @@ export async function executeStripeHospitalityBookingCommercialAmendmentRecovery
   if (action.kind === 'RELEASE' || action.kind === 'CAPTURE') {
     const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(
       action.decision.providerReference,
-    { organizationId: input.organizationId, bookingId: input.bookingId });
+      { organizationId: input.organizationId, bookingId: input.bookingId },
+    );
     let providerState;
     try {
       providerState = reconcileStripeCommercialAmendmentRecoveryAuthorization({
@@ -1269,7 +1270,8 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
     }
     const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(
       payment.providerReference,
-    { organizationId: input.organizationId, bookingId: input.bookingId });
+      { organizationId: input.organizationId, bookingId: input.bookingId },
+    );
     providerStatus = snapshot.status;
     try {
       status = reconcileStripeCommercialAmendmentChargeSnapshot({

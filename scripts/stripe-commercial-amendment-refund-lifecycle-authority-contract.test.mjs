@@ -24,7 +24,7 @@ test('amendment lifecycle requires verified exact ownership then retrieves curre
   assert.match(service, /providerReference: event\.refund\.refundReference/);
   assert.match(service, /refund\.sourceProviderReference !== event\.refund\.paymentIntentReference/);
   assert.match(service, /refund\.requestFingerprint !== expectedFingerprint/);
-  assert.match(service, /refundReconciliationProvider\.retrieveRefund\(refund\.providerReference\)/);
+  assert.match(service, /refundReconciliationProvider\.retrieveRefund\(refund\.providerReference,\s*\{\s*organizationId: input\.organizationId,\s*bookingId: refund\.bookingId\s*\}\)/);
   assert.match(service, /snapshot\.refundReference !== refund\.providerReference/);
 });
 
