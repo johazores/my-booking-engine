@@ -1,4 +1,6 @@
 export const STRIPE_WEBHOOK_MAX_SIGNATURE_HEADER_CHARS = 4_096;
+// JavaScript Date cannot represent timestamps outside +/- 8.64e15 ms.
+const MAX_DATE_UNIX_SECONDS = 8_640_000_000_000;
 
 export type StripeWebhookSignatureEnvelope = Readonly<{
   timestamp: number;
@@ -32,9 +34,12 @@ export function parseStripeWebhookSignatureHeader(value: unknown): StripeWebhook
     if (key === 't') {
       if (timestampSeen) return null;
       timestampSeen = true;
-      if (!candidate || !/^\d+$/.test(candidate)) return null;
+      // HMAC verification reconstructs `${timestamp}.${payload}`. Accept only
+      // canonical decimal seconds so header aliases (for example t=000123)
+      // cannot authenticate using a signature over a different timestamp text.
+      if (!/^[1-9]\d*$/.test(candidate)) return null;
       const parsedTimestamp = Number(candidate);
-      if (!parsedTimestamp || !Number.isSafeInteger(parsedTimestamp)) return null;
+      if (!Number.isSafeInteger(parsedTimestamp) || parsedTimestamp > MAX_DATE_UNIX_SECONDS || String(parsedTimestamp) !== candidate) return null;
       timestamp = parsedTimestamp;
       continue;
     }

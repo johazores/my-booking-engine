@@ -152,6 +152,23 @@ test('stripe webhook verification checks raw payload and timestamp tolerance', (
   assert.equal(provider.verifyWebhookSignature!({ payload, signature: `t=${timestamp},v1=${signature}`, secret, now: new Date((timestamp + 301) * 1000) }), false);
 });
 
+test('Stripe webhook verification rejects timestamp header aliases even with an otherwise valid HMAC', () => {
+  const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret' });
+  const payload = '{"id":"evt_1","type":"payment_intent.succeeded"}';
+  const secret = 'whsec_test_signing_secret';
+  const timestamp = '1800000000';
+  const sign = (value: string) => createHmac('sha256', secret).update(`${value}.${payload}`, 'utf8').digest('hex');
+  const verify = (header: string) => provider.verifyWebhookSignature!({
+    payload, signature: header, secret, now: new Date(Number(timestamp) * 1000),
+  });
+  assert.equal(verify(`t=${timestamp},v1=${sign(timestamp)}`), true);
+  // Reusing a genuine signature with a changed timestamp spelling must not work.
+  const paddedTimestamp = `0${timestamp}`;
+  assert.equal(verify(`t=${paddedTimestamp},v1=${sign(timestamp)}`), false);
+  // Nor should a signature over the padded spelling bypass canonical framing.
+  assert.equal(verify(`t=${paddedTimestamp},v1=${sign(paddedTimestamp)}`), false);
+});
+
 test('stripe webhook verification fails closed for invalid clock authority and malformed runtime input', () => {
   const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret' });
   const payload = '{"id":"evt_1","type":"payment_intent.succeeded"}';

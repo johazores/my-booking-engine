@@ -14,6 +14,7 @@ test('Stripe webhook signature framing has one shared parser and rejects timesta
   assert.match(signatureDomain, /export function parseStripeWebhookSignatureHeader/);
   assert.match(signatureDomain, /let timestampSeen = false/);
   assert.match(signatureDomain, /if \(timestampSeen\) return null/);
+  assert.match(signatureDomain, /String\(parsedTimestamp\) !== candidate/);
   assert.match(signatureDomain, /signatures\.push\(candidate\)/);
   assert.match(signatureDomain, /Object\.freeze\(\{ timestamp, signatures: Object\.freeze\(\[\.\.\.signatures\]\) \}\)/);
   assert.match(signatureDomain, /return parseStripeWebhookSignatureHeader\(value\) !== null/);

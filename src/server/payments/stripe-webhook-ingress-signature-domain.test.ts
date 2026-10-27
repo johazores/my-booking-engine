@@ -39,6 +39,15 @@ test('rejects framing without exactly one safe non-zero timestamp', () => {
   assert.equal(parseStripeWebhookSignatureHeader(`t=1800000000,t=0,v1=${signature}`), null);
 });
 
+test('rejects noncanonical timestamp aliases before any signature authority', () => {
+  for (const timestamp of ['00', '01', '01800000000', '0001800000000', '+1800000000', '1800000000.0', '1e9']) {
+    assert.equal(parseStripeWebhookSignatureHeader(`t=${timestamp},v1=${signature}`), null, timestamp);
+    assert.equal(hasPlausibleStripeWebhookSignatureHeader(`t=${timestamp},v1=${signature}`), false, timestamp);
+  }
+  assert.equal(parseStripeWebhookSignatureHeader(`t=8640000000001,v1=${signature}`), null);
+  assert.equal(parseStripeWebhookSignatureHeader(`t=${Number.MAX_SAFE_INTEGER + 1},v1=${signature}`), null);
+});
+
 test('rejects framing without a structurally valid v1 HMAC candidate', () => {
   assert.equal(parseStripeWebhookSignatureHeader('t=1800000000,v0=legacy'), null);
   assert.equal(parseStripeWebhookSignatureHeader('t=1800000000,v1=not-hex'), null);

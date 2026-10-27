@@ -26,6 +26,10 @@ The service keeps its own UUID, signature-header, and 256 KiB UTF-8 byte-length 
 
 Ingress body failures occur before `ingestStripePaymentWebhook`, so they never establish verified tenant log scope. Oversized bodies return HTTP 413, body-acquisition deadline failures return HTTP 408, and other malformed, framing-mismatched, or aborted body conditions return the existing safe `invalid-webhook` response without echoing request data. Unexpected internal failures are no longer reclassified as client input merely because an exception message happens to contain `organizationId` or `UUID`; only explicit ingress/service validation failures receive the client-safe invalid-webhook mapping.
 
+## Signature timestamp identity
+
+The shared preflight/provider framing parser accepts only canonical positive decimal Unix-second timestamps. Leading-zero timestamp aliases, signed or unsigned, and timestamps beyond the native Date range fail before body acquisition and cannot reuse a valid HMAC over a different textual `t` value. Provider verification continues to compute HMAC over the exact canonical timestamp and raw payload; this does not change the inclusive replay tolerance or the multiple-`v1` rotation contract.
+
 ## Signature verification clock authority
 
 Stripe HMAC verification requires a finite, native Date timestamp before applying the configured replay tolerance. A malformed or invalid injected clock must fail closed: `NaN` previously made `Math.abs(nowSeconds - signatureTimestamp) > tolerance` false, which could bypass the timestamp window for an otherwise correctly signed older payload. The provider now reads the native Date time slot, rejects invalid Date values, non-Date runtime values, and forged Date-like objects, and never trusts an overridden `getTime` method. An omitted clock still uses the server clock; an explicitly null clock is invalid rather than silently treated as omitted.
