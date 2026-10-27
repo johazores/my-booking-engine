@@ -170,6 +170,15 @@ export class StripeCheckoutProvider {
     const metadata = normalizeCheckoutMetadata(response.metadata);
     const bookingId = normalizeMetadataUuid(metadata.sf_booking_id);
     assertRetrievedCheckoutSessionAuthority(response, bookingId);
+    const commercialAmendmentId = normalizeMetadataUuid(metadata.sf_commercial_amendment_id);
+    const purpose = normalizeOptionalString(metadata.sf_checkout_purpose);
+    if (
+      (Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id') && !commercialAmendmentId)
+      || (Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose')
+        && purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery')
+    ) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid commercial Checkout metadata.', true);
+    }
 
     return Object.freeze({
       providerCode: 'stripe',
@@ -180,8 +189,8 @@ export class StripeCheckoutProvider {
       money: normalizeCheckoutMoney(response),
       organizationId: normalizeMetadataUuid(metadata.sf_organization_id),
       bookingId,
-      commercialAmendmentId: normalizeMetadataUuid(metadata.sf_commercial_amendment_id),
-      purpose: normalizeOptionalString(metadata.sf_checkout_purpose),
+      commercialAmendmentId,
+      purpose,
     });
   }
 
@@ -257,7 +266,10 @@ function assertCreatedCheckoutSessionAuthority(
   const responsePurpose = normalizeOptionalString(metadata.sf_checkout_purpose);
   const responseAmendmentId = normalizeMetadataUuid(metadata.sf_commercial_amendment_id);
   if (expected.purpose === 'booking-payment') {
-    if (responsePurpose !== null || responseAmendmentId !== null) {
+    if (
+      Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose')
+      || Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id')
+    ) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned unexpected commercial amendment Checkout metadata.', true);
     }
     return;
@@ -315,14 +327,12 @@ function normalizeCheckoutMetadata(value: unknown): Record<string, unknown> {
 }
 
 function normalizeMetadataUuid(value: unknown) {
-  const normalized = normalizeOptionalString(value)?.toLowerCase() ?? null;
-  return normalized && UUID_PATTERN.test(normalized) ? normalized : null;
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value.toLowerCase() : null;
 }
 
+/** Stripe ownership/purpose evidence is exact provider text, not trim-normalized user input. */
 function normalizeOptionalString(value: unknown) {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
+  return typeof value === 'string' ? value : null;
 }
 
 function normalizeCheckoutReturnUrl(value: string) {

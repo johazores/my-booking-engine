@@ -265,11 +265,40 @@ test('Stripe refund webhook ownership requires exact tenant and booking metadata
     { sf_organization_id: organizationId, sf_booking_id: 'not-a-uuid' },
     { sf_organization_id: amendmentId, sf_booking_id: bookingId },
     { sf_organization_id: organizationId, sf_booking_id: amendmentId },
+    { sf_organization_id: ` ${organizationId}`, sf_booking_id: bookingId },
+    { sf_organization_id: organizationId, sf_booking_id: `${bookingId} ` },
+    { sf_organization_id: `${organizationId}\n`, sf_booking_id: bookingId },
   ]) {
     const refund = parseStripeWebhookEventPayload(refundEvent({ metadata })).refund!;
     assert.equal(isStripeWebhookRefundOwnedBy(refund, organizationId, bookingId), false);
   }
   assert.throws(() => parseStripeWebhookEventPayload(refundEvent({ metadata: [] })), StripeWebhookValidationError);
+});
+
+test('Stripe signed Checkout and PaymentIntent ownership metadata rejects padded UUIDs', () => {
+  const checkout = parseStripeWebhookEventPayload(checkoutSessionEvent({
+    metadata: { sf_organization_id: ` ${organizationId}`, sf_booking_id: bookingId },
+    client_reference_id: ` ${bookingId}`,
+  })).checkoutSession!;
+  assert.equal(checkout.organizationId, null);
+  assert.equal(checkout.bookingId, bookingId);
+  assert.equal(checkout.clientReferenceId, null);
+
+  const intent = parseStripeWebhookEventPayload(paymentIntentEvent({
+    metadata: { sf_organization_id: organizationId, sf_booking_id: `${bookingId} ` },
+  })).paymentIntent!;
+  assert.equal(intent.organizationId, organizationId);
+  assert.equal(intent.bookingId, null);
+
+  const amendmentCheckout = parseStripeWebhookEventPayload(checkoutSessionEvent({
+    metadata: {
+      sf_organization_id: organizationId, sf_booking_id: bookingId,
+      sf_checkout_purpose: ' commercial-amendment-charge',
+      sf_commercial_amendment_id: `${amendmentId} `,
+    },
+  })).checkoutSession!;
+  assert.equal(amendmentCheckout.commercialContext?.purpose, null);
+  assert.equal(amendmentCheckout.commercialContext?.amendmentId, null);
 });
 
 test('Stripe webhook parser safely ignores unsupported event bodies after envelope validation', () => {

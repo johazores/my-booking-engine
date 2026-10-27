@@ -14,8 +14,11 @@ const recoveryFinalizer = source('src/server/bookings/hospitality-booking-commer
 
 test('signed Stripe refund snapshots retain canonical tenant and booking metadata', () => {
   assert.match(domain, /const metadata = refund\.metadata/);
-  assert.match(domain, /organizationId: metadataOrganizationId && UUID_PATTERN\.test\(metadataOrganizationId\)/);
-  assert.match(domain, /bookingId: metadataBookingId && UUID_PATTERN\.test\(metadataBookingId\)/);
+  assert.match(domain, /const metadataOrganizationId = optionalMetadataUuid\(metadata\?\.sf_organization_id\)/);
+  assert.match(domain, /const metadataBookingId = optionalMetadataUuid\(metadata\?\.sf_booking_id\)/);
+  assert.match(domain, /organizationId: metadataOrganizationId/);
+  assert.match(domain, /bookingId: metadataBookingId/);
+  assert.match(domain, /UUID_PATTERN\.test\(value\)/);
   assert.match(domain, /export function isStripeWebhookRefundOwnedBy/);
   assert.match(domain, /refund\.organizationId === organizationId/);
   assert.match(domain, /refund\.bookingId !== null/);

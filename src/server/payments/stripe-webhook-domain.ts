@@ -173,8 +173,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     const metadata = refund.metadata === undefined || refund.metadata === null
       ? null
       : objectRecord(refund.metadata, 'Stripe refund metadata');
-    const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
-    const metadataBookingId = optionalString(metadata?.sf_booking_id);
+    const metadataOrganizationId = optionalMetadataUuid(metadata?.sf_organization_id);
+    const metadataBookingId = optionalMetadataUuid(metadata?.sf_booking_id);
     return Object.freeze({
       providerEventId,
       eventType,
@@ -187,8 +187,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
         status,
         currency,
         amountMinor: BigInt(Number(refund.amount)),
-        organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
-        bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
+        organizationId: metadataOrganizationId,
+        bookingId: metadataBookingId,
       }),
     });
   }
@@ -220,25 +220,20 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
     const metadata = session.metadata === undefined || session.metadata === null
       ? null
       : objectRecord(session.metadata, 'Stripe Checkout Session metadata');
-    const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
-    const metadataBookingId = optionalString(metadata?.sf_booking_id);
+    const metadataOrganizationId = optionalMetadataUuid(metadata?.sf_organization_id);
+    const metadataBookingId = optionalMetadataUuid(metadata?.sf_booking_id);
     const mode = optionalString(session.mode);
-    const clientReferenceIdValue = optionalString(session.client_reference_id);
-    const clientReferenceId = clientReferenceIdValue && UUID_PATTERN.test(clientReferenceIdValue)
-      ? clientReferenceIdValue.toLowerCase()
-      : null;
+    const clientReferenceId = optionalMetadataUuid(session.client_reference_id);
     const expiresAt = optionalUnixSecondsDate(session.expires_at);
     const hasCommercialContext = Boolean(metadata) && (
       Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose')
       || Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id')
     );
-    const commercialAmendmentIdValue = optionalString(metadata?.sf_commercial_amendment_id);
+    const commercialAmendmentId = optionalMetadataUuid(metadata?.sf_commercial_amendment_id);
     const commercialContext = hasCommercialContext
       ? Object.freeze({
-          purpose: optionalString(metadata?.sf_checkout_purpose),
-          amendmentId: commercialAmendmentIdValue && UUID_PATTERN.test(commercialAmendmentIdValue)
-            ? commercialAmendmentIdValue.toLowerCase()
-            : null,
+          purpose: optionalExactMetadataString(metadata?.sf_checkout_purpose),
+          amendmentId: commercialAmendmentId,
         })
       : null;
 
@@ -255,8 +250,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
         currency,
         amountTotalMinor: BigInt(Number(session.amount_total)),
         paymentIntentReference,
-        organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
-        bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
+        organizationId: metadataOrganizationId,
+        bookingId: metadataBookingId,
         mode,
         clientReferenceId,
         expiresAt,
@@ -314,8 +309,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
   const metadata = intent.metadata === undefined || intent.metadata === null
     ? null
     : objectRecord(intent.metadata, 'Stripe PaymentIntent metadata');
-  const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
-  const metadataBookingId = optionalString(metadata?.sf_booking_id);
+  const metadataOrganizationId = optionalMetadataUuid(metadata?.sf_organization_id);
+  const metadataBookingId = optionalMetadataUuid(metadata?.sf_booking_id);
 
   return Object.freeze({
     providerEventId,
@@ -330,8 +325,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       amountMinor: BigInt(Number(intent.amount)),
       amountReceivedMinor: BigInt(Number(amountReceived)),
       amountCapturableMinor: BigInt(Number(amountCapturable)),
-      organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
-      bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
+      organizationId: metadataOrganizationId,
+      bookingId: metadataBookingId,
     }),
   });
 }
@@ -432,6 +427,15 @@ function requiredStripeWebhookCurrency(value: unknown, label: string): string {
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new StripeWebhookValidationError(`${label} is required.`);
   return value.trim();
+}
+
+/** Stripe ownership metadata must not gain authority by trimming provider text. */
+function optionalMetadataUuid(value: unknown): string | null {
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value.toLowerCase() : null;
+}
+
+function optionalExactMetadataString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value === value.trim() ? value : null;
 }
 
 function optionalString(value: unknown): string | null {
