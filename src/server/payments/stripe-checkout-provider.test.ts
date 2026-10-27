@@ -4,8 +4,8 @@ import test from 'node:test';
 import { PaymentProviderError } from './payment-provider.ts';
 import { StripeCheckoutProvider } from './stripe-checkout-provider.ts';
 
-const organizationId = '11111111-1111-4111-8111-111111111111';
-const bookingId = '22222222-2222-4222-8222-222222222222';
+const organizationId = 'a1111111-1111-4111-8111-111111111111';
+const bookingId = 'b2222222-2222-4222-8222-222222222222';
 const amendmentId = '33333333-3333-4333-8333-333333333333';
 const now = new Date('2026-09-02T09:00:00.000Z');
 
@@ -543,6 +543,7 @@ test('retrieved Checkout rejects missing, uppercase, and partial commercial owne
 });
 
 test('Stripe Checkout rejects malformed commercial write context and clock before provider I/O', async () => {
+  assert.notEqual(organizationId.toUpperCase(), organizationId);
   let calls = 0;
   const provider = new StripeCheckoutProvider({
     secretKey: 'sk_test_checkout_secret',

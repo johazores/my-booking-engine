@@ -5,8 +5,8 @@ import test from 'node:test';
 import { PaymentProviderError } from './payment-provider.ts';
 import { StripePaymentProvider, normalizeStripePaymentIntentReference, normalizeStripePaymentMethodReference, type StripeFetch } from './stripe-payment-provider.ts';
 
-const organizationId = '11111111-1111-4111-8111-111111111111';
-const bookingId = '22222222-2222-4222-8222-222222222222';
+const organizationId = 'a1111111-1111-4111-8111-111111111111';
+const bookingId = 'b2222222-2222-4222-8222-222222222222';
 function context(idempotencyKey = 'stripe:payment:1') { return { organizationId, bookingId, idempotencyKey, money: { currency: 'USD', amountMinor: 24100n } } as const; }
 
 // Successful Stripe resource fixtures include the same metadata that SF sends.
@@ -697,6 +697,7 @@ test('Stripe money-movement writes reject missing or cross-tenant provider metad
 });
 
 test('Stripe money-movement adapters reject invalid write identity and money before provider I/O', async () => {
+  assert.notEqual(organizationId.toUpperCase(), organizationId);
   let calls = 0;
   const provider = new StripePaymentProvider({
     secretKey: 'sk_test_not-a-real-secret',
