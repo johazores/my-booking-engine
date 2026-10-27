@@ -74,6 +74,9 @@ test('stripe authorization release rejects provider identity and money drift', a
 test('stripe adapter normalizes declines, rate limits, idempotency errors, and money mismatches', async () => {
   const cases = [
     { status: 402, body: { error: { type: 'card_error', code: 'card_declined', message: 'Card declined' } }, code: 'DECLINED', retryable: false },
+    { status: 402, body: { error: { type: 'card_error' } }, code: 'UNKNOWN', retryable: true },
+    { status: 402, body: { error: { type: 'card_error', decline_code: ' ' } }, code: 'UNKNOWN', retryable: true },
+    { status: 402, body: { error: { type: 'card_error', code: 'expired_card' } }, code: 'DECLINED', retryable: false },
     { status: 429, body: { error: { message: 'Slow down' } }, code: 'RATE_LIMITED', retryable: true },
     { status: 409, body: { error: { type: 'invalid_request_error', code: 'idempotency_key_in_use' } }, code: 'UNKNOWN', retryable: true },
     { status: 409, body: { error: { type: 'idempotency_error', code: 'idempotency_key_in_use' } }, code: 'UNKNOWN', retryable: true },

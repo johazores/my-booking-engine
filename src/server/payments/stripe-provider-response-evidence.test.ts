@@ -47,6 +47,18 @@ test('Stripe error extraction preserves HTTP classification on malformed payload
   });
 });
 
+test('Stripe machine error hints require bounded canonical tokens before influencing payment truth', () => {
+  for (const malformed of ['', ' ', 'card_declined ', ' card_declined', 'card_declined\n', 'CARD_DECLINED', 'é', 'x'.repeat(97)]) {
+    const parsed = readStripeProviderError({ error: { type: 'card_error', code: malformed, decline_code: malformed } }, 'Fallback');
+    assert.equal(parsed.type, 'card_error');
+    assert.equal(parsed.code, null);
+    assert.equal(parsed.declineCode, null);
+    const failure = classifyStripePaymentHttpError(402, { error: { type: 'card_error', code: malformed, decline_code: malformed } }, 'Fallback');
+    assert.equal(failure.code, 'UNKNOWN');
+    assert.equal(failure.retryable, true);
+  }
+});
+
 test('Stripe HTTP payment error classification prioritizes transport status over misleading body hints', () => {
   const cases = [
     { status: 401, type: 'card_error', code: 'AUTHENTICATION_FAILED', retryable: false },
@@ -58,7 +70,7 @@ test('Stripe HTTP payment error classification prioritizes transport status over
     { status: 409, type: 'idempotency_error', code: 'DUPLICATE', retryable: false },
     { status: 400, type: 'idempotency_error', code: 'DUPLICATE', retryable: false },
     { status: 424, type: 'card_error', code: 'PROVIDER_UNAVAILABLE', retryable: true },
-    { status: 402, type: 'card_error', code: 'DECLINED', retryable: false },
+    { status: 402, type: 'card_error', code: 'UNKNOWN', retryable: true },
     { status: 402, type: null, code: 'UNKNOWN', retryable: true },
     { status: 400, type: null, code: 'INVALID_REQUEST', retryable: false },
   ] as const;
@@ -118,6 +130,11 @@ test('Stripe write status outranks contradictory decline hints and preserves act
     { status: 402, error: { code: 'card_declined' }, code: 'DECLINED', retryable: false },
     { status: 402, error: { decline_code: 'generic_decline' }, code: 'DECLINED', retryable: false },
     { status: 402, error: { type: 'card_error', code: 'card_declined' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { type: 'card_error', code: 'expired_card' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { type: 'card_error', decline_code: 'generic_decline' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { type: 'card_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'card_error', code: 'card_declined ' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { decline_code: ' ' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'card_error', code: 'authentication_required' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'card_error', code: 'payment_intent_action_required' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'card_error', code: 'processing_error' }, code: 'UNKNOWN', retryable: true },

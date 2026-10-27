@@ -304,6 +304,8 @@ test('Checkout creation preserves ambiguous Stripe conflicts and external-depend
     { status: 409, body: { error: { code: 'idempotency_key_in_use' } }, code: 'UNKNOWN' },
     { status: 424, body: { error: { type: 'card_error' } }, code: 'PROVIDER_UNAVAILABLE' },
     { status: 402, body: { error: { message: 'Unclassified failure' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { type: 'card_error' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { type: 'card_error', decline_code: ' ' } }, code: 'UNKNOWN' },
     { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN' },
     { status: 402, body: { error: { type: 'card_error', code: 'authentication_required' } }, code: 'UNKNOWN' },
     { status: 402, body: { error: { decline_code: 'authentication_required' } }, code: 'UNKNOWN' },

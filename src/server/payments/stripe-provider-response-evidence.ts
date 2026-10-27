@@ -37,6 +37,11 @@ export function assertStripeProviderResponseObject(value: unknown): asserts valu
   }
 }
 
+/** Only bounded canonical ASCII tokens can carry Stripe machine error authority. */
+function readStripeMachineToken(value: unknown): string | null {
+  return typeof value === 'string' && value.length <= 96 && /^[a-z][a-z0-9_]*$/.test(value) ? value : null;
+}
+
 /** Malformed Stripe error bodies must not hide the actual HTTP failure classification. */
 export function readStripeProviderError(payload: unknown, fallback: string) {
   const envelope = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
@@ -48,9 +53,9 @@ export function readStripeProviderError(payload: unknown, fallback: string) {
   const message = rawMessage.trim();
   return Object.freeze({
     message: message && rawMessage.length <= 512 && !/[\u0000-\u001f\u007f-\u009f]/.test(rawMessage) ? message : fallback,
-    type: typeof detail?.type === 'string' ? detail.type : null,
-    code: typeof detail?.code === 'string' ? detail.code : null,
-    declineCode: typeof detail?.decline_code === 'string' ? detail.decline_code : null,
+    type: readStripeMachineToken(detail?.type),
+    code: readStripeMachineToken(detail?.code),
+    declineCode: readStripeMachineToken(detail?.decline_code),
   });
 }
 
@@ -94,7 +99,10 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
       || error.code === 'processing_error'
       || error.declineCode === 'authentication_required'
     ) return new PaymentProviderError('UNKNOWN', message, true);
-    if (error.type === 'card_error') return new PaymentProviderError('DECLINED', message);
+    // A bare card_error type does not prove a terminal card rejection.
+    if (error.type === 'card_error' && (error.code !== null || error.declineCode !== null)) {
+      return new PaymentProviderError('DECLINED', message);
+    }
     if (error.type === null && (error.code === 'card_declined' || Boolean(error.declineCode))) {
       return new PaymentProviderError('DECLINED', message);
     }
