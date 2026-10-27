@@ -174,7 +174,7 @@ test('stripe webhook verification fails closed for invalid clock authority and m
     Object.create(Date.prototype),
     new Proxy(new Date(timestamp * 1000), {}),
   ]) {
-    assert.equal(verify({ now }), false, String(now));
+    assert.equal(verify({ now }), false);
   }
   const invalidDateWithForgedGetter = new Date(Number.NaN);
   Object.defineProperty(invalidDateWithForgedGetter, 'getTime', { value: () => timestamp * 1000 });
@@ -191,6 +191,7 @@ test('stripe webhook verification fails closed for invalid clock authority and m
     assert.equal(verify({ [field]: value }), false);
   }
   assert.equal(verify({ payload: `${payload} ` }), false);
+  assert.equal(provider.verifyWebhookSignature!(null as unknown as Parameters<StripePaymentProvider['verifyWebhookSignature']>[0]), false);
 });
 
 test('stripe references and constructor configuration validate before requests', () => {
