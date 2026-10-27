@@ -436,3 +436,108 @@ test('Stripe Checkout creation and retrieval preserve retryable HTTP status over
       error instanceof PaymentProviderError && error.code === item.code && error.retryable);
   }
 });
+
+test('Checkout creation rejects noncanonical commercial authority before contacting Stripe', async () => {
+  const cases: Array<Record<string, unknown>> = [
+    { organizationId: ` ${organizationId}` },
+    { bookingId: `${bookingId} ` },
+    { organizationId: 'A1111111-1111-4111-8111-111111111111' },
+    { bookingId: 'B2222222-2222-4222-8222-222222222222' },
+    { purpose: 'future-payment-purpose' },
+    { commercialAmendmentId: '' },
+    { commercialAmendmentId: amendmentId },
+    { purpose: 'commercial-amendment-charge' },
+    { purpose: 'commercial-amendment-charge', commercialAmendmentId: ` ${amendmentId}` },
+    { purpose: 'commercial-amendment-recovery', commercialAmendmentId: `${amendmentId}\n` },
+    { purpose: 'commercial-amendment-charge', commercialAmendmentId: 'C3333333-3333-4333-8333-333333333333' },
+  ];
+  for (const overrides of cases) {
+    let calls = 0;
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(JSON.stringify(checkoutResponse()));
+      },
+    });
+    await assert.rejects(provider.createPaymentSession({
+      organizationId,
+      bookingId,
+      idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success',
+      cancelUrl: 'https://booking.example.test/cancel',
+      now,
+      ...overrides,
+    }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
+    assert.equal(calls, 0, JSON.stringify(overrides));
+  }
+});
+
+test('created Checkout requires exact canonical metadata rather than case-normalized UUID identity', async () => {
+  const tenant = 'a1111111-1111-4111-8111-111111111111';
+  const booking = 'b2222222-2222-4222-8222-222222222222';
+  for (const metadata of [
+    { sf_organization_id: tenant.toUpperCase(), sf_booking_id: booking },
+    { sf_organization_id: tenant, sf_booking_id: booking.toUpperCase() },
+  ]) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+        client_reference_id: booking, metadata,
+      }))),
+    });
+    await assert.rejects(provider.createPaymentSession({
+      organizationId: tenant, bookingId: booking,
+      idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      money: { currency: 'USD', amountMinor: 12500n },
+      successUrl: 'https://booking.example.test/success',
+      cancelUrl: 'https://booking.example.test/cancel',
+      now,
+    }), (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+});
+
+test('retrieved Checkout rejects missing, uppercase, and partial commercial ownership evidence', async () => {
+  const tenant = 'a1111111-1111-4111-8111-111111111111';
+  const booking = 'b2222222-2222-4222-8222-222222222222';
+  const canonical = {
+    sf_organization_id: tenant,
+    sf_booking_id: booking,
+    sf_commercial_amendment_id: amendmentId,
+    sf_checkout_purpose: 'commercial-amendment-recovery',
+  };
+  for (const metadata of [
+    { ...canonical, sf_organization_id: undefined },
+    { ...canonical, sf_organization_id: tenant.toUpperCase() },
+    { ...canonical, sf_booking_id: booking.toUpperCase() },
+    { ...canonical, sf_commercial_amendment_id: undefined },
+    { ...canonical, sf_checkout_purpose: undefined },
+    { ...canonical, sf_checkout_purpose: 'booking-payment' },
+  ]) {
+    const provider = new StripeCheckoutProvider({
+      secretKey: 'sk_test_checkout_secret',
+      fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+        client_reference_id: booking,
+        metadata,
+        status: 'complete',
+        payment_status: 'paid',
+        payment_intent: 'pi_checkout_1',
+      }))),
+    });
+    await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+  }
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+      client_reference_id: booking.toUpperCase(),
+      metadata: canonical,
+      status: 'complete',
+      payment_status: 'paid',
+      payment_intent: 'pi_checkout_1',
+    }))),
+  });
+  await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
+});

@@ -6,7 +6,7 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const STRIPE_CHECKOUT_HOSTNAME = 'checkout.stripe.com';
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CHECKOUT_EXPIRY_MINUTES = 30;
 
@@ -85,14 +85,25 @@ export class StripeCheckoutProvider {
   }): Promise<StripeCheckoutSessionResult> {
     const successUrl = normalizeCheckoutReturnUrl(input.successUrl);
     const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
+    // Checkout identity is persisted commercial authority, not free-form input.
+    // Reject noncanonical values before a Stripe Session can be created.
+    if (
+      typeof input.organizationId !== 'string' || !UUID_PATTERN.test(input.organizationId)
+      || typeof input.bookingId !== 'string' || !UUID_PATTERN.test(input.bookingId)
+    ) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout requires canonical tenant and booking IDs.');
+    }
     const purpose = input.purpose ?? 'booking-payment';
-    const commercialAmendmentId = input.commercialAmendmentId?.trim().toLowerCase() ?? null;
-    const commercialPurpose = purpose === 'commercial-amendment-charge' || purpose === 'commercial-amendment-recovery';
+    if (purpose !== 'booking-payment' && purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery') {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout purpose is invalid.');
+    }
+    const commercialAmendmentId = input.commercialAmendmentId ?? null;
+    const commercialPurpose = purpose !== 'booking-payment';
     if (commercialPurpose) {
-      if (!commercialAmendmentId || !UUID_PATTERN.test(commercialAmendmentId)) {
-        throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment Checkout requires a valid amendment ID.');
+      if (typeof commercialAmendmentId !== 'string' || !UUID_PATTERN.test(commercialAmendmentId)) {
+        throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment Checkout requires a canonical amendment ID.');
       }
-    } else if (commercialAmendmentId) {
+    } else if (commercialAmendmentId !== null) {
       throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
@@ -168,14 +179,20 @@ export class StripeCheckoutProvider {
     const paymentStatus = normalizeCheckoutPaymentStatus(response.payment_status);
     const paymentIntentReference = normalizePaymentIntentReference(response.payment_intent);
     const metadata = normalizeCheckoutMetadata(response.metadata);
+    const organizationId = normalizeMetadataUuid(metadata.sf_organization_id);
     const bookingId = normalizeMetadataUuid(metadata.sf_booking_id);
+    if (!organizationId) {
+      throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid Checkout tenant metadata.', true);
+    }
     assertRetrievedCheckoutSessionAuthority(response, bookingId);
     const commercialAmendmentId = normalizeMetadataUuid(metadata.sf_commercial_amendment_id);
     const purpose = normalizeOptionalString(metadata.sf_checkout_purpose);
+    const hasAmendmentId = Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id');
+    const hasPurpose = Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose');
     if (
-      (Object.prototype.hasOwnProperty.call(metadata, 'sf_commercial_amendment_id') && !commercialAmendmentId)
-      || (Object.prototype.hasOwnProperty.call(metadata, 'sf_checkout_purpose')
-        && purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery')
+      hasAmendmentId !== hasPurpose
+      || (hasAmendmentId && (!commercialAmendmentId
+        || (purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery')))
     ) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned invalid commercial Checkout metadata.', true);
     }
@@ -187,7 +204,7 @@ export class StripeCheckoutProvider {
       paymentStatus,
       paymentIntentReference,
       money: normalizeCheckoutMoney(response),
-      organizationId: normalizeMetadataUuid(metadata.sf_organization_id),
+      organizationId,
       bookingId,
       commercialAmendmentId,
       purpose,
@@ -258,8 +275,8 @@ function assertCreatedCheckoutSessionAuthority(
   }
   const metadata = normalizeCheckoutMetadata(response.metadata);
   if (
-    normalizeMetadataUuid(metadata.sf_organization_id) !== expected.organizationId.toLowerCase()
-    || normalizeMetadataUuid(metadata.sf_booking_id) !== expected.bookingId.toLowerCase()
+    normalizeMetadataUuid(metadata.sf_organization_id) !== expected.organizationId
+    || normalizeMetadataUuid(metadata.sf_booking_id) !== expected.bookingId
   ) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout metadata that does not match the requested booking.', true);
   }
@@ -283,7 +300,7 @@ function assertRetrievedCheckoutSessionAuthority(response: StripeCheckoutSession
   if (
     response.mode !== 'payment'
     || !bookingId
-    || normalizeMetadataUuid(response.client_reference_id) !== bookingId
+    || response.client_reference_id !== bookingId
     || !Number.isSafeInteger(response.expires_at)
     || Number(response.expires_at) <= 0
   ) {
@@ -327,7 +344,7 @@ function normalizeCheckoutMetadata(value: unknown): Record<string, unknown> {
 }
 
 function normalizeMetadataUuid(value: unknown) {
-  return typeof value === 'string' && UUID_PATTERN.test(value) ? value.toLowerCase() : null;
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
 }
 
 /** Stripe ownership/purpose evidence is exact provider text, not trim-normalized user input. */

@@ -500,3 +500,36 @@ test('signed Stripe PaymentIntent, Checkout, and Refund events require canonical
   assert.equal(parseStripeWebhookEventPayload(checkoutSessionEvent({ currency: 'php' })).checkoutSession?.currency, 'PHP');
   assert.equal(parseStripeWebhookEventPayload(refundEvent({ currency: 'usd' })).refund?.currency, 'USD');
 });
+
+test('signed Stripe Checkout, PaymentIntent, and Refund evidence never case-folds ownership UUIDs', () => {
+  const tenant = 'a1111111-1111-4111-8111-111111111111';
+  const booking = 'b2222222-2222-4222-8222-222222222222';
+  const amendment = 'c3333333-3333-4333-8333-333333333333';
+
+  const refund = parseStripeWebhookEventPayload(refundEvent({
+    metadata: { sf_organization_id: tenant.toUpperCase(), sf_booking_id: booking },
+  })).refund!;
+  assert.equal(refund.organizationId, null);
+  assert.equal(refund.bookingId, booking);
+  assert.equal(isStripeWebhookRefundOwnedBy(refund, tenant, booking), false);
+
+  const intent = parseStripeWebhookEventPayload(paymentIntentEvent({
+    metadata: { sf_organization_id: tenant, sf_booking_id: booking.toUpperCase() },
+  })).paymentIntent!;
+  assert.equal(intent.organizationId, tenant);
+  assert.equal(intent.bookingId, null);
+
+  const checkout = parseStripeWebhookEventPayload(checkoutSessionEvent({
+    client_reference_id: booking.toUpperCase(),
+    metadata: {
+      sf_organization_id: tenant,
+      sf_booking_id: booking,
+      sf_checkout_purpose: 'commercial-amendment-charge',
+      sf_commercial_amendment_id: amendment.toUpperCase(),
+    },
+  })).checkoutSession!;
+  assert.equal(checkout.organizationId, tenant);
+  assert.equal(checkout.bookingId, booking);
+  assert.equal(checkout.clientReferenceId, null);
+  assert.equal(checkout.commercialContext?.amendmentId, null);
+});

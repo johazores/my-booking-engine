@@ -6,7 +6,7 @@ const STRIPE_EVENT_TYPE_PATTERN = /^[a-z0-9_.]{3,120}$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_REFUND_PATTERN = /^re_[A-Za-z0-9_]+$/;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export type StripeWebhookPaymentIntent = Readonly<{
   providerReference: string;
@@ -429,9 +429,9 @@ function requiredString(value: unknown, label: string): string {
   return value.trim();
 }
 
-/** Stripe ownership metadata must not gain authority by trimming provider text. */
+/** Signed Stripe ownership and operation identity must be canonical exact provider text. */
 function optionalMetadataUuid(value: unknown): string | null {
-  return typeof value === 'string' && UUID_PATTERN.test(value) ? value.toLowerCase() : null;
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
 }
 
 function optionalExactMetadataString(value: unknown): string | null {
