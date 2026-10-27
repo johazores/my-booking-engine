@@ -446,14 +446,21 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
   } catch {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
   }
-  const pathSegments = url.pathname.split('/').filter(Boolean);
+  // A matching last segment is not enough: arbitrary Stripe-hosted paths
+  // (including parser-normalized dot segments) are not Checkout payment routes.
+  // Require the exact raw default hosted route before WHATWG normalization.
+  const checkoutPath = `/c/pay/${sessionReference}`;
+  const rawCheckoutBase = `https://${STRIPE_CHECKOUT_HOSTNAME}${checkoutPath}`;
+  const suffix = value.slice(rawCheckoutBase.length);
   if (
-    url.protocol !== 'https:'
+    !value.startsWith(rawCheckoutBase)
+    || (suffix.length > 0 && suffix[0] !== '?' && suffix[0] !== '#')
+    || url.protocol !== 'https:'
     || url.hostname !== STRIPE_CHECKOUT_HOSTNAME
     || url.port
     || url.username
     || url.password
-    || pathSegments.at(-1) !== sessionReference
+    || url.pathname !== checkoutPath
   ) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
   }

@@ -110,6 +110,32 @@ test('rejects Checkout redirect authority outside the default Stripe-hosted sess
   }
 });
 
+test('rejects alternate or parser-normalized Stripe paths even when the final Session ID matches', async () => {
+  for (const url of [
+    'https://checkout.stripe.com/redirect/cs_test_abc123',
+    'https://checkout.stripe.com/c/pay//cs_test_abc123',
+    'https://checkout.stripe.com/c/pay/cs_test_abc123/',
+    'https://checkout.stripe.com/c/pay/cs_test_abc123/../cs_test_abc123',
+    'https://checkout.stripe.com/c/pay/../pay/cs_test_abc123',
+    'https://checkout.stripe.com/c/pay/%2e%2e/pay/cs_test_abc123',
+    'https://checkout.stripe.com/c/pay/cs_test_abc123x',
+    'https://checkout.stripe.com:443/c/pay/cs_test_abc123',
+    'https://CHECKOUT.STRIPE.COM/c/pay/cs_test_abc123',
+  ]) {
+    await assert.rejects(
+      createBookingCheckout({ url }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
+test('accepts the exact default hosted Checkout path with Stripe URL fragments', async () => {
+  const session = await createBookingCheckout({
+    url: 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout',
+  });
+  assert.equal(session.checkoutUrl, 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout');
+});
+
 test('rejects raw Checkout redirect text that URL parsing would silently change', async () => {
   const validUrl = 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout';
   for (const url of [
