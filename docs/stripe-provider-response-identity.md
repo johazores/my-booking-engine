@@ -110,3 +110,27 @@ Stripe PaymentIntent and Refund objects return their persisted metadata (see [Pa
 A missing, null, malformed, padded, or cross-tenant/cross-booking metadata pair is retryable `UNKNOWN` provider truth. It does not become a customer decline, authorize a fresh idempotency key, or mutate the tenant-owned payment claim as a definitive result. This is an additional provider-evidence check behind existing server-side membership/resource authorization, not a replacement for it. Checkout Session creation already has a separate explicit metadata and booking identity check; GET reconciliation and signed webhooks remain governed by their existing persisted-reference and tenant-scoped recovery boundaries.
 
 Regression fixtures now include Stripe's returned metadata and negative tests cover all four write operations against missing and conflicting ownership. The repository Node 24 tests, TypeScript 6, Prisma, PostgreSQL, production build, and live Stripe sandbox verification remain unexecuted here. No GitHub Actions are used.
+
+
+## Provider-truth GET ownership (October 27, 2026)
+
+A matching Stripe PaymentIntent/Refund reference and amount are not sufficient to
+settle an SF tenant-owned payment. The read-only reconciliation adapters now require
+the server-derived organization and booking identity on every lookup and reject
+successful Stripe objects whose returned `metadata.sf_organization_id` or
+`metadata.sf_booking_id` is absent, malformed, padded, or mismatched. The
+check is performed inside the provider adapter before a snapshot can reach
+normal payment/refund reconciliation, signed-refund webhook follow-up GETs,
+commercial-amendment settlement, or compensation recovery.
+
+This is defense in depth for shared Stripe credentials and provider-reference
+confusion; the existing tenant-scoped database queries, authorization, payment
+locks, exact source references, and money checks remain required. Missing or
+contradictory metadata is retryable `UNKNOWN` provider evidence, not a
+confirmed decline/refund, permission to retry with a new idempotency key, or
+permission to mutate the ledger. These lookups never initiate a payment write.
+
+Focused adapter tests now include valid owner metadata and explicit missing,
+foreign, and padded owner/booking cases. Full Node 24/TypeScript 6, lint,
+Prisma, PostgreSQL, production build, and live Stripe verification remain
+separate outstanding gates. No GitHub Actions are used.

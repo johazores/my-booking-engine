@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
+
 import { PaymentProviderError } from './payment-provider.ts';
 import { StripePaymentReconciliationProvider } from './stripe-payment-reconciliation-provider.ts';
 
@@ -9,7 +11,7 @@ function providerWithResponse(body: Record<string, unknown>) {
     secretKey: 'sk_test_not-a-real-secret',
     fetchImpl: async () => new Response(JSON.stringify({
       id: 'pi_terminal_evidence', status: 'canceled', amount: 12500,
-      currency: 'usd', ...body,
+      currency: 'usd', metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId }, ...body,
     })),
   });
 }
@@ -24,7 +26,7 @@ test('Stripe reconciliation rejects missing terminal money instead of inventing 
     ]) {
       const provider = providerWithResponse({ status, ...evidence });
       await assert.rejects(
-        provider.retrievePaymentIntent('pi_terminal_evidence'),
+        provider.retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
         (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
       );
     }
@@ -33,25 +35,25 @@ test('Stripe reconciliation rejects missing terminal money instead of inventing 
 
 test('Stripe reconciliation preserves complete canceled and settled evidence', async () => {
   const canceled = await providerWithResponse({ amount_received: 0, amount_capturable: 0 })
-    .retrievePaymentIntent('pi_terminal_evidence');
+    .retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER);
   assert.deepEqual(
     { status: canceled.status, amountReceivedMinor: canceled.amountReceivedMinor, amountCapturableMinor: canceled.amountCapturableMinor },
     { status: 'canceled', amountReceivedMinor: 0n, amountCapturableMinor: 0n },
   );
   const settled = await providerWithResponse({
     status: 'succeeded', amount_received: 12500, amount_capturable: 0,
-  }).retrievePaymentIntent('pi_terminal_evidence');
+  }).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER);
   assert.equal(settled.amountReceivedMinor, 12500n);
   assert.equal(settled.amountCapturableMinor, 0n);
 });
 
 test('Stripe reconciliation keeps nonterminal pending states and exact provider identity', async () => {
-  const pending = await providerWithResponse({ status: 'processing', amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence');
+  const pending = await providerWithResponse({ status: 'processing', amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER);
   assert.equal(pending.status, 'processing');
   assert.equal(pending.amountReceivedMinor, 0n);
   const mismatched = providerWithResponse({ id: 'pi_other', amount_received: 0, amount_capturable: 0 });
   await assert.rejects(
-    mismatched.retrievePaymentIntent('pi_terminal_evidence'),
+    mismatched.retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
@@ -64,7 +66,7 @@ test('Stripe provider-truth lookup rejects canceled money and settled capturable
     { status: 'succeeded', amount_received: 12500, amount_capturable: 1 },
   ]) {
     await assert.rejects(
-      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence'),
+      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
     );
   }
@@ -79,7 +81,7 @@ test('Stripe failed PaymentIntent lookup does not discard received or capturable
     { status: 'requires_payment_method', amount_received: 0, amount_capturable: 1 },
   ]) {
     await assert.rejects(
-      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence'),
+      providerWithResponse(evidence).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
     );
   }
@@ -88,7 +90,7 @@ test('Stripe failed PaymentIntent lookup does not discard received or capturable
 test('PaymentIntent retrieval rejects unknown statuses instead of returning pending evidence', async () => {
   for (const status of [undefined, null, 'unknown', 'paid', 'SUCCEEDED', 123]) {
     await assert.rejects(
-      providerWithResponse({ status, amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence'),
+      providerWithResponse({ status, amount_received: 0, amount_capturable: 0 }).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
       (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
     );
   }
@@ -103,18 +105,18 @@ test('nonterminal Stripe lookups require explicit and consistent money', async (
       { amount_received: 0, amount_capturable: null },
     ]) {
       await assert.rejects(
-        providerWithResponse({ status, ...evidence }).retrievePaymentIntent('pi_terminal_evidence'),
+        providerWithResponse({ status, ...evidence }).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
         (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
       );
     }
   }
   await assert.rejects(
     providerWithResponse({ status: 'processing', amount_received: 7000, amount_capturable: 7000 })
-      .retrievePaymentIntent('pi_terminal_evidence'),
+      .retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
   const pending = await providerWithResponse({ status: 'requires_action', amount_received: 0, amount_capturable: 0 })
-    .retrievePaymentIntent('pi_terminal_evidence');
+    .retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER);
   assert.equal(pending.status, 'requires_action');
   assert.equal(pending.amountReceivedMinor, 0n);
   assert.equal(pending.amountCapturableMinor, 0n);
@@ -123,7 +125,7 @@ test('nonterminal Stripe lookups require explicit and consistent money', async (
 test('Stripe PaymentIntent lookups reject references beyond the ledger column limit before provider I/O', async () => {
   await assert.rejects(
     providerWithResponse({ amount_received: 0, amount_capturable: 0 })
-      .retrievePaymentIntent(`pi_${'x'.repeat(158)}`),
+      .retrievePaymentIntent(`pi_${'x'.repeat(158)}`, STRIPE_OWNER),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST',
   );
 });
@@ -131,7 +133,7 @@ test('Stripe PaymentIntent lookups reject references beyond the ledger column li
 test('Stripe PaymentIntent retrieval rejects unsupported or noncanonical provider currencies', async () => {
   for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
     await assert.rejects(providerWithResponse({ amount_received: 0, amount_capturable: 0, currency })
-      .retrievePaymentIntent('pi_terminal_evidence'),
+      .retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
   }
 });
@@ -148,7 +150,7 @@ test('Stripe PaymentIntent lookup preserves HTTP status when error JSON is malfo
       secretKey: 'sk_test_not-a-real-secret',
       fetchImpl: async () => new Response('null', { status }),
     });
-    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
+    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
       (error: unknown) => error instanceof PaymentProviderError && error.code === code && error.retryable === retryable);
   }
 });
@@ -158,7 +160,7 @@ test('Stripe PaymentIntent lookup treats HTTP 408 as retryable timeout rather th
     secretKey: 'sk_test_not-a-real-secret',
     fetchImpl: async () => new Response(JSON.stringify({ error: { type: 'card_error' } }), { status: 408 }),
   });
-  await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
+  await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'TIMEOUT' && error.retryable);
 });
 
@@ -173,7 +175,25 @@ test('Stripe PaymentIntent lookup preserves provider api_error ambiguity across 
       secretKey: 'sk_test_not-a-real-secret',
       fetchImpl: async () => new Response(JSON.stringify({ error: { type: item.type } }), { status: item.status }),
     });
-    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence'),
+    await assert.rejects(provider.retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
       (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable === item.retryable);
+  }
+});
+
+
+test('Stripe PaymentIntent reconciliation requires exact tenant and booking metadata', async () => {
+  const valid = { status: 'succeeded', amount_received: 12500, amount_capturable: 0 };
+  const correct = { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId };
+  for (const metadata of [
+    undefined, null, {}, [], 'invalid',
+    { ...correct, sf_organization_id: '33333333-3333-4333-8333-333333333333' },
+    { ...correct, sf_booking_id: '44444444-4444-4444-8444-444444444444' },
+    { ...correct, sf_organization_id: ` ${STRIPE_OWNER.organizationId}` },
+    { ...correct, sf_booking_id: `${STRIPE_OWNER.bookingId} ` },
+  ]) {
+    await assert.rejects(
+      providerWithResponse({ ...valid, metadata }).retrievePaymentIntent('pi_terminal_evidence', STRIPE_OWNER),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
   }
 });

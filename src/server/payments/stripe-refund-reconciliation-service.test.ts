@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
+
 const { PaymentConflictError } = await import('./payment-service.ts');
 const { StripeRefundReconciliationProvider } = await import('./stripe-refund-reconciliation-provider.ts');
 const { reconcileStripeRefundState } = await import('./stripe-refund-reconciliation-service.ts');
@@ -27,6 +29,7 @@ test('refund reconciliation provider retrieves Stripe refund truth without repla
     fetchImpl: async (input, init) => {
       request = new Request(input, init);
       return new Response(JSON.stringify({
+        metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId },
         id: 're_refund_1',
         payment_intent: 'pi_capture_1',
         status: 'succeeded',
@@ -36,7 +39,7 @@ test('refund reconciliation provider retrieves Stripe refund truth without repla
     },
   });
 
-  const result = await provider.retrieveRefund('re_refund_1');
+  const result = await provider.retrieveRefund('re_refund_1', STRIPE_OWNER);
   assert.equal(request?.method, 'GET');
   assert.equal(new URL(request!.url).pathname, '/v1/refunds/re_refund_1');
   assert.equal(request?.headers.get('Idempotency-Key'), null);
@@ -69,6 +72,7 @@ test('refund reconciliation provider fails closed on invalid Stripe refund paylo
   const provider = new StripeRefundReconciliationProvider({
     secretKey: 'sk_test_reconciliation',
     fetchImpl: async () => new Response(JSON.stringify({
+      metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId },
       id: 're_refund_1',
       payment_intent: null,
       status: 'succeeded',
@@ -76,7 +80,7 @@ test('refund reconciliation provider fails closed on invalid Stripe refund paylo
       amount: 2500,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
   });
-  await assert.rejects(() => provider.retrieveRefund('re_refund_1'));
+  await assert.rejects(() => provider.retrieveRefund('re_refund_1', STRIPE_OWNER));
 });
 
 
@@ -84,11 +88,12 @@ test('Stripe refund reconciliation rejects a different refund identity even when
   const provider = new StripeRefundReconciliationProvider({
     secretKey: 'sk_test_reconciliation',
     fetchImpl: async () => new Response(JSON.stringify({
+      metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId },
       id: 're_other', payment_intent: 'pi_capture_1', status: 'succeeded', currency: 'usd', amount: 2500,
     })),
   });
   await assert.rejects(
-    provider.retrieveRefund('re_refund_1'),
+    provider.retrieveRefund('re_refund_1', STRIPE_OWNER),
     (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
   );
 });
@@ -99,11 +104,12 @@ test('refund lookup and reconciliation reject unknown states rather than silentl
     const provider = new StripeRefundReconciliationProvider({
       secretKey: 'sk_test_reconciliation',
       fetchImpl: async () => new Response(JSON.stringify({
+        metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId },
         id: 're_refund_1', payment_intent: 'pi_capture_1', status, amount: 2500, currency: 'usd',
       })),
     });
     await assert.rejects(
-      provider.retrieveRefund('re_refund_1'),
+      provider.retrieveRefund('re_refund_1', STRIPE_OWNER),
       (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN'
         && (error as { retryable?: boolean }).retryable === true,
     );

@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
+
 process.env.DATABASE_URL ??= 'postgresql://sf_unit_test:sf_unit_test@127.0.0.1:5432/sf_unit_test';
 
 const { StripePaymentReconciliationProvider } = await import('./stripe-payment-reconciliation-provider.ts');
 const { reconcileStripeTransactionState, reconciledBookingPaymentStatus } = await import('./stripe-reconciliation-service.ts');
 
 function stripeResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const resource = status === 200 && body !== null && typeof body === 'object' && !Array.isArray(body) && 'id' in body
+    ? { metadata: { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId }, ...body }
+    : body;
+  return new Response(JSON.stringify(resource), { status, headers: { 'content-type': 'application/json' } });
 }
 
 test('Stripe reconciliation retrieves a PaymentIntent with authenticated GET and exact money', async () => {
@@ -20,7 +25,7 @@ test('Stripe reconciliation retrieves a PaymentIntent with authenticated GET and
     },
   });
 
-  const snapshot = await provider.retrievePaymentIntent('pi_reconcile_1');
+  const snapshot = await provider.retrievePaymentIntent('pi_reconcile_1', STRIPE_OWNER);
   assert.equal(request?.method, 'GET');
   assert.equal(request?.headers.get('authorization'), 'Bearer sk_test_reconciliation');
   assert.equal(snapshot.providerReference, 'pi_reconcile_1');
@@ -59,7 +64,7 @@ test('authorization reconciliation rejects missing, partial, or inconsistent cap
     fetchImpl: async () => stripeResponse({ id: 'pi_auth', status: 'requires_capture', amount: 5000, currency: 'usd', amount_capturable: 5000 }),
   });
   await assert.rejects(
-    provider.retrievePaymentIntent('pi_auth'),
+    provider.retrievePaymentIntent('pi_auth', STRIPE_OWNER),
     (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
   );
 });
@@ -86,7 +91,7 @@ test('Stripe reconciliation classifies provider lookup failures without treating
     secretKey: 'sk_test_reconciliation',
     fetchImpl: async () => stripeResponse({ error: { message: 'too many requests' } }, 429),
   });
-  await assert.rejects(provider.retrievePaymentIntent('pi_reconcile_2'), (error: unknown) => {
+  await assert.rejects(provider.retrievePaymentIntent('pi_reconcile_2', STRIPE_OWNER), (error: unknown) => {
     assert.equal((error as { code?: string }).code, 'RATE_LIMITED');
     assert.equal((error as { retryable?: boolean }).retryable, true);
     return true;
@@ -106,7 +111,7 @@ test('Stripe PaymentIntent reconciliation rejects substituted identity and impos
       fetchImpl: async () => stripeResponse(body),
     });
     await assert.rejects(
-      provider.retrievePaymentIntent('pi_reconcile_1'),
+      provider.retrievePaymentIntent('pi_reconcile_1', STRIPE_OWNER),
       (error: unknown) => (error as { code?: string; retryable?: boolean }).code === 'UNKNOWN' && (error as { retryable?: boolean }).retryable === true,
     );
   }
