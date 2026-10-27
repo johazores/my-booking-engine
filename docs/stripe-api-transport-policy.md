@@ -91,3 +91,11 @@ The Checkout provider now distinguishes GET session reconciliation from POST ses
 ## Exact idempotency mismatch evidence
 
 Stripe writes classify `DUPLICATE` only when HTTP 400/409 provides `type: idempotency_error` together with `code: idempotency_key_reused`. An incomplete, unknown, in-flight, or wrong-status idempotency hint remains retryable `UNKNOWN` under existing durable-key reconciliation. Untyped issuer-decline hints and a `card_error` carrying an idempotency code also cannot prove a definitive card decline. The shared classifier applies across direct PaymentIntent writes, refunds, and hosted Checkout without changing tenant scope or retry keys. Full Node 24 and live Stripe verification remain outstanding.
+
+## Canonical pre-provider payment write context (October 27, 2026)
+
+The shared `stripe-payment-write-input.ts` guard now runs before Stripe network I/O for PaymentIntent authorization, capture, authorization release, refunds, and hosted Checkout creation. Direct adapter callers cannot silently case-fold or trim tenant/booking UUIDs, idempotency keys, or payment currencies into different commercial operations. Only canonical lowercase UUIDs, unchanged valid idempotency keys, exact supported uppercase currencies, and positive bigint minor-unit amounts no greater than JavaScript's safe-integer limit may reach Stripe. Malformed inputs fail as non-retryable `INVALID_REQUEST`, with no provider request. The payment amount bound prevents a Stripe response that uses JSON numbers from becoming impossible to reconcile exactly.
+
+Checkout also validates its optional caller-supplied clock before computing the Stripe expiry. Invalid dates and overflowing expiries fail before any provider request. These are adapter defense-in-depth checks, not a replacement for server-side tenant membership, booking ownership, pricing, payment authorization, persisted idempotency, or reconciliation. Existing provider-returned money and ownership checks remain mandatory after Stripe I/O.
+
+Regression tests exercise the same invalid context matrix across all four PaymentIntent/refund writes and Checkout creation, asserting zero outbound requests. Full Node 24 repository tests, Prisma/PostgreSQL, production build, and live Stripe validation remain separate unverified environment gates.

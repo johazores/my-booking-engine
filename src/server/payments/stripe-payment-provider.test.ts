@@ -695,3 +695,41 @@ test('Stripe money-movement writes reject missing or cross-tenant provider metad
     }
   }
 });
+
+test('Stripe money-movement adapters reject invalid write identity and money before provider I/O', async () => {
+  let calls = 0;
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error('Provider must not be contacted for invalid input.');
+    },
+  });
+  const invalidInputs: ReadonlyArray<Record<string, unknown>> = [
+    { organizationId: organizationId.toUpperCase() },
+    { organizationId: ` ${organizationId}` },
+    { bookingId: `${bookingId} ` },
+    { idempotencyKey: ' stripe:payment:1 ' },
+    { idempotencyKey: 'short' },
+    { money: { currency: 'usd', amountMinor: 24100n } },
+    { money: { currency: ' USD ', amountMinor: 24100n } },
+    { money: { currency: 'USD', amountMinor: 0n } },
+    { money: { currency: 'USD', amountMinor: -1n } },
+    { money: { currency: 'USD', amountMinor: Number.MAX_SAFE_INTEGER + 1 } },
+    { money: { currency: 'USD', amountMinor: BigInt(Number.MAX_SAFE_INTEGER) + 1n } },
+  ];
+  for (const overrides of invalidInputs) {
+    const input = { ...context(), ...overrides };
+    const operations = [
+      () => provider.authorizePayment({ ...input, paymentMethodReference: 'pm_card_1' } as Parameters<StripePaymentProvider['authorizePayment']>[0]),
+      () => provider.capturePayment({ ...input, providerReference: 'pi_owned_1' } as Parameters<StripePaymentProvider['capturePayment']>[0]),
+      () => provider.releaseAuthorization({ ...input, providerReference: 'pi_owned_1' } as Parameters<StripePaymentProvider['releaseAuthorization']>[0]),
+      () => provider.refundPayment({ ...input, providerReference: 'pi_owned_1' } as Parameters<StripePaymentProvider['refundPayment']>[0]),
+    ];
+    for (const operation of operations) {
+      await assert.rejects(operation(), (error: unknown) =>
+        error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable);
+    }
+  }
+  assert.equal(calls, 0);
+});

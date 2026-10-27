@@ -11,6 +11,7 @@ import {
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { assertStripePaymentWriteInput } from './stripe-payment-write-input.ts';
 import { assertStripeProviderResponseOwnership, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
 import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
@@ -57,6 +58,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async authorizePayment(input: PaymentAuthorizationInput): Promise<ProviderPaymentResult> {
+    assertStripePaymentWriteInput(input);
     const paymentMethodReference = normalizeStripePaymentMethodReference(input.paymentMethodReference);
     const form = new URLSearchParams();
     form.set('amount', input.money.amountMinor.toString());
@@ -74,6 +76,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async capturePayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
+    assertStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
     form.set('amount_to_capture', input.money.amountMinor.toString());
@@ -86,6 +89,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async releaseAuthorization(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
+    assertStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
     form.set('cancellation_reason', 'abandoned');
@@ -141,6 +145,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async refundPayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult> {
+    assertStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
     form.set('payment_intent', providerReference);

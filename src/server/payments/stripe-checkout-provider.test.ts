@@ -541,3 +541,41 @@ test('retrieved Checkout rejects missing, uppercase, and partial commercial owne
   await assert.rejects(provider.retrievePaymentSession('cs_test_abc123'),
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
 });
+
+test('Stripe Checkout rejects malformed commercial write context and clock before provider I/O', async () => {
+  let calls = 0;
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error('Invalid Checkout input must never reach Stripe.');
+    },
+  });
+  const valid = {
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl: 'https://booking.example.test/success',
+    cancelUrl: 'https://booking.example.test/cancel',
+    now,
+  };
+  for (const overrides of [
+    { organizationId: organizationId.toUpperCase() },
+    { bookingId: ` ${bookingId}` },
+    { idempotencyKey: ` ${valid.idempotencyKey}` },
+    { money: { currency: 'usd', amountMinor: 12500n } },
+    { money: { currency: 'USD', amountMinor: 0n } },
+    { money: { currency: 'USD', amountMinor: -1n } },
+    { money: { currency: 'USD', amountMinor: 12500 } },
+    { money: { currency: 'USD', amountMinor: BigInt(Number.MAX_SAFE_INTEGER) + 1n } },
+    { now: new Date(Number.NaN) },
+    { now: '2026-09-02T09:00:00.000Z' },
+  ]) {
+    await assert.rejects(
+      provider.createPaymentSession({ ...valid, ...overrides } as Parameters<StripeCheckoutProvider['createPaymentSession']>[0]),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+  }
+  assert.equal(calls, 0);
+});

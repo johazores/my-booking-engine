@@ -1,5 +1,6 @@
 import { PaymentProviderError, type PaymentMoney } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
+import { assertStripePaymentWriteInput } from './stripe-payment-write-input.ts';
 import { assertStripeProviderResponseObject, classifyStripeLookupHttpError, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
@@ -83,6 +84,7 @@ export class StripeCheckoutProvider {
     purpose?: StripeCheckoutPurpose;
     commercialAmendmentId?: string | null;
   }): Promise<StripeCheckoutSessionResult> {
+    assertStripePaymentWriteInput(input);
     const successUrl = normalizeCheckoutReturnUrl(input.successUrl);
     const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
     // Checkout identity is persisted commercial authority, not free-form input.
@@ -107,7 +109,14 @@ export class StripeCheckoutProvider {
       throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
-    const expiresAt = new Date((input.now ?? new Date()).getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
+    const requestedAt = input.now ?? new Date();
+    if (!(requestedAt instanceof Date) || !Number.isFinite(requestedAt.getTime())) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
+    }
+    const expiresAt = new Date(requestedAt.getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
+    if (!Number.isFinite(expiresAt.getTime())) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout expiry is invalid.');
+    }
     const requestedExpiresAtSeconds = Math.floor(expiresAt.getTime() / 1000);
     const form = new URLSearchParams();
     form.set('mode', 'payment');
