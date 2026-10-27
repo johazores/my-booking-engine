@@ -81,10 +81,10 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // A failed external Stripe dependency does not prove that money did not move.
   if (status === 424 || status >= 500) return new PaymentProviderError('PROVIDER_UNAVAILABLE', message, true);
   // Concurrent same-key requests can return 409 before Stripe stores an
-  // idempotent result. Only explicit parameter-mismatch evidence is definitive.
+  // idempotent result. Only the exact canonical parameter-mismatch code is definitive.
   if (status === 409 || (status === 400 && error.code === 'idempotency_key_in_use')) {
     if (!error.machineEvidenceValid) return new PaymentProviderError('UNKNOWN', message, true);
-    if (error.type === 'idempotency_error' && error.code !== 'idempotency_key_in_use') {
+    if (error.type === 'idempotency_error' && error.code === 'idempotency_key_reused') {
       return new PaymentProviderError('DUPLICATE', message);
     }
     return new PaymentProviderError('UNKNOWN', message, true);
@@ -96,14 +96,19 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // establish a definitive duplicate or card rejection for a payment write.
   if (!error.machineEvidenceValid) return new PaymentProviderError('UNKNOWN', message, true);
   if (status === 400) {
-    if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+    if (error.type === 'idempotency_error') {
+      return error.code === 'idempotency_key_reused'
+        ? new PaymentProviderError('DUPLICATE', message)
+        : new PaymentProviderError('UNKNOWN', message, true);
+    }
     if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);
     return new PaymentProviderError('INVALID_REQUEST', message);
   }
   // Stripe can return card errors that require customer action rather than
   // prove a terminal decline. Preserve the durable claim for reconciliation.
   if (status === 402) {
-    if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+    // HTTP 402 is not authoritative idempotency-parameter mismatch evidence.
+    if (error.type === 'idempotency_error') return new PaymentProviderError('UNKNOWN', message, true);
     // Authentication-required issuer declines are actionable, not proof
     // that the underlying payment attempt is irrecoverably rejected.
     if (
@@ -112,11 +117,12 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
       || error.code === 'processing_error'
       || error.declineCode === 'authentication_required'
     ) return new PaymentProviderError('UNKNOWN', message, true);
-    // A bare card_error type does not prove a terminal card rejection.
-    if (error.type === 'card_error' && (error.code !== null || error.declineCode !== null)) {
-      return new PaymentProviderError('DECLINED', message);
+    // Untyped issuer hints and contradictory idempotency codes do not prove
+    // a terminal card rejection.
+    if (error.code === 'idempotency_key_in_use' || error.code === 'idempotency_key_reused') {
+      return new PaymentProviderError('UNKNOWN', message, true);
     }
-    if (error.type === null && (error.code === 'card_declined' || Boolean(error.declineCode))) {
+    if (error.type === 'card_error' && (error.code !== null || error.declineCode !== null)) {
       return new PaymentProviderError('DECLINED', message);
     }
     return new PaymentProviderError('UNKNOWN', message, true);
@@ -124,7 +130,8 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // Stripe api_error is a provider-side failure, including atypical 4xx
   // responses. It cannot establish a definitive failed money movement.
   if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);
-  if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
+  // Unexpected 4xx idempotency hints cannot finalize a commercial write.
+  if (error.type === 'idempotency_error') return new PaymentProviderError('UNKNOWN', message, true);
   if (status >= 400 && status < 500) return new PaymentProviderError('INVALID_REQUEST', message);
   return new PaymentProviderError('UNKNOWN', message, true);
 }

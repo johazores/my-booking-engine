@@ -99,6 +99,10 @@ test('Stripe payment error status and actionable-failure contract remains explic
   assert.match(source, /function hasMalformedStripeMachineToken/);
   assert.match(source, /!error\.machineEvidenceValid/);
   assert.match(source, /error\.type === 'card_error' &&/);
+  assert.match(source, /error\.code === 'idempotency_key_reused'/);
+  assert.match(source, /error\.code === 'idempotency_key_in_use'/);
+  assert.equal(source.includes("error.type === null && (error.code === 'card_declined'"), false);
+  assert.equal(source.includes("error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE'"), false);
   assert.match(source, /error\.code !== null/);
   assert.match(source, /error\.declineCode !== null/);
   assert.match(documentation, /Stripe HTTP error authority and actionable card failures/);

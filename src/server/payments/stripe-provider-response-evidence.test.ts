@@ -129,6 +129,24 @@ test('Stripe distinguishes an in-flight idempotency conflict from parameter mism
   assert.equal(mismatch.retryable, false);
 });
 
+test('Stripe idempotency machine evidence requires coherent status and code', () => {
+  for (const status of [400, 409]) {
+    const duplicate = classifyStripePaymentHttpError(status, { error: { type: 'idempotency_error', code: 'idempotency_key_reused' } }, 'Fallback');
+    assert.equal(duplicate.code, 'DUPLICATE');
+    assert.equal(duplicate.retryable, false);
+    for (const code of [undefined, null, 'unknown_future_code', 'idempotency_key_in_use']) {
+      const unknown = classifyStripePaymentHttpError(status, { error: { type: 'idempotency_error', code } }, 'Fallback');
+      assert.equal(unknown.code, 'UNKNOWN');
+      assert.equal(unknown.retryable, true);
+    }
+  }
+  for (const status of [402, 422]) {
+    const unknown = classifyStripePaymentHttpError(status, { error: { type: 'idempotency_error', code: 'idempotency_key_reused' } }, 'Fallback');
+    assert.equal(unknown.code, 'UNKNOWN');
+    assert.equal(unknown.retryable, true);
+  }
+});
+
 test('Stripe HTTP lookup classification keeps 404 and timeout semantics separate', () => {
   for (const item of [
     { status: 401, code: 'AUTHENTICATION_FAILED', retryable: false },
@@ -156,8 +174,8 @@ test('Stripe write status outranks contradictory decline hints and preserves act
     { status: 422, error: { type: 'api_error' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'api_error', code: 'card_declined' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'invalid_request_error', decline_code: 'generic_decline' }, code: 'UNKNOWN', retryable: true },
-    { status: 402, error: { code: 'card_declined' }, code: 'DECLINED', retryable: false },
-    { status: 402, error: { decline_code: 'generic_decline' }, code: 'DECLINED', retryable: false },
+    { status: 402, error: { code: 'card_declined' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { decline_code: 'generic_decline' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'card_error', code: 'card_declined' }, code: 'DECLINED', retryable: false },
     { status: 402, error: { type: 'card_error', code: 'expired_card' }, code: 'DECLINED', retryable: false },
     { status: 402, error: { type: 'card_error', decline_code: 'generic_decline' }, code: 'DECLINED', retryable: false },
@@ -170,9 +188,17 @@ test('Stripe write status outranks contradictory decline hints and preserves act
     { status: 402, error: { decline_code: 'authentication_required' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { type: 'card_error', decline_code: 'authentication_required' }, code: 'UNKNOWN', retryable: true },
     { status: 402, error: { code: 'authentication_required', decline_code: 'generic_decline' }, code: 'UNKNOWN', retryable: true },
-    { status: 400, error: { type: 'idempotency_error' }, code: 'DUPLICATE', retryable: false },
-    { status: 409, error: { type: 'idempotency_error' }, code: 'DUPLICATE', retryable: false },
+    { status: 400, error: { type: 'idempotency_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 409, error: { type: 'idempotency_error' }, code: 'UNKNOWN', retryable: true },
     { status: 409, error: { type: 'card_error' }, code: 'UNKNOWN', retryable: true },
+    { status: 409, error: { type: 'idempotency_error', code: 'idempotency_key_reused' }, code: 'DUPLICATE', retryable: false },
+    { status: 400, error: { type: 'idempotency_error', code: 'idempotency_key_reused' }, code: 'DUPLICATE', retryable: false },
+    { status: 400, error: { type: 'idempotency_error', code: 'unknown_future_code' }, code: 'UNKNOWN', retryable: true },
+    { status: 409, error: { type: 'idempotency_error', code: 'unknown_future_code' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'idempotency_error', code: 'idempotency_key_reused' }, code: 'UNKNOWN', retryable: true },
+    { status: 422, error: { type: 'idempotency_error', code: 'idempotency_key_reused' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'card_error', code: 'idempotency_key_reused' }, code: 'UNKNOWN', retryable: true },
+    { status: 402, error: { type: 'card_error', code: 'idempotency_key_in_use' }, code: 'UNKNOWN', retryable: true },
     { status: 424, error: { type: 'card_error' }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
   ] as const;
   for (const item of cases) {
