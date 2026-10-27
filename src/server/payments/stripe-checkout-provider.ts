@@ -371,6 +371,7 @@ function normalizeCheckoutCustomerEmail(value: unknown): string | null {
     || value.length === 0
     || value.length > CHECKOUT_CUSTOMER_EMAIL_MAX_LENGTH
     || value !== value.trim()
+    || !value.isWellFormed()
     || UNSAFE_CHECKOUT_TEXT_PATTERN.test(value)
     || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
   ) {
@@ -385,6 +386,7 @@ function normalizeCheckoutReturnUrl(value: unknown) {
     || value.length === 0
     || value.length > 2_048
     || value !== value.trim()
+    || !value.isWellFormed()
     || UNSAFE_CHECKOUT_TEXT_PATTERN.test(value)
   ) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL is invalid.');
@@ -399,7 +401,7 @@ function normalizeCheckoutReturnUrl(value: unknown) {
   if (url.protocol !== 'https:' && !localDevelopment) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL must use HTTPS.');
   }
-  if (url.username || url.password || value.length > 2_048) {
+  if (url.username || url.password) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL is invalid.');
   }
   return url.toString();
