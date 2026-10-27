@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
-
 import { PaymentProviderError } from './payment-provider.ts';
 import { normalizeStripeRefundReference, StripeRefundReconciliationProvider } from './stripe-refund-reconciliation-provider.ts';
+
+const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
 
 test('Stripe refund lookup references fit the persisted ledger reference limit', () => {
   assert.equal(normalizeStripeRefundReference(`re_${'x'.repeat(157)}`).length, 160);
@@ -84,7 +83,6 @@ test('Stripe refund lookup preserves provider api_error ambiguity across atypica
       (error: unknown) => error instanceof PaymentProviderError && error.code === item.code && error.retryable === item.retryable);
   }
 });
-
 
 test('Stripe Refund reconciliation requires exact tenant and booking metadata', async () => {
   const correct = { sf_organization_id: STRIPE_OWNER.organizationId, sf_booking_id: STRIPE_OWNER.bookingId };

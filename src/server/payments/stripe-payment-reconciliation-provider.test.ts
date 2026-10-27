@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
-
 import { PaymentProviderError } from './payment-provider.ts';
 import { StripePaymentReconciliationProvider } from './stripe-payment-reconciliation-provider.ts';
+
+const STRIPE_OWNER = Object.freeze({ organizationId: '11111111-1111-4111-8111-111111111111', bookingId: '22222222-2222-4222-8222-222222222222' });
 
 function providerWithResponse(body: Record<string, unknown>) {
   return new StripePaymentReconciliationProvider({
@@ -57,7 +56,6 @@ test('Stripe reconciliation keeps nonterminal pending states and exact provider 
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
   );
 });
-
 
 test('Stripe provider-truth lookup rejects canceled money and settled capturable balances', async () => {
   for (const evidence of [
