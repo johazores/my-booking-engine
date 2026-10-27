@@ -42,6 +42,10 @@ function readStripeMachineToken(value: unknown): string | null {
   return typeof value === 'string' && value.length <= 96 && /^[a-z][a-z0-9_]*$/.test(value) ? value : null;
 }
 
+function hasMalformedStripeMachineToken(value: unknown): boolean {
+  return value !== undefined && value !== null && readStripeMachineToken(value) === null;
+}
+
 /** Malformed Stripe error bodies must not hide the actual HTTP failure classification. */
 export function readStripeProviderError(payload: unknown, fallback: string) {
   const envelope = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
@@ -56,6 +60,11 @@ export function readStripeProviderError(payload: unknown, fallback: string) {
     type: readStripeMachineToken(detail?.type),
     code: readStripeMachineToken(detail?.code),
     declineCode: readStripeMachineToken(detail?.decline_code),
+    machineEvidenceValid: !(
+      hasMalformedStripeMachineToken(detail?.type)
+      || hasMalformedStripeMachineToken(detail?.code)
+      || hasMalformedStripeMachineToken(detail?.decline_code)
+    ),
   });
 }
 
@@ -74,6 +83,7 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // Concurrent same-key requests can return 409 before Stripe stores an
   // idempotent result. Only explicit parameter-mismatch evidence is definitive.
   if (status === 409 || (status === 400 && error.code === 'idempotency_key_in_use')) {
+    if (!error.machineEvidenceValid) return new PaymentProviderError('UNKNOWN', message, true);
     if (error.type === 'idempotency_error' && error.code !== 'idempotency_key_in_use') {
       return new PaymentProviderError('DUPLICATE', message);
     }
@@ -82,6 +92,9 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
   // A 404 or invalid 400 request cannot become a card decline solely from
   // contradictory error-body hints. Only explicit key reuse is definitive.
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', message);
+  // Keep HTTP not-found authority, but never let malformed machine hints
+  // establish a definitive duplicate or card rejection for a payment write.
+  if (!error.machineEvidenceValid) return new PaymentProviderError('UNKNOWN', message, true);
   if (status === 400) {
     if (error.type === 'idempotency_error') return new PaymentProviderError('DUPLICATE', message);
     if (error.type === 'api_error') return new PaymentProviderError('UNKNOWN', message, true);

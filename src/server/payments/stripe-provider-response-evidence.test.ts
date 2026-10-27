@@ -43,7 +43,7 @@ test('Stripe error extraction preserves HTTP classification on malformed payload
   assert.deepEqual(readStripeProviderError({ error: {
     message: 'Card declined', type: 'card_error', code: 'card_declined', decline_code: 'insufficient_funds',
   } }, 'Fallback'), {
-    message: 'Card declined', type: 'card_error', code: 'card_declined', declineCode: 'insufficient_funds',
+    message: 'Card declined', type: 'card_error', code: 'card_declined', declineCode: 'insufficient_funds', machineEvidenceValid: true,
   });
 });
 
@@ -53,9 +53,38 @@ test('Stripe machine error hints require bounded canonical tokens before influen
     assert.equal(parsed.type, 'card_error');
     assert.equal(parsed.code, null);
     assert.equal(parsed.declineCode, null);
+    assert.equal(parsed.machineEvidenceValid, false);
     const failure = classifyStripePaymentHttpError(402, { error: { type: 'card_error', code: malformed, decline_code: malformed } }, 'Fallback');
     assert.equal(failure.code, 'UNKNOWN');
     assert.equal(failure.retryable, true);
+  }
+});
+
+test('Stripe rejects contradictory malformed machine fields even beside valid decline or idempotency hints', () => {
+  for (const [status, error] of [
+    [402, { type: 'CARD_ERROR', code: 'card_declined' }],
+    [402, { type: 'card_error', code: 'card_declined', decline_code: ' ' }],
+    [402, { type: 'card_error', code: 'card_declined', decline_code: 4 }],
+    [400, { type: 'idempotency_error', code: 'idempotency_key_reused ' }],
+    [409, { type: 'idempotency_error', code: 'idempotency_key_in_use ' }],
+  ] as const) {
+    const result = classifyStripePaymentHttpError(status, { error }, 'Fallback');
+    assert.equal(result.code, 'UNKNOWN');
+    assert.equal(result.retryable, true);
+  }
+});
+
+test('Stripe HTTP transport authority still outranks malformed machine hints', () => {
+  for (const [status, code, retryable] of [
+    [404, 'INVALID_REQUEST', false],
+    [429, 'RATE_LIMITED', true],
+    [424, 'PROVIDER_UNAVAILABLE', true],
+  ] as const) {
+    const failure = classifyStripePaymentHttpError(status, {
+      error: { type: 'CARD_ERROR', code: 'card_declined' },
+    }, 'Fallback');
+    assert.equal(failure.code, code);
+    assert.equal(failure.retryable, retryable);
   }
 });
 

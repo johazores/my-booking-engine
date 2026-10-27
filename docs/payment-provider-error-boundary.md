@@ -52,7 +52,6 @@ Only HTTP 402 with coherent card-error evidence can produce a customer `DECLINED
 
 Focused classifier, PaymentIntent authorization/capture/release/refund, Checkout creation/retrieval, and dependency-free source-contract regressions are checked in. Full Node 24 tests, PostgreSQL, and live Stripe sandbox behavior remain unverified in the automation environment. No GitHub Actions are used.
 
-
 ## Canonical Stripe error-code evidence
 
 Stripe error `type`, `code`, and `decline_code` are machine evidence, not free-form diagnostic text. The shared adapter accepts these fields only as bounded lowercase ASCII tokens (maximum 96 characters, lowercase letter first, followed by lowercase letters, digits, or underscores). Empty, padded, control-containing, Unicode, uppercase, and oversized values do not gain machine classification authority; the human-readable diagnostic message remains separately bounded and is never returned raw to clients.
@@ -60,3 +59,6 @@ Stripe error `type`, `code`, and `decline_code` are machine evidence, not free-f
 HTTP 402 with a bare `card_error` type but no valid error code or issuer decline code remains retryable `UNKNOWN`. An incomplete error envelope alone must not definitively fail an idempotent payment claim. A canonical `card_error` code (for example `card_declined` or `expired_card`) or a canonical issuer decline code still permits `DECLINED`, except for the explicitly actionable/ambiguous conditions above. A missing error type can still carry an explicit canonical `card_declined` or issuer decline code. The same parser and classifier serve authorization, capture, release, refunds, and Checkout creation; read-only lookups retain their separate status authority.
 
 Focused unit and adapter regression cases cover malformed machine hints, missing evidence, genuine decline codes, and Checkout/payment write behavior. Full Node 24/Prisma/PostgreSQL/provider execution remains an open environment gate.
+
+
+If a Stripe error envelope supplies any malformed non-null machine field, it is not treated as a missing field alongside otherwise valid hints. For payment writes, such contradictory machine evidence is retryable `UNKNOWN` after HTTP authentication, timeout, rate-limit, provider-unavailable, and 404 not-found status priority; this also prevents malformed idempotency-code combinations from prematurely failing a durable claim. Read-only lookup HTTP status authority is unchanged.

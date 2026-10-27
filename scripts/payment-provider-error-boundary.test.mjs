@@ -96,6 +96,8 @@ test('Stripe payment error status and actionable-failure contract remains explic
   assert.match(source, /error\.code === 'processing_error'/);
   assert.match(source, /error\.declineCode === 'authentication_required'/);
   assert.match(source, /function readStripeMachineToken/);
+  assert.match(source, /function hasMalformedStripeMachineToken/);
+  assert.match(source, /!error\.machineEvidenceValid/);
   assert.match(source, /error\.type === 'card_error' &&/);
   assert.match(source, /error\.code !== null/);
   assert.match(source, /error\.declineCode !== null/);
