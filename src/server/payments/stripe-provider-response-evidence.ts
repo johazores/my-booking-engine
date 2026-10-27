@@ -39,11 +39,11 @@ export function assertStripeProviderResponseObject(value: unknown): asserts valu
 
 /**
  * Stripe returns the metadata attached to created PaymentIntents and refunds.
- * A successful money-movement response must prove the exact tenant and booking
- * that SF sent, even when the amount and provider reference otherwise match.
+ * Both money-movement writes and read-only reconciliation responses must prove
+ * the exact tenant and booking, even when provider reference and money match.
  * Missing or mismatched ownership is unknown provider truth after network I/O.
  */
-export function assertStripeWriteResponseOwnership(
+export function assertStripeProviderResponseOwnership(
   response: unknown,
   expectedOrganizationId: string,
   expectedBookingId: string,
