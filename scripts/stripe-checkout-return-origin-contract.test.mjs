@@ -36,3 +36,11 @@ test('Stripe Checkout adapter rejects parser-repaired return destinations before
   assert.match(source, /url\.hostname\.endsWith\('\.'\)/);
   assert.match(source, /return value;\s*}\s*\n\s*function normalizeStripeCheckoutUrl/);
 });
+
+test('Stripe-hosted Checkout redirects preserve exact provider URL text after path binding', () => {
+  const source = read('src/server/payments/stripe-checkout-provider.ts');
+  const checkoutUrlGuard = source.slice(source.indexOf('function normalizeStripeCheckoutUrl('));
+  assert.match(checkoutUrlGuard, /value !== url\.href/);
+  assert.match(checkoutUrlGuard, /return value;/);
+  assert.doesNotMatch(checkoutUrlGuard, /return url\.toString\(\)/);
+});

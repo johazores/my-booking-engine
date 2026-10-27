@@ -44,6 +44,8 @@ Stripe supports custom Checkout domains, but SF does not currently model a tenan
 
 Stripe redirect URL evidence is also checked in its original raw form before WHATWG URL parsing. Leading/trailing whitespace, C0/C1 control characters (including raw CR, LF, and TAB), unpaired Unicode surrogates, and URLs over 4,096 characters fail closed as retryable unknown provider evidence. This prevents the URL parser from silently removing or replacing characters before SF returns the hosted destination to a browser. Normal Stripe Checkout hash fragments remain supported. The raw URL must also begin with the canonical `https://checkout.stripe.com/c/pay/<session-id>` route, with only a query string or hash fragment allowed after the ID. Alternate Stripe-hosted paths are not trusted merely because they end in a matching Session ID.
 
+The entire returned Checkout URL, including any query or fragment suffix, must already be an exact canonical WHATWG URL string. Unescaped spaces, non-ASCII characters, and other suffix text that a URL parser would silently percent-encode are rejected as ambiguous provider evidence. SF returns the original URL only when it is unchanged by parsing, and preserves canonical encoded query/fragment tokens exactly. This extends the same raw-evidence policy already used for the payment return destinations.
+
 The Checkout URL is navigation authority only. It never proves payment. Signed Stripe callbacks and explicit provider reconciliation remain the payment-truth boundaries, and both are still subject to SF-owned operation binding before commercial state changes.
 
 ## Provider reconciliation binding

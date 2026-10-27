@@ -455,6 +455,8 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
   // A matching last segment is not enough: arbitrary Stripe-hosted paths
   // (including parser-normalized dot segments) are not Checkout payment routes.
   // Require the exact raw default hosted route before WHATWG normalization.
+  // The query/fragment must also be canonical: do not silently rewrite provider
+  // redirect evidence after verifying the session-bound payment path.
   const checkoutPath = `/c/pay/${sessionReference}`;
   const rawCheckoutBase = `https://${STRIPE_CHECKOUT_HOSTNAME}${checkoutPath}`;
   const suffix = value.slice(rawCheckoutBase.length);
@@ -467,9 +469,10 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
     || url.username
     || url.password
     || url.pathname !== checkoutPath
+    || value !== url.href
   ) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
   }
-  return url.toString();
+  return value;
 }
 

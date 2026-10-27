@@ -159,6 +159,30 @@ test('rejects raw Checkout redirect text that URL parsing would silently change'
   }
 });
 
+test('rejects Checkout URL query and fragment text repaired by URL parsing', async () => {
+  const base = 'https://checkout.stripe.com/c/pay/cs_test_abc123';
+  for (const suffix of [
+    '?state=needs encoding',
+    '#checkout token',
+    '#☃',
+    '?customer=josé',
+    '#<script>',
+    '#checkout`token',
+  ]) {
+    await assert.rejects(
+      createBookingCheckout({ url: base + suffix }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+      suffix,
+    );
+  }
+});
+
+test('preserves canonical encoded Checkout query and fragment evidence exactly', async () => {
+  const url = 'https://checkout.stripe.com/c/pay/cs_test_abc123?token=abc%20def#checkout%20token';
+  const session = await createBookingCheckout({ url });
+  assert.equal(session.checkoutUrl, url);
+});
+
 test('accepts an otherwise authoritative hosted Session when optional ui_mode is omitted', async () => {
   const session = await createBookingCheckout({ ui_mode: undefined });
   assert.equal(session.sessionReference, 'cs_test_abc123');
