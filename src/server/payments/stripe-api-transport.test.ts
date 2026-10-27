@@ -91,6 +91,39 @@ test('Stripe transport rejects targets and operations outside the implemented AP
   assert.throws(() => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', { ...getInit, method: 'DELETE' }));
 });
 
+test('Stripe transport rejects normalized URL aliases and empty query/fragment delimiters before Fetch', () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  const getInit = { method: 'GET', headers: { Authorization: 'Bearer sk_test_not-a-real-secret' } } as const;
+  const malformedTargets = [
+    'https://api.stripe.com/v1/refunds/re_123/../re_456',
+    'https://api.stripe.com/v1/refunds/%2e/re_123',
+    'https://api.stripe.com:443/v1/balance',
+    'https://api.stripe.com:0443/v1/balance',
+    'https://API.STRIPE.COM/v1/balance',
+    ' https://api.stripe.com/v1/balance',
+    'https://api.stripe.com/v1/balance\t',
+    'https://api.stripe.com/v1/balance?',
+    'https://api.stripe.com/v1/balance#',
+    'https://api.stripe.com/v1/balance?ignored',
+    'https://api.stripe.com/v1/balance#ignored',
+    `https://api.stripe.com/v1/refunds/re_${'a'.repeat(2_048)}`,
+  ];
+  for (const target of malformedTargets) {
+    assert.throws(
+      () => requestStripeApi(fetchImpl, target, getInit),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && error.retryable === false,
+      target,
+    );
+  }
+  assert.throws(() => requestStripeApi(fetchImpl, new URL('https://api.stripe.com/v1/balance') as unknown as string, getInit));
+  assert.throws(() => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/payment_intents/../refunds', stripePostInit()));
+  assert.equal(calls, 0);
+});
+
 test('Stripe transport rejects unreviewed headers, missing POST idempotency authority, and oversized request bodies', async () => {
   const fetchImpl = capturingFetch({});
   assert.throws(() => requestStripeApi(fetchImpl, 'https://api.stripe.com/v1/balance', {

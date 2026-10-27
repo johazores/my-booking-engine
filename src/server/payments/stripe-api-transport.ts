@@ -2,6 +2,7 @@ import { PaymentProviderError } from './payment-provider.ts';
 import { classifyHttpResponseContentEncoding, hasInconsistentProviderResponseLength, hasUnsafeProviderResponseFraming } from '../http/response-content-encoding.ts';
 
 const STRIPE_API_ORIGIN = 'https://api.stripe.com';
+const MAX_STRIPE_API_URL_CHARS = 2_048;
 const STRIPE_PAYMENT_INTENT_PATH = /^\/v1\/payment_intents\/pi_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_INTENT_MUTATION_PATH = /^\/v1\/payment_intents\/pi_[A-Za-z0-9_]+\/(?:capture|cancel)$/;
 const STRIPE_REFUND_PATH = /^\/v1\/refunds\/re_[A-Za-z0-9_]+$/;
@@ -22,15 +23,23 @@ function invalidTransportResponse(): never {
   throw new PaymentProviderError('UNKNOWN', 'Stripe API response is outside the reviewed SF provider boundary.', true);
 }
 
-function canonicalStripeUrl(input: string | URL): URL {
+function canonicalStripeUrl(input: string): URL {
+  // The reviewed adapters supply fixed string targets. URL parsing must not
+  // repair a credential-bearing target before the endpoint allowlist sees it.
+  if (typeof input !== 'string' || input.length === 0 || input.length > MAX_STRIPE_API_URL_CHARS) {
+    invalidTransportRequest();
+  }
   let url: URL;
   try {
-    url = input instanceof URL ? new URL(input.toString()) : new URL(input);
+    url = new URL(input);
   } catch {
     invalidTransportRequest();
   }
   if (
-    url.origin !== STRIPE_API_ORIGIN
+    input !== url.href
+    || input.includes('?')
+    || input.includes('#')
+    || url.origin !== STRIPE_API_ORIGIN
     || url.protocol !== 'https:'
     || url.port
     || url.username
@@ -471,7 +480,7 @@ async function fetchStripeApiResponse(
  */
 export function requestStripeApi(
   fetchImpl: StripeApiFetch,
-  input: string | URL,
+  input: string,
   init: RequestInit,
 ): Promise<Response> {
   const url = canonicalStripeUrl(input);

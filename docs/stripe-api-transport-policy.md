@@ -16,6 +16,8 @@ The transport accepts only HTTPS requests to `api.stripe.com` with no alternate 
 - `POST /v1/refunds` and `GET /v1/refunds/{re}`;
 - `POST /v1/checkout/sessions` and `GET /v1/checkout/sessions/{cs}`.
 
+The outbound target must also be an exact canonical string URL of at most 2,048 characters. SF rejects URL objects and text that WHATWG URL parsing would silently normalize, including dot segments, percent-encoded dot segments, uppercase hostnames, explicit default ports, and surrounding whitespace or control characters. Empty `?` and `#` delimiters are rejected explicitly because parsed `search` and `hash` are empty for those inputs. All currently implemented Stripe adapters already use fixed canonical string URLs. This is a credential-bearing transport restriction, not a new Stripe provider capability.
+
 Adding another Stripe endpoint is a provider-capability change and must update this allowlist deliberately rather than gaining access through a generic URL or Request object.
 
 ## Credential and request metadata boundary

@@ -31,6 +31,10 @@ test('all implemented Stripe REST callers use the shared API transport boundary'
 test('Stripe transport owns target, endpoint, headers, idempotency, and Fetch metadata policy', () => {
   const contents = source('src/server/payments/stripe-api-transport.ts');
   assert.match(contents, /const STRIPE_API_ORIGIN = 'https:\/\/api\.stripe\.com';/);
+  assert.match(contents, /const MAX_STRIPE_API_URL_CHARS = 2_048;/);
+  assert.match(contents, /input !== url\.href/);
+  assert.match(contents, /input\.includes\('\?'\)/);
+  assert.match(contents, /input\.includes\('#'\)/);
   assert.match(contents, /path === '\/v1\/balance'/);
   assert.match(contents, /path === '\/v1\/payment_intents'/);
   assert.match(contents, /path === '\/v1\/refunds'/);
