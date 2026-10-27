@@ -28,6 +28,14 @@ test('Stripe payment provider consumes shared framing evidence before HMAC autho
   assert.doesNotMatch(stripeProvider, /function parseStripeSignature/);
 });
 
+test('Stripe HMAC replay tolerance cannot be bypassed by invalid or forged clock evidence', () => {
+  assert.match(stripeProvider, /const clock = input\.now === undefined \? new Date\(\) : input\.now/);
+  assert.match(stripeProvider, /Date\.prototype\.getTime\.call\(clock\)/);
+  assert.match(stripeProvider, /if \(!Number\.isFinite\(nowMilliseconds\)\) return false/);
+  assert.match(stripeProvider, /Math\.abs\(nowSeconds - parsed\.timestamp\) > this\.webhookToleranceSeconds/);
+  assert.doesNotMatch(stripeProvider, /\(input\.now \?\? new Date\(\)\)\.getTime\(\)/);
+});
+
 test('shared Stripe signature authority is documented without promoting preflight to HMAC verification', () => {
   assert.match(document, /exactly one unambiguous timestamp/i);
   assert.match(document, /shared framing parser/i);

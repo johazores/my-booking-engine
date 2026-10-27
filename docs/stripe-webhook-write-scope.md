@@ -26,6 +26,14 @@ The service keeps its own UUID, signature-header, and 256 KiB UTF-8 byte-length 
 
 Ingress body failures occur before `ingestStripePaymentWebhook`, so they never establish verified tenant log scope. Oversized bodies return HTTP 413, body-acquisition deadline failures return HTTP 408, and other malformed, framing-mismatched, or aborted body conditions return the existing safe `invalid-webhook` response without echoing request data. Unexpected internal failures are no longer reclassified as client input merely because an exception message happens to contain `organizationId` or `UUID`; only explicit ingress/service validation failures receive the client-safe invalid-webhook mapping.
 
+## Signature verification clock authority
+
+Stripe HMAC verification requires a finite, native Date timestamp before applying the configured replay tolerance. A malformed or invalid injected clock must fail closed: `NaN` previously made `Math.abs(nowSeconds - signatureTimestamp) > tolerance` false, which could bypass the timestamp window for an otherwise correctly signed older payload. The provider now reads the native Date time slot, rejects invalid Date values, non-Date runtime values, and forged Date-like objects, and never trusts an overridden `getTime` method. An omitted clock still uses the server clock; an explicitly null clock is invalid rather than silently treated as omitted.
+
+Malformed runtime payload or secret types also fail verification rather than reaching string coercion or throwing from `trim`. Valid signed payloads, the inclusive configured timestamp window, multiple `v1` signing candidates, and the existing tenant-specific raw-body/HMAC verification remain unchanged. This is adapter defense in depth: production ingress supplies the server clock and still enforces tenant-owned signing secrets, bounded raw bodies, durable event deduplication, and commercial ownership before mutation.
+
+Focused adapter regressions and a dependency-free source contract cover the clock and type boundaries. Full Node 24, Prisma/PostgreSQL, and live Stripe verification remain separate environment gates.
+
 ## Checkout Session authority
 
 A valid Stripe signature proves that Stripe signed the payload; it does not by itself prove that every Checkout Session field still represents the SF operation being finalized. For a tracked public booking Checkout, SF therefore rebinds the signed callback to the persisted Session before completion or expiry can change commercial state.

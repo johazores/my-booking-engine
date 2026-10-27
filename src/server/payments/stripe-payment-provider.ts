@@ -176,11 +176,23 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean {
+    if (!input || typeof input !== 'object' || typeof input.payload !== 'string' || typeof input.secret !== 'string') return false;
     const secret = input.secret.trim();
     if (!secret.startsWith('whsec_')) return false;
     const parsed = parseStripeWebhookSignatureHeader(input.signature);
     if (!parsed) return false;
-    const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
+
+    // An invalid injected clock must not turn the replay-window comparison into NaN > tolerance (false).
+    // Read the native Date value rather than a caller-overridden getTime method.
+    const clock = input.now === undefined ? new Date() : input.now;
+    let nowMilliseconds: number;
+    try {
+      nowMilliseconds = Date.prototype.getTime.call(clock);
+    } catch {
+      return false;
+    }
+    if (!Number.isFinite(nowMilliseconds)) return false;
+    const nowSeconds = Math.floor(nowMilliseconds / 1000);
     if (Math.abs(nowSeconds - parsed.timestamp) > this.webhookToleranceSeconds) return false;
 
     const expectedBuffer = createHmac('sha256', secret).update(`${parsed.timestamp}.${input.payload}`, 'utf8').digest();

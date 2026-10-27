@@ -152,6 +152,47 @@ test('stripe webhook verification checks raw payload and timestamp tolerance', (
   assert.equal(provider.verifyWebhookSignature!({ payload, signature: `t=${timestamp},v1=${signature}`, secret, now: new Date((timestamp + 301) * 1000) }), false);
 });
 
+test('stripe webhook verification fails closed for invalid clock authority and malformed runtime input', () => {
+  const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret' });
+  const payload = '{"id":"evt_1","type":"payment_intent.succeeded"}';
+  const secret = 'whsec_test_signing_secret';
+  const timestamp = 1_800_000_000;
+  const signature = `t=${timestamp},v1=${createHmac('sha256', secret).update(`${timestamp}.${payload}`, 'utf8').digest('hex')}`;
+  const verify = (overrides: Record<string, unknown>) => provider.verifyWebhookSignature!({
+    payload, secret, signature, now: new Date(timestamp * 1000), ...overrides,
+  } as Parameters<StripePaymentProvider['verifyWebhookSignature']>[0]);
+
+  // The exact replay-window boundary remains inclusive, in both directions.
+  for (const deltaSeconds of [-301, -300, 0, 300, 301]) {
+    assert.equal(verify({ now: new Date((timestamp + deltaSeconds) * 1000) }), Math.abs(deltaSeconds) <= 300);
+  }
+  for (const now of [
+    new Date(Number.NaN),
+    null,
+    '2027-01-15T08:00:00Z',
+    timestamp,
+    Object.create(Date.prototype),
+    new Proxy(new Date(timestamp * 1000), {}),
+  ]) {
+    assert.equal(verify({ now }), false, String(now));
+  }
+  const invalidDateWithForgedGetter = new Date(Number.NaN);
+  Object.defineProperty(invalidDateWithForgedGetter, 'getTime', { value: () => timestamp * 1000 });
+  assert.equal(verify({ now: invalidDateWithForgedGetter }), false);
+
+  // A shadowed getter cannot alter a valid Date's native timestamp either.
+  const validDateWithShadowedGetter = new Date(timestamp * 1000);
+  Object.defineProperty(validDateWithShadowedGetter, 'getTime', { value: () => Number.NaN });
+  assert.equal(verify({ now: validDateWithShadowedGetter }), true);
+
+  for (const [field, value] of [
+    ['secret', null], ['secret', 7], ['payload', null], ['payload', {}],
+  ] as const) {
+    assert.equal(verify({ [field]: value }), false);
+  }
+  assert.equal(verify({ payload: `${payload} ` }), false);
+});
+
 test('stripe references and constructor configuration validate before requests', () => {
   assert.equal(normalizeStripePaymentIntentReference('pi_valid_1'), 'pi_valid_1');
   assert.equal(normalizeStripePaymentMethodReference('pm_valid_1'), 'pm_valid_1');
