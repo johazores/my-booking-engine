@@ -59,7 +59,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 
   async authorizePayment(input: PaymentAuthorizationInput): Promise<ProviderPaymentResult> {
     const submitted = materializeStripePaymentWriteInput(input);
-    const paymentMethodReference = normalizeStripePaymentMethodReference(input.paymentMethodReference);
+    const paymentMethodReference = normalizeStripePaymentMethodReference(readStripeWriteReference(input, 'paymentMethodReference'));
     const form = new URLSearchParams();
     form.set('amount', submitted.money.amountMinor.toString());
     form.set('currency', submitted.money.currency.toLowerCase());
@@ -77,7 +77,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 
   async capturePayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
     const submitted = materializeStripePaymentWriteInput(input);
-    const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
+    const providerReference = normalizeStripePaymentIntentReference(readStripeWriteReference(input, 'providerReference'));
     const form = new URLSearchParams();
     form.set('amount_to_capture', submitted.money.amountMinor.toString());
     const intent = await this.request<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(providerReference)}/capture`, form, submitted.idempotencyKey);
@@ -90,7 +90,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 
   async releaseAuthorization(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
     const submitted = materializeStripePaymentWriteInput(input);
-    const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
+    const providerReference = normalizeStripePaymentIntentReference(readStripeWriteReference(input, 'providerReference'));
     const form = new URLSearchParams();
     form.set('cancellation_reason', 'abandoned');
     const intent = await this.request<StripePaymentIntent>(
@@ -146,7 +146,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 
   async refundPayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult> {
     const submitted = materializeStripePaymentWriteInput(input);
-    const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
+    const providerReference = normalizeStripePaymentIntentReference(readStripeWriteReference(input, 'providerReference'));
     const form = new URLSearchParams();
     form.set('payment_intent', providerReference);
     form.set('amount', submitted.money.amountMinor.toString());
@@ -237,6 +237,18 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     } finally {
       clearTimeout(timeout);
     }
+  }
+}
+
+/**
+ * Runtime accessors for a provider reference are not trusted application
+ * errors. Read once and reject throwing accessors before any provider I/O.
+ */
+function readStripeWriteReference(input: object, field: 'paymentMethodReference' | 'providerReference'): unknown {
+  try {
+    return Reflect.get(input, field);
+  } catch {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment reference is invalid.');
   }
 }
 

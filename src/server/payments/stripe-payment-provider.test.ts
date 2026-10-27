@@ -63,7 +63,7 @@ test('Stripe direct payment writes snapshot tenant, booking, money, and idempote
   const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl });
   const otherOrganization = 'c3333333-3333-4333-8333-333333333333';
   for (const operation of ['authorize', 'capture', 'release', 'refund'] as const) {
-    const reads = { organization: 0, booking: 0, key: 0, money: 0, currency: 0, amount: 0 };
+    const reads = { organization: 0, booking: 0, key: 0, money: 0, currency: 0, amount: 0, reference: 0 };
     const money = {
       get currency() { reads.currency += 1; return reads.currency === 1 ? 'USD' : 'EUR'; },
       get amountMinor() { reads.amount += 1; return reads.amount === 1 ? 24100n : 1n; },
@@ -73,15 +73,15 @@ test('Stripe direct payment writes snapshot tenant, booking, money, and idempote
       get bookingId() { reads.booking += 1; return reads.booking === 1 ? bookingId : otherOrganization; },
       get idempotencyKey() { reads.key += 1; return reads.key === 1 ? 'stripe:stable:payment' : 'stripe:drift:payment'; },
       get money() { reads.money += 1; return reads.money === 1 ? money : { currency: 'EUR', amountMinor: 1n }; },
-      paymentMethodReference: 'pm_card_1',
-      providerReference: 'pi_capture_1',
+      get paymentMethodReference() { reads.reference += 1; return reads.reference === 1 ? 'pm_card_1' : 'pm_other'; },
+      get providerReference() { reads.reference += 1; return reads.reference === 1 ? 'pi_capture_1' : 'pi_other'; },
     };
     if (operation === 'authorize') await provider.authorizePayment(input);
     else if (operation === 'capture') await provider.capturePayment(input);
     else if (operation === 'release') await provider.releaseAuthorization(input);
     else await provider.refundPayment(input);
 
-    assert.deepEqual(reads, { organization: 1, booking: 1, key: 1, money: 1, currency: 1, amount: 1 }, operation);
+    assert.deepEqual(reads, { organization: 1, booking: 1, key: 1, money: 1, currency: 1, amount: 1, reference: 1 }, operation);
     const request = requests.at(-1);
     assert.ok(request);
     assert.equal(new Headers(request.init?.headers).get('idempotency-key'), 'stripe:stable:payment', operation);
@@ -124,6 +124,24 @@ test('Stripe direct writes reject throwing commercial input getters without prov
   };
   await assert.rejects(provider.authorizePayment(invalidNestedMoney), (error: unknown) => error instanceof PaymentProviderError
     && error.code === 'INVALID_REQUEST' && !error.retryable);
+  const badMethod = {
+    ...context(),
+    get paymentMethodReference(): string { throw new Error('private method reference'); },
+  };
+  await assert.rejects(provider.authorizePayment(badMethod), (error: unknown) => error instanceof PaymentProviderError
+    && error.code === 'INVALID_REQUEST' && !error.retryable && !error.message.includes('private method reference'));
+  const badProviderReference = {
+    ...context(),
+    get providerReference(): string { throw new Error('private provider reference'); },
+  };
+  for (const operation of [
+    () => provider.capturePayment(badProviderReference),
+    () => provider.releaseAuthorization(badProviderReference),
+    () => provider.refundPayment(badProviderReference),
+  ]) {
+    await assert.rejects(operation(), (error: unknown) => error instanceof PaymentProviderError
+      && error.code === 'INVALID_REQUEST' && !error.retryable && !error.message.includes('private provider reference'));
+  }
   assert.equal(calls, 0);
 });
 
