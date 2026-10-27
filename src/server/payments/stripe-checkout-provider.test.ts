@@ -666,8 +666,6 @@ test('Checkout expiry uses native Date authority and rejects forged clocks befor
   const invalidDate = new Date(Number.NaN);
   Object.defineProperty(invalidDate, 'getTime', { value: () => now.getTime() });
   const forgedClock = { getTime: () => now.getTime() };
-  const throwingDate = new Date(now.getTime());
-  Object.defineProperty(throwingDate, 'getTime', { value: () => { throw new Error('Forged clock getter.'); } });
   let calls = 0;
   const rejectProvider = new StripeCheckoutProvider({
     secretKey: 'sk_test_checkout_secret',
@@ -709,11 +707,15 @@ test('Checkout expiry uses native Date authority and rejects forged clocks befor
       return new Response(JSON.stringify(checkoutResponse()), { status: 200 });
     },
   });
-  const validDate = new Date(now.getTime());
-  Object.defineProperty(validDate, 'getTime', { value: () => { throw new Error('Do not call shadowed getTime.'); } });
-  const result = await acceptProvider.createPaymentSession({ ...input, now: validDate });
-  assert.equal(requestedExpiry, String(Math.floor(now.getTime() / 1000) + 33 * 60));
-  assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
+  const validDateWithForgedGetter = new Date(now.getTime());
+  Object.defineProperty(validDateWithForgedGetter, 'getTime', { value: () => 0 });
+  const validDateWithThrowingGetter = new Date(now.getTime());
+  Object.defineProperty(validDateWithThrowingGetter, 'getTime', { value: () => { throw new Error('Do not call shadowed getTime.'); } });
+  for (const validDate of [validDateWithForgedGetter, validDateWithThrowingGetter]) {
+    const result = await acceptProvider.createPaymentSession({ ...input, now: validDate });
+    assert.equal(requestedExpiry, String(Math.floor(now.getTime() / 1000) + 33 * 60));
+    assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
+  }
 });
 
 test('Stripe Checkout rejects malformed commercial write context and clock before provider I/O', async () => {
