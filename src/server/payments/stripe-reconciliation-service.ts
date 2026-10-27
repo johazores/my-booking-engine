@@ -121,7 +121,7 @@ export async function reconcileStripePaymentTransaction(input: {
   const requiredCapability = payment.kind === 'AUTHORIZATION' ? 'payment-authorize' : 'payment-capture';
   if (!stripe.integration.capabilities.includes(requiredCapability)) throw new PaymentConflictError(`Stripe integration is not configured for ${requiredCapability}.`);
 
-  const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(payment.providerReference);
+  const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(payment.providerReference, { organizationId: input.organizationId, bookingId: payment.bookingId });
   if (snapshot.providerReference !== payment.providerReference) throw new PaymentConflictError('Stripe reconciliation returned a different provider reference.');
   const reconciliation = reconcileStripeTransactionState({
     kind: payment.kind,

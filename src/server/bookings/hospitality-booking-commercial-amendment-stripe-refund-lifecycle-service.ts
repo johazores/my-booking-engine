@@ -181,7 +181,7 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   if (!stripe.integration.capabilities.includes('payment-refund')) {
     throw new PaymentConflictError('Stripe integration is not configured for payment-refund.');
   }
-  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(refund.providerReference);
+  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(refund.providerReference, { organizationId: input.organizationId, bookingId: refund.bookingId });
   if (snapshot.refundReference !== refund.providerReference) {
     throw new PaymentConflictError('Stripe refund retrieval returned a different commercial amendment refund reference.');
   }

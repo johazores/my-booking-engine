@@ -779,7 +779,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentCharge
   }
 
   const stripe = await loadStripePaymentIntegration(input.organizationId);
-  const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(payment.providerReference);
+  const snapshot = await stripe.reconciliationProvider.retrievePaymentIntent(payment.providerReference, { organizationId: input.organizationId, bookingId: input.bookingId });
   let reconciliation;
   try {
     reconciliation = reconcileStripeCommercialAmendmentChargeSnapshot({

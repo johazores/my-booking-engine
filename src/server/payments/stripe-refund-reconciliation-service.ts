@@ -160,7 +160,7 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Stripe integration is not configured for payment-refund.');
   }
 
-  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(refund.providerReference);
+  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(refund.providerReference, { organizationId: input.organizationId, bookingId: refund.bookingId });
   if (snapshot.refundReference !== refund.providerReference) {
     throw new PaymentConflictError('Stripe refund reconciliation returned a different refund reference.');
   }

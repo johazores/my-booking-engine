@@ -612,7 +612,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
   if (!stripe.integration.capabilities.includes('payment-refund')) {
     throw new HospitalityBookingConflictError('Stripe integration is not configured for payment-refund.');
   }
-  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(payment.providerReference);
+  const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(payment.providerReference, { organizationId: input.organizationId, bookingId: input.bookingId });
   if (snapshot.refundReference !== payment.providerReference) {
     throw new HospitalityBookingConflictError('Stripe refund reconciliation returned a different provider reference.');
   }
