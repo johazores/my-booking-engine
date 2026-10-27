@@ -117,7 +117,7 @@ export class StripeCheckoutProvider {
     const successUrl = normalizeCheckoutReturnUrl(submitted.successUrl);
     const cancelUrl = normalizeCheckoutReturnUrl(submitted.cancelUrl);
     const customerEmail = normalizeCheckoutCustomerEmail(submitted.customerEmail);
-    // Checkout identity is persisted commercial authority, not free-form submitted.
+    // Checkout identity is persisted commercial authority, not free-form input.
     // Reject noncanonical values before a Stripe Session can be created.
     if (
       typeof submitted.organizationId !== 'string' || !UUID_PATTERN.test(submitted.organizationId)
