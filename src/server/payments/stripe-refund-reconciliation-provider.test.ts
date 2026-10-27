@@ -13,6 +13,21 @@ test('Stripe refund lookup references fit the persisted ledger reference limit',
   );
 });
 
+test('Stripe refund reconciliation rejects padded persisted references before network I/O', async () => {
+  let calls = 0;
+  const provider = new StripeRefundReconciliationProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Unexpected network I/O.'); },
+  });
+  for (const reference of [' re_owned', 're_owned ', '\tre_owned', 're_owned\n']) {
+    assert.throws(() => normalizeStripeRefundReference(reference),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
+    await assert.rejects(provider.retrieveRefund(reference, STRIPE_OWNER),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
+  }
+  assert.equal(calls, 0);
+});
+
 test('Stripe refund reconciliation treats malformed provider source identity as retryable unknown truth', async () => {
   const provider = new StripeRefundReconciliationProvider({
     secretKey: 'sk_test_not-a-real-secret',

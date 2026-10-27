@@ -153,13 +153,35 @@ test('stripe webhook verification checks raw payload and timestamp tolerance', (
 });
 
 test('stripe references and constructor configuration validate before requests', () => {
-  assert.equal(normalizeStripePaymentIntentReference(' pi_valid_1 '), 'pi_valid_1'); assert.equal(normalizeStripePaymentMethodReference(' pm_valid_1 '), 'pm_valid_1');
+  assert.equal(normalizeStripePaymentIntentReference('pi_valid_1'), 'pi_valid_1'); assert.equal(normalizeStripePaymentMethodReference(' pm_valid_1 '), 'pm_valid_1');
+  for (const padded of [' pi_valid_1', 'pi_valid_1 ', '\tpi_valid_1', 'pi_valid_1\n']) {
+    assert.throws(() => normalizeStripePaymentIntentReference(padded), /PaymentIntent reference/);
+  }
   assert.throws(() => normalizeStripePaymentIntentReference('ch_wrong'), /PaymentIntent reference/); assert.throws(() => normalizeStripePaymentMethodReference('card_wrong'), /payment method reference/);
   assert.equal(normalizeStripePaymentIntentReference(`pi_${'x'.repeat(157)}`).length, 160);
   assert.throws(() => normalizeStripePaymentIntentReference(`pi_${'x'.repeat(158)}`), /PaymentIntent reference/);
   assert.throws(() => new StripePaymentProvider({ secretKey: 'not-a-key' }), /secret key/); assert.throws(() => new StripePaymentProvider({ secretKey: 'sk_test_valid-enough', timeoutMs: 99 }), /timeout/);
 });
 
+
+test('Stripe direct money-movement writes reject padded persisted references before network I/O', async () => {
+  let calls = 0;
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Unexpected network I/O.'); },
+  });
+  for (const reference of [' pi_owned', 'pi_owned ', '\tpi_owned', 'pi_owned\n']) {
+    for (const operation of [
+      () => provider.capturePayment!({ ...context('stripe:capture:noncanonical'), providerReference: reference }),
+      () => provider.releaseAuthorization!({ ...context('stripe:release:noncanonical'), providerReference: reference }),
+      () => provider.refundPayment!({ ...context('stripe:refund:noncanonical'), providerReference: reference }),
+    ]) {
+      await assert.rejects(operation(), (error: unknown) =>
+        error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
+    }
+  }
+  assert.equal(calls, 0);
+});
 
 test('Stripe write responses cannot substitute a different PaymentIntent or refund source', async () => {
   const capture = new StripePaymentProvider({

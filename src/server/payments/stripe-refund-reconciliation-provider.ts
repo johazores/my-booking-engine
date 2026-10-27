@@ -87,9 +87,9 @@ export class StripeRefundReconciliationProvider {
 }
 
 export function normalizeStripeRefundReference(value: unknown): string {
-  if (typeof value !== 'string' || !STRIPE_REFUND_PATTERN.test(value.trim()) || value.trim().length > 160) {
+  if (typeof value !== 'string' || !STRIPE_REFUND_PATTERN.test(value) || value.length > 160) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Stripe refund reference is invalid.');
   }
-  return value.trim();
+  return value;
 }
 

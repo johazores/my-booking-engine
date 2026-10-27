@@ -128,6 +128,19 @@ test('Stripe PaymentIntent lookups reject references beyond the ledger column li
   );
 });
 
+test('Stripe PaymentIntent reconciliation rejects padded persisted references before network I/O', async () => {
+  let calls = 0;
+  const provider = new StripePaymentReconciliationProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Unexpected network I/O.'); },
+  });
+  for (const reference of [' pi_owned', 'pi_owned ', '\tpi_owned', 'pi_owned\n']) {
+    await assert.rejects(provider.retrievePaymentIntent(reference, STRIPE_OWNER),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST');
+  }
+  assert.equal(calls, 0);
+});
+
 test('Stripe PaymentIntent retrieval rejects unsupported or noncanonical provider currencies', async () => {
   for (const currency of [null, 'zzz', 'USD', ' usd ', 123]) {
     await assert.rejects(providerWithResponse({ amount_received: 0, amount_capturable: 0, currency })

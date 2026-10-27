@@ -209,8 +209,8 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
 }
 
 export function normalizeStripePaymentIntentReference(value: unknown): string {
-  if (typeof value !== 'string' || !STRIPE_REFERENCE_PATTERN.test(value.trim()) || value.trim().length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) throw new PaymentProviderError('INVALID_REQUEST', 'Stripe PaymentIntent reference is invalid.');
-  return value.trim();
+  if (typeof value !== 'string' || !STRIPE_REFERENCE_PATTERN.test(value) || value.length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH) throw new PaymentProviderError('INVALID_REQUEST', 'Stripe PaymentIntent reference is invalid.');
+  return value;
 }
 
 /** Invalid IDs returned after provider I/O are retryable unknown truth, not caller errors. */

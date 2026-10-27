@@ -133,3 +133,20 @@ Focused adapter tests now include valid owner metadata and explicit missing,
 foreign, and padded owner/booking cases. Full Node 24/TypeScript 6, lint,
 Prisma, PostgreSQL, production build, and live Stripe verification remain
 separate outstanding gates. No GitHub Actions are used.
+
+## Canonical persisted Stripe references (October 27, 2026)
+
+A Stripe PaymentIntent or Refund reference persisted in an SF-owned ledger is
+an exact provider resource identity, not free-form user text. Direct capture,
+authorization release, refund creation, and both provider-truth GET adapters
+now reject padded references instead of silently trimming the stored identity.
+This aligns with the existing exact Checkout Session reference contract.
+Customer-supplied PaymentMethod input normalization is unchanged.
+
+Malformed persisted references fail as `INVALID_REQUEST` before Stripe network
+I/O. This does not change a pending payment/refund into a terminal state,
+authorize a new idempotency key, or bypass existing tenant, booking, and money
+evidence. Regression tests cover the three money-movement writes and both GET
+lookups with zero outbound calls on padded input. The tests are checked in but
+require Node 24 to execute. Full typecheck, lint, Prisma, PostgreSQL, build,
+and live Stripe validation remain outstanding. No GitHub Actions are used.
