@@ -41,6 +41,9 @@ type StripeCheckoutSessionResponse = Readonly<{
   id?: unknown;
   object?: unknown;
   url?: unknown;
+  success_url?: unknown;
+  cancel_url?: unknown;
+  ui_mode?: unknown;
   expires_at?: unknown;
   amount_total?: unknown;
   currency?: unknown;
@@ -161,6 +164,8 @@ export class StripeCheckoutProvider {
       purpose,
       commercialAmendmentId,
       requestedExpiresAtSeconds,
+      successUrl,
+      cancelUrl,
     });
     if (typeof response.url !== 'string') throw new PaymentProviderError('UNKNOWN', 'Stripe did not return a Checkout URL.', true);
     const checkoutUrl = normalizeStripeCheckoutUrl(response.url, response.id);
@@ -277,10 +282,24 @@ function assertCreatedCheckoutSessionAuthority(
     purpose: StripeCheckoutPurpose;
     commercialAmendmentId: string | null;
     requestedExpiresAtSeconds: number;
+    successUrl: string;
+    cancelUrl: string;
   },
 ): void {
   if (response.mode !== 'payment' || response.client_reference_id !== expected.bookingId) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout Session authority that does not match the requested booking.', true);
+  }
+  // An open positive-value hosted Checkout must preserve the exact return
+  // destinations selected by SF before it can become a durable payment claim.
+  if (
+    (response.ui_mode !== undefined && response.ui_mode !== 'hosted')
+    || response.status !== 'open'
+    || response.payment_status !== 'unpaid'
+  ) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned a Checkout Session that is not open for hosted payment.', true);
+  }
+  if (response.success_url !== expected.successUrl || response.cancel_url !== expected.cancelUrl) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout destinations that do not match the requested booking journey.', true);
   }
   if (response.expires_at !== expected.requestedExpiresAtSeconds) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned a Checkout expiry that does not match the requested expiry.', true);
@@ -311,6 +330,7 @@ function assertCreatedCheckoutSessionAuthority(
 function assertRetrievedCheckoutSessionAuthority(response: StripeCheckoutSessionResponse, bookingId: string | null): void {
   if (
     response.mode !== 'payment'
+    || (response.ui_mode !== undefined && response.ui_mode !== 'hosted')
     || !bookingId
     || response.client_reference_id !== bookingId
     || !Number.isSafeInteger(response.expires_at)

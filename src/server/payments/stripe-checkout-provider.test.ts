@@ -14,6 +14,11 @@ function checkoutResponse(overrides: Record<string, unknown> = {}) {
     id: 'cs_test_abc123',
     object: 'checkout.session',
     mode: 'payment',
+    ui_mode: 'hosted',
+    status: 'open',
+    payment_status: 'unpaid',
+    success_url: 'https://booking.example.test/success',
+    cancel_url: 'https://booking.example.test/cancel',
     client_reference_id: bookingId,
     metadata: {
       sf_organization_id: organizationId,
@@ -30,7 +35,11 @@ function checkoutResponse(overrides: Record<string, unknown> = {}) {
 async function createBookingCheckout(overrides: Record<string, unknown>) {
   const provider = new StripeCheckoutProvider({
     secretKey: 'sk_test_checkout_secret',
-    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse(overrides)), { status: 200 }),
+    fetchImpl: async () => new Response(JSON.stringify(checkoutResponse({
+      success_url: 'https://booking.example.test/book/acme?payment=processing',
+      cancel_url: 'https://booking.example.test/book/acme?payment=cancelled',
+      ...overrides,
+    })), { status: 200 }),
   });
   return provider.createPaymentSession({
     organizationId,
@@ -51,7 +60,10 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
     fetchImpl: async (_url, init) => {
       capturedBody = String(init?.body ?? '');
       capturedIdempotency = new Headers(init?.headers).get('Idempotency-Key') ?? '';
-      return new Response(JSON.stringify(checkoutResponse()), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify(checkoutResponse({
+        success_url: 'https://booking.example.test/book/acme?payment=processing',
+        cancel_url: 'https://booking.example.test/book/acme?payment=cancelled',
+      })), { status: 200, headers: { 'content-type': 'application/json' } });
     },
   });
 
@@ -73,6 +85,8 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
   assert.equal(form.get('payment_intent_data[metadata][sf_organization_id]'), organizationId);
   assert.equal(form.get('payment_intent_data[metadata][sf_booking_id]'), bookingId);
   assert.equal(form.get('customer_email'), 'guest@example.test');
+  assert.equal(form.get('success_url'), 'https://booking.example.test/book/acme?payment=processing');
+  assert.equal(form.get('cancel_url'), 'https://booking.example.test/book/acme?payment=cancelled');
   assert.equal(form.has('card[number]'), false);
   assert.match(capturedIdempotency, /^public:[0-9a-f]{64}$/);
   assert.equal(result.money.amountMinor, 12500n);
@@ -99,6 +113,18 @@ test('rejects Checkout redirect authority outside the default Stripe-hosted sess
 test('rejects created Checkout Session ownership, mode, metadata, or expiry drift', async () => {
   const cases: Record<string, unknown>[] = [
     { mode: 'subscription' },
+    { ui_mode: 'embedded' },
+    { ui_mode: null },
+    { status: 'complete' },
+    { status: 'expired' },
+    { status: null },
+    { payment_status: 'paid' },
+    { payment_status: 'no_payment_required' },
+    { payment_status: null },
+    { success_url: 'https://other.example.test/book/acme?payment=processing' },
+    { success_url: null },
+    { cancel_url: 'https://other.example.test/book/acme?payment=cancelled' },
+    { cancel_url: null },
     { client_reference_id: amendmentId },
     { metadata: { sf_organization_id: amendmentId, sf_booking_id: bookingId } },
     { metadata: { sf_organization_id: organizationId, sf_booking_id: amendmentId } },
@@ -127,6 +153,8 @@ test('creates amendment recovery Checkout with explicit Session and PaymentInten
       capturedBody = String(init?.body ?? '');
       return new Response(JSON.stringify(checkoutResponse({
         amount_total: 2500,
+        success_url: 'https://booking.example.test/recovery/success',
+        cancel_url: 'https://booking.example.test/recovery/cancel',
         metadata: {
           sf_organization_id: organizationId,
           sf_booking_id: bookingId,
@@ -201,6 +229,8 @@ test('retrieves exact Checkout provider truth for amendment recovery reconciliat
 test('rejects retrieved Checkout authority that no longer belongs to the persisted booking operation', async () => {
   const cases: Record<string, unknown>[] = [
     { mode: 'subscription' },
+    { ui_mode: 'embedded' },
+    { ui_mode: null },
     { client_reference_id: amendmentId },
     { client_reference_id: null },
     { client_reference_id: `${bookingId} ` },

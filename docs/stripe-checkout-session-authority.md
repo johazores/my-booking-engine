@@ -10,7 +10,9 @@ This boundary lives in `src/server/payments/stripe-checkout-provider.ts` and app
 
 A successful create response must agree with the request on all authority-bearing fields that SF sent to Stripe:
 
-- the object must be a Checkout Session in `payment` mode;
+- the object must be a Checkout Session in `payment` mode, with hosted UI mode when returned;
+- the newly created positive-value Session must be `open` and `unpaid`, never already completed, expired, paid, or payment-free;
+- `success_url` and `cancel_url` must exactly equal the server-derived destinations submitted to Stripe, without redirect drift;
 - `client_reference_id` must equal the requested booking ID;
 - `metadata.sf_organization_id` and `metadata.sf_booking_id` must equal the requested tenant and booking;
 - normal booking Checkout must not gain commercial-amendment metadata;
@@ -44,7 +46,7 @@ The Checkout URL is navigation authority only. It never proves payment. Signed S
 
 ## Provider reconciliation binding
 
-Explicit Checkout retrieval is also treated as external provider evidence rather than trusted just because the requested Session ID matches. Before SF returns a retrieved Session snapshot to commercial-amendment reconciliation, the provider response must still be a `payment` Session, its `client_reference_id` must equal the normalized booking ID carried in SF metadata, and `expires_at` must remain a valid provider timestamp. Existing reconciliation then separately requires the exact tenant, booking, amendment, purpose, Session reference, amount, currency, and settlement state.
+Explicit Checkout retrieval is also treated as external provider evidence rather than trusted just because the requested Session ID matches. Before SF returns a retrieved Session snapshot to commercial-amendment reconciliation, the provider response must still be a `payment` Session with hosted UI mode when returned, its `client_reference_id` must equal the normalized booking ID carried in SF metadata, and `expires_at` must remain a valid provider timestamp. Existing reconciliation then separately requires the exact tenant, booking, amendment, purpose, Session reference, amount, currency, and settlement state.
 
 This prevents a same-ID response with drifted operation authority from becoming polling/reconciliation truth. Commercial amendment flows do not currently persist a dedicated Checkout expiry column, so polling requires a valid expiry but does not claim an exact persisted-expiry comparison there; the public booking webhook path can and does compare against `PaymentCheckoutSession.expiresAt`.
 
@@ -69,3 +71,7 @@ Checkout shares the same strict pre-provider write-context validation as Stripe 
 Checkout creation now validates optional customer email and both redirect URLs before any provider request. A supplied email must be a non-empty, unpadded, bounded (320-character) address without control characters or unpaired Unicode surrogates; null or absent email remains valid and omits the Stripe form field. Malformed runtime values are not silently stringified into a Stripe `customer_email` value. Both return URLs must be non-empty, bounded, unpadded strings without C0/C1 controls or unpaired Unicode surrogates, in addition to the existing HTTPS (or local-development loopback HTTP) and no-credentials restrictions. This prevents URL parsing from silently discarding raw newlines or whitespace before a payment redirect is created.
 
 An explicitly null Checkout purpose or caller-supplied clock is no longer interpreted as an omitted optional field. Only `undefined` selects the default booking-payment purpose or current clock. Invalid supplied authority fails with non-retryable `INVALID_REQUEST` and no outbound Stripe call. The existing server-derived URLs, canonical customer records, tenant ownership, durable idempotency, and provider-truth settlement contracts are unchanged. Focused negative-case tests are checked in; full Node 24, TypeScript 6, Prisma/PostgreSQL, build, and live Stripe validation remain external gates.
+
+## Created-session payment and redirect readiness (October 27, 2026)
+
+Stripe's Checkout Session object exposes `status`, `payment_status`, `success_url`, `cancel_url`, and `ui_mode`. SF now checks that a new positive-value Session is still open and unpaid, has no contradictory embedded/custom UI mode, and echoes both exact server-selected return URLs before the customer receives the hosted redirect or SF persists the operation as an open Checkout Session. This does not use a browser redirect as settlement evidence. Explicit retrieval also rejects a returned non-hosted UI mode without assuming a missing legacy `ui_mode` property proves a different mode. Invalid provider receipts remain retryable `UNKNOWN` for safe claim reconciliation. Regression fixtures include the valid provider fields and reject missing, contradictory, and mismatched values. Live Stripe and full Node 24/PostgreSQL validation remain outstanding.
