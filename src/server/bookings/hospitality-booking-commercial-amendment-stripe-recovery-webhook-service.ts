@@ -5,6 +5,7 @@ import { db } from '../database.ts';
 import { PaymentConflictError } from '../payments/payment-service.ts';
 import {
   StripeWebhookValidationError,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
   type StripeWebhookEvent,
 } from '../payments/stripe-webhook-domain.ts';
@@ -357,6 +358,7 @@ async function finalizeRecoveryRefund(input: {
   now: Date;
 }) {
   const providerRefund = input.event.refund!;
+  if (!isStripeWebhookRefundOwnedBy(providerRefund, input.organizationId)) return false;
   const candidates = await input.transaction.paymentTransaction.findMany({
     where: {
       organizationId: input.organizationId,
@@ -388,6 +390,7 @@ async function finalizeRecoveryRefund(input: {
   }
   const selected = candidates[0];
   if (!selected?.commercialAmendmentId) return false;
+  if (!isStripeWebhookRefundOwnedBy(providerRefund, input.organizationId, selected.bookingId)) return false;
 
   await lockRecoveryBooking({
     transaction: input.transaction,
@@ -554,6 +557,9 @@ export async function finalizeVerifiedStripeCommercialAmendmentRecoveryWebhook(i
       throw new PaymentConflictError(error.message);
     }
     throw error;
+  }
+  if (event.refund && !isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
+    return Object.freeze({ handled: false as const });
   }
   if (!event.paymentIntent && !event.refund) {
     return Object.freeze({ handled: false as const });

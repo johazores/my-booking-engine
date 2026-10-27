@@ -15,6 +15,7 @@ import {
 import { reconcileStripeRefundState } from './stripe-refund-reconciliation-service.ts';
 import {
   StripeWebhookValidationError,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
 } from './stripe-webhook-domain.ts';
 
@@ -83,7 +84,9 @@ export async function reconcileVerifiedStripeRefundWebhook(input: {
     if (error instanceof StripeWebhookValidationError) throw new PaymentConflictError(error.message);
     throw error;
   }
-  if (!event.refund) return Object.freeze({ handled: false as const });
+  if (!event.refund || !isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
+    return Object.freeze({ handled: false as const });
+  }
 
   const payloadHash = createHash('sha256').update(input.payload, 'utf8').digest('hex');
   const verifiedEvent = await db.paymentWebhookEvent.findFirst({
@@ -132,6 +135,9 @@ export async function reconcileVerifiedStripeRefundWebhook(input: {
   if (exactRefunds.length > 1) throw new PaymentConflictError('Stripe refund reference belongs to multiple normal refund transactions.');
 
   const refund = exactRefunds[0]!;
+  if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId, refund.bookingId)) {
+    return Object.freeze({ handled: false as const });
+  }
   if (
     refund.sourceProviderReference !== event.refund.paymentIntentReference
     || refund.currency !== event.refund.currency

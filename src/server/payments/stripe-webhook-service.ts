@@ -17,6 +17,7 @@ import {
   StripeWebhookValidationError,
   decideStripeCheckoutExpiration,
   inspectStripeBookingCheckoutAuthority,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
   selectStripeWebhookRefundCandidate,
 } from './stripe-webhook-domain.ts';
@@ -429,6 +430,12 @@ export async function ingestStripePaymentWebhook(input: {
     }
 
     if (event.refund) {
+      if (!event.refund.organizationId || !event.refund.bookingId) {
+        return persistEvent('IGNORED', 'refund-missing-sf-metadata', null);
+      }
+      if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
+        return persistEvent('IGNORED', 'refund-tenant-metadata-mismatch', null);
+      }
       const sourceCandidates = await transaction.paymentTransaction.findMany({
         where: {
           organizationId: input.organizationId,
@@ -445,6 +452,9 @@ export async function ingestStripePaymentWebhook(input: {
       if (bookingIds.length === 0) return persistEvent('IGNORED', 'refund-source-settlement-unavailable', null);
       if (bookingIds.length > 1) throw new PaymentConflictError('Stripe refund source reference belongs to multiple bookings in this organization.');
       const bookingId = bookingIds[0]!;
+      if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId, bookingId)) {
+        return persistEvent('IGNORED', 'refund-booking-metadata-mismatch', null);
+      }
 
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId })}, 0))`;
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', bookingId)}, 0))`;

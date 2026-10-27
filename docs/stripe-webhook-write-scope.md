@@ -106,3 +106,7 @@ The Stripe raw-body reader now normalizes unexpected read-result shapes, throwin
 ## Stable signed-body stream-result snapshots
 
 The Stripe raw-body reader now normalizes each stream-read result before resolving the pending read. One-shot or changing `done`/`value` accessors cannot bypass its validated result shape, and completed reads never inspect `value`. Malformed results retain the existing `INVALID_BODY` mapping and nonblocking reader cancellation; no bytes reach HMAC verification without bounded acquisition. The same snapshot policy protects JSON and form ingress. Focused regression tests are checked in, while full Node 24 and live Stripe validation remain separate gates.
+
+## Refund webhook ownership scope
+
+The refund parser now preserves canonical SF organization/booking metadata from signed Refund objects. Ingestion ignores missing, malformed, cross-tenant, or cross-booking metadata before binding a pending refund claim. Normal, commercial-amendment, and recovery refund lifecycle/finalizer services independently recheck tenant ownership before lookup and booking ownership before applying a selected transaction, including for already-recorded ignored events. Refund reference, source PaymentIntent, amount, currency, and event hash remain separate checks. Unit tests cover invalid/missing/conflicting metadata; the guarded PostgreSQL integration adds ignored-event cases before valid finalization. Full Node 24/PostgreSQL and live Stripe verification remain pending. No GitHub Actions are used.

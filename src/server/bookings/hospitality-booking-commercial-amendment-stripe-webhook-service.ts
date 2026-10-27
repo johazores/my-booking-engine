@@ -5,6 +5,7 @@ import { db } from '../database.ts';
 import { PaymentConflictError } from '../payments/payment-service.ts';
 import {
   StripeWebhookValidationError,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
   type StripeWebhookEvent,
 } from '../payments/stripe-webhook-domain.ts';
@@ -350,6 +351,7 @@ async function finalizeRefund(input: {
   verifiedWebhookEventId: string;
 }) {
   const providerRefund = input.event.refund!;
+  if (!isStripeWebhookRefundOwnedBy(providerRefund, input.organizationId)) return false;
   const candidates = await input.transaction.paymentTransaction.findMany({
     where: {
       organizationId: input.organizationId,
@@ -380,6 +382,7 @@ async function finalizeRefund(input: {
       : []),
   });
   if (!selected) return false;
+  if (!isStripeWebhookRefundOwnedBy(providerRefund, input.organizationId, selected.bookingId)) return false;
 
   await input.transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId: selected.bookingId })}, 0))`;
   await input.transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, selected.bookingId)}, 0))`;
@@ -501,6 +504,9 @@ export async function finalizeVerifiedStripeCommercialAmendmentWebhook(input: {
   } catch (error) {
     if (error instanceof StripeWebhookValidationError) throw new PaymentConflictError(error.message);
     throw error;
+  }
+  if (event.refund && !isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
+    return Object.freeze({ handled: false as const });
   }
   if (!event.paymentIntent && !event.refund) return Object.freeze({ handled: false as const });
   const payloadHash = createHash('sha256').update(input.payload, 'utf8').digest('hex');

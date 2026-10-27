@@ -5,6 +5,7 @@ const {
   StripeWebhookValidationError,
   decideStripeCheckoutExpiration,
   inspectStripeBookingCheckoutAuthority,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
   selectStripeWebhookPaymentCandidate,
   selectStripeWebhookRefundCandidate,
@@ -76,6 +77,7 @@ function refundEvent(overrides: Record<string, unknown> = {}) {
         status: 'succeeded',
         amount: 2500,
         currency: 'usd',
+        metadata: { sf_organization_id: organizationId, sf_booking_id: bookingId },
         ...overrides,
       },
     },
@@ -242,6 +244,32 @@ test('Stripe webhook parser normalizes refund objects with their source PaymentI
   assert.equal(event.refund?.status, 'succeeded');
   assert.equal(event.refund?.currency, 'USD');
   assert.equal(event.refund?.amountMinor, 2500n);
+  assert.equal(event.refund?.organizationId, organizationId);
+  assert.equal(event.refund?.bookingId, bookingId);
+});
+
+test('Stripe refund webhook ownership requires exact tenant and booking metadata', () => {
+  const valid = parseStripeWebhookEventPayload(refundEvent()).refund!;
+  assert.equal(isStripeWebhookRefundOwnedBy(valid, organizationId), true);
+  assert.equal(isStripeWebhookRefundOwnedBy(valid, organizationId, bookingId), true);
+  assert.equal(isStripeWebhookRefundOwnedBy(valid, amendmentId, bookingId), false);
+  assert.equal(isStripeWebhookRefundOwnedBy(valid, organizationId, amendmentId), false);
+
+  for (const metadata of [
+    undefined,
+    null,
+    {},
+    { sf_organization_id: organizationId },
+    { sf_booking_id: bookingId },
+    { sf_organization_id: 'not-a-uuid', sf_booking_id: bookingId },
+    { sf_organization_id: organizationId, sf_booking_id: 'not-a-uuid' },
+    { sf_organization_id: amendmentId, sf_booking_id: bookingId },
+    { sf_organization_id: organizationId, sf_booking_id: amendmentId },
+  ]) {
+    const refund = parseStripeWebhookEventPayload(refundEvent({ metadata })).refund!;
+    assert.equal(isStripeWebhookRefundOwnedBy(refund, organizationId, bookingId), false);
+  }
+  assert.throws(() => parseStripeWebhookEventPayload(refundEvent({ metadata: [] })), StripeWebhookValidationError);
 });
 
 test('Stripe webhook parser safely ignores unsupported event bodies after envelope validation', () => {

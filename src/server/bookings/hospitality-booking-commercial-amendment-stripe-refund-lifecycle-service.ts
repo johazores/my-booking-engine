@@ -5,6 +5,7 @@ import { loadStripePaymentIntegration } from '../integrations/stripe-integration
 import { PaymentConflictError } from '../payments/payment-service.ts';
 import {
   StripeWebhookValidationError,
+  isStripeWebhookRefundOwnedBy,
   parseStripeWebhookEventPayload,
 } from '../payments/stripe-webhook-domain.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
@@ -66,7 +67,9 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
     if (error instanceof StripeWebhookValidationError) throw new PaymentConflictError(error.message);
     throw error;
   }
-  if (!event.refund) return Object.freeze({ handled: false as const });
+  if (!event.refund || !isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
+    return Object.freeze({ handled: false as const });
+  }
 
   const payloadHash = createHash('sha256').update(input.payload, 'utf8').digest('hex');
   const verifiedEvent = await db.paymentWebhookEvent.findFirst({
@@ -127,6 +130,9 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   }
 
   const refund = exactRefunds[0]!;
+  if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId, refund.bookingId)) {
+    return Object.freeze({ handled: false as const });
+  }
   if (!refund.commercialAmendmentId || !refund.sourceProviderReference) {
     throw new PaymentConflictError('Commercial amendment Stripe refund is missing persisted ownership or settlement-source authority.');
   }

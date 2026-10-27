@@ -45,7 +45,20 @@ export type StripeWebhookRefund = Readonly<{
   status: string;
   currency: string;
   amountMinor: bigint;
+  organizationId: string | null;
+  bookingId: string | null;
 }>;
+
+/** Signed refund metadata is an additional ownership check, not settlement-source authority. */
+export function isStripeWebhookRefundOwnedBy(
+  refund: StripeWebhookRefund,
+  organizationId: string,
+  bookingId?: string,
+): boolean {
+  return refund.organizationId === organizationId
+    && refund.bookingId !== null
+    && (bookingId === undefined || refund.bookingId === bookingId);
+}
 
 export type StripeWebhookEvent = Readonly<{
   providerEventId: string;
@@ -157,6 +170,11 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
       throw new StripeWebhookValidationError('Stripe refund amount is invalid.');
     }
     const currency = requiredStripeWebhookCurrency(refund.currency, 'Stripe refund currency');
+    const metadata = refund.metadata === undefined || refund.metadata === null
+      ? null
+      : objectRecord(refund.metadata, 'Stripe refund metadata');
+    const metadataOrganizationId = optionalString(metadata?.sf_organization_id);
+    const metadataBookingId = optionalString(metadata?.sf_booking_id);
     return Object.freeze({
       providerEventId,
       eventType,
@@ -169,6 +187,8 @@ export function parseStripeWebhookEventPayload(payload: string): StripeWebhookEv
         status,
         currency,
         amountMinor: BigInt(Number(refund.amount)),
+        organizationId: metadataOrganizationId && UUID_PATTERN.test(metadataOrganizationId) ? metadataOrganizationId.toLowerCase() : null,
+        bookingId: metadataBookingId && UUID_PATTERN.test(metadataBookingId) ? metadataBookingId.toLowerCase() : null,
       }),
     });
   }

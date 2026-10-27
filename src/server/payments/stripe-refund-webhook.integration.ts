@@ -127,8 +127,33 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
       status: 'succeeded',
       currency: 'usd',
       amount: 2500,
+      metadata: { sf_organization_id: organization.id, sf_booking_id: booking.id },
     } },
   });
+
+  for (const [suffix, metadata, note] of [
+    ['missing', undefined, 'refund-missing-sf-metadata'],
+    ['wrong-tenant', { sf_organization_id: '33333333-3333-4333-8333-333333333333', sf_booking_id: booking.id }, 'refund-tenant-metadata-mismatch'],
+    ['wrong-booking', { sf_organization_id: organization.id, sf_booking_id: '44444444-4444-4444-8444-444444444444' }, 'refund-booking-metadata-mismatch'],
+  ] as const) {
+    const ignoredPayload = JSON.stringify({
+      id: `${providerEventId}_${suffix.replaceAll('-', '_')}`,
+      type: 'refund.updated',
+      created: timestamp,
+      data: { object: {
+        id: refundReference, payment_intent: paymentIntentReference,
+        status: 'succeeded', currency: 'usd', amount: 2500, metadata,
+      } },
+    });
+    const ignored = await webhooks.ingestStripePaymentWebhook({
+      organizationId: organization.id,
+      payload: ignoredPayload,
+      signature: signStripePayload(ignoredPayload, timestamp),
+    });
+    assert.equal(ignored.status, 'IGNORED');
+    assert.equal(ignored.processingNote, note);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: refund.id } })).status, 'PENDING');
+  }
 
   const processed = await webhooks.ingestStripePaymentWebhook({
     organizationId: organization.id,
@@ -163,6 +188,7 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
       status: 'succeeded',
       currency: 'usd',
       amount: 2600,
+      metadata: { sf_organization_id: organization.id, sf_booking_id: booking.id },
     } },
   });
   await assert.rejects(
