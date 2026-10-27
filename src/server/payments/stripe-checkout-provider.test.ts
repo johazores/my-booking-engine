@@ -708,6 +708,15 @@ test('Checkout rejects malformed customer email, return URLs, and explicit null 
     { cancelUrl: 'https://user:pass@booking.example.test/cancel' },
     { successUrl: 'https://booking.example.test/' + 'x'.repeat(2_050) },
     { cancelUrl: 42 },
+    { successUrl: 'https://BOOKING.example.test/success' },
+    { cancelUrl: 'https://booking.example.test:443/cancel' },
+    { successUrl: 'https://booking.example.test/a/../success' },
+    { cancelUrl: 'https://booking.example.test/a/%2e%2e/cancel' },
+    { successUrl: 'https://booking.example.test\\@evil.test/success' },
+    { cancelUrl: 'https://booking.example.test/cancel?note=hello world' },
+    { successUrl: 'https://booking.example.test./success' },
+    { cancelUrl: 'https://bücher.example.test/cancel' },
+    { successUrl: 'https://booking.example.test' },
     { purpose: null },
     { now: null },
   ]) {
@@ -717,6 +726,35 @@ test('Checkout rejects malformed customer email, return URLs, and explicit null 
     );
     assert.equal(calls, 0, JSON.stringify(overrides));
   }
+});
+
+test('Checkout preserves canonical local-development return destinations without URL repair', async () => {
+  const successUrl = 'http://localhost:3000/book/acme?payment=processing';
+  const cancelUrl = 'http://localhost:3000/book/acme?payment=cancelled';
+  let capturedBody = '';
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (_url, init) => {
+      capturedBody = String(init?.body ?? '');
+      return new Response(JSON.stringify(checkoutResponse({
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      })), { status: 200 });
+    },
+  });
+  const result = await provider.createPaymentSession({
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl,
+    cancelUrl,
+    now,
+  });
+  const form = new URLSearchParams(capturedBody);
+  assert.equal(form.get('success_url'), successUrl);
+  assert.equal(form.get('cancel_url'), cancelUrl);
+  assert.equal(result.sessionReference, 'cs_test_abc123');
 });
 
 test('Checkout accepts an explicitly absent customer email without adding a Stripe form field', async () => {

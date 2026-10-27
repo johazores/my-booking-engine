@@ -29,3 +29,10 @@ test('Checkout origin configuration failures remain customer-safe and do not inv
   assert.match(staffHttp, /error instanceof StripeCheckoutReturnOriginConfigurationError/);
   assert.match(staffHttp, /error: 'payment-unavailable' \}, 503/);
 });
+
+test('Stripe Checkout adapter rejects parser-repaired return destinations before provider I/O', () => {
+  const source = read('src/server/payments/stripe-checkout-provider.ts');
+  assert.match(source, /value !== url\.href/);
+  assert.match(source, /url\.hostname\.endsWith\('\.'\)/);
+  assert.match(source, /return value;\s*}\s*\n\s*function normalizeStripeCheckoutUrl/);
+});

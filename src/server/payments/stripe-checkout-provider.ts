@@ -421,10 +421,13 @@ function normalizeCheckoutReturnUrl(value: unknown) {
   if (url.protocol !== 'https:' && !localDevelopment) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL must use HTTPS.');
   }
-  if (url.username || url.password) {
+  // Stripe return navigation is commercial authority. A URL parser must not
+  // silently repair the exact destination chosen by the application before
+  // that value is sent to Stripe and later compared with provider evidence.
+  if (url.username || url.password || url.hostname.endsWith('.') || value !== url.href) {
     throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL is invalid.');
   }
-  return url.toString();
+  return value;
 }
 
 function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
