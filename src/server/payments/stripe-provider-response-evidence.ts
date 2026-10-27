@@ -90,7 +90,7 @@ export function classifyStripePaymentHttpError(status: number, payload: unknown,
     return new PaymentProviderError('UNKNOWN', message, true);
   }
   // A 404 or invalid 400 request cannot become a card decline solely from
-  // contradictory error-body hints. Only explicit key reuse is definitive.
+  // contradictory error-body hints. Only exact key-reuse evidence is definitive.
   if (status === 404) return new PaymentProviderError('INVALID_REQUEST', message);
   // Keep HTTP not-found authority, but never let malformed machine hints
   // establish a definitive duplicate or card rejection for a payment write.

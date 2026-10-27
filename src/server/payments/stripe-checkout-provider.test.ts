@@ -309,6 +309,12 @@ test('Checkout creation preserves ambiguous Stripe conflicts and external-depend
     { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN' },
     { status: 402, body: { error: { type: 'card_error', code: 'authentication_required' } }, code: 'UNKNOWN' },
     { status: 402, body: { error: { decline_code: 'authentication_required' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { code: 'card_declined' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { decline_code: 'generic_decline' } }, code: 'UNKNOWN' },
+    { status: 400, body: { error: { type: 'idempotency_error' } }, code: 'UNKNOWN' },
+    { status: 409, body: { error: { type: 'idempotency_error', code: 'future_code' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { type: 'idempotency_error', code: 'idempotency_key_reused' } }, code: 'UNKNOWN' },
+    { status: 402, body: { error: { type: 'card_error', code: 'idempotency_key_reused' } }, code: 'UNKNOWN' },
   ] as const) {
     const provider = new StripeCheckoutProvider({
       secretKey: 'sk_test_checkout_secret',

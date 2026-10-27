@@ -82,7 +82,11 @@ test('stripe adapter normalizes declines, rate limits, idempotency errors, and m
     { status: 409, body: { error: { type: 'idempotency_error', code: 'idempotency_key_in_use' } }, code: 'UNKNOWN', retryable: true },
     { status: 424, body: { error: { type: 'card_error', message: 'Upstream dependency unavailable' } }, code: 'PROVIDER_UNAVAILABLE', retryable: true },
     { status: 402, body: { error: { message: 'Unclassified payment failure' } }, code: 'UNKNOWN', retryable: true },
-    { status: 400, body: { error: { type: 'idempotency_error', message: 'Key reused' } }, code: 'DUPLICATE', retryable: false },
+    { status: 400, body: { error: { type: 'idempotency_error', message: 'Key reused' } }, code: 'UNKNOWN', retryable: true },
+    { status: 400, body: { error: { type: 'idempotency_error', code: 'idempotency_key_reused' } }, code: 'DUPLICATE', retryable: false },
+    { status: 409, body: { error: { type: 'idempotency_error', code: 'idempotency_key_reused' } }, code: 'DUPLICATE', retryable: false },
+    { status: 402, body: { error: { code: 'card_declined' } }, code: 'UNKNOWN', retryable: true },
+    { status: 402, body: { error: { type: 'card_error', code: 'idempotency_key_reused' } }, code: 'UNKNOWN', retryable: true },
     { status: 400, body: { error: { type: 'card_error', code: 'card_declined' } }, code: 'INVALID_REQUEST', retryable: false },
     { status: 404, body: { error: { type: 'card_error' } }, code: 'INVALID_REQUEST', retryable: false },
     { status: 400, body: { error: { type: 'api_error' } }, code: 'UNKNOWN', retryable: true },
@@ -104,6 +108,9 @@ test('Stripe capture, release, and refund writes preserve ambiguous provider con
     { status: 409, code: 'UNKNOWN', body: { error: { code: 'idempotency_key_in_use' } } },
     { status: 424, code: 'PROVIDER_UNAVAILABLE', body: { error: { type: 'card_error' } } },
     { status: 400, code: 'UNKNOWN', body: { error: { type: 'api_error' } } },
+    { status: 400, code: 'UNKNOWN', body: { error: { type: 'idempotency_error' } } },
+    { status: 409, code: 'UNKNOWN', body: { error: { type: 'idempotency_error', code: 'future_code' } } },
+    { status: 402, code: 'UNKNOWN', body: { error: { type: 'card_error', code: 'idempotency_key_reused' } } },
   ] as const) {
     const provider = new StripePaymentProvider({
       secretKey: 'sk_test_not-a-real-secret',
