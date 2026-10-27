@@ -11,7 +11,7 @@ import {
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
-import { classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
+import { assertStripeWriteResponseOwnership, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
 import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
 
@@ -69,6 +69,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     form.set('metadata[sf_booking_id]', input.bookingId);
 
     const intent = await this.request<StripePaymentIntent>('/payment_intents', form, input.idempotencyKey);
+    assertStripeWriteResponseOwnership(intent, input.organizationId, input.bookingId);
     return normalizeAuthorizedPaymentIntent(intent, input.money);
   }
 
@@ -77,6 +78,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     const form = new URLSearchParams();
     form.set('amount_to_capture', input.money.amountMinor.toString());
     const intent = await this.request<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(providerReference)}/capture`, form, input.idempotencyKey);
+    assertStripeWriteResponseOwnership(intent, input.organizationId, input.bookingId);
     if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while capturing.', true);
     }
@@ -92,6 +94,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       form,
       input.idempotencyKey,
     );
+    assertStripeWriteResponseOwnership(intent, input.organizationId, input.bookingId);
     if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
     }
@@ -146,6 +149,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     form.set('metadata[sf_booking_id]', input.bookingId);
 
     const refund = await this.request<StripeRefund>('/refunds', form, input.idempotencyKey);
+    assertStripeWriteResponseOwnership(refund, input.organizationId, input.bookingId);
     if (refund?.payment_intent !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a refund for a different PaymentIntent.', true);
     }

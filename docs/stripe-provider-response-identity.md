@@ -102,3 +102,11 @@ Stripe PaymentIntent authorization, capture, cancellation, refunds, and hosted C
 PaymentIntent and refund provider-truth GET reconciliation share a separate lookup classifier, retaining their distinct 404 not-found behavior while treating 408 as a retryable timeout. The Stripe integration balance health probe also reports HTTP 408 as a timeout instead of a malformed response. These changes preserve existing tenant scope, durable idempotency, provider-truth recovery, and payment-state boundaries.
 
 Focused shared-classifier, direct-write, Checkout, reconciliation, and integration-health regression tests are checked in. Full repository Node 24/TypeScript 6/Prisma/PostgreSQL/build execution and live Stripe verification remain separate environment gates. No GitHub Actions are used.
+
+## Stripe money-movement response ownership
+
+Stripe PaymentIntent and Refund objects return their persisted metadata (see [PaymentIntent create](https://docs.stripe.com/api/payment_intents/create) and [Refund create](https://docs.stripe.com/api/refunds/create)). SF already sends `sf_organization_id` and `sf_booking_id` on direct authorization and refund creation. The direct Stripe adapter now also requires both exact values in successful provider responses for **authorization, capture, authorization release, and refund creation**, before accepting provider IDs, statuses, or money as settlement evidence.
+
+A missing, null, malformed, padded, or cross-tenant/cross-booking metadata pair is retryable `UNKNOWN` provider truth. It does not become a customer decline, authorize a fresh idempotency key, or mutate the tenant-owned payment claim as a definitive result. This is an additional provider-evidence check behind existing server-side membership/resource authorization, not a replacement for it. Checkout Session creation already has a separate explicit metadata and booking identity check; GET reconciliation and signed webhooks remain governed by their existing persisted-reference and tenant-scoped recovery boundaries.
+
+Regression fixtures now include Stripe's returned metadata and negative tests cover all four write operations against missing and conflicting ownership. The repository Node 24 tests, TypeScript 6, Prisma, PostgreSQL, production build, and live Stripe sandbox verification remain unexecuted here. No GitHub Actions are used.

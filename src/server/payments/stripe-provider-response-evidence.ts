@@ -37,6 +37,31 @@ export function assertStripeProviderResponseObject(value: unknown): asserts valu
   }
 }
 
+/**
+ * Stripe returns the metadata attached to created PaymentIntents and refunds.
+ * A successful money-movement response must prove the exact tenant and booking
+ * that SF sent, even when the amount and provider reference otherwise match.
+ * Missing or mismatched ownership is unknown provider truth after network I/O.
+ */
+export function assertStripeWriteResponseOwnership(
+  response: unknown,
+  expectedOrganizationId: string,
+  expectedBookingId: string,
+): void {
+  const resource = response !== null && typeof response === 'object' && !Array.isArray(response)
+    ? response as Record<string, unknown> : null;
+  const metadata = resource?.metadata;
+  if (
+    metadata === null
+    || typeof metadata !== 'object'
+    || Array.isArray(metadata)
+    || (metadata as Record<string, unknown>).sf_organization_id !== expectedOrganizationId
+    || (metadata as Record<string, unknown>).sf_booking_id !== expectedBookingId
+  ) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned payment ownership evidence that does not match the requested booking.', true);
+  }
+}
+
 /** Only bounded canonical ASCII tokens can carry Stripe machine error authority. */
 function readStripeMachineToken(value: unknown): string | null {
   return typeof value === 'string' && value.length <= 96 && /^[a-z][a-z0-9_]*$/.test(value) ? value : null;
