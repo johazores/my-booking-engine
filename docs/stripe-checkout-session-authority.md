@@ -17,7 +17,7 @@ A successful create response must agree with the request on all authority-bearin
 - `metadata.sf_organization_id` and `metadata.sf_booking_id` must equal the requested tenant and booking;
 - normal booking Checkout must not gain commercial-amendment metadata;
 - commercial-amendment Checkout must return the exact expected purpose and amendment ID;
-- `expires_at` must equal the 30-minute expiry SF requested rather than extending or shortening the commercial payment window;
+- `expires_at` must equal the 33-minute expiry SF requested rather than extending or shortening the commercial payment window;
 - amount and currency must still exactly match the requested money.
 
 Any disagreement is retryable `UNKNOWN` provider evidence. SF does not persist the mismatched Session or redirect a customer to it.
@@ -83,3 +83,11 @@ Stripe's Checkout Session object exposes `status`, `payment_status`, `success_ur
 The shared Checkout adapter now requires the exact server-supplied success and cancellation URLs to already be canonical WHATWG URL strings before contacting Stripe. Previously the adapter returned the parser-normalized form, which could silently rewrite uppercase/default-port hostnames, backslash separators, dot-segment paths, unescaped query spaces, or Unicode hostnames. Trailing-dot DNS hostnames are also rejected, matching the deployment-origin policy. These inputs now fail with non-retryable `INVALID_REQUEST` before Stripe I/O, rather than creating a payment operation with a different return destination from the one the caller supplied.
 
 Existing canonical HTTPS destinations and canonical local-development HTTP loopback URLs remain supported. This is adapter-level defense in depth in addition to the configured-origin enforcement on all three Checkout routes; it does not grant tenant custom-domain routing or change payment truth. Focused provider regression cases and a dependency-free source contract are checked in. Full Node 24/TypeScript 6/Prisma/PostgreSQL/build and live Stripe validation remain unverified until the required environment is available.
+
+## Current Stripe hosted UI and expiry contract (October 28, 2026)
+
+Stripe's current [Checkout Session API](https://docs.stripe.com/api/checkout/sessions/object) identifies its hosted redirect UI as `ui_mode: hosted_page`, not `hosted`. SF now requests `hosted_page` explicitly and accepts that exact value (or an omitted legacy response field) for creation and retrieval. `embedded_page`, `elements`, `form`, and the undocumented `hosted` alias remain unsupported. This fixes a real-provider compatibility gap that the older `hosted` test fixture had concealed; the normal and commercial-amendment fixtures now include the actual required open/unpaid and return-destination evidence.
+
+Stripe's [creation contract](https://docs.stripe.com/api/checkout/sessions/create) requires `expires_at` to be at least 30 minutes after **Stripe creates** the Session. A timestamp calculated as exactly 30 minutes after SF's earlier claim-time clock can already be too early by the time Stripe receives the request. SF now requests a fixed 33-minute window from that claim-time clock, allowing the maximum configured 120-second request timeout plus a small clock/queue margin. The exact returned timestamp is still required, persisted, and used for webhook expiry authority. Checkout can outlive a prepared commercial amendment; existing amendment expiry and compensation rules remain authoritative and are not extended by this change.
+
+This is a documented provider-contract correction with focused regression fixtures. Live Stripe test-mode creation, the full Node 24/TypeScript 6 suite, Prisma/PostgreSQL validation, and production build remain unverified in this execution environment. No GitHub Actions are used.

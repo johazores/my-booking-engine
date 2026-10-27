@@ -14,7 +14,7 @@ function checkoutResponse(overrides: Record<string, unknown> = {}) {
     id: 'cs_test_abc123',
     object: 'checkout.session',
     mode: 'payment',
-    ui_mode: 'hosted',
+    ui_mode: 'hosted_page',
     status: 'open',
     payment_status: 'unpaid',
     success_url: 'https://booking.example.test/success',
@@ -25,7 +25,7 @@ function checkoutResponse(overrides: Record<string, unknown> = {}) {
       sf_booking_id: bookingId,
     },
     url: 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout',
-    expires_at: Math.floor(now.getTime() / 1000) + 1800,
+    expires_at: Math.floor(now.getTime() / 1000) + 1980,
     amount_total: 12500,
     currency: 'usd',
     ...overrides,
@@ -80,6 +80,8 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
 
   const form = new URLSearchParams(capturedBody);
   assert.equal(form.get('mode'), 'payment');
+  assert.equal(form.get('ui_mode'), 'hosted_page');
+  assert.equal(form.get('expires_at'), String(Math.floor(now.getTime() / 1000) + 33 * 60));
   assert.equal(form.get('line_items[0][price_data][unit_amount]'), '12500');
   assert.equal(form.get('line_items[0][price_data][currency]'), 'usd');
   assert.equal(form.get('payment_intent_data[metadata][sf_organization_id]'), organizationId);
@@ -91,7 +93,7 @@ test('creates hosted Checkout using authoritative money, tenant metadata, and St
   assert.match(capturedIdempotency, /^public:[0-9a-f]{64}$/);
   assert.equal(result.money.amountMinor, 12500n);
   assert.equal(result.money.currency, 'USD');
-  assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:30:00.000Z');
+  assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
   assert.equal(result.checkoutUrl, 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout');
 });
 
@@ -166,7 +168,10 @@ test('accepts an otherwise authoritative hosted Session when optional ui_mode is
 test('rejects created Checkout Session ownership, readiness, redirects, metadata, or expiry drift', async () => {
   const cases: Record<string, unknown>[] = [
     { mode: 'subscription' },
-    { ui_mode: 'embedded' },
+    { ui_mode: 'hosted' },
+    { ui_mode: 'embedded_page' },
+    { ui_mode: 'elements' },
+    { ui_mode: 'form' },
     { ui_mode: 'custom' },
     { ui_mode: null },
     { status: 'complete' },
@@ -193,7 +198,7 @@ test('rejects created Checkout Session ownership, readiness, redirects, metadata
     { metadata: { sf_organization_id: organizationId, sf_booking_id: bookingId, sf_checkout_purpose: ' ' } },
     { metadata: { sf_organization_id: organizationId, sf_booking_id: bookingId, sf_checkout_purpose: '' } },
     { metadata: { sf_organization_id: organizationId, sf_booking_id: bookingId, sf_commercial_amendment_id: '' } },
-    { expires_at: Math.floor(now.getTime() / 1000) + 1801 },
+    { expires_at: Math.floor(now.getTime() / 1000) + 1981 },
   ];
   for (const overrides of cases) {
     await assert.rejects(
@@ -287,7 +292,10 @@ test('retrieves exact Checkout provider truth for amendment recovery reconciliat
 test('rejects retrieved Checkout authority that no longer belongs to the persisted booking operation', async () => {
   const cases: Record<string, unknown>[] = [
     { mode: 'subscription' },
-    { ui_mode: 'embedded' },
+    { ui_mode: 'hosted' },
+    { ui_mode: 'embedded_page' },
+    { ui_mode: 'elements' },
+    { ui_mode: 'form' },
     { ui_mode: null },
     { client_reference_id: amendmentId },
     { client_reference_id: null },

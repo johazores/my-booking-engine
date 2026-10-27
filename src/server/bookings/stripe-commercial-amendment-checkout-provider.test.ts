@@ -18,6 +18,11 @@ test('normal commercial amendment Checkout carries explicit amendment ownership 
         id: 'cs_test_change_123',
         object: 'checkout.session',
         mode: 'payment',
+        ui_mode: 'hosted_page',
+        status: 'open',
+        payment_status: 'unpaid',
+        success_url: 'https://booking.example.test/change/success',
+        cancel_url: 'https://booking.example.test/change/cancel',
         client_reference_id: bookingId,
         metadata: {
           sf_organization_id: organizationId,
@@ -26,7 +31,7 @@ test('normal commercial amendment Checkout carries explicit amendment ownership 
           sf_commercial_amendment_id: amendmentId,
         },
         url: 'https://checkout.stripe.com/c/pay/cs_test_change_123',
-        expires_at: Math.floor(now.getTime() / 1000) + 1800,
+        expires_at: Math.floor(now.getTime() / 1000) + 1980,
         amount_total: 2500,
         currency: 'usd',
       }), { status: 200 });
@@ -46,6 +51,8 @@ test('normal commercial amendment Checkout carries explicit amendment ownership 
   });
 
   const form = new URLSearchParams(capturedBody);
+  assert.equal(form.get('ui_mode'), 'hosted_page');
+  assert.equal(form.get('expires_at'), String(Math.floor(now.getTime() / 1000) + 33 * 60));
   assert.equal(form.get('metadata[sf_checkout_purpose]'), 'commercial-amendment-charge');
   assert.equal(form.get('metadata[sf_commercial_amendment_id]'), amendmentId);
   assert.equal(form.get('payment_intent_data[metadata][sf_checkout_purpose]'), 'commercial-amendment-charge');

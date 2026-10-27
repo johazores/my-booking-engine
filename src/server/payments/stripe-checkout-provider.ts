@@ -9,7 +9,9 @@ const STRIPE_CHECKOUT_SESSION_PATTERN = /^cs_[A-Za-z0-9_]+$/;
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
-const CHECKOUT_EXPIRY_MINUTES = 30;
+// Stripe requires expires_at at least 30 minutes after provider-side creation.
+// Allow the maximum configured 120-second request deadline plus clock/queue margin.
+const CHECKOUT_EXPIRY_MINUTES = 33;
 const CHECKOUT_CUSTOMER_EMAIL_MAX_LENGTH = 320;
 const UNSAFE_CHECKOUT_TEXT_PATTERN = /[\u0000-\u001f\u007f-\u009f]/;
 
@@ -126,6 +128,7 @@ export class StripeCheckoutProvider {
     const requestedExpiresAtSeconds = Math.floor(expiresAt.getTime() / 1000);
     const form = new URLSearchParams();
     form.set('mode', 'payment');
+    form.set('ui_mode', 'hosted_page');
     form.set('payment_method_types[]', 'card');
     form.set('success_url', successUrl);
     form.set('cancel_url', cancelUrl);
@@ -292,7 +295,7 @@ function assertCreatedCheckoutSessionAuthority(
   // An open positive-value hosted Checkout must preserve the exact return
   // destinations selected by SF before it can become a durable payment claim.
   if (
-    (response.ui_mode !== undefined && response.ui_mode !== 'hosted')
+    (response.ui_mode !== undefined && response.ui_mode !== 'hosted_page')
     || response.status !== 'open'
     || response.payment_status !== 'unpaid'
   ) {
@@ -330,7 +333,7 @@ function assertCreatedCheckoutSessionAuthority(
 function assertRetrievedCheckoutSessionAuthority(response: StripeCheckoutSessionResponse, bookingId: string | null): void {
   if (
     response.mode !== 'payment'
-    || (response.ui_mode !== undefined && response.ui_mode !== 'hosted')
+    || (response.ui_mode !== undefined && response.ui_mode !== 'hosted_page')
     || !bookingId
     || response.client_reference_id !== bookingId
     || !Number.isSafeInteger(response.expires_at)
