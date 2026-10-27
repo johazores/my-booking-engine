@@ -69,7 +69,9 @@ Implemented tenant-managed integrations encrypt normalized provider credentials 
 
 Payment success must be verified server-side from the provider. Browser redirects cannot be treated as proof of payment.
 
-Stripe Checkout success/cancel destinations for public booking, commercial amendments, and amendment recovery come from the canonical configured `SF_CHECKOUT_RETURN_ORIGIN` (fallback `NEXT_PUBLIC_APP_URL`), never inbound Host/request URL. Production requires public HTTPS and rejects loopback origins. Unconfigured, noncanonical, or unsafe origins fail closed before Stripe/payment work with generic customer-safe unavailability. Stored custom domains are not used as return authority until domain ownership/routing verification is implemented. Payment creation, capture, refunds, reconciliation, and webhooks should use idempotency strategies.
+Stripe Checkout success/cancel destinations for public booking, commercial amendments, and amendment recovery come from the canonical configured `SF_CHECKOUT_RETURN_ORIGIN` (fallback `NEXT_PUBLIC_APP_URL`), never inbound Host/request URL. Production requires a public HTTPS DNS origin and rejects IP-literal and loopback origins. Unconfigured, noncanonical, or unsafe origins fail closed before Stripe/payment work with generic customer-safe unavailability. Stored custom domains are not used as return authority until domain ownership/routing verification is implemented.
+
+Payment creation, capture, refunds, reconciliation, and webhooks should use idempotency strategies.
 
 ## Audit and observability
 

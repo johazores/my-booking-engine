@@ -21,7 +21,7 @@ A prepared Stripe `ADDITIONAL_CHARGE` that reaches `STRIPE_CUSTOMER_AUTHORIZATIO
 
 `POST /api/bookings/hospitality/[booking-id]/commercial-amendments/[amendment-id]/stripe-checkout`
 
-The route uses the authenticated same-origin booking context. Both normal and recovery Checkout success/cancel URLs are built from the configured canonical `SF_CHECKOUT_RETURN_ORIGIN` (fallback `NEXT_PUBLIC_APP_URL`), not the inbound request URL/Host. Production requires a canonical public HTTPS origin, and invalid/missing configuration returns a generic 503 before payment work. This prevents Host-header-derived redirects while preserving the booking workspace path. Redirects are navigation only and never establish payment truth.
+The route uses the authenticated same-origin booking context. Both normal and recovery Checkout success/cancel URLs are built from the configured canonical `SF_CHECKOUT_RETURN_ORIGIN` (fallback `NEXT_PUBLIC_APP_URL`), not the inbound request URL/Host. Production requires a canonical public HTTPS DNS origin, and invalid/missing configuration returns a generic 503 before payment work. This prevents Host-header-derived redirects while preserving the booking workspace path. Redirects are navigation only and never establish payment truth.
 
 `hospitality-booking-commercial-amendment-stripe-checkout-service.ts` creates an amendment-attributed `CAPTURE / AMBIGUOUS` claim before provider I/O. The request identity is deterministic and tenant-bound to organization, booking, amendment, and the server-derived attempt number. The fingerprint binds booking, amendment, exact currency, and exact remaining adjustment money.
 

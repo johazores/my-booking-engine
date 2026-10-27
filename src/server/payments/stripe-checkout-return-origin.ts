@@ -46,8 +46,11 @@ export function resolveStripeCheckoutReturnOrigin(configuredUrl: unknown, produc
     || url.hostname.endsWith('.localhost')
     || url.hostname === '127.0.0.1'
     || url.hostname === '[::1]';
+  // Production Checkout must return to a configured DNS name, not an IP
+  // literal (including alternate loopback/private IPv4 and IPv6 addresses).
+  const ipLiteral = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) || url.hostname.startsWith('[');
   if (production) {
-    if (url.protocol !== 'https:' || localHostname) throw invalid();
+    if (url.protocol !== 'https:' || localHostname || ipLiteral) throw invalid();
   } else if (url.protocol !== 'https:' && !(url.protocol === 'http:' && localHostname)) {
     throw invalid();
   }

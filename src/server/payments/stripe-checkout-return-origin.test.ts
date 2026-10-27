@@ -43,7 +43,11 @@ test('production never redirects Checkout customers to local or HTTP origins', (
     'http://localhost:3000',
     'https://localhost:3000',
     'https://127.0.0.1',
+    'https://127.0.0.2',
+    'https://10.0.0.1',
+    'https://192.168.1.1',
     'https://[::1]',
+    'https://[::ffff:127.0.0.1]',
     'http://booking.example.test',
     'http://sub.localhost:3000',
   ]) {
