@@ -10,6 +10,8 @@ const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const CHECKOUT_EXPIRY_MINUTES = 30;
+const CHECKOUT_CUSTOMER_EMAIL_MAX_LENGTH = 320;
+const UNSAFE_CHECKOUT_TEXT_PATTERN = /[\u0000-\u001f\u007f-\u009f]/;
 
 export type StripeCheckoutFetch = typeof fetch;
 export type StripeCheckoutPurpose = 'booking-payment' | 'commercial-amendment-charge' | 'commercial-amendment-recovery';
@@ -87,6 +89,7 @@ export class StripeCheckoutProvider {
     assertStripePaymentWriteInput(input);
     const successUrl = normalizeCheckoutReturnUrl(input.successUrl);
     const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
+    const customerEmail = normalizeCheckoutCustomerEmail(input.customerEmail);
     // Checkout identity is persisted commercial authority, not free-form input.
     // Reject noncanonical values before a Stripe Session can be created.
     if (
@@ -95,7 +98,7 @@ export class StripeCheckoutProvider {
     ) {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout requires canonical tenant and booking IDs.');
     }
-    const purpose = input.purpose ?? 'booking-payment';
+    const purpose = input.purpose === undefined ? 'booking-payment' : input.purpose;
     if (purpose !== 'booking-payment' && purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery') {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout purpose is invalid.');
     }
@@ -109,7 +112,7 @@ export class StripeCheckoutProvider {
       throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
-    const requestedAt = input.now ?? new Date();
+    const requestedAt = input.now === undefined ? new Date() : input.now;
     if (!(requestedAt instanceof Date) || !Number.isFinite(requestedAt.getTime())) {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
     }
@@ -144,7 +147,7 @@ export class StripeCheckoutProvider {
         : 'Reservation';
     form.set('line_items[0][price_data][product_data][name]', productName);
     form.set('line_items[0][quantity]', '1');
-    if (input.customerEmail) form.set('customer_email', input.customerEmail);
+    if (customerEmail !== null) form.set('customer_email', customerEmail);
 
     const response = await this.requestPost<StripeCheckoutSessionResponse>('/checkout/sessions', form, input.idempotencyKey);
     assertStripeProviderResponseObject(response);
@@ -361,7 +364,31 @@ function normalizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : null;
 }
 
-function normalizeCheckoutReturnUrl(value: string) {
+function normalizeCheckoutCustomerEmail(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > CHECKOUT_CUSTOMER_EMAIL_MAX_LENGTH
+    || value !== value.trim()
+    || UNSAFE_CHECKOUT_TEXT_PATTERN.test(value)
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+  ) {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Checkout customer email is invalid.');
+  }
+  return value;
+}
+
+function normalizeCheckoutReturnUrl(value: unknown) {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > 2_048
+    || value !== value.trim()
+    || UNSAFE_CHECKOUT_TEXT_PATTERN.test(value)
+  ) {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Checkout return URL is invalid.');
+  }
   let url: URL;
   try {
     url = new URL(value);

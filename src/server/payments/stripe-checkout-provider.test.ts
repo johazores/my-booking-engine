@@ -580,3 +580,73 @@ test('Stripe Checkout rejects malformed commercial write context and clock befor
   }
   assert.equal(calls, 0);
 });
+
+test('Checkout rejects malformed customer email, return URLs, and explicit null authority before Stripe I/O', async () => {
+  let calls = 0;
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error('Invalid Checkout input must never reach Stripe.');
+    },
+  });
+  const valid = {
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl: 'https://booking.example.test/success',
+    cancelUrl: 'https://booking.example.test/cancel',
+    now,
+  };
+  for (const overrides of [
+    { customerEmail: '' },
+    { customerEmail: ' guest@example.test' },
+    { customerEmail: 'guest@example.test ' },
+    { customerEmail: 'guest@example.test\\n' },
+    { customerEmail: 'guest@@example.test' },
+    { customerEmail: 'guest@example' },
+    { customerEmail: 'guest@example.test\\u007f' },
+    { customerEmail: 'a'.repeat(310) + '@example.test' },
+    { customerEmail: 42 },
+    { customerEmail: ['guest@example.test'] },
+    { successUrl: 'https://booking.example.test/success\\n' },
+    { cancelUrl: 'https://booking.example.test/cancel\\r' },
+    { successUrl: ' https://booking.example.test/success' },
+    { cancelUrl: 'https://booking.example.test/cancel ' },
+    { successUrl: 'http://booking.example.test/success' },
+    { cancelUrl: 'https://user:pass@booking.example.test/cancel' },
+    { successUrl: 'https://booking.example.test/' + 'x'.repeat(2_050) },
+    { cancelUrl: 42 },
+    { purpose: null },
+    { now: null },
+  ]) {
+    await assert.rejects(
+      provider.createPaymentSession({ ...valid, ...overrides } as Parameters<StripeCheckoutProvider['createPaymentSession']>[0]),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+    assert.equal(calls, 0, JSON.stringify(overrides));
+  }
+});
+
+test('Checkout accepts an explicitly absent customer email without adding a Stripe form field', async () => {
+  let body = '';
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (_url, init) => {
+      body = String(init?.body ?? '');
+      return new Response(JSON.stringify(checkoutResponse()), { status: 200 });
+    },
+  });
+  await provider.createPaymentSession({
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl: 'https://booking.example.test/success',
+    cancelUrl: 'https://booking.example.test/cancel',
+    customerEmail: null,
+    now,
+  });
+  assert.equal(new URLSearchParams(body).has('customer_email'), false);
+});
