@@ -11,7 +11,7 @@ import {
   type ProviderRefundResult,
 } from './payment-provider.ts';
 import { requestStripeApi } from './stripe-api-transport.ts';
-import { assertStripePaymentWriteInput } from './stripe-payment-write-input.ts';
+import { materializeStripePaymentWriteInput } from './stripe-payment-write-input.ts';
 import { assertStripeProviderResponseOwnership, classifyStripePaymentHttpError, normalizeStripeProviderResponseMoney } from './stripe-provider-response-evidence.ts';
 import { parseStripeWebhookSignatureHeader } from './stripe-webhook-ingress-signature-domain.ts';
 import { isKnownStripePaymentIntentStatus, isKnownStripeRefundStatus } from './stripe-provider-status.ts';
@@ -58,53 +58,53 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async authorizePayment(input: PaymentAuthorizationInput): Promise<ProviderPaymentResult> {
-    assertStripePaymentWriteInput(input);
+    const submitted = materializeStripePaymentWriteInput(input);
     const paymentMethodReference = normalizeStripePaymentMethodReference(input.paymentMethodReference);
     const form = new URLSearchParams();
-    form.set('amount', input.money.amountMinor.toString());
-    form.set('currency', input.money.currency.toLowerCase());
+    form.set('amount', submitted.money.amountMinor.toString());
+    form.set('currency', submitted.money.currency.toLowerCase());
     form.set('payment_method', paymentMethodReference);
     form.set('payment_method_types[]', 'card');
     form.set('capture_method', 'manual');
     form.set('confirm', 'true');
-    form.set('metadata[sf_organization_id]', input.organizationId);
-    form.set('metadata[sf_booking_id]', input.bookingId);
+    form.set('metadata[sf_organization_id]', submitted.organizationId);
+    form.set('metadata[sf_booking_id]', submitted.bookingId);
 
-    const intent = await this.request<StripePaymentIntent>('/payment_intents', form, input.idempotencyKey);
-    assertStripeProviderResponseOwnership(intent, input.organizationId, input.bookingId);
-    return normalizeAuthorizedPaymentIntent(intent, input.money);
+    const intent = await this.request<StripePaymentIntent>('/payment_intents', form, submitted.idempotencyKey);
+    assertStripeProviderResponseOwnership(intent, submitted.organizationId, submitted.bookingId);
+    return normalizeAuthorizedPaymentIntent(intent, submitted.money);
   }
 
   async capturePayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
-    assertStripePaymentWriteInput(input);
+    const submitted = materializeStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
-    form.set('amount_to_capture', input.money.amountMinor.toString());
-    const intent = await this.request<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(providerReference)}/capture`, form, input.idempotencyKey);
-    assertStripeProviderResponseOwnership(intent, input.organizationId, input.bookingId);
+    form.set('amount_to_capture', submitted.money.amountMinor.toString());
+    const intent = await this.request<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(providerReference)}/capture`, form, submitted.idempotencyKey);
+    assertStripeProviderResponseOwnership(intent, submitted.organizationId, submitted.bookingId);
     if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while capturing.', true);
     }
-    return normalizeCapturedPaymentIntent(intent, input.money);
+    return normalizeCapturedPaymentIntent(intent, submitted.money);
   }
 
   async releaseAuthorization(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderPaymentResult> {
-    assertStripePaymentWriteInput(input);
+    const submitted = materializeStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
     form.set('cancellation_reason', 'abandoned');
     const intent = await this.request<StripePaymentIntent>(
       `/payment_intents/${encodeURIComponent(providerReference)}/cancel`,
       form,
-      input.idempotencyKey,
+      submitted.idempotencyKey,
     );
-    assertStripeProviderResponseOwnership(intent, input.organizationId, input.bookingId);
+    assertStripeProviderResponseOwnership(intent, submitted.organizationId, submitted.bookingId);
     if (intent?.id !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a different PaymentIntent while releasing the authorization.', true);
     }
     assertKnownStripePaymentIntentStatus(intent?.status);
     const money = normalizeStripeProviderResponseMoney(intent.currency, normalizeStripeMinorAmount(intent.amount, 'authorization release amount'));
-    assertMatchingMoney(money, input.money, 'authorization release');
+    assertMatchingMoney(money, submitted.money, 'authorization release');
     // A canceled intent must prove that neither received nor capturable money remains.
     // Otherwise a cancellation response is not authoritative release evidence.
     if (intent.status === 'canceled' && (
@@ -118,7 +118,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     if (intent.status === 'succeeded' && (
       intent.amount_received === undefined
       || intent.amount_capturable === undefined
-      || normalizeStripeMinorAmount(intent.amount_received, 'authorization release received amount') !== input.money.amountMinor
+      || normalizeStripeMinorAmount(intent.amount_received, 'authorization release received amount') !== submitted.money.amountMinor
       || normalizeStripeMinorAmount(intent.amount_capturable, 'authorization release capturable amount') !== 0n
     )) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe did not prove the authorization was settled.', true);
@@ -134,7 +134,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       const capturable = normalizeStripeMinorAmount(intent.amount_capturable, 'pending release capturable amount');
       if (
         received !== 0n
-        || capturable > input.money.amountMinor
+        || capturable > submitted.money.amountMinor
         || (intent.status === 'requires_capture' && capturable === 0n)
       ) {
         throw new PaymentProviderError('UNKNOWN', 'Stripe returned contradictory pending release evidence.', true);
@@ -145,16 +145,16 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   async refundPayment(input: PaymentOperationContext & { providerReference: string }): Promise<ProviderRefundResult> {
-    assertStripePaymentWriteInput(input);
+    const submitted = materializeStripePaymentWriteInput(input);
     const providerReference = normalizeStripePaymentIntentReference(input.providerReference);
     const form = new URLSearchParams();
     form.set('payment_intent', providerReference);
-    form.set('amount', input.money.amountMinor.toString());
-    form.set('metadata[sf_organization_id]', input.organizationId);
-    form.set('metadata[sf_booking_id]', input.bookingId);
+    form.set('amount', submitted.money.amountMinor.toString());
+    form.set('metadata[sf_organization_id]', submitted.organizationId);
+    form.set('metadata[sf_booking_id]', submitted.bookingId);
 
-    const refund = await this.request<StripeRefund>('/refunds', form, input.idempotencyKey);
-    assertStripeProviderResponseOwnership(refund, input.organizationId, input.bookingId);
+    const refund = await this.request<StripeRefund>('/refunds', form, submitted.idempotencyKey);
+    assertStripeProviderResponseOwnership(refund, submitted.organizationId, submitted.bookingId);
     if (refund?.payment_intent !== providerReference) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned a refund for a different PaymentIntent.', true);
     }
@@ -162,7 +162,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid refund reference.', true);
     }
     const money = normalizeStripeProviderResponseMoney(refund.currency, normalizeStripeMinorAmount(refund.amount, 'refund amount'));
-    assertMatchingMoney(money, input.money, 'refund');
+    assertMatchingMoney(money, submitted.money, 'refund');
 
     if (!isKnownStripeRefundStatus(refund.status)) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an unrecognized refund status.', true);
@@ -176,15 +176,30 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
   }
 
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean {
-    if (!input || typeof input !== 'object' || typeof input.payload !== 'string' || typeof input.secret !== 'string') return false;
-    const secret = input.secret.trim();
+    // Verify the exact raw payload, secret, signature, and clock read at entry.
+    // Re-reading accessor-backed values could validate one event and sign another.
+    let payload: unknown;
+    let secretValue: unknown;
+    let signatureHeader: unknown;
+    let now: unknown;
+    try {
+      if (!input || typeof input !== 'object') return false;
+      payload = input.payload;
+      secretValue = input.secret;
+      signatureHeader = input.signature;
+      now = input.now;
+    } catch {
+      return false;
+    }
+    if (typeof payload !== 'string' || typeof secretValue !== 'string') return false;
+    const secret = secretValue.trim();
     if (!secret.startsWith('whsec_')) return false;
-    const parsed = parseStripeWebhookSignatureHeader(input.signature);
+    const parsed = parseStripeWebhookSignatureHeader(signatureHeader);
     if (!parsed) return false;
 
     // An invalid injected clock must not turn the replay-window comparison into NaN > tolerance (false).
     // Read the native Date value rather than a caller-overridden getTime method.
-    const clock = input.now === undefined ? new Date() : input.now;
+    const clock = now === undefined ? new Date() : now;
     let nowMilliseconds: number;
     try {
       nowMilliseconds = Date.prototype.getTime.call(clock);
@@ -195,7 +210,7 @@ export class StripePaymentProvider implements PaymentProviderAdapter {
     const nowSeconds = Math.floor(nowMilliseconds / 1000);
     if (Math.abs(nowSeconds - parsed.timestamp) > this.webhookToleranceSeconds) return false;
 
-    const expectedBuffer = createHmac('sha256', secret).update(`${parsed.timestamp}.${input.payload}`, 'utf8').digest();
+    const expectedBuffer = createHmac('sha256', secret).update(`${parsed.timestamp}.${payload}`, 'utf8').digest();
     return parsed.signatures.some((signature) => {
       const signatureBuffer = Buffer.from(signature, 'hex');
       return signatureBuffer.length === expectedBuffer.length && timingSafeEqual(signatureBuffer, expectedBuffer);

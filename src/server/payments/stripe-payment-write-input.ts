@@ -46,3 +46,25 @@ export function assertStripePaymentWriteInput(input: PaymentOperationContext): v
     throw error;
   }
 }
+
+/**
+ * Capture commercial write authority before validation or provider I/O.
+ * Accessor-backed input must not validate one tenant, amount, or idempotency
+ * key and then send another value to Stripe.
+ */
+export function materializeStripePaymentWriteInput(input: PaymentOperationContext): PaymentOperationContext {
+  let submitted: PaymentOperationContext;
+  try {
+    const money = input.money;
+    submitted = Object.freeze({
+      organizationId: input.organizationId,
+      bookingId: input.bookingId,
+      idempotencyKey: input.idempotencyKey,
+      money: Object.freeze({ currency: money.currency, amountMinor: money.amountMinor }),
+    });
+  } catch {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment write context is invalid.');
+  }
+  assertStripePaymentWriteInput(submitted);
+  return submitted;
+}

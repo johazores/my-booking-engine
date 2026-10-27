@@ -150,3 +150,11 @@ evidence. Regression tests cover the three money-movement writes and both GET
 lookups with zero outbound calls on padded input. The tests are checked in but
 require Node 24 to execute. Full typecheck, lint, Prisma, PostgreSQL, build,
 and live Stripe validation remain outstanding. No GitHub Actions are used.
+
+## Direct payment-write and webhook input snapshots (October 28, 2026)
+
+The Stripe PaymentIntent authorization, capture, authorization-release, and refund adapter now snapshots tenant ID, booking ID, idempotency key, and exact currency/minor-unit money once **before** validation and network I/O. The validated frozen values are reused for the outbound request, provider response ownership checks, and money reconciliation. An accessor-backed runtime input can no longer validate one commercial operation and submit or reconcile another. Throwing context or nested-money getters fail as non-retryable `INVALID_REQUEST` without sending a provider request. The hosted Checkout adapter already applies the equivalent preflight snapshot to its own larger input shape.
+
+Stripe webhook signature verification now similarly reads the raw payload, signature header, signing secret, and optional clock once. A changing or throwing runtime accessor cannot change the signed bytes or replay-window clock after validation. This does not replace Stripe HMAC verification or the existing durable webhook ownership/idempotency checks.
+
+Focused adapter regression cases are checked in. The isolated snapshot algorithm has been exercised under local Node 22; the complete repository Node 24/TypeScript 6/Prisma/PostgreSQL tests, build, and live Stripe validation remain unverified until the required environment is available. No GitHub Actions are used.

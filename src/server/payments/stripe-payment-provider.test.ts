@@ -43,6 +43,112 @@ test('stripe adapter authorizes with manual capture and server-owned metadata', 
   assert.deepEqual(result, { providerCode: 'stripe', providerReference: 'pi_authorized_1', status: 'AUTHORIZED', money: { currency: 'USD', amountMinor: 24100n } });
 });
 
+
+test('Stripe direct payment writes snapshot tenant, booking, money, and idempotency authority once', async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl: StripeFetch = async (url, init) => {
+    const path = String(url);
+    requests.push({ url: path, init });
+    if (path.endsWith('/capture')) {
+      return new Response(stripeJson({ id: 'pi_capture_1', status: 'succeeded', amount: 24100, amount_received: 24100, amount_capturable: 0, currency: 'usd' }));
+    }
+    if (path.endsWith('/cancel')) {
+      return new Response(stripeJson({ id: 'pi_capture_1', status: 'canceled', amount: 24100, amount_received: 0, amount_capturable: 0, currency: 'usd' }));
+    }
+    if (path.endsWith('/refunds')) {
+      return new Response(stripeJson({ id: 're_refund_1', payment_intent: 'pi_capture_1', status: 'pending', amount: 24100, currency: 'usd' }));
+    }
+    return new Response(stripeJson({ id: 'pi_authorized_1', status: 'requires_capture', amount: 24100, amount_received: 0, amount_capturable: 24100, currency: 'usd' }));
+  };
+  const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret', fetchImpl });
+  const otherOrganization = 'c3333333-3333-4333-8333-333333333333';
+  for (const operation of ['authorize', 'capture', 'release', 'refund'] as const) {
+    const reads = { organization: 0, booking: 0, key: 0, money: 0, currency: 0, amount: 0 };
+    const money = {
+      get currency() { reads.currency += 1; return reads.currency === 1 ? 'USD' : 'EUR'; },
+      get amountMinor() { reads.amount += 1; return reads.amount === 1 ? 24100n : 1n; },
+    };
+    const input = {
+      get organizationId() { reads.organization += 1; return reads.organization === 1 ? organizationId : otherOrganization; },
+      get bookingId() { reads.booking += 1; return reads.booking === 1 ? bookingId : otherOrganization; },
+      get idempotencyKey() { reads.key += 1; return reads.key === 1 ? 'stripe:stable:payment' : 'stripe:drift:payment'; },
+      get money() { reads.money += 1; return reads.money === 1 ? money : { currency: 'EUR', amountMinor: 1n }; },
+      paymentMethodReference: 'pm_card_1',
+      providerReference: 'pi_capture_1',
+    };
+    if (operation === 'authorize') await provider.authorizePayment(input);
+    else if (operation === 'capture') await provider.capturePayment(input);
+    else if (operation === 'release') await provider.releaseAuthorization(input);
+    else await provider.refundPayment(input);
+
+    assert.deepEqual(reads, { organization: 1, booking: 1, key: 1, money: 1, currency: 1, amount: 1 }, operation);
+    const request = requests.at(-1);
+    assert.ok(request);
+    assert.equal(new Headers(request.init?.headers).get('idempotency-key'), 'stripe:stable:payment', operation);
+    const form = new URLSearchParams(String(request.init?.body));
+    if (operation === 'authorize' || operation === 'refund') {
+      assert.equal(form.get('metadata[sf_organization_id]'), organizationId, operation);
+      assert.equal(form.get('metadata[sf_booking_id]'), bookingId, operation);
+    }
+    if (operation === 'authorize' || operation === 'refund') assert.equal(form.get('amount'), '24100', operation);
+    if (operation === 'capture') assert.equal(form.get('amount_to_capture'), '24100');
+  }
+  assert.equal(requests.length, 4);
+});
+
+test('Stripe direct writes reject throwing commercial input getters without provider I/O', async () => {
+  let calls = 0;
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Must not contact Stripe.'); },
+  });
+  const invalid = {
+    ...context(),
+    get bookingId(): string { throw new Error('private getter error'); },
+    paymentMethodReference: 'pm_card_1',
+    providerReference: 'pi_capture_1',
+  };
+  for (const operation of [
+    () => provider.authorizePayment(invalid),
+    () => provider.capturePayment(invalid),
+    () => provider.releaseAuthorization(invalid),
+    () => provider.refundPayment(invalid),
+  ]) {
+    await assert.rejects(operation(), (error: unknown) => error instanceof PaymentProviderError
+      && error.code === 'INVALID_REQUEST' && !error.retryable && !error.message.includes('private getter error'));
+  }
+  const invalidNestedMoney = {
+    ...context(),
+    money: { get currency(): string { throw new Error('nested secret'); }, amountMinor: 24100n },
+    paymentMethodReference: 'pm_card_1',
+  };
+  await assert.rejects(provider.authorizePayment(invalidNestedMoney), (error: unknown) => error instanceof PaymentProviderError
+    && error.code === 'INVALID_REQUEST' && !error.retryable);
+  assert.equal(calls, 0);
+});
+
+test('Stripe webhook verification snapshots signed payload, secret, signature, and clock once', () => {
+  const provider = new StripePaymentProvider({ secretKey: 'sk_test_not-a-real-secret' });
+  const payload = '{"id":"evt_1","type":"payment_intent.succeeded"}';
+  const secret = 'whsec_test_signing_secret';
+  const timestamp = 1_800_000_000;
+  const signature = `t=${timestamp},v1=${createHmac('sha256', secret).update(`${timestamp}.${payload}`, 'utf8').digest('hex')}`;
+  const reads = { payload: 0, secret: 0, signature: 0, now: 0 };
+  const signedInput = {
+    get payload() { reads.payload += 1; return reads.payload === 1 ? payload : 'altered payload'; },
+    get secret() { reads.secret += 1; return reads.secret === 1 ? secret : 'whsec_drift'; },
+    get signature() { reads.signature += 1; return reads.signature === 1 ? signature : 'invalid'; },
+    get now() { reads.now += 1; return reads.now === 1 ? new Date(timestamp * 1000) : new Date((timestamp + 500) * 1000); },
+  };
+  assert.equal(provider.verifyWebhookSignature(signedInput), true);
+  assert.deepEqual(reads, { payload: 1, secret: 1, signature: 1, now: 1 });
+  assert.equal(provider.verifyWebhookSignature({
+    get payload(): string { throw new Error('private signed payload'); },
+    signature,
+    secret,
+  }), false);
+});
+
 test('stripe adapter supports exact partial capture, authorization release, and pending refunds', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: StripeFetch = async (input, init) => {
