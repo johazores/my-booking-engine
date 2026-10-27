@@ -110,21 +110,32 @@ test('rejects Checkout redirect authority outside the default Stripe-hosted sess
   }
 });
 
-test('rejects created Checkout Session ownership, mode, metadata, or expiry drift', async () => {
+test('accepts an otherwise authoritative hosted Session when optional ui_mode is omitted', async () => {
+  const session = await createBookingCheckout({ ui_mode: undefined });
+  assert.equal(session.sessionReference, 'cs_test_abc123');
+  assert.equal(session.money.amountMinor, 12500n);
+});
+
+test('rejects created Checkout Session ownership, readiness, redirects, metadata, or expiry drift', async () => {
   const cases: Record<string, unknown>[] = [
     { mode: 'subscription' },
     { ui_mode: 'embedded' },
+    { ui_mode: 'custom' },
     { ui_mode: null },
     { status: 'complete' },
     { status: 'expired' },
     { status: null },
+    { status: undefined },
     { payment_status: 'paid' },
     { payment_status: 'no_payment_required' },
     { payment_status: null },
+    { payment_status: undefined },
     { success_url: 'https://other.example.test/book/acme?payment=processing' },
     { success_url: null },
+    { success_url: undefined },
     { cancel_url: 'https://other.example.test/book/acme?payment=cancelled' },
     { cancel_url: null },
+    { cancel_url: undefined },
     { client_reference_id: amendmentId },
     { metadata: { sf_organization_id: amendmentId, sf_booking_id: bookingId } },
     { metadata: { sf_organization_id: organizationId, sf_booking_id: amendmentId } },
