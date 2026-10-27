@@ -110,6 +110,27 @@ test('rejects Checkout redirect authority outside the default Stripe-hosted sess
   }
 });
 
+test('rejects raw Checkout redirect text that URL parsing would silently change', async () => {
+  const validUrl = 'https://checkout.stripe.com/c/pay/cs_test_abc123#checkout';
+  for (const url of [
+    ` ${validUrl}`,
+    `${validUrl} `,
+    `${validUrl}\n`,
+    `${validUrl}\r`,
+    `${validUrl}\t`,
+    `${validUrl}\u0000`,
+    `${validUrl}\u0085`,
+    `${validUrl}\ud800`,
+    `${validUrl}\udc00`,
+    `${validUrl}${'x'.repeat(4_096)}`,
+  ]) {
+    await assert.rejects(
+      createBookingCheckout({ url }),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable,
+    );
+  }
+});
+
 test('accepts an otherwise authoritative hosted Session when optional ui_mode is omitted', async () => {
   const session = await createBookingCheckout({ ui_mode: undefined });
   assert.equal(session.sessionReference, 'cs_test_abc123');

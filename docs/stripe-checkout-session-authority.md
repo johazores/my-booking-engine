@@ -42,6 +42,8 @@ The current SF integration supports Stripe's default hosted Checkout URL only. T
 
 Stripe supports custom Checkout domains, but SF does not currently model a tenant-owned Stripe Checkout custom domain or verification state. Custom Checkout domains are therefore intentionally unsupported rather than implicitly trusting any HTTPS hostname returned by a provider response. Supporting them later requires an explicit tenant/provider configuration and verification contract.
 
+Stripe redirect URL evidence is also checked in its original raw form before WHATWG URL parsing. Leading/trailing whitespace, C0/C1 control characters (including raw CR, LF, and TAB), unpaired Unicode surrogates, and URLs over 4,096 characters fail closed as retryable unknown provider evidence. This prevents the URL parser from silently removing or replacing characters before SF returns the hosted destination to a browser. Normal Stripe Checkout hash fragments remain supported.
+
 The Checkout URL is navigation authority only. It never proves payment. Signed Stripe callbacks and explicit provider reconciliation remain the payment-truth boundaries, and both are still subject to SF-owned operation binding before commercial state changes.
 
 ## Provider reconciliation binding

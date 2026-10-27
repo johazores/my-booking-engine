@@ -428,6 +428,18 @@ function normalizeCheckoutReturnUrl(value: unknown) {
 }
 
 function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
+  // WHATWG URL parsing can strip raw CR/LF/TAB or replace malformed Unicode.
+  // A provider redirect is navigation authority: reject altered raw evidence
+  // rather than persisting a browser destination that Stripe did not return.
+  if (
+    value.length === 0
+    || value.length > 4_096
+    || value !== value.trim()
+    || !value.isWellFormed()
+    || UNSAFE_CHECKOUT_TEXT_PATTERN.test(value)
+  ) {
+    throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
+  }
   let url: URL;
   try {
     url = new URL(value);
@@ -441,7 +453,6 @@ function normalizeStripeCheckoutUrl(value: string, sessionReference: string) {
     || url.port
     || url.username
     || url.password
-    || value.length > 4_096
     || pathSegments.at(-1) !== sessionReference
   ) {
     throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout URL.', true);
