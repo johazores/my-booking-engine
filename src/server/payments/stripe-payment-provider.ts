@@ -227,8 +227,16 @@ export function requireStripeResponsePaymentIntentReference(value: unknown): str
 }
 
 export function normalizeStripePaymentMethodReference(value: unknown): string {
-  if (typeof value !== 'string' || !STRIPE_PAYMENT_METHOD_PATTERN.test(value.trim())) throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment method reference is invalid.');
-  return value.trim();
+  // PaymentMethod IDs are commercial operation identity, including in the
+  // persisted authorization fingerprint. Never trim or reinterpret them.
+  if (
+    typeof value !== 'string'
+    || !STRIPE_PAYMENT_METHOD_PATTERN.test(value)
+    || value.length > MAX_STRIPE_PERSISTED_REFERENCE_LENGTH
+  ) {
+    throw new PaymentProviderError('INVALID_REQUEST', 'Stripe payment method reference is invalid.');
+  }
+  return value;
 }
 
 function assertKnownStripePaymentIntentStatus(status: unknown): asserts status is string {

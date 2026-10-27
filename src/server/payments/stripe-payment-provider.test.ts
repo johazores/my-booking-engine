@@ -153,16 +153,46 @@ test('stripe webhook verification checks raw payload and timestamp tolerance', (
 });
 
 test('stripe references and constructor configuration validate before requests', () => {
-  assert.equal(normalizeStripePaymentIntentReference('pi_valid_1'), 'pi_valid_1'); assert.equal(normalizeStripePaymentMethodReference(' pm_valid_1 '), 'pm_valid_1');
+  assert.equal(normalizeStripePaymentIntentReference('pi_valid_1'), 'pi_valid_1');
+  assert.equal(normalizeStripePaymentMethodReference('pm_valid_1'), 'pm_valid_1');
   for (const padded of [' pi_valid_1', 'pi_valid_1 ', '\tpi_valid_1', 'pi_valid_1\n']) {
     assert.throws(() => normalizeStripePaymentIntentReference(padded), /PaymentIntent reference/);
   }
-  assert.throws(() => normalizeStripePaymentIntentReference('ch_wrong'), /PaymentIntent reference/); assert.throws(() => normalizeStripePaymentMethodReference('card_wrong'), /payment method reference/);
+  for (const padded of [' pm_valid_1', 'pm_valid_1 ', '\tpm_valid_1', 'pm_valid_1\n']) {
+    assert.throws(() => normalizeStripePaymentMethodReference(padded), /payment method reference/);
+  }
+  assert.throws(() => normalizeStripePaymentIntentReference('ch_wrong'), /PaymentIntent reference/);
+  assert.throws(() => normalizeStripePaymentMethodReference('card_wrong'), /payment method reference/);
   assert.equal(normalizeStripePaymentIntentReference(`pi_${'x'.repeat(157)}`).length, 160);
   assert.throws(() => normalizeStripePaymentIntentReference(`pi_${'x'.repeat(158)}`), /PaymentIntent reference/);
+  assert.equal(normalizeStripePaymentMethodReference(`pm_${'x'.repeat(157)}`).length, 160);
+  assert.throws(() => normalizeStripePaymentMethodReference(`pm_${'x'.repeat(158)}`), /payment method reference/);
   assert.throws(() => new StripePaymentProvider({ secretKey: 'not-a-key' }), /secret key/); assert.throws(() => new StripePaymentProvider({ secretKey: 'sk_test_valid-enough', timeoutMs: 99 }), /timeout/);
 });
 
+
+test('Stripe authorization rejects noncanonical PaymentMethod IDs before any provider request', async () => {
+  let calls = 0;
+  const provider = new StripePaymentProvider({
+    secretKey: 'sk_test_not-a-real-secret',
+    fetchImpl: async () => { calls += 1; throw new Error('Invalid PaymentMethod must not reach Stripe.'); },
+  });
+  for (const reference of [
+    ' pm_card_1', 'pm_card_1 ', '\tpm_card_1', 'pm_card_1\n',
+    'pm_', 'card_wrong', `pm_${'x'.repeat(158)}`,
+    null, undefined, 123, ['pm_card_1'],
+  ]) {
+    await assert.rejects(
+      provider.authorizePayment({
+        ...context('stripe:auth:noncanonical-method'),
+        paymentMethodReference: reference as string,
+      }),
+      (error: unknown) => error instanceof PaymentProviderError
+        && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+  }
+  assert.equal(calls, 0);
+});
 
 test('Stripe direct money-movement writes reject padded persisted references before network I/O', async () => {
   let calls = 0;
