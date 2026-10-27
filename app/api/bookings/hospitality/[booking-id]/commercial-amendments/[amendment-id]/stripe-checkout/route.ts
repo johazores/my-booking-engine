@@ -1,3 +1,4 @@
+import { resolveStripeCheckoutReturnOrigin } from '@/server/payments/stripe-checkout-return-origin.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
 import { createOrResumeStripeHospitalityBookingCommercialAmendmentCheckout } from '@/server/bookings/hospitality-booking-commercial-amendment-stripe-checkout-transport-service.ts';
 import { hospitalityBookingApiError, hospitalityBookingJson, requireHospitalityBookingApiContext } from '@/server/bookings/hospitality-booking-http.ts';
@@ -16,7 +17,11 @@ export async function POST(request: Request, context: RouteContext) {
     const params = await context.params;
     const bookingId = params['booking-id'];
     const amendmentId = params['amendment-id'];
-    const returnUrl = new URL(`/bookings/${encodeURIComponent(bookingId)}`, request.url);
+    const returnOrigin = resolveStripeCheckoutReturnOrigin(
+      process.env.SF_CHECKOUT_RETURN_ORIGIN ?? process.env.NEXT_PUBLIC_APP_URL,
+      process.env.NODE_ENV === 'production',
+    );
+    const returnUrl = new URL(`/bookings/${encodeURIComponent(bookingId)}`, returnOrigin);
     const successUrl = new URL(returnUrl);
     successUrl.searchParams.set('commercialPayment', 'returned');
     successUrl.searchParams.set('commercialAmendmentId', amendmentId);

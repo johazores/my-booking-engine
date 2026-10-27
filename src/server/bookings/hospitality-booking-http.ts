@@ -6,6 +6,7 @@ import { AvailabilityValidationError } from '../availability/availability-domain
 import { AvailabilityHoldConflictError, AvailabilityHoldUnavailableError } from '../availability/hospitality-availability-hold-service.ts';
 import { AvailabilityUnavailableError } from '../availability/hospitality-availability-service.ts';
 import { PaymentInputValidationError } from '../payments/payment-provider.ts';
+import { StripeCheckoutReturnOriginConfigurationError } from '../payments/stripe-checkout-return-origin.ts';
 import { InvoiceIssuerValidationError } from '../payments/invoice-issuer-domain.ts';
 import { HospitalityInvoiceRecipientValidationError } from '../payments/hospitality-invoice-recipient-domain.ts';
 import { HospitalityInvoicePreparationValidationError } from '../payments/hospitality-invoice-preparation-domain.ts';
@@ -86,6 +87,7 @@ export function hospitalityBookingApiError(error: unknown) {
     return bookingApiErrorJson({ error: 'conflict', message: error.message }, 409);
   }
   if (error instanceof PaymentUnavailableError) return bookingApiErrorJson({ error: 'payment-unavailable', message: error.message }, 404);
+  if (error instanceof StripeCheckoutReturnOriginConfigurationError) return bookingApiErrorJson({ error: 'payment-unavailable' }, 503);
 
   const providerError = paymentProviderClientErrorFromThrown(error);
   if (providerError) {

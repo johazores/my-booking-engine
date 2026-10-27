@@ -1,3 +1,4 @@
+import { resolveStripeCheckoutReturnOrigin, StripeCheckoutReturnOriginConfigurationError } from '@/server/payments/stripe-checkout-return-origin.ts';
 import { PublicBookingCapabilityConfigurationError } from '@/server/bookings/public-booking-capability.ts';
 import { isSameOriginPublicBookingWrite, readPublicBookingJsonObject } from '@/server/bookings/public-booking-http-policy.ts';
 import { normalizePublicBookingRequestKey, PublicBookingRequestValidationError } from '@/server/bookings/public-booking-request-domain.ts';
@@ -27,6 +28,9 @@ function errorResponse(error: unknown) {
   }
   if (error instanceof PaymentConflictError) {
     return Response.json({ error: 'conflict', message: error.message }, { status: 409, headers: noStoreHeaders });
+  }
+  if (error instanceof StripeCheckoutReturnOriginConfigurationError) {
+    return Response.json({ error: 'payment-unavailable' }, { status: 503, headers: noStoreHeaders });
   }
   if (error instanceof PublicStripeCheckoutUnavailableError || error instanceof PublicBookingCapabilityConfigurationError) {
     return Response.json({ error: 'payment-unavailable' }, { status: 503, headers: noStoreHeaders });
@@ -74,7 +78,11 @@ export async function POST(request: Request, context: RouteContext) {
       throw error;
     }
 
-    const returnUrl = new URL(`/book/${encodeURIComponent(organizationSlug)}`, request.url);
+    const returnOrigin = resolveStripeCheckoutReturnOrigin(
+      process.env.SF_CHECKOUT_RETURN_ORIGIN ?? process.env.NEXT_PUBLIC_APP_URL,
+      process.env.NODE_ENV === 'production',
+    );
+    const returnUrl = new URL(`/book/${encodeURIComponent(organizationSlug)}`, returnOrigin);
     const successUrl = new URL(returnUrl);
     successUrl.searchParams.set('payment', 'processing');
     const cancelUrl = new URL(returnUrl);
