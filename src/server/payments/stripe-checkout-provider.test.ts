@@ -662,6 +662,68 @@ test('retrieved Checkout rejects missing, uppercase, and partial commercial owne
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
 });
 
+test('Checkout snapshots tenant, money, purpose, and idempotency authority before Stripe I/O', async () => {
+  const reads: Record<string, number> = {};
+  const read = (name: string) => (reads[name] = (reads[name] ?? 0) + 1);
+  const key = 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  let form = new URLSearchParams();
+  let outboundKey = '';
+  let calls = 0;
+  const provider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (_url, init) => {
+      calls += 1;
+      form = new URLSearchParams(String(init?.body ?? ''));
+      outboundKey = new Headers(init?.headers).get('Idempotency-Key') ?? '';
+      return new Response(JSON.stringify(checkoutResponse()), { status: 200 });
+    },
+  });
+  const input = {
+    get organizationId() { return read('organizationId') === 1 ? organizationId : amendmentId; },
+    get bookingId() { return read('bookingId') === 1 ? bookingId : amendmentId; },
+    get idempotencyKey() { return read('idempotencyKey') === 1 ? key : 'changed-key'; },
+    get money() {
+      read('money');
+      return {
+        get currency() { return read('currency') === 1 ? 'USD' : 'EUR'; },
+        get amountMinor() { return read('amountMinor') === 1 ? 12500n : 999n; },
+      };
+    },
+    get successUrl() { read('successUrl'); return 'https://booking.example.test/success'; },
+    get cancelUrl() { read('cancelUrl'); return 'https://booking.example.test/cancel'; },
+    get customerEmail() { read('customerEmail'); return undefined; },
+    get now() { read('now'); return now; },
+    get purpose() { return read('purpose') === 1 ? undefined : 'commercial-amendment-charge'; },
+    get commercialAmendmentId() { read('commercialAmendmentId'); return undefined; },
+  };
+  const result = await provider.createPaymentSession(input as Parameters<StripeCheckoutProvider['createPaymentSession']>[0]);
+  assert.equal(calls, 1);
+  assert.equal(outboundKey, key);
+  assert.equal(form.get('client_reference_id'), bookingId);
+  assert.equal(form.get('metadata[sf_organization_id]'), organizationId);
+  assert.equal(form.get('metadata[sf_booking_id]'), bookingId);
+  assert.equal(form.get('line_items[0][price_data][currency]'), 'usd');
+  assert.equal(form.get('line_items[0][price_data][unit_amount]'), '12500');
+  assert.equal(form.has('metadata[sf_checkout_purpose]'), false);
+  assert.equal(result.money.amountMinor, 12500n);
+  for (const name of ['organizationId', 'bookingId', 'idempotencyKey', 'money', 'currency', 'amountMinor', 'successUrl', 'cancelUrl', 'customerEmail', 'now', 'purpose', 'commercialAmendmentId']) {
+    assert.equal(reads[name], 1, name);
+  }
+  let invalidCalls = 0;
+  const rejectProvider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => { invalidCalls += 1; throw new Error('Getter failure reached Stripe.'); },
+  });
+  await assert.rejects(
+    rejectProvider.createPaymentSession({
+      ...input,
+      get bookingId(): string { throw new Error('Unsafe booking getter.'); },
+    } as Parameters<StripeCheckoutProvider['createPaymentSession']>[0]),
+    (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+  );
+  assert.equal(invalidCalls, 0);
+});
+
 test('Checkout expiry uses native Date authority and rejects forged clocks before Stripe I/O', async () => {
   const invalidDate = new Date(Number.NaN);
   Object.defineProperty(invalidDate, 'getTime', { value: () => now.getTime() });

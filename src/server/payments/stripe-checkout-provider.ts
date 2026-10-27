@@ -91,23 +91,45 @@ export class StripeCheckoutProvider {
     purpose?: StripeCheckoutPurpose;
     commercialAmendmentId?: string | null;
   }): Promise<StripeCheckoutSessionResult> {
-    assertStripePaymentWriteInput(input);
-    const successUrl = normalizeCheckoutReturnUrl(input.successUrl);
-    const cancelUrl = normalizeCheckoutReturnUrl(input.cancelUrl);
-    const customerEmail = normalizeCheckoutCustomerEmail(input.customerEmail);
-    // Checkout identity is persisted commercial authority, not free-form input.
+    // Snapshot all write authority once. Runtime accessors must not validate
+    // one tenant, amount, or key and send another value to Stripe.
+    let submitted: typeof input;
+    try {
+      const suppliedMoney = input.money;
+      submitted = {
+        organizationId: input.organizationId,
+        bookingId: input.bookingId,
+        idempotencyKey: input.idempotencyKey,
+        money: suppliedMoney && typeof suppliedMoney === 'object'
+          ? { currency: suppliedMoney.currency, amountMinor: suppliedMoney.amountMinor }
+          : suppliedMoney,
+        successUrl: input.successUrl,
+        cancelUrl: input.cancelUrl,
+        customerEmail: input.customerEmail,
+        now: input.now,
+        purpose: input.purpose,
+        commercialAmendmentId: input.commercialAmendmentId,
+      };
+    } catch {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request context is invalid.');
+    }
+    assertStripePaymentWriteInput(submitted);
+    const successUrl = normalizeCheckoutReturnUrl(submitted.successUrl);
+    const cancelUrl = normalizeCheckoutReturnUrl(submitted.cancelUrl);
+    const customerEmail = normalizeCheckoutCustomerEmail(submitted.customerEmail);
+    // Checkout identity is persisted commercial authority, not free-form submitted.
     // Reject noncanonical values before a Stripe Session can be created.
     if (
-      typeof input.organizationId !== 'string' || !UUID_PATTERN.test(input.organizationId)
-      || typeof input.bookingId !== 'string' || !UUID_PATTERN.test(input.bookingId)
+      typeof submitted.organizationId !== 'string' || !UUID_PATTERN.test(submitted.organizationId)
+      || typeof submitted.bookingId !== 'string' || !UUID_PATTERN.test(submitted.bookingId)
     ) {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout requires canonical tenant and booking IDs.');
     }
-    const purpose = input.purpose === undefined ? 'booking-payment' : input.purpose;
+    const purpose = submitted.purpose === undefined ? 'booking-payment' : submitted.purpose;
     if (purpose !== 'booking-payment' && purpose !== 'commercial-amendment-charge' && purpose !== 'commercial-amendment-recovery') {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout purpose is invalid.');
     }
-    const commercialAmendmentId = input.commercialAmendmentId ?? null;
+    const commercialAmendmentId = submitted.commercialAmendmentId ?? null;
     const commercialPurpose = purpose !== 'booking-payment';
     if (commercialPurpose) {
       if (typeof commercialAmendmentId !== 'string' || !UUID_PATTERN.test(commercialAmendmentId)) {
@@ -117,15 +139,8 @@ export class StripeCheckoutProvider {
       throw new PaymentProviderError('INVALID_REQUEST', 'Commercial amendment metadata is only valid for commercial amendment Checkout.');
     }
 
-    // Materialize optional clock authority once. A getter must not make
-    // omission/validation see a different value than the expiry calculation.
-    let requestedAt: Date;
-    try {
-      const suppliedNow = input.now;
-      requestedAt = suppliedNow === undefined ? new Date() : suppliedNow;
-    } catch {
-      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
-    }
+    // The optional clock was snapshotted with the other commercial inputs.
+    const requestedAt = submitted.now === undefined ? new Date() : submitted.now;
     // A Date-shaped object or shadowed getTime method cannot choose the
     // commercial Checkout expiry. Read the native Date internal timestamp.
     let requestedAtMilliseconds: number;
@@ -148,20 +163,20 @@ export class StripeCheckoutProvider {
     form.set('payment_method_types[]', 'card');
     form.set('success_url', successUrl);
     form.set('cancel_url', cancelUrl);
-    form.set('client_reference_id', input.bookingId);
+    form.set('client_reference_id', submitted.bookingId);
     form.set('expires_at', String(requestedExpiresAtSeconds));
-    form.set('metadata[sf_organization_id]', input.organizationId);
-    form.set('metadata[sf_booking_id]', input.bookingId);
-    form.set('payment_intent_data[metadata][sf_organization_id]', input.organizationId);
-    form.set('payment_intent_data[metadata][sf_booking_id]', input.bookingId);
+    form.set('metadata[sf_organization_id]', submitted.organizationId);
+    form.set('metadata[sf_booking_id]', submitted.bookingId);
+    form.set('payment_intent_data[metadata][sf_organization_id]', submitted.organizationId);
+    form.set('payment_intent_data[metadata][sf_booking_id]', submitted.bookingId);
     if (commercialPurpose) {
       form.set('metadata[sf_checkout_purpose]', purpose);
       form.set('metadata[sf_commercial_amendment_id]', commercialAmendmentId!);
       form.set('payment_intent_data[metadata][sf_checkout_purpose]', purpose);
       form.set('payment_intent_data[metadata][sf_commercial_amendment_id]', commercialAmendmentId!);
     }
-    form.set('line_items[0][price_data][currency]', input.money.currency.toLowerCase());
-    form.set('line_items[0][price_data][unit_amount]', input.money.amountMinor.toString());
+    form.set('line_items[0][price_data][currency]', submitted.money.currency.toLowerCase());
+    form.set('line_items[0][price_data][unit_amount]', submitted.money.amountMinor.toString());
     const productName = purpose === 'commercial-amendment-recovery'
       ? 'Reservation recovery payment'
       : purpose === 'commercial-amendment-charge'
@@ -171,15 +186,15 @@ export class StripeCheckoutProvider {
     form.set('line_items[0][quantity]', '1');
     if (customerEmail !== null) form.set('customer_email', customerEmail);
 
-    const response = await this.requestPost<StripeCheckoutSessionResponse>('/checkout/sessions', form, input.idempotencyKey);
+    const response = await this.requestPost<StripeCheckoutSessionResponse>('/checkout/sessions', form, submitted.idempotencyKey);
     assertStripeProviderResponseObject(response);
     if (response.object !== 'checkout.session') throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session.', true);
     if (typeof response.id !== 'string' || !STRIPE_CHECKOUT_SESSION_PATTERN.test(response.id) || response.id.length > 160) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned an invalid Checkout Session reference.', true);
     }
     assertCreatedCheckoutSessionAuthority(response, {
-      organizationId: input.organizationId,
-      bookingId: input.bookingId,
+      organizationId: submitted.organizationId,
+      bookingId: submitted.bookingId,
       purpose,
       commercialAmendmentId,
       requestedExpiresAtSeconds,
@@ -189,7 +204,7 @@ export class StripeCheckoutProvider {
     if (typeof response.url !== 'string') throw new PaymentProviderError('UNKNOWN', 'Stripe did not return a Checkout URL.', true);
     const checkoutUrl = normalizeStripeCheckoutUrl(response.url, response.id);
     const money = normalizeCheckoutMoney(response);
-    if (money.currency !== input.money.currency || money.amountMinor !== input.money.amountMinor) {
+    if (money.currency !== submitted.money.currency || money.amountMinor !== submitted.money.amountMinor) {
       throw new PaymentProviderError('UNKNOWN', 'Stripe returned Checkout money that does not match the requested payment amount.', true);
     }
 
