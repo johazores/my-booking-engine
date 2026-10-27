@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { isKnownStripePaymentIntentStatus } from '../payments/stripe-provider-status.ts';
 
 const STRIPE_PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
+const STRIPE_PAYMENT_METHOD_PATTERN = /^pm_[A-Za-z0-9_]+$/;
+const MAX_STRIPE_REFERENCE_LENGTH = 160;
 
 export type StripeCommercialAmendmentChargeStage = 'AUTHORIZATION' | 'CAPTURE';
 
@@ -49,9 +51,21 @@ export function stripeCommercialAmendmentChargeFingerprint(input: {
 }) {
   if (
     input.providerReference != null
-    && (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference) || input.providerReference.length > 160)
+    && (!STRIPE_PAYMENT_INTENT_PATTERN.test(input.providerReference) || input.providerReference.length > MAX_STRIPE_REFERENCE_LENGTH)
   ) {
     throw new Error('Commercial amendment Stripe PaymentIntent reference is invalid.');
+  }
+  // The fingerprint is durable idempotency authority. Reject untrusted
+  // PaymentMethod text instead of hashing a padded or delimiter-bearing alias.
+  if (
+    input.paymentMethodReference != null
+    && (
+      typeof input.paymentMethodReference !== 'string'
+      || !STRIPE_PAYMENT_METHOD_PATTERN.test(input.paymentMethodReference)
+      || input.paymentMethodReference.length > MAX_STRIPE_REFERENCE_LENGTH
+    )
+  ) {
+    throw new Error('Commercial amendment Stripe PaymentMethod reference is invalid.');
   }
   return createHash('sha256')
     .update([

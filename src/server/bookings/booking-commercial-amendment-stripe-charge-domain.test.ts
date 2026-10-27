@@ -131,3 +131,31 @@ test('commercial amendment charge fingerprint refuses oversized capture provider
     /PaymentIntent reference/,
   );
 });
+
+test('commercial amendment fingerprints reject noncanonical PaymentMethod authority', () => {
+  const input = {
+    bookingId: BOOKING_ID,
+    amendmentId: AMENDMENT_ID,
+    stage: 'AUTHORIZATION' as const,
+    currency: 'USD',
+    amountMinor: 2500n,
+  };
+  const valid = stripeCommercialAmendmentChargeFingerprint({
+    ...input, paymentMethodReference: 'pm_a',
+  });
+  assert.equal(valid.length, 64);
+  for (const reference of [
+    ' pm_a', 'pm_a ', '\tpm_a', 'pm_a\n', 'pm_', 'card_a',
+    'pm_a\u001fpi_other', `pm_${'x'.repeat(158)}`, 123, ['pm_a'],
+  ]) {
+    assert.throws(
+      () => stripeCommercialAmendmentChargeFingerprint({
+        ...input, paymentMethodReference: reference as string,
+      }),
+      /PaymentMethod reference/,
+    );
+  }
+  assert.equal(stripeCommercialAmendmentChargeFingerprint({
+    ...input, paymentMethodReference: `pm_${'x'.repeat(157)}`,
+  }).length, 64);
+});
