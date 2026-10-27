@@ -118,10 +118,18 @@ export class StripeCheckoutProvider {
     }
 
     const requestedAt = input.now === undefined ? new Date() : input.now;
-    if (!(requestedAt instanceof Date) || !Number.isFinite(requestedAt.getTime())) {
+    // A Date-shaped object or shadowed getTime method cannot choose the
+    // commercial Checkout expiry. Read the native Date internal timestamp.
+    let requestedAtMilliseconds: number;
+    try {
+      requestedAtMilliseconds = Date.prototype.getTime.call(requestedAt);
+    } catch {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
     }
-    const expiresAt = new Date(requestedAt.getTime() + CHECKOUT_EXPIRY_MINUTES * 60_000);
+    if (!Number.isFinite(requestedAtMilliseconds)) {
+      throw new PaymentProviderError('INVALID_REQUEST', 'Checkout request time is invalid.');
+    }
+    const expiresAt = new Date(requestedAtMilliseconds + CHECKOUT_EXPIRY_MINUTES * 60_000);
     if (!Number.isFinite(expiresAt.getTime())) {
       throw new PaymentProviderError('INVALID_REQUEST', 'Checkout expiry is invalid.');
     }

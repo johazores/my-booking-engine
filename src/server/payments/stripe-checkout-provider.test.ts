@@ -662,6 +662,60 @@ test('retrieved Checkout rejects missing, uppercase, and partial commercial owne
     (error: unknown) => error instanceof PaymentProviderError && error.code === 'UNKNOWN' && error.retryable);
 });
 
+test('Checkout expiry uses native Date authority and rejects forged clocks before Stripe I/O', async () => {
+  const invalidDate = new Date(Number.NaN);
+  Object.defineProperty(invalidDate, 'getTime', { value: () => now.getTime() });
+  const forgedClock = { getTime: () => now.getTime() };
+  const throwingDate = new Date(now.getTime());
+  Object.defineProperty(throwingDate, 'getTime', { value: () => { throw new Error('Forged clock getter.'); } });
+  let calls = 0;
+  const rejectProvider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error('Invalid clock must never reach Stripe.');
+    },
+  });
+  const input = {
+    organizationId,
+    bookingId,
+    idempotencyKey: 'public:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    money: { currency: 'USD', amountMinor: 12500n },
+    successUrl: 'https://booking.example.test/success',
+    cancelUrl: 'https://booking.example.test/cancel',
+  };
+  for (const suppliedNow of [
+    invalidDate,
+    forgedClock,
+    Object.create(Date.prototype),
+    new Proxy(new Date(now.getTime()), {}),
+    null,
+  ]) {
+    await assert.rejects(
+      rejectProvider.createPaymentSession({ ...input, now: suppliedNow } as Parameters<StripeCheckoutProvider['createPaymentSession']>[0]),
+      (error: unknown) => error instanceof PaymentProviderError && error.code === 'INVALID_REQUEST' && !error.retryable,
+    );
+  }
+  assert.equal(calls, 0);
+
+  // A real Date remains valid even if its instance getTime is replaced.
+  // Neither a forged valid time nor a throwing instance method can change
+  // the provider expiry or prevent the canonical Checkout request.
+  let requestedExpiry = '';
+  const acceptProvider = new StripeCheckoutProvider({
+    secretKey: 'sk_test_checkout_secret',
+    fetchImpl: async (_url, init) => {
+      requestedExpiry = new URLSearchParams(String(init?.body ?? '')).get('expires_at') ?? '';
+      return new Response(JSON.stringify(checkoutResponse()), { status: 200 });
+    },
+  });
+  const validDate = new Date(now.getTime());
+  Object.defineProperty(validDate, 'getTime', { value: () => { throw new Error('Do not call shadowed getTime.'); } });
+  const result = await acceptProvider.createPaymentSession({ ...input, now: validDate });
+  assert.equal(requestedExpiry, String(Math.floor(now.getTime() / 1000) + 33 * 60));
+  assert.equal(result.expiresAt.toISOString(), '2026-09-02T09:33:00.000Z');
+});
+
 test('Stripe Checkout rejects malformed commercial write context and clock before provider I/O', async () => {
   assert.notEqual(organizationId.toUpperCase(), organizationId);
   let calls = 0;
