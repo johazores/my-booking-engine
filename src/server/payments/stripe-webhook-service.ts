@@ -454,7 +454,27 @@ export async function ingestStripePaymentWebhook(input: {
         },
         select: { id: true },
       });
-      if (!settlementSource) return persistEvent('IGNORED', 'refund-source-settlement-unavailable', null);
+      if (!settlementSource) {
+        // Keep the existing wrong-booking classification without accepting
+        // signed metadata as authority or scanning an arbitrary newest-N list.
+        const foreignSettlementSource = await transaction.paymentTransaction.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            bookingId: { not: bookingId },
+            commercialAmendmentId: null,
+            providerCode: STRIPE_PROVIDER_CODE,
+            providerReference: event.refund.paymentIntentReference,
+            kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
+            status: 'SUCCEEDED',
+          },
+          select: { id: true },
+        });
+        return persistEvent(
+          'IGNORED',
+          foreignSettlementSource ? 'refund-booking-metadata-mismatch' : 'refund-source-settlement-unavailable',
+          null,
+        );
+      }
 
       // Historical cross-booking rows cannot lend a PaymentIntent identity
       // to a signed refund, even when those rows are failed or ambiguous.

@@ -36,6 +36,7 @@ test('normal refund ingestion rejects unowned signed evidence before settlement-
   assert.ok(bookingIndex > tenantIndex && sourceIndex > bookingIndex && pendingIndex > sourceIndex);
   assert.match(ingest, /if \(!isStripeWebhookRefundOwnedBy\(event\.refund, input\.organizationId\)\)/);
   assert.match(ingest, /bookingId,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference/);
+  assert.match(ingest, /foreignSettlementSource \? 'refund-booking-metadata-mismatch' : 'refund-source-settlement-unavailable'/);
 });
 
 test('every downstream refund lifecycle/finalizer rechecks signed tenant and selected booking', () => {
