@@ -22,7 +22,7 @@ for (const [filename, users, organizations] of suites) {
     const cleanupBody = source.slice(cleanup, registration);
     assert.match(cleanupBody, /if \(fixturesCleaned\) return;/);
     assert.match(cleanupBody, /fixturesCleaned = true;/);
-    assert.match(cleanupBody, /db\.organization\.delete/);
+    assert.match(cleanupBody, /db\.organization\.deleteMany/);
     for (const name of [...users, ...organizations]) {
       assert.ok(source.includes(`const ${name}Id = crypto.randomUUID();`), `${name} ID must be allocated before writes`);
       assert.ok(source.includes(`id: ${name}Id,`), `${name} create must use its preassigned ID`);

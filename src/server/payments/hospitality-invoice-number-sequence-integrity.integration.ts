@@ -14,14 +14,15 @@ test('hospitality invoice number sequences reject rewrites and unmatched advance
   let fixturesCleaned = false;
   async function cleanupFixtures() {
     if (fixturesCleaned) return;
-    await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: organizationId } });
-    await db.organization.delete({ where: { id: organizationId } });
+    await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId } });
+    await db.organization.deleteMany({ where: { id: organizationId } });
     fixturesCleaned = true;
   }
   t.after(cleanupFixtures);
   const organization = await db.organization.create({
     data: {
-      id: organizationId, name: 'Invoice Sequence Integrity Tenant',
+      id: organizationId,
+      name: 'Invoice Sequence Integrity Tenant',
       slug: `invoice-sequence-${runId}`.slice(0, 63),
       kind: 'HOTEL',
       currency: 'AUD',
