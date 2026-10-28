@@ -407,6 +407,26 @@ test('refund webhook candidate selection prefers an exact refund reference', () 
   assert.equal(selected?.id, 'exact');
 });
 
+test('refund webhook candidate selection preserves an older exact reference among unrelated claims', () => {
+  const unrelatedClaims = Array.from({ length: 12 }, (_, index) => ({
+    id: `unrelated-${index}`,
+    providerReference: `sf_claim_${index.toString(16).padStart(64, 'a')}`,
+    currency: 'USD',
+    amountMinor: 2500n,
+  }));
+  const selected = selectStripeWebhookRefundCandidate({
+    refundReference: 're_sf_older_exact',
+    currency: 'USD',
+    amountMinor: 2500n,
+    candidates: [
+      ...unrelatedClaims,
+      { id: 'older-exact', providerReference: 're_sf_older_exact', currency: 'USD', amountMinor: 2500n },
+    ],
+    isInternalReference: (reference) => reference.startsWith('sf_claim_'),
+  });
+  assert.equal(selected?.id, 'older-exact');
+});
+
 test('refund webhook candidate selection binds one matching internal claim and rejects ambiguous claims', () => {
   const claim = `sf_claim_${'f'.repeat(64)}`;
   const selected = selectStripeWebhookRefundCandidate({
