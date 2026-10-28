@@ -8,6 +8,7 @@ import { db } from '../database.ts';
 import { assertUuidIdentifier } from '../tenancy/tenant-scope.ts';
 import { readHospitalityPaymentSettlementHistory } from './hospitality-payment-history.ts';
 import { ManualPaymentProvider, normalizeManualPaymentReference } from './manual-payment-provider.ts';
+import { matchesManualBaseBookingReplay } from './manual-base-booking-replay-domain.ts';
 import {
   PaymentInputValidationError,
   assertPaymentProviderCapability,
@@ -88,12 +89,13 @@ export async function recordManualOfflinePayment(input: {
       },
     });
     if (existing) {
-      if (
-        existing.bookingId !== input.bookingId
-        || existing.kind !== 'OFFLINE_PAYMENT'
-        || existing.providerCode !== manualProvider.code
-        || existing.providerReference !== reference
-      ) {
+      if (!matchesManualBaseBookingReplay({
+        existing,
+        bookingId: input.bookingId,
+        kind: 'OFFLINE_PAYMENT',
+        providerCode: manualProvider.code,
+        reference,
+      })) {
         throw new PaymentConflictError('Payment idempotency key was already used for a different operation.');
       }
       return existing;
@@ -154,6 +156,7 @@ export async function recordManualOfflinePayment(input: {
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         idempotencyKey,
         kind: 'OFFLINE_PAYMENT',
         status: 'SUCCEEDED',
@@ -235,13 +238,14 @@ export async function recordManualOfflineRefund(input: {
       },
     });
     if (existing) {
-      if (
-        existing.bookingId !== input.bookingId
-        || existing.kind !== 'REFUND'
-        || existing.providerCode !== manualProvider.code
-        || existing.providerReference !== refundReference
-        || (requestedAmountMinor !== null && existing.amountMinor !== requestedAmountMinor)
-      ) {
+      if (!matchesManualBaseBookingReplay({
+        existing,
+        bookingId: input.bookingId,
+        kind: 'REFUND',
+        providerCode: manualProvider.code,
+        reference: refundReference,
+        requestedAmountMinor,
+      })) {
         throw new PaymentConflictError('Payment idempotency key was already used for a different operation.');
       }
       return existing;
@@ -330,6 +334,7 @@ export async function recordManualOfflineRefund(input: {
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         idempotencyKey,
         kind: 'REFUND',
         status: 'SUCCEEDED',

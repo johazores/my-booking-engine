@@ -87,6 +87,7 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
     assert.equal(recorded.providerCode, 'manual');
     assert.equal(recorded.providerReference, 'BANK-001');
     assert.equal(recorded.status, 'SUCCEEDED');
+    assert.equal(recorded.commercialAmendmentId, null);
 
     const paidBooking = await db.hospitalityBooking.findUniqueOrThrow({ where: { id: booking.id } });
     assert.equal(paidBooking.paymentStatus, 'PAID');
@@ -133,6 +134,7 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
     });
     assert.equal(partialRefund.kind, 'REFUND');
     assert.equal(partialRefund.status, 'SUCCEEDED');
+    assert.equal(partialRefund.commercialAmendmentId, null);
     assert.equal(partialRefund.amountMinor, 4000n);
     assert.equal(partialRefund.currency, 'USD');
     assert.equal(partialRefund.providerCode, 'manual');
@@ -165,6 +167,7 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
       reference: 'BANK-REFUND-002',
     });
     assert.equal(finalRefund.amountMinor, 8345n);
+    assert.equal(finalRefund.commercialAmendmentId, null);
     assert.equal((await db.hospitalityBooking.findUniqueOrThrow({ where: { id: booking.id } })).paymentStatus, 'REFUNDED');
     await assert.rejects(
       payments.recordManualOfflineRefund({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: booking.id, idempotencyKey: 'payment:refund:after-full', reference: 'BANK-REFUND-003' }),
