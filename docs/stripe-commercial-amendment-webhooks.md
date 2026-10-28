@@ -38,7 +38,7 @@ Provider-known normal amendment operations that do not yet fall under the curren
 
 - authorization/capture callbacks require the exact persisted PaymentIntent reference plus exact currency and minor-unit amount;
 - initial refund finalization requires the exact persisted Stripe refund reference, source PaymentIntent, currency, amount, and deterministic refund fingerprint;
-- duplicate provider-reference ownership outside the same authoritative operation fails closed;
+- duplicate provider-reference ownership outside the same authoritative operation fails closed. The normal and recovery PaymentIntent finalizers use tenant-scoped PostgreSQL existence queries for any conflicting booking or amendment, including nullable non-amendment rows, rather than inspecting only the newest eight matching references;
 - additional-charge callbacks reuse the same provider-state reconciliation contract as polling, including exact received/capturable money and deterministic direct-capture evidence when Stripe proves an authorization was already settled.
 
 SF deliberately does **not** guess which amendment owns a webhook when the local row still contains only an internal `sf_claim_*` reference. A signed event proves Stripe sent the payload, but without a previously persisted provider reference it does not prove which unresolved local claim created that external object. Those pre-reference operations remain recoverable through the exact idempotent executor retry and provider polling paths.
@@ -75,6 +75,6 @@ The remaining Stripe recovery dependency is a fresh customer-authorized compensa
 
 `booking-commercial-amendment-stripe-refund-domain.test.ts` covers current refund state mapping and non-terminal lifecycle transitions. `scripts/stripe-commercial-amendment-refund-lifecycle-authority-contract.test.mjs` protects route ordering, verified event authority, exact amendment/refund/source/money ownership, current provider retrieval, no booking/amendment mutation, and the compensation-refund ownership split.
 
-`booking-commercial-amendment-stripe-recovery-webhook-domain.test.ts` covers exact recovery capture/refund identity, deterministic operation key and request fingerprint enforcement, refund-source binding, and missing-source rejection. Database-backed validation of webhook locking, signed-callback/polling races, post-success provider regressions, and recovery persistence remains gated on an explicitly confirmed disposable PostgreSQL target.
+`booking-commercial-amendment-stripe-recovery-webhook-domain.test.ts` covers exact recovery capture/refund identity, deterministic operation key and request fingerprint enforcement, refund-source binding, and missing-source rejection. The source contract also checks that both normal and recovery direct PaymentIntent finalizers use bounded exact-reference ambiguity detection and unbounded conflicting-owner existence checks. These are read-time guards, not a database-enforced concurrent provider-reference uniqueness guarantee. Database-backed validation of webhook locking, signed-callback/polling races, post-success provider regressions, and recovery persistence remains gated on an explicitly confirmed disposable PostgreSQL target.
 
 GitHub Actions are not used for this validation path.

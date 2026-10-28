@@ -179,7 +179,7 @@ async function finalizeRecoveryCapture(input: {
       currency: true,
       amountMinor: true,
     },
-    take: 8,
+    take: 2,
   });
   if (candidates.length > 1) {
     throw new PaymentConflictError(
@@ -290,20 +290,23 @@ async function finalizeRecoveryCapture(input: {
     );
   }
 
-  const duplicateReferences = await input.transaction.paymentTransaction.findMany({
+  // A newest-N scan could miss a foreign booking/amendment after enough
+  // same-owner rows. Ask PostgreSQL directly for any conflicting owner.
+  const conflictingReference = await input.transaction.paymentTransaction.findFirst({
     where: {
       organizationId: input.organizationId,
       providerCode: STRIPE_PROVIDER_CODE,
       providerReference: intent.providerReference,
       id: { not: payment.id },
+      OR: [
+        { bookingId: { not: selected.bookingId } },
+        { commercialAmendmentId: null },
+        { commercialAmendmentId: { not: selected.commercialAmendmentId } },
+      ],
     },
-    select: { bookingId: true, commercialAmendmentId: true },
-    take: 8,
+    select: { id: true },
   });
-  if (duplicateReferences.some((entry) => (
-    entry.bookingId !== selected.bookingId
-    || entry.commercialAmendmentId !== selected.commercialAmendmentId
-  ))) {
+  if (conflictingReference) {
     throw new PaymentConflictError(
       'Stripe recovery PaymentIntent reference is already recorded outside this commercial amendment.',
     );
@@ -381,7 +384,7 @@ async function finalizeRecoveryRefund(input: {
       currency: true,
       amountMinor: true,
     },
-    take: 8,
+    take: 2,
   });
   if (candidates.length > 1) {
     throw new PaymentConflictError(

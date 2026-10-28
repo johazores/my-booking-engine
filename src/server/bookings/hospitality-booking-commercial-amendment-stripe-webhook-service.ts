@@ -212,7 +212,7 @@ async function finalizeCharge(input: {
       currency: true,
       amountMinor: true,
     },
-    take: 8,
+    take: 2,
   });
   const selected = selectStripeCommercialAmendmentPaymentWebhookCandidate({
     providerReference: intent.providerReference,
@@ -276,19 +276,23 @@ async function finalizeCharge(input: {
     },
   });
 
-  const duplicateReferences = await input.transaction.paymentTransaction.findMany({
+  // A newest-N scan could miss a foreign booking/amendment after enough
+  // same-owner rows. Ask PostgreSQL directly for any conflicting owner.
+  const conflictingReference = await input.transaction.paymentTransaction.findFirst({
     where: {
       organizationId: input.organizationId,
       providerCode: STRIPE_PROVIDER_CODE,
       providerReference: intent.providerReference,
       id: { not: payment.id },
+      OR: [
+        { bookingId: { not: selected.bookingId } },
+        { commercialAmendmentId: null },
+        { commercialAmendmentId: { not: selected.commercialAmendmentId } },
+      ],
     },
-    select: { bookingId: true, commercialAmendmentId: true },
-    take: 8,
+    select: { id: true },
   });
-  if (duplicateReferences.some((entry) => (
-    entry.bookingId !== selected.bookingId || entry.commercialAmendmentId !== selected.commercialAmendmentId
-  ))) {
+  if (conflictingReference) {
     throw new PaymentConflictError('Stripe PaymentIntent reference is already recorded outside this commercial amendment.');
   }
 
@@ -370,7 +374,7 @@ async function finalizeRefund(input: {
       currency: true,
       amountMinor: true,
     },
-    take: 8,
+    take: 2,
   });
   const selected = selectStripeCommercialAmendmentRefundWebhookCandidate({
     refundReference: providerRefund.refundReference,

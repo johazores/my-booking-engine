@@ -11,6 +11,7 @@ const checkout = source('src/server/bookings/hospitality-booking-commercial-amen
 const checkoutReconciliation = source('src/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-checkout-reconciliation-service.ts');
 const checkoutWebhook = source('src/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-checkout-webhook-service.ts');
 const providerWebhook = source('src/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-webhook-service.ts');
+const normalProviderWebhook = source('src/server/bookings/hospitality-booking-commercial-amendment-stripe-webhook-service.ts');
 
 function updateCount(text, model) {
   return [...text.matchAll(new RegExp(`${model}\\.update\\(\\{`, 'g'))].length;
@@ -117,4 +118,26 @@ test('documentation preserves recovery authority and validation boundaries', () 
   assert.match(document, /verified webhook ledger identity/i);
   assert.match(document, /PostgreSQL/i);
   assert.match(document, /GitHub Actions are intentionally not used/i);
+});
+
+test('normal and recovery signed webhooks query conflicting provider ownership without a newest-N window', () => {
+  for (const [label, service] of [
+    ['Normal amendment', normalProviderWebhook],
+    ['Recovery amendment', providerWebhook],
+  ]) {
+    assert.match(service, /const conflictingReference = await input\.transaction\.paymentTransaction\.findFirst\(\{/,
+      `${label} must use an existence query for conflicting ownership`);
+    const guard = service.slice(service.indexOf('const conflictingReference ='));
+    assert.match(guard, /organizationId: input\.organizationId/);
+    assert.match(guard, /providerReference: intent\.providerReference/);
+    assert.match(guard, /id: \{ not: payment\.id \}/);
+    assert.match(guard, /bookingId: \{ not: selected\.bookingId \}/);
+    assert.match(guard, /commercialAmendmentId: null/);
+    assert.match(guard, /commercialAmendmentId: \{ not: selected\.commercialAmendmentId \}/);
+    assert.match(guard, /if \(conflictingReference\) \{/);
+    assert.doesNotMatch(service, /const duplicateReferences =/);
+    assert.doesNotMatch(service, /take: 8/);
+    assert.equal((service.match(/take: 2,/g) ?? []).length, 2,
+      `${label} exact-reference candidate queries need only two rows to detect ambiguity`);
+  }
 });
