@@ -451,7 +451,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       amountMinor: 12345n,
     } });
     // A capture can legitimately share the same PaymentIntent on the same booking.
-    await db.paymentTransaction.create({ data: {
+    const sameBookingCapture = await db.paymentTransaction.create({ data: {
       organizationId: organizationA.id,
       bookingId: captureOwner.id,
       idempotencyKey: 'stripe:capture:same-booking-source',
@@ -476,6 +476,30 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         amountMinor: 12345n,
       } }), /exclusion|constraint|23P01|P2004/i);
     }
+    // The constraint also rejects rewriting a historical payment's booking owner.
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: sameBookingCapture.id },
+      data: { bookingId: captureForeignBooking.id },
+    }), /exclusion|constraint|23P01|P2004/i);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({
+      where: { id: sameBookingCapture.id },
+    })).bookingId, captureOwner.id);
+
+    // A different provider may use the same textual reference without inheriting
+    // Stripe PaymentIntent ownership or crossing the provider namespace.
+    const manualReference = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureForeignBooking.id,
+      idempotencyKey: 'manual:stripe-shaped-reference',
+      kind: 'OFFLINE_PAYMENT',
+      status: 'FAILED',
+      providerCode: 'manual',
+      providerReference: 'pi_sf_cross_booking_capture_10',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    assert.equal(manualReference.providerCode, 'manual');
+
     // Updating a pending internal claim cannot adopt another booking's real intent.
     const pendingCaptureFingerprint = stripePayments.paymentRequestFingerprint([
       'stripe', 'capture', captureForeignBooking.id, 'USD', '12345', 'pi_sf_cross_booking_capture_10',

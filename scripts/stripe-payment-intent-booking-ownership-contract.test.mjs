@@ -28,6 +28,8 @@ test('guarded PostgreSQL suite covers shared capture, conflicting writes, claim 
   assert.match(integration, /same-booking-source/);
   assert.match(integration, /for \(const kind of \['AUTHORIZATION', 'CAPTURE'\] as const\)/);
   assert.match(integration, /data: \{ providerReference: 'pi_sf_cross_booking_capture_10' \}/);
+  assert.match(integration, /data: \{ bookingId: captureForeignBooking.id \}/);
+  assert.match(integration, /idempotencyKey: 'manual:stripe-shaped-reference'/);
   assert.match(integration, /Promise\.allSettled\(/);
   assert.match(integration, /concurrentWrites\.filter\(\(result\) => result\.status === 'fulfilled'\)\.length, 1/);
   assert.match(integration, /providerReference: 'pi_sf_concurrent_booking_owner_12'/);
