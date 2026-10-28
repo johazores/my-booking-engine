@@ -4,6 +4,8 @@
 
 Use Node.js 24 LTS. `.nvmrc` currently pins `24.20.0`.
 
+`npm run test:database` checks the Node runtime before inspecting connection targets or running Prisma/migrations. It requires Node `>=24.20.0 <25`, matching `package.json`; an unsupported Node version fails closed before any database command. The dependency-free runtime preflight tests can run under an older local Node version, but they do not validate the Prisma schema or execute PostgreSQL migrations.
+
 ## Core versions
 
 - Next.js 16.3.3
