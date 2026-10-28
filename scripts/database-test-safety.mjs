@@ -27,14 +27,24 @@ function normalizeHost(hostname) {
   const originalHost = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   const canonicalHostname = new URL(`http://${hostname}`).hostname;
   const host = canonicalHostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+  // WHATWG URL renders IPv4-mapped IPv6 as ::ffff:hhhh:hhhh.
+  // Normalize every mapped IPv4 address, not just loopback. Otherwise a test
+  // target like [::ffff:192.168.1.1] bypasses comparison with 192.168.1.1.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  const normalizedHost = mapped
+    ? [
+        Number.parseInt(mapped[1], 16) >> 8,
+        Number.parseInt(mapped[1], 16) & 255,
+        Number.parseInt(mapped[2], 16) >> 8,
+        Number.parseInt(mapped[2], 16) & 255,
+      ].join('.')
+    : host;
   // 127/8, including abbreviated loopback spellings such as 127.1, is local.
-  const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(host) || /^127(?:\.\d{1,3}){0,3}$/.test(originalHost);
-  // WHATWG URL canonicalizes IPv4-mapped IPv6, e.g. [::ffff:127.0.0.1] to [::ffff:7f00:1].
-  const isMappedIpv4Loopback = /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
-  if (LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost') || isIpv4Loopback || isMappedIpv4Loopback) {
+  const isIpv4Loopback = /^127(?:\.\d{1,3}){0,3}$/.test(normalizedHost) || /^127(?:\.\d{1,3}){0,3}$/.test(originalHost);
+  if (LOOPBACK_HOSTS.has(normalizedHost) || normalizedHost.endsWith('.localhost') || isIpv4Loopback) {
     return 'loopback';
   }
-  return host;
+  return normalizedHost;
 }
 
 function parsePostgresDatabaseTarget(value, variableName) {
