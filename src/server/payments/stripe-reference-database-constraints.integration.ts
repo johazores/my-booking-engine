@@ -111,6 +111,8 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   assert.equal(booking.keyCount, 3);
   assert.equal(normalizeKey(booking.keyTwo), 'providerReference');
   assert.equal(normalizeKey(booking.keyThree), 'bookingId');
+  assert.match(booking.constraintDefinition ?? '', /"organizationId"\s+WITH\s+=/);
+  assert.match(booking.constraintDefinition ?? '', /"providerReference"\s+WITH\s+=/);
   assert.match(booking.constraintDefinition ?? '', /bookingId"?\s+WITH\s+<>/);
   assertStripePredicate(booking.predicate, 'pi_');
 
@@ -126,6 +128,9 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   assert.match(normalizeKey(amendment.keyFour), /coalesce\(/i);
   assert.match(normalizeKey(amendment.keyFour), /commercialAmendmentId/);
   assert.match(normalizeKey(amendment.keyFour), /base-booking/);
+  assert.match(amendment.constraintDefinition ?? '', /"organizationId"\s+WITH\s+=/);
+  assert.match(amendment.constraintDefinition ?? '', /"bookingId"\s+WITH\s+=/);
+  assert.match(amendment.constraintDefinition ?? '', /"providerReference"\s+WITH\s+=/);
   assert.match(amendment.constraintDefinition ?? '', /coalesce[\s\S]*WITH\s+<>/i);
   assertStripePredicate(amendment.predicate, 'pi_');
 });
