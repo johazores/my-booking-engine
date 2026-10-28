@@ -398,6 +398,45 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   assert.equal(preForfeitureDamage.settlement.state, 'UNPAID');
   assert.equal(preForfeitureDamage.forfeitureId, null);
 
+  // Both pre-settlement readers and the terminal financial write must reject
+  // a Tenant B actor who supplies Tenant A's otherwise valid organization ID.
+  await assert.rejects(
+    forfeitures.readRentalSecurityBondForfeiture({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    damagePayments.readRentalDamageSettlement({
+      organizationId: organization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, damageCaseId: damageCase.damageCase.id,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    damagePayments.recordRentalDamageManualOfflinePayment({
+      organizationId: organization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, damageCaseId: damageCase.damageCase.id,
+      reference: `WRONG-ACTOR-DAMAGE-${runId.slice(0, 10)}`,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /permission/i,
+  );
+  assert.equal(await db.rentalSecurityBondForfeiture.count({
+    where: { organizationId: organization.id, bondId: requirement.bond.id },
+  }), 0);
+  assert.equal(await db.rentalDamageSettlementTransaction.count({
+    where: { organizationId: organization.id, liabilityDecisionId: decision.decision.id },
+  }), 0);
+  assert.equal(await db.rentalManualProviderReference.count({
+    where: { organizationId: organization.id, providerReference: `WRONG-ACTOR-DAMAGE-${runId.slice(0, 10)}` },
+  }), 0);
+
   const forfeiture = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
     organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
   });
@@ -405,6 +444,13 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   assert.equal(forfeiture.settlement.state, 'FORFEITED');
   assert.equal(forfeiture.forfeiture.liabilityDecisionId, decision.decision.id);
   assert.equal(forfeiture.forfeiture.collectionTransactionId, collection.transaction.id);
+  // Retained idempotent replay must never bypass authorization either.
+  await assert.rejects(
+    forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /permission/i,
+  );
   const forfeitureReplay = await forfeitures.forfeitRentalSecurityBondAgainstDamageLiability({
     organizationId: organization.id, actorUserId: admin.id, bookingId: pickupBooking.booking.id,
   });

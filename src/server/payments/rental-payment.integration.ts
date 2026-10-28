@@ -122,6 +122,22 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
   assert.equal(firstPayment.transaction.amountMinor, partialPaymentMinor);
   assert.match(firstPayment.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
+  // Original-ledger authority is also a protected financial reader. A foreign
+  // tenant cannot resolve this booking, and a foreign actor cannot borrow its
+  // correct organization ID to inspect amendment/payment authority.
+  await assert.rejects(
+    payments.readRentalOriginalPaymentLedgerAuthority({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    payments.readRentalOriginalPaymentLedgerAuthority({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+    }),
+    /permission/i,
+  );
+
   // Authorized Tenant B cannot read/refund Tenant A money. A Tenant B actor
   // also cannot borrow Tenant A's organization ID for any financial operation.
   await assert.rejects(
