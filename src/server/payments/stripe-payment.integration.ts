@@ -435,8 +435,8 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
     );
 
 
-    // Historical cross-kind reuse of a PaymentIntent by another booking must
-    // fail before capture can call Stripe or create a new payment claim.
+    // PostgreSQL enforces cross-booking PaymentIntent ownership independently
+    // of service reads and advisory locks, including historical FAILED evidence.
     const captureOwner = await createBooking(10);
     await db.hospitalityBooking.update({ where: { id: captureOwner.id }, data: { paymentStatus: 'AUTHORIZED' } });
     await db.paymentTransaction.create({ data: {
@@ -450,11 +450,11 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       currency: 'USD',
       amountMinor: 12345n,
     } });
-    const captureForeignBooking = await createBooking(11);
+    // A capture can legitimately share the same PaymentIntent on the same booking.
     await db.paymentTransaction.create({ data: {
       organizationId: organizationA.id,
-      bookingId: captureForeignBooking.id,
-      idempotencyKey: 'stripe:capture:foreign-source',
+      bookingId: captureOwner.id,
+      idempotencyKey: 'stripe:capture:same-booking-source',
       kind: 'CAPTURE',
       status: 'FAILED',
       providerCode: 'stripe',
@@ -462,38 +462,27 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       currency: 'USD',
       amountMinor: 12345n,
     } });
-    let blockedCaptureProviderCalls = 0;
-    globalThis.fetch = (async () => {
-      blockedCaptureProviderCalls += 1;
-      throw new Error('A cross-booking capture source must never reach Stripe.');
-    }) as typeof fetch;
-    await assert.rejects(
-      stripePayments.captureStripeBookingPayment({
+    const captureForeignBooking = await createBooking(11);
+    for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+      await assert.rejects(db.paymentTransaction.create({ data: {
         organizationId: organizationA.id,
-        actorUserId: adminA.id,
-        bookingId: captureOwner.id,
-        idempotencyKey: 'stripe:capture:foreign-source-blocked',
-      }),
-      /reference belongs to another booking/i,
-    );
-    assert.equal(blockedCaptureProviderCalls, 0);
-    assert.equal(await db.paymentTransaction.count({
-      where: { organizationId: organizationA.id, idempotencyKey: 'stripe:capture:foreign-source-blocked' },
-    }), 0);
-
-    // Existing pending capture claims must also reject historical cross-booking
-    // references before an idempotent provider retry.
+        bookingId: captureForeignBooking.id,
+        idempotencyKey: `stripe:foreign:${kind.toLowerCase()}`,
+        kind,
+        status: 'FAILED',
+        providerCode: 'stripe',
+        providerReference: 'pi_sf_cross_booking_capture_10',
+        currency: 'USD',
+        amountMinor: 12345n,
+      } }), /exclusion|constraint|23P01|P2004/i);
+    }
+    // Updating a pending internal claim cannot adopt another booking's real intent.
     const pendingCaptureFingerprint = stripePayments.paymentRequestFingerprint([
-      'stripe',
-      'capture',
-      captureOwner.id,
-      captureOwner.currency,
-      captureOwner.totalMinor.toString(),
-      'pi_sf_cross_booking_capture_10',
+      'stripe', 'capture', captureForeignBooking.id, 'USD', '12345', 'pi_sf_cross_booking_capture_10',
     ]);
     const pendingCaptureRetry = await db.paymentTransaction.create({ data: {
       organizationId: organizationA.id,
-      bookingId: captureOwner.id,
+      bookingId: captureForeignBooking.id,
       idempotencyKey: 'stripe:capture:foreign-source-blocked-retry',
       requestFingerprint: pendingCaptureFingerprint,
       kind: 'CAPTURE',
@@ -503,81 +492,36 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       currency: 'USD',
       amountMinor: 12345n,
     } });
-    await assert.rejects(
-      stripePayments.captureStripeBookingPayment({
-        organizationId: organizationA.id,
-        actorUserId: adminA.id,
-        bookingId: captureOwner.id,
-        idempotencyKey: pendingCaptureRetry.idempotencyKey,
-      }),
-      /reference belongs to another booking/i,
-    );
-    assert.equal(blockedCaptureProviderCalls, 0);
-    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingCaptureRetry.id } })).status, 'PENDING');
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: pendingCaptureRetry.id },
+      data: { providerReference: 'pi_sf_cross_booking_capture_10' },
+    }), /exclusion|constraint|23P01|P2004/i);
+    assert.match((await db.paymentTransaction.findUniqueOrThrow({
+      where: { id: pendingCaptureRetry.id },
+    })).providerReference, /^sf_claim_[0-9a-f]{64}$/);
 
-    // Pending reconciliation also rejects cross-booking PaymentIntent ownership
-    // before fetching provider truth, even when both rows share the same tenant.
-    const reconciliationOwner = await createBooking(12);
-    const pendingConflict = await db.paymentTransaction.create({ data: {
-      organizationId: organizationA.id,
-      bookingId: reconciliationOwner.id,
-      idempotencyKey: 'stripe:auth:reconciliation-source-owner',
-      kind: 'AUTHORIZATION',
-      status: 'PENDING',
-      providerCode: 'stripe',
-      providerReference: 'pi_sf_cross_booking_reconciliation_12',
-      currency: 'USD',
-      amountMinor: 12345n,
-    } });
-    const reconciliationForeignBooking = await createBooking(13);
-    await db.paymentTransaction.create({ data: {
-      organizationId: organizationA.id,
-      bookingId: reconciliationForeignBooking.id,
-      idempotencyKey: 'stripe:capture:reconciliation-foreign',
-      kind: 'CAPTURE',
-      status: 'FAILED',
-      providerCode: 'stripe',
-      providerReference: 'pi_sf_cross_booking_reconciliation_12',
-      currency: 'USD',
-      amountMinor: 12345n,
-    } });
-    let blockedReconciliationProviderCalls = 0;
-    globalThis.fetch = (async () => {
-      blockedReconciliationProviderCalls += 1;
-      throw new Error('A cross-booking reconciliation source must never reach Stripe.');
-    }) as typeof fetch;
-    await assert.rejects(
-      reconciliation.reconcileStripePaymentTransaction({
+    // Two concurrent writers racing for one real PaymentIntent cannot both
+    // claim it on different bookings, even without shared application locks.
+    const concurrentOwner = await createBooking(12);
+    const concurrentForeign = await createBooking(13);
+    const concurrentWrites = await Promise.allSettled([concurrentOwner, concurrentForeign].map((candidate, index) =>
+      db.paymentTransaction.create({ data: {
         organizationId: organizationA.id,
-        actorUserId: adminA.id,
-        transactionId: pendingConflict.id,
-      }),
-      /reference belongs to another booking/i,
-    );
-    assert.equal(blockedReconciliationProviderCalls, 0);
-    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingConflict.id } })).status, 'PENDING');
-
-    // A signed exact-reference callback cannot promote a PaymentIntent
-    // already present on another booking, even if that row is FAILED.
-    const exactConflictPayload = paymentIntentEvent({
-      eventId: 'evt_sf_cross_booking_exact_webhook_12',
-      organizationId: organizationA.id,
-      bookingId: reconciliationOwner.id,
-      providerReference: 'pi_sf_cross_booking_reconciliation_12',
-      status: 'requires_capture',
-    });
-    await assert.rejects(
-      webhooks.ingestStripePaymentWebhook({
-        organizationId: organizationA.id,
-        signature: stripeSignature(exactConflictPayload, webhookSecretA),
-        payload: exactConflictPayload,
-      }),
-      /reference belongs to another booking/i,
-    );
-    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingConflict.id } })).status, 'PENDING');
-    assert.equal(await db.paymentWebhookEvent.count({
-      where: { organizationId: organizationA.id, providerEventId: 'evt_sf_cross_booking_exact_webhook_12' },
-    }), 0);
+        bookingId: candidate.id,
+        idempotencyKey: `stripe:concurrent:pi-owner:${index}`,
+        kind: index === 0 ? 'AUTHORIZATION' : 'CAPTURE',
+        status: 'FAILED',
+        providerCode: 'stripe',
+        providerReference: 'pi_sf_concurrent_booking_owner_12',
+        currency: 'USD',
+        amountMinor: 12345n,
+      } }),
+    ));
+    assert.equal(concurrentWrites.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(concurrentWrites.filter((result) => result.status === 'rejected').length, 1);
+    assert.equal(await db.paymentTransaction.count({
+      where: { organizationId: organizationA.id, providerCode: 'stripe', providerReference: 'pi_sf_concurrent_booking_owner_12' },
+    }), 1);
 
     const bookingForWebhook = await createBooking(7);
     const fingerprint = stripePayments.paymentRequestFingerprint([

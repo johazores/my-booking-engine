@@ -16,7 +16,7 @@ Public hospitality payment and customer-authorized commercial-amendment collecti
 
 When `commercialAmendmentId` is present, the database requires amendment, booking, and organization identity to match the same commercial-amendment tuple. Generic booking payments/refunds do not populate it. Dedicated manual/Stripe amendment executors populate it only for adjustment money.
 
-Payment writes serialize relevant tenant idempotency, booking/mutation, and provider-reference scopes with PostgreSQL advisory locks and serializable transactions where required. Public booking Checkout additionally persists `PaymentCheckoutSession`; commercial-amendment Checkout instead binds the exact Stripe Session directly to the amendment-attributed `PaymentTransaction`, preserving amendment ownership without inventing a public principal.
+A checked-in PostgreSQL exclusion constraint additionally protects real Stripe `pi_*` PaymentIntent booking ownership against concurrent cross-booking reuse while preserving same-booking authorization/capture sharing; its disposable-database execution is still pending. Payment writes serialize relevant tenant idempotency, booking/mutation, and provider-reference scopes with PostgreSQL advisory locks and serializable transactions where required. Public booking Checkout additionally persists `PaymentCheckoutSession`; commercial-amendment Checkout instead binds the exact Stripe Session directly to the amendment-attributed `PaymentTransaction`, preserving amendment ownership without inventing a public principal.
 
 ## Authoritative booking settlement
 

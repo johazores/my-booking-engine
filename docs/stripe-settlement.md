@@ -25,3 +25,7 @@ A directly settled authorization can now remain refundable through the same serv
 Receipt settlement retains the same successful authorization as the captured basis after the booking moves from `PAID` to `PARTIALLY_REFUNDED` or `REFUNDED`. This prevents a valid receipt from becoming unavailable solely because a refund changed the booking payment-state label.
 
 This does not make browser redirects payment proof and does not create a customer-facing checkout flow. Provider-confirmed state and persisted SF ledger records remain authoritative.
+
+## Database-enforced PaymentIntent booking ownership
+
+The checked-in PostgreSQL `btree_gist` exclusion constraint forbids the same real Stripe `pi_*` reference from appearing on different bookings inside one tenant, regardless of payment kind, status, or commercial-amendment ownership. Multiple same-booking authorization/capture rows remain valid. Historical conflicting evidence blocks migration; no rows are silently reassigned. Existing tenant-scoped application checks and exact provider-truth reconciliation remain required. Disposable PostgreSQL execution and live Stripe verification have not been performed.
