@@ -122,6 +122,45 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
   assert.equal(firstPayment.transaction.amountMinor, partialPaymentMinor);
   assert.match(firstPayment.transaction.requestFingerprint ?? '', /^[a-f0-9]{64}$/);
 
+  // Authorized Tenant B cannot read/refund Tenant A money. A Tenant B actor
+  // also cannot borrow Tenant A's organization ID for any financial operation.
+  await assert.rejects(
+    payments.listRentalBookingPaymentTransactions({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    payments.recordRentalManualOfflineRefund({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+      reference: `OTHER-REFUND-${runId.slice(0, 10)}`, amount: partialPaymentAmount,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    payments.listRentalBookingPaymentTransactions({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    payments.recordRentalManualOfflinePayment({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+      reference: `WRONG-ACTOR-PAY-${runId.slice(0, 10)}`, amount: partialPaymentAmount,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    payments.recordRentalManualOfflineRefund({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: confirmed.booking.id,
+      reference: `WRONG-ACTOR-REFUND-${runId.slice(0, 10)}`, amount: partialPaymentAmount,
+    }),
+    /permission/i,
+  );
+  assert.equal(await db.rentalPaymentTransaction.count({ where: { organizationId: otherOrganization.id } }), 0);
+  assert.equal(await db.rentalManualProviderReference.count({ where: { organizationId: otherOrganization.id } }), 0);
+  assert.equal(await db.rentalPaymentTransaction.count({ where: { organizationId: organization.id, bookingId: confirmed.booking.id } }), 1);
+
   const partialPaymentReplay = await payments.recordRentalManualOfflinePayment({
     organizationId: organization.id,
     actorUserId: admin.id,

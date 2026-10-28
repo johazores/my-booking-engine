@@ -115,6 +115,45 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   assert.equal(requirementReplay.idempotent, true);
   assert.equal(requirementReplay.bond.id, requirement.bond.id);
 
+  // Cross-tenant booking identity and cross-tenant actor membership must
+  // both fail before financial evidence can be written.
+  await assert.rejects(
+    bonds.createRentalSecurityBondRequirement({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, amountMajor: '500.00',
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    bonds.recordRentalSecurityBondManualCollection({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, reference: `OTHER-BOND-${runId.slice(0, 10)}`,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    bonds.readRentalSecurityBond({
+      organizationId: organization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id,
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    bonds.createRentalSecurityBondRequirement({
+      organizationId: organization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, amountMajor: '500.00',
+    }),
+    /permission/i,
+  );
+  await assert.rejects(
+    bonds.recordRentalSecurityBondManualCollection({
+      organizationId: organization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, reference: `WRONG-ACTOR-BOND-${runId.slice(0, 10)}`,
+    }),
+    /permission/i,
+  );
+  assert.equal(await db.rentalSecurityBondRequirement.count({ where: { organizationId: otherOrganization.id } }), 0);
+  assert.equal(await db.rentalSecurityBondTransaction.count({ where: { organizationId: otherOrganization.id } }), 0);
+
   await assert.rejects(
     bonds.readRentalSecurityBond({ organizationId: otherOrganization.id, actorUserId: otherAdmin.id, bookingId: pickupBooking.booking.id }),
     /not available/i,
@@ -146,6 +185,26 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
   });
   assert.equal(collectionReplay.idempotent, true);
   assert.equal(collectionReplay.transaction.id, collection.transaction.id);
+
+  // Releasing a collected bond requires the correct tenant and actor.
+  await assert.rejects(
+    bonds.recordRentalSecurityBondManualRelease({
+      organizationId: otherOrganization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, reference: `OTHER-RELEASE-${runId.slice(0, 10)}`,
+    }),
+    /not available/i,
+  );
+  await assert.rejects(
+    bonds.recordRentalSecurityBondManualRelease({
+      organizationId: organization.id, actorUserId: otherAdmin.id,
+      bookingId: pickupBooking.booking.id, reference: `WRONG-ACTOR-RELEASE-${runId.slice(0, 10)}`,
+    }),
+    /permission/i,
+  );
+  assert.equal(await db.rentalSecurityBondTransaction.count({ where: { organizationId: otherOrganization.id } }), 0);
+  assert.equal(await db.rentalSecurityBondTransaction.count({
+    where: { organizationId: organization.id, bondId: requirement.bond.id },
+  }), 1);
 
   await assert.rejects(
     rentalPayments.recordRentalManualOfflinePayment({
