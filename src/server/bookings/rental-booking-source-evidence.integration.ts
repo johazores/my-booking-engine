@@ -9,7 +9,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental booking source-evidence integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('confirmed rental bookings retain immutable source-hold evidence', async () => {
+test('confirmed rental bookings retain immutable source-hold evidence', async (t) => {
   const [{ db }, holds, authority, bookings, cancellation] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
@@ -19,15 +19,37 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
   ]);
 
   const runId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.$transaction(async (transaction) => {
+      await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId } });
+      await transaction.auditEvent.deleteMany({ where: { organizationId } });
+      await transaction.rentalBooking.deleteMany({ where: { organizationId } });
+      await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId } });
+    });
+    await db.rentalUnit.deleteMany({ where: { organizationId } });
+    await db.rentalUnitType.deleteMany({ where: { organizationId } });
+    await db.rentalLocation.deleteMany({ where: { organizationId } });
+    await db.customer.deleteMany({ where: { organizationId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId } });
+    await db.organization.deleteMany({ where: { id: organizationId } });
+    await db.user.deleteMany({ where: { id: adminId } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
   // Keep live availability scenarios in the future, anchored to PostgreSQL time.
   const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
   assert.ok(databaseClock?.now);
   const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const admin = await db.user.create({
-    data: { email: `rental-source-evidence-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: adminId, email: `rental-source-evidence-${runId}@example.test`, status: 'ACTIVE' },
   });
   const organization = await db.organization.create({
     data: {
+      id: organizationId,
       name: 'Rental Source Evidence Tenant',
       slug: `rental-source-evidence-${runId}`.slice(0, 63),
       kind: 'RENTAL_BUSINESS',
@@ -265,18 +287,6 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       /pricing snapshot must match retained source hold evidence/i,
     );
   } finally {
-    await db.$transaction(async (transaction) => {
-      await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.rentalBooking.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
-    });
-    await db.rentalUnit.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalLocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.customer.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.delete({ where: { id: organization.id } });
-    await db.user.delete({ where: { id: admin.id } });
+    await cleanupFixtures();
   }
 });

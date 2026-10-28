@@ -8,11 +8,23 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental database integrity integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental database rejects orphan tenant roots and impossible archive state', async () => {
+test('rental database rejects orphan tenant roots and impossible archive state', async (t) => {
   const { db } = await import('../database.ts');
   const runId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.rentalUnit.deleteMany({ where: { organizationId } });
+    await db.rentalLocation.deleteMany({ where: { organizationId } });
+    await db.rentalUnitType.deleteMany({ where: { organizationId } });
+    await db.organization.deleteMany({ where: { id: organizationId } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
   const organization = await db.organization.create({
     data: {
+      id: organizationId,
       name: 'Rental Integrity Tenant',
       slug: `rental-integrity-${runId}`.slice(0, 63),
       kind: 'RENTAL_BUSINESS',
@@ -111,9 +123,6 @@ test('rental database rejects orphan tenant roots and impossible archive state',
     assert.equal(persistedUnit.status, 'ACTIVE');
     assert.equal(persistedUnit.archivedAt, null);
   } finally {
-    await db.rentalUnit.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalLocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.deleteMany({ where: { id: organization.id } });
+    await cleanupFixtures();
   }
 });

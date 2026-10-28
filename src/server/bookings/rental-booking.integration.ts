@@ -9,7 +9,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental booking integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental booking confirmation, reads, cancellation, inventory release, and customer retention are tenant-scoped and atomic', async () => {
+test('rental booking confirmation, reads, cancellation, inventory release, and customer retention are tenant-scoped and atomic', async (t) => {
   const [{ db }, holds, bookings, bookingReads, cancellations, authority, availability, customers] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
@@ -22,18 +22,42 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
   ]);
 
   const runId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
+  const otherAdminId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const otherOrganizationId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.auditEvent.deleteMany({ where: { organizationId } });
+    await db.rentalBookingAllocation.deleteMany({ where: { organizationId } });
+    await db.rentalBooking.deleteMany({ where: { organizationId } });
+    await db.rentalAvailabilityBlock.deleteMany({ where: { organizationId } });
+    await db.rentalAvailabilityHold.deleteMany({ where: { organizationId } });
+    await db.rentalRatePeriod.deleteMany({ where: { organizationId } });
+    await db.rentalUnit.deleteMany({ where: { organizationId } });
+    await db.rentalUnitType.deleteMany({ where: { organizationId } });
+    await db.rentalLocation.deleteMany({ where: { organizationId } });
+    await db.customer.deleteMany({ where: { organizationId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationId, otherOrganizationId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationId, otherOrganizationId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminId, otherAdminId] } } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
   // Keep live availability scenarios in the future, anchored to PostgreSQL time.
   const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
   assert.ok(databaseClock?.now);
   const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const admin = await db.user.create({
-    data: { email: `rental-booking-admin-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: adminId, email: `rental-booking-admin-${runId}@example.test`, status: 'ACTIVE' },
   });
   const otherAdmin = await db.user.create({
-    data: { email: `rental-booking-other-admin-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: otherAdminId, email: `rental-booking-other-admin-${runId}@example.test`, status: 'ACTIVE' },
   });
   const organization = await db.organization.create({
     data: {
+      id: organizationId,
       name: 'Rental Booking Tenant',
       slug: `rental-booking-${runId}`.slice(0, 63),
       kind: 'RENTAL_BUSINESS',
@@ -43,6 +67,7 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
   });
   const otherOrganization = await db.organization.create({
     data: {
+      id: otherOrganizationId,
       name: 'Other Rental Booking Tenant',
       slug: `rental-booking-other-${runId}`.slice(0, 63),
       kind: 'RENTAL_BUSINESS',
@@ -387,18 +412,6 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       /foreign key|constraint/i,
     );
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalBooking.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalAvailabilityBlock.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalRatePeriod.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalUnit.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId: organization.id } });
-    await db.rentalLocation.deleteMany({ where: { organizationId: organization.id } });
-    await db.customer.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organization.id, otherOrganization.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organization.id, otherOrganization.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [admin.id, otherAdmin.id] } } });
+    await cleanupFixtures();
   }
 });
