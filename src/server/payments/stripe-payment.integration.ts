@@ -481,6 +481,40 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       where: { organizationId: organizationA.id, idempotencyKey: 'stripe:capture:foreign-source-blocked' },
     }), 0);
 
+    // Existing pending capture claims must also reject historical cross-booking
+    // references before an idempotent provider retry.
+    const pendingCaptureFingerprint = stripePayments.paymentRequestFingerprint([
+      'stripe',
+      'capture',
+      captureOwner.id,
+      captureOwner.currency,
+      captureOwner.totalMinor.toString(),
+      'pi_sf_cross_booking_capture_10',
+    ]);
+    const pendingCaptureRetry = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      idempotencyKey: 'stripe:capture:foreign-source-blocked-retry',
+      requestFingerprint: pendingCaptureFingerprint,
+      kind: 'CAPTURE',
+      status: 'PENDING',
+      providerCode: 'stripe',
+      providerReference: stripePayments.paymentOperationClaimReference(pendingCaptureFingerprint),
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    await assert.rejects(
+      stripePayments.captureStripeBookingPayment({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        bookingId: captureOwner.id,
+        idempotencyKey: pendingCaptureRetry.idempotencyKey,
+      }),
+      /reference belongs to another booking/i,
+    );
+    assert.equal(blockedCaptureProviderCalls, 0);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingCaptureRetry.id } })).status, 'PENDING');
+
     // Pending reconciliation also rejects cross-booking PaymentIntent ownership
     // before fetching provider truth, even when both rows share the same tenant.
     const reconciliationOwner = await createBooking(12);

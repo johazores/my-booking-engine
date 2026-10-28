@@ -582,6 +582,19 @@ export async function captureStripeBookingPayment(input: {
 
   if (!claim.callProvider) return claim.payment;
 
+  // A pending idempotent capture claim may predate the claim-time check.
+  // Revalidate source ownership on every retry before calling Stripe.
+  const foreignCaptureSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: authorization.providerReference,
+      bookingId: { not: booking.id },
+    },
+    select: { id: true },
+  });
+  if (foreignCaptureSource) throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
+
   let providerResult: ProviderPaymentResult;
   try {
     providerResult = await stripe.provider.capturePayment({

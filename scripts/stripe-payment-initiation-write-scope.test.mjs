@@ -68,7 +68,7 @@ test('Stripe authorization rejects an already-bound provider reference regardles
 test('Stripe capture and refund reject cross-booking PaymentIntent source reuse before and after provider I/O', () => {
   const capture = payments.split('export async function captureStripeBookingPayment')[1];
   assert.match(capture, /normalizeStripePaymentIntentReference\(authorization\.providerReference\)/);
-  assert.equal((capture.match(/bookingId: \{ not: booking\.id \}/g) ?? []).length, 2);
+  assert.equal((capture.match(/bookingId: \{ not: booking\.id \}/g) ?? []).length, 3);
   assert.match(capture, /const stillAuthorized = await transaction\.paymentTransaction\.findFirst/);
   assert.match(capture, /id: authorization\.id,[\s\S]*?commercialAmendmentId: null,[\s\S]*?status: 'SUCCEEDED'/);
   assert.equal((refunds.match(/bookingId: \{ not: booking\.id \}/g) ?? []).length, 2);
