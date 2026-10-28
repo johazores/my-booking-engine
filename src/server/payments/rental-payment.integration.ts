@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rentalIntegrationDateAtOffset } from '../testing/rental-integration-dates.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -20,6 +21,10 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep live availability scenarios in the future, anchored to PostgreSQL time.
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const admin = await db.user.create({ data: { email: `rental-payment-admin-${runId}@example.test`, status: 'ACTIVE' } });
   const otherAdmin = await db.user.create({ data: { email: `rental-payment-other-${runId}@example.test`, status: 'ACTIVE' } });
   const organization = await db.organization.create({
@@ -48,7 +53,7 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
   const hold = await holds.createRentalAvailabilityHold({
     organizationId: organization.id,
     actorUserId: admin.id,
-    hold: { unitId: unit.id, startsOn: '2026-11-10', endsOn: '2026-11-12', idempotencyKey: `rental-payment-hold:${runId}` },
+    hold: { unitId: unit.id, startsOn: dateAtOffset(14), endsOn: dateAtOffset(16), idempotencyKey: `rental-payment-hold:${runId}` },
   });
   const review = await authority.reviewRentalBookingConversionAuthority({ organizationId: organization.id, actorUserId: admin.id, holdId: hold.id, customerId: customer.id });
   assert.equal(review.ready, true);

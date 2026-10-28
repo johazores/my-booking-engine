@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rentalIntegrationDateAtOffset } from '../testing/rental-integration-dates.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -21,6 +22,10 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep live availability scenarios in the future, anchored to PostgreSQL time.
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const admin = await db.user.create({
     data: { email: `rental-booking-admin-${runId}@example.test`, status: 'ACTIVE' },
   });
@@ -102,8 +107,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       actorUserId: admin.id,
       hold: {
         unitId: unit.id,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
         idempotencyKey: `rental-booking-hold:${runId}`,
       },
     });
@@ -216,8 +221,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       search: {
         unitTypeCode: unitType.code,
         locationCode: location.code,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
       },
     });
     assert.equal(bookedSearch.availability.total, 0);
@@ -228,8 +233,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
         actorUserId: admin.id,
         hold: {
           unitId: unit.id,
-          startsOn: '2026-10-11',
-          endsOn: '2026-10-12',
+          startsOn: dateAtOffset(15),
+          endsOn: dateAtOffset(16),
           idempotencyKey: `rental-booking-overlap:${runId}`,
         },
       }),
@@ -241,8 +246,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
         data: {
           organizationId: organization.id,
           unitId: unit.id,
-          startsOn: new Date('2026-10-11T00:00:00.000Z'),
-          endsOn: new Date('2026-10-12T00:00:00.000Z'),
+          startsOn: new Date(dateAtOffset(15) + 'T00:00:00.000Z'),
+          endsOn: new Date(dateAtOffset(16) + 'T00:00:00.000Z'),
           reason: 'must not overlap confirmed booking',
         },
       }),
@@ -332,8 +337,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       search: {
         unitTypeCode: unitType.code,
         locationCode: location.code,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
       },
     });
     assert.equal(releasedSearch.availability.total, 1);
@@ -343,8 +348,8 @@ test('rental booking confirmation, reads, cancellation, inventory release, and c
       actorUserId: admin.id,
       hold: {
         unitId: unit.id,
-        startsOn: '2026-10-11',
-        endsOn: '2026-10-12',
+        startsOn: dateAtOffset(15),
+        endsOn: dateAtOffset(16),
         idempotencyKey: `rental-booking-after-cancel:${runId}`,
       },
     });

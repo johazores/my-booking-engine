@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rentalIntegrationDateAtOffset } from '../testing/rental-integration-dates.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -17,6 +18,10 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep live availability scenarios in the future, anchored to PostgreSQL time.
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const adminA = await db.user.create({ data: { email: `rental-hold-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { email: `rental-hold-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { email: `rental-hold-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -109,8 +114,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: staffA.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-10-10',
-          endsOn: '2026-10-13',
+          startsOn: dateAtOffset(14),
+          endsOn: dateAtOffset(17),
           idempotencyKey: `staff-denied:${runId}`,
         },
       }),
@@ -123,8 +128,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminB.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-10-10',
-          endsOn: '2026-10-13',
+          startsOn: dateAtOffset(14),
+          endsOn: dateAtOffset(17),
           idempotencyKey: `cross-tenant:${runId}`,
         },
       }),
@@ -137,8 +142,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
       actorUserId: adminA.id,
       hold: {
         unitId: unitA.id,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
         idempotencyKey,
       },
     });
@@ -161,8 +166,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
       actorUserId: adminA.id,
       hold: {
         unitId: unitA.id,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
         idempotencyKey,
       },
     });
@@ -175,8 +180,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminA.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-10-11',
-          endsOn: '2026-10-14',
+          startsOn: dateAtOffset(15),
+          endsOn: dateAtOffset(18),
           idempotencyKey,
         },
       }),
@@ -188,8 +193,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminA.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-10-10',
-          endsOn: '2026-10-13',
+          startsOn: dateAtOffset(14),
+          endsOn: dateAtOffset(17),
           idempotencyKey,
           expiresInMinutes: 20,
         },
@@ -220,8 +225,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
       actorUserId: adminA.id,
       rate: {
         unitTypeId: unitType.id,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
         dailyRateMinor: 150000,
       },
     });
@@ -242,8 +247,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
       search: {
         unitTypeCode: unitType.code,
         locationCode: locationA.code,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
       },
     });
     assert.equal(heldAvailability.availability.total, 1);
@@ -257,8 +262,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminA.id,
         block: {
           unitId: unitA.id,
-          startsOn: '2026-10-11',
-          endsOn: '2026-10-12',
+          startsOn: dateAtOffset(15),
+          endsOn: dateAtOffset(16),
           reason: 'Must not overlap active hold',
         },
       }),
@@ -296,8 +301,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
       search: {
         unitTypeCode: unitType.code,
         locationCode: locationA.code,
-        startsOn: '2026-10-10',
-        endsOn: '2026-10-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
       },
     });
     assert.equal(releasedAvailability.availability.total, 2);
@@ -308,8 +313,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminA.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-11-01',
-          endsOn: '2026-11-04',
+          startsOn: dateAtOffset(35),
+          endsOn: dateAtOffset(38),
           idempotencyKey: `concurrent-a:${runId}`,
         },
       }),
@@ -318,8 +323,8 @@ test('rental holds enforce tenant scope, permissions, idempotency, pricing evide
         actorUserId: adminA.id,
         hold: {
           unitId: unitA.id,
-          startsOn: '2026-11-02',
-          endsOn: '2026-11-05',
+          startsOn: dateAtOffset(36),
+          endsOn: dateAtOffset(39),
           idempotencyKey: `concurrent-b:${runId}`,
         },
       }),

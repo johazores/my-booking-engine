@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rentalIntegrationDateAtOffset } from '../testing/rental-integration-dates.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -18,6 +19,10 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep live availability scenarios in the future, anchored to PostgreSQL time.
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const admin = await db.user.create({
     data: { email: `rental-source-evidence-${runId}@example.test`, status: 'ACTIVE' },
   });
@@ -81,8 +86,8 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       actorUserId: admin.id,
       hold: {
         unitId: unit.id,
-        startsOn: '2026-11-10',
-        endsOn: '2026-11-13',
+        startsOn: dateAtOffset(14),
+        endsOn: dateAtOffset(17),
         idempotencyKey: `rental-source-hold:${runId}`,
       },
     });
@@ -147,7 +152,7 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
     await assert.rejects(
       db.rentalAvailabilityHold.update({
         where: { id: hold.id },
-        data: { endsOn: new Date('2026-11-14T00:00:00.000Z') },
+        data: { endsOn: new Date(dateAtOffset(18) + 'T00:00:00.000Z') },
       }),
       /source hold evidence is immutable after confirmation/i,
     );
@@ -192,7 +197,7 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
     await assert.rejects(
       db.rentalBookingAllocation.update({
         where: { id: confirmed.allocation.id },
-        data: { endsOn: new Date('2026-11-14T00:00:00.000Z') },
+        data: { endsOn: new Date(dateAtOffset(18) + 'T00:00:00.000Z') },
       }),
       /rental booking allocation does not match its effective confirmed unit/i,
     );
@@ -207,8 +212,8 @@ test('confirmed rental bookings retain immutable source-hold evidence', async ()
       actorUserId: admin.id,
       hold: {
         unitId: unit.id,
-        startsOn: '2026-11-20',
-        endsOn: '2026-11-22',
+        startsOn: dateAtOffset(24),
+        endsOn: dateAtOffset(26),
         idempotencyKey: `rental-source-second-hold:${runId}`,
       },
     });

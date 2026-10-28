@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rentalIntegrationDateAtOffset } from '../testing/rental-integration-dates.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -15,6 +16,10 @@ test('rental inventory enforces tenant scope, permissions, location ownership, c
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep live availability scenarios in the future, anchored to PostgreSQL time.
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const dateAtOffset = (days: number) => rentalIntegrationDateAtOffset(databaseClock.now, days);
   const adminA = await db.user.create({ data: { email: `rental-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffUserA = await db.user.create({ data: { email: `rental-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { email: `rental-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -150,13 +155,13 @@ test('rental inventory enforces tenant scope, permissions, location ownership, c
     const block = await rentals.createRentalAvailabilityBlock({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      block: { unitId: unitA.id, startsOn: '2026-10-01', endsOn: '2026-10-04', reason: 'Maintenance' },
+      block: { unitId: unitA.id, startsOn: dateAtOffset(14), endsOn: dateAtOffset(17), reason: 'Maintenance' },
     });
     await assert.rejects(
       rentals.createRentalAvailabilityBlock({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        block: { unitId: unitA.id, startsOn: '2026-10-03', endsOn: '2026-10-05', reason: 'Overlap' },
+        block: { unitId: unitA.id, startsOn: dateAtOffset(16), endsOn: dateAtOffset(18), reason: 'Overlap' },
       }),
       /overlaps an existing block/i,
     );
@@ -164,13 +169,13 @@ test('rental inventory enforces tenant scope, permissions, location ownership, c
     const rate = await rentals.createRentalRatePeriod({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      rate: { unitTypeId: unitTypeA.id, startsOn: '2026-12-20', endsOn: '2027-01-05', dailyRateMinor: 150000 },
+      rate: { unitTypeId: unitTypeA.id, startsOn: dateAtOffset(70), endsOn: dateAtOffset(86), dailyRateMinor: 150000 },
     });
     await assert.rejects(
       rentals.createRentalRatePeriod({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        rate: { unitTypeId: unitTypeA.id, startsOn: '2026-12-24', endsOn: '2026-12-26', dailyRateMinor: 160000 },
+        rate: { unitTypeId: unitTypeA.id, startsOn: dateAtOffset(74), endsOn: dateAtOffset(76), dailyRateMinor: 160000 },
       }),
       /overlaps an existing pricing period/i,
     );
