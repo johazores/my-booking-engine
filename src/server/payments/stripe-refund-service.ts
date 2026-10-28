@@ -32,6 +32,7 @@ type RefundMode = 'explicit' | 'remaining';
 type ExistingRefund = {
   id: string;
   bookingId: string;
+  commercialAmendmentId: string | null;
   kind: string;
   status: string;
   providerCode: string;
@@ -132,6 +133,7 @@ function assertExisting(existing: ExistingRefund, expected: {
 }) {
   if (
     existing.bookingId !== expected.bookingId
+    || existing.commercialAmendmentId !== null
     || existing.kind !== 'REFUND'
     || existing.providerCode !== PROVIDER
     || (expected.currency !== undefined && existing.currency !== expected.currency)
@@ -195,7 +197,7 @@ async function failInternalClaim(input: { organizationId: string; actorUserId: s
   await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(input.organizationId, 'booking', input.bookingId)}, 0))`;
     const refund = await tx.paymentTransaction.findFirst({
-      where: { id: input.refundId, organizationId: input.organizationId, bookingId: input.bookingId, kind: 'REFUND' },
+      where: { id: input.refundId, organizationId: input.organizationId, bookingId: input.bookingId, commercialAmendmentId: null, kind: 'REFUND' },
     });
     if (!refund || refund.status !== 'PENDING' || !isInternalPaymentClaimReference(refund.providerReference)) return;
     await tx.paymentTransaction.update({
@@ -203,6 +205,7 @@ async function failInternalClaim(input: { organizationId: string; actorUserId: s
         id: refund.id,
         organizationId: input.organizationId,
         bookingId: input.bookingId,
+        commercialAmendmentId: null,
         providerCode: PROVIDER,
         kind: 'REFUND',
         status: 'PENDING',
@@ -394,6 +397,7 @@ export async function refundStripeBookingPayment(input: {
     const refund = await tx.paymentTransaction.create({ data: {
       organizationId: input.organizationId,
       bookingId: booking.id,
+      commercialAmendmentId: null,
       idempotencyKey,
       requestFingerprint: fingerprint,
       kind: 'REFUND',
@@ -482,6 +486,7 @@ export async function refundStripeBookingPayment(input: {
         id: existing.id,
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: PROVIDER,
         kind: 'REFUND',
         status: existing.status,

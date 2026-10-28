@@ -108,7 +108,7 @@ export async function reconcileStripePaymentTransaction(input: {
   await requireOrganizationPermission({ organizationId: input.organizationId, userId: input.actorUserId, permission: 'payment:manage' });
 
   const payment = await db.paymentTransaction.findFirst({
-    where: { id: input.transactionId, organizationId: input.organizationId, providerCode: STRIPE_PROVIDER_CODE },
+    where: { id: input.transactionId, organizationId: input.organizationId, commercialAmendmentId: null, providerCode: STRIPE_PROVIDER_CODE },
   });
   if (!payment) throw new PaymentUnavailableError('Stripe payment transaction is not available in this organization.');
   if (payment.kind !== 'AUTHORIZATION' && payment.kind !== 'CAPTURE') throw new PaymentConflictError('Only Stripe authorization or capture transactions can be reconciled.');
@@ -133,7 +133,7 @@ export async function reconcileStripePaymentTransaction(input: {
   return db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, payment.bookingId)}, 0))`;
     const current = await transaction.paymentTransaction.findFirst({
-      where: { id: payment.id, organizationId: input.organizationId, bookingId: payment.bookingId, providerCode: STRIPE_PROVIDER_CODE },
+      where: { id: payment.id, organizationId: input.organizationId, bookingId: payment.bookingId, commercialAmendmentId: null, providerCode: STRIPE_PROVIDER_CODE },
     });
     if (!current) throw new PaymentUnavailableError('Stripe payment transaction is not available in this organization.');
     if (current.status !== 'PENDING') return current;
@@ -160,6 +160,7 @@ export async function reconcileStripePaymentTransaction(input: {
         id: current.id,
         organizationId: input.organizationId,
         bookingId: payment.bookingId,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: payment.kind,
         status: 'PENDING',

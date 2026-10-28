@@ -11,7 +11,7 @@ test('Stripe payment reconciliation retains tenant, provider, lifecycle, and mon
 
   assert.match(
     service,
-    /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: payment\.bookingId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: payment\.kind,\s*status: 'PENDING',\s*providerReference: payment\.providerReference,\s*currency: payment\.currency,\s*amountMinor: payment\.amountMinor,/,
+    /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: payment\.bookingId,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: payment\.kind,\s*status: 'PENDING',\s*providerReference: payment\.providerReference,\s*currency: payment\.currency,\s*amountMinor: payment\.amountMinor,/,
   );
   assert.match(
     service,
@@ -52,4 +52,23 @@ test('Stripe reconciliation write-scope documentation keeps the production bound
   assert.match(document, /GitHub Actions are intentionally not used/i);
   assert.match(tenancy, /Stripe payment\/refund reconciliation/i);
   assert.match(tenancy, /stripe-reconciliation-write-scope\.md/);
+});
+
+test('base Stripe payment and refund operations exclude amendment-owned ledger rows', () => {
+  const service = source('src/server/payments/stripe-payment-service.ts');
+  const reconciliation = source('src/server/payments/stripe-reconciliation-service.ts');
+  const refunds = source('src/server/payments/stripe-refund-service.ts');
+  assert.match(service, /existing\.commercialAmendmentId !== null/);
+  assert.match(service, /where: \{ id: input\.paymentId, organizationId: input\.organizationId, bookingId: input\.bookingId, commercialAmendmentId: null \}/);
+  assert.match(service, /providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'AUTHORIZATION',\s*status: \{ in: \['PENDING', 'SUCCEEDED'\] \}/);
+  assert.match(service, /providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'CAPTURE',\s*status: \{ in: \['PENDING', 'SUCCEEDED'\] \}/);
+  assert.match(service, /where: \{ organizationId: input\.organizationId, bookingId: booking\.id, commercialAmendmentId: null, kind: 'AUTHORIZATION'/);
+  assert.match(service, /providerReference: authorization\.providerReference,\s*commercialAmendmentId: null/);
+  assert.ok((service.match(/commercialAmendmentId: null/g) ?? []).length >= 10);
+  assert.match(refunds, /existing\.commercialAmendmentId !== null/);
+  assert.match(refunds, /where: \{ id: input\.refundId, organizationId: input\.organizationId, bookingId: input\.bookingId, commercialAmendmentId: null, kind: 'REFUND' \}/);
+  assert.match(refunds, /paymentTransaction\.create\(\{ data: \{\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null/);
+  assert.match(refunds, /paymentTransaction\.update\(\{\s*where: \{\s*id: existing\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null/);
+  assert.match(reconciliation, /id: input\.transactionId, organizationId: input\.organizationId, commercialAmendmentId: null/);
+  assert.match(reconciliation, /id: payment\.id, organizationId: input\.organizationId, bookingId: payment\.bookingId, commercialAmendmentId: null/);
 });

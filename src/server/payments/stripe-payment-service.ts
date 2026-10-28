@@ -20,6 +20,7 @@ const INTERNAL_CLAIM_PREFIX = 'sf_claim_';
 type ExistingPayment = {
   id: string;
   bookingId: string;
+  commercialAmendmentId: string | null;
   kind: string;
   status: string;
   providerCode: string;
@@ -67,6 +68,7 @@ function assertExactExistingOperation(
 ): void {
   if (
     existing.bookingId !== expected.bookingId
+    || existing.commercialAmendmentId !== null
     || existing.kind !== expected.kind
     || existing.providerCode !== STRIPE_PROVIDER_CODE
     || existing.currency !== expected.currency
@@ -134,7 +136,7 @@ async function markProviderClaimFailed(input: {
   await db.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', input.bookingId)}, 0))`;
     const payment = await transaction.paymentTransaction.findFirst({
-      where: { id: input.paymentId, organizationId: input.organizationId, bookingId: input.bookingId },
+      where: { id: input.paymentId, organizationId: input.organizationId, bookingId: input.bookingId, commercialAmendmentId: null },
     });
     if (
       !payment
@@ -149,6 +151,7 @@ async function markProviderClaimFailed(input: {
         id: payment.id,
         organizationId: input.organizationId,
         bookingId: input.bookingId,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: input.kind,
         status: 'PENDING',
@@ -277,6 +280,7 @@ export async function authorizeStripeBookingPayment(input: {
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'AUTHORIZATION',
         status: { in: ['PENDING', 'SUCCEEDED'] },
@@ -289,6 +293,7 @@ export async function authorizeStripeBookingPayment(input: {
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         idempotencyKey,
         requestFingerprint,
         kind: 'AUTHORIZATION',
@@ -381,6 +386,7 @@ export async function authorizeStripeBookingPayment(input: {
         id: existing.id,
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'AUTHORIZATION',
         status: existing.status,
@@ -443,7 +449,7 @@ export async function captureStripeBookingPayment(input: {
   if (booking.status !== 'CONFIRMED') throw new PaymentConflictError('Only confirmed bookings can capture an authorized payment.');
 
   const authorization = await db.paymentTransaction.findFirst({
-    where: { organizationId: input.organizationId, bookingId: booking.id, kind: 'AUTHORIZATION', status: 'SUCCEEDED', providerCode: STRIPE_PROVIDER_CODE },
+    where: { organizationId: input.organizationId, bookingId: booking.id, commercialAmendmentId: null, kind: 'AUTHORIZATION', status: 'SUCCEEDED', providerCode: STRIPE_PROVIDER_CODE },
     orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
   });
   if (!authorization) throw new PaymentConflictError('No successful Stripe authorization is available to capture.');
@@ -521,6 +527,7 @@ export async function captureStripeBookingPayment(input: {
         status: 'SUCCEEDED',
         providerCode: STRIPE_PROVIDER_CODE,
         providerReference: authorization.providerReference,
+        commercialAmendmentId: null,
       },
       select: { id: true },
     });
@@ -530,6 +537,7 @@ export async function captureStripeBookingPayment(input: {
       where: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'CAPTURE',
         status: { in: ['PENDING', 'SUCCEEDED'] },
@@ -542,6 +550,7 @@ export async function captureStripeBookingPayment(input: {
       data: {
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         idempotencyKey,
         requestFingerprint,
         kind: 'CAPTURE',
@@ -610,6 +619,7 @@ export async function captureStripeBookingPayment(input: {
         id: existing.id,
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: 'CAPTURE',
         status: existing.status,
