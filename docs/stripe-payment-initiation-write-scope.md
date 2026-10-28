@@ -60,3 +60,11 @@ Direct Stripe authorization uses a PaymentMethod ID as part of the tenant-owned 
 The direct adapter regression suite covers valid boundary lengths, invalid reference forms, and zero outbound provider calls. This is preflight input validation, not proof of live Stripe acceptance or of any additional provider capability. Full Node 24, TypeScript, Prisma, PostgreSQL, lint, production build, and live Stripe verification remain separate environment gates; no GitHub Actions are used.
 
 The commercial-amendment charge fingerprint domain also independently rejects malformed, padded, delimiter-bearing, non-string, or oversized PaymentMethod IDs when constructing durable authorization identity. This protects the pure fingerprint boundary even if a future caller bypasses the existing service preflight; it does not replace the provider adapter's outbound validation. Domain regression coverage now checks the same exact-reference and 160-character rules.
+
+## Authorization provider-reference ownership
+
+A Stripe PaymentIntent ID must not be reused as a second authorization transaction, even when a historical row is failed or belongs to the same booking. The final serializable authorization persistence now checks every same-tenant Stripe payment transaction kind for the exact returned reference, excluding only the claim being finalized. A legitimate authorization/capture pair can share one PaymentIntent ID, but this does not permit a new authorization to adopt that ID.
+
+The checked-in disposable-PostgreSQL integration scenarios cover same-booking historical authorization reuse, cross-kind reuse, and cross-booking reuse. The dependency-free source contract checks that the collision query is not narrowed to one kind or only to other bookings. On collision, the unresolved claim is preserved for investigation rather than attributing money to a second operation.
+
+This is a stricter sequential provider-identity check, not a database uniqueness constraint or a proven concurrent cross-booking reference reservation. A full concurrency-safe, cross-writer uniqueness strategy requires a separately reviewed migration and disposable-PostgreSQL validation. These integration scenarios have not been executed in the current environment because the repository Node 24 toolchain and disposable database are unavailable.

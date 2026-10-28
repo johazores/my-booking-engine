@@ -371,13 +371,68 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         idempotencyKey: 'stripe:auth:provider-reference-conflict',
         paymentMethodReference: 'pm_sf_provider_reference_conflict',
       }),
-      /belongs to another booking/i,
+      /already bound to another payment transaction/i,
     );
     const conflictedClaim = await db.paymentTransaction.findUniqueOrThrow({
       where: { organizationId_idempotencyKey: { organizationId: organizationA.id, idempotencyKey: 'stripe:auth:provider-reference-conflict' } },
     });
     assert.equal(conflictedClaim.status, 'PENDING');
     assert.match(conflictedClaim.providerReference, /^sf_claim_[0-9a-f]{64}$/);
+
+    // A failed historical authorization cannot lend its provider identity to a new
+    // authorization on the same booking, even when a fresh claim is otherwise allowed.
+    await assert.rejects(
+      stripePayments.authorizeStripeBookingPayment({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        bookingId: bookingOwningProviderReference.id,
+        idempotencyKey: 'stripe:auth:same-booking-reference-conflict',
+        paymentMethodReference: 'pm_sf_same_booking_reference_conflict',
+      }),
+      /already bound to another payment transaction/i,
+    );
+    const sameBookingConflict = await db.paymentTransaction.findUniqueOrThrow({
+      where: { organizationId_idempotencyKey: { organizationId: organizationA.id, idempotencyKey: 'stripe:auth:same-booking-reference-conflict' } },
+    });
+    assert.equal(sameBookingConflict.status, 'PENDING');
+    assert.match(sameBookingConflict.providerReference, /^sf_claim_[0-9a-f]{64}$/);
+
+    // A reference bound to another operation kind is not a fresh authorization either.
+    const bookingWithHistoricalCapture = await createBooking(8);
+    await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: bookingWithHistoricalCapture.id,
+      idempotencyKey: 'stripe:capture:historical-reference',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_historical_capture_8',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    const bookingForCrossKindConflict = await createBooking(9);
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (!url.endsWith('/payment_intents')) throw new Error(`Unexpected Stripe cross-kind request: ${url}`);
+      return new Response(JSON.stringify({
+        id: 'pi_sf_historical_capture_8',
+        status: 'requires_capture',
+        amount: 12345,
+        amount_received: 0,
+        amount_capturable: 12345,
+        currency: 'usd',
+      }), { status: 200 });
+    }) as typeof fetch;
+    await assert.rejects(
+      stripePayments.authorizeStripeBookingPayment({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        bookingId: bookingForCrossKindConflict.id,
+        idempotencyKey: 'stripe:auth:cross-kind-reference-conflict',
+        paymentMethodReference: 'pm_sf_cross_kind_reference_conflict',
+      }),
+      /already bound to another payment transaction/i,
+    );
 
     const bookingForWebhook = await createBooking(7);
     const fingerprint = stripePayments.paymentRequestFingerprint([

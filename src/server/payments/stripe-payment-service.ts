@@ -367,18 +367,18 @@ export async function authorizeStripeBookingPayment(input: {
       throw new PaymentConflictError(`Booking payment state ${currentBooking.paymentStatus.toLowerCase()} no longer accepts authorization.`);
     }
 
+    // The same PaymentIntent must not be adopted by another authorization, even on this booking.
     const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
         providerReference: providerResult.providerReference,
-        kind: 'AUTHORIZATION',
         id: { not: existing.id },
       },
-      select: { bookingId: true },
+      select: { id: true },
     });
-    if (providerReferenceConflict && providerReferenceConflict.bookingId !== booking.id) {
-      throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
+    if (providerReferenceConflict) {
+      throw new PaymentConflictError('Stripe authorization reference is already bound to another payment transaction.');
     }
 
     const payment = await transaction.paymentTransaction.update({

@@ -53,3 +53,13 @@ test('authorization, locking, provider, and documentation boundaries remain expl
   assert.match(tenancy, /authenticated Stripe payment\/refund initiation/i);
   assert.match(tenancy, /stripe-payment-initiation-write-scope\.md/);
 });
+
+test('Stripe authorization rejects an already-bound provider reference regardless of booking or kind', () => {
+  const boundary = payments.match(/const providerReferenceConflict = await transaction\.paymentTransaction\.findFirst\(\{[\s\S]*?if \(providerReferenceConflict\) \{[\s\S]*?\}/)?.[0] ?? '';
+  assert.match(boundary, /providerCode: STRIPE_PROVIDER_CODE/);
+  assert.match(boundary, /providerReference: providerResult\.providerReference/);
+  assert.match(boundary, /id: \{ not: existing\.id \}/);
+  assert.doesNotMatch(boundary, /kind: 'AUTHORIZATION'/);
+  assert.doesNotMatch(boundary, /bookingId: \{ not:/);
+  assert.match(boundary, /if \(providerReferenceConflict\)/);
+});
