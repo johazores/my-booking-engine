@@ -38,3 +38,9 @@ npm run validate
 `npm run test:database` must use the explicitly confirmed disposable PostgreSQL target described in `docs/development-guide.md`. A passing source contract must never be reported as a passing Prisma drift or live database check.
 
 GitHub Actions are intentionally not used for this validation.
+
+## Stripe refund reference database integrity
+
+`prisma/migrations/20261028082500-stripe-refund-reference-uniqueness/migration.sql` adds a PostgreSQL-only partial unique index for exact Stripe `re_`-prefixed provider references per organization. The predicate uses `left("providerReference", 3) = 're_'`, not SQL `LIKE 're_%'` (where `_` would be a wildcard). It covers every payment kind and status; `pi_*` authorization/capture references remain shareable within their legitimate booking source. The existing Prisma normal lookup index remains in place. A preflight fails migration when historical duplicate refund references exist and does not rewrite evidence.
+
+The partial expression index is deliberately raw PostgreSQL authority rather than a broad Prisma `@@unique`. `scripts/stripe-refund-reference-uniqueness-contract.test.mjs` checks the checked-in SQL and Prisma lookup contract; `src/server/payments/stripe-refund.integration.ts` checks same-booking, cross-booking, cross-kind duplicate rejection, and provider namespace separation through real PostgreSQL. The latter remains unexecuted until the disposable database gate is available. This is not a concurrent cross-booking `pi_*` ownership constraint, and it does not replace live provider verification.

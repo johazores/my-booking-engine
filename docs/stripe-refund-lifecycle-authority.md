@@ -84,7 +84,7 @@ Explicit normal refund reconciliation, verified normal refund lifecycle handling
 
 Amendment refund initiation also rejects a foreign-booking settlement source before requesting a Stripe refund and again before persisting the provider result. Explicit amendment refund reconciliation and compensation-refund recovery reject reused refund references and foreign-booking settlement sources before provider-truth reads and inside final transactions. Compensation-refund result persistence independently rejects an already owned Stripe Refund ID. No new provider capability or automatic recovery action is introduced.
 
-These are fail-closed read-time checks, not a database-enforced concurrent cross-booking uniqueness guarantee. A reviewed database integrity strategy and disposable PostgreSQL validation are still required. The source contract covers the three reconciliation paths; it does not claim that the database integration suite or live Stripe behavior passed.
+A checked-in PostgreSQL partial unique index now prevents two payment rows in the same tenant from sharing a real Stripe `re_*` Refund ID, across bookings, commercial amendments, kinds, and historical statuses. The index deliberately excludes `pi_*` PaymentIntents because legitimate authorization/capture records can share a PaymentIntent. Existing read-time checks continue to protect refund-source ownership, but **concurrent cross-booking PaymentIntent ownership is not yet database-enforced**. The migration refuses historical duplicate refund evidence instead of rewriting it. Its source contract and disposable-database regression assertions are checked in; actual PostgreSQL execution and live Stripe validation remain unverified.
 
 ## Validation boundary
 

@@ -200,6 +200,48 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
     release();
     await first;
 
+    // The database must reject a reused real Stripe Refund ID even when another
+    // write bypasses the service's read-time ownership checks.
+    const duplicateRefundCases = [
+      { bookingId: booking.id, kind: 'REFUND' as const },
+      { bookingId: concurrencyBooking.id, kind: 'REFUND' as const },
+      { bookingId: concurrencyBooking.id, kind: 'CAPTURE' as const },
+    ];
+    for (const [index, candidate] of duplicateRefundCases.entries()) {
+      await assert.rejects(
+        db.paymentTransaction.create({ data: {
+          organizationId: organizationA.id,
+          bookingId: candidate.bookingId,
+          idempotencyKey: `stripe:refund:reference-collision:${runId}:${index}`,
+          kind: candidate.kind,
+          status: 'FAILED',
+          providerCode: 'stripe',
+          providerReference: partial.providerReference,
+          sourceProviderReference: candidate.kind === 'REFUND' ? partial.sourceProviderReference : null,
+          currency: 'USD',
+          amountMinor: 100n,
+        } }),
+        (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002',
+      );
+    }
+
+    // Identical external text from another provider is a different reference namespace.
+    await db.$transaction(async (transaction) => {
+      const manual = await transaction.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: booking.id,
+        idempotencyKey: `manual:refund:reference-namespace:${runId}`,
+        kind: 'REFUND',
+        status: 'FAILED',
+        providerCode: 'manual',
+        providerReference: partial.providerReference,
+        currency: 'USD',
+        amountMinor: 100n,
+      } });
+      assert.equal(manual.providerReference, partial.providerReference);
+      await transaction.paymentTransaction.delete({ where: { id: manual.id } });
+    });
+
     const audits = await db.auditEvent.findMany({
       where: { organizationId: organizationA.id, resourceType: 'payment-transaction', action: { startsWith: 'payment.refund-' } },
       select: { afterData: true },
