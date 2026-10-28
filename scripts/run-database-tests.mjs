@@ -78,6 +78,7 @@ const requiredDatabaseIntegrationTests = [
   'src/server/payments/hospitality-invoice-number-sequence-integrity.integration.ts',
   'src/server/payments/hospitality-commercial-settlement-evidence-database-integrity.integration.ts',
   'src/server/payments/hospitality-v6-refund-authority-database-integrity.integration.ts',
+  'src/server/payments/stripe-reference-database-constraints.integration.ts',
   'src/server/payments/stripe-payment.integration.ts',
   'src/server/payments/stripe-refund.integration.ts',
   'src/server/payments/stripe-refund-webhook.integration.ts',
