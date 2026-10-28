@@ -225,22 +225,82 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
       );
     }
 
-    // Identical external text from another provider is a different reference namespace.
-    await db.$transaction(async (transaction) => {
-      const manual = await transaction.paymentTransaction.create({ data: {
-        organizationId: organizationA.id,
-        bookingId: booking.id,
-        idempotencyKey: `manual:refund:reference-namespace:${runId}`,
-        kind: 'REFUND',
-        status: 'FAILED',
-        providerCode: 'manual',
-        providerReference: partial.providerReference,
-        currency: 'USD',
-        amountMinor: 100n,
-      } });
-      assert.equal(manual.providerReference, partial.providerReference);
-      await transaction.paymentTransaction.delete({ where: { id: manual.id } });
-    });
+    // Concurrent direct writes must have one winner even without service-level locks.
+    const raceReference = `re_sf_database_race_${runId.replaceAll('-', '')}`;
+    const concurrentClaims = await Promise.allSettled(
+      [booking.id, concurrencyBooking.id].map((bookingId, index) =>
+        db.paymentTransaction.create({ data: {
+          organizationId: organizationA.id,
+          bookingId,
+          idempotencyKey: `stripe:refund:reference-race:${runId}:${index}`,
+          kind: 'REFUND',
+          status: 'FAILED',
+          providerCode: 'stripe',
+          providerReference: raceReference,
+          sourceProviderReference: partial.sourceProviderReference,
+          currency: 'USD',
+          amountMinor: 100n,
+        } }),
+      ),
+    );
+    assert.equal(concurrentClaims.filter((result) => result.status === 'fulfilled').length, 1);
+    const rejectedClaims = concurrentClaims.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    assert.equal(rejectedClaims.length, 1);
+    assert.equal((rejectedClaims[0]?.reason as { code?: string }).code, 'P2002');
+    assert.equal(await db.paymentTransaction.count({
+      where: { organizationId: organizationA.id, providerCode: 'stripe', providerReference: raceReference },
+    }), 1);
+
+    // Updating an existing Stripe row must not bypass the same uniqueness boundary.
+    const mutableRefund = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: concurrencyBooking.id,
+      idempotencyKey: `stripe:refund:reference-update:${runId}`,
+      kind: 'REFUND',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: `re_sf_mutable_${runId.replaceAll('-', '')}`,
+      sourceProviderReference: partial.sourceProviderReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    await assert.rejects(
+      db.paymentTransaction.update({
+        where: { id: mutableRefund.id },
+        data: { providerReference: partial.providerReference },
+      }),
+      (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002',
+    );
+    assert.equal(
+      (await db.paymentTransaction.findUniqueOrThrow({ where: { id: mutableRefund.id } })).providerReference,
+      mutableRefund.providerReference,
+    );
+
+    // Identical external text from another provider is independent, but changing
+    // that row into the Stripe namespace must be rejected without modifying it.
+    const manual = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: booking.id,
+      idempotencyKey: `manual:refund:reference-namespace:${runId}`,
+      kind: 'REFUND',
+      status: 'FAILED',
+      providerCode: 'manual',
+      providerReference: partial.providerReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    assert.equal(manual.providerReference, partial.providerReference);
+    await assert.rejects(
+      db.paymentTransaction.update({ where: { id: manual.id }, data: { providerCode: 'stripe' } }),
+      (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002',
+    );
+    assert.equal(
+      (await db.paymentTransaction.findUniqueOrThrow({ where: { id: manual.id } })).providerCode,
+      'manual',
+    );
+    await db.paymentTransaction.delete({ where: { id: manual.id } });
 
     const audits = await db.auditEvent.findMany({
       where: { organizationId: organizationA.id, resourceType: 'payment-transaction', action: { startsWith: 'payment.refund-' } },

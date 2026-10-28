@@ -21,6 +21,7 @@ type ReferenceIndex = {
   constraintType: string | null;
   constraintValidated: boolean | null;
   constraintDefinition: string | null;
+  exclusionOperators: string[];
   keyOne: string | null;
   keyTwo: string | null;
   keyThree: string | null;
@@ -65,6 +66,12 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
            constraint_row.contype::text AS "constraintType",
            constraint_row.convalidated AS "constraintValidated",
            pg_get_constraintdef(constraint_row.oid) AS "constraintDefinition",
+           ARRAY(
+             SELECT operator_row.oprname::text
+             FROM unnest(constraint_row.conexclop) WITH ORDINALITY AS excluded(operator_oid, ordinal)
+             JOIN pg_operator operator_row ON operator_row.oid = excluded.operator_oid
+             ORDER BY excluded.ordinal
+           ) AS "exclusionOperators",
            pg_get_indexdef(index_row.indexrelid, 1, true) AS "keyOne",
            pg_get_indexdef(index_row.indexrelid, 2, true) AS "keyTwo",
            pg_get_indexdef(index_row.indexrelid, 3, true) AS "keyThree",
@@ -98,6 +105,7 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   assert.equal(refund.isUnique, true);
   assert.equal(refund.isExclusion, false);
   assert.equal(refund.constraintType, null);
+  assert.deepEqual(refund.exclusionOperators, []);
   assert.equal(refund.keyCount, 2);
   assert.equal(normalizeKey(refund.keyTwo), 'providerReference');
   assertStripePredicate(refund.predicate, 're_');
@@ -108,6 +116,7 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   assert.equal(booking.isExclusion, true);
   assert.equal(booking.constraintType, 'x');
   assert.equal(booking.constraintValidated, true);
+  assert.deepEqual(booking.exclusionOperators, ['=', '=', '<>']);
   assert.equal(booking.keyCount, 3);
   assert.equal(normalizeKey(booking.keyTwo), 'providerReference');
   assert.equal(normalizeKey(booking.keyThree), 'bookingId');
@@ -122,6 +131,7 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   assert.equal(amendment.isExclusion, true);
   assert.equal(amendment.constraintType, 'x');
   assert.equal(amendment.constraintValidated, true);
+  assert.deepEqual(amendment.exclusionOperators, ['=', '=', '=', '<>']);
   assert.equal(amendment.keyCount, 4);
   assert.equal(normalizeKey(amendment.keyTwo), 'bookingId');
   assert.equal(normalizeKey(amendment.keyThree), 'providerReference');
