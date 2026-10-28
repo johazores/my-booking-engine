@@ -13,9 +13,9 @@ test('signed Stripe webhook mutations retain tenant and commercial state scope',
   assert.doesNotMatch(service, /hospitalityBooking\.update\(\{\s*where: \{ id:/);
   assert.doesNotMatch(service, /paymentCheckoutSession\.update\(\{\s*where: \{ id:/);
 
-  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: payment\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'CAPTURE',\s*status: payment\.status,\s*providerReference: payment\.providerReference,\s*currency: payment\.currency,\s*amountMinor: payment\.amountMinor,/);
-  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: refund\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'REFUND',\s*status: 'PENDING',\s*providerReference: currentRefund\.providerReference,\s*sourceProviderReference: currentRefund\.sourceProviderReference,\s*currency: currentRefund\.currency,\s*amountMinor: currentRefund\.amountMinor,/);
-  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: payment\.kind,\s*status: 'PENDING',\s*providerReference: current\.providerReference,\s*currency: current\.currency,\s*amountMinor: current\.amountMinor,/);
+  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: payment\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'CAPTURE',\s*status: payment\.status,\s*providerReference: payment\.providerReference,\s*currency: payment\.currency,\s*amountMinor: payment\.amountMinor,/);
+  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: refund\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'REFUND',\s*status: 'PENDING',\s*providerReference: currentRefund\.providerReference,\s*sourceProviderReference: currentRefund\.sourceProviderReference,\s*currency: currentRefund\.currency,\s*amountMinor: currentRefund\.amountMinor,/);
+  assert.match(service, /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: payment\.kind,\s*status: payment\.status,\s*providerReference: current\.providerReference,\s*currency: current\.currency,\s*amountMinor: current\.amountMinor,/);
 });
 
 test('Checkout session and booking mutations retain the validated lifecycle', () => {
@@ -54,6 +54,28 @@ test('tracked booking Checkout callbacks revalidate created-session authority be
     assert.match(commercial, /checkout\.commercialContext/);
     assert.doesNotMatch(commercial, /JSON\.parse\(payload\)/);
   }
+});
+
+
+test('signed PaymentIntent and refund callbacks reject cross-booking source reuse for exact and pending references', () => {
+  const refundBranch = service.slice(service.indexOf('if (event.refund) {'), service.indexOf('if (!event.paymentIntent)'));
+  const paymentIntentBranch = service.slice(service.indexOf('if (!event.paymentIntent)'), service.lastIndexOf('return persistEvent('));
+
+  assert.match(refundBranch, /const foreignRefundSource = await transaction\.paymentTransaction\.findFirst\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference,\s*bookingId: \{ not: bookingId \}/);
+  assert.match(refundBranch, /if \(foreignRefundSource\) throw new PaymentConflictError/);
+  assert.ok(refundBranch.indexOf('if (foreignRefundSource)') < refundBranch.indexOf('const pendingRefunds'));
+  assert.match(refundBranch, /const sourceCandidates = await transaction\.paymentTransaction\.findMany\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference,\s*commercialAmendmentId: null,/);
+  assert.match(refundBranch, /const pendingRefunds = await transaction\.paymentTransaction\.findMany\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null,/);
+
+  assert.match(paymentIntentBranch, /const foreignPaymentIntent = await transaction\.paymentTransaction\.findFirst\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.paymentIntent\.providerReference,\s*bookingId: \{ not: booking\.id \}/);
+  assert.match(paymentIntentBranch, /if \(foreignPaymentIntent\) throw new PaymentConflictError/);
+  assert.ok(paymentIntentBranch.indexOf('if (foreignPaymentIntent)') < paymentIntentBranch.indexOf('await transaction.paymentTransaction.update({'));
+  assert.match(paymentIntentBranch, /if \(!isInternalPaymentClaimReference\(current\.providerReference\) && current\.providerReference !== event\.paymentIntent\.providerReference\)/);
+
+  assert.match(service, /id: tracked\.paymentTransactionId,\s*organizationId: input\.organizationId,\s*bookingId: tracked\.bookingId,\s*commercialAmendmentId: null,/);
+  assert.match(service, /where: \{ id: payment\.id, organizationId: input\.organizationId, bookingId: booking\.id, commercialAmendmentId: null \}/);
+  assert.match(service, /status: lockedPayment\.status,\s*providerReference: lockedPayment\.providerReference/);
+  assert.match(source('docs/stripe-webhook-write-scope.md'), /cross-booking.*PaymentIntent/is);
 });
 
 test('webhook trust, idempotency, locking, and documentation boundaries remain explicit', () => {

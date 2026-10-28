@@ -186,6 +186,7 @@ export async function ingestStripePaymentWebhook(input: {
           id: tracked.paymentTransactionId,
           organizationId: input.organizationId,
           bookingId: tracked.bookingId,
+          commercialAmendmentId: null,
           providerCode: STRIPE_PROVIDER_CODE,
           kind: 'CAPTURE',
         },
@@ -268,6 +269,7 @@ export async function ingestStripePaymentWebhook(input: {
               id: payment.id,
               organizationId: input.organizationId,
               bookingId: booking.id,
+              commercialAmendmentId: null,
               providerCode: STRIPE_PROVIDER_CODE,
               kind: 'CAPTURE',
               status: payment.status,
@@ -373,7 +375,7 @@ export async function ingestStripePaymentWebhook(input: {
           select: { status: true, paymentStatus: true },
         });
         const lockedPayment = await transaction.paymentTransaction.findFirst({
-          where: { id: payment.id, organizationId: input.organizationId, bookingId: booking.id },
+          where: { id: payment.id, organizationId: input.organizationId, bookingId: booking.id, commercialAmendmentId: null },
           select: { status: true, providerReference: true },
         });
         const lateSuccess = await transaction.paymentTransaction.findFirst({
@@ -403,6 +405,7 @@ export async function ingestStripePaymentWebhook(input: {
             id: payment.id,
             organizationId: input.organizationId,
             bookingId: booking.id,
+            commercialAmendmentId: null,
             providerCode: STRIPE_PROVIDER_CODE,
             kind: 'CAPTURE',
             status: lockedPayment.status,
@@ -441,6 +444,7 @@ export async function ingestStripePaymentWebhook(input: {
           organizationId: input.organizationId,
           providerCode: STRIPE_PROVIDER_CODE,
           providerReference: event.refund.paymentIntentReference,
+          commercialAmendmentId: null,
           kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
           status: 'SUCCEEDED',
         },
@@ -455,6 +459,18 @@ export async function ingestStripePaymentWebhook(input: {
       if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId, bookingId)) {
         return persistEvent('IGNORED', 'refund-booking-metadata-mismatch', null);
       }
+      // Historical cross-booking rows cannot lend a PaymentIntent identity
+      // to a signed refund, even when those rows are failed or ambiguous.
+      const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: event.refund.paymentIntentReference,
+          bookingId: { not: bookingId },
+        },
+        select: { id: true },
+      });
+      if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source reference belongs to another booking.');
 
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${hospitalityBookingMutationLockKey({ organizationId: input.organizationId, bookingId })}, 0))`;
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${paymentLockKey(input.organizationId, 'booking', bookingId)}, 0))`;
@@ -473,6 +489,7 @@ export async function ingestStripePaymentWebhook(input: {
         where: {
           organizationId: input.organizationId,
           bookingId: booking.id,
+          commercialAmendmentId: null,
           providerCode: STRIPE_PROVIDER_CODE,
           kind: 'REFUND',
           status: 'PENDING',
@@ -558,6 +575,7 @@ export async function ingestStripePaymentWebhook(input: {
           id: refund.id,
           organizationId: input.organizationId,
           bookingId: booking.id,
+          commercialAmendmentId: null,
           providerCode: STRIPE_PROVIDER_CODE,
           kind: 'REFUND',
           status: 'PENDING',
@@ -738,18 +756,19 @@ export async function ingestStripePaymentWebhook(input: {
       reconciledStatus: reconciliation.bookingPaymentStatus,
     });
 
-    if (isInternalPaymentClaimReference(current.providerReference)) {
-      const providerReferenceConflict = await transaction.paymentTransaction.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          providerCode: STRIPE_PROVIDER_CODE,
-          providerReference: event.paymentIntent.providerReference,
-          bookingId: { not: booking.id },
-        },
-        select: { id: true },
-      });
-      if (providerReferenceConflict) throw new PaymentConflictError('Stripe webhook provider reference belongs to another booking.');
-    } else if (current.providerReference !== event.paymentIntent.providerReference) {
+    // Exact-reference retries need the same ownership guard as first-time
+    // sf_claim_* binding. A PaymentIntent is not cross-booking authority.
+    const foreignPaymentIntent = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: event.paymentIntent.providerReference,
+        bookingId: { not: booking.id },
+      },
+      select: { id: true },
+    });
+    if (foreignPaymentIntent) throw new PaymentConflictError('Stripe webhook provider reference belongs to another booking.');
+    if (!isInternalPaymentClaimReference(current.providerReference) && current.providerReference !== event.paymentIntent.providerReference) {
       throw new PaymentConflictError('Stripe webhook provider reference does not match the selected payment transaction.');
     }
 
@@ -758,6 +777,7 @@ export async function ingestStripePaymentWebhook(input: {
         id: current.id,
         organizationId: input.organizationId,
         bookingId: booking.id,
+        commercialAmendmentId: null,
         providerCode: STRIPE_PROVIDER_CODE,
         kind: payment.kind,
         status: payment.status,

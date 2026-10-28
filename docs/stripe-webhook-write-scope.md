@@ -60,7 +60,7 @@ Stripe does not guarantee webhook delivery order, so the generic PaymentIntent p
 
 When an exact normal operation is already `FAILED`, only positive `requires_capture` or `succeeded` truth can recover that exact attempt. Negative/incomplete snapshots do not reopen a failed attempt, and a `SUCCEEDED` operation is never regressed by stale provider evidence. Exact references owned by a commercial amendment or `AMBIGUOUS` specialized flow are ignored by the generic mutator so the route can continue into the existing amendment finalizers. Only when no exact provider identity exists may one normal `PENDING` operation with `commercialAmendmentId = null` accept first provider evidence.
 
-The complete reasoning and validation contract is documented in `docs/stripe-webhook-payment-attempt-authority.md`.
+The candidate-selection contract is implemented and tested in `src/server/payments/stripe-webhook-payment-mutation-domain.ts` and its companion test; this document covers the persistence boundary.
 
 ## Final-write invariants
 
@@ -151,3 +151,13 @@ rather than converting uncertain payment evidence into cancellation authority.
 The read-only Checkout provider already enforced this strict distinction.
 Focused regression cases are checked in; full Node 24/PostgreSQL and live
 Stripe verification remain outstanding.
+
+## Signed PaymentIntent and refund cross-booking ownership (October 28, 2026)
+
+The normal signed PaymentIntent webhook now rejects a same-tenant PaymentIntent reference appearing on **any** other booking before it changes a selected payment transaction or booking state. This check applies equally to an exact `pi_*` operation being recovered and a pending `sf_claim_*` operation being bound for the first time. Previously the cross-booking query ran only for the internal-claim branch; an exact failed/pending reference could be promoted even when another booking already held that provider identity. Authorization/capture pairs on the same booking remain valid.
+
+The normal refund webhook derives its source booking only from successful **base-booking** settlement candidates, then checks that source PaymentIntent against **all** same-tenant payment transaction kinds and statuses, rather than relying only on its bounded list of successful settlement candidates. Historical failed/ambiguous foreign rows cannot lend a source reference to a refund. The pending refund candidate reader and all normal webhook payment mutations explicitly retain `commercialAmendmentId = null` so amendment-owned money cannot be selected or rewritten through the generic booking flow. Exact amendment PaymentIntent candidates remain visible to the existing specialized-flow selection and are not reclassified as ordinary payments.
+
+The dependency-free `scripts/stripe-webhook-write-scope.test.mjs` checks both reference guards, mutation ordering, and base-booking attribution. Disposable-PostgreSQL integration scenarios cover exact and internal-claim PaymentIntent collisions and a refund-source collision from a failed foreign authorization. The refund integration fixture now records its required source PaymentIntent attribution. These tests are **checked in, not claimed executed** without the repository Node 24 toolchain and disposable PostgreSQL target.
+
+These are sequential/read-time integrity checks within the existing serializable webhook transaction. They do **not** establish database-wide concurrent uniqueness for provider references across operation kinds or across independent writers. A separately reviewed, database-enforced claim strategy and live Stripe verification remain open. No GitHub Actions are used.

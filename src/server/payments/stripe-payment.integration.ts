@@ -557,6 +557,28 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
     assert.equal(blockedReconciliationProviderCalls, 0);
     assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingConflict.id } })).status, 'PENDING');
 
+    // A signed exact-reference callback cannot promote a PaymentIntent
+    // already present on another booking, even if that row is FAILED.
+    const exactConflictPayload = paymentIntentEvent({
+      eventId: 'evt_sf_cross_booking_exact_webhook_12',
+      organizationId: organizationA.id,
+      bookingId: reconciliationOwner.id,
+      providerReference: 'pi_sf_cross_booking_reconciliation_12',
+      status: 'requires_capture',
+    });
+    await assert.rejects(
+      webhooks.ingestStripePaymentWebhook({
+        organizationId: organizationA.id,
+        signature: stripeSignature(exactConflictPayload, webhookSecretA),
+        payload: exactConflictPayload,
+      }),
+      /reference belongs to another booking/i,
+    );
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingConflict.id } })).status, 'PENDING');
+    assert.equal(await db.paymentWebhookEvent.count({
+      where: { organizationId: organizationA.id, providerEventId: 'evt_sf_cross_booking_exact_webhook_12' },
+    }), 0);
+
     const bookingForWebhook = await createBooking(7);
     const fingerprint = stripePayments.paymentRequestFingerprint([
       'stripe',
@@ -578,6 +600,29 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       currency: 'USD',
       amountMinor: 12345n,
     } });
+
+    // The same cross-booking check must protect first-time internal claim binding.
+    const pendingConflictPayload = paymentIntentEvent({
+      eventId: 'evt_sf_cross_booking_pending_webhook_7',
+      organizationId: organizationA.id,
+      bookingId: bookingForWebhook.id,
+      providerReference: 'pi_sf_cross_booking_capture_10',
+      status: 'requires_capture',
+    });
+    await assert.rejects(
+      webhooks.ingestStripePaymentWebhook({
+        organizationId: organizationA.id,
+        signature: stripeSignature(pendingConflictPayload, webhookSecretA),
+        payload: pendingConflictPayload,
+      }),
+      /reference belongs to another booking/i,
+    );
+    const untouchedClaim = await db.paymentTransaction.findUniqueOrThrow({ where: { id: webhookClaim.id } });
+    assert.equal(untouchedClaim.status, 'PENDING');
+    assert.equal(untouchedClaim.providerReference, stripePayments.paymentOperationClaimReference(fingerprint));
+    assert.equal(await db.paymentWebhookEvent.count({
+      where: { organizationId: organizationA.id, providerEventId: 'evt_sf_cross_booking_pending_webhook_7' },
+    }), 0);
 
     const webhookPayload = paymentIntentEvent({
       eventId: 'evt_sf_auth_webhook_1',

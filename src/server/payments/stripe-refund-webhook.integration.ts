@@ -110,6 +110,7 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     status: 'PENDING',
     providerCode: 'stripe',
     providerReference: payments.paymentOperationClaimReference(refundFingerprint),
+    sourceProviderReference: paymentIntentReference,
     currency: 'USD',
     amountMinor: 2500n,
   } });
@@ -154,6 +155,67 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     assert.equal(ignored.processingNote, note);
     assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: refund.id } })).status, 'PENDING');
   }
+
+  // A failed historical authorization on another booking cannot lend its
+  // PaymentIntent identity to this refund, despite not being a settlement source.
+  const foreignHold = await db.hospitalityAvailabilityHold.create({ data: {
+    organizationId: organization.id,
+    propertyId: property.id,
+    roomTypeId: roomType.id,
+    ratePlanId: ratePlan.id,
+    idempotencyKey: `stripe-refund-foreign-hold-${runId}`,
+    arrivalDate: new Date('2026-10-22T00:00:00.000Z'),
+    departureDate: new Date('2026-10-23T00:00:00.000Z'),
+    quantity: 1,
+    status: 'CONSUMED',
+    expiresAt: new Date('2026-10-22T01:00:00.000Z'),
+    endedAt: new Date('2026-10-22T00:01:00.000Z'),
+  } });
+  const foreignBooking = await db.hospitalityBooking.create({ data: {
+    organizationId: organization.id,
+    propertyId: property.id,
+    roomTypeId: roomType.id,
+    ratePlanId: ratePlan.id,
+    customerId: customer.id,
+    holdId: foreignHold.id,
+    idempotencyKey: `stripe-refund-foreign-booking-${runId}`,
+    status: 'CONFIRMED',
+    paymentStatus: 'UNPAID',
+    arrivalDate: new Date('2026-10-22T00:00:00.000Z'),
+    departureDate: new Date('2026-10-23T00:00:00.000Z'),
+    quantity: 1,
+    currency: 'USD',
+    accommodationSubtotalMinor: 10000n,
+    taxTotalMinor: 0n,
+    feeTotalMinor: 0n,
+    addonTotalMinor: 0n,
+    totalMinor: 10000n,
+    pricingFingerprint: '7'.repeat(64),
+    addonSelections: [],
+    confirmedAt: new Date(),
+  } });
+  const foreignReference = await db.paymentTransaction.create({ data: {
+    organizationId: organization.id,
+    bookingId: foreignBooking.id,
+    idempotencyKey: `stripe-refund-foreign-reference-${runId}`,
+    kind: 'AUTHORIZATION',
+    status: 'FAILED',
+    providerCode: 'stripe',
+    providerReference: paymentIntentReference,
+    currency: 'USD',
+    amountMinor: 10000n,
+  } });
+  await assert.rejects(
+    webhooks.ingestStripePaymentWebhook({
+      organizationId: organization.id,
+      payload,
+      signature: signStripePayload(payload, timestamp),
+    }),
+    /refund source reference belongs to another booking/i,
+  );
+  assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: refund.id } })).status, 'PENDING');
+  assert.equal(await db.paymentWebhookEvent.count({ where: { organizationId: organization.id, providerEventId } }), 0);
+  await db.paymentTransaction.delete({ where: { id: foreignReference.id } });
 
   const processed = await webhooks.ingestStripePaymentWebhook({
     organizationId: organization.id,
