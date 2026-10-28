@@ -29,12 +29,13 @@ test('normal refund ingestion rejects unowned signed evidence before settlement-
   const refundIndex = ingest.indexOf('if (event.refund) {');
   const missingIndex = ingest.indexOf('refund-missing-sf-metadata', refundIndex);
   const tenantIndex = ingest.indexOf('refund-tenant-metadata-mismatch', refundIndex);
-  const sourceIndex = ingest.indexOf('const sourceCandidates =', refundIndex);
-  const bookingIndex = ingest.indexOf('refund-booking-metadata-mismatch', sourceIndex);
-  const pendingIndex = ingest.indexOf('const pendingRefunds =', sourceIndex);
-  assert.ok(refundIndex >= 0 && missingIndex > refundIndex && tenantIndex > missingIndex && sourceIndex > tenantIndex);
-  assert.ok(bookingIndex > sourceIndex && pendingIndex > bookingIndex);
-  assert.match(ingest, /isStripeWebhookRefundOwnedBy\(event\.refund, input\.organizationId, bookingId\)/);
+  const bookingIndex = ingest.indexOf('const bookingId = event.refund.bookingId;', refundIndex);
+  const sourceIndex = ingest.indexOf('const settlementSource =', refundIndex);
+  const pendingIndex = ingest.indexOf('const pendingRefunds =', refundIndex);
+  assert.ok(refundIndex >= 0 && missingIndex > refundIndex && tenantIndex > missingIndex);
+  assert.ok(bookingIndex > tenantIndex && sourceIndex > bookingIndex && pendingIndex > sourceIndex);
+  assert.match(ingest, /if \(!isStripeWebhookRefundOwnedBy\(event\.refund, input\.organizationId\)\)/);
+  assert.match(ingest, /bookingId,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference/);
 });
 
 test('every downstream refund lifecycle/finalizer rechecks signed tenant and selected booking', () => {

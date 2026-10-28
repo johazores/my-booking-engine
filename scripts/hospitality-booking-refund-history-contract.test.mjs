@@ -87,9 +87,11 @@ test('primary Stripe refund webhook fails closed without persisting an incomplet
   assert.ok(initialHistoryIndex >= 0 && refundUpdateIndex >= 0 && initialHistoryIndex < refundUpdateIndex);
   assert.ok(settledHistoryIndex >= 0 && persistIndex >= 0 && settledHistoryIndex < persistIndex);
 
-  assert.match(refundWebhook, /const sourceCandidates = await transaction\.paymentTransaction\.findMany/);
-  assert.match(refundWebhook, /const pendingRefunds = await transaction\.paymentTransaction\.findMany/);
-  assert.ok((refundWebhook.match(/take: 8/g) ?? []).length >= 2);
+  assert.match(refundWebhook, /const settlementSource = await transaction\.paymentTransaction\.findFirst/);
+  assert.match(refundWebhook, /const exactRefunds = await transaction\.paymentTransaction\.findMany/);
+  assert.match(refundWebhook, /const pendingRefunds = exactRefunds\.length > 0/);
+  assert.equal((refundWebhook.match(/take: 2/g) ?? []).length, 2);
+  assert.doesNotMatch(refundWebhook, /take: 8/);
   assert.match(stripeWebhook, /\}, \{ isolationLevel: 'Serializable' \}\);/);
 });
 
