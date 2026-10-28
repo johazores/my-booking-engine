@@ -520,7 +520,7 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: current.sourceProviderReference,
+        providerReference: claim.claim.sourceProviderReference,
         bookingId: { not: input.bookingId },
       },
       select: { id: true },
@@ -609,6 +609,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
   if (!STRIPE_REFUND_REFERENCE.test(payment.providerReference) || payment.providerReference.length > 160 || !payment.sourceProviderReference) {
     throw new HospitalityBookingConflictError('Commercial amendment Stripe refund provider evidence is invalid.');
   }
+  const sourceReference = payment.sourceProviderReference;
 
   const amendment = await db.hospitalityBookingCommercialAmendment.findFirst({
     where: { id: input.amendmentId, organizationId: input.organizationId, bookingId: input.bookingId },
@@ -645,7 +646,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
     where: {
       organizationId: input.organizationId,
       providerCode: STRIPE_PROVIDER_CODE,
-      providerReference: payment.sourceProviderReference,
+      providerReference: sourceReference,
       bookingId: { not: input.bookingId },
     },
     select: { id: true },
@@ -717,7 +718,7 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: current.sourceProviderReference,
+        providerReference: sourceReference,
         bookingId: { not: input.bookingId },
       },
       select: { id: true },

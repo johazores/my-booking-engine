@@ -108,6 +108,7 @@ export async function reconcileStripeRefundTransaction(input: {
   if (!refund.sourceProviderReference || isInternalPaymentClaimReference(refund.sourceProviderReference)) {
     throw new PaymentConflictError('Stripe refund is missing its authoritative settlement-source reference.');
   }
+  const sourceReference = refund.sourceProviderReference;
 
   const conflictingRefundReference = await db.paymentTransaction.findFirst({
     where: {
@@ -124,7 +125,7 @@ export async function reconcileStripeRefundTransaction(input: {
     where: {
       organizationId: input.organizationId,
       providerCode: STRIPE_PROVIDER_CODE,
-      providerReference: refund.sourceProviderReference,
+      providerReference: sourceReference,
       bookingId: { not: refund.bookingId },
     },
     select: { id: true },
@@ -230,7 +231,7 @@ export async function reconcileStripeRefundTransaction(input: {
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: current.sourceProviderReference,
+        providerReference: sourceReference,
         bookingId: { not: refund.bookingId },
       },
       select: { id: true },

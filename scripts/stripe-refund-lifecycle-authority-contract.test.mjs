@@ -76,9 +76,10 @@ test('all exact Stripe refund lifecycle readers reject reused refund and foreign
       assert.match(body, /providerCode: STRIPE_PROVIDER_CODE/, name + ': ' + scope);
     }
     assert.match(service.slice(preflightRefund, preflightSource), /providerReference: refund\.providerReference,[\s\S]*id: \{ not: refund\.id \}/, name);
-    assert.match(service.slice(preflightSource, provider), /providerReference: refund\.sourceProviderReference,[\s\S]*bookingId: \{ not: refund\.bookingId \}/, name);
+    assert.match(service, /const sourceReference = refund\.sourceProviderReference;/, name);
+    assert.match(service.slice(preflightSource, provider), /providerReference: sourceReference,[\s\S]*bookingId: \{ not: refund\.bookingId \}/, name);
     assert.match(service.slice(finalRefund), /providerReference: current\.providerReference,[\s\S]*id: \{ not: current\.id \}/, name);
-    assert.match(service.slice(finalSource), /providerReference: current\.sourceProviderReference,[\s\S]*bookingId: \{ not: refund\.bookingId \}/, name);
+    assert.match(service.slice(finalSource), /providerReference: sourceReference,[\s\S]*bookingId: \{ not: refund\.bookingId \}/, name);
   }
 });
 

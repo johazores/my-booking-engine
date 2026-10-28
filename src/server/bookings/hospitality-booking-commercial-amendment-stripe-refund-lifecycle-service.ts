@@ -136,6 +136,7 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   if (!refund.commercialAmendmentId || !refund.sourceProviderReference) {
     throw new PaymentConflictError('Commercial amendment Stripe refund is missing persisted ownership or settlement-source authority.');
   }
+  const sourceReference = refund.sourceProviderReference;
   if (
     refund.sourceProviderReference !== event.refund.paymentIntentReference
     || refund.currency !== event.refund.currency
@@ -192,7 +193,7 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
     where: {
       organizationId: input.organizationId,
       providerCode: STRIPE_PROVIDER_CODE,
-      providerReference: refund.sourceProviderReference,
+      providerReference: sourceReference,
       bookingId: { not: refund.bookingId },
     },
     select: { id: true },
@@ -297,7 +298,7 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: current.sourceProviderReference,
+        providerReference: sourceReference,
         bookingId: { not: refund.bookingId },
       },
       select: { id: true },
