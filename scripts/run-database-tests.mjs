@@ -13,6 +13,7 @@ const testDatabaseUrl = validateDisposableTestDatabase({
   applicationDatabaseUrl: process.env.DATABASE_URL,
   applicationDatabaseUrls: readLocalApplicationDatabaseUrls(),
   confirmation: process.env.SF_DATABASE_TEST_CONFIRM,
+  pgPort: process.env.PGPORT,
 });
 
 const env = {

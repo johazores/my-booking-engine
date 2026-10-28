@@ -218,3 +218,49 @@ test('accepts distinct additional application database targets', () => {
     validInput.testDatabaseUrl,
   );
 });
+
+test('rejects inherited PGPORT ambiguity on test and application targets', () => {
+  for (const variable of ['testDatabaseUrl', 'applicationDatabaseUrl']) {
+    assert.throws(
+      () => validateDisposableTestDatabase({
+        ...validInput,
+        [variable]: 'postgresql://localhost/sf_test',
+        pgPort: '6543',
+      }),
+      /must specify an explicit PostgreSQL port when PGPORT is set/,
+      variable,
+    );
+  }
+  assert.throws(
+    () => validateDisposableTestDatabase({
+      ...validInput,
+      applicationDatabaseUrls: ['postgresql://localhost/other'],
+      pgPort: '6543',
+    }),
+    /DATABASE_URL must specify an explicit PostgreSQL port when PGPORT is set/,
+  );
+});
+
+test('explicit URL ports remain authoritative when PGPORT is inherited', () => {
+  assert.equal(
+    validateDisposableTestDatabase({ ...validInput, pgPort: '6543' }),
+    validInput.testDatabaseUrl,
+  );
+  assert.equal(
+    validateDisposableTestDatabase({
+      ...validInput,
+      pgPort: '6543',
+      applicationDatabaseUrls: ['postgresql://localhost:5432/other'],
+    }),
+    validInput.testDatabaseUrl,
+  );
+  assert.equal(
+    validateDisposableTestDatabase({
+      ...validInput,
+      pgPort: '',
+      testDatabaseUrl: 'postgresql://localhost/sf_test',
+      applicationDatabaseUrl: 'postgresql://localhost/sf_dev',
+    }),
+    'postgresql://localhost/sf_test',
+  );
+});

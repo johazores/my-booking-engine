@@ -47,7 +47,7 @@ function normalizeHost(hostname) {
   return normalizedHost;
 }
 
-function parsePostgresDatabaseTarget(value, variableName) {
+function parsePostgresDatabaseTarget(value, variableName, pgPort) {
   let parsedUrl;
 
   try {
@@ -74,6 +74,12 @@ function parsePostgresDatabaseTarget(value, variableName) {
   // as a separate database target when comparing against the default port.
   if (parsedUrl.port === '0') {
     throw new Error(`${variableName} must use a valid nonzero PostgreSQL port.`);
+  }
+
+  // Node-postgres can inherit PGPORT when the connection URL omits a port.
+  // Do not compare an assumed 5432 target while the test client may use another port.
+  if (pgPort?.trim() && !parsedUrl.port) {
+    throw new Error(`${variableName} must specify an explicit PostgreSQL port when PGPORT is set.`);
   }
 
   let databaseName;
@@ -120,6 +126,7 @@ export function validateDisposableTestDatabase({
   applicationDatabaseUrl,
   applicationDatabaseUrls = [],
   confirmation,
+  pgPort,
 }) {
   const value = testDatabaseUrl?.trim();
 
@@ -133,7 +140,7 @@ export function validateDisposableTestDatabase({
     );
   }
 
-  const testTarget = parsePostgresDatabaseTarget(value, 'TEST_DATABASE_URL');
+  const testTarget = parsePostgresDatabaseTarget(value, 'TEST_DATABASE_URL', pgPort);
 
   if (RESERVED_DATABASE_NAMES.has(testTarget.databaseName.toLowerCase())) {
     throw new Error(
@@ -145,7 +152,7 @@ export function validateDisposableTestDatabase({
     const applicationValue = candidate?.trim();
     if (!applicationValue) continue;
 
-    const applicationTarget = parsePostgresDatabaseTarget(applicationValue, 'DATABASE_URL');
+    const applicationTarget = parsePostgresDatabaseTarget(applicationValue, 'DATABASE_URL', pgPort);
     if (databaseTargetsMatch(testTarget, applicationTarget)) {
       throw new Error(
         'TEST_DATABASE_URL must target a different PostgreSQL database from DATABASE_URL, regardless of credentials or connection options.',
