@@ -547,6 +547,12 @@ export async function ingestStripePaymentWebhook(input: {
             take: 2,
           });
 
+      // Prefix matching is only a bounded database prefilter. A malformed
+      // sf_claim_* row must fail closed rather than hide a valid later claim.
+      if (exactRefunds.length === 0 && pendingRefunds.some((candidate) => !isInternalPaymentClaimReference(candidate.providerReference))) {
+        throw new PaymentConflictError('Stripe refund claim reference is malformed.');
+      }
+
       const exactSourceMismatch = pendingRefunds.find((candidate) => (
         candidate.providerReference === event.refund!.refundReference
         && candidate.sourceProviderReference !== event.refund!.paymentIntentReference
