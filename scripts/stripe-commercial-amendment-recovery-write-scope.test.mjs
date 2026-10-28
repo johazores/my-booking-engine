@@ -141,3 +141,19 @@ test('normal and recovery signed webhooks query conflicting provider ownership w
       `${label} exact-reference candidate queries need only two rows to detect ambiguity`);
   }
 });
+
+test('commercial charge finalization and direct recovery capture reject any foreign reference owner', () => {
+  for (const [label, service] of [
+    ['Charge finalization', source('src/server/bookings/hospitality-booking-commercial-amendment-stripe-charge-service.ts')],
+    ['Recovery direct capture', executor],
+  ]) {
+    assert.match(service, /const conflictingReference = await (?:input\.)?transaction\.paymentTransaction\.findFirst\(\{/,
+      `${label} must query the existence of conflicting ownership`);
+    const guard = service.slice(service.indexOf('const conflictingReference ='));
+    assert.match(guard, /bookingId: \{ not: input\.bookingId \}/);
+    assert.match(guard, /commercialAmendmentId: null/);
+    assert.match(guard, /commercialAmendmentId: \{ not: input\.amendmentId \}/);
+    assert.match(guard, /if \(conflictingReference\) \{/);
+    assert.doesNotMatch(service, /const duplicateReferences =/);
+  }
+});

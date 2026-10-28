@@ -322,20 +322,22 @@ async function persistDirectSettlementCapture(input: {
     return existing;
   }
 
-  const duplicateReferences = await input.transaction.paymentTransaction.findMany({
-    where: {
-      organizationId: input.organizationId,
-      providerCode: STRIPE_PROVIDER_CODE,
-      providerReference: input.providerReference,
-    },
-    select: { bookingId: true, commercialAmendmentId: true },
-    take: 8,
-  });
-  if (duplicateReferences.some((entry) => (
-    entry.bookingId !== input.bookingId
-    || entry.commercialAmendmentId !== input.amendmentId
-  ))) {
-    throw new HospitalityBookingConflictError(
+// Reject any conflicting owner, not just the newest eight matching rows.
+const conflictingReference = await input.transaction.paymentTransaction.findFirst({
+  where: {
+    organizationId: input.organizationId,
+    providerCode: STRIPE_PROVIDER_CODE,
+    providerReference: input.providerReference,
+    OR: [
+      { bookingId: { not: input.bookingId } },
+      { commercialAmendmentId: null },
+      { commercialAmendmentId: { not: input.amendmentId } },
+    ],
+  },
+  select: { id: true },
+});
+if (conflictingReference) {
+  throw new HospitalityBookingConflictError(
       'Stripe PaymentIntent reference is already recorded outside this commercial amendment.',
     );
   }

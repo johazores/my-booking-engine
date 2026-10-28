@@ -645,20 +645,23 @@ export async function chargeStripeHospitalityBookingCommercialAmendment(input: {
       throw new HospitalityBookingConflictError('Commercial amendment Stripe charge claim changed while Stripe was processing it.');
     }
 
-    const duplicateReferences = await transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: providerResult.providerReference,
-        id: { not: current.id },
-      },
-      select: { bookingId: true, commercialAmendmentId: true },
-      take: 8,
-    });
-    if (duplicateReferences.some((entry) => (
-      entry.bookingId !== input.bookingId || entry.commercialAmendmentId !== input.amendmentId
-    ))) {
-      throw new HospitalityBookingConflictError('Stripe PaymentIntent reference is already recorded outside this commercial amendment.');
+// Reject any conflicting owner, not just the newest eight matching rows.
+const conflictingReference = await transaction.paymentTransaction.findFirst({
+  where: {
+    organizationId: input.organizationId,
+    providerCode: STRIPE_PROVIDER_CODE,
+    providerReference: providerResult.providerReference,
+    id: { not: current.id },
+    OR: [
+      { bookingId: { not: input.bookingId } },
+      { commercialAmendmentId: null },
+      { commercialAmendmentId: { not: input.amendmentId } },
+    ],
+  },
+  select: { id: true },
+});
+if (conflictingReference) {
+  throw new HospitalityBookingConflictError('Stripe PaymentIntent reference is already recorded outside this commercial amendment.');
     }
 
     const payment = await transaction.paymentTransaction.update({
