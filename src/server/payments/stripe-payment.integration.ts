@@ -485,6 +485,184 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       where: { id: sameBookingCapture.id },
     })).bookingId, captureOwner.id);
 
+    // A Stripe PaymentIntent cannot cross the base/amendment settlement boundary
+    // or move between amendments, even if a writer bypasses the service checks.
+    async function createStripeScopeAmendment(suffix: string, status: 'PREPARED' | 'CANCELLED') {
+      return db.hospitalityBookingCommercialAmendment.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: captureOwner.id,
+        idempotencyKey: 'stripe:scope-amendment:' + suffix,
+        status,
+        endedAt: status === 'CANCELLED' ? new Date() : null,
+        direction: 'ADDITIONAL_CHARGE',
+        bookingVersion: (await db.hospitalityBooking.findUniqueOrThrow({ where: { id: captureOwner.id } })).updatedAt,
+        selectionFingerprint: 'a'.repeat(64),
+        adjustmentFingerprint: 'b'.repeat(64),
+        paymentProviderCode: 'stripe',
+        propertyId: property.id,
+        currentRoomTypeId: roomType.id,
+        currentRatePlanId: ratePlan.id,
+        currentQuantity: 1,
+        currentAddonSelections: [],
+        targetRoomTypeId: roomType.id,
+        targetRatePlanId: ratePlan.id,
+        targetQuantity: 1,
+        targetAddonSelections: [],
+        currency: 'USD',
+        beforeAccommodationSubtotalMinor: 12345n,
+        beforeTaxTotalMinor: 0n,
+        beforeFeeTotalMinor: 0n,
+        beforeAddonTotalMinor: 0n,
+        beforeTotalMinor: 12345n,
+        beforePricingFingerprint: captureOwner.pricingFingerprint,
+        afterAccommodationSubtotalMinor: 12445n,
+        afterTaxTotalMinor: 0n,
+        afterFeeTotalMinor: 0n,
+        afterAddonTotalMinor: 0n,
+        afterTotalMinor: 12445n,
+        afterPricingFingerprint: 'c'.repeat(64),
+        deltaMinor: 100n,
+        protectionQuantity: 0,
+        expiresAt: new Date(Date.now() + 60_000),
+      } });
+    }
+    const amendmentOne = await createStripeScopeAmendment('one', 'PREPARED');
+    const amendmentTwo = await createStripeScopeAmendment('two', 'CANCELLED');
+    await assert.rejects(db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentOne.id,
+      idempotencyKey: 'stripe:scope:base-amendment-conflict',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_cross_booking_capture_10',
+      currency: 'USD',
+      amountMinor: 100n,
+    } }), /exclusion|constraint|23P01|P2004/i);
+
+    const amendmentSourceReference = 'pi_sf_same_amendment_capture_10';
+    const amendmentAuthorization = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentOne.id,
+      idempotencyKey: 'stripe:scope:amendment-authorization',
+      kind: 'AUTHORIZATION',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: amendmentSourceReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    const amendmentCapture = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentOne.id,
+      idempotencyKey: 'stripe:scope:amendment-capture',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: amendmentSourceReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    assert.equal(amendmentCapture.providerReference, amendmentAuthorization.providerReference);
+    // The inverse direction is equally unsafe: base settlement cannot adopt
+    // an amendment PaymentIntent after that amendment has established ownership.
+    await assert.rejects(db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      idempotencyKey: 'stripe:scope:amendment-base-conflict',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: amendmentSourceReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } }), /exclusion|constraint|23P01|P2004/i);
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: amendmentCapture.id },
+      data: { commercialAmendmentId: null },
+    }), /exclusion|constraint|23P01|P2004/i);
+    await assert.rejects(db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentTwo.id,
+      idempotencyKey: 'stripe:scope:second-amendment-conflict',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: amendmentSourceReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } }), /exclusion|constraint|23P01|P2004/i);
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: amendmentCapture.id },
+      data: { commercialAmendmentId: amendmentTwo.id },
+    }), /exclusion|constraint|23P01|P2004/i);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({
+      where: { id: amendmentCapture.id },
+    })).commercialAmendmentId, amendmentOne.id);
+
+    const amendmentPendingClaim = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentTwo.id,
+      idempotencyKey: 'stripe:scope:amendment-pending-claim',
+      kind: 'CAPTURE',
+      status: 'AMBIGUOUS',
+      providerCode: 'stripe',
+      providerReference: 'sf_claim_' + 'e'.repeat(64),
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: amendmentPendingClaim.id },
+      data: { providerReference: amendmentSourceReference },
+    }), /exclusion|constraint|23P01|P2004/i);
+
+    const amendmentConcurrentWrites = await Promise.allSettled([amendmentOne, amendmentTwo].map((amendment, index) =>
+      db.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: captureOwner.id,
+        commercialAmendmentId: amendment.id,
+        idempotencyKey: 'stripe:scope:concurrent:' + index,
+        kind: 'CAPTURE',
+        status: 'FAILED',
+        providerCode: 'stripe',
+        providerReference: 'pi_sf_concurrent_amendment_owner_10',
+        currency: 'USD',
+        amountMinor: 100n,
+      } }),
+    ));
+    assert.equal(amendmentConcurrentWrites.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(amendmentConcurrentWrites.filter((result) => result.status === 'rejected').length, 1);
+    assert.equal(await db.paymentTransaction.count({
+      where: { organizationId: organizationA.id, providerCode: 'stripe', providerReference: 'pi_sf_concurrent_amendment_owner_10' },
+    }), 1);
+    const manualAmendmentReference = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      commercialAmendmentId: amendmentTwo.id,
+      idempotencyKey: 'manual:scope:amendment-reference',
+      kind: 'OFFLINE_PAYMENT',
+      status: 'FAILED',
+      providerCode: 'manual',
+      providerReference: amendmentSourceReference,
+      currency: 'USD',
+      amountMinor: 100n,
+    } });
+    assert.equal(manualAmendmentReference.providerCode, 'manual');
+    // A provider namespace change cannot smuggle an existing manual reference
+    // into a conflicting Stripe PaymentIntent settlement scope.
+    await assert.rejects(db.paymentTransaction.update({
+      where: { id: manualAmendmentReference.id },
+      data: { providerCode: 'stripe' },
+    }), /exclusion|constraint|23P01|P2004/i);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({
+      where: { id: manualAmendmentReference.id },
+    })).providerCode, 'manual');
+
     // A different provider may use the same textual reference without inheriting
     // Stripe PaymentIntent ownership or crossing the provider namespace.
     const manualReference = await db.paymentTransaction.create({ data: {

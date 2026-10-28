@@ -77,3 +77,9 @@ This review does not claim the expired-amendment Stripe recovery/compensation st
 Full repository validation still requires the repository-supported Node 24 toolchain, Prisma validation/generation, TypeScript, lint, tests, production build, and the guarded PostgreSQL scenarios against an explicitly disposable database target. Live Stripe validation requires provisioned non-production provider configuration.
 
 GitHub Actions are intentionally not used for this repository; validation is local/manual and through the repository's non-Actions tooling.
+
+## Database-level Stripe PaymentIntent scope isolation
+
+The checked-in `20261028102000-stripe-payment-intent-amendment-ownership` PostgreSQL migration prevents a real Stripe `pi_` PaymentIntent from being reused between original booking settlement and an amendment or between two distinct amendments of the same booking, even when concurrent writers bypass service checks. Same-amendment authorization and capture may legitimately share that PaymentIntent. The separate cross-booking constraint remains active, and the amendment composite foreign key still binds the payment to its tenant and booking.
+
+The migration fails on existing mixed-scope references rather than silently repairing money evidence. Its source contract and guarded integration scenarios are checked in, but actual disposable-PostgreSQL migration/integration execution and live provider validation remain required. This database guard supplements rather than replaces permission, lifecycle, fingerprint, source, and provider-truth checks.
