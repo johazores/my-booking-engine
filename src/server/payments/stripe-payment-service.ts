@@ -12,7 +12,7 @@ import {
   type PaymentProviderOperationStatus,
   type ProviderPaymentResult,
 } from './payment-provider.ts';
-import { normalizeStripePaymentMethodReference } from './stripe-payment-provider.ts';
+import { normalizeStripePaymentIntentReference, normalizeStripePaymentMethodReference } from './stripe-payment-provider.ts';
 
 const STRIPE_PROVIDER_CODE = 'stripe';
 const INTERNAL_CLAIM_PREFIX = 'sf_claim_';
@@ -456,6 +456,11 @@ export async function captureStripeBookingPayment(input: {
   if (authorization.currency !== booking.currency || authorization.amountMinor !== booking.totalMinor) {
     throw new PaymentConflictError('Stripe authorization no longer matches the authoritative booking total.');
   }
+  try {
+    normalizeStripePaymentIntentReference(authorization.providerReference);
+  } catch {
+    throw new PaymentConflictError('Persisted Stripe authorization has an invalid PaymentIntent reference.');
+  }
 
   const requestFingerprint = paymentRequestFingerprint([
     STRIPE_PROVIDER_CODE,
@@ -532,6 +537,17 @@ export async function captureStripeBookingPayment(input: {
       select: { id: true },
     });
     if (!currentAuthorization) throw new PaymentConflictError('Stripe authorization is no longer available to capture.');
+
+    const foreignCaptureSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: authorization.providerReference,
+        bookingId: { not: booking.id },
+      },
+      select: { id: true },
+    });
+    if (foreignCaptureSource) throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
 
     const blockingCapture = await transaction.paymentTransaction.findFirst({
       where: {
@@ -613,6 +629,34 @@ export async function captureStripeBookingPayment(input: {
     if (!currentBooking || currentBooking.status !== 'CONFIRMED' || currentBooking.paymentStatus !== 'AUTHORIZED' || currentBooking.currency !== booking.currency || currentBooking.totalMinor !== booking.totalMinor) {
       throw new PaymentConflictError('Booking changed while payment capture was being processed.');
     }
+
+    const stillAuthorized = await transaction.paymentTransaction.findFirst({
+      where: {
+        id: authorization.id,
+        organizationId: input.organizationId,
+        bookingId: booking.id,
+        commercialAmendmentId: null,
+        kind: 'AUTHORIZATION',
+        status: 'SUCCEEDED',
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: authorization.providerReference,
+        currency: booking.currency,
+        amountMinor: booking.totalMinor,
+      },
+      select: { id: true },
+    });
+    if (!stillAuthorized) throw new PaymentConflictError('Stripe authorization changed while capture was being processed.');
+
+    const foreignCaptureSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: authorization.providerReference,
+        bookingId: { not: booking.id },
+      },
+      select: { id: true },
+    });
+    if (foreignCaptureSource) throw new PaymentConflictError('Stripe authorization reference belongs to another booking.');
 
     const payment = await transaction.paymentTransaction.update({
       where: {

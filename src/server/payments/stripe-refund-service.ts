@@ -420,6 +420,17 @@ export async function refundStripeBookingPayment(input: {
 
   if (!claim.callProvider) return claim.refund;
 
+  const foreignRefundSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: PROVIDER,
+      providerReference: claim.sourceProviderReference,
+      bookingId: { not: booking.id },
+    },
+    select: { id: true },
+  });
+  if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
+
   let result: ProviderRefundResult;
   try {
     result = await stripe.provider.refundPayment({
@@ -472,6 +483,17 @@ export async function refundStripeBookingPayment(input: {
       },
       select: { id: true },
     })) throw new PaymentConflictError('Stripe refund reference has already been recorded in this organization.');
+
+    const foreignRefundSource = await tx.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: PROVIDER,
+        providerReference: claim.sourceProviderReference,
+        bookingId: { not: booking.id },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
 
     const currentBooking = await tx.hospitalityBooking.findFirst({
       where: { id: booking.id, organizationId: input.organizationId },

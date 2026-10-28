@@ -434,6 +434,95 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       /already bound to another payment transaction/i,
     );
 
+
+    // Historical cross-kind reuse of a PaymentIntent by another booking must
+    // fail before capture can call Stripe or create a new payment claim.
+    const captureOwner = await createBooking(10);
+    await db.hospitalityBooking.update({ where: { id: captureOwner.id }, data: { paymentStatus: 'AUTHORIZED' } });
+    await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureOwner.id,
+      idempotencyKey: 'stripe:auth:capture-source-owner',
+      kind: 'AUTHORIZATION',
+      status: 'SUCCEEDED',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_cross_booking_capture_10',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    const captureForeignBooking = await createBooking(11);
+    await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: captureForeignBooking.id,
+      idempotencyKey: 'stripe:capture:foreign-source',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_cross_booking_capture_10',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    let blockedCaptureProviderCalls = 0;
+    globalThis.fetch = (async () => {
+      blockedCaptureProviderCalls += 1;
+      throw new Error('A cross-booking capture source must never reach Stripe.');
+    }) as typeof fetch;
+    await assert.rejects(
+      stripePayments.captureStripeBookingPayment({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        bookingId: captureOwner.id,
+        idempotencyKey: 'stripe:capture:foreign-source-blocked',
+      }),
+      /reference belongs to another booking/i,
+    );
+    assert.equal(blockedCaptureProviderCalls, 0);
+    assert.equal(await db.paymentTransaction.count({
+      where: { organizationId: organizationA.id, idempotencyKey: 'stripe:capture:foreign-source-blocked' },
+    }), 0);
+
+    // Pending reconciliation also rejects cross-booking PaymentIntent ownership
+    // before fetching provider truth, even when both rows share the same tenant.
+    const reconciliationOwner = await createBooking(12);
+    const pendingConflict = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: reconciliationOwner.id,
+      idempotencyKey: 'stripe:auth:reconciliation-source-owner',
+      kind: 'AUTHORIZATION',
+      status: 'PENDING',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_cross_booking_reconciliation_12',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    const reconciliationForeignBooking = await createBooking(13);
+    await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: reconciliationForeignBooking.id,
+      idempotencyKey: 'stripe:capture:reconciliation-foreign',
+      kind: 'CAPTURE',
+      status: 'FAILED',
+      providerCode: 'stripe',
+      providerReference: 'pi_sf_cross_booking_reconciliation_12',
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    let blockedReconciliationProviderCalls = 0;
+    globalThis.fetch = (async () => {
+      blockedReconciliationProviderCalls += 1;
+      throw new Error('A cross-booking reconciliation source must never reach Stripe.');
+    }) as typeof fetch;
+    await assert.rejects(
+      reconciliation.reconcileStripePaymentTransaction({
+        organizationId: organizationA.id,
+        actorUserId: adminA.id,
+        transactionId: pendingConflict.id,
+      }),
+      /reference belongs to another booking/i,
+    );
+    assert.equal(blockedReconciliationProviderCalls, 0);
+    assert.equal((await db.paymentTransaction.findUniqueOrThrow({ where: { id: pendingConflict.id } })).status, 'PENDING');
+
     const bookingForWebhook = await createBooking(7);
     const fingerprint = stripePayments.paymentRequestFingerprint([
       'stripe',

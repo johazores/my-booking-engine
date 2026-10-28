@@ -109,6 +109,17 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Stripe refund is missing its authoritative settlement-source reference.');
   }
 
+  const foreignRefundSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: refund.sourceProviderReference,
+      bookingId: { not: refund.bookingId },
+    },
+    select: { id: true },
+  });
+  if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
+
   const [booking, paymentHistory] = await Promise.all([
     db.hospitalityBooking.findFirst({
       where: { id: refund.bookingId, organizationId: input.organizationId },
@@ -192,6 +203,17 @@ export async function reconcileStripeRefundTransaction(input: {
       || current.currency !== refund.currency
       || current.amountMinor !== refund.amountMinor
     ) throw new PaymentConflictError('Stripe refund transaction changed during reconciliation.');
+
+    const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.sourceProviderReference,
+        bookingId: { not: refund.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
 
     const currentBooking = await transaction.hospitalityBooking.findFirst({
       where: { id: refund.bookingId, organizationId: input.organizationId },

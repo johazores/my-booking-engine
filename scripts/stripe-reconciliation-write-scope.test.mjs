@@ -28,7 +28,7 @@ test('Stripe refund reconciliation retains settlement-source and booking scope a
 
   assert.match(
     service,
-    /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: refund\.bookingId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'REFUND',\s*status: 'PENDING',\s*providerReference: refund\.providerReference,\s*sourceProviderReference: refund\.sourceProviderReference,\s*currency: refund\.currency,\s*amountMinor: refund\.amountMinor,/,
+    /paymentTransaction\.update\(\{\s*where: \{\s*id: current\.id,\s*organizationId: input\.organizationId,\s*bookingId: refund\.bookingId,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*kind: 'REFUND',\s*status: current\.status,\s*providerReference: refund\.providerReference,\s*sourceProviderReference: refund\.sourceProviderReference,\s*currency: refund\.currency,\s*amountMinor: refund\.amountMinor,/,
   );
   assert.match(
     service,
@@ -71,4 +71,14 @@ test('base Stripe payment and refund operations exclude amendment-owned ledger r
   assert.match(refunds, /paymentTransaction\.update\(\{\s*where: \{\s*id: existing\.id,\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null/);
   assert.match(reconciliation, /id: input\.transactionId, organizationId: input\.organizationId, commercialAmendmentId: null/);
   assert.match(reconciliation, /id: payment\.id, organizationId: input\.organizationId, bookingId: payment\.bookingId, commercialAmendmentId: null/);
+});
+
+
+test('Stripe provider-truth reconciliation rejects cross-booking payment and refund sources', () => {
+  const payment = source('src/server/payments/stripe-reconciliation-service.ts');
+  const refund = source('src/server/payments/stripe-refund-reconciliation-service.ts');
+  assert.equal((payment.match(/bookingId: \{ not: payment\.bookingId \}/g) ?? []).length, 2);
+  assert.equal((refund.match(/bookingId: \{ not: refund\.bookingId \}/g) ?? []).length, 2);
+  assert.match(payment, /providerReference: payment\.providerReference/);
+  assert.match(refund, /providerReference: current\.sourceProviderReference/);
 });

@@ -117,6 +117,17 @@ export async function reconcileStripePaymentTransaction(input: {
     throw new PaymentConflictError('Stripe payment claim has no provider reference yet; use the exact retry or a verified webhook to resolve it.');
   }
 
+  const foreignPayment = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: payment.providerReference,
+      bookingId: { not: payment.bookingId },
+    },
+    select: { id: true },
+  });
+  if (foreignPayment) throw new PaymentConflictError('Stripe PaymentIntent reference belongs to another booking.');
+
   const stripe = await loadStripePaymentIntegration(input.organizationId);
   const requiredCapability = payment.kind === 'AUTHORIZATION' ? 'payment-authorize' : 'payment-capture';
   if (!stripe.integration.capabilities.includes(requiredCapability)) throw new PaymentConflictError(`Stripe integration is not configured for ${requiredCapability}.`);
@@ -140,6 +151,17 @@ export async function reconcileStripePaymentTransaction(input: {
     if (current.providerReference !== payment.providerReference || current.kind !== payment.kind || current.currency !== payment.currency || current.amountMinor !== payment.amountMinor) {
       throw new PaymentConflictError('Stripe payment transaction changed during reconciliation.');
     }
+
+    const foreignPayment = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: payment.providerReference,
+        bookingId: { not: payment.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignPayment) throw new PaymentConflictError('Stripe PaymentIntent reference belongs to another booking.');
 
     const booking = await transaction.hospitalityBooking.findFirst({
       where: { id: payment.bookingId, organizationId: input.organizationId },
