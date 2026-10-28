@@ -76,6 +76,14 @@ When the amendment lifecycle reconciler handles the event, it marks that verifie
 
 Generic explicit reconciliation rejects commercial-amendment-owned refunds. Amendment-owned explicit recovery remains in its dedicated commercial-amendment transport/recovery boundary; this pass strengthens signed exact-reference lifecycle updates without widening customer-facing commercial-amendment actions.
 
+## Exact refund reference and settlement-source ownership
+
+An exact Stripe Refund ID is not safe to reconcile if another payment transaction in the same tenant already owns that provider reference, even when the other row belongs to a different booking, payment kind, or commercial amendment. Likewise, the refund's source PaymentIntent cannot be owned by a different booking, including historical failed or ambiguous operations.
+
+Explicit normal refund reconciliation, verified normal refund lifecycle handling, and verified commercial-amendment refund lifecycle handling now check both conflicts before retrieving Stripe provider truth and repeat them inside the final serializable transaction under the existing booking/payment locks. These checks reject inconsistent historical ledger evidence rather than updating the wrong booking or amendment. Legitimate same-booking authorization/capture sharing of a source PaymentIntent remains supported.
+
+These are fail-closed read-time checks, not a database-enforced concurrent cross-booking uniqueness guarantee. A reviewed database integrity strategy and disposable PostgreSQL validation are still required. The source contract covers the three reconciliation paths; it does not claim that the database integration suite or live Stripe behavior passed.
+
 ## Validation boundary
 
 `src/server/payments/stripe-refund-lifecycle-domain.test.ts` protects normal refund lifecycle and booking-state decisions. `src/server/bookings/booking-commercial-amendment-stripe-refund-domain.test.ts` protects amendment provider-state mapping and non-terminal lifecycle transitions. `scripts/stripe-commercial-amendment-refund-lifecycle-authority-contract.test.mjs` protects route ordering, exact amendment ownership, current provider retrieval, final write predicates, verified-event processing, and the no-booking-mutation boundary.

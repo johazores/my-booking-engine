@@ -177,6 +177,28 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
   }
   assertCommercialAmendmentRefundAuthority({ amendment, refund });
 
+  const conflictingRefundReference = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: refund.providerReference,
+      id: { not: refund.id },
+    },
+    select: { id: true },
+  });
+  if (conflictingRefundReference) throw new PaymentConflictError('Stripe refund reference is already owned by another payment transaction.');
+
+  const foreignRefundSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: refund.sourceProviderReference,
+      bookingId: { not: refund.bookingId },
+    },
+    select: { id: true },
+  });
+  if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
+
   const stripe = await loadStripePaymentIntegration(input.organizationId);
   if (!stripe.integration.capabilities.includes('payment-refund')) {
     throw new PaymentConflictError('Stripe integration is not configured for payment-refund.');
@@ -258,7 +280,7 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
     }
     assertCommercialAmendmentRefundAuthority({ amendment: currentAmendment, refund: current });
 
-    const duplicateReference = await transaction.paymentTransaction.findFirst({
+    const conflictingRefundReference = await transaction.paymentTransaction.findFirst({
       where: {
         organizationId: input.organizationId,
         providerCode: STRIPE_PROVIDER_CODE,
@@ -267,9 +289,20 @@ export async function reconcileVerifiedStripeCommercialAmendmentRefundWebhook(in
       },
       select: { id: true },
     });
-    if (duplicateReference) {
+    if (conflictingRefundReference) {
       throw new PaymentConflictError('Stripe refund reference is already recorded by another payment transaction.');
     }
+
+    const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.sourceProviderReference,
+        bookingId: { not: refund.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new PaymentConflictError('Stripe refund source belongs to another booking.');
 
     const decision = decideStripeCommercialAmendmentRefundLifecycleMutation({
       currentStatus: current.status,

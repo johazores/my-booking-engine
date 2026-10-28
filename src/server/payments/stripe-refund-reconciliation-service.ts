@@ -109,6 +109,17 @@ export async function reconcileStripeRefundTransaction(input: {
     throw new PaymentConflictError('Stripe refund is missing its authoritative settlement-source reference.');
   }
 
+  const conflictingRefundReference = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: refund.providerReference,
+      id: { not: refund.id },
+    },
+    select: { id: true },
+  });
+  if (conflictingRefundReference) throw new PaymentConflictError('Stripe refund reference is already owned by another payment transaction.');
+
   const foreignRefundSource = await db.paymentTransaction.findFirst({
     where: {
       organizationId: input.organizationId,
@@ -203,6 +214,17 @@ export async function reconcileStripeRefundTransaction(input: {
       || current.currency !== refund.currency
       || current.amountMinor !== refund.amountMinor
     ) throw new PaymentConflictError('Stripe refund transaction changed during reconciliation.');
+
+    const conflictingRefundReference = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.providerReference,
+        id: { not: current.id },
+      },
+      select: { id: true },
+    });
+    if (conflictingRefundReference) throw new PaymentConflictError('Stripe refund reference is already owned by another payment transaction.');
 
     const foreignRefundSource = await transaction.paymentTransaction.findFirst({
       where: {
