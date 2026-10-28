@@ -17,7 +17,7 @@ function signStripePayload(payload: string, timestamp: number) {
   return `t=${timestamp},v1=${digest}`;
 }
 
-test('verified Stripe refund webhooks bind pending claims and finalize refund state idempotently', async () => {
+test('verified Stripe refund webhooks bind pending claims and finalize refund state idempotently', async (t) => {
   const [{ db }, integrations, payments, webhooks] = await Promise.all([
     import('../database.ts'),
     import('../integrations/integration-service.ts'),
@@ -28,6 +28,23 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
   const runId = crypto.randomUUID();
   const admin = await db.user.create({ data: { email: `stripe-refund-webhook-${runId}@example.test`, status: 'ACTIVE' } });
   const organization = await db.organization.create({ data: { name: 'Stripe Refund Webhook Tenant', slug: `stripe-refund-webhook-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  // Cleanup is registered before the rest of setup so partial fixture failures are disposed.
+  t.after(async () => {
+    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: organization.id } });
+    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: organization.id } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organization.id } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organization.id } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organization.id } });
+    await db.customer.deleteMany({ where: { organizationId: organization.id } });
+    await db.integration.deleteMany({ where: { organizationId: organization.id } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
+    await db.organization.deleteMany({ where: { id: organization.id } });
+    await db.user.deleteMany({ where: { id: admin.id } });
+  });
+
   await db.organizationMembership.create({ data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' } });
   await integrations.saveIntegration({
     organizationId: organization.id,

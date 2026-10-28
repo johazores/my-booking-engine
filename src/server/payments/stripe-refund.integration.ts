@@ -9,7 +9,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 
 process.env.SF_INTEGRATION_MASTER_KEY = Buffer.alloc(32, 13).toString('base64url');
 
-test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounded', async () => {
+test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounded', async (t) => {
   const [{ db }, integrations, refunds] = await Promise.all([
     import('../database.ts'),
     import('../integrations/integration-service.ts'),
@@ -23,6 +23,23 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
   const adminB = await db.user.create({ data: { email: `stripe-refund-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
   const organizationA = await db.organization.create({ data: { name: 'Stripe Refund Tenant A', slug: `stripe-refund-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
   const organizationB = await db.organization.create({ data: { name: 'Stripe Refund Tenant B', slug: `stripe-refund-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  // Always dispose of this run's tenant-owned fixtures, including after failed assertions.
+  t.after(async () => {
+    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
+    await db.integration.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+  });
+
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
