@@ -43,12 +43,21 @@ function selectExactCandidate(input: {
     throw new StripeWebhookValidationError('Stripe webhook exact payment candidates are not provider-reference bound.');
   }
 
-  for (const kind of preferredKinds(input.providerStatus)) {
-    const matches = exact.filter((candidate) => candidate.kind === kind);
-    if (matches.length > 1) {
+  // A preferred operation cannot conceal duplicate or mixed ownership.
+  for (const kind of ['AUTHORIZATION', 'CAPTURE'] as const) {
+    if (exact.filter((candidate) => candidate.kind === kind).length > 1) {
       throw new StripeWebhookValidationError('Stripe webhook provider reference matches multiple payment operations.');
     }
-    if (matches.length === 1) return matches[0];
+  }
+  const specialized = (candidate: StripeWebhookPersistedPaymentCandidate) => (
+    candidate.commercialAmendmentId !== null || candidate.status === 'AMBIGUOUS'
+  );
+  if (exact.some(specialized) && exact.some((candidate) => !specialized(candidate))) {
+    throw new StripeWebhookValidationError('Stripe webhook provider reference has conflicting payment ownership.');
+  }
+  for (const kind of preferredKinds(input.providerStatus)) {
+    const match = exact.find((candidate) => candidate.kind === kind);
+    if (match) return match;
   }
   return null;
 }
@@ -97,6 +106,9 @@ export function decideStripeWebhookPaymentMutation(input: {
 
   if (input.pendingCandidates.some((candidate) => candidate.status !== 'PENDING' || candidate.commercialAmendmentId !== null)) {
     throw new StripeWebhookValidationError('Stripe webhook pending payment candidates contain unsupported ownership state.');
+  }
+  if (input.pendingCandidates.some((candidate) => !input.isInternalReference(candidate.providerReference))) {
+    throw new StripeWebhookValidationError('Stripe webhook pending payment claim reference is malformed.');
   }
 
   const selected = selectStripeWebhookPaymentCandidate({

@@ -152,3 +152,43 @@ test('candidate contract fails closed on mismatched exact-reference or specializ
     isInternalReference: internal,
   }), StripeWebhookValidationError);
 });
+
+test('exact provider reference rejects duplicate rows in an otherwise nonpreferred kind', () => {
+  assert.throws(() => decideStripeWebhookPaymentMutation({
+    providerReference: 'pi_duplicate',
+    providerStatus: 'requires_capture',
+    exactCandidates: [
+      candidate({ id: 'auth', kind: 'AUTHORIZATION', providerReference: 'pi_duplicate' }),
+      candidate({ id: 'cap1', kind: 'CAPTURE', providerReference: 'pi_duplicate' }),
+      candidate({ id: 'cap2', kind: 'CAPTURE', providerReference: 'pi_duplicate' }),
+    ],
+    pendingCandidates: [],
+    isInternalReference: internal,
+  }), /multiple payment operations/);
+});
+
+test('mixed amendment and normal exact ownership cannot be silently adopted', () => {
+  assert.throws(() => decideStripeWebhookPaymentMutation({
+    providerReference: 'pi_mixed',
+    providerStatus: 'requires_capture',
+    exactCandidates: [
+      candidate({ id: 'normal', kind: 'AUTHORIZATION', providerReference: 'pi_mixed' }),
+      candidate({ id: 'amend', kind: 'CAPTURE', providerReference: 'pi_mixed', commercialAmendmentId: '33333333-3333-4333-8333-333333333333' }),
+    ],
+    pendingCandidates: [],
+    isInternalReference: internal,
+  }), /conflicting payment ownership/);
+});
+
+test('malformed prefixed pending claim fails closed beside a valid claim', () => {
+  assert.throws(() => decideStripeWebhookPaymentMutation({
+    providerReference: 'pi_new',
+    providerStatus: 'requires_capture',
+    exactCandidates: [],
+    pendingCandidates: [
+      candidate({ id: 'valid', providerReference: claim('a') }),
+      candidate({ id: 'invalid', providerReference: 'sf_claim_invalid' }),
+    ],
+    isInternalReference: (reference) => /^sf_claim_[0-9a-f]{64}$/.test(reference),
+  }), /claim reference is malformed/);
+});

@@ -7,19 +7,24 @@ const domain = readFileSync(new URL('../src/server/payments/stripe-webhook-payme
 const docs = readFileSync(new URL('../docs/stripe-webhook-payment-attempt-authority.md', import.meta.url), 'utf8');
 
 test('generic PaymentIntent webhook resolves exact provider ownership before pending claims', () => {
-  const exactIndex = service.indexOf('const exactCandidates = await transaction.paymentTransaction.findMany({');
+  const exactIndex = service.indexOf('const exactCandidates = (');
   const pendingIndex = service.indexOf('const pendingCandidates = exactCandidates.length === 0');
   const decisionIndex = service.indexOf('decideStripeWebhookPaymentMutation({');
   assert.ok(exactIndex >= 0, 'exact provider-reference lookup must exist');
   assert.ok(pendingIndex > exactIndex, 'pending claim lookup must follow exact provider identity');
   assert.ok(decisionIndex > pendingIndex, 'payment mutation decision must consume both authority sets');
-  assert.match(service, /providerReference:\s*event\.paymentIntent\.providerReference,[\s\S]*kind:\s*\{ in: \['AUTHORIZATION', 'CAPTURE'\] \}/);
+  assert.match(service, /const paymentCandidateKinds = \['AUTHORIZATION', 'CAPTURE'\] as const/);
+  assert.match(service, /providerReference:\s*event\.paymentIntent!\.providerReference,[\s\S]*kind,[\s\S]*take: 2/);
+  assert.match(service, /providerReference:\s*\{ startsWith: 'sf_claim_' \},[\s\S]*take: 2/);
+  assert.doesNotMatch(service.slice(exactIndex, decisionIndex), /take: [48]/);
 });
 
 test('generic pending fallback excludes specialized commercial-amendment operations', () => {
   assert.match(service, /const pendingCandidates = exactCandidates\.length === 0[\s\S]*commercialAmendmentId:\s*null,[\s\S]*status:\s*'PENDING'/);
   assert.match(domain, /selected\.commercialAmendmentId !== null \|\| selected\.status === 'AMBIGUOUS'/);
   assert.match(domain, /payment-specialized-flow-owned/);
+  assert.match(domain, /pendingCandidates\.some\(\(candidate\) => !input\.isInternalReference\(candidate\.providerReference\)\)/);
+  assert.match(domain, /exact\.some\(specialized\) && exact\.some/);
 });
 
 test('failed exact attempts can only recover from positive provider truth and writes retain prior lifecycle', () => {

@@ -698,48 +698,44 @@ export async function ingestStripePaymentWebhook(input: {
       return persistEvent('IGNORED', 'booking-money-mismatch', booking.id);
     }
 
-    const exactCandidates = await transaction.paymentTransaction.findMany({
-      where: {
-        organizationId: input.organizationId,
-        bookingId: booking.id,
-        providerCode: STRIPE_PROVIDER_CODE,
-        providerReference: event.paymentIntent.providerReference,
-        kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-      },
-      select: {
-        id: true,
-        kind: true,
-        status: true,
-        providerReference: true,
-        currency: true,
-        amountMinor: true,
-        commercialAmendmentId: true,
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 8,
-    });
+    // Bound each kind independently. A global newest-N window can hide an
+    // older exact owner or ambiguous claims behind unrelated payment attempts.
+    const paymentCandidateSelect = {
+      id: true, kind: true, status: true, providerReference: true,
+      currency: true, amountMinor: true, commercialAmendmentId: true,
+    } as const;
+    const paymentCandidateKinds = ['AUTHORIZATION', 'CAPTURE'] as const;
+    const exactCandidates = (
+      await Promise.all(paymentCandidateKinds.map((kind) => transaction.paymentTransaction.findMany({
+        where: {
+          organizationId: input.organizationId,
+          bookingId: booking.id,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: event.paymentIntent!.providerReference,
+          kind,
+        },
+        select: paymentCandidateSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 2,
+      })))
+    ).flat();
     const pendingCandidates = exactCandidates.length === 0
-      ? await transaction.paymentTransaction.findMany({
-          where: {
-            organizationId: input.organizationId,
-            bookingId: booking.id,
-            commercialAmendmentId: null,
-            providerCode: STRIPE_PROVIDER_CODE,
-            status: 'PENDING',
-            kind: { in: ['AUTHORIZATION', 'CAPTURE'] },
-          },
-          select: {
-            id: true,
-            kind: true,
-            status: true,
-            providerReference: true,
-            currency: true,
-            amountMinor: true,
-            commercialAmendmentId: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 4,
-        })
+      ? (
+          await Promise.all(paymentCandidateKinds.map((kind) => transaction.paymentTransaction.findMany({
+            where: {
+              organizationId: input.organizationId,
+              bookingId: booking.id,
+              commercialAmendmentId: null,
+              providerCode: STRIPE_PROVIDER_CODE,
+              status: 'PENDING',
+              kind,
+              providerReference: { startsWith: 'sf_claim_' },
+            },
+            select: paymentCandidateSelect,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 2,
+          })))
+        ).flat()
       : [];
 
     let paymentDecision;

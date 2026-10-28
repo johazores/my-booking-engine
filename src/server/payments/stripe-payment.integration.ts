@@ -624,6 +624,127 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
       where: { organizationId: organizationA.id, providerEventId: 'evt_sf_cross_booking_pending_webhook_7' },
     }), 0);
 
+
+    // Five newer unrelated pending provider references must not hide an older
+    // valid internal claim from the signed PaymentIntent webhook.
+    const crowdedBooking = await createBooking(14);
+    const olderClaim = await db.paymentTransaction.create({ data: {
+      organizationId: organizationA.id,
+      bookingId: crowdedBooking.id,
+      idempotencyKey: 'stripe:webhook:older-claim',
+      kind: 'AUTHORIZATION',
+      status: 'PENDING',
+      providerCode: 'stripe',
+      providerReference: stripePayments.paymentOperationClaimReference('a'.repeat(64)),
+      currency: 'USD',
+      amountMinor: 12345n,
+    } });
+    for (let index = 0; index < 5; index += 1) {
+      await db.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: crowdedBooking.id,
+        idempotencyKey: `stripe:webhook:unrelated-${index}`,
+        kind: 'AUTHORIZATION',
+        status: 'PENDING',
+        providerCode: 'stripe',
+        providerReference: `pi_sf_unrelated_pending_${index}`,
+        currency: 'USD',
+        amountMinor: 12345n,
+      } });
+    }
+    const olderPayload = paymentIntentEvent({
+      eventId: 'evt_sf_older_claim_14',
+      organizationId: organizationA.id,
+      bookingId: crowdedBooking.id,
+      providerReference: 'pi_sf_older_claim_14',
+      status: 'requires_capture',
+    });
+    const olderResult = await webhooks.ingestStripePaymentWebhook({
+      organizationId: organizationA.id,
+      signature: stripeSignature(olderPayload, webhookSecretA),
+      payload: olderPayload,
+    });
+    assert.equal(olderResult.status, 'PROCESSED');
+    const resolvedOlderClaim = await db.paymentTransaction.findUniqueOrThrow({ where: { id: olderClaim.id } });
+    assert.equal(resolvedOlderClaim.status, 'SUCCEEDED');
+    assert.equal(resolvedOlderClaim.providerReference, 'pi_sf_older_claim_14');
+
+    // Two old same-kind claims remain ambiguous regardless of unrelated
+    // newer provider-bound attempts.
+    const ambiguousBooking = await createBooking(15);
+    for (let index = 0; index < 2; index += 1) {
+      await db.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: ambiguousBooking.id,
+        idempotencyKey: `stripe:webhook:ambiguous-claim-${index}`,
+        kind: 'AUTHORIZATION',
+        status: 'PENDING',
+        providerCode: 'stripe',
+        providerReference: stripePayments.paymentOperationClaimReference((index === 0 ? 'b' : 'c').repeat(64)),
+        currency: 'USD',
+        amountMinor: 12345n,
+      } });
+    }
+    for (let index = 0; index < 5; index += 1) {
+      await db.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: ambiguousBooking.id,
+        idempotencyKey: `stripe:webhook:ambiguous-unrelated-${index}`,
+        kind: 'AUTHORIZATION',
+        status: 'PENDING',
+        providerCode: 'stripe',
+        providerReference: `pi_sf_ambiguous_unrelated_${index}`,
+        currency: 'USD',
+        amountMinor: 12345n,
+      } });
+    }
+    const ambiguousPayload = paymentIntentEvent({
+      eventId: 'evt_sf_ambiguous_old_claims_15',
+      organizationId: organizationA.id,
+      bookingId: ambiguousBooking.id,
+      providerReference: 'pi_sf_ambiguous_old_claims_15',
+      status: 'requires_capture',
+    });
+    await assert.rejects(webhooks.ingestStripePaymentWebhook({
+      organizationId: organizationA.id,
+      signature: stripeSignature(ambiguousPayload, webhookSecretA),
+      payload: ambiguousPayload,
+    }), /multiple pending payment operations/i);
+    assert.equal(await db.paymentWebhookEvent.count({
+      where: { organizationId: organizationA.id, providerEventId: 'evt_sf_ambiguous_old_claims_15' },
+    }), 0);
+
+    // Duplicated exact ownership in the nonpreferred kind must fail closed.
+    const duplicateBooking = await createBooking(16);
+    for (const [kind, index] of [['AUTHORIZATION', 0], ['CAPTURE', 1], ['CAPTURE', 2]] as const) {
+      await db.paymentTransaction.create({ data: {
+        organizationId: organizationA.id,
+        bookingId: duplicateBooking.id,
+        idempotencyKey: `stripe:webhook:duplicate-exact-${index}`,
+        kind,
+        status: 'PENDING',
+        providerCode: 'stripe',
+        providerReference: 'pi_sf_duplicate_exact_16',
+        currency: 'USD',
+        amountMinor: 12345n,
+      } });
+    }
+    const duplicatePayload = paymentIntentEvent({
+      eventId: 'evt_sf_duplicate_exact_16',
+      organizationId: organizationA.id,
+      bookingId: duplicateBooking.id,
+      providerReference: 'pi_sf_duplicate_exact_16',
+      status: 'requires_capture',
+    });
+    await assert.rejects(webhooks.ingestStripePaymentWebhook({
+      organizationId: organizationA.id,
+      signature: stripeSignature(duplicatePayload, webhookSecretA),
+      payload: duplicatePayload,
+    }), /multiple payment operations/i);
+    assert.equal(await db.paymentWebhookEvent.count({
+      where: { organizationId: organizationA.id, providerEventId: 'evt_sf_duplicate_exact_16' },
+    }), 0);
+
     const webhookPayload = paymentIntentEvent({
       eventId: 'evt_sf_auth_webhook_1',
       organizationId: organizationA.id,

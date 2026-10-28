@@ -12,7 +12,9 @@ A signed PaymentIntent event first searches the locked booking for persisted Str
 
 This matters after a definitive failure followed by a customer/staff retry. A later webhook for the older PaymentIntent must remain attached to that older operation; otherwise an out-of-order event could bind the old provider object onto the newer attempt and corrupt idempotency, settlement, and retry identity.
 
-When no exact provider reference exists, the existing first-provider-evidence behavior remains available only for normal booking `PENDING` operations with `commercialAmendmentId = null`. Ambiguous or amendment-owned evidence is not eligible for generic claim binding.
+When no exact provider reference exists, first-provider-evidence binding is available only for normal booking `PENDING` operations with `commercialAmendmentId = null` and a valid `sf_claim_*` reference. A malformed prefixed claim fails closed rather than silently disappearing from the candidate set.
+
+Both exact-reference and pending-claim lookups are bounded **per operation kind** (two `AUTHORIZATION`, two `CAPTURE`), not by a global newest-N window. Two same-kind rows already prove ambiguous ownership; an older valid claim cannot be hidden behind newer unrelated provider-bound attempts. Exact same-kind duplicates are rejected even if another kind would otherwise be preferred. Mixed normal and amendment-owned/ambiguous exact evidence also fails closed; a legitimate same-booking authorization/capture pair without conflicting ownership remains supported.
 
 ## Monotonic recovery
 
@@ -52,6 +54,8 @@ No browser redirect, event arrival order, timestamp comparison, or unscoped prov
 `src/server/payments/stripe-webhook-payment-mutation-domain.test.ts` covers exact historical identity outranking a newer claim, positive recovery of exact failed operations, stale failure non-regression, specialized-flow isolation, incompatible exact ownership, first-provider-evidence binding, and fail-closed candidate contracts.
 
 `scripts/stripe-webhook-payment-attempt-authority-contract.test.mjs` protects the service wiring: exact-reference lookup must happen before pending fallback, generic pending fallback must exclude commercial amendments, the pure decision boundary must be used, and final writes must retain the selected prior lifecycle instead of assuming every mutation starts from `PENDING`.
+
+The database-backed Stripe payment integration suite includes older-claim crowding, ambiguous same-kind claims, and conflicting exact-reference fixtures. The per-kind bound prevents candidate-window omission; it is not a database-enforced concurrent cross-writer uniqueness guarantee. That guarantee still needs a reviewed migration and disposable PostgreSQL validation.
 
 The existing database-backed Stripe payment integration suite remains the end-to-end PostgreSQL validation surface for webhook tenant scope and persistence. Full Node 24/TypeScript 6 validation, Prisma/PostgreSQL execution, production build, and live Stripe event-order testing require the repository-supported toolchain and explicitly disposable/provisioned environments. GitHub Actions are intentionally not used.
 
