@@ -5,24 +5,45 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Payment integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-test('manual offline payments and refunds are tenant scoped, idempotent, and use authoritative booking money', async () => {
+test('manual offline payments and refunds are tenant scoped, idempotent, and use authoritative booking money', async (t) => {
   const [{ db }, payments] = await Promise.all([
     import('../database.ts'),
     import('./payment-service.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `payment-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `payment-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `payment-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Payment Tenant A', slug: `payment-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  const organizationB = await db.organization.create({ data: { name: 'Payment Tenant B', slug: `payment-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const adminAId = crypto.randomUUID();
+  const staffAId = crypto.randomUUID();
+  const adminBId = crypto.randomUUID();
+  const organizationAId = crypto.randomUUID();
+  const organizationBId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
+    await db.customer.deleteMany({ where: { organizationId: organizationAId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
+  const adminA = await db.user.create({ data: { id: adminAId, email: `payment-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const staffA = await db.user.create({ data: { id: staffAId, email: `payment-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminB = await db.user.create({ data: { id: adminBId, email: `payment-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+  const organizationA = await db.organization.create({ data: { id: organizationAId, name: 'Payment Tenant A', slug: `payment-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const organizationB = await db.organization.create({ data: { id: organizationBId, name: 'Payment Tenant B', slug: `payment-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
     { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
   ] });
 
-  let bookingId: string | null = null;
   try {
     const customer = await db.customer.create({ data: { organizationId: organizationA.id, firstName: 'Paying', lastName: 'Guest' } });
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Payment Hotel', code: 'PAY', timezone: 'UTC', countryCode: 'US' } });
@@ -64,7 +85,7 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
       addonSelections: [],
       confirmedAt: new Date('2026-09-10T00:01:00.000Z'),
     } });
-    bookingId = booking.id;
+
 
     await assert.rejects(
       payments.recordManualOfflinePayment({ organizationId: organizationA.id, actorUserId: staffA.id, bookingId: booking.id, idempotencyKey: 'payment:offline:1', reference: 'BANK-001' }),
@@ -206,16 +227,6 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
       } }),
     );
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    if (bookingId) await db.hospitalityBooking.deleteMany({ where: { id: bookingId } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    await cleanupFixtures();
   }
 });

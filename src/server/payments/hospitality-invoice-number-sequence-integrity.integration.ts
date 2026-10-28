@@ -7,12 +7,21 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Invoice number sequence integrity tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('hospitality invoice number sequences reject rewrites and unmatched advancement', async () => {
+test('hospitality invoice number sequences reject rewrites and unmatched advancement', async (t) => {
   const { db } = await import('../database.ts');
   const runId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: organizationId } });
+    await db.organization.delete({ where: { id: organizationId } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
   const organization = await db.organization.create({
     data: {
-      name: 'Invoice Sequence Integrity Tenant',
+      id: organizationId, name: 'Invoice Sequence Integrity Tenant',
       slug: `invoice-sequence-${runId}`.slice(0, 63),
       kind: 'HOTEL',
       currency: 'AUD',
@@ -75,7 +84,6 @@ test('hospitality invoice number sequences reject rewrites and unmatched advance
     const retained = await db.hospitalityInvoiceNumberSequence.findUnique({ where });
     assert.equal(retained?.nextValue, 1n);
   } finally {
-    await db.hospitalityInvoiceNumberSequence.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.delete({ where: { id: organization.id } });
+    await cleanupFixtures();
   }
 });

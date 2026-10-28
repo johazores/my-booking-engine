@@ -7,7 +7,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Invoice foundation integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('invoice issuer versions and hospitality invoice preparation stay tenant scoped and immutable', async () => {
+test('invoice issuer versions and hospitality invoice preparation stay tenant scoped and immutable', async (t) => {
   const [{ db }, issuerService, preparationService, pricingEvidence, preparationDomain] = await Promise.all([
     import('../database.ts'),
     import('./invoice-issuer-service.ts'),
@@ -17,18 +17,43 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
   ]);
 
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `invoice-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `invoice-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `invoice-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Invoice Tenant A', slug: `invoice-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  const organizationB = await db.organization.create({ data: { name: 'Invoice Tenant B', slug: `invoice-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const adminAId = crypto.randomUUID();
+  const staffAId = crypto.randomUUID();
+  const adminBId = crypto.randomUUID();
+  const organizationAId = crypto.randomUUID();
+  const organizationBId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.$transaction(async (transaction) => {
+      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
+    });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
+    await db.customer.deleteMany({ where: { organizationId: organizationAId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
+  const adminA = await db.user.create({ data: { id: adminAId, email: `invoice-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const staffA = await db.user.create({ data: { id: staffAId, email: `invoice-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminB = await db.user.create({ data: { id: adminBId, email: `invoice-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+  const organizationA = await db.organization.create({ data: { id: organizationAId, name: 'Invoice Tenant A', slug: `invoice-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const organizationB = await db.organization.create({ data: { id: organizationBId, name: 'Invoice Tenant B', slug: `invoice-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
     { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
   ] });
 
-  let bookingId: string | null = null;
   try {
     const issuerInput = {
       legalName: 'Invoice Tenant A Pty Ltd',
@@ -122,7 +147,7 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
       addonSelections: [],
       confirmedAt: new Date('2026-10-01T00:01:00.000Z'),
     } });
-    bookingId = booking.id;
+
 
     const breakdown = pricingEvidence.createHospitalityBookingPricingEvidenceBreakdown({
       propertyId: property.id,
@@ -245,20 +270,6 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
     const preparationAudits = await db.auditEvent.findMany({ where: { organizationId: organizationA.id, action: 'payment.invoice-preparation.created', resourceId: { in: [preparation1.id, preparation2.id] } } });
     assert.equal(preparationAudits.length, 2);
   } finally {
-    await db.hospitalityInvoicePreparation.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.invoiceIssuerProfile.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.$transaction(async (transaction) => {
-      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-      if (bookingId) await transaction.hospitalityBooking.deleteMany({ where: { id: bookingId } });
-    });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    await cleanupFixtures();
   }
 });
