@@ -31,6 +31,8 @@ test('database regression protects concurrent refund claims and namespace/refere
     'const concurrentClaims = await Promise.allSettled(',
     "concurrentClaims.filter((result) => result.status === 'fulfilled').length, 1",
     "rejectedClaims[0]?.reason as { code?: string }).code, 'P2002'",
+    'bookingId === booking.id ? partial.sourceProviderReference : concurrencySourceReference',
+    'sourceProviderReference: concurrencySourceReference',
     'data: { providerReference: partial.providerReference }',
     "data: { providerCode: 'stripe' }",
   ]) assert.ok(integration.includes(evidence), 'Missing refund database regression: ' + evidence);

@@ -200,6 +200,17 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
     release();
     await first;
 
+    // Direct-write fixtures must retain each booking's own captured payment source.
+    const concurrencySourceReference = (await db.paymentTransaction.findFirstOrThrow({
+      where: {
+        organizationId: organizationA.id,
+        bookingId: concurrencyBooking.id,
+        kind: 'CAPTURE',
+        providerCode: 'stripe',
+      },
+      select: { providerReference: true },
+    })).providerReference;
+
     // The database must reject a reused real Stripe Refund ID even when another
     // write bypasses the service's read-time ownership checks.
     const duplicateRefundCases = [
@@ -217,7 +228,9 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
           status: 'FAILED',
           providerCode: 'stripe',
           providerReference: partial.providerReference,
-          sourceProviderReference: candidate.kind === 'REFUND' ? partial.sourceProviderReference : null,
+          sourceProviderReference: candidate.kind === 'REFUND'
+            ? (candidate.bookingId === booking.id ? partial.sourceProviderReference : concurrencySourceReference)
+            : null,
           currency: 'USD',
           amountMinor: 100n,
         } }),
@@ -237,7 +250,7 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
           status: 'FAILED',
           providerCode: 'stripe',
           providerReference: raceReference,
-          sourceProviderReference: partial.sourceProviderReference,
+          sourceProviderReference: bookingId === booking.id ? partial.sourceProviderReference : concurrencySourceReference,
           currency: 'USD',
           amountMinor: 100n,
         } }),
@@ -262,7 +275,7 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
       status: 'FAILED',
       providerCode: 'stripe',
       providerReference: `re_sf_mutable_${runId.replaceAll('-', '')}`,
-      sourceProviderReference: partial.sourceProviderReference,
+      sourceProviderReference: concurrencySourceReference,
       currency: 'USD',
       amountMinor: 100n,
     } });
