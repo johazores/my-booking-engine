@@ -64,8 +64,12 @@ test('signed PaymentIntent and refund callbacks reject cross-booking source reus
   assert.match(refundBranch, /const foreignRefundSource = await transaction\.paymentTransaction\.findFirst\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference,\s*bookingId: \{ not: bookingId \}/);
   assert.match(refundBranch, /if \(foreignRefundSource\) throw new PaymentConflictError/);
   assert.ok(refundBranch.indexOf('if (foreignRefundSource)') < refundBranch.indexOf('const pendingRefunds'));
-  assert.match(refundBranch, /const sourceCandidates = await transaction\.paymentTransaction\.findMany\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference,\s*commercialAmendmentId: null,/);
-  assert.match(refundBranch, /const pendingRefunds = await transaction\.paymentTransaction\.findMany\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*bookingId: booking\.id,\s*commercialAmendmentId: null,/);
+  assert.match(refundBranch, /const bookingId = event\.refund\.bookingId;/);
+  assert.match(refundBranch, /const settlementSource = await transaction\.paymentTransaction\.findFirst\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*bookingId,\s*commercialAmendmentId: null,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.refund\.paymentIntentReference,\s*kind: \{ in: \['CAPTURE', 'AUTHORIZATION'\] \},\s*status: 'SUCCEEDED'/);
+  assert.match(refundBranch, /const exactRefunds = await transaction\.paymentTransaction\.findMany\(\{\s*where: \{[^}]*providerReference: event\.refund\.refundReference,\s*\},\s*select: refundCandidateSelect,\s*take: 2,/);
+  assert.match(refundBranch, /const pendingRefunds = exactRefunds\.length > 0\s*\? exactRefunds\s*: await transaction\.paymentTransaction\.findMany\(\{\s*where: \{[^}]*sourceProviderReference: event\.refund\.paymentIntentReference,\s*currency: event\.refund\.currency,\s*amountMinor: event\.refund\.amountMinor,\s*providerReference: \{ startsWith: 'sf_claim_' \}/);
+  assert.doesNotMatch(refundBranch, /take: 8/);
+  assert.ok(refundBranch.indexOf('const exactRefunds') < refundBranch.indexOf('const pendingRefunds'));
 
   assert.match(paymentIntentBranch, /const foreignPaymentIntent = await transaction\.paymentTransaction\.findFirst\(\{\s*where: \{\s*organizationId: input\.organizationId,\s*providerCode: STRIPE_PROVIDER_CODE,\s*providerReference: event\.paymentIntent\.providerReference,\s*bookingId: \{ not: booking\.id \}/);
   assert.match(paymentIntentBranch, /if \(foreignPaymentIntent\) throw new PaymentConflictError/);

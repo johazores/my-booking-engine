@@ -439,26 +439,23 @@ export async function ingestStripePaymentWebhook(input: {
       if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId)) {
         return persistEvent('IGNORED', 'refund-tenant-metadata-mismatch', null);
       }
-      const sourceCandidates = await transaction.paymentTransaction.findMany({
+      // Signed booking metadata narrows the lookup, but only a persisted
+      // successful base-booking source can establish refund ownership.
+      const bookingId = event.refund.bookingId;
+      const settlementSource = await transaction.paymentTransaction.findFirst({
         where: {
           organizationId: input.organizationId,
+          bookingId,
+          commercialAmendmentId: null,
           providerCode: STRIPE_PROVIDER_CODE,
           providerReference: event.refund.paymentIntentReference,
-          commercialAmendmentId: null,
           kind: { in: ['CAPTURE', 'AUTHORIZATION'] },
           status: 'SUCCEEDED',
         },
-        select: { bookingId: true },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: 8,
+        select: { id: true },
       });
-      const bookingIds = [...new Set<string>(sourceCandidates.map((candidate) => candidate.bookingId))];
-      if (bookingIds.length === 0) return persistEvent('IGNORED', 'refund-source-settlement-unavailable', null);
-      if (bookingIds.length > 1) throw new PaymentConflictError('Stripe refund source reference belongs to multiple bookings in this organization.');
-      const bookingId = bookingIds[0]!;
-      if (!isStripeWebhookRefundOwnedBy(event.refund, input.organizationId, bookingId)) {
-        return persistEvent('IGNORED', 'refund-booking-metadata-mismatch', null);
-      }
+      if (!settlementSource) return persistEvent('IGNORED', 'refund-source-settlement-unavailable', null);
+
       // Historical cross-booking rows cannot lend a PaymentIntent identity
       // to a signed refund, even when those rows are failed or ambiguous.
       const foreignRefundSource = await transaction.paymentTransaction.findFirst({
@@ -485,7 +482,16 @@ export async function ingestStripePaymentWebhook(input: {
         return persistEvent('IGNORED', 'refund-money-mismatch', booking.id);
       }
 
-      const pendingRefunds = await transaction.paymentTransaction.findMany({
+      // Resolve an exact provider refund first. A fixed newest-N window could
+      // silently omit an older valid refund when unrelated attempts accumulate.
+      const refundCandidateSelect = {
+        id: true,
+        providerReference: true,
+        sourceProviderReference: true,
+        currency: true,
+        amountMinor: true,
+      } as const;
+      const exactRefunds = await transaction.paymentTransaction.findMany({
         where: {
           organizationId: input.organizationId,
           bookingId: booking.id,
@@ -493,11 +499,33 @@ export async function ingestStripePaymentWebhook(input: {
           providerCode: STRIPE_PROVIDER_CODE,
           kind: 'REFUND',
           status: 'PENDING',
+          providerReference: event.refund.refundReference,
         },
-        select: { id: true, providerReference: true, sourceProviderReference: true, currency: true, amountMinor: true },
-        orderBy: { createdAt: 'desc' },
-        take: 8,
+        select: refundCandidateSelect,
+        take: 2,
       });
+      if (exactRefunds.length > 1) throw new PaymentConflictError('Stripe refund reference matches multiple pending transactions.');
+
+      // Only an exact-money, exact-source internal claim may be bound to a
+      // previously unseen provider refund. Two matches are already ambiguous.
+      const pendingRefunds = exactRefunds.length > 0
+        ? exactRefunds
+        : await transaction.paymentTransaction.findMany({
+            where: {
+              organizationId: input.organizationId,
+              bookingId: booking.id,
+              commercialAmendmentId: null,
+              providerCode: STRIPE_PROVIDER_CODE,
+              kind: 'REFUND',
+              status: 'PENDING',
+              sourceProviderReference: event.refund.paymentIntentReference,
+              currency: event.refund.currency,
+              amountMinor: event.refund.amountMinor,
+              providerReference: { startsWith: 'sf_claim_' },
+            },
+            select: refundCandidateSelect,
+            take: 2,
+          });
 
       const exactSourceMismatch = pendingRefunds.find((candidate) => (
         candidate.providerReference === event.refund!.refundReference
