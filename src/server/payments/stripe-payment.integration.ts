@@ -48,7 +48,7 @@ function paymentIntentEvent(input: {
   });
 }
 
-test('Stripe payment persistence serializes provider calls and reconciles verified provider truth', async () => {
+test('Stripe payment persistence serializes provider calls and reconciles verified provider truth', async (t) => {
   const [{ db }, integrations, stripePayments, reconciliation, webhooks] = await Promise.all([
     import('../database.ts'),
     import('../integrations/integration-service.ts'),
@@ -59,18 +59,39 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
 
   const runId = crypto.randomUUID();
   const originalFetch = globalThis.fetch;
-  const adminA = await db.user.create({ data: { email: `stripe-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `stripe-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `stripe-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Stripe Tenant A', slug: `stripe-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  const organizationB = await db.organization.create({ data: { name: 'Stripe Tenant B', slug: `stripe-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const adminAId = crypto.randomUUID();
+  const staffAId = crypto.randomUUID();
+  const adminBId = crypto.randomUUID();
+  const organizationAId = crypto.randomUUID();
+  const organizationBId = crypto.randomUUID();
+  // Register cleanup before the first write, including partial fixture setup failures.
+  t.after(async () => {
+    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
+    await db.customer.deleteMany({ where: { organizationId: organizationAId } });
+    await db.integration.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+  });
+
+  const adminA = await db.user.create({ data: { id: adminAId, email: `stripe-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const staffA = await db.user.create({ data: { id: staffAId, email: `stripe-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminB = await db.user.create({ data: { id: adminBId, email: `stripe-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+  const organizationA = await db.organization.create({ data: { id: organizationAId, name: 'Stripe Tenant A', slug: `stripe-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const organizationB = await db.organization.create({ data: { id: organizationBId, name: 'Stripe Tenant B', slug: `stripe-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
     { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
   ] });
 
-  const bookingIds: string[] = [];
   try {
     await integrations.saveIntegration({
       organizationId: organizationA.id,
@@ -143,7 +164,6 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         addonSelections: [],
         confirmedAt: new Date(`2026-09-${10 + sequence}T00:01:00.000Z`),
       } });
-      bookingIds.push(booking.id);
       return booking;
     }
 
@@ -964,18 +984,5 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
     assert.equal(auditPayload.includes('sf_claim_'), false);
   } finally {
     globalThis.fetch = originalFetch;
-    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    if (bookingIds.length > 0) await db.hospitalityBooking.deleteMany({ where: { id: { in: bookingIds } } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.integration.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
   }
 });

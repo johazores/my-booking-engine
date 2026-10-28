@@ -17,28 +17,35 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
   ]);
 
   const runId = crypto.randomUUID();
-  const originalFetch = globalThis.fetch;
-  const adminA = await db.user.create({ data: { email: `stripe-refund-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `stripe-refund-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `stripe-refund-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Stripe Refund Tenant A', slug: `stripe-refund-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  const organizationB = await db.organization.create({ data: { name: 'Stripe Refund Tenant B', slug: `stripe-refund-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  // Always dispose of this run's tenant-owned fixtures, including after failed assertions.
+  const adminAId = crypto.randomUUID();
+  const staffAId = crypto.randomUUID();
+  const adminBId = crypto.randomUUID();
+  const organizationAId = crypto.randomUUID();
+  const organizationBId = crypto.randomUUID();
+  // Register cleanup before the first write, including partial fixture setup failures.
   t.after(async () => {
-    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.integration.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
+    await db.customer.deleteMany({ where: { organizationId: organizationAId } });
+    await db.integration.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
   });
+
+  const originalFetch = globalThis.fetch;
+  const adminA = await db.user.create({ data: { id: adminAId, email: `stripe-refund-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const staffA = await db.user.create({ data: { id: staffAId, email: `stripe-refund-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminB = await db.user.create({ data: { id: adminBId, email: `stripe-refund-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+  const organizationA = await db.organization.create({ data: { id: organizationAId, name: 'Stripe Refund Tenant A', slug: `stripe-refund-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const organizationB = await db.organization.create({ data: { id: organizationBId, name: 'Stripe Refund Tenant B', slug: `stripe-refund-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+
 
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },

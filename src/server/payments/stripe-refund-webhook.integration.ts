@@ -26,24 +26,28 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
   ]);
 
   const runId = crypto.randomUUID();
-  const admin = await db.user.create({ data: { email: `stripe-refund-webhook-${runId}@example.test`, status: 'ACTIVE' } });
-  const organization = await db.organization.create({ data: { name: 'Stripe Refund Webhook Tenant', slug: `stripe-refund-webhook-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  // Cleanup is registered before the rest of setup so partial fixture failures are disposed.
+  const adminId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  // Register cleanup before the first write, including partial fixture setup failures.
   t.after(async () => {
-    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organization.id } });
-    await db.customer.deleteMany({ where: { organizationId: organization.id } });
-    await db.integration.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.deleteMany({ where: { id: organization.id } });
-    await db.user.deleteMany({ where: { id: admin.id } });
+    await db.paymentWebhookEvent.deleteMany({ where: { organizationId } });
+    await db.auditEvent.deleteMany({ where: { organizationId } });
+    await db.paymentTransaction.deleteMany({ where: { organizationId } });
+    await db.hospitalityBooking.deleteMany({ where: { organizationId } });
+    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId } });
+    await db.customer.deleteMany({ where: { organizationId } });
+    await db.integration.deleteMany({ where: { organizationId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId } });
+    await db.organization.deleteMany({ where: { id: organizationId } });
+    await db.user.deleteMany({ where: { id: adminId } });
   });
+
+  const admin = await db.user.create({ data: { id: adminId, email: `stripe-refund-webhook-${runId}@example.test`, status: 'ACTIVE' } });
+  const organization = await db.organization.create({ data: { id: organizationId, name: 'Stripe Refund Webhook Tenant', slug: `stripe-refund-webhook-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+
 
   await db.organizationMembership.create({ data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' } });
   await integrations.saveIntegration({

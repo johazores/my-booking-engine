@@ -79,7 +79,7 @@ The database runner discovers every `src/server/**/*.integration.ts` file in sta
 
 The tenant isolation integration test creates Tenant A and Tenant B with separate users and memberships, verifies Tenant A cannot retrieve Tenant B organization or membership data, and verifies suspended users/memberships immediately lose tenant access. It removes the records it creates when the test finishes.
 
-The Stripe payment, refund, and signed-refund-webhook database integration suites dispose of their tenant-owned fixture records in dependency order after each test, including when assertions fail. Cleanup is scoped to the unique test organization IDs; no shared tenant data is deleted. This cleanup does not replace the requirement to use an explicitly disposable PostgreSQL target.
+The Stripe payment, refund, and signed-refund-webhook database integration suites register cleanup before their first fixture write. They preassign unique user and organization IDs so partial setup failures can still be cleaned up after the test, even when an insert committed but its response failed. Cleanup is scoped to those IDs, deletes tenant-owned records in dependency order, and never deletes shared tenant data. The Stripe payment suite separately restores its mocked fetch in `finally`. This cleanup does not replace the requirement to use an explicitly disposable PostgreSQL target.
 
 ## Validation
 
